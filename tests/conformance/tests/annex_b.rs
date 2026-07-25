@@ -106,3 +106,13 @@ fn html_comments_fixture_present() {
 fn html_comments_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/html_comments");
 }
+
+#[test]
+fn legacy_octal_string_fixture_present() {
+    assert_fixture_present("es/annex-b/legacy_octal_string");
+}
+
+#[test]
+fn legacy_octal_string_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/legacy_octal_string");
+}

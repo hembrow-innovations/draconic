@@ -610,7 +610,7 @@ impl<'a> Lexer<'a> {
             }
             if c == b'\\' {
                 self.bump();
-                self.scan_escape_into(&mut value)?;
+                self.scan_escape_into(&mut value, true)?;
             } else if c == b'\n' {
                 return Err(Diagnostic::new(
                     "unterminated string literal",
@@ -676,7 +676,7 @@ impl<'a> Lexer<'a> {
             }
             if c == b'\\' {
                 self.bump();
-                self.scan_escape_into(&mut value)?;
+                self.scan_escape_into(&mut value, false)?;
             } else {
                 self.scan_source_char_into(&mut value);
             }
@@ -697,7 +697,13 @@ impl<'a> Lexer<'a> {
     /// Cook a single escape sequence after the leading `\`.
     /// Supports basic escapes, `\xHH`, `\uXXXX` (any code unit incl. surrogates),
     /// and `\u{X…}` (well-formed scalar values only).
-    fn scan_escape_into(&mut self, value: &mut JsString) -> Result<(), Diagnostic> {
+    /// When `allow_legacy_octal` (string literals, Annex B.1.2): `\0`–`\377` octal
+    /// and NonOctalDecimal `\8`/`\9`. Templates pass `false` (bare `\0` only).
+    fn scan_escape_into(
+        &mut self,
+        value: &mut JsString,
+        allow_legacy_octal: bool,
+    ) -> Result<(), Diagnostic> {
         if self.is_eof() {
             return Err(Diagnostic::new(
                 "unterminated escape sequence",
@@ -715,6 +721,9 @@ impl<'a> Lexer<'a> {
             b'"' => value.push_scalar('"'),
             b'`' => value.push_scalar('`'),
             b'$' => value.push_scalar('$'),
+            b'0'..=b'7' if allow_legacy_octal => {
+                self.scan_legacy_octal_escape_into(value, esc);
+            }
             b'0' => value.push_scalar('\0'),
             b'x' => {
                 let cp = self.scan_hex_digits(2, esc_start)?;
@@ -732,9 +741,43 @@ impl<'a> Lexer<'a> {
                     push_code_point(value, cp, esc_start, self.pos as u32, false)?;
                 }
             }
+            // Annex B NonOctalDecimalEscapeSequence `\8` / `\9`, and IdentityEscape.
             other => value.push_scalar(other as char),
         }
         Ok(())
+    }
+
+    /// Annex B.1.2 LegacyOctalEscapeSequence after the first OctalDigit `first` (already consumed).
+    fn scan_legacy_octal_escape_into(&mut self, value: &mut JsString, first: u8) {
+        let d0 = (first - b'0') as u16;
+        let mut n = d0;
+        if first <= b'3' {
+            if let Some(d1) = self.peek_octal_digit() {
+                self.bump();
+                n = n * 8 + d1;
+                if let Some(d2) = self.peek_octal_digit() {
+                    self.bump();
+                    n = n * 8 + d2;
+                }
+            }
+        } else if let Some(d1) = self.peek_octal_digit() {
+            // FourToSeven OctalDigit — at most two digits total.
+            self.bump();
+            n = n * 8 + d1;
+        }
+        value.push_code_unit(n);
+    }
+
+    fn peek_octal_digit(&self) -> Option<u16> {
+        if self.is_eof() {
+            return None;
+        }
+        let b = self.peek();
+        if (b'0'..=b'7').contains(&b) {
+            Some((b - b'0') as u16)
+        } else {
+            None
+        }
     }
 
     fn scan_hex_digits(&mut self, n: usize, esc_start: u32) -> Result<u32, Diagnostic> {
@@ -1618,6 +1661,60 @@ mod tests {
         assert_eq!(
             kinds(r#""\x00""#),
             vec![TokenKind::String("\0".into()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lex_string_legacy_octal_escapes() {
+        assert_eq!(
+            kinds(r#""\101""#),
+            vec![TokenKind::String("A".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\12""#),
+            vec![TokenKind::String("\n".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\377""#),
+            vec![TokenKind::String("\u{00FF}".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\0""#),
+            vec![TokenKind::String("\0".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\01""#),
+            vec![TokenKind::String("\u{0001}".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\8""#),
+            vec![TokenKind::String("8".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\9""#),
+            vec![TokenKind::String("9".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\400""#),
+            vec![TokenKind::String(" 0".into()), TokenKind::Eof]
+        );
+        let i = match &kinds(r#""\08""#)[..] {
+            [TokenKind::String(s), TokenKind::Eof] => s.clone(),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(i.units(), &[0, 56]);
+        assert_eq!(
+            kinds(r#""\777""#),
+            vec![TokenKind::String("?7".into()), TokenKind::Eof]
+        );
+        let k = match &kinds(r#""\38""#)[..] {
+            [TokenKind::String(s), TokenKind::Eof] => s.clone(),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(k.units(), &[3, 56]);
+        assert_eq!(
+            kinds(r#"'x\101y'"#),
+            vec![TokenKind::String("xAy".into()), TokenKind::Eof]
         );
     }
 
