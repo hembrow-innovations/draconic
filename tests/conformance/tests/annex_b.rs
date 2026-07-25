@@ -66,3 +66,13 @@ fn date_proto_annex_fixture_present() {
 fn date_proto_annex_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/date_proto_annex");
 }
+
+#[test]
+fn regexp_compile_fixture_present() {
+    assert_fixture_present("es/annex-b/regexp_compile");
+}
+
+#[test]
+fn regexp_compile_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/regexp_compile");
+}
