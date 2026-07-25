@@ -1,0 +1,4 @@
+id: native/ints/arith_i32
+targets: native
+native.exit: 0
+native.stdout: 10\n3\n13\n7\n30\n3\n1\n

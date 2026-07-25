@@ -9,7 +9,7 @@ use draconic_check::{CheckedProgram, Type};
 use draconic_diagnostics::Span;
 
 pub use draconic_ast::BindingKind;
-pub use draconic_check::{SymbolId as LocalId, Type as IrType};
+pub use draconic_check::{NativeType, SymbolId as LocalId, Type as IrType};
 
 /// Top-level IR unit both backends consume.
 #[derive(Debug, Clone, PartialEq)]

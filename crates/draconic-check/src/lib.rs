@@ -42,7 +42,7 @@ pub enum NativeType {
 }
 
 impl NativeType {
-    fn from_name(name: &str) -> Option<Self> {
+    pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "i8" => Self::I8,
             "i16" => Self::I16,
@@ -58,7 +58,7 @@ impl NativeType {
         })
     }
 
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::I8 => "i8",
             Self::I16 => "i16",
@@ -73,8 +73,38 @@ impl NativeType {
         }
     }
 
-    fn is_float(self) -> bool {
+    pub fn is_float(self) -> bool {
         matches!(self, Self::F32 | Self::F64)
+    }
+
+    /// Integer native types only (`i8`–`i64`, `u8`–`u64`).
+    pub fn is_int(self) -> bool {
+        !self.is_float()
+    }
+
+    pub fn is_signed(self) -> bool {
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
+    }
+
+    pub fn bit_width(self) -> u32 {
+        match self {
+            Self::I8 | Self::U8 => 8,
+            Self::I16 | Self::U16 => 16,
+            Self::I32 | Self::U32 | Self::F32 => 32,
+            Self::I64 | Self::U64 | Self::F64 => 64,
+        }
+    }
+
+    /// LLVM integer/float type name for this native type.
+    pub fn llvm_ty(self) -> &'static str {
+        match self {
+            Self::I8 | Self::U8 => "i8",
+            Self::I16 | Self::U16 => "i16",
+            Self::I32 | Self::U32 => "i32",
+            Self::I64 | Self::U64 => "i64",
+            Self::F32 => "float",
+            Self::F64 => "double",
+        }
     }
 }
 
@@ -3524,6 +3554,22 @@ impl<'a> Checker<'a> {
                     Ok(Type::Number)
                 } else if arg == Type::BigInt {
                     Ok(Type::BigInt)
+                } else if let Type::Native(n) = arg {
+                    if n.is_float() && matches!(op, UnaryOp::BitNot) {
+                        Err(Diagnostic::new(
+                            format!("unary `{op}` cannot be applied to type `{arg}`"),
+                            span,
+                        ))
+                    } else if n.is_float() && matches!(op, UnaryOp::Minus) {
+                        Ok(Type::Native(n))
+                    } else if n.is_int() {
+                        Ok(Type::Native(n))
+                    } else {
+                        Err(Diagnostic::new(
+                            format!("unary `{op}` cannot be applied to type `{arg}`"),
+                            span,
+                        ))
+                    }
                 } else {
                     Err(Diagnostic::new(
                         format!("unary `{op}` cannot be applied to type `{arg}`"),

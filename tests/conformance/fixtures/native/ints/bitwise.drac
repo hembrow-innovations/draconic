@@ -1,0 +1,8 @@
+let a: i32 = 0b1100;
+let b: i32 = 0b1010;
+let band: i32 = a & b;
+let bor: i32 = a | b;
+let bxor: i32 = a ^ b;
+let bnot: i32 = ~a;
+let shl: i32 = a << 1;
+let shr: i32 = a >> 1;

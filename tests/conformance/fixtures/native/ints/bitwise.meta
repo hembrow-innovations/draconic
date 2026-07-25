@@ -1,0 +1,4 @@
+id: native/ints/bitwise
+targets: native
+native.exit: 0
+native.stdout: 12\n10\n8\n14\n6\n-13\n24\n6\n

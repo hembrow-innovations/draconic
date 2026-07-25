@@ -1,4 +1,6 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01 native integers).
+
+mod native_ints;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -6,11 +8,23 @@ use std::process::{Command, Stdio};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::Module;
 
+use native_ints::{emit_native_ints, is_native_int_module};
+
 /// Emit LLVM IR text for a shared IR module.
 ///
-/// B08 stub: ignores module body and emits `@main` that calls Runtime `draconic_rt_hello`.
-pub fn emit_llvm_ir(_module: &Module) -> Result<String, Diagnostic> {
-    Ok(concat!(
+/// Programs that use only native integer types (`i8`–`i64`, `u8`–`u64`) and a
+/// supported statement/expression subset are lowered for real. Everything else
+/// keeps the B08 hello stub so existing ES conformance fixtures stay green.
+pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
+    if is_native_int_module(module) {
+        emit_native_ints(module)
+    } else {
+        Ok(emit_hello_stub())
+    }
+}
+
+fn emit_hello_stub() -> String {
+    concat!(
         "; Draconic LLVM backend stub (B08)\n",
         "declare void @draconic_rt_hello()\n",
         "\n",
@@ -20,7 +34,7 @@ pub fn emit_llvm_ir(_module: &Module) -> Result<String, Diagnostic> {
         "  ret i32 0\n",
         "}\n",
     )
-    .to_string())
+    .to_string()
 }
 
 /// Compile LLVM IR + Runtime C into a native executable via `clang`.
@@ -101,14 +115,17 @@ fn find_clang() -> Option<PathBuf> {
 }
 
 fn work_dir(prefix: &str) -> Result<PathBuf, Diagnostic> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
     let mut dir = std::env::temp_dir();
     dir.push(format!(
-        "{prefix}-{}-{}",
+        "{prefix}-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
-            .unwrap_or(0)
+            .unwrap_or(0),
+        N.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir).map_err(|e| {
         Diagnostic::new(format!("temp dir failed: {e}"), Span::dummy())
@@ -123,15 +140,15 @@ mod tests {
     use draconic_ir::lower;
     use draconic_parser::parse;
 
-    fn empty_module() -> Module {
-        let program = parse("").expect("parse");
+    fn module_of(src: &str) -> Module {
+        let program = parse(src).expect("parse");
         let checked = check(program).expect("check");
         lower(&checked)
     }
 
     #[test]
     fn emit_stub_calls_runtime_hello() {
-        let ir = emit_llvm_ir(&empty_module()).expect("emit");
+        let ir = emit_llvm_ir(&module_of("")).expect("emit");
         assert!(
             ir.contains("draconic_rt_hello"),
             "IR must declare/call runtime hello:\n{ir}"
@@ -146,7 +163,7 @@ mod tests {
 
     #[test]
     fn native_binary_prints_hello() {
-        let ir = emit_llvm_ir(&empty_module()).expect("emit");
+        let ir = emit_llvm_ir(&module_of("")).expect("emit");
         let dir = work_dir("draconic-llvm-test").expect("workdir");
         let bin = dir.join("hello");
         build_native_binary(&ir, &bin).expect("build_native_binary");
@@ -163,11 +180,85 @@ mod tests {
     }
 
     #[test]
-    fn emit_accepts_nonempty_module() {
-        let program = parse("let x = 1;").expect("parse");
-        let checked = check(program).expect("check");
-        let module = lower(&checked);
-        let ir = emit_llvm_ir(&module).expect("emit");
+    fn emit_accepts_nonempty_js_module_as_stub() {
+        let ir = emit_llvm_ir(&module_of("let x = 1;")).expect("emit");
         assert!(ir.contains("@main"));
+        assert!(ir.contains("draconic_rt_hello"));
+    }
+
+    #[test]
+    fn native_ints_add_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let a: i32 = 10;
+            let b: i32 = 3;
+            let sum: i32 = a + b;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "native int program should not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_i64"),
+            "should print ints:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n01").expect("workdir");
+        let bin = dir.join("ints");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "10\n3\n13\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn native_ints_function_call() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            function add(x: i32, y: i32): i32 {
+              return x + y;
+            }
+            let s: i32 = add(20, 22);
+            "#,
+        ))
+        .expect("emit");
+        let dir = work_dir("draconic-llvm-n01-fn").expect("workdir");
+        let bin = dir.join("fn");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "42\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn native_ints_wrapping_i8() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let a: i8 = 120;
+            let b: i8 = a + 10;
+            "#,
+        ))
+        .expect("emit");
+        let dir = work_dir("draconic-llvm-n01-wrap").expect("workdir");
+        let bin = dir.join("wrap");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // 120 + 10 = 130 → i8 wrap → -126
+        assert_eq!(stdout, "120\n-126\n", "stdout={stdout:?}");
     }
 }

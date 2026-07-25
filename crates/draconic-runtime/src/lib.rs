@@ -19,6 +19,10 @@ pub fn print_hello() {
 
 /// C ABI symbol name expected by the LLVM backend stub.
 pub const HELLO_SYMBOL: &str = "draconic_rt_hello";
+/// C ABI: print a signed 64-bit integer as decimal + newline (N01).
+pub const PRINT_I64_SYMBOL: &str = "draconic_rt_print_i64";
+/// C ABI: print an unsigned 64-bit integer as decimal + newline (N01).
+pub const PRINT_U64_SYMBOL: &str = "draconic_rt_print_u64";
 
 /// C ABI: init the GC heap.
 pub const GC_INIT_SYMBOL: &str = "draconic_rt_gc_init";
@@ -54,6 +58,19 @@ mod tests {
             "C runtime must print hello: {src}"
         );
         assert!(c_runtime_path().is_file(), "draconic_rt.c must exist on disk");
+    }
+
+    #[test]
+    fn c_runtime_exports_print_ints() {
+        let src = c_runtime_source();
+        assert!(
+            src.contains(PRINT_I64_SYMBOL),
+            "C runtime must export {PRINT_I64_SYMBOL}"
+        );
+        assert!(
+            src.contains(PRINT_U64_SYMBOL),
+            "C runtime must export {PRINT_U64_SYMBOL}"
+        );
     }
 
     #[test]

@@ -9,6 +9,15 @@ void draconic_rt_hello(void) {
     puts("hello");
 }
 
+/* N01: print native integers for conformance observation (decimal + newline). */
+void draconic_rt_print_i64(int64_t v) {
+    printf("%lld\n", (long long)v);
+}
+
+void draconic_rt_print_u64(uint64_t v) {
+    printf("%llu\n", (unsigned long long)v);
+}
+
 /* --- GC hello (B09): tracing heap for JS strings and objects --- */
 
 typedef enum {

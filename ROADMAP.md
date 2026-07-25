@@ -207,7 +207,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
-| N01 | todo | native | Integer types `i8`–`i64`, `u8`–`u64` | `tests/conformance/native/ints` |
+| N01 | done | native | Integer types `i8`–`i64`, `u8`–`u64` | `tests/conformance/native/ints` |
 | N02 | todo | native | Floats `f32`/`f64`, native bool | `tests/conformance/native/floats` |
 | N03 | todo | native | Structs, fixed arrays, pointers/references as designed | `tests/conformance/native/layout` |
 | N04 | todo | js | JS lowering/polyfill or hard-error policy per native feature | `tests/conformance/native/js-policy` |

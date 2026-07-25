@@ -25,6 +25,7 @@ dependencies = [
 name = "draconic-backend-llvm"
 version = "0.1.0"
 dependencies = [
+ "draconic-ast",
  "draconic-check",
  "draconic-diagnostics",
  "draconic-ir",

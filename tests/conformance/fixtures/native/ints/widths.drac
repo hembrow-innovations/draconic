@@ -1,0 +1,8 @@
+let a: i8 = 1;
+let b: i16 = 2;
+let c: i32 = 3;
+let d: i64 = 4;
+let e: u8 = 5;
+let f: u16 = 6;
+let g: u32 = 7;
+let h: u64 = 8;

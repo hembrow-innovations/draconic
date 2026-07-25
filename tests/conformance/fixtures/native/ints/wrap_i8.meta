@@ -1,0 +1,4 @@
+id: native/ints/wrap_i8
+targets: native
+native.exit: 0
+native.stdout: 120\n-126\n250\n4\n

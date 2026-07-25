@@ -1,0 +1,7 @@
+let a: i32 = 10;
+let b: i32 = 3;
+let sum: i32 = a + b;
+let diff: i32 = a - b;
+let prod: i32 = a * b;
+let quot: i32 = a / b;
+let rem: i32 = a % b;
