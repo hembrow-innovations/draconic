@@ -1,0 +1,46 @@
+{
+  function f() {
+    return 1;
+  }
+  let inside = f();
+}
+let a = f();
+let b = typeof f;
+if (false) {
+  function g() {
+    return 2;
+  }
+}
+let c = typeof g;
+function outer() {
+  {
+    function inner() {
+      return 3;
+    }
+  }
+  return inner();
+}
+let d = outer();
+{
+  L: function h() {
+    return 4;
+  }
+}
+let e = h();
+{
+  function m() {
+    return 1;
+  }
+}
+{
+  function m() {
+    return 2;
+  }
+}
+let i = m();
+if (true) {
+  function k() {
+    return 5;
+  }
+}
+let j = k();

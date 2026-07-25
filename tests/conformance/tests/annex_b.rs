@@ -146,3 +146,13 @@ fn if_function_fixture_present() {
 fn if_function_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/if_function");
 }
+
+#[test]
+fn block_function_fixture_present() {
+    assert_fixture_present("es/annex-b/block_function");
+}
+
+#[test]
+fn block_function_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/block_function");
+}

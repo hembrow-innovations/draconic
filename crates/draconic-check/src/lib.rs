@@ -265,12 +265,34 @@ impl Binder {
                 Ok(())
             }
             Stmt::FunctionDeclaration { name, .. } => {
+                // Annex B.3.2: outer var-like binding already hosts this name — do not
+                // shadow with a block-local binding (IR + uses share the outer symbol).
+                if let Some(existing) = self.resolve_name(&name.name) {
+                    let in_current = self
+                        .scopes
+                        .last()
+                        .is_some_and(|s| s.contains_key(&name.name));
+                    if !in_current
+                        && self.symbols[existing.0 as usize].kind == BindingKind::Function
+                    {
+                        self.declare_annex_b_function_span(name);
+                        return Ok(());
+                    }
+                }
                 self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 Ok(())
             }
             // Annex B.3.2: `label: function f() {}` hoists `f` in this list.
             Stmt::Labeled { body, .. } => self.declare_list_item(body),
+            // Annex B.3.2: block-level `function` → enclosing var-like binding.
+            Stmt::Block { body, .. } => {
+                for s in body {
+                    self.declare_annex_b_block_functions(s)?;
+                }
+                Ok(())
+            }
             // Annex B.3.4: bare `function` as if/else Statement clause.
+            // Annex B.3.2: also hoist from block bodies (`if (c) { function f(){} }`).
             Stmt::If {
                 consequent,
                 alternate,
@@ -280,22 +302,109 @@ impl Binder {
                 if let Some(alt) = alternate {
                     self.declare_if_function_clause(alt)?;
                 }
+                self.declare_annex_b_block_functions(consequent)?;
+                if let Some(alt) = alternate {
+                    self.declare_annex_b_block_functions(alt)?;
+                }
+                Ok(())
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                self.declare_annex_b_block_functions(body)
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(init) = init {
+                    self.declare_annex_b_block_functions(init)?;
+                }
+                self.declare_annex_b_block_functions(body)
+            }
+            Stmt::ForIn { body, .. } | Stmt::ForOf { body, .. } => {
+                self.declare_annex_b_block_functions(body)
+            }
+            Stmt::Try {
+                block,
+                handler,
+                finalizer,
+                ..
+            } => {
+                self.declare_annex_b_block_functions(block)?;
+                if let Some(handler) = handler {
+                    self.declare_annex_b_block_functions(handler)?;
+                }
+                if let Some(finalizer) = finalizer {
+                    self.declare_annex_b_block_functions(finalizer)?;
+                }
                 Ok(())
             }
             _ => Ok(()),
         }
     }
 
-    /// Annex B.3.4: hoist `function f` / `label: function f` when it is the if/else clause.
-    /// Does not walk into blocks (`if (c) { function f(){} }` is B.3.3, not this rule).
-    fn declare_if_function_clause(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+    /// Annex B.3.2: walk a statement and hoist nested block-level function names
+    /// into the current (enclosing) scope as var-like bindings.
+    fn declare_annex_b_block_functions(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         let mut s = stmt;
         while let Stmt::Labeled { body, .. } = s {
             s = body;
         }
-        let Stmt::FunctionDeclaration { name, .. } = s else {
-            return Ok(());
-        };
+        match s {
+            Stmt::Block { body, .. } => {
+                for child in body {
+                    self.declare_annex_b_block_functions(child)?;
+                }
+                Ok(())
+            }
+            Stmt::FunctionDeclaration { name, .. } => self.declare_annex_b_function_name(name),
+            Stmt::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                self.declare_if_function_clause(consequent)?;
+                if let Some(alt) = alternate {
+                    self.declare_if_function_clause(alt)?;
+                }
+                self.declare_annex_b_block_functions(consequent)?;
+                if let Some(alt) = alternate {
+                    self.declare_annex_b_block_functions(alt)?;
+                }
+                Ok(())
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                self.declare_annex_b_block_functions(body)
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(init) = init {
+                    self.declare_annex_b_block_functions(init)?;
+                }
+                self.declare_annex_b_block_functions(body)
+            }
+            Stmt::ForIn { body, .. } | Stmt::ForOf { body, .. } => {
+                self.declare_annex_b_block_functions(body)
+            }
+            Stmt::Try {
+                block,
+                handler,
+                finalizer,
+                ..
+            } => {
+                self.declare_annex_b_block_functions(block)?;
+                if let Some(handler) = handler {
+                    self.declare_annex_b_block_functions(handler)?;
+                }
+                if let Some(finalizer) = finalizer {
+                    self.declare_annex_b_block_functions(finalizer)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Annex B.3.2 / B.3.4: declare a function name in the current scope (var-like).
+    fn declare_annex_b_function_name(
+        &mut self,
+        name: &draconic_ast::Ident,
+    ) -> Result<(), Diagnostic> {
         let scope = self.scopes.last().expect("scope stack non-empty");
         if let Some(&existing) = scope.get(&name.name) {
             let existing_kind = self.symbols[existing.0 as usize].kind;
@@ -305,20 +414,43 @@ impl Binder {
                     name.span,
                 ));
             }
-            // Same name on both branches (or prior FD): extra symbol for this
-            // declaration span so IR can resolve the site; uses keep the first binding.
-            let id = SymbolId(self.symbols.len() as u32);
-            self.symbols.push(Symbol {
-                id,
-                name: name.name.clone(),
-                span: name.span,
-                kind: BindingKind::Function,
-                with_depth: self.with_depth,
-            });
+            self.declare_annex_b_function_span(name);
             return Ok(());
         }
         self.declare(name.name.clone(), name.span, BindingKind::Function)?;
         Ok(())
+    }
+
+    /// Extra symbol keyed by declaration span for IR; uses keep the scoped binding.
+    fn declare_annex_b_function_span(&mut self, name: &draconic_ast::Ident) {
+        if self
+            .symbols
+            .iter()
+            .any(|s| s.span == name.span && s.name == name.name)
+        {
+            return;
+        }
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbols.push(Symbol {
+            id,
+            name: name.name.clone(),
+            span: name.span,
+            kind: BindingKind::Function,
+            with_depth: self.with_depth,
+        });
+    }
+
+    /// Annex B.3.4: hoist `function f` / `label: function f` when it is the if/else clause.
+    /// Does not walk into blocks (`if (c) { function f(){} }` is B.3.2 / B.3.3).
+    fn declare_if_function_clause(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+        let mut s = stmt;
+        while let Stmt::Labeled { body, .. } = s {
+            s = body;
+        }
+        let Stmt::FunctionDeclaration { name, .. } = s else {
+            return Ok(());
+        };
+        self.declare_annex_b_function_name(name)
     }
 
     fn declare_binding(
