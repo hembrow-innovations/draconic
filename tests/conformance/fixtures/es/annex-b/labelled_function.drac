@@ -1,0 +1,23 @@
+L: function f() {
+  return 1;
+}
+let a = f();
+A: B: function g() {
+  return 2;
+}
+let b = g();
+function outer() {
+  L: function inner() {
+    return 3;
+  }
+  return inner();
+}
+let c = outer();
+{
+  L: function h() {
+    return 4;
+  }
+  let d = h();
+  // keep d live for check via side channel
+  a = a + d;
+}

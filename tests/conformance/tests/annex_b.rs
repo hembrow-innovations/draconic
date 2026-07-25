@@ -126,3 +126,13 @@ fn legacy_octal_numeric_fixture_present() {
 fn legacy_octal_numeric_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/legacy_octal_numeric");
 }
+
+#[test]
+fn labelled_function_fixture_present() {
+    assert_fixture_present("es/annex-b/labelled_function");
+}
+
+#[test]
+fn labelled_function_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/labelled_function");
+}

@@ -248,20 +248,30 @@ impl Binder {
     /// Two-pass list bind: declare lexical bindings in this scope, then bind each statement.
     fn bind_stmt_list(&mut self, stmts: &[Stmt]) -> Result<(), Diagnostic> {
         for stmt in stmts {
-            match stmt {
-                Stmt::Let { kind, binding, .. } => {
-                    self.declare_binding(binding, *kind)?;
-                }
-                Stmt::FunctionDeclaration { name, .. } | Stmt::ClassDeclaration { name, .. } => {
-                    self.declare(name.name.clone(), name.span, BindingKind::Function)?;
-                }
-                _ => {}
-            }
+            self.declare_list_item(stmt)?;
         }
         for stmt in stmts {
             self.bind_stmt(stmt)?;
         }
         Ok(())
+    }
+
+    /// Hoistable declarations for one statement-list item (Annex B.3.2 peels labels).
+    fn declare_list_item(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+        match stmt {
+            Stmt::Let { kind, binding, .. } => self.declare_binding(binding, *kind),
+            Stmt::ClassDeclaration { name, .. } => {
+                self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+                Ok(())
+            }
+            Stmt::FunctionDeclaration { name, .. } => {
+                self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+                Ok(())
+            }
+            // Annex B.3.2: `label: function f() {}` hoists `f` in this list.
+            Stmt::Labeled { body, .. } => self.declare_list_item(body),
+            _ => Ok(()),
+        }
     }
 
     fn declare_binding(
@@ -452,16 +462,7 @@ impl Binder {
                 }
                 // Two-pass bind over concatenated case bodies.
                 for stmt in &all_stmts {
-                    match stmt {
-                        Stmt::Let { kind, binding, .. } => {
-                            self.declare_binding(binding, *kind)?;
-                        }
-                        Stmt::FunctionDeclaration { name, .. }
-                        | Stmt::ClassDeclaration { name, .. } => {
-                            self.declare(name.name.clone(), name.span, BindingKind::Function)?;
-                        }
-                        _ => {}
-                    }
+                    self.declare_list_item(stmt)?;
                 }
                 for stmt in all_stmts {
                     self.bind_stmt(stmt)?;
