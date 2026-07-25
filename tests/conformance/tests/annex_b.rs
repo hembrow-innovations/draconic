@@ -116,3 +116,13 @@ fn legacy_octal_string_fixture_present() {
 fn legacy_octal_string_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/legacy_octal_string");
 }
+
+#[test]
+fn legacy_octal_numeric_fixture_present() {
+    assert_fixture_present("es/annex-b/legacy_octal_numeric");
+}
+
+#[test]
+fn legacy_octal_numeric_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/legacy_octal_numeric");
+}

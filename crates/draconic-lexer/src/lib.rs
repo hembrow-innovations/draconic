@@ -874,6 +874,11 @@ impl<'a> Lexer<'a> {
                     self.scan_radix_digits(8, start)?;
                     return self.finish_number_or_bigint(start, true);
                 }
+                // Annex B.1.1: `0` + digit → LegacyOctalIntegerLiteral or NonOctalDecimalIntegerLiteral.
+                // Also reject numeric separators after a lone leading `0` (`0_1`).
+                Some(b'0'..=b'9' | b'_') => {
+                    return self.scan_zero_prefixed_decimal_or_legacy_octal(start);
+                }
                 _ => {}
             }
         }
@@ -901,6 +906,86 @@ impl<'a> Lexer<'a> {
             is_integer = false;
         }
         self.finish_number_or_bigint(start, is_integer)
+    }
+
+    /// Annex B.1.1 / DecimalIntegerLiteral NonOctalDecimal branch after a leading `0`
+    /// when the next character is a digit or `_`.
+    ///
+    /// - Pure octal digits → LegacyOctalIntegerLiteral (MV base-8); no `.`/`e`/`n`.
+    /// - Any `8`/`9` → NonOctalDecimalIntegerLiteral (MV decimal); `.`/`e` allowed; no `n`.
+    /// - `_` after leading `0` is always invalid.
+    fn scan_zero_prefixed_decimal_or_legacy_octal(
+        &mut self,
+        start: usize,
+    ) -> Result<TokenKind, Diagnostic> {
+        debug_assert_eq!(self.peek(), b'0');
+        self.bump(); // leading 0
+
+        if !self.is_eof() && self.peek() == b'_' {
+            return Err(Diagnostic::new(
+                "numeric separator cannot be used after leading 0",
+                Span::new(start as u32, (self.pos + 1) as u32),
+            ));
+        }
+
+        let mut has_non_octal = false;
+        while !self.is_eof() {
+            let b = self.peek();
+            if b.is_ascii_digit() {
+                if b == b'8' || b == b'9' {
+                    has_non_octal = true;
+                }
+                self.bump();
+                continue;
+            }
+            if b == b'_' {
+                return Err(Diagnostic::new(
+                    "numeric separator cannot be used after leading 0",
+                    Span::new(start as u32, (self.pos + 1) as u32),
+                ));
+            }
+            break;
+        }
+
+        if has_non_octal {
+            // NonOctalDecimalIntegerLiteral: optional fraction + exponent (decimal MV).
+            if !self.is_eof() && self.peek() == b'.' {
+                let next = self.peek_at(1);
+                if next.is_some_and(|b| b.is_ascii_digit())
+                    || (next == Some(b'_') && self.peek_at(2).is_some_and(|b| b.is_ascii_digit()))
+                {
+                    self.bump(); // .
+                    self.scan_decimal_digits_required(start)?;
+                }
+            }
+            self.scan_exponent_opt(start)?;
+            // BigInt suffix not allowed on zero-prefixed multi-digit forms.
+            if !self.is_eof() && self.peek() == b'n' {
+                let after = self.peek_at(1);
+                if after.is_none_or(|b| !is_ident_continue(b)) {
+                    return Err(Diagnostic::new(
+                        "Invalid BigInt literal",
+                        Span::new(start as u32, (self.pos + 1) as u32),
+                    ));
+                }
+            }
+            let raw = self.src[start..self.pos].to_string();
+            return Ok(TokenKind::Number(canonicalize_leading_zero_decimal(&raw)));
+        }
+
+        // LegacyOctalIntegerLiteral: do not consume `.`/`e` as part of this token.
+        if !self.is_eof() && self.peek() == b'n' {
+            let after = self.peek_at(1);
+            if after.is_none_or(|b| !is_ident_continue(b)) {
+                return Err(Diagnostic::new(
+                    "Invalid BigInt literal",
+                    Span::new(start as u32, (self.pos + 1) as u32),
+                ));
+            }
+        }
+        let raw = &self.src[start..self.pos];
+        let mv = legacy_octal_mv(raw);
+        Ok(TokenKind::Number(mv))
     }
 
     /// Leading-dot decimal: `.` DecimalDigits ExponentPart_opt
@@ -1140,6 +1225,48 @@ fn hex_digit(b: u8) -> Option<u32> {
     }
 }
 
+/// Annex B.1.1 LegacyOctalIntegerLiteral mathematical value as a decimal digit string.
+fn legacy_octal_mv(raw: &str) -> String {
+    let mut val: u64 = 0;
+    let mut overflow = false;
+    for b in raw.bytes() {
+        debug_assert!((b'0'..=b'7').contains(&b));
+        match val
+            .checked_mul(8)
+            .and_then(|v| v.checked_add(u64::from(b - b'0')))
+        {
+            Some(next) => val = next,
+            None => {
+                overflow = true;
+                break;
+            }
+        }
+    }
+    if !overflow {
+        return val.to_string();
+    }
+    // Past u64: f64 MV (JS Number semantics for large integers).
+    let mut f = 0.0f64;
+    for b in raw.bytes() {
+        f = f * 8.0 + f64::from(b - b'0');
+    }
+    if f.is_finite() && f.fract() == 0.0 && f.abs() <= (1u64 << 53) as f64 {
+        format!("{}", f as u64)
+    } else {
+        format!("{f}")
+    }
+}
+
+/// Strip redundant leading zeros from a NonOctalDecimalIntegerLiteral (and optional frac/exp).
+fn canonicalize_leading_zero_decimal(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() && bytes[i] == b'0' && bytes[i + 1].is_ascii_digit() {
+        i += 1;
+    }
+    raw[i..].to_string()
+}
+
 fn push_code_point(
     value: &mut JsString,
     cp: u32,
@@ -1336,6 +1463,43 @@ mod tests {
                 TokenKind::Number("0XFF".into()),
                 TokenKind::Number("0B10".into()),
                 TokenKind::Number("0O7".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    /// Annex B.1.1: legacy octal MV rewritten to decimal; NonOctalDecimal stays decimal.
+    #[test]
+    fn lex_legacy_octal_numeric_literals() {
+        assert_eq!(
+            kinds("010 077 00 0010 0123"),
+            vec![
+                TokenKind::Number("8".into()),
+                TokenKind::Number("63".into()),
+                TokenKind::Number("0".into()),
+                TokenKind::Number("8".into()),
+                TokenKind::Number("83".into()),
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("08 09 089 0008 08.5 08e2"),
+            vec![
+                TokenKind::Number("8".into()),
+                TokenKind::Number("9".into()),
+                TokenKind::Number("89".into()),
+                TokenKind::Number("8".into()),
+                TokenKind::Number("8.5".into()),
+                TokenKind::Number("8e2".into()),
+                TokenKind::Eof,
+            ]
+        );
+        // Pure legacy octal does not swallow `.digit` (next token is leading-dot number).
+        assert_eq!(
+            kinds("010.5"),
+            vec![
+                TokenKind::Number("8".into()),
+                TokenKind::Number(".5".into()),
                 TokenKind::Eof,
             ]
         );
