@@ -2,7 +2,8 @@
 
 use draconic_ast::{
     Arg as AstArg, ArrayElement as AstArrayElement, ArrayPatternElement, AssignOp, BinaryOp,
-    BindingPattern, ClassElement, Expr as AstExpr, Ident, Stmt as AstStmt, UnaryOp, UpdateOp,
+    BindingPattern, ClassElement, Expr as AstExpr, Ident, ObjectPatternProp, ObjectProp as AstObjectProp,
+    Stmt as AstStmt, UnaryOp, UpdateOp,
 };
 use draconic_check::{CheckedProgram, Type};
 use draconic_diagnostics::Span;
@@ -37,6 +38,12 @@ pub enum Stmt {
     DeclareArrayPattern {
         kind: BindingKind,
         elements: Vec<ArrayPatternEl>,
+        init: Expr,
+    },
+    /// `let` / `const` `{ a, b: c, ...rest } = init;`
+    DeclareObjectPattern {
+        kind: BindingKind,
+        properties: Vec<ObjectPatternEl>,
         init: Expr,
     },
     Expr {
@@ -278,9 +285,12 @@ pub enum ObjectPropKey {
 
 /// Object literal property after lowering.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ObjectProp {
-    pub key: ObjectPropKey,
-    pub value: Expr,
+pub enum ObjectProp {
+    Property {
+        key: ObjectPropKey,
+        value: Expr,
+    },
+    Spread(Expr),
 }
 
 /// LHS of an assignment after lowering.
@@ -297,6 +307,10 @@ pub enum AssignTarget {
     /// `[a, b, ...rest] = …`
     ArrayPattern {
         elements: Vec<ArrayPatternEl>,
+    },
+    /// `{ a, b: c, ...rest } = …`
+    ObjectPattern {
+        properties: Vec<ObjectPatternEl>,
     },
 }
 
@@ -315,11 +329,24 @@ pub enum ArrayPatternEl {
     Rest(LocalId),
 }
 
-/// Binding pattern after lowering (ident or nested array).
+/// One property of an object destructuring pattern in IR.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectPatternEl {
+    /// `key` / `key: pattern` (static ident key only).
+    Prop {
+        key: String,
+        binding: Pattern,
+        shorthand: bool,
+    },
+    Rest(LocalId),
+}
+
+/// Binding pattern after lowering (ident, nested array, or nested object).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     Local(LocalId),
     Array(Vec<ArrayPatternEl>),
+    Object(Vec<ObjectPatternEl>),
 }
 
 /// Formal parameter in IR, optionally with a default initializer or rest flag.
@@ -454,6 +481,17 @@ fn lower_stmt(
                 Some(Stmt::DeclareArrayPattern {
                     kind: *kind,
                     elements: lower_array_pattern_els(checked, elements),
+                    init,
+                })
+            }
+            BindingPattern::Object { properties, .. } => {
+                let init = init
+                    .as_ref()
+                    .map(|e| lower_expr(checked, e, super_class))
+                    .expect("object pattern declaration requires initializer");
+                Some(Stmt::DeclareObjectPattern {
+                    kind: *kind,
+                    properties: lower_object_pattern_props(checked, properties),
                     init,
                 })
             }
@@ -867,6 +905,9 @@ fn lower_expr(
         AstExpr::ArrayPattern { .. } => {
             panic!("array pattern must only appear as assignment target")
         }
+        AstExpr::ObjectPattern { .. } => {
+            panic!("object pattern must only appear as assignment target")
+        }
         AstExpr::Ident(id) => {
             let ty = expr_ty(checked, id.span);
             if let Some(sym) = checked.bound.resolve(id.span) {
@@ -1005,7 +1046,12 @@ fn lower_expr(
                 AstExpr::ArrayPattern { elements, .. } => AssignTarget::ArrayPattern {
                     elements: lower_array_pattern_els(checked, elements),
                 },
-                _ => panic!("assign target must be ident, member, or array pattern after check"),
+                AstExpr::ObjectPattern { properties, .. } => AssignTarget::ObjectPattern {
+                    properties: lower_object_pattern_props(checked, properties),
+                },
+                _ => panic!(
+                    "assign target must be ident, member, array pattern, or object pattern after check"
+                ),
             };
             Expr::Assign {
                 target,
@@ -1202,19 +1248,24 @@ fn lower_expr(
         AstExpr::ObjectExpression { properties, span } => Expr::Object {
             properties: properties
                 .iter()
-                .map(|p| ObjectProp {
-                    key: match &p.key {
-                        draconic_ast::ObjectKey::Ident(id) => {
-                            ObjectPropKey::Static(id.name.clone().into())
-                        }
-                        draconic_ast::ObjectKey::String(s) => {
-                            ObjectPropKey::Static(s.value.clone())
-                        }
-                        draconic_ast::ObjectKey::Computed(expr) => {
-                            ObjectPropKey::Computed(lower_expr(checked, expr, super_class))
-                        }
+                .map(|p| match p {
+                    AstObjectProp::Property { key, value, .. } => ObjectProp::Property {
+                        key: match key {
+                            draconic_ast::ObjectKey::Ident(id) => {
+                                ObjectPropKey::Static(id.name.clone().into())
+                            }
+                            draconic_ast::ObjectKey::String(s) => {
+                                ObjectPropKey::Static(s.value.clone())
+                            }
+                            draconic_ast::ObjectKey::Computed(expr) => {
+                                ObjectPropKey::Computed(lower_expr(checked, expr, super_class))
+                            }
+                        },
+                        value: lower_expr(checked, value, super_class),
                     },
-                    value: lower_expr(checked, &p.value, super_class),
+                    AstObjectProp::Spread { expr, .. } => {
+                        ObjectProp::Spread(lower_expr(checked, expr, super_class))
+                    }
                 })
                 .collect(),
             ty: expr_ty(checked, *span),
@@ -1350,6 +1401,38 @@ fn lower_array_pattern_els(
         .collect()
 }
 
+fn lower_object_pattern_props(
+    checked: &CheckedProgram,
+    properties: &[ObjectPatternProp],
+) -> Vec<ObjectPatternEl> {
+    properties
+        .iter()
+        .map(|p| match p {
+            ObjectPatternProp::Prop {
+                key,
+                binding,
+                shorthand,
+                ..
+            } => ObjectPatternEl::Prop {
+                key: key.name.clone(),
+                binding: lower_binding_pattern(checked, binding),
+                shorthand: *shorthand,
+            },
+            ObjectPatternProp::Rest(id) => {
+                let local = checked
+                    .bound
+                    .symbols()
+                    .iter()
+                    .find(|s| s.span == id.span)
+                    .map(|s| s.id)
+                    .or_else(|| checked.bound.resolve(id.span))
+                    .expect("rest binding must be declared or resolved");
+                ObjectPatternEl::Rest(local)
+            }
+        })
+        .collect()
+}
+
 fn lower_binding_pattern(checked: &CheckedProgram, pat: &BindingPattern) -> Pattern {
     match pat {
         BindingPattern::Ident(id) => {
@@ -1365,6 +1448,9 @@ fn lower_binding_pattern(checked: &CheckedProgram, pat: &BindingPattern) -> Patt
         }
         BindingPattern::Array { elements, .. } => {
             Pattern::Array(lower_array_pattern_els(checked, elements))
+        }
+        BindingPattern::Object { properties, .. } => {
+            Pattern::Object(lower_object_pattern_props(checked, properties))
         }
     }
 }
@@ -1407,6 +1493,30 @@ fn dump_array_pattern_els(elements: &[ArrayPatternEl], level: usize, out: &mut S
     }
 }
 
+fn dump_object_pattern_els(properties: &[ObjectPatternEl], level: usize, out: &mut String) {
+    for p in properties {
+        match p {
+            ObjectPatternEl::Prop {
+                key,
+                binding,
+                shorthand,
+            } => {
+                indent(level, out);
+                if *shorthand {
+                    out.push_str(&format!("prop shorthand {key}:\n"));
+                } else {
+                    out.push_str(&format!("prop {key}:\n"));
+                }
+                dump_pattern(binding, level + 1, out);
+            }
+            ObjectPatternEl::Rest(id) => {
+                indent(level, out);
+                out.push_str(&format!("rest %{}\n", id.0));
+            }
+        }
+    }
+}
+
 fn dump_pattern(pat: &Pattern, level: usize, out: &mut String) {
     match pat {
         Pattern::Local(id) => {
@@ -1417,6 +1527,11 @@ fn dump_pattern(pat: &Pattern, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str("ArrayPattern\n");
             dump_array_pattern_els(els, level + 1, out);
+        }
+        Pattern::Object(props) => {
+            indent(level, out);
+            out.push_str("ObjectPattern\n");
+            dump_object_pattern_els(props, level + 1, out);
         }
     }
 }
@@ -1452,6 +1567,24 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             };
             out.push_str(&format!("DeclareArrayPattern {kw}\n"));
             dump_array_pattern_els(elements, level + 1, out);
+            indent(level + 1, out);
+            out.push_str("init:\n");
+            dump_expr(init, level + 2, out);
+        }
+        Stmt::DeclareObjectPattern {
+            kind,
+            properties,
+            init,
+        } => {
+            indent(level, out);
+            let kw = match kind {
+                BindingKind::Let => "let",
+                BindingKind::Const => "const",
+                BindingKind::Var => "var",
+                BindingKind::Function => "function",
+            };
+            out.push_str(&format!("DeclareObjectPattern {kw}\n"));
+            dump_object_pattern_els(properties, level + 1, out);
             indent(level + 1, out);
             out.push_str("init:\n");
             dump_expr(init, level + 2, out);
@@ -1824,6 +1957,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                     out.push_str(&format!("Assign {op} ArrayPattern : {ty}\n"));
                     dump_array_pattern_els(elements, level + 1, out);
                 }
+                AssignTarget::ObjectPattern { properties } => {
+                    out.push_str(&format!("Assign {op} ObjectPattern : {ty}\n"));
+                    dump_object_pattern_els(properties, level + 1, out);
+                }
             }
             dump_expr(value, level + 1, out);
         }
@@ -1918,19 +2055,25 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             out.push_str(&format!("Object : {ty}\n"));
             for prop in properties {
                 indent(level + 1, out);
-                match &prop.key {
-                    ObjectPropKey::Static(k) => {
-                        out.push_str(&format!("prop {:?}:\n", k.to_string_lossy()));
-                        dump_expr(&prop.value, level + 2, out);
-                    }
-                    ObjectPropKey::Computed(k) => {
-                        out.push_str("prop computed:\n");
-                        indent(level + 2, out);
-                        out.push_str("key:\n");
-                        dump_expr(k, level + 3, out);
-                        indent(level + 2, out);
-                        out.push_str("value:\n");
-                        dump_expr(&prop.value, level + 3, out);
+                match prop {
+                    ObjectProp::Property { key, value } => match key {
+                        ObjectPropKey::Static(k) => {
+                            out.push_str(&format!("prop {:?}:\n", k.to_string_lossy()));
+                            dump_expr(value, level + 2, out);
+                        }
+                        ObjectPropKey::Computed(k) => {
+                            out.push_str("prop computed:\n");
+                            indent(level + 2, out);
+                            out.push_str("key:\n");
+                            dump_expr(k, level + 3, out);
+                            indent(level + 2, out);
+                            out.push_str("value:\n");
+                            dump_expr(value, level + 3, out);
+                        }
+                    },
+                    ObjectProp::Spread(expr) => {
+                        out.push_str("spread:\n");
+                        dump_expr(expr, level + 2, out);
                     }
                 }
             }

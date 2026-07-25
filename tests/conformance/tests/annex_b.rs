@@ -206,3 +206,13 @@ fn regexp_literal_fixture_present() {
 fn regexp_literal_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/regexp_literal");
 }
+
+#[test]
+fn object_destructure_fixture_present() {
+    assert_fixture_present("es/annex-b/object_destructure");
+}
+
+#[test]
+fn object_destructure_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/object_destructure");
+}

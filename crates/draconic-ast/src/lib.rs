@@ -19,13 +19,18 @@ pub enum BindingKind {
     Function,
 }
 
-/// Binding target for `let` / `const`: simple name or array destructuring pattern.
+/// Binding target for `let` / `const`: simple name or destructuring pattern.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BindingPattern {
     Ident(Ident),
     /// `[a, b, ...rest]` (no holes/defaults in this surface).
     Array {
         elements: Vec<ArrayPatternElement>,
+        span: Span,
+    },
+    /// `{ a, b: c, ...rest }` (no defaults in this surface).
+    Object {
+        properties: Vec<ObjectPatternProp>,
         span: Span,
     },
 }
@@ -39,11 +44,29 @@ pub enum ArrayPatternElement {
     Rest(Ident),
 }
 
+/// One property of an object binding/assignment pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectPatternProp {
+    /// `key` shorthand or `key: nested` / `key: name`.
+    Prop {
+        /// Property key name (ident only in this surface).
+        key: Ident,
+        /// Binding target for the property value.
+        binding: BindingPattern,
+        /// True when written as shorthand `{ a }` (binding is the same Ident as key).
+        shorthand: bool,
+        span: Span,
+    },
+    /// `...name` rest (must be last; simple ident only).
+    Rest(Ident),
+}
+
 impl BindingPattern {
     pub fn span(&self) -> Span {
         match self {
             BindingPattern::Ident(id) => id.span,
             BindingPattern::Array { span, .. } => *span,
+            BindingPattern::Object { span, .. } => *span,
         }
     }
 
@@ -56,6 +79,14 @@ impl BindingPattern {
                     match el {
                         ArrayPatternElement::Pattern(p) => p.for_each_ident(f),
                         ArrayPatternElement::Rest(id) => f(id),
+                    }
+                }
+            }
+            BindingPattern::Object { properties, .. } => {
+                for p in properties {
+                    match p {
+                        ObjectPatternProp::Prop { binding, .. } => binding.for_each_ident(f),
+                        ObjectPatternProp::Rest(id) => f(id),
                     }
                 }
             }
@@ -427,6 +458,11 @@ pub enum Expr {
         elements: Vec<ArrayPatternElement>,
         span: Span,
     },
+    /// Object destructuring pattern used as assignment target: `{ a, b: c, ...rest }`.
+    ObjectPattern {
+        properties: Vec<ObjectPatternProp>,
+        span: Span,
+    },
 }
 
 /// One element of an array literal: value or `...spread`.
@@ -443,14 +479,22 @@ pub enum Arg {
     Spread(Expr),
 }
 
-/// One property in an object literal (`key: value`, shorthand, or method).
+/// One property in an object literal (`key: value`, shorthand, method, or spread).
 #[derive(Debug, Clone, PartialEq)]
-pub struct ObjectProp {
-    pub key: ObjectKey,
-    pub value: Expr,
-    /// True for property shorthand `{ a }` (value is the same Ident as key).
-    pub shorthand: bool,
-    pub span: Span,
+pub enum ObjectProp {
+    /// `key: value`, shorthand `{ a }`, or method `{ m() {} }`.
+    Property {
+        key: ObjectKey,
+        value: Expr,
+        /// True for property shorthand `{ a }` (value is the same Ident as key).
+        shorthand: bool,
+        span: Span,
+    },
+    /// `...expr` spread element.
+    Spread {
+        expr: Expr,
+        span: Span,
+    },
 }
 
 /// Object literal property key (ident, string, or computed `[expr]`).
@@ -777,6 +821,40 @@ fn dump_binding_pattern(pat: &BindingPattern, level: usize, out: &mut String) {
                         out.push_str(&format!("rest: {}\n", id.name));
                     }
                 }
+            }
+        }
+        BindingPattern::Object { properties, .. } => {
+            indent(level, out);
+            out.push_str("ObjectPattern\n");
+            dump_object_pattern_props(properties, level + 1, out);
+        }
+    }
+}
+
+fn dump_object_pattern_props(properties: &[ObjectPatternProp], level: usize, out: &mut String) {
+    for p in properties {
+        match p {
+            ObjectPatternProp::Prop {
+                key,
+                binding,
+                shorthand,
+                ..
+            } => {
+                indent(level, out);
+                if *shorthand {
+                    out.push_str("prop shorthand:\n");
+                } else {
+                    out.push_str("prop:\n");
+                }
+                indent(level + 1, out);
+                out.push_str(&format!("key: {}\n", key.name));
+                indent(level + 1, out);
+                out.push_str("binding:\n");
+                dump_binding_pattern(binding, level + 2, out);
+            }
+            ObjectPatternProp::Rest(id) => {
+                indent(level, out);
+                out.push_str(&format!("rest: {}\n", id.name));
             }
         }
     }
@@ -1441,26 +1519,43 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str("ObjectExpression\n");
             for prop in properties {
-                indent(level + 1, out);
-                if prop.shorthand {
-                    out.push_str("prop shorthand:\n");
-                } else {
-                    out.push_str("prop:\n");
-                }
-                indent(level + 2, out);
-                match &prop.key {
-                    ObjectKey::Ident(id) => out.push_str(&format!("key: Ident {}\n", id.name)),
-                    ObjectKey::String(s) => {
-                        out.push_str(&format!("key: String {:?}\n", s.value.to_string_lossy()))
+                match prop {
+                    ObjectProp::Property {
+                        key,
+                        value,
+                        shorthand,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        if *shorthand {
+                            out.push_str("prop shorthand:\n");
+                        } else {
+                            out.push_str("prop:\n");
+                        }
+                        indent(level + 2, out);
+                        match key {
+                            ObjectKey::Ident(id) => {
+                                out.push_str(&format!("key: Ident {}\n", id.name))
+                            }
+                            ObjectKey::String(s) => out.push_str(&format!(
+                                "key: String {:?}\n",
+                                s.value.to_string_lossy()
+                            )),
+                            ObjectKey::Computed(expr) => {
+                                out.push_str("key: Computed\n");
+                                dump_expr(expr, level + 3, out);
+                            }
+                        }
+                        indent(level + 2, out);
+                        out.push_str("value:\n");
+                        dump_expr(value, level + 3, out);
                     }
-                    ObjectKey::Computed(expr) => {
-                        out.push_str("key: Computed\n");
-                        dump_expr(expr, level + 3, out);
+                    ObjectProp::Spread { expr, .. } => {
+                        indent(level + 1, out);
+                        out.push_str("spread:\n");
+                        dump_expr(expr, level + 2, out);
                     }
                 }
-                indent(level + 2, out);
-                out.push_str("value:\n");
-                dump_expr(&prop.value, level + 3, out);
             }
         }
         Expr::ArrayExpression { elements, .. } => {
@@ -1526,6 +1621,11 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                     }
                 }
             }
+        }
+        Expr::ObjectPattern { properties, .. } => {
+            indent(level, out);
+            out.push_str("ObjectPattern\n");
+            dump_object_pattern_props(properties, level + 1, out);
         }
     }
 }

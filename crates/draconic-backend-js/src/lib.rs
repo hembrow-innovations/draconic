@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, BindingKind, UnaryOp, UpdateOp};
 use draconic_diagnostics::Diagnostic;
-use draconic_ir::{ArrayPatternEl, Expr, LocalId, Module, Pattern, Stmt};
+use draconic_ir::{ArrayPatternEl, Expr, LocalId, Module, ObjectPatternEl, Pattern, Stmt};
 
 /// Emit ECMAScript source for a shared IR module.
 pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
@@ -51,6 +51,22 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) {
                 BindingKind::Function => out.push_str("let "),
             }
             emit_array_pattern(out, elements, names);
+            out.push_str(" = ");
+            emit_expr(out, init, names);
+            out.push_str(";\n");
+        }
+        Stmt::DeclareObjectPattern {
+            kind,
+            properties,
+            init,
+        } => {
+            match kind {
+                BindingKind::Let => out.push_str("let "),
+                BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
+                BindingKind::Function => out.push_str("let "),
+            }
+            emit_object_pattern(out, properties, names);
             out.push_str(" = ");
             emit_expr(out, init, names);
             out.push_str(";\n");
@@ -546,22 +562,30 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                match &prop.key {
-                    draconic_ir::ObjectPropKey::Static(k) => {
-                        if let Some(s) = k.to_string_strict().filter(|s| is_js_ident(s)) {
-                            out.push_str(&s);
-                        } else {
-                            push_js_string(out, k);
+                match prop {
+                    draconic_ir::ObjectProp::Property { key, value } => {
+                        match key {
+                            draconic_ir::ObjectPropKey::Static(k) => {
+                                if let Some(s) = k.to_string_strict().filter(|s| is_js_ident(s)) {
+                                    out.push_str(&s);
+                                } else {
+                                    push_js_string(out, k);
+                                }
+                                out.push_str(": ");
+                            }
+                            draconic_ir::ObjectPropKey::Computed(k) => {
+                                out.push('[');
+                                emit_expr(out, k, names);
+                                out.push_str("]: ");
+                            }
                         }
-                        out.push_str(": ");
+                        emit_expr(out, value, names);
                     }
-                    draconic_ir::ObjectPropKey::Computed(k) => {
-                        out.push('[');
-                        emit_expr(out, k, names);
-                        out.push_str("]: ");
+                    draconic_ir::ObjectProp::Spread(expr) => {
+                        out.push_str("...");
+                        emit_expr(out, expr, names);
                     }
                 }
-                emit_expr(out, &prop.value, names);
             }
             out.push('}');
         }
@@ -658,6 +682,9 @@ fn emit_assign_target(
         draconic_ir::AssignTarget::ArrayPattern { elements } => {
             emit_array_pattern(out, elements, names);
         }
+        draconic_ir::AssignTarget::ObjectPattern { properties } => {
+            emit_object_pattern(out, properties, names);
+        }
     }
 }
 
@@ -682,10 +709,50 @@ fn emit_array_pattern(
     out.push(']');
 }
 
+fn emit_object_pattern(
+    out: &mut String,
+    properties: &[ObjectPatternEl],
+    names: &HashMap<LocalId, &str>,
+) {
+    out.push('{');
+    for (i, p) in properties.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match p {
+            ObjectPatternEl::Prop {
+                key,
+                binding,
+                shorthand,
+            } => {
+                if *shorthand {
+                    if let Pattern::Local(id) = binding {
+                        out.push_str(local_name(names, *id));
+                    } else {
+                        out.push_str(key);
+                        out.push_str(": ");
+                        emit_pattern(out, binding, names);
+                    }
+                } else {
+                    out.push_str(key);
+                    out.push_str(": ");
+                    emit_pattern(out, binding, names);
+                }
+            }
+            ObjectPatternEl::Rest(id) => {
+                out.push_str("...");
+                out.push_str(local_name(names, *id));
+            }
+        }
+    }
+    out.push('}');
+}
+
 fn emit_pattern(out: &mut String, pat: &Pattern, names: &HashMap<LocalId, &str>) {
     match pat {
         Pattern::Local(id) => out.push_str(local_name(names, *id)),
         Pattern::Array(els) => emit_array_pattern(out, els, names),
+        Pattern::Object(props) => emit_object_pattern(out, props, names),
     }
 }
 

@@ -3,7 +3,8 @@
 
 use draconic_ast::{
     Arg, ArrayElement, ArrayPatternElement, ArrowBody, BinaryOp, BindingKind, BindingPattern,
-    ClassElement, Expr, ObjectKey, Param, Program, Stmt, TypeAnn, UnaryOp,
+    ClassElement, Expr, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt, TypeAnn,
+    UnaryOp,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 use std::collections::HashMap;
@@ -1298,11 +1299,16 @@ impl Binder {
             }
             Expr::ObjectExpression { properties, .. } => {
                 for prop in properties {
-                    match &prop.key {
-                        ObjectKey::Ident(_) | ObjectKey::String(_) => {}
-                        ObjectKey::Computed(expr) => self.bind_expr(expr)?,
+                    match prop {
+                        ObjectProp::Property { key, value, .. } => {
+                            match key {
+                                ObjectKey::Ident(_) | ObjectKey::String(_) => {}
+                                ObjectKey::Computed(expr) => self.bind_expr(expr)?,
+                            }
+                            self.bind_expr(value)?;
+                        }
+                        ObjectProp::Spread { expr, .. } => self.bind_expr(expr)?,
                     }
-                    self.bind_expr(&prop.value)?;
                 }
                 Ok(())
             }
@@ -1344,6 +1350,19 @@ impl Binder {
                 }
                 Ok(())
             }
+            Expr::ObjectPattern { properties, .. } => {
+                for p in properties {
+                    match p {
+                        ObjectPatternProp::Prop { binding, .. } => {
+                            self.bind_assign_pattern(binding)?;
+                        }
+                        ObjectPatternProp::Rest(id) => {
+                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        }
+                    }
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1355,6 +1374,19 @@ impl Binder {
                     match el {
                         ArrayPatternElement::Pattern(p) => self.bind_assign_pattern(p)?,
                         ArrayPatternElement::Rest(id) => {
+                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            BindingPattern::Object { properties, .. } => {
+                for p in properties {
+                    match p {
+                        ObjectPatternProp::Prop { binding, .. } => {
+                            self.bind_assign_pattern(binding)?
+                        }
+                        ObjectPatternProp::Rest(id) => {
                             self.bind_expr(&Expr::Ident(id.clone()))?;
                         }
                     }
@@ -1652,6 +1684,26 @@ impl<'a> Checker<'a> {
                 }
                 Ok(())
             }
+            BindingPattern::Object { properties, .. } => {
+                for p in properties {
+                    match p {
+                        ObjectPatternProp::Prop { binding, .. } => {
+                            self.check_binding_pattern(binding, Type::Any)?;
+                        }
+                        ObjectPatternProp::Rest(id) => {
+                            let sym = self
+                                .bound
+                                .symbols()
+                                .iter()
+                                .find(|s| s.span == id.span)
+                                .map(|s| s.id)
+                                .expect("rest binding must be declared");
+                            self.symbol_types[sym.0 as usize] = Type::Any;
+                        }
+                    }
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1694,6 +1746,22 @@ impl<'a> Checker<'a> {
                             self.check_assign_pattern(p, span)?;
                         }
                         ArrayPatternElement::Rest(id) => {
+                            self.check_assign_pattern(
+                                &BindingPattern::Ident(id.clone()),
+                                span,
+                            )?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            BindingPattern::Object { properties, .. } => {
+                for p in properties {
+                    match p {
+                        ObjectPatternProp::Prop { binding, .. } => {
+                            self.check_assign_pattern(binding, span)?;
+                        }
+                        ObjectPatternProp::Rest(id) => {
                             self.check_assign_pattern(
                                 &BindingPattern::Ident(id.clone()),
                                 span,
@@ -2307,6 +2375,29 @@ impl<'a> Checker<'a> {
                         self.record(*span, value_ty);
                         value_ty
                     }
+                    Expr::ObjectPattern { properties, .. } => {
+                        if op.binary_op().is_some() {
+                            return Err(Diagnostic::new(
+                                "compound assignment to object pattern not supported".to_string(),
+                                *span,
+                            ));
+                        }
+                        for p in properties {
+                            match p {
+                                ObjectPatternProp::Prop { binding, .. } => {
+                                    self.check_assign_pattern(binding, *span)?;
+                                }
+                                ObjectPatternProp::Rest(id) => {
+                                    self.check_assign_pattern(
+                                        &BindingPattern::Ident(id.clone()),
+                                        *span,
+                                    )?;
+                                }
+                            }
+                        }
+                        self.record(*span, value_ty);
+                        value_ty
+                    }
                     _ => {
                         return Err(Diagnostic::new(
                             "invalid assignment target".to_string(),
@@ -2318,6 +2409,12 @@ impl<'a> Checker<'a> {
             Expr::ArrayPattern { span, .. } => {
                 return Err(Diagnostic::new(
                     "array pattern cannot be used as a value".to_string(),
+                    *span,
+                ));
+            }
+            Expr::ObjectPattern { span, .. } => {
+                return Err(Diagnostic::new(
+                    "object pattern cannot be used as a value".to_string(),
                     *span,
                 ));
             }
@@ -2518,20 +2615,28 @@ impl<'a> Checker<'a> {
                 let mut shape_props: Vec<(String, Type)> = Vec::new();
                 let mut structural = true;
                 for prop in properties {
-                    if let ObjectKey::Computed(expr) = &prop.key {
-                        self.check_expr(expr)?;
-                        structural = false;
-                    }
-                    let val_ty = self.check_expr(&prop.value)?;
-                    if structural {
-                        match &prop.key {
-                            ObjectKey::Ident(id) => {
-                                shape_props.push((id.name.clone(), val_ty));
+                    match prop {
+                        ObjectProp::Property { key, value, .. } => {
+                            if let ObjectKey::Computed(expr) = key {
+                                self.check_expr(expr)?;
+                                structural = false;
                             }
-                            ObjectKey::String(s) => {
-                                shape_props.push((s.value.to_string_lossy(), val_ty));
+                            let val_ty = self.check_expr(value)?;
+                            if structural {
+                                match key {
+                                    ObjectKey::Ident(id) => {
+                                        shape_props.push((id.name.clone(), val_ty));
+                                    }
+                                    ObjectKey::String(s) => {
+                                        shape_props.push((s.value.to_string_lossy(), val_ty));
+                                    }
+                                    ObjectKey::Computed(_) => unreachable!(),
+                                }
                             }
-                            ObjectKey::Computed(_) => unreachable!(),
+                        }
+                        ObjectProp::Spread { expr, .. } => {
+                            self.check_expr(expr)?;
+                            structural = false;
                         }
                     }
                 }
@@ -3493,6 +3598,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::ObjectExpression { span, .. }
         | Expr::ArrayExpression { span, .. }
         | Expr::ArrayPattern { span, .. }
+        | Expr::ObjectPattern { span, .. }
         | Expr::MemberExpression { span, .. }
         | Expr::Paren { span, .. }
         | Expr::As { span, .. } => *span,
@@ -4737,10 +4843,15 @@ mod tests {
                 }
                 Expr::ObjectExpression { properties, .. } => {
                     for prop in properties {
-                        if let ObjectKey::Computed(expr) = &prop.key {
-                            walk_expr(expr, name, out);
+                        match prop {
+                            ObjectProp::Property { key, value, .. } => {
+                                if let ObjectKey::Computed(expr) = key {
+                                    walk_expr(expr, name, out);
+                                }
+                                walk_expr(value, name, out);
+                            }
+                            ObjectProp::Spread { expr, .. } => walk_expr(expr, name, out),
                         }
-                        walk_expr(&prop.value, name, out);
                     }
                 }
                 Expr::ArrayExpression { elements, .. } => {
@@ -4787,10 +4898,72 @@ mod tests {
                                     out,
                                 );
                             }
+                            ArrayPatternElement::Pattern(BindingPattern::Object {
+                                properties,
+                                ..
+                            }) => {
+                                walk_expr(
+                                    &Expr::ObjectPattern {
+                                        properties: properties.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
                             ArrayPatternElement::Rest(id) if id.name == name => {
                                 *out = Some(id.span);
                             }
                             ArrayPatternElement::Rest(_) => {}
+                        }
+                    }
+                }
+                Expr::ObjectPattern { properties, .. } => {
+                    for p in properties {
+                        match p {
+                            ObjectPatternProp::Prop {
+                                binding: BindingPattern::Ident(id),
+                                ..
+                            } if id.name == name => {
+                                *out = Some(id.span);
+                            }
+                            ObjectPatternProp::Prop {
+                                binding: BindingPattern::Ident(_),
+                                ..
+                            } => {}
+                            ObjectPatternProp::Prop {
+                                binding: BindingPattern::Array { elements, .. },
+                                ..
+                            } => {
+                                walk_expr(
+                                    &Expr::ArrayPattern {
+                                        elements: elements.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
+                            ObjectPatternProp::Prop {
+                                binding: BindingPattern::Object {
+                                    properties: nested,
+                                    ..
+                                },
+                                ..
+                            } => {
+                                walk_expr(
+                                    &Expr::ObjectPattern {
+                                        properties: nested.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
+                            ObjectPatternProp::Rest(id) if id.name == name => {
+                                *out = Some(id.span);
+                            }
+                            ObjectPatternProp::Rest(_) => {}
                         }
                     }
                 }

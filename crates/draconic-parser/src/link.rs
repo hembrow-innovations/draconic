@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use draconic_ast::{
     Arg, ArrayElement, ArrayPatternElement, ArrowBody, BindingKind, BindingPattern, ClassElement,
-    Expr, Ident, ObjectKey, ObjectProp, Param, Program, Stmt,
+    Expr, Ident, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 
@@ -571,6 +571,24 @@ fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans)
                 }
             }
         }
+        BindingPattern::Object { properties, span } => {
+            *span = spans.next();
+            for p in properties {
+                match p {
+                    ObjectPatternProp::Prop {
+                        key,
+                        binding,
+                        span: prop_span,
+                        ..
+                    } => {
+                        *prop_span = spans.next();
+                        key.span = spans.next();
+                        uniqueify_binding_spans(binding, spans);
+                    }
+                    ObjectPatternProp::Rest(id) => id.span = spans.next(),
+                }
+            }
+        }
     }
 }
 
@@ -709,13 +727,29 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
         Expr::ObjectExpression { properties, span } => {
             *span = spans.next();
             for p in properties {
-                p.span = spans.next();
-                match &mut p.key {
-                    ObjectKey::Ident(id) => id.span = spans.next(),
-                    ObjectKey::String(s) => s.span = spans.next(),
-                    ObjectKey::Computed(e) => uniqueify_expr_spans(e, spans),
+                match p {
+                    ObjectProp::Property {
+                        key,
+                        value,
+                        span: prop_span,
+                        ..
+                    } => {
+                        *prop_span = spans.next();
+                        match key {
+                            ObjectKey::Ident(id) => id.span = spans.next(),
+                            ObjectKey::String(s) => s.span = spans.next(),
+                            ObjectKey::Computed(e) => uniqueify_expr_spans(e, spans),
+                        }
+                        uniqueify_expr_spans(value, spans);
+                    }
+                    ObjectProp::Spread {
+                        expr,
+                        span: prop_span,
+                    } => {
+                        *prop_span = spans.next();
+                        uniqueify_expr_spans(expr, spans);
+                    }
                 }
-                uniqueify_expr_spans(&mut p.value, spans);
             }
         }
         Expr::ArrayExpression { elements, span } => {
@@ -734,6 +768,24 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                 match el {
                     ArrayPatternElement::Pattern(p) => uniqueify_binding_spans(p, spans),
                     ArrayPatternElement::Rest(id) => id.span = spans.next(),
+                }
+            }
+        }
+        Expr::ObjectPattern { properties, span } => {
+            *span = spans.next();
+            for p in properties {
+                match p {
+                    ObjectPatternProp::Prop {
+                        key,
+                        binding,
+                        span: prop_span,
+                        ..
+                    } => {
+                        *prop_span = spans.next();
+                        key.span = spans.next();
+                        uniqueify_binding_spans(binding, spans);
+                    }
+                    ObjectPatternProp::Rest(id) => id.span = spans.next(),
                 }
             }
         }
@@ -777,7 +829,7 @@ fn namespace_object_props(
             name: remote,
             span: val_span,
         });
-        props.push(ObjectProp {
+        props.push(ObjectProp::Property {
             key: ObjectKey::Ident(key),
             value,
             shorthand: false,
@@ -908,6 +960,22 @@ fn rename_binding_decl(
                 rename_ident(id, renames, scopes);
             } else {
                 scopes.declare_nested(&id.name);
+            }
+        }
+        BindingPattern::Object { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectPatternProp::Prop { binding, .. } => {
+                        rename_binding_decl(binding, renames, scopes)
+                    }
+                    ObjectPatternProp::Rest(id) => {
+                        if scopes.depth() == 1 {
+                            rename_ident(id, renames, scopes);
+                        } else {
+                            scopes.declare_nested(&id.name);
+                        }
+                    }
+                }
             }
         }
         BindingPattern::Array { elements, .. } => {
@@ -1197,13 +1265,24 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         }
         Expr::ObjectExpression { properties, .. } => {
             for p in properties {
-                let shorthand = p.shorthand;
-                match &mut p.key {
-                    ObjectKey::Computed(e) => rename_expr(e, renames, scopes),
-                    ObjectKey::Ident(id) if shorthand => rename_ident(id, renames, scopes),
-                    ObjectKey::Ident(_) | ObjectKey::String(_) => {}
+                match p {
+                    ObjectProp::Property {
+                        key,
+                        value,
+                        shorthand,
+                        ..
+                    } => {
+                        match key {
+                            ObjectKey::Computed(e) => rename_expr(e, renames, scopes),
+                            ObjectKey::Ident(id) if *shorthand => {
+                                rename_ident(id, renames, scopes)
+                            }
+                            ObjectKey::Ident(_) | ObjectKey::String(_) => {}
+                        }
+                        rename_expr(value, renames, scopes);
+                    }
+                    ObjectProp::Spread { expr, .. } => rename_expr(expr, renames, scopes),
                 }
-                rename_expr(&mut p.value, renames, scopes);
             }
         }
         Expr::ArrayExpression { elements, .. } => {
@@ -1222,6 +1301,16 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
                         rename_binding_pattern_use(p, renames, scopes);
                     }
                     ArrayPatternElement::Rest(id) => rename_ident(id, renames, scopes),
+                }
+            }
+        }
+        Expr::ObjectPattern { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectPatternProp::Prop { binding, .. } => {
+                        rename_binding_pattern_use(binding, renames, scopes);
+                    }
+                    ObjectPatternProp::Rest(id) => rename_ident(id, renames, scopes),
                 }
             }
         }
@@ -1254,6 +1343,16 @@ fn rename_binding_pattern_use(
                         rename_binding_pattern_use(p, renames, scopes)
                     }
                     ArrayPatternElement::Rest(id) => rename_ident(id, renames, scopes),
+                }
+            }
+        }
+        BindingPattern::Object { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectPatternProp::Prop { binding, .. } => {
+                        rename_binding_pattern_use(binding, renames, scopes)
+                    }
+                    ObjectPatternProp::Rest(id) => rename_ident(id, renames, scopes),
                 }
             }
         }

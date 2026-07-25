@@ -1,8 +1,8 @@
 use draconic_ast::{
     dump_program, Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BinaryOp,
     BigIntLit, BindingKind, BindingPattern, ClassElement, ExportSpecifier, Expr, Ident,
-    ImportSpecifier, NumberLit, ObjectKey, ObjectProp, Param, Program, Stmt, StringLit, SwitchCase,
-    TemplateElement, UnaryOp, UpdateOp,
+    ImportSpecifier, NumberLit, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt,
+    StringLit, SwitchCase, TemplateElement, UnaryOp, UpdateOp,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_lexer::{Lexer, Token, TokenKind};
@@ -1421,9 +1421,12 @@ impl Parser {
             // Initializer is AssignmentExpression (not Expression), so `,` is not
             // consumed here — multi-declarator lexical binding is a later feature.
             Some(self.parse_assignment()?)
-        } else if matches!(binding, BindingPattern::Array { .. }) {
+        } else if matches!(
+            binding,
+            BindingPattern::Array { .. } | BindingPattern::Object { .. }
+        ) {
             return Err(Diagnostic::new(
-                "array destructuring declaration requires an initializer".to_string(),
+                "destructuring declaration requires an initializer".to_string(),
                 binding.span(),
             ));
         } else if kind == BindingKind::Const {
@@ -1452,10 +1455,12 @@ impl Parser {
         })
     }
 
-    /// Binding pattern: identifier or `[a, b, ...rest]` (nested arrays allowed).
+    /// Binding pattern: identifier, `[a, b, ...rest]`, or `{ a, b: c, ...rest }`.
     fn parse_binding_pattern(&mut self) -> Result<BindingPattern, Diagnostic> {
         if self.check(&TokenKind::LBracket) {
             self.parse_array_binding_pattern()
+        } else if self.check(&TokenKind::LBrace) {
+            self.parse_object_binding_pattern()
         } else {
             let name_tok = self.expect_ident()?;
             Ok(BindingPattern::Ident(Ident {
@@ -1512,6 +1517,75 @@ impl Parser {
         })
     }
 
+    fn parse_object_binding_pattern(&mut self) -> Result<BindingPattern, Diagnostic> {
+        let start = self.expect(&TokenKind::LBrace)?.span.start.0;
+        let mut properties = Vec::new();
+        let mut saw_rest = false;
+        if !self.check(&TokenKind::RBrace) {
+            loop {
+                if self.check(&TokenKind::RBrace) {
+                    break;
+                }
+                if saw_rest {
+                    return Err(Diagnostic::new(
+                        "rest element must be last in object pattern".to_string(),
+                        self.current().span,
+                    ));
+                }
+                if self.check(&TokenKind::DotDotDot) {
+                    let rest_start = self.bump().span.start.0;
+                    let name_tok = self.expect_ident()?;
+                    properties.push(ObjectPatternProp::Rest(Ident {
+                        name: name_tok.ident_name(),
+                        span: Span::new(rest_start, name_tok.span.end.0),
+                    }));
+                    saw_rest = true;
+                } else {
+                    let key_tok = self.expect_ident()?;
+                    let key = Ident {
+                        name: key_tok.ident_name(),
+                        span: key_tok.span,
+                    };
+                    if self.check(&TokenKind::Colon) {
+                        self.bump();
+                        let binding = self.parse_binding_pattern()?;
+                        let end = binding.span().end.0;
+                        properties.push(ObjectPatternProp::Prop {
+                            key,
+                            binding,
+                            shorthand: false,
+                            span: Span::new(key_tok.span.start.0, end),
+                        });
+                    } else {
+                        // Shorthand `{ a }`
+                        properties.push(ObjectPatternProp::Prop {
+                            key: key.clone(),
+                            binding: BindingPattern::Ident(key.clone()),
+                            shorthand: true,
+                            span: key.span,
+                        });
+                    }
+                }
+                if self.check(&TokenKind::Comma) {
+                    if saw_rest {
+                        return Err(Diagnostic::new(
+                            "rest element must be last in object pattern".to_string(),
+                            self.current().span,
+                        ));
+                    }
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span.end.0;
+        Ok(BindingPattern::Object {
+            properties,
+            span: Span::new(start, end),
+        })
+    }
+
     /// Expression: `AssignmentExpression` (`,` `AssignmentExpression`)* left-assoc.
     fn parse_expr(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.parse_assignment()?;
@@ -1548,6 +1622,8 @@ impl Parser {
         let span = span_merge(expr_span(&left), expr_span(&value));
         let target = if op == AssignOp::Eq {
             if let Some(pat) = array_expr_to_pattern(&left) {
+                pat
+            } else if let Some(pat) = object_expr_to_pattern(&left) {
                 pat
             } else {
                 left
@@ -2223,9 +2299,18 @@ impl Parser {
     }
 
     /// `key: value`, shorthand `{ a }`, method `{ m() {} }` / `{ *m() {} }`,
-    /// or computed `{ [e]: v }` / `{ [e]() {} }` / `{ *[e]() {} }`.
+    /// spread `{ ...e }`, or computed `{ [e]: v }` / `{ [e]() {} }` / `{ *[e]() {} }`.
     fn parse_object_prop(&mut self) -> Result<ObjectProp, Diagnostic> {
         let prop_start = self.current_span().start.0;
+        if self.check(&TokenKind::DotDotDot) {
+            self.bump();
+            let expr = self.parse_assignment()?;
+            let end = expr_span(&expr).end.0;
+            return Ok(ObjectProp::Spread {
+                expr,
+                span: Span::new(prop_start, end),
+            });
+        }
         let is_generator = if self.check(&TokenKind::Star) {
             self.bump();
             true
@@ -2247,7 +2332,7 @@ impl Parser {
                 if self.check(&TokenKind::LParen) {
                     let value = self.parse_method_function(key_start, is_generator)?;
                     let end = expr_span(&value).end.0;
-                    return Ok(ObjectProp {
+                    return Ok(ObjectProp::Property {
                         key,
                         value,
                         shorthand: false,
@@ -2263,7 +2348,7 @@ impl Parser {
                 self.expect(&TokenKind::Colon)?;
                 let value = self.parse_assignment()?;
                 let end = expr_span(&value).end.0;
-                Ok(ObjectProp {
+                Ok(ObjectProp::Property {
                     key,
                     value,
                     shorthand: false,
@@ -2287,7 +2372,7 @@ impl Parser {
                 if self.check(&TokenKind::LParen) {
                     let value = self.parse_method_function(span_start, is_generator)?;
                     let end = expr_span(&value).end.0;
-                    return Ok(ObjectProp {
+                    return Ok(ObjectProp::Property {
                         key,
                         value,
                         shorthand: false,
@@ -2306,7 +2391,7 @@ impl Parser {
                         name,
                         span: key_span,
                     });
-                    return Ok(ObjectProp {
+                    return Ok(ObjectProp::Property {
                         key,
                         value,
                         shorthand: true,
@@ -2316,7 +2401,7 @@ impl Parser {
                 self.expect(&TokenKind::Colon)?;
                 let value = self.parse_assignment()?;
                 let end = expr_span(&value).end.0;
-                Ok(ObjectProp {
+                Ok(ObjectProp::Property {
                     key,
                     value,
                     shorthand: false,
@@ -2339,7 +2424,7 @@ impl Parser {
                 if self.check(&TokenKind::LParen) {
                     let method = self.parse_method_function(span_start, is_generator)?;
                     let end = expr_span(&method).end.0;
-                    return Ok(ObjectProp {
+                    return Ok(ObjectProp::Property {
                         key,
                         value: method,
                         shorthand: false,
@@ -2355,7 +2440,7 @@ impl Parser {
                 self.expect(&TokenKind::Colon)?;
                 let value = self.parse_assignment()?;
                 let end = expr_span(&value).end.0;
-                Ok(ObjectProp {
+                Ok(ObjectProp::Property {
                     key,
                     value,
                     shorthand: false,
@@ -2745,6 +2830,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::ObjectExpression { span, .. }
         | Expr::ArrayExpression { span, .. }
         | Expr::ArrayPattern { span, .. }
+        | Expr::ObjectPattern { span, .. }
         | Expr::MemberExpression { span, .. }
         | Expr::Paren { span, .. }
         | Expr::As { span, .. } => *span,
@@ -2783,6 +2869,51 @@ fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
     })
 }
 
+/// Reinterpret an object literal as an assignment pattern when every property is
+/// a binding target (shorthand, `key: pattern`, or trailing `...ident`).
+fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
+    let Expr::ObjectExpression { properties, span } = expr else {
+        return None;
+    };
+    let mut props = Vec::with_capacity(properties.len());
+    let mut saw_rest = false;
+    for prop in properties {
+        if saw_rest {
+            return None;
+        }
+        match prop {
+            ObjectProp::Property {
+                key,
+                value,
+                shorthand,
+                span: prop_span,
+            } => {
+                let ObjectKey::Ident(key_id) = key else {
+                    return None;
+                };
+                let binding = expr_to_binding_pattern(value)?;
+                props.push(ObjectPatternProp::Prop {
+                    key: key_id.clone(),
+                    binding,
+                    shorthand: *shorthand,
+                    span: *prop_span,
+                });
+            }
+            ObjectProp::Spread { expr: inner, .. } => {
+                let Expr::Ident(id) = inner else {
+                    return None;
+                };
+                props.push(ObjectPatternProp::Rest(id.clone()));
+                saw_rest = true;
+            }
+        }
+    }
+    Some(Expr::ObjectPattern {
+        properties: props,
+        span: *span,
+    })
+}
+
 fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
     match expr {
         Expr::Ident(id) => Some(BindingPattern::Ident(id.clone())),
@@ -2814,6 +2945,49 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
         }
         Expr::ArrayPattern { elements, span } => Some(BindingPattern::Array {
             elements: elements.clone(),
+            span: *span,
+        }),
+        Expr::ObjectExpression { properties, span } => {
+            let mut props = Vec::with_capacity(properties.len());
+            let mut saw_rest = false;
+            for prop in properties {
+                if saw_rest {
+                    return None;
+                }
+                match prop {
+                    ObjectProp::Property {
+                        key,
+                        value,
+                        shorthand,
+                        span: prop_span,
+                    } => {
+                        let ObjectKey::Ident(key_id) = key else {
+                            return None;
+                        };
+                        let binding = expr_to_binding_pattern(value)?;
+                        props.push(ObjectPatternProp::Prop {
+                            key: key_id.clone(),
+                            binding,
+                            shorthand: *shorthand,
+                            span: *prop_span,
+                        });
+                    }
+                    ObjectProp::Spread { expr: inner, .. } => {
+                        let Expr::Ident(id) = inner else {
+                            return None;
+                        };
+                        props.push(ObjectPatternProp::Rest(id.clone()));
+                        saw_rest = true;
+                    }
+                }
+            }
+            Some(BindingPattern::Object {
+                properties: props,
+                span: *span,
+            })
+        }
+        Expr::ObjectPattern { properties, span } => Some(BindingPattern::Object {
+            properties: properties.clone(),
             span: *span,
         }),
         _ => None,
