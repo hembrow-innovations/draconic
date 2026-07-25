@@ -276,3 +276,13 @@ fn param_destructure_fixture_present() {
 fn param_destructure_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/param_destructure");
 }
+
+#[test]
+fn class_fields_fixture_present() {
+    assert_fixture_present("es/annex-b/class_fields");
+}
+
+#[test]
+fn class_fields_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/class_fields");
+}

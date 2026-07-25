@@ -297,7 +297,7 @@ pub struct ExportSpecifier {
     pub exported: Ident,
 }
 
-/// One element of a class body (`constructor` or method).
+/// One element of a class body (`constructor`, method, accessor, or field).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClassElement {
     /// `constructor(params) { body }`
@@ -321,6 +321,14 @@ pub enum ClassElement {
         name: Ident,
         params: Vec<Param>,
         body: Box<Stmt>,
+        is_static: bool,
+        span: Span,
+    },
+    /// `static? name = expr;` / `static? name;` public field (E18.26).
+    Field {
+        name: Ident,
+        /// Absent when the field has no initializer (`name;`).
+        value: Option<Expr>,
         is_static: bool,
         span: Span,
     },
@@ -1239,6 +1247,26 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         indent(level + 2, out);
                         out.push_str("body:\n");
                         dump_stmt(body, level + 3, out);
+                    }
+                    ClassElement::Field {
+                        name,
+                        value,
+                        is_static,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        if *is_static {
+                            out.push_str("StaticField\n");
+                        } else {
+                            out.push_str("Field\n");
+                        }
+                        indent(level + 2, out);
+                        out.push_str(&format!("name: {}\n", name.name));
+                        if let Some(v) = value {
+                            indent(level + 2, out);
+                            out.push_str("value:\n");
+                            dump_expr(v, level + 3, out);
+                        }
                     }
                 }
             }

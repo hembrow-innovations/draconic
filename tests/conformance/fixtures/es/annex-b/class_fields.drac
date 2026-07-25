@@ -1,0 +1,78 @@
+class Point {
+  x = 1;
+  y = 2;
+  sum() {
+    return this.x + this.y;
+  }
+}
+let p = new Point();
+let a = p.x;
+let b = p.y;
+let c = p.sum();
+
+class Counter {
+  n = 0;
+  inc() {
+    this.n = this.n + 1;
+  }
+  value() {
+    return this.n;
+  }
+}
+let ctr = new Counter();
+ctr.inc();
+ctr.inc();
+let d = ctr.value();
+
+class WithCtor {
+  x = 10;
+  constructor(y) {
+    this.y = y;
+  }
+  both() {
+    return this.x + this.y;
+  }
+}
+let w = new WithCtor(5);
+let e = w.both();
+
+class Bare {
+  z;
+}
+let bare = new Bare();
+let f = bare.z;
+let fType = typeof bare.z;
+
+class StaticBox {
+  static count = 3;
+  static tag = "box";
+  static empty;
+  value = 7;
+}
+let g = StaticBox.count;
+let h = StaticBox.tag;
+let i = typeof StaticBox.empty;
+let j = new StaticBox().value;
+
+class Parent {
+  base = 100;
+}
+class Child extends Parent {
+  extra = 1;
+  constructor() {
+    super();
+  }
+  total() {
+    return this.base + this.extra;
+  }
+}
+let ch = new Child();
+let k = ch.total();
+let l = ch.base;
+let m = ch.extra;
+
+class ExprField {
+  n = 1 + 2 * 3;
+}
+let o = new ExprField();
+let q = o.n;

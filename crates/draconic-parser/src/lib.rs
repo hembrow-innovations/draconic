@@ -611,6 +611,32 @@ impl Parser {
             name: name_tok.ident_name(),
             span: name_tok.span,
         };
+        // Public field: `name;` / `name = expr;` (not a method/constructor).
+        if !is_generator && !self.check(&TokenKind::LParen) {
+            let value = if self.check(&TokenKind::Eq) {
+                self.bump();
+                Some(self.parse_assignment()?)
+            } else {
+                None
+            };
+            let end = value
+                .as_ref()
+                .map(|v| expr_span(v).end.0)
+                .unwrap_or(name.span.end.0);
+            let span = Span::new(start, end);
+            if name.name == "constructor" {
+                return Err(Diagnostic::new(
+                    "class field cannot be named constructor".to_string(),
+                    span,
+                ));
+            }
+            return Ok(ClassElement::Field {
+                name,
+                value,
+                is_static,
+                span,
+            });
+        }
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;

@@ -518,6 +518,18 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
                         uniqueify_params_spans(params, spans);
                         uniqueify_stmt_spans(body, spans);
                     }
+                    ClassElement::Field {
+                        name,
+                        value,
+                        span,
+                        ..
+                    } => {
+                        *span = spans.next();
+                        name.span = spans.next();
+                        if let Some(v) = value {
+                            uniqueify_expr_spans(v, spans);
+                        }
+                    }
                 }
             }
         }
@@ -1186,6 +1198,11 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
                         rename_params(params, renames, scopes);
                         rename_stmt(body, renames, scopes);
                         scopes.pop();
+                    }
+                    ClassElement::Field { value, .. } => {
+                        if let Some(v) = value {
+                            rename_expr(v, renames, scopes);
+                        }
                     }
                 }
             }

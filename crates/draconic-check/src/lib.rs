@@ -1145,6 +1145,11 @@ impl Binder {
                             self.bind_stmt(body)?;
                             self.pop_scope();
                         }
+                        ClassElement::Field { value, .. } => {
+                            if let Some(v) = value {
+                                self.bind_expr(v)?;
+                            }
+                        }
                     }
                 }
                 Ok(())
@@ -2212,6 +2217,11 @@ impl<'a> Checker<'a> {
                             self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
                             self.in_async = prev_async;
                             self.in_generator = prev_generator;
+                        }
+                        ClassElement::Field { value, .. } => {
+                            if let Some(v) = value {
+                                self.check_expr(v)?;
+                            }
                         }
                     }
                 }
@@ -5362,6 +5372,11 @@ mod tests {
                             | ClassElement::Method { body, .. }
                             | ClassElement::Accessor { body, .. } => {
                                 walk_stmt(body, name, out);
+                            }
+                            ClassElement::Field { value, .. } => {
+                                if let Some(v) = value {
+                                    walk_expr(v, name, out);
+                                }
                             }
                         }
                     }

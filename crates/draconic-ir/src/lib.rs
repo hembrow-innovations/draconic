@@ -742,7 +742,7 @@ fn lower_fn_body(
     }
 }
 
-/// Desugar `class Name extends? Super { constructor… methods… }` to function + prototype assigns.
+/// Desugar `class Name extends? Super { constructor… methods… fields… }` to function + assigns.
 fn lower_class(
     checked: &CheckedProgram,
     name: &Ident,
@@ -767,6 +767,8 @@ fn lower_class(
         &AstStmt,
         bool,
     )> = Vec::new();
+    let mut instance_fields: Vec<(&Ident, Option<&AstExpr>)> = Vec::new();
+    let mut static_fields: Vec<(&Ident, Option<&AstExpr>)> = Vec::new();
 
     for el in elements {
         match el {
@@ -806,7 +808,61 @@ fn lower_class(
                     *is_static,
                 ));
             }
+            ClassElement::Field {
+                name: field_name,
+                value,
+                is_static,
+                ..
+            } => {
+                let v = value.as_ref();
+                if *is_static {
+                    static_fields.push((field_name, v));
+                } else {
+                    instance_fields.push((field_name, v));
+                }
+            }
         }
+    }
+
+    if !instance_fields.is_empty() {
+        let field_inits: Vec<Stmt> = instance_fields
+            .iter()
+            .map(|(fname, value)| {
+                let init = match value {
+                    Some(v) => lower_expr(checked, v, super_class),
+                    None => Expr::IdentName {
+                        name: "undefined".into(),
+                        ty: Type::Any,
+                    },
+                };
+                Stmt::Expr {
+                    expr: Expr::Assign {
+                        target: AssignTarget::Member {
+                            object: Box::new(Expr::This { ty: Type::Any }),
+                            property: Box::new(Expr::String {
+                                value: fname.name.clone().into(),
+                                ty: Type::String,
+                            }),
+                            computed: false,
+                        },
+                        op: AssignOp::Eq,
+                        value: Box::new(init),
+                        ty: Type::Any,
+                    },
+                }
+            })
+            .collect();
+        // After `super(...)` when present (first body stmt), else at start of ctor.
+        let insert_at = if super_class.is_some() && !ctor_body.is_empty() {
+            1
+        } else {
+            0
+        };
+        let mut new_body = Vec::with_capacity(ctor_body.len() + field_inits.len());
+        new_body.extend(ctor_body.drain(..insert_at.min(ctor_body.len())));
+        new_body.extend(field_inits);
+        new_body.extend(ctor_body);
+        ctor_body = new_body;
     }
 
     let mut out = vec![Stmt::Function {
@@ -1002,6 +1058,35 @@ fn lower_class(
                 },
                 op: AssignOp::Eq,
                 value: Box::new(parent),
+                ty: Type::Any,
+            },
+        });
+    }
+
+    // Static fields run after the class definition is fully linked.
+    for (fname, value) in static_fields {
+        let init = match value {
+            Some(v) => lower_expr(checked, v, None),
+            None => Expr::IdentName {
+                name: "undefined".into(),
+                ty: Type::Any,
+            },
+        };
+        out.push(Stmt::Expr {
+            expr: Expr::Assign {
+                target: AssignTarget::Member {
+                    object: Box::new(Expr::Local {
+                        id: local,
+                        ty: Type::Function,
+                    }),
+                    property: Box::new(Expr::String {
+                        value: fname.name.clone().into(),
+                        ty: Type::String,
+                    }),
+                    computed: false,
+                },
+                op: AssignOp::Eq,
+                value: Box::new(init),
                 ty: Type::Any,
             },
         });
