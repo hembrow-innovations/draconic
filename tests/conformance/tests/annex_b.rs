@@ -56,3 +56,13 @@ fn string_proto_annex_fixture_present() {
 fn string_proto_annex_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/string_proto_annex");
 }
+
+#[test]
+fn date_proto_annex_fixture_present() {
+    assert_fixture_present("es/annex-b/date_proto_annex");
+}
+
+#[test]
+fn date_proto_annex_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/date_proto_annex");
+}
