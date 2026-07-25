@@ -96,3 +96,13 @@ fn object_accessor_legacy_fixture_present() {
 fn object_accessor_legacy_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/object_accessor_legacy");
 }
+
+#[test]
+fn html_comments_fixture_present() {
+    assert_fixture_present("es/annex-b/html_comments");
+}
+
+#[test]
+fn html_comments_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/html_comments");
+}

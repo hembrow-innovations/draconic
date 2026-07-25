@@ -169,6 +169,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E18.05 | done | both | `RegExp.prototype.compile` (Annex B.2.6): `typeof`, recompile pattern/flags, read-back `.source`/`.flags`/`.test` | `tests/conformance` fixtures `es/annex-b` |
 | E18.06 | done | both | `String.prototype.trimLeft` / `trimRight` (Annex B.2.3): aliases of `trimStart`/`trimEnd`; `typeof`, call behavior, identity with trimStart/trimEnd | `tests/conformance` fixtures `es/annex-b` |
 | E18.07 | done | both | `Object.prototype` accessor legacy (B.2.2): `__defineGetter__` / `__defineSetter__` / `__lookupGetter__` / `__lookupSetter__` | `tests/conformance` fixtures `es/annex-b` |
+| E18.08 | done | both | HTML-like comments (Annex B.1.3): `<!--` single-line open; line-start `-->` single-line close | `tests/conformance` fixtures `es/annex-b` |
 
 ---
 

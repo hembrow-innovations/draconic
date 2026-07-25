@@ -1,0 +1,7 @@
+<!-- open at bof
+let a = 1; <!-- mid-line after semi
+let b = 2;
+-->
+let c = a + b;
+let d = 10;
+let e = d-->0;

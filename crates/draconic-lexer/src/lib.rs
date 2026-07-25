@@ -222,6 +222,8 @@ pub struct Lexer<'a> {
     /// Stack of open template `${…}` frames. Each entry is the `{`/`}` nesting
     /// depth *inside* that expression (0 ⇒ next `}` closes the interpolation).
     template_expr_braces: Vec<u32>,
+    /// True at BOF or after a line terminator (Annex B HTML close comment).
+    at_line_start: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -231,6 +233,7 @@ impl<'a> Lexer<'a> {
             bytes: src.as_bytes(),
             pos: 0,
             template_expr_braces: Vec::new(),
+            at_line_start: true,
         }
     }
 
@@ -504,6 +507,7 @@ impl<'a> Lexer<'a> {
             }
         };
 
+        self.at_line_start = false;
         Ok(Token {
             kind,
             span: Span::new(start, self.pos as u32),
@@ -516,13 +520,24 @@ impl<'a> Lexer<'a> {
                 return Ok(());
             }
             match self.peek() {
-                b' ' | b'\t' | b'\r' | b'\n' => {
+                b' ' | b'\t' => {
                     self.bump();
+                }
+                b'\r' => {
+                    self.bump();
+                    if !self.is_eof() && self.peek() == b'\n' {
+                        self.bump();
+                    }
+                    self.at_line_start = true;
+                }
+                b'\n' => {
+                    self.bump();
+                    self.at_line_start = true;
                 }
                 b'/' if self.peek_at(1) == Some(b'/') => {
                     self.bump();
                     self.bump();
-                    while !self.is_eof() && self.peek() != b'\n' {
+                    while !self.is_eof() && self.peek() != b'\n' && self.peek() != b'\r' {
                         self.bump();
                     }
                 }
@@ -530,6 +545,7 @@ impl<'a> Lexer<'a> {
                     let start = self.pos as u32;
                     self.bump();
                     self.bump();
+                    let mut saw_line_terminator = false;
                     loop {
                         if self.is_eof() {
                             return Err(Diagnostic::new(
@@ -542,6 +558,38 @@ impl<'a> Lexer<'a> {
                             self.bump();
                             break;
                         }
+                        let c = self.peek();
+                        if c == b'\n' || c == b'\r' {
+                            saw_line_terminator = true;
+                        }
+                        self.bump();
+                    }
+                    if saw_line_terminator {
+                        self.at_line_start = true;
+                    }
+                }
+                // Annex B.1.3 SingleLineHTMLOpenComment: `<!--` …
+                b'<' if self.peek_at(1) == Some(b'!')
+                    && self.peek_at(2) == Some(b'-')
+                    && self.peek_at(3) == Some(b'-') =>
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    while !self.is_eof() && self.peek() != b'\n' && self.peek() != b'\r' {
+                        self.bump();
+                    }
+                }
+                // Annex B.1.3 HTMLCloseComment at line start: `-->` …
+                b'-' if self.at_line_start
+                    && self.peek_at(1) == Some(b'-')
+                    && self.peek_at(2) == Some(b'>') =>
+                {
+                    self.bump();
+                    self.bump();
+                    self.bump();
+                    while !self.is_eof() && self.peek() != b'\n' && self.peek() != b'\r' {
                         self.bump();
                     }
                 }
@@ -603,6 +651,7 @@ impl<'a> Lexer<'a> {
                 TokenKind::TemplateMiddle(value)
             }
         };
+        self.at_line_start = false;
         Ok(Token {
             kind,
             span: Span::new(start, self.pos as u32),
@@ -1129,6 +1178,68 @@ mod tests {
                 TokenKind::Number("1".into()),
                 TokenKind::Plus,
                 TokenKind::Number("2".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_html_open_comment() {
+        assert_eq!(
+            kinds("1 <!-- ignored\n+ 2"),
+            vec![
+                TokenKind::Number("1".into()),
+                TokenKind::Plus,
+                TokenKind::Number("2".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_html_close_comment_at_line_start() {
+        assert_eq!(
+            kinds("1\n--> ignored\n+ 2"),
+            vec![
+                TokenKind::Number("1".into()),
+                TokenKind::Plus,
+                TokenKind::Number("2".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_html_close_comment_after_whitespace() {
+        assert_eq!(
+            kinds("1\n  --> ignored\n+ 2"),
+            vec![
+                TokenKind::Number("1".into()),
+                TokenKind::Plus,
+                TokenKind::Number("2".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_html_close_comment_at_bof() {
+        assert_eq!(
+            kinds("--> ignored\n1"),
+            vec![TokenKind::Number("1".into()), TokenKind::Eof,]
+        );
+    }
+
+    #[test]
+    fn lex_html_close_not_mid_line() {
+        // `f-->0` is postfix decrement then greater-than, not an HTML close comment.
+        assert_eq!(
+            kinds("f-->0"),
+            vec![
+                TokenKind::Ident("f".into()),
+                TokenKind::MinusMinus,
+                TokenKind::Gt,
+                TokenKind::Number("0".into()),
                 TokenKind::Eof,
             ]
         );
