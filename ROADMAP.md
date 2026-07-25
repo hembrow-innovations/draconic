@@ -182,7 +182,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
-| T01 | todo | compiler | Type annotations on bindings and functions | `tests/conformance/types` |
+| T01 | done | compiler | Type annotations on bindings and functions | `tests/conformance/types` |
 | T02 | todo | compiler | Structural object types, type aliases | `tests/conformance/types` |
 | T03 | todo | compiler | Unions, intersections, narrowing | `tests/conformance/types` |
 | T04 | todo | compiler | Generics (functions, types) | `tests/conformance/types` |

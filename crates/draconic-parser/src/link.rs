@@ -276,6 +276,7 @@ impl Loader {
                         name: bind.local.clone(),
                         span: bind_span,
                     }),
+                    type_ann: None,
                     init: Some(Expr::ObjectExpression {
                         properties: props,
                         span: obj_span,

@@ -1,0 +1,9 @@
+let n: number = 1;
+let s: string = "hi";
+let b: boolean = true;
+function add(a: number, b: number): number {
+  return a + b;
+}
+let sum: number = add(n, 2);
+const id = (x: number): number => x;
+let y: number = id(sum);

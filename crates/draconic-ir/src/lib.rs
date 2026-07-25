@@ -1132,6 +1132,7 @@ fn lower_expr(
             is_async,
             is_generator,
             span,
+            ..
         } => {
             let name = name.as_ref().map(|n| {
                 checked
@@ -1158,6 +1159,7 @@ fn lower_expr(
             body,
             is_async,
             span,
+            ..
         } => {
             let params = lower_params(checked, params, None);
             let body = match body {

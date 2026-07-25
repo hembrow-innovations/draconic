@@ -68,9 +68,11 @@ pub enum Stmt {
         span: Span,
     },
     /// `let name = init;`, `let name;`, `const name = init;`, or array destructuring.
+    /// Optional `type_ann` is the TS-inspired annotation on a simple binding (`let x: T`).
     Let {
         kind: BindingKind,
         binding: BindingPattern,
+        type_ann: Option<TypeAnn>,
         init: Option<Expr>,
         span: Span,
     },
@@ -146,10 +148,12 @@ pub enum Stmt {
         cases: Vec<SwitchCase>,
         span: Span,
     },
-    /// `async? function *? name (params) { body }`
+    /// `async? function *? name (params): ret? { body }`
     FunctionDeclaration {
         name: Ident,
         params: Vec<Param>,
+        /// Optional return type annotation (`: T` after the parameter list).
+        return_type: Option<TypeAnn>,
         body: Box<Stmt>,
         is_async: bool,
         is_generator: bool,
@@ -345,18 +349,22 @@ pub enum Expr {
         args: Vec<Arg>,
         span: Span,
     },
-    /// `async? function *? name? (params) { body }` as an expression value.
+    /// `async? function *? name? (params): ret? { body }` as an expression value.
     FunctionExpression {
         name: Option<Ident>,
         params: Vec<Param>,
+        /// Optional return type annotation (`: T` after the parameter list).
+        return_type: Option<TypeAnn>,
         body: Box<Stmt>,
         is_async: bool,
         is_generator: bool,
         span: Span,
     },
-    /// `async? (params) => body` or bare `async? param => body` (simple ident params only).
+    /// `async? (params): ret? => body` or bare `async? param => body` (simple ident params only).
     ArrowFunction {
         params: Vec<Param>,
+        /// Optional return type annotation (`: T` after `)` before `=>`).
+        return_type: Option<TypeAnn>,
         body: ArrowBody,
         is_async: bool,
         span: Span,
@@ -430,13 +438,22 @@ pub enum ArrowBody {
     Block(Box<Stmt>),
 }
 
-/// Formal parameter: `name`, `name = default`, or `...name` (rest).
+/// Formal parameter: `name`, `name: T`, `name = default`, `name: T = default`, or `...name` / `...name: T`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: Ident,
+    /// Optional type annotation after the parameter name.
+    pub type_ann: Option<TypeAnn>,
     pub default: Option<Expr>,
     /// `true` for a rest parameter (`...name`). Must be last; no default.
     pub rest: bool,
+}
+
+/// Type annotation (`: TypeName`) — TS-inspired named types (T01 surface).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeAnn {
+    pub name: String,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -704,6 +721,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
         Stmt::Let {
             kind,
             binding,
+            type_ann,
             init,
             ..
         } => {
@@ -714,6 +732,10 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 BindingKind::Function => out.push_str("FunctionBinding\n"),
             }
             dump_binding_pattern(binding, level + 1, out);
+            if let Some(ann) = type_ann {
+                indent(level + 1, out);
+                out.push_str(&format!("type: {}\n", ann.name));
+            }
             if let Some(init) = init {
                 indent(level + 1, out);
                 out.push_str("init:\n");
@@ -884,6 +906,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
         Stmt::FunctionDeclaration {
             name,
             params,
+            return_type,
             body,
             is_async,
             is_generator,
@@ -902,6 +925,10 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             indent(level + 1, out);
             out.push_str(&format!("name: {}\n", name.name));
             dump_params(params, level + 1, out);
+            if let Some(ret) = return_type {
+                indent(level + 1, out);
+                out.push_str(&format!("returnType: {}\n", ret.name));
+            }
             indent(level + 1, out);
             out.push_str("body:\n");
             dump_stmt(body, level + 2, out);
@@ -1243,6 +1270,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::FunctionExpression {
             name,
             params,
+            return_type,
             body,
             is_async,
             is_generator,
@@ -1263,12 +1291,17 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                 out.push_str(&format!("name: {}\n", name.name));
             }
             dump_params(params, level + 1, out);
+            if let Some(ret) = return_type {
+                indent(level + 1, out);
+                out.push_str(&format!("returnType: {}\n", ret.name));
+            }
             indent(level + 1, out);
             out.push_str("body:\n");
             dump_stmt(body, level + 2, out);
         }
         Expr::ArrowFunction {
             params,
+            return_type,
             body,
             is_async,
             ..
@@ -1280,6 +1313,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                 out.push_str("async: true\n");
             }
             dump_params(params, level + 1, out);
+            if let Some(ret) = return_type {
+                indent(level + 1, out);
+                out.push_str(&format!("returnType: {}\n", ret.name));
+            }
             indent(level + 1, out);
             out.push_str("body:\n");
             match body {
@@ -1385,6 +1422,10 @@ fn dump_params(params: &[Param], level: usize, out: &mut String) {
         } else {
             out.push_str(&format!("name: {}\n", p.name.name));
         }
+        if let Some(ann) = &p.type_ann {
+            indent(level + 2, out);
+            out.push_str(&format!("type: {}\n", ann.name));
+        }
         if let Some(default) = &p.default {
             indent(level + 2, out);
             out.push_str("default:\n");
@@ -1407,6 +1448,7 @@ mod tests {
                     name: "x".into(),
                     span: Span::dummy(),
                 }),
+                type_ann: None,
                 init: Some(Expr::Number(NumberLit {
                     raw: "1".into(),
                     span: Span::dummy(),

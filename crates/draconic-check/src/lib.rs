@@ -3,7 +3,7 @@
 
 use draconic_ast::{
     Arg, ArrayElement, ArrayPatternElement, ArrowBody, BinaryOp, BindingKind, BindingPattern,
-    ClassElement, Expr, ObjectKey, Param, Program, Stmt, UnaryOp,
+    ClassElement, Expr, ObjectKey, Param, Program, Stmt, TypeAnn, UnaryOp,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 use std::collections::HashMap;
@@ -930,6 +930,8 @@ struct Checker<'a> {
     in_async: bool,
     /// True while typechecking a generator function body.
     in_generator: bool,
+    /// Expected return type from an enclosing annotated function (T01).
+    expected_return: Option<Type>,
 }
 
 impl<'a> Checker<'a> {
@@ -963,6 +965,7 @@ impl<'a> Checker<'a> {
             expr_types: HashMap::new(),
             in_async: false,
             in_generator: false,
+            expected_return: None,
         }
     }
 
@@ -1158,13 +1161,30 @@ impl<'a> Checker<'a> {
                 self.check_expr(expr)?;
                 Ok(())
             }
-            Stmt::Let { binding, init, .. } => {
+            Stmt::Let {
+                binding,
+                type_ann,
+                init,
+                ..
+            } => {
                 // Bare `const` without init is rejected in the parser; for-in/of
                 // left may be `const name` with no initializer.
-                let ty = if let Some(init) = init {
+                let ann_ty = match type_ann {
+                    Some(ann) => Some(self.resolve_type_ann(ann)?),
+                    None => None,
+                };
+                let init_ty = if let Some(init) = init {
                     self.check_expr(init)?
                 } else {
                     Type::Any
+                };
+                let ty = if let Some(ann_ty) = ann_ty {
+                    if let Some(init) = init {
+                        self.require_assignable(init_ty, ann_ty, expr_span_of(init))?;
+                    }
+                    ann_ty
+                } else {
+                    init_ty
                 };
                 self.check_binding_pattern(binding, ty)?;
                 Ok(())
@@ -1299,6 +1319,7 @@ impl<'a> Checker<'a> {
             Stmt::FunctionDeclaration {
                 name,
                 params,
+                return_type,
                 body,
                 is_async,
                 is_generator,
@@ -1317,11 +1338,17 @@ impl<'a> Checker<'a> {
                 let mut inner_labels = Vec::new();
                 let prev_async = self.in_async;
                 let prev_generator = self.in_generator;
+                let prev_ret = self.expected_return;
                 self.in_async = *is_async;
                 self.in_generator = *is_generator;
+                self.expected_return = match return_type {
+                    Some(ann) => Some(self.resolve_type_ann(ann)?),
+                    None => None,
+                };
                 let result = self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels);
                 self.in_async = prev_async;
                 self.in_generator = prev_generator;
+                self.expected_return = prev_ret;
                 result
             }
             Stmt::ClassDeclaration {
@@ -1381,8 +1408,23 @@ impl<'a> Checker<'a> {
                         *span,
                     ));
                 }
-                if let Some(arg) = argument {
-                    self.check_expr(arg)?;
+                let actual = if let Some(arg) = argument {
+                    self.check_expr(arg)?
+                } else {
+                    // Bare `return;` yields undefined — treat as Any for coarse types.
+                    Type::Any
+                };
+                if let Some(expected) = self.expected_return {
+                    if argument.is_some() {
+                        self.require_assignable(actual, expected, *span)?;
+                    } else if expected != Type::Any {
+                        return Err(Diagnostic::new(
+                            format!(
+                                "return type `{expected}` requires a value; bare `return` is not assignable"
+                            ),
+                            *span,
+                        ));
+                    }
                 }
                 Ok(())
             }
@@ -1763,6 +1805,7 @@ impl<'a> Checker<'a> {
             Expr::FunctionExpression {
                 name,
                 params,
+                return_type,
                 body,
                 is_async,
                 is_generator,
@@ -1783,16 +1826,23 @@ impl<'a> Checker<'a> {
                 let mut inner_labels = Vec::new();
                 let prev_async = self.in_async;
                 let prev_generator = self.in_generator;
+                let prev_ret = self.expected_return;
                 self.in_async = *is_async;
                 self.in_generator = *is_generator;
+                self.expected_return = match return_type {
+                    Some(ann) => Some(self.resolve_type_ann(ann)?),
+                    None => None,
+                };
                 self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
                 self.in_async = prev_async;
                 self.in_generator = prev_generator;
+                self.expected_return = prev_ret;
                 self.record(*span, Type::Function);
                 Type::Function
             }
             Expr::ArrowFunction {
                 params,
+                return_type,
                 body,
                 is_async,
                 span,
@@ -1801,11 +1851,20 @@ impl<'a> Checker<'a> {
                 let mut inner_labels = Vec::new();
                 let prev_async = self.in_async;
                 let prev_generator = self.in_generator;
+                let prev_ret = self.expected_return;
                 self.in_async = *is_async;
                 self.in_generator = false;
+                let ret_ty = match return_type {
+                    Some(ann) => Some(self.resolve_type_ann(ann)?),
+                    None => None,
+                };
+                self.expected_return = ret_ty;
                 match body {
                     ArrowBody::Expr(expr) => {
-                        self.check_expr(expr)?;
+                        let body_ty = self.check_expr(expr)?;
+                        if let Some(expected) = ret_ty {
+                            self.require_assignable(body_ty, expected, expr_span_of(expr))?;
+                        }
                     }
                     ArrowBody::Block(stmt) => {
                         self.check_stmt(stmt, 0, 0, 1, &mut inner_labels)?;
@@ -1813,6 +1872,7 @@ impl<'a> Checker<'a> {
                 }
                 self.in_async = prev_async;
                 self.in_generator = prev_generator;
+                self.expected_return = prev_ret;
                 self.record(*span, Type::Function);
                 Type::Function
             }
@@ -1877,12 +1937,61 @@ impl<'a> Checker<'a> {
                 .find(|s| s.span == p.name.span)
                 .map(|s| s.id)
                 .expect("param binding must be declared");
-            self.symbol_types[pid.0 as usize] = Type::Any;
+            let ann_ty = match &p.type_ann {
+                Some(ann) => Some(self.resolve_type_ann(ann)?),
+                None => None,
+            };
             if let Some(default) = &p.default {
-                self.check_expr(default)?;
+                let def_ty = self.check_expr(default)?;
+                if let Some(ann_ty) = ann_ty {
+                    self.require_assignable(def_ty, ann_ty, expr_span_of(default))?;
+                }
             }
+            self.symbol_types[pid.0 as usize] = ann_ty.unwrap_or(Type::Any);
         }
         Ok(())
+    }
+
+    /// Resolve a T01 named type annotation to a Checker `Type`.
+    fn resolve_type_ann(&self, ann: &TypeAnn) -> Result<Type, Diagnostic> {
+        let ty = match ann.name.as_str() {
+            "number" => Type::Number,
+            "string" => Type::String,
+            "boolean" => Type::Boolean,
+            "bigint" => Type::BigInt,
+            "any" => Type::Any,
+            "null" => Type::Null,
+            "object" => Type::Object,
+            "function" => Type::Function,
+            other => {
+                return Err(Diagnostic::new(
+                    format!("unknown type name `{other}`"),
+                    ann.span,
+                ));
+            }
+        };
+        Ok(ty)
+    }
+
+    /// Whether `from` is assignable to `to` under coarse T01 rules (exact match or either side `any`).
+    fn is_assignable(&self, from: Type, to: Type) -> bool {
+        from == to || from == Type::Any || to == Type::Any
+    }
+
+    fn require_assignable(
+        &self,
+        from: Type,
+        to: Type,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        if self.is_assignable(from, to) {
+            Ok(())
+        } else {
+            Err(Diagnostic::new(
+                format!("type `{from}` is not assignable to type `{to}`"),
+                span,
+            ))
+        }
     }
 
     fn record(&mut self, span: Span, ty: Type) {
@@ -2061,6 +2170,35 @@ impl<'a> Checker<'a> {
 
     fn is_add_operand(&self, ty: Type) -> bool {
         !matches!(ty, Type::BigInt)
+    }
+}
+
+fn expr_span_of(expr: &Expr) -> Span {
+    match expr {
+        Expr::Ident(i) => i.span,
+        Expr::Number(n) => n.span,
+        Expr::BigInt(n) => n.span,
+        Expr::String(s) => s.span,
+        Expr::Boolean { span, .. }
+        | Expr::Null { span }
+        | Expr::This { span }
+        | Expr::Super { span }
+        | Expr::TemplateLiteral { span, .. }
+        | Expr::TaggedTemplate { span, .. }
+        | Expr::Unary { span, .. }
+        | Expr::Binary { span, .. }
+        | Expr::Conditional { span, .. }
+        | Expr::Assign { span, .. }
+        | Expr::Update { span, .. }
+        | Expr::Call { span, .. }
+        | Expr::New { span, .. }
+        | Expr::FunctionExpression { span, .. }
+        | Expr::ArrowFunction { span, .. }
+        | Expr::ObjectExpression { span, .. }
+        | Expr::ArrayExpression { span, .. }
+        | Expr::ArrayPattern { span, .. }
+        | Expr::MemberExpression { span, .. }
+        | Expr::Paren { span, .. } => *span,
     }
 }
 

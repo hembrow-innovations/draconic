@@ -240,6 +240,7 @@ impl Parser {
                 let left = Box::new(Stmt::Let {
                     kind,
                     binding: BindingPattern::Ident(name),
+                    type_ann: None,
                     init: None,
                     span: Span::new(let_start, name_end),
                 });
@@ -259,7 +260,8 @@ impl Parser {
                     })
                 };
             }
-            // Classic `for (let/const name = init; …)` / `for (let name; …)`.
+            // Classic `for (let/const name: T? = init; …)` / `for (let name; …)`.
+            let type_ann = self.parse_optional_type_ann()?;
             let init_expr = if self.check(&TokenKind::Eq) {
                 self.bump();
                 Some(self.parse_assignment()?)
@@ -273,6 +275,8 @@ impl Parser {
             };
             let let_end = if let Some(ref e) = init_expr {
                 expr_span(e).end.0
+            } else if let Some(ref ann) = type_ann {
+                ann.span.end.0
             } else {
                 name.span.end.0
             };
@@ -280,6 +284,7 @@ impl Parser {
             let left_init = Some(Box::new(Stmt::Let {
                 kind,
                 binding: BindingPattern::Ident(name),
+                type_ann,
                 init: init_expr,
                 span: Span::new(let_start, let_end),
             }));
@@ -451,11 +456,13 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
+        let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_block()?);
         let end = stmt_span(&body).end.0;
         Ok(Stmt::FunctionDeclaration {
             name,
             params,
+            return_type,
             body,
             is_async,
             is_generator,
@@ -577,11 +584,13 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
+        let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_block()?);
         let end = stmt_span(&body).end.0;
         Ok(Expr::FunctionExpression {
             name,
             params,
+            return_type,
             body,
             is_async,
             is_generator,
@@ -614,7 +623,7 @@ impl Parser {
         Ok(params)
     }
 
-    /// `name`, `name = AssignmentExpression`, or `...name`.
+    /// `name`, `name: T`, `name = AssignmentExpression`, `name: T = …`, or `...name` / `...name: T`.
     fn parse_param(&mut self) -> Result<Param, Diagnostic> {
         if self.check(&TokenKind::DotDotDot) {
             let dots_start = self.current().span.start.0;
@@ -624,6 +633,7 @@ impl Parser {
                 name: p.ident_name(),
                 span: Span::new(dots_start, p.span.end.0),
             };
+            let type_ann = self.parse_optional_type_ann()?;
             if self.check(&TokenKind::Eq) {
                 return Err(Diagnostic::new(
                     "rest parameter cannot have a default",
@@ -632,6 +642,7 @@ impl Parser {
             }
             return Ok(Param {
                 name,
+                type_ann,
                 default: None,
                 rest: true,
             });
@@ -641,6 +652,7 @@ impl Parser {
             name: p.ident_name(),
             span: p.span,
         };
+        let type_ann = self.parse_optional_type_ann()?;
         let default = if self.check(&TokenKind::Eq) {
             self.bump();
             Some(self.parse_assignment()?)
@@ -649,9 +661,26 @@ impl Parser {
         };
         Ok(Param {
             name,
+            type_ann,
             default,
             rest: false,
         })
+    }
+
+    /// Optional `: TypeName` type annotation (T01: named types only).
+    fn parse_optional_type_ann(&mut self) -> Result<Option<draconic_ast::TypeAnn>, Diagnostic> {
+        if !self.check(&TokenKind::Colon) {
+            return Ok(None);
+        }
+        let colon_start = self.bump().span.start.0;
+        let err_span = self.current().span;
+        let name_tok = self.expect_ident().map_err(|_| {
+            Diagnostic::new("expected type name after `:`".to_string(), err_span)
+        })?;
+        Ok(Some(draconic_ast::TypeAnn {
+            name: name_tok.ident_name(),
+            span: Span::new(colon_start, name_tok.span.end.0),
+        }))
     }
 
     fn parse_return(&mut self) -> Result<Stmt, Diagnostic> {
@@ -991,6 +1020,7 @@ impl Parser {
             self.expect(&TokenKind::LParen)?;
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
+            let return_type = self.parse_optional_type_ann()?;
             let body = Box::new(self.parse_block()?);
             let end = stmt_span(&body).end.0;
             let local = name.clone();
@@ -999,9 +1029,11 @@ impl Parser {
                 Stmt::Let {
                     kind: BindingKind::Let,
                     binding: BindingPattern::Ident(local.clone()),
+                    type_ann: None,
                     init: Some(Expr::FunctionExpression {
                         name: None,
                         params,
+                        return_type,
                         body,
                         is_async,
                         is_generator,
@@ -1013,6 +1045,7 @@ impl Parser {
                 Stmt::FunctionDeclaration {
                     name,
                     params,
+                    return_type,
                     body,
                     is_async,
                     is_generator,
@@ -1038,6 +1071,7 @@ impl Parser {
         let declaration = Stmt::Let {
             kind: BindingKind::Let,
             binding: BindingPattern::Ident(local.clone()),
+            type_ann: None,
             init: Some(expr),
             span: Span::new(start, end),
         };
@@ -1126,6 +1160,12 @@ impl Parser {
         };
         let start = kind_tok.span.start.0;
         let binding = self.parse_binding_pattern()?;
+        // Type annotations only on simple identifier bindings (`let x: T`).
+        let type_ann = if matches!(binding, BindingPattern::Ident(_)) {
+            self.parse_optional_type_ann()?
+        } else {
+            None
+        };
         let init = if self.check(&TokenKind::Eq) {
             self.bump();
             // Initializer is AssignmentExpression (not Expression), so `,` is not
@@ -1150,11 +1190,13 @@ impl Parser {
             init.as_ref()
                 .map(expr_span)
                 .map(|s| s.end.0)
+                .or_else(|| type_ann.as_ref().map(|a| a.span.end.0))
                 .unwrap_or_else(|| binding.span().end.0)
         };
         Ok(Stmt::Let {
             kind,
             binding,
+            type_ann,
             init,
             span: Span::new(start, end),
         })
@@ -1359,13 +1401,24 @@ impl Parser {
         if depth != 0 {
             return false;
         }
+        // Optional return type `: Ident` between `)` and `=>`.
+        if matches!(self.tokens.get(i).map(|t| &t.kind), Some(TokenKind::Colon)) {
+            i += 1;
+            if !matches!(
+                self.tokens.get(i).map(|t| &t.kind),
+                Some(TokenKind::Ident(_))
+            ) {
+                return false;
+            }
+            i += 1;
+        }
         matches!(
             self.tokens.get(i).map(|t| &t.kind),
             Some(TokenKind::Arrow)
         )
     }
 
-    /// `async? (params) => body` or bare `async? param => body`.
+    /// `async? (params): ret? => body` or bare `async? param => body`.
     fn parse_arrow_function(&mut self) -> Result<Expr, Diagnostic> {
         let (is_async, start) = if self.check(&TokenKind::Async) {
             let start = self.bump().span.start.0;
@@ -1373,21 +1426,26 @@ impl Parser {
         } else {
             (false, self.current().span.start.0)
         };
-        let params = if matches!(self.current().kind, TokenKind::Ident(_)) {
+        let (params, return_type) = if matches!(self.current().kind, TokenKind::Ident(_)) {
             let p = self.expect_ident()?;
-            vec![Param {
-                name: Ident {
-                    name: p.ident_name(),
-                    span: p.span,
-                },
-                default: None,
-                rest: false,
-            }]
+            (
+                vec![Param {
+                    name: Ident {
+                        name: p.ident_name(),
+                        span: p.span,
+                    },
+                    type_ann: None,
+                    default: None,
+                    rest: false,
+                }],
+                None,
+            )
         } else {
             self.expect(&TokenKind::LParen)?;
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
-            params
+            let return_type = self.parse_optional_type_ann()?;
+            (params, return_type)
         };
         self.expect(&TokenKind::Arrow)?;
         let body = if self.check(&TokenKind::LBrace) {
@@ -1401,6 +1459,7 @@ impl Parser {
         };
         Ok(Expr::ArrowFunction {
             params,
+            return_type,
             body,
             is_async,
             span: Span::new(start, end),
@@ -2052,11 +2111,13 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
+        let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_block()?);
         let end = stmt_span(&body).end.0;
         Ok(Expr::FunctionExpression {
             name: None,
             params,
+            return_type,
             body,
             is_async: false,
             is_generator,
