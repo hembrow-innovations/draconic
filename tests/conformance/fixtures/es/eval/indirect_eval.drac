@@ -1,0 +1,20 @@
+globalThis.gx = 100;
+function probeDirect() {
+  let gx = 200;
+  return eval("gx");
+}
+function probeIndirectComma() {
+  let gx = 200;
+  return (0, eval)("gx");
+}
+function probeIndirectGlobalThis() {
+  let gx = 200;
+  return globalThis.eval("gx");
+}
+let d = probeDirect();
+let i = probeIndirectComma();
+let g = probeIndirectGlobalThis();
+let t = typeof (0, eval);
+let same = globalThis.eval === eval;
+let a = (0, eval)("1 + 2");
+let b = globalThis.eval("'hi'");

@@ -1,0 +1,5 @@
+id: es/strings/tagged_template
+targets: js,native
+js.exit: 0
+js.check: if (plain !== "hello1") process.exit(1); if (one !== "hello world!") process.exit(2); if (two !== "x1y2z3") process.exit(3); if (esc !== "a`b") process.exit(4); if (empty !== true) process.exit(5); if (viaCall !== "p9q") process.exit(6); if (viaMethod !== "m7n") process.exit(7); if (typeof plain !== "string") process.exit(8);
+native.exit: 0

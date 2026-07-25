@@ -1,0 +1,29 @@
+function outer(n) {
+  function addOne() {
+    return n + 1;
+  }
+  return addOne();
+}
+
+function makeAdder(base) {
+  let offset = 10;
+  function add(x) {
+    return base + offset + x;
+  }
+  return add(5);
+}
+
+function nestedLocal() {
+  let a = 3;
+  function inner() {
+    function deep() {
+      return a;
+    }
+    return deep();
+  }
+  return inner();
+}
+
+let a = outer(41);
+let b = makeAdder(2);
+let c = nestedLocal();

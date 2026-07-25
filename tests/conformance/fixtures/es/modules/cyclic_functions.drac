@@ -1,0 +1,5 @@
+import { fromA, callB } from "./cyclic_a.drac";
+import { fromB } from "./cyclic_b.drac";
+let a = fromA(40);
+let b = fromB(40);
+let c = callB(40);

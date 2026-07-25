@@ -1,0 +1,36 @@
+function sum(...nums) {
+  let s = 0;
+  for (let n of nums) {
+    s = s + n;
+  }
+  return s;
+}
+function head(first, ...rest) {
+  let n = 0;
+  for (let x of rest) {
+    n = n + 1;
+  }
+  return first + n;
+}
+let id = function (...args) {
+  let c = 0;
+  for (let x of args) {
+    c = c + 1;
+  }
+  return c;
+};
+let arrow = (...xs) => {
+  let t = 0;
+  for (let x of xs) {
+    t = t + x;
+  }
+  return t;
+};
+let a = sum();
+let b = sum(1);
+let c = sum(1, 2, 3);
+let d = head(10, 1, 2);
+let e = head(7);
+let f = id(1, 2);
+let g = arrow(4, 5);
+let h = arrow();

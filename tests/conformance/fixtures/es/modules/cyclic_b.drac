@@ -1,0 +1,4 @@
+import { fromA } from "./cyclic_a.drac";
+export function fromB(x) {
+  return fromA(x) + 1;
+}

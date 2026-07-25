@@ -1,0 +1,82 @@
+function* seq() {
+  yield 1;
+  yield 2;
+  return 3;
+}
+let it = seq();
+let n1 = it.next();
+let ret = it.return(99);
+let n2 = it.next();
+let rv1 = n1.value;
+let rd1 = n1.done;
+let retv = ret.value;
+let retd = ret.done;
+let rv2 = n2.value;
+let rd2 = n2.done;
+
+function* early() {
+  yield 10;
+  yield 20;
+}
+let it2 = early();
+let e1 = it2.return(7);
+let ev1 = e1.value;
+let ed1 = e1.done;
+let e2 = it2.next();
+let ed2 = e2.done;
+
+function* catchy() {
+  try {
+    yield 1;
+    yield 2;
+  } catch (e) {
+    yield e + 100;
+  }
+  return 0;
+}
+let it3 = catchy();
+let c1 = it3.next();
+let c2 = it3.throw(5);
+let c3 = it3.next();
+let cv1 = c1.value;
+let cd1 = c1.done;
+let cv2 = c2.value;
+let cd2 = c2.done;
+let cv3 = c3.value;
+let cd3 = c3.done;
+
+function* uncaught() {
+  yield 1;
+  yield 2;
+}
+let it4 = uncaught();
+it4.next();
+let threw = 0;
+let reason = 0;
+try {
+  it4.throw(42);
+  threw = -1;
+} catch (e) {
+  threw = 1;
+  reason = e;
+}
+let u2 = it4.next();
+let ud2 = u2.done;
+
+function* with_finally() {
+  try {
+    yield 1;
+    yield 2;
+  } finally {
+    // finally runs on .return()
+  }
+}
+let it5 = with_finally();
+let f1 = it5.next();
+let fret = it5.return(50);
+let fv1 = f1.value;
+let fd1 = f1.done;
+let fretv = fret.value;
+let fretd = fret.done;
+let f2 = it5.next();
+let fd2 = f2.done;

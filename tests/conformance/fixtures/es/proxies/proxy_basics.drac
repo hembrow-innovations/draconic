@@ -1,0 +1,21 @@
+let tf = typeof Proxy;
+let target = { a: 1, b: 2 };
+let passthrough = new Proxy(target, {});
+let g1 = passthrough.a;
+let g2 = passthrough["b"];
+let intercepted = 0;
+let p = new Proxy(
+  { x: 10 },
+  {
+    get: function (t, key) {
+      intercepted = intercepted + 1;
+      if (key === "x") {
+        return t.x + 1;
+      }
+      return 0;
+    },
+  }
+);
+let gx = p.x;
+let gy = p.y;
+let tp = typeof p;

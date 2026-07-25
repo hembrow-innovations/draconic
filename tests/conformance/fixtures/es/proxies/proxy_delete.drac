@@ -1,0 +1,36 @@
+let target = { a: 1, b: 2 };
+let plainDel = delete target.a;
+let plainIn = "a" in target;
+let plainB = target.b;
+let t2 = { x: 10, y: 20 };
+let passthrough = new Proxy(t2, {});
+let passDel = delete passthrough.x;
+let passIn = "x" in passthrough;
+let passY = passthrough.y;
+let t2x = t2.x;
+let deletes = 0;
+let lastKey = "";
+let p = new Proxy(
+  { m: 1, n: 2 },
+  {
+    deleteProperty: function (t, key) {
+      deletes = deletes + 1;
+      lastKey = key;
+      if (key === "m") {
+        return true;
+      }
+      if (key === "keep") {
+        return false;
+      }
+      return delete t[key];
+    },
+  }
+);
+let dm = delete p.m;
+let pm = p.m;
+let dn = delete p["n"];
+let pn = p.n;
+let tn = "n" in p;
+p.keep = 3;
+let dk = delete p.keep;
+let pk = p.keep;

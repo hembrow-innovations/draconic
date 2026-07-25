@@ -1,0 +1,6 @@
+id: es/annex-b/object_proto
+targets: js,native
+js.exit: 0
+js.check: if (a !== true) process.exit(1); if (b !== 9) process.exit(2); if (c !== 1) process.exit(3); if (d !== true) process.exit(4); if (e !== 9) process.exit(5); if (f !== 2) process.exit(6); if (g !== true) process.exit(7); if (h !== false) process.exit(8); if (i !== true) process.exit(9); if (j !== true) process.exit(10); if (k !== true) process.exit(11);
+native.exit: 0
+native.stdout: hello\n

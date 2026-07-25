@@ -1,0 +1,56 @@
+function* inner() {
+  yield 1;
+  yield 2;
+  return 99;
+}
+function* outer() {
+  let r = yield* inner();
+  yield r;
+  return 0;
+}
+let it = outer();
+let r1 = it.next();
+let r2 = it.next();
+let r3 = it.next();
+let r4 = it.next();
+let v1 = r1.value;
+let d1 = r1.done;
+let v2 = r2.value;
+let d2 = r2.done;
+let v3 = r3.value;
+let d3 = r3.done;
+let v4 = r4.value;
+let d4 = r4.done;
+
+function* from_arr() {
+  yield* [10, 20];
+  return 30;
+}
+let it2 = from_arr();
+let a1 = it2.next();
+let a2 = it2.next();
+let a3 = it2.next();
+let av1 = a1.value;
+let ad1 = a1.done;
+let av2 = a2.value;
+let ad2 = a2.done;
+let av3 = a3.value;
+let ad3 = a3.done;
+
+function* multi() {
+  yield* [1];
+  yield* [2, 3];
+}
+let it3 = multi();
+let m1 = it3.next();
+let m2 = it3.next();
+let m3 = it3.next();
+let m4 = it3.next();
+let mv1 = m1.value;
+let md1 = m1.done;
+let mv2 = m2.value;
+let md2 = m2.done;
+let mv3 = m3.value;
+let md3 = m3.done;
+let mv4 = m4.value;
+let md4 = m4.done;

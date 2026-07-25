@@ -1,0 +1,24 @@
+class MathUtil {
+  constructor() {
+    this.tag = "inst";
+  }
+  static add(a, b) {
+    return a + b;
+  }
+  static id() {
+    return 42;
+  }
+  tagValue() {
+    return this.tag;
+  }
+}
+let a = MathUtil.add(2, 3);
+let b = MathUtil.id();
+let m = new MathUtil();
+let c = m.tagValue();
+class Greeter {
+  static hello(name) {
+    return name;
+  }
+}
+let d = Greeter.hello("hi");

@@ -7,6 +7,7 @@ name = "draconic-ast"
 version = "0.1.0"
 dependencies = [
  "draconic-diagnostics",
+ "draconic-lexer",
 ]
 
 [[package]]

@@ -1,0 +1,17 @@
+let o1 = { v: 1 };
+let o2 = { v: 2 };
+let a = 0;
+let b = 0;
+with (o1) {
+  a = v;
+  with (o2) {
+    b = v;
+  }
+}
+let o3 = { n: 0 };
+with (o1) {
+  let n = 5;
+  with (o3) {
+    n = 7;
+  }
+}

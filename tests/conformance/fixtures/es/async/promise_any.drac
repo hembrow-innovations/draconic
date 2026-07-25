@@ -1,0 +1,35 @@
+let tAny = typeof Promise.any;
+let winner = -1;
+let mixed = -1;
+let allRejected = 0;
+let errName = "";
+let errLen = -1;
+let emptyRejected = 0;
+let emptyName = "";
+let emptyLen = -1;
+Promise.any([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+  winner = v;
+});
+Promise.any([1, Promise.resolve(2)]).then(function (v) {
+  mixed = v;
+});
+Promise.any([Promise.reject(7), Promise.reject(9)]).then(
+  function () {
+    allRejected = -1;
+  },
+  function (e) {
+    allRejected = 1;
+    errName = e.name;
+    errLen = e.errors.length;
+  }
+);
+Promise.any([]).then(
+  function () {
+    emptyRejected = -1;
+  },
+  function (e) {
+    emptyRejected = 1;
+    emptyName = e.name;
+    emptyLen = e.errors.length;
+  }
+);

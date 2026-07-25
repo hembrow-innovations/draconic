@@ -1,0 +1,46 @@
+let a = [1, 2, 3];
+let sum = 0;
+for (let x of a) {
+  sum = sum + x;
+}
+let empty = [];
+let n = 0;
+for (let x of empty) {
+  n = n + 1;
+}
+let chars = "";
+for (let c of ["a", "b"]) {
+  chars = chars + c;
+}
+let nested = [[10, 20], [30]];
+let flat = 0;
+for (let row of nested) {
+  for (let v of row) {
+    flat = flat + v;
+  }
+}
+let b = [7, 8];
+let acc = 0;
+let y;
+for (y of b) {
+  acc = acc + y;
+}
+let c = [1, 2, 3, 4];
+let partial = 0;
+let count = 0;
+for (let x of c) {
+  count = count + 1;
+  if (count === 1) continue;
+  partial = partial + x;
+  if (count === 3) break;
+}
+let d = [5];
+let once = 0;
+for (const z of d) {
+  once = once + z;
+}
+let e = [...[1, 2], 3];
+let esum = 0;
+for (let x of e) {
+  esum = esum + x;
+}

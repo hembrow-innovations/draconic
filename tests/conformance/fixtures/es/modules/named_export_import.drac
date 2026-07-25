@@ -1,0 +1,6 @@
+import { value, inc, label } from "./named_lib.drac";
+import { value as v } from "./named_lib.drac";
+let a = value;
+let b = inc(value);
+let c = label;
+let d = v;

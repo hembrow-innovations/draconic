@@ -1,0 +1,6 @@
+id: es/builtins/weak_map_set
+targets: js,native
+js.exit: 0
+js.check: if (twm !== "function") process.exit(1); if (tws !== "function") process.exit(2); if (gwm !== true) process.exit(3); if (gws !== true) process.exit(4); if (wmGet !== 1) process.exit(5); if (wmHas !== true) process.exit(6); if (wmMiss !== false) process.exit(7); if (wmGet2 !== "two") process.exit(8); if (wmDel !== true) process.exit(9); if (wmHasAfter !== false) process.exit(10); if (wmGetMiss !== undefined) process.exit(11); if (wsHas !== true) process.exit(12); if (wsMiss !== false) process.exit(13); if (wsHas2 !== true) process.exit(14); if (wsHas3 !== true) process.exit(15); if (wsDel !== true) process.exit(16); if (wsHasAfter !== false) process.exit(17); if (wmSet !== wm) process.exit(18); if (wsAdd !== ws) process.exit(19); if (typeof twm !== "string") process.exit(20);
+native.exit: 0
+native.stdout: hello\n

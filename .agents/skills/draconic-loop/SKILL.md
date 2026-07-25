@@ -17,11 +17,12 @@ Read before work: `CONTEXT.md`, relevant `docs/adr/`, `ROADMAP.md`.
 4. **Green** — Implement the minimum to pass. No silent subsetting of ECMA-262: if the item’s scope is large, **split** the Roadmap row into child IDs (e.g. `E01.01`) and complete only the claimed child this Loop.
 5. **Verify** — Run `cargo test` for touched crates, then `cargo test --workspace`. Run `cargo build -p draconic-cli` if the CLI changed.
 6. **Close** — Set the item to `done` only if verify is green. Never `done` with failing or missing tests. If blocked on tools (e.g. system LLVM), set `blocked` and note the reason in the Roadmap cell or a short comment under the table.
-7. **Stop** — Default: **one item per invocation**. Do not start the next item unless the user says to continue.
+7. **Commit** — Stage all changes for this work package and create a git commit before stopping or claiming the next item. Message: Roadmap ID(s) + short summary (e.g. `E03.05 Arrow functions: parse, lower, emit, conformance`). One commit per completed Loop item.
+8. **Stop** — Default: **one item per invocation**. Do not start the next item unless the user says to continue.
 
 ## Completion criterion
 
-The Loop is complete when: claimed item is `done` or `blocked` with reason, workspace tests relevant to the change pass, and no second item was started.
+The Loop is complete when: claimed item is `done` or `blocked` with reason, workspace tests relevant to the change pass, the work package is committed, and no second item was started.
 
 ## Rules
 
@@ -30,6 +31,7 @@ The Loop is complete when: claimed item is `done` or `blocked` with reason, work
 - **Hard error > wrong code.** Native-only / JS-only features must diagnostic on the other backend.
 - **Vocabulary:** use terms from `CONTEXT.md` (Program, IR, Frontend, JS backend, LLVM backend, Runtime, Embed, Roadmap, Loop).
 - **Drive with `/tdd`** when implementing non-trivial behavior.
+- **Commit every work package.** Never leave a finished Loop uncommitted; never batch multiple done items into one commit unless the user asks.
 
 ## Pointers
 

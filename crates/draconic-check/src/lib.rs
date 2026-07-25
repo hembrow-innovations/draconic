@@ -1,7 +1,10 @@
 //! Binder (scopes + symbol resolution) and Checker (TypeScript-inspired).
 //! Binder: ROADMAP B04. Checker: ROADMAP B05.
 
-use draconic_ast::{BinaryOp, BindingKind, Expr, Program, Stmt, UnaryOp};
+use draconic_ast::{
+    Arg, ArrayElement, ArrayPatternElement, ArrowBody, BinaryOp, BindingKind, BindingPattern,
+    ClassElement, Expr, ObjectKey, Param, Program, Stmt, UnaryOp,
+};
 use draconic_diagnostics::{Diagnostic, Span};
 use std::collections::HashMap;
 use std::fmt;
@@ -16,17 +19,24 @@ pub struct Symbol {
     /// Span of the binding name at the declaration site.
     pub span: Span,
     pub kind: BindingKind,
+    /// `with` nesting depth when this binding was declared (0 = outside any `with`).
+    /// Used so identifier uses inside `with` only rewrite to Locals declared in the
+    /// innermost with body; outer names stay bare for Object Environment shadowing.
+    pub with_depth: u32,
 }
 
 /// TypeScript-inspired types for the minimal Program surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
     Number,
+    BigInt,
     String,
     Boolean,
     Null,
     /// Callable function value (declaration or expression).
     Function,
+    /// Ordinary object value (object literal).
+    Object,
     /// Flexible / unannotated (e.g. `let x;` with no initializer).
     Any,
 }
@@ -35,10 +45,12 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             Type::Number => "number",
+            Type::BigInt => "bigint",
             Type::String => "string",
             Type::Boolean => "boolean",
             Type::Null => "null",
             Type::Function => "function",
+            Type::Object => "object",
             Type::Any => "any",
         };
         write!(f, "{s}")
@@ -124,17 +136,103 @@ fn is_iteration_labelled_item(stmt: &Stmt) -> bool {
 struct Binder {
     /// Scope stack (innermost last): name → symbol id.
     scopes: Vec<HashMap<String, SymbolId>>,
+    /// Host globals (e.g. `Math`): resolve after lexical scopes so `let Math` can shadow.
+    builtins: HashMap<String, SymbolId>,
     symbols: Vec<Symbol>,
     resolutions: HashMap<Span, SymbolId>,
+    /// Nesting depth of enclosing `with` statements.
+    with_depth: u32,
 }
 
 impl Binder {
     fn new() -> Self {
-        Self {
+        let mut binder = Self {
             scopes: vec![HashMap::new()],
+            builtins: HashMap::new(),
             symbols: Vec::new(),
             resolutions: HashMap::new(),
-        }
+            with_depth: 0,
+        };
+        binder.install_builtin("Math", BindingKind::Const);
+        binder.install_builtin("Number", BindingKind::Const);
+        binder.install_builtin("NaN", BindingKind::Const);
+        binder.install_builtin("Infinity", BindingKind::Const);
+        binder.install_builtin("Symbol", BindingKind::Const);
+        binder.install_builtin("Promise", BindingKind::Const);
+        binder.install_builtin("Proxy", BindingKind::Const);
+        binder.install_builtin("Reflect", BindingKind::Const);
+        // E15.01: global object basics
+        binder.install_builtin("undefined", BindingKind::Const);
+        binder.install_builtin("globalThis", BindingKind::Const);
+        binder.install_builtin("Object", BindingKind::Const);
+        binder.install_builtin("Function", BindingKind::Const);
+        binder.install_builtin("Array", BindingKind::Const);
+        binder.install_builtin("String", BindingKind::Const);
+        binder.install_builtin("Boolean", BindingKind::Const);
+        // E15.02: Error constructors
+        binder.install_builtin("Error", BindingKind::Const);
+        binder.install_builtin("TypeError", BindingKind::Const);
+        binder.install_builtin("RangeError", BindingKind::Const);
+        binder.install_builtin("ReferenceError", BindingKind::Const);
+        binder.install_builtin("SyntaxError", BindingKind::Const);
+        binder.install_builtin("URIError", BindingKind::Const);
+        binder.install_builtin("EvalError", BindingKind::Const);
+        binder.install_builtin("AggregateError", BindingKind::Const);
+        // E15.03: global number-parsing / predicate functions
+        binder.install_builtin("parseInt", BindingKind::Const);
+        binder.install_builtin("parseFloat", BindingKind::Const);
+        binder.install_builtin("isNaN", BindingKind::Const);
+        binder.install_builtin("isFinite", BindingKind::Const);
+        // E15.04: URI encode/decode
+        binder.install_builtin("encodeURI", BindingKind::Const);
+        binder.install_builtin("decodeURI", BindingKind::Const);
+        binder.install_builtin("encodeURIComponent", BindingKind::Const);
+        binder.install_builtin("decodeURIComponent", BindingKind::Const);
+        // E15.05: JSON
+        binder.install_builtin("JSON", BindingKind::Const);
+        // E15.06: Date
+        binder.install_builtin("Date", BindingKind::Const);
+        // E15.07: RegExp
+        binder.install_builtin("RegExp", BindingKind::Const);
+        // E15.08: Map / Set
+        binder.install_builtin("Map", BindingKind::Const);
+        binder.install_builtin("Set", BindingKind::Const);
+        // E15.09: WeakMap / WeakSet
+        binder.install_builtin("WeakMap", BindingKind::Const);
+        binder.install_builtin("WeakSet", BindingKind::Const);
+        // E15.10: ArrayBuffer / DataView / TypedArrays
+        binder.install_builtin("ArrayBuffer", BindingKind::Const);
+        binder.install_builtin("DataView", BindingKind::Const);
+        binder.install_builtin("Int8Array", BindingKind::Const);
+        binder.install_builtin("Uint8Array", BindingKind::Const);
+        binder.install_builtin("Uint8ClampedArray", BindingKind::Const);
+        binder.install_builtin("Int16Array", BindingKind::Const);
+        binder.install_builtin("Uint16Array", BindingKind::Const);
+        binder.install_builtin("Int32Array", BindingKind::Const);
+        binder.install_builtin("Uint32Array", BindingKind::Const);
+        binder.install_builtin("Float32Array", BindingKind::Const);
+        binder.install_builtin("Float64Array", BindingKind::Const);
+        binder.install_builtin("BigInt64Array", BindingKind::Const);
+        binder.install_builtin("BigUint64Array", BindingKind::Const);
+        // E16.01: direct eval
+        binder.install_builtin("eval", BindingKind::Const);
+        // E18.01: Annex B escape / unescape
+        binder.install_builtin("escape", BindingKind::Const);
+        binder.install_builtin("unescape", BindingKind::Const);
+        binder
+    }
+
+    /// Register a host global. Not placed in lexical scopes so programs may shadow it.
+    fn install_builtin(&mut self, name: &str, kind: BindingKind) {
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbols.push(Symbol {
+            id,
+            name: name.to_string(),
+            span: Span::dummy(),
+            kind,
+            with_depth: 0,
+        });
+        self.builtins.insert(name.to_string(), id);
     }
 
     fn bind_program(&mut self, program: Program) -> Result<BoundProgram, Diagnostic> {
@@ -151,10 +249,10 @@ impl Binder {
     fn bind_stmt_list(&mut self, stmts: &[Stmt]) -> Result<(), Diagnostic> {
         for stmt in stmts {
             match stmt {
-                Stmt::Let { kind, name, .. } => {
-                    self.declare(name.name.clone(), name.span, *kind)?;
+                Stmt::Let { kind, binding, .. } => {
+                    self.declare_binding(binding, *kind)?;
                 }
-                Stmt::FunctionDeclaration { name, .. } => {
+                Stmt::FunctionDeclaration { name, .. } | Stmt::ClassDeclaration { name, .. } => {
                     self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 }
                 _ => {}
@@ -164,6 +262,26 @@ impl Binder {
             self.bind_stmt(stmt)?;
         }
         Ok(())
+    }
+
+    fn declare_binding(
+        &mut self,
+        binding: &BindingPattern,
+        kind: BindingKind,
+    ) -> Result<(), Diagnostic> {
+        let mut err = None;
+        binding.for_each_ident(&mut |id| {
+            if err.is_some() {
+                return;
+            }
+            if let Err(e) = self.declare(id.name.clone(), id.span, kind) {
+                err = Some(e);
+            }
+        });
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     fn push_scope(&mut self) {
@@ -193,6 +311,7 @@ impl Binder {
             name: name.clone(),
             span,
             kind,
+            with_depth: self.with_depth,
         });
         scope.insert(name, id);
         Ok(id)
@@ -204,7 +323,28 @@ impl Binder {
                 return Some(*id);
             }
         }
-        None
+        self.builtins.get(name).copied()
+    }
+
+    /// Resolve an identifier use. Inside `with`, only bindings declared in the
+    /// innermost with body (or nested deeper) become static resolutions; outer
+    /// names stay unresolved so the JS backend can emit bare idents for the
+    /// Object Environment chain.
+    fn bind_ident_use(&mut self, id: &draconic_ast::Ident) -> Result<(), Diagnostic> {
+        if let Some(sym) = self.resolve_name(&id.name) {
+            let decl_depth = self.symbols[sym.0 as usize].with_depth;
+            if self.with_depth == 0 || decl_depth >= self.with_depth {
+                self.resolutions.insert(id.span, sym);
+            }
+            return Ok(());
+        }
+        if self.with_depth > 0 {
+            return Ok(());
+        }
+        Err(Diagnostic::new(
+            format!("unresolved identifier `{name}`", name = id.name),
+            id.span,
+        ))
     }
 
     fn bind_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
@@ -255,13 +395,13 @@ impl Binder {
                 // test, update, and body.
                 if let Some(Stmt::Let {
                     kind,
-                    name,
+                    binding,
                     init: let_init,
                     ..
                 }) = init.as_deref()
                 {
                     self.push_scope();
-                    self.declare(name.name.clone(), name.span, *kind)?;
+                    self.declare_binding(binding, *kind)?;
                     if let Some(e) = let_init {
                         self.bind_expr(e)?;
                     }
@@ -313,10 +453,11 @@ impl Binder {
                 // Two-pass bind over concatenated case bodies.
                 for stmt in &all_stmts {
                     match stmt {
-                        Stmt::Let { kind, name, .. } => {
-                            self.declare(name.name.clone(), name.span, *kind)?;
+                        Stmt::Let { kind, binding, .. } => {
+                            self.declare_binding(binding, *kind)?;
                         }
-                        Stmt::FunctionDeclaration { name, .. } => {
+                        Stmt::FunctionDeclaration { name, .. }
+                        | Stmt::ClassDeclaration { name, .. } => {
                             self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                         }
                         _ => {}
@@ -331,13 +472,33 @@ impl Binder {
             Stmt::FunctionDeclaration { params, body, .. } => {
                 // Name already declared in the enclosing list's first pass.
                 self.push_scope();
-                for p in params {
-                    self.declare(p.name.clone(), p.span, BindingKind::Let)?;
-                }
+                self.bind_params(params)?;
                 // Body is a Block; bind its statements in the param scope (no extra
                 // block scope layer needed beyond the block's own push).
                 self.bind_stmt(body)?;
                 self.pop_scope();
+                Ok(())
+            }
+            Stmt::ClassDeclaration {
+                super_class,
+                body,
+                ..
+            } => {
+                // Name already declared in the enclosing list's first pass.
+                if let Some(sc) = super_class {
+                    self.bind_expr(sc)?;
+                }
+                for el in body {
+                    match el {
+                        ClassElement::Constructor { params, body, .. }
+                        | ClassElement::Method { params, body, .. } => {
+                            self.push_scope();
+                            self.bind_params(params)?;
+                            self.bind_stmt(body)?;
+                            self.pop_scope();
+                        }
+                    }
+                }
                 Ok(())
             }
             Stmt::Return { argument, .. } => {
@@ -346,6 +507,42 @@ impl Binder {
                 }
                 Ok(())
             }
+            Stmt::Throw { argument, .. } => self.bind_expr(argument),
+            Stmt::Try {
+                block,
+                handler_param,
+                handler,
+                finalizer,
+                ..
+            } => {
+                self.bind_stmt(block)?;
+                if let Some(handler) = handler {
+                    // Catch binding is scoped to the catch block only.
+                    self.push_scope();
+                    if let Some(param) = handler_param {
+                        self.declare(param.name.clone(), param.span, BindingKind::Let)?;
+                    }
+                    self.bind_stmt(handler)?;
+                    self.pop_scope();
+                }
+                if let Some(finalizer) = finalizer {
+                    self.bind_stmt(finalizer)?;
+                }
+                Ok(())
+            }
+            Stmt::With { object, body, .. } => {
+                self.bind_expr(object)?;
+                self.with_depth += 1;
+                let result = self.bind_stmt(body);
+                self.with_depth -= 1;
+                result
+            }
+            Stmt::ImportDeclaration { span, .. }
+            | Stmt::ExportNamedDeclaration { span, .. }
+            | Stmt::ExportDefaultDeclaration { span, .. } => Err(Diagnostic::new(
+                "import/export must be linked before bind/check".to_string(),
+                *span,
+            )),
         }
     }
 
@@ -357,15 +554,24 @@ impl Binder {
     ) -> Result<(), Diagnostic> {
         // `for (let/const name in/of right)` — loop-scoped binding for name.
         if let Stmt::Let {
-            kind, name, init, ..
+            kind,
+            binding,
+            init,
+            ..
         } = left
         {
             if init.is_some() {
                 return Err(Diagnostic::new(
                     "for-in/of binding cannot have an initializer".to_string(),
-                    name.span,
+                    binding.span(),
                 ));
             }
+            let BindingPattern::Ident(name) = binding else {
+                return Err(Diagnostic::new(
+                    "for-in/of destructuring binding is not supported yet".to_string(),
+                    binding.span(),
+                ));
+            };
             self.push_scope();
             self.declare(name.name.clone(), name.span, *kind)?;
             self.bind_expr(right)?;
@@ -381,17 +587,29 @@ impl Binder {
 
     fn bind_expr(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         match expr {
-            Expr::Ident(id) => {
-                let Some(sym) = self.resolve_name(&id.name) else {
-                    return Err(Diagnostic::new(
-                        format!("unresolved identifier `{name}`", name = id.name),
-                        id.span,
-                    ));
-                };
-                self.resolutions.insert(id.span, sym);
+            Expr::Ident(id) => self.bind_ident_use(id),
+            Expr::Number(_)
+            | Expr::BigInt(_)
+            | Expr::String(_)
+            | Expr::Boolean { .. }
+            | Expr::Null { .. }
+            | Expr::This { .. }
+            | Expr::Super { .. } => Ok(()),
+            Expr::TemplateLiteral { expressions, .. } => {
+                for e in expressions {
+                    self.bind_expr(e)?;
+                }
                 Ok(())
             }
-            Expr::Number(_) | Expr::String(_) | Expr::Boolean { .. } | Expr::Null { .. } => Ok(()),
+            Expr::TaggedTemplate {
+                tag, expressions, ..
+            } => {
+                self.bind_expr(tag)?;
+                for e in expressions {
+                    self.bind_expr(e)?;
+                }
+                Ok(())
+            }
             Expr::Unary { arg, .. } => self.bind_expr(arg),
             Expr::Binary { left, right, .. } => {
                 self.bind_expr(left)?;
@@ -412,15 +630,115 @@ impl Binder {
                 self.bind_expr(value)
             }
             Expr::Update { arg, .. } => self.bind_expr(arg),
-            Expr::Call { callee, args, .. } => {
+            Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
                 self.bind_expr(callee)?;
                 for arg in args {
-                    self.bind_expr(arg)?;
+                    match arg {
+                        Arg::Expr(expr) | Arg::Spread(expr) => self.bind_expr(expr)?,
+                    }
                 }
                 Ok(())
             }
+            Expr::FunctionExpression {
+                name, params, body, ..
+            } => {
+                // Name (if any) is local to the function body only (ES named FE).
+                self.push_scope();
+                if let Some(name) = name {
+                    self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+                }
+                self.bind_params(params)?;
+                self.bind_stmt(body)?;
+                self.pop_scope();
+                Ok(())
+            }
+            Expr::ArrowFunction { params, body, .. } => {
+                self.push_scope();
+                self.bind_params(params)?;
+                match body {
+                    ArrowBody::Expr(expr) => self.bind_expr(expr)?,
+                    ArrowBody::Block(stmt) => self.bind_stmt(stmt)?,
+                }
+                self.pop_scope();
+                Ok(())
+            }
+            Expr::ObjectExpression { properties, .. } => {
+                for prop in properties {
+                    match &prop.key {
+                        ObjectKey::Ident(_) | ObjectKey::String(_) => {}
+                        ObjectKey::Computed(expr) => self.bind_expr(expr)?,
+                    }
+                    self.bind_expr(&prop.value)?;
+                }
+                Ok(())
+            }
+            Expr::ArrayExpression { elements, .. } => {
+                for el in elements {
+                    match el {
+                        ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {
+                            self.bind_expr(expr)?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Expr::MemberExpression {
+                object,
+                property,
+                computed,
+                ..
+            } => {
+                self.bind_expr(object)?;
+                if *computed {
+                    self.bind_expr(property)?;
+                }
+                // Non-computed property name is not a variable reference.
+                Ok(())
+            }
             Expr::Paren { expr, .. } => self.bind_expr(expr),
+            Expr::ArrayPattern { elements, .. } => {
+                for el in elements {
+                    match el {
+                        ArrayPatternElement::Pattern(p) => {
+                            self.bind_assign_pattern(p)?;
+                        }
+                        ArrayPatternElement::Rest(id) => {
+                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        }
+                    }
+                }
+                Ok(())
+            }
         }
+    }
+
+    fn bind_assign_pattern(&mut self, pat: &BindingPattern) -> Result<(), Diagnostic> {
+        match pat {
+            BindingPattern::Ident(id) => self.bind_expr(&Expr::Ident(id.clone())),
+            BindingPattern::Array { elements, .. } => {
+                for el in elements {
+                    match el {
+                        ArrayPatternElement::Pattern(p) => self.bind_assign_pattern(p)?,
+                        ArrayPatternElement::Rest(id) => {
+                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn bind_params(&mut self, params: &[Param]) -> Result<(), Diagnostic> {
+        for p in params {
+            self.declare(p.name.name.clone(), p.name.span, BindingKind::Let)?;
+        }
+        for p in params {
+            if let Some(default) = &p.default {
+                self.bind_expr(default)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -428,14 +746,43 @@ struct Checker<'a> {
     bound: &'a BoundProgram,
     symbol_types: Vec<Type>,
     expr_types: HashMap<Span, Type>,
+    /// True while typechecking an `async` function body.
+    in_async: bool,
+    /// True while typechecking a generator function body.
+    in_generator: bool,
 }
 
 impl<'a> Checker<'a> {
     fn new(bound: &'a BoundProgram) -> Self {
+        let mut symbol_types = vec![Type::Any; bound.symbols().len()];
+        for s in bound.symbols() {
+            // Host globals installed with Span::dummy() (E08.05+).
+            if s.span == Span::dummy() {
+                symbol_types[s.id.0 as usize] = match s.name.as_str() {
+                    "Math" | "Reflect" | "globalThis" | "JSON" => Type::Object,
+                    "Number" | "Symbol" | "Promise" | "Proxy" | "Object" | "Function" | "Array"
+                    | "String" | "Boolean" | "Error" | "TypeError" | "RangeError"
+                    | "ReferenceError" | "SyntaxError" | "URIError" | "EvalError"
+                    | "AggregateError" | "parseInt" | "parseFloat" | "isNaN" | "isFinite"
+                    | "encodeURI" | "decodeURI" | "encodeURIComponent" | "decodeURIComponent"
+                    | "Date" | "RegExp" | "Map" | "Set" | "WeakMap" | "WeakSet"
+                    | "ArrayBuffer" | "DataView" | "Int8Array" | "Uint8Array"
+                    | "Uint8ClampedArray" | "Int16Array" | "Uint16Array" | "Int32Array"
+                    | "Uint32Array" | "Float32Array" | "Float64Array" | "BigInt64Array"
+                    | "BigUint64Array" | "eval" | "escape" | "unescape" => Type::Function,
+                    "NaN" | "Infinity" => Type::Number,
+                    // `undefined` is its own ES language type; coarse `any` until refined.
+                    "undefined" => Type::Any,
+                    _ => Type::Any,
+                };
+            }
+        }
         Self {
             bound,
-            symbol_types: vec![Type::Any; bound.symbols().len()],
+            symbol_types,
             expr_types: HashMap::new(),
+            in_async: false,
+            in_generator: false,
         }
     }
 
@@ -450,13 +797,24 @@ impl<'a> Checker<'a> {
     /// Left side of `for-in` / `for-of`: `let name` or assignable identifier.
     fn check_for_in_of_left(&mut self, left: &Stmt) -> Result<(), Diagnostic> {
         match left {
-            Stmt::Let { name, init, span, .. } => {
+            Stmt::Let {
+                binding,
+                init,
+                span,
+                ..
+            } => {
                 if init.is_some() {
                     return Err(Diagnostic::new(
                         "for-in/of binding cannot have an initializer".to_string(),
                         *span,
                     ));
                 }
+                let BindingPattern::Ident(name) = binding else {
+                    return Err(Diagnostic::new(
+                        "for-in/of destructuring binding is not supported yet".to_string(),
+                        binding.span(),
+                    ));
+                };
                 let id = self
                     .bound
                     .symbols()
@@ -499,11 +857,111 @@ impl<'a> Checker<'a> {
                     | Stmt::Labeled { span, .. }
                     | Stmt::Switch { span, .. }
                     | Stmt::FunctionDeclaration { span, .. }
+                    | Stmt::ClassDeclaration { span, .. }
                     | Stmt::Return { span, .. }
+                    | Stmt::Throw { span, .. }
+                    | Stmt::Try { span, .. }
+                    | Stmt::With { span, .. }
                     | Stmt::Let { span, .. }
-                    | Stmt::Expression { span, .. } => *span,
+                    | Stmt::Expression { span, .. }
+                    | Stmt::ImportDeclaration { span, .. }
+                    | Stmt::ExportNamedDeclaration { span, .. }
+                    | Stmt::ExportDefaultDeclaration { span, .. } => *span,
                 },
             )),
+        }
+    }
+
+    fn check_binding_pattern(
+        &mut self,
+        binding: &BindingPattern,
+        ty: Type,
+    ) -> Result<(), Diagnostic> {
+        match binding {
+            BindingPattern::Ident(name) => {
+                let id = self
+                    .bound
+                    .symbols()
+                    .iter()
+                    .find(|s| s.span == name.span)
+                    .map(|s| s.id)
+                    .expect("let binding must be declared");
+                self.symbol_types[id.0 as usize] = ty;
+                Ok(())
+            }
+            BindingPattern::Array { elements, .. } => {
+                // Element types are not refined yet; bind as Any.
+                for el in elements {
+                    match el {
+                        ArrayPatternElement::Pattern(p) => {
+                            self.check_binding_pattern(p, Type::Any)?;
+                        }
+                        ArrayPatternElement::Rest(id) => {
+                            let sym = self
+                                .bound
+                                .symbols()
+                                .iter()
+                                .find(|s| s.span == id.span)
+                                .map(|s| s.id)
+                                .expect("rest binding must be declared");
+                            // Rest always binds an array.
+                            self.symbol_types[sym.0 as usize] = Type::Any;
+                        }
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn check_assign_pattern(
+        &mut self,
+        binding: &BindingPattern,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match binding {
+            BindingPattern::Ident(id) => {
+                let sym = self.bound.resolve(id.span).ok_or_else(|| {
+                    Diagnostic::new(format!("unresolved identifier `{}`", id.name), id.span)
+                })?;
+                match self.bound.symbol(sym).kind {
+                    BindingKind::Const => {
+                        return Err(Diagnostic::new(
+                            format!("cannot assign to const binding `{}`", id.name),
+                            span,
+                        ));
+                    }
+                    BindingKind::Function => {
+                        return Err(Diagnostic::new(
+                            format!("cannot assign to function binding `{}`", id.name),
+                            span,
+                        ));
+                    }
+                    BindingKind::Let => {}
+                }
+                let left_ty = self.symbol_types[sym.0 as usize];
+                if left_ty == Type::Any {
+                    // leave Any; element values are untyped here
+                }
+                self.record(id.span, self.symbol_types[sym.0 as usize]);
+                Ok(())
+            }
+            BindingPattern::Array { elements, .. } => {
+                for el in elements {
+                    match el {
+                        ArrayPatternElement::Pattern(p) => {
+                            self.check_assign_pattern(p, span)?;
+                        }
+                        ArrayPatternElement::Rest(id) => {
+                            self.check_assign_pattern(
+                                &BindingPattern::Ident(id.clone()),
+                                span,
+                            )?;
+                        }
+                    }
+                }
+                Ok(())
+            }
         }
     }
 
@@ -520,7 +978,7 @@ impl<'a> Checker<'a> {
                 self.check_expr(expr)?;
                 Ok(())
             }
-            Stmt::Let { name, init, .. } => {
+            Stmt::Let { binding, init, .. } => {
                 // Bare `const` without init is rejected in the parser; for-in/of
                 // left may be `const name` with no initializer.
                 let ty = if let Some(init) = init {
@@ -528,14 +986,7 @@ impl<'a> Checker<'a> {
                 } else {
                     Type::Any
                 };
-                let id = self
-                    .bound
-                    .symbols()
-                    .iter()
-                    .find(|s| s.span == name.span)
-                    .map(|s| s.id)
-                    .expect("let binding must be declared");
-                self.symbol_types[id.0 as usize] = ty;
+                self.check_binding_pattern(binding, ty)?;
                 Ok(())
             }
             Stmt::Empty { .. } => Ok(()),
@@ -666,7 +1117,12 @@ impl<'a> Checker<'a> {
                 Ok(())
             }
             Stmt::FunctionDeclaration {
-                name, params, body, ..
+                name,
+                params,
+                body,
+                is_async,
+                is_generator,
+                ..
             } => {
                 let id = self
                     .bound
@@ -676,19 +1132,67 @@ impl<'a> Checker<'a> {
                     .map(|s| s.id)
                     .expect("function binding must be declared");
                 self.symbol_types[id.0 as usize] = Type::Function;
-                for p in params {
-                    let pid = self
-                        .bound
-                        .symbols()
-                        .iter()
-                        .find(|s| s.span == p.span)
-                        .map(|s| s.id)
-                        .expect("param binding must be declared");
-                    self.symbol_types[pid.0 as usize] = Type::Any;
-                }
+                self.check_params(params)?;
                 // Fresh label set inside functions (labels do not cross function boundaries).
                 let mut inner_labels = Vec::new();
-                self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)
+                let prev_async = self.in_async;
+                let prev_generator = self.in_generator;
+                self.in_async = *is_async;
+                self.in_generator = *is_generator;
+                let result = self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels);
+                self.in_async = prev_async;
+                self.in_generator = prev_generator;
+                result
+            }
+            Stmt::ClassDeclaration {
+                name,
+                super_class,
+                body,
+                ..
+            } => {
+                let id = self
+                    .bound
+                    .symbols()
+                    .iter()
+                    .find(|s| s.span == name.span)
+                    .map(|s| s.id)
+                    .expect("class binding must be declared");
+                self.symbol_types[id.0 as usize] = Type::Function;
+                if let Some(sc) = super_class {
+                    self.check_expr(sc)?;
+                }
+                for el in body {
+                    match el {
+                        ClassElement::Constructor { params, body, .. } => {
+                            self.check_params(params)?;
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = false;
+                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                        }
+                        ClassElement::Method {
+                            params,
+                            body,
+                            is_generator,
+                            ..
+                        } => {
+                            self.check_params(params)?;
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = *is_generator;
+                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                        }
+                    }
+                }
+                Ok(())
             }
             Stmt::Return { argument, span } => {
                 if fn_depth == 0 {
@@ -702,6 +1206,46 @@ impl<'a> Checker<'a> {
                 }
                 Ok(())
             }
+            Stmt::Throw { argument, .. } => {
+                self.check_expr(argument)?;
+                Ok(())
+            }
+            Stmt::Try {
+                block,
+                handler_param,
+                handler,
+                finalizer,
+                ..
+            } => {
+                self.check_stmt(block, loop_depth, switch_depth, fn_depth, labels)?;
+                if let Some(handler) = handler {
+                    if let Some(param) = handler_param {
+                        let id = self
+                            .bound
+                            .symbols()
+                            .iter()
+                            .find(|s| s.span == param.span)
+                            .map(|s| s.id)
+                            .expect("catch binding must be declared");
+                        self.symbol_types[id.0 as usize] = Type::Any;
+                    }
+                    self.check_stmt(handler, loop_depth, switch_depth, fn_depth, labels)?;
+                }
+                if let Some(finalizer) = finalizer {
+                    self.check_stmt(finalizer, loop_depth, switch_depth, fn_depth, labels)?;
+                }
+                Ok(())
+            }
+            Stmt::With { object, body, .. } => {
+                self.check_expr(object)?;
+                self.check_stmt(body, loop_depth, switch_depth, fn_depth, labels)
+            }
+            Stmt::ImportDeclaration { span, .. }
+            | Stmt::ExportNamedDeclaration { span, .. }
+            | Stmt::ExportDefaultDeclaration { span, .. } => Err(Diagnostic::new(
+                "import/export must be linked before bind/check".to_string(),
+                *span,
+            )),
         }
     }
 
@@ -711,9 +1255,38 @@ impl<'a> Checker<'a> {
                 self.record(n.span, Type::Number);
                 Type::Number
             }
+            Expr::BigInt(n) => {
+                self.record(n.span, Type::BigInt);
+                Type::BigInt
+            }
             Expr::String(s) => {
                 self.record(s.span, Type::String);
                 Type::String
+            }
+            Expr::TemplateLiteral {
+                expressions,
+                span,
+                ..
+            } => {
+                for e in expressions {
+                    self.check_expr(e)?;
+                }
+                self.record(*span, Type::String);
+                Type::String
+            }
+            Expr::TaggedTemplate {
+                tag,
+                expressions,
+                span,
+                ..
+            } => {
+                self.check_expr(tag)?;
+                for e in expressions {
+                    self.check_expr(e)?;
+                }
+                // Tag return type is not modeled yet; treat as any (like untyped Call).
+                self.record(*span, Type::Any);
+                Type::Any
             }
             Expr::Boolean { span, .. } => {
                 self.record(*span, Type::Boolean);
@@ -723,13 +1296,24 @@ impl<'a> Checker<'a> {
                 self.record(*span, Type::Null);
                 Type::Null
             }
+            Expr::This { span } => {
+                self.record(*span, Type::Any);
+                Type::Any
+            }
+            Expr::Super { span } => {
+                self.record(*span, Type::Any);
+                Type::Any
+            }
             Expr::Ident(id) => {
-                let sym = self.bound.resolve(id.span).ok_or_else(|| {
-                    Diagnostic::new(format!("unresolved identifier `{}`", id.name), id.span)
-                })?;
-                let ty = self.symbol_types[sym.0 as usize];
-                self.record(id.span, ty);
-                ty
+                if let Some(sym) = self.bound.resolve(id.span) {
+                    let ty = self.symbol_types[sym.0 as usize];
+                    self.record(id.span, ty);
+                    ty
+                } else {
+                    // Free / with-chain name (Object Environment).
+                    self.record(id.span, Type::Any);
+                    Type::Any
+                }
             }
             Expr::Paren { expr: inner, span } => {
                 let ty = self.check_expr(inner)?;
@@ -737,6 +1321,18 @@ impl<'a> Checker<'a> {
                 ty
             }
             Expr::Unary { op, arg, span } => {
+                if *op == UnaryOp::Await && !self.in_async {
+                    return Err(Diagnostic::new(
+                        "await is only valid in async functions".to_string(),
+                        *span,
+                    ));
+                }
+                if matches!(op, UnaryOp::Yield | UnaryOp::YieldStar) && !self.in_generator {
+                    return Err(Diagnostic::new(
+                        "yield is only valid in generator functions".to_string(),
+                        *span,
+                    ));
+                }
                 let arg_ty = self.check_expr(arg)?;
                 let ty = self.check_unary(*op, arg_ty, *span)?;
                 self.record(*span, ty);
@@ -782,12 +1378,12 @@ impl<'a> Checker<'a> {
                 let value_ty = self.check_expr(value)?;
                 match target.as_ref() {
                     Expr::Ident(id) => {
-                        let sym = self.bound.resolve(id.span).ok_or_else(|| {
-                            Diagnostic::new(
-                                format!("unresolved identifier `{}`", id.name),
-                                id.span,
-                            )
-                        })?;
+                        let Some(sym) = self.bound.resolve(id.span) else {
+                            // Free / with-chain assign target.
+                            self.record(id.span, Type::Any);
+                            self.record(*span, value_ty);
+                            return Ok(value_ty);
+                        };
                         match self.bound.symbol(sym).kind {
                             BindingKind::Const => {
                                 return Err(Diagnostic::new(
@@ -823,6 +1419,50 @@ impl<'a> Checker<'a> {
                         self.record(*span, result_ty);
                         result_ty
                     }
+                    Expr::MemberExpression {
+                        object,
+                        property,
+                        computed,
+                        ..
+                    } => {
+                        // Property write: object + key are checked; result is the assigned value.
+                        // Compound assignment on members is out of scope for E04.02 simple `=`.
+                        if op.binary_op().is_some() {
+                            return Err(Diagnostic::new(
+                                "compound assignment to property not yet supported".to_string(),
+                                *span,
+                            ));
+                        }
+                        self.check_expr(object)?;
+                        if *computed {
+                            self.check_expr(property)?;
+                        }
+                        self.record(*span, value_ty);
+                        value_ty
+                    }
+                    Expr::ArrayPattern { elements, .. } => {
+                        if op.binary_op().is_some() {
+                            return Err(Diagnostic::new(
+                                "compound assignment to array pattern not supported".to_string(),
+                                *span,
+                            ));
+                        }
+                        for el in elements {
+                            match el {
+                                ArrayPatternElement::Pattern(p) => {
+                                    self.check_assign_pattern(p, *span)?;
+                                }
+                                ArrayPatternElement::Rest(id) => {
+                                    self.check_assign_pattern(
+                                        &BindingPattern::Ident(id.clone()),
+                                        *span,
+                                    )?;
+                                }
+                            }
+                        }
+                        self.record(*span, value_ty);
+                        value_ty
+                    }
                     _ => {
                         return Err(Diagnostic::new(
                             "invalid assignment target".to_string(),
@@ -831,15 +1471,20 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
+            Expr::ArrayPattern { span, .. } => {
+                return Err(Diagnostic::new(
+                    "array pattern cannot be used as a value".to_string(),
+                    *span,
+                ));
+            }
             Expr::Update { arg, span, .. } => {
                 match arg.as_ref() {
                     Expr::Ident(id) => {
-                        let sym = self.bound.resolve(id.span).ok_or_else(|| {
-                            Diagnostic::new(
-                                format!("unresolved identifier `{}`", id.name),
-                                id.span,
-                            )
-                        })?;
+                        let Some(sym) = self.bound.resolve(id.span) else {
+                            self.record(id.span, Type::Any);
+                            self.record(*span, Type::Number);
+                            return Ok(Type::Number);
+                        };
                         match self.bound.symbol(sym).kind {
                             BindingKind::Const => {
                                 return Err(Diagnostic::new(
@@ -884,7 +1529,11 @@ impl<'a> Checker<'a> {
             } => {
                 let callee_ty = self.check_expr(callee)?;
                 for arg in args {
-                    self.check_expr(arg)?;
+                    match arg {
+                        Arg::Expr(expr) | Arg::Spread(expr) => {
+                            self.check_expr(expr)?;
+                        }
+                    }
                 }
                 if callee_ty != Type::Any && callee_ty != Type::Function {
                     return Err(Diagnostic::new(
@@ -895,19 +1544,201 @@ impl<'a> Checker<'a> {
                 self.record(*span, Type::Any);
                 Type::Any
             }
+            Expr::New {
+                callee,
+                args,
+                span,
+            } => {
+                let callee_ty = self.check_expr(callee)?;
+                let mut arg_tys = Vec::with_capacity(args.len());
+                for arg in args {
+                    match arg {
+                        Arg::Expr(expr) | Arg::Spread(expr) => {
+                            arg_tys.push(self.check_expr(expr)?);
+                        }
+                    }
+                }
+                if callee_ty != Type::Any && callee_ty != Type::Function {
+                    return Err(Diagnostic::new(
+                        format!("type `{callee_ty}` is not constructable"),
+                        *span,
+                    ));
+                }
+                // Proxy(target, handler): result is callable when target is.
+                // Function(...): constructs a function from source strings.
+                let result_ty = if self.is_global_ident(callee, "Proxy") {
+                    match arg_tys.first().copied() {
+                        Some(Type::Function) => Type::Function,
+                        Some(Type::Any) => Type::Any,
+                        _ => Type::Object,
+                    }
+                } else if self.is_global_ident(callee, "Function") {
+                    Type::Function
+                } else {
+                    Type::Object
+                };
+                self.record(*span, result_ty);
+                result_ty
+            }
+            Expr::FunctionExpression {
+                name,
+                params,
+                body,
+                is_async,
+                is_generator,
+                span,
+            } => {
+                if let Some(name) = name {
+                    let id = self
+                        .bound
+                        .symbols()
+                        .iter()
+                        .find(|s| s.span == name.span)
+                        .map(|s| s.id)
+                        .expect("function expression name must be declared");
+                    self.symbol_types[id.0 as usize] = Type::Function;
+                }
+                self.check_params(params)?;
+                // New function boundary (return allowed; labels do not escape).
+                let mut inner_labels = Vec::new();
+                let prev_async = self.in_async;
+                let prev_generator = self.in_generator;
+                self.in_async = *is_async;
+                self.in_generator = *is_generator;
+                self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                self.in_async = prev_async;
+                self.in_generator = prev_generator;
+                self.record(*span, Type::Function);
+                Type::Function
+            }
+            Expr::ArrowFunction {
+                params,
+                body,
+                is_async,
+                span,
+            } => {
+                self.check_params(params)?;
+                let mut inner_labels = Vec::new();
+                let prev_async = self.in_async;
+                let prev_generator = self.in_generator;
+                self.in_async = *is_async;
+                self.in_generator = false;
+                match body {
+                    ArrowBody::Expr(expr) => {
+                        self.check_expr(expr)?;
+                    }
+                    ArrowBody::Block(stmt) => {
+                        self.check_stmt(stmt, 0, 0, 1, &mut inner_labels)?;
+                    }
+                }
+                self.in_async = prev_async;
+                self.in_generator = prev_generator;
+                self.record(*span, Type::Function);
+                Type::Function
+            }
+            Expr::ObjectExpression { properties, span } => {
+                for prop in properties {
+                    if let ObjectKey::Computed(expr) = &prop.key {
+                        self.check_expr(expr)?;
+                    }
+                    self.check_expr(&prop.value)?;
+                }
+                self.record(*span, Type::Object);
+                Type::Object
+            }
+            Expr::ArrayExpression { elements, span } => {
+                for el in elements {
+                    match el {
+                        ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {
+                            self.check_expr(expr)?;
+                        }
+                    }
+                }
+                self.record(*span, Type::Object);
+                Type::Object
+            }
+            Expr::MemberExpression {
+                object,
+                property,
+                computed,
+                span,
+            } => {
+                self.check_expr(object)?;
+                if *computed {
+                    self.check_expr(property)?;
+                }
+                self.record(*span, Type::Any);
+                Type::Any
+            }
         };
         Ok(ty)
+    }
+
+    fn check_params(&mut self, params: &[Param]) -> Result<(), Diagnostic> {
+        for (i, p) in params.iter().enumerate() {
+            if p.rest {
+                if i != params.len() - 1 {
+                    return Err(Diagnostic::new(
+                        "rest parameter must be last formal parameter".to_string(),
+                        p.name.span,
+                    ));
+                }
+                if p.default.is_some() {
+                    return Err(Diagnostic::new(
+                        "rest parameter cannot have a default".to_string(),
+                        p.name.span,
+                    ));
+                }
+            }
+            let pid = self
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.span == p.name.span)
+                .map(|s| s.id)
+                .expect("param binding must be declared");
+            self.symbol_types[pid.0 as usize] = Type::Any;
+            if let Some(default) = &p.default {
+                self.check_expr(default)?;
+            }
+        }
+        Ok(())
     }
 
     fn record(&mut self, span: Span, ty: Type) {
         self.expr_types.insert(span, ty);
     }
 
+    /// True when `expr` is an identifier resolving to the host global `name`.
+    fn is_global_ident(&self, expr: &Expr, name: &str) -> bool {
+        let Expr::Ident(id) = expr else {
+            return false;
+        };
+        let Some(sym_id) = self.bound.resolve(id.span) else {
+            return false;
+        };
+        let sym = self.bound.symbol(sym_id);
+        sym.name == name && sym.span == Span::dummy()
+    }
+
     fn check_unary(&self, op: UnaryOp, arg: Type, span: Span) -> Result<Type, Diagnostic> {
         match op {
-            UnaryOp::Plus | UnaryOp::Minus | UnaryOp::BitNot => {
+            // Unary `+` is ToNumber (ECMA-262); BigInt throws at runtime — reject statically.
+            UnaryOp::Plus => {
+                if arg == Type::BigInt {
+                    Err(Diagnostic::new(
+                        format!("unary `{op}` cannot be applied to type `{arg}`"),
+                        span,
+                    ))
+                } else {
+                    Ok(Type::Number)
+                }
+            }
+            UnaryOp::Minus | UnaryOp::BitNot => {
                 if arg == Type::Number || arg == Type::Any {
                     Ok(Type::Number)
+                } else if arg == Type::BigInt {
+                    Ok(Type::BigInt)
                 } else {
                     Err(Diagnostic::new(
                         format!("unary `{op}` cannot be applied to type `{arg}`"),
@@ -919,6 +1750,11 @@ impl<'a> Checker<'a> {
             UnaryOp::TypeOf => Ok(Type::String),
             UnaryOp::Void => Ok(Type::Null),
             UnaryOp::Delete => Ok(Type::Boolean),
+            // Await yields the fulfillment value; keep coarse `any` for now.
+            UnaryOp::Await => Ok(Type::Any),
+            // Yield expression value is the next `.next(arg)` resume value; coarse `any`.
+            // `yield*` completion is the inner iterator's final value; coarse `any`.
+            UnaryOp::Yield | UnaryOp::YieldStar => Ok(Type::Any),
         }
     }
 
@@ -930,18 +1766,46 @@ impl<'a> Checker<'a> {
         span: Span,
     ) -> Result<Type, Diagnostic> {
         match op {
-            BinaryOp::Add => match (left, right) {
-                (Type::Number, Type::Number) => Ok(Type::Number),
-                (Type::String, Type::String)
-                | (Type::String, Type::Number)
-                | (Type::Number, Type::String) => Ok(Type::String),
-                (Type::Any, Type::String) | (Type::String, Type::Any) => Ok(Type::String),
-                (Type::Any, _) | (_, Type::Any) => Ok(Type::Any),
-                _ => Err(Diagnostic::new(
-                    format!("operator `+` cannot be applied to types `{left}` and `{right}`"),
-                    span,
-                )),
-            },
+            // Binary `+`: string preference (ToString) else numeric (ToNumber), per ECMA-262.
+            // Object/Function sides use runtime ToPrimitive (valueOf/toString); static type is Any.
+            BinaryOp::Add => {
+                if left == Type::BigInt || right == Type::BigInt {
+                    if left == Type::BigInt && right == Type::BigInt {
+                        Ok(Type::BigInt)
+                    } else {
+                        Err(Diagnostic::new(
+                            format!(
+                                "operator `+` cannot be applied to types `{left}` and `{right}`"
+                            ),
+                            span,
+                        ))
+                    }
+                } else if left == Type::String || right == Type::String {
+                    Ok(Type::String)
+                } else if matches!(left, Type::Object | Type::Function | Type::Any)
+                    || matches!(right, Type::Object | Type::Function | Type::Any)
+                {
+                    if self.is_add_operand(left) && self.is_add_operand(right) {
+                        Ok(Type::Any)
+                    } else {
+                        Err(Diagnostic::new(
+                            format!(
+                                "operator `+` cannot be applied to types `{left}` and `{right}`"
+                            ),
+                            span,
+                        ))
+                    }
+                } else if self.is_primitive_numeric_coercible(left)
+                    && self.is_primitive_numeric_coercible(right)
+                {
+                    Ok(Type::Number)
+                } else {
+                    Err(Diagnostic::new(
+                        format!("operator `+` cannot be applied to types `{left}` and `{right}`"),
+                        span,
+                    ))
+                }
+            }
             BinaryOp::Sub
             | BinaryOp::Mul
             | BinaryOp::Div
@@ -953,7 +1817,19 @@ impl<'a> Checker<'a> {
             | BinaryOp::Shl
             | BinaryOp::Shr
             | BinaryOp::UShr => {
-                if self.is_numberish(left) && self.is_numberish(right) {
+                if left == Type::BigInt && right == Type::BigInt {
+                    // `>>>` is not defined on BigInt in ECMA-262.
+                    if matches!(op, BinaryOp::UShr) {
+                        Err(Diagnostic::new(
+                            format!(
+                                "operator `{op}` cannot be applied to types `{left}` and `{right}`"
+                            ),
+                            span,
+                        ))
+                    } else {
+                        Ok(Type::BigInt)
+                    }
+                } else if self.is_numberish(left) && self.is_numberish(right) {
                     Ok(Type::Number)
                 } else {
                     Err(Diagnostic::new(
@@ -963,7 +1839,9 @@ impl<'a> Checker<'a> {
                 }
             }
             BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
-                if self.is_numberish(left) && self.is_numberish(right) {
+                if (self.is_numberish(left) && self.is_numberish(right))
+                    || (left == Type::BigInt && right == Type::BigInt)
+                {
                     Ok(Type::Boolean)
                 } else {
                     Err(Diagnostic::new(
@@ -975,6 +1853,8 @@ impl<'a> Checker<'a> {
             BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq => {
                 Ok(Type::Boolean)
             }
+            // `in`: property-key left, object-like right; result is boolean (ECMA-262).
+            BinaryOp::In => Ok(Type::Boolean),
             BinaryOp::And | BinaryOp::Or | BinaryOp::Nullish => {
                 if left == right {
                     Ok(left)
@@ -993,6 +1873,15 @@ impl<'a> Checker<'a> {
     fn is_numberish(&self, ty: Type) -> bool {
         matches!(ty, Type::Number | Type::Any)
     }
+
+    /// Primitives ToNumber accepts for binary `+` when neither side is string/BigInt/object.
+    fn is_primitive_numeric_coercible(&self, ty: Type) -> bool {
+        matches!(ty, Type::Number | Type::Boolean | Type::Null)
+    }
+
+    fn is_add_operand(&self, ty: Type) -> bool {
+        !matches!(ty, Type::BigInt)
+    }
 }
 
 #[cfg(test)]
@@ -1000,22 +1889,28 @@ mod tests {
     use super::*;
     use draconic_parser::parse;
 
+    fn user_symbol<'a>(bound: &'a BoundProgram, name: &str) -> &'a Symbol {
+        bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == name && s.span != Span::dummy())
+            .unwrap_or_else(|| panic!("no user symbol `{name}`"))
+    }
+
     #[test]
     fn bind_let_declares_symbol() {
         let program = parse("let x = 1;").unwrap();
         let bound = bind(program).unwrap();
-        assert_eq!(bound.symbols().len(), 1);
-        assert_eq!(bound.symbols()[0].name, "x");
-        assert_eq!(bound.symbols()[0].kind, BindingKind::Let);
+        let x = user_symbol(&bound, "x");
+        assert_eq!(x.kind, BindingKind::Let);
     }
 
     #[test]
     fn bind_const_declares_symbol() {
         let program = parse("const x = 1;").unwrap();
         let bound = bind(program).unwrap();
-        assert_eq!(bound.symbols().len(), 1);
-        assert_eq!(bound.symbols()[0].name, "x");
-        assert_eq!(bound.symbols()[0].kind, BindingKind::Const);
+        let x = user_symbol(&bound, "x");
+        assert_eq!(x.kind, BindingKind::Const);
     }
 
     #[test]
@@ -1044,7 +1939,8 @@ mod tests {
     fn check_const_ok_read() {
         let program = parse("const x = 1; let y = x + 2;").unwrap();
         let checked = check(program).unwrap();
-        assert_eq!(checked.type_of_symbol(checked.bound.symbols()[0].id), Type::Number);
+        let x = user_symbol(&checked.bound, "x");
+        assert_eq!(checked.type_of_symbol(x.id), Type::Number);
     }
 
     #[test]
@@ -1060,10 +1956,876 @@ mod tests {
     fn bind_resolves_ident_in_initializer() {
         let program = parse("let x = 1; let y = x + 2;").unwrap();
         let bound = bind(program).unwrap();
-        assert_eq!(bound.symbols().len(), 2);
+        assert!(user_symbol(&bound, "x").name == "x");
+        assert!(user_symbol(&bound, "y").name == "y");
         let use_span = find_ident_use(&bound.program, "x");
         let id = bound.resolve(use_span).expect("x in init should resolve");
         assert_eq!(bound.symbol(id).name, "x");
+    }
+
+    #[test]
+    fn bind_resolves_global_math() {
+        let program = parse("Math.abs(-1);").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Math");
+        let id = bound.resolve(use_span).expect("Math should resolve");
+        assert_eq!(bound.symbol(id).name, "Math");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_math_is_object() {
+        let program = parse("let t = typeof Math; let a = Math.abs(-3);").unwrap();
+        let checked = check(program).unwrap();
+        let math = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Math" && s.span == Span::dummy())
+            .expect("Math builtin");
+        assert_eq!(checked.type_of_symbol(math.id), Type::Object);
+    }
+
+    #[test]
+    fn bind_let_math_shadows_builtin() {
+        let program = parse("let Math = 1; Math;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Math");
+        let id = bound.resolve(use_span).expect("Math should resolve");
+        assert_eq!(bound.symbol(id).name, "Math");
+    }
+
+    #[test]
+    fn bind_resolves_global_number_nan_infinity() {
+        let program = parse("Number.isNaN(NaN); Infinity;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in ["Number", "NaN", "Infinity"] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect("should resolve");
+            assert_eq!(bound.symbol(id).name, name);
+        }
+    }
+
+    #[test]
+    fn check_types_global_number_nan_infinity() {
+        let program = parse(
+            "let t = typeof Number; let a = Number.isNaN(NaN); let n = NaN; let i = Infinity;",
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        let number = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Number" && s.span == Span::dummy())
+            .expect("Number builtin");
+        assert_eq!(checked.type_of_symbol(number.id), Type::Function);
+        let nan = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "NaN" && s.span == Span::dummy())
+            .expect("NaN builtin");
+        assert_eq!(checked.type_of_symbol(nan.id), Type::Number);
+        let inf = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Infinity" && s.span == Span::dummy())
+            .expect("Infinity builtin");
+        assert_eq!(checked.type_of_symbol(inf.id), Type::Number);
+    }
+
+    #[test]
+    fn bind_let_number_shadows_builtin() {
+        let program = parse("let Number = 1; Number;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Number");
+        let id = bound.resolve(use_span).expect("Number should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_symbol() {
+        let program = parse("Symbol(); Symbol.for(\"x\");").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Symbol");
+        let id = bound.resolve(use_span).expect("Symbol should resolve");
+        assert_eq!(bound.symbol(id).name, "Symbol");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_symbol_is_function() {
+        let program = parse("let t = typeof Symbol; let s = Symbol();").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Symbol" && s.span == Span::dummy())
+            .expect("Symbol builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+    }
+
+    #[test]
+    fn bind_let_symbol_shadows_builtin() {
+        let program = parse("let Symbol = 1; Symbol;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Symbol");
+        let id = bound.resolve(use_span).expect("Symbol should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_promise() {
+        let program = parse("new Promise(function (r) { r(1); });").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Promise");
+        let id = bound.resolve(use_span).expect("Promise should resolve");
+        assert_eq!(bound.symbol(id).name, "Promise");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_promise_is_function() {
+        let program = parse("let t = typeof Promise; let p = new Promise(function (r) { r(1); });").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Promise" && s.span == Span::dummy())
+            .expect("Promise builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+    }
+
+    #[test]
+    fn bind_let_promise_shadows_builtin() {
+        let program = parse("let Promise = 1; Promise;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Promise");
+        let id = bound.resolve(use_span).expect("Promise should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_proxy() {
+        let program = parse("new Proxy({}, {});").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Proxy");
+        let id = bound.resolve(use_span).expect("Proxy should resolve");
+        assert_eq!(bound.symbol(id).name, "Proxy");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_proxy_is_function() {
+        let program = parse("let t = typeof Proxy; let p = new Proxy({}, {});").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Proxy" && s.span == Span::dummy())
+            .expect("Proxy builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+    }
+
+    #[test]
+    fn check_proxy_of_function_is_callable() {
+        let program = parse(
+            "let t = function (a) { return a; }; let p = new Proxy(t, {}); let r = p(1);",
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        let p = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "p")
+            .expect("p");
+        assert_eq!(checked.type_of_symbol(p.id), Type::Function);
+    }
+
+    #[test]
+    fn check_proxy_of_object_is_not_callable() {
+        let program = parse("let p = new Proxy({}, {}); p();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_let_proxy_shadows_builtin() {
+        let program = parse("let Proxy = 1; Proxy;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Proxy");
+        let id = bound.resolve(use_span).expect("Proxy should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_reflect() {
+        let program = parse("Reflect.get({}, \"a\");").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Reflect");
+        let id = bound.resolve(use_span).expect("Reflect should resolve");
+        assert_eq!(bound.symbol(id).name, "Reflect");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_reflect_is_object() {
+        let program = parse("let t = typeof Reflect; let g = Reflect.get;").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Reflect" && s.span == Span::dummy())
+            .expect("Reflect builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Object);
+    }
+
+    #[test]
+    fn bind_let_reflect_shadows_builtin() {
+        let program = parse("let Reflect = 1; Reflect;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Reflect");
+        let id = bound.resolve(use_span).expect("Reflect should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_undefined_and_global_this() {
+        let program = parse("undefined; globalThis;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in ["undefined", "globalThis"] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect("should resolve");
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_types_undefined_and_global_this() {
+        let program = parse("let u = undefined; let g = globalThis;").unwrap();
+        let checked = check(program).unwrap();
+        let undef = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "undefined" && s.span == Span::dummy())
+            .expect("undefined builtin");
+        assert_eq!(checked.type_of_symbol(undef.id), Type::Any);
+        let gt = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "globalThis" && s.span == Span::dummy())
+            .expect("globalThis builtin");
+        assert_eq!(checked.type_of_symbol(gt.id), Type::Object);
+    }
+
+    #[test]
+    fn bind_resolves_fundamental_constructors() {
+        let program = parse("Object; Function; Array; String; Boolean;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in ["Object", "Function", "Array", "String", "Boolean"] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect("should resolve");
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_fundamental_constructors_are_functions() {
+        let program =
+            parse("let a = typeof Object; let b = typeof Function; let c = typeof Array; let d = typeof String; let e = typeof Boolean;")
+                .unwrap();
+        let checked = check(program).unwrap();
+        for name in ["Object", "Function", "Array", "String", "Boolean"] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .unwrap_or_else(|| panic!("{name} builtin"));
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn bind_let_object_shadows_builtin() {
+        let program = parse("let Object = 1; Object;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Object");
+        let id = bound.resolve(use_span).expect("Object should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_error_constructors() {
+        let program = parse(
+            "Error; TypeError; RangeError; ReferenceError; SyntaxError; URIError; EvalError; AggregateError;",
+        )
+        .unwrap();
+        let bound = bind(program).unwrap();
+        for name in [
+            "Error",
+            "TypeError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+            "URIError",
+            "EvalError",
+            "AggregateError",
+        ] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect("should resolve");
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_error_constructors_are_functions() {
+        let program = parse(
+            "let a = typeof Error; let b = typeof TypeError; let c = typeof AggregateError;",
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        for name in [
+            "Error",
+            "TypeError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+            "URIError",
+            "EvalError",
+            "AggregateError",
+        ] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .unwrap_or_else(|| panic!("{name} builtin"));
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn check_new_error_is_ok() {
+        let program = parse(
+            "let e = new Error(\"m\"); let t = new TypeError(\"t\"); let a = new AggregateError([], \"a\");",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_error_shadows_builtin() {
+        let program = parse("let Error = 1; Error;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Error");
+        let id = bound.resolve(use_span).expect("Error should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_functions() {
+        let program = parse("parseInt; parseFloat; isNaN; isFinite;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in ["parseInt", "parseFloat", "isNaN", "isFinite"] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect("should resolve");
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_global_functions_are_functions() {
+        let program = parse(
+            "let a = typeof parseInt; let b = typeof parseFloat; let c = typeof isNaN; let d = typeof isFinite;",
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        for name in ["parseInt", "parseFloat", "isNaN", "isFinite"] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .unwrap_or_else(|| panic!("{name} builtin"));
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn check_global_function_calls_ok() {
+        let program = parse(
+            "let a = parseInt(\"42\"); let b = parseFloat(\"3.14\"); let c = isNaN(NaN); let d = isFinite(1);",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_parse_int_shadows_builtin() {
+        let program = parse("let parseInt = 1; parseInt;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "parseInt");
+        let id = bound.resolve(use_span).expect("parseInt should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_uri_functions() {
+        let program =
+            parse("encodeURI; decodeURI; encodeURIComponent; decodeURIComponent;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in [
+            "encodeURI",
+            "decodeURI",
+            "encodeURIComponent",
+            "decodeURIComponent",
+        ] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect("should resolve");
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_uri_functions_are_functions() {
+        let program = parse(
+            "let a = typeof encodeURI; let b = typeof decodeURI; let c = typeof encodeURIComponent; let d = typeof decodeURIComponent;",
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        for name in [
+            "encodeURI",
+            "decodeURI",
+            "encodeURIComponent",
+            "decodeURIComponent",
+        ] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .unwrap_or_else(|| panic!("{name} builtin"));
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn check_uri_function_calls_ok() {
+        let program = parse(
+            "let a = encodeURI(\"a b\"); let b = decodeURI(\"a%20b\"); let c = encodeURIComponent(\"a&b\"); let d = decodeURIComponent(\"a%26b\");",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_encode_uri_shadows_builtin() {
+        let program = parse("let encodeURI = 1; encodeURI;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "encodeURI");
+        let id = bound.resolve(use_span).expect("encodeURI should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_escape_unescape() {
+        let program = parse("escape; unescape;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in ["escape", "unescape"] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect("should resolve");
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_escape_unescape_are_functions() {
+        let program = parse("let a = typeof escape; let b = typeof unescape;").unwrap();
+        let checked = check(program).unwrap();
+        for name in ["escape", "unescape"] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .unwrap_or_else(|| panic!("{name} builtin"));
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn check_escape_unescape_calls_ok() {
+        let program = parse(
+            "let a = escape(\"a b\"); let b = unescape(\"%20\"); let c = unescape(escape(\"x\"));",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_escape_shadows_builtin() {
+        let program = parse("let escape = 1; escape;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "escape");
+        let id = bound.resolve(use_span).expect("escape should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_json() {
+        let program = parse("JSON;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "JSON");
+        let id = bound.resolve(use_span).expect("JSON should resolve");
+        assert_eq!(bound.symbol(id).name, "JSON");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_json_is_object() {
+        let program = parse("let t = typeof JSON; let p = JSON.parse; let s = JSON.stringify;").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "JSON" && s.span == Span::dummy())
+            .expect("JSON builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Object);
+    }
+
+    #[test]
+    fn check_json_parse_stringify_calls_ok() {
+        let program = parse(
+            "let a = JSON.stringify(1); let b = JSON.parse(\"1\"); let c = JSON.parse(JSON.stringify({ x: 2 }));",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_json_shadows_builtin() {
+        let program = parse("let JSON = 1; JSON;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "JSON");
+        let id = bound.resolve(use_span).expect("JSON should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_date() {
+        let program = parse("Date;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Date");
+        let id = bound.resolve(use_span).expect("Date should resolve");
+        assert_eq!(bound.symbol(id).name, "Date");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_date_is_function() {
+        let program = parse("let t = typeof Date; let n = Date.now;").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "Date" && s.span == Span::dummy())
+            .expect("Date builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+    }
+
+    #[test]
+    fn check_date_now_and_new_ok() {
+        let program = parse(
+            "let n = Date.now(); let d = new Date(0); let t = d.getTime(); let u = Date.UTC(1970, 0, 1);",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_date_shadows_builtin() {
+        let program = parse("let Date = 1; Date;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Date");
+        let id = bound.resolve(use_span).expect("Date should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_regexp() {
+        let program = parse("RegExp;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "RegExp");
+        let id = bound.resolve(use_span).expect("RegExp should resolve");
+        assert_eq!(bound.symbol(id).name, "RegExp");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+    }
+
+    #[test]
+    fn check_regexp_is_function() {
+        let program = parse("let t = typeof RegExp; let s = RegExp.prototype;").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "RegExp" && s.span == Span::dummy())
+            .expect("RegExp builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+    }
+
+    #[test]
+    fn check_regexp_new_and_methods_ok() {
+        let program = parse(
+            "let r = new RegExp(\"a+\", \"i\"); let t = r.test(\"AA\"); let m = r.exec(\"xAAy\"); let s = r.source; let f = r.flags;",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_regexp_shadows_builtin() {
+        let program = parse("let RegExp = 1; RegExp;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "RegExp");
+        let id = bound.resolve(use_span).expect("RegExp should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_map_and_set() {
+        let program = parse("Map; Set;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in ["Map", "Set"] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect(name);
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_map_and_set_are_functions() {
+        let program = parse("let tm = typeof Map; let ts = typeof Set;").unwrap();
+        let checked = check(program).unwrap();
+        for name in ["Map", "Set"] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .expect(name);
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn check_map_set_new_and_methods_ok() {
+        let program = parse(
+            "let m = new Map(); m.set(1, 2); let g = m.get(1); let h = m.has(1); let n = m.size; let s = new Set(); s.add(3); let sh = s.has(3); let sn = s.size;",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_map_shadows_builtin() {
+        let program = parse("let Map = 1; Map;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "Map");
+        let id = bound.resolve(use_span).expect("Map should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_weak_map_and_weak_set() {
+        let program = parse("WeakMap; WeakSet;").unwrap();
+        let bound = bind(program).unwrap();
+        for name in ["WeakMap", "WeakSet"] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect(name);
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_weak_map_and_weak_set_are_functions() {
+        let program = parse("let twm = typeof WeakMap; let tws = typeof WeakSet;").unwrap();
+        let checked = check(program).unwrap();
+        for name in ["WeakMap", "WeakSet"] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .expect(name);
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn check_weak_map_set_new_and_methods_ok() {
+        let program = parse(
+            "let k = {}; let wm = new WeakMap(); wm.set(k, 1); let g = wm.get(k); let h = wm.has(k); let d = wm.delete(k); let ws = new WeakSet(); ws.add(k); let sh = ws.has(k); let sd = ws.delete(k);",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_weak_map_shadows_builtin() {
+        let program = parse("let WeakMap = 1; WeakMap;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "WeakMap");
+        let id = bound.resolve(use_span).expect("WeakMap should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_global_arraybuffer_dataview_typedarrays() {
+        let program = parse(
+            "ArrayBuffer; DataView; Uint8Array; Int32Array; Float64Array;",
+        )
+        .unwrap();
+        let bound = bind(program).unwrap();
+        for name in [
+            "ArrayBuffer",
+            "DataView",
+            "Uint8Array",
+            "Int32Array",
+            "Float64Array",
+        ] {
+            let use_span = find_ident_use(&bound.program, name);
+            let id = bound.resolve(use_span).expect(name);
+            assert_eq!(bound.symbol(id).name, name);
+            assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        }
+    }
+
+    #[test]
+    fn check_arraybuffer_dataview_typedarrays_are_functions() {
+        let program = parse(
+            "let tab = typeof ArrayBuffer; let tdv = typeof DataView; let tu8 = typeof Uint8Array;",
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        for name in ["ArrayBuffer", "DataView", "Uint8Array", "Int32Array", "Float64Array"] {
+            let sym = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.name == name && s.span == Span::dummy())
+                .expect(name);
+            assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+        }
+    }
+
+    #[test]
+    fn check_arraybuffer_typedarrays_new_and_ops_ok() {
+        let program = parse(
+            "let buf = new ArrayBuffer(8); let bl = buf.byteLength; let u8 = new Uint8Array(buf); u8[0] = 1; let x = u8[0]; let i32 = new Int32Array(2); i32[0] = 42; let f64 = new Float64Array([1.5]); let dv = new DataView(buf); dv.setUint8(0, 1); let g = dv.getUint8(0);",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_arraybuffer_shadows_builtin() {
+        let program = parse("let ArrayBuffer = 1; ArrayBuffer;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "ArrayBuffer");
+        let id = bound.resolve(use_span).expect("ArrayBuffer should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn bind_resolves_eval() {
+        let program = parse("eval;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "eval");
+        let id = bound.resolve(use_span).expect("eval should resolve");
+        assert_eq!(bound.symbol(id).name, "eval");
+        assert_eq!(bound.symbol(id).kind, BindingKind::Const);
+        assert_eq!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn check_eval_is_function() {
+        let program = parse("let t = typeof eval;").unwrap();
+        let checked = check(program).unwrap();
+        let sym = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "eval" && s.span == Span::dummy())
+            .expect("eval builtin");
+        assert_eq!(checked.type_of_symbol(sym.id), Type::Function);
+    }
+
+    #[test]
+    fn check_eval_call_ok() {
+        let program = parse("let a = eval(\"1 + 2\"); let b = eval(\"typeof undefined\");").unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn bind_let_eval_shadows_builtin() {
+        let program = parse("let eval = 1; eval;").unwrap();
+        let bound = bind(program).unwrap();
+        let use_span = find_ident_use(&bound.program, "eval");
+        let id = bound.resolve(use_span).expect("eval should resolve");
+        assert_ne!(bound.symbol(id).span, Span::dummy());
+    }
+
+    #[test]
+    fn check_new_function_is_function() {
+        let program = parse("let f = new Function(\"return 1\");").unwrap();
+        let checked = check(program).unwrap();
+        let f = checked
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == "f")
+            .expect("f");
+        assert_eq!(checked.type_of_symbol(f.id), Type::Function);
+    }
+
+    #[test]
+    fn check_new_function_call_ok() {
+        let program = parse(
+            "let f = new Function(\"a\", \"b\", \"return a + b\"); let r = f(1, 2); let g = Function(\"x\", \"return x\"); let s = g(3);",
+        )
+        .unwrap();
+        check(program).unwrap();
+    }
+
+    #[test]
+    fn check_function_call_construct_ok() {
+        let program = parse("let f = Function(\"return 7\"); let r = f();").unwrap();
+        check(program).unwrap();
     }
 
     #[test]
@@ -1143,6 +2905,69 @@ mod tests {
     }
 
     #[test]
+    fn check_unary_plus_coerces_to_number() {
+        let program = parse(r#"let a = +"42"; let b = +true; let c = +null; let d = +"";"#).unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::Number);
+        assert_eq!(sym_type(&checked, "b"), Type::Number);
+        assert_eq!(sym_type(&checked, "c"), Type::Number);
+        assert_eq!(sym_type(&checked, "d"), Type::Number);
+    }
+
+    #[test]
+    fn check_unary_plus_rejects_bigint() {
+        let program = parse("let a = +1n;").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("unary") && err.message.contains("bigint"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_add_coercion_types() {
+        let program = parse(
+            r#"let a = "a" + true; let b = true + 1; let c = null + 1; let d = false + true;"#,
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::String);
+        assert_eq!(sym_type(&checked, "b"), Type::Number);
+        assert_eq!(sym_type(&checked, "c"), Type::Number);
+        assert_eq!(sym_type(&checked, "d"), Type::Number);
+    }
+
+    #[test]
+    fn check_abstract_eq_mixed_types() {
+        let program = parse(r#"let a = 1 == "1"; let b = null == 0; let c = true != "1";"#).unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::Boolean);
+        assert_eq!(sym_type(&checked, "b"), Type::Boolean);
+        assert_eq!(sym_type(&checked, "c"), Type::Boolean);
+    }
+
+    #[test]
+    fn check_to_primitive_object_ops() {
+        // valueOf/toString run at runtime; static type of object + primitive is Any.
+        let program = parse(
+            r#"
+            let o = { valueOf: function () { return 1; } };
+            let a = o + 2;
+            let b = "x" + o;
+            let c = o == 1;
+            let d = o != "1";
+            "#,
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::Any);
+        assert_eq!(sym_type(&checked, "b"), Type::String);
+        assert_eq!(sym_type(&checked, "c"), Type::Boolean);
+        assert_eq!(sym_type(&checked, "d"), Type::Boolean);
+    }
+
+    #[test]
     fn check_uninitialized_let_is_any() {
         let program = parse("let x;").unwrap();
         let checked = check(program).unwrap();
@@ -1210,9 +3035,25 @@ mod tests {
                 Expr::Ident(id) if id.name == name => *out = Some(id.span),
                 Expr::Ident(_)
                 | Expr::Number(_)
+                | Expr::BigInt(_)
                 | Expr::String(_)
                 | Expr::Boolean { .. }
-                | Expr::Null { .. } => {}
+                | Expr::Null { .. }
+                | Expr::This { .. }
+                | Expr::Super { .. } => {}
+                Expr::TemplateLiteral { expressions, .. } => {
+                    for e in expressions {
+                        walk_expr(e, name, out);
+                    }
+                }
+                Expr::TaggedTemplate {
+                    tag, expressions, ..
+                } => {
+                    walk_expr(tag, name, out);
+                    for e in expressions {
+                        walk_expr(e, name, out);
+                    }
+                }
                 Expr::Unary { arg, .. } | Expr::Paren { expr: arg, .. } => {
                     walk_expr(arg, name, out)
                 }
@@ -1235,10 +3076,71 @@ mod tests {
                     walk_expr(value, name, out);
                 }
                 Expr::Update { arg, .. } => walk_expr(arg, name, out),
-                Expr::Call { callee, args, .. } => {
+                Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
                     walk_expr(callee, name, out);
                     for a in args {
-                        walk_expr(a, name, out);
+                        match a {
+                            Arg::Expr(expr) | Arg::Spread(expr) => walk_expr(expr, name, out),
+                        }
+                    }
+                }
+                Expr::ObjectExpression { properties, .. } => {
+                    for prop in properties {
+                        if let ObjectKey::Computed(expr) = &prop.key {
+                            walk_expr(expr, name, out);
+                        }
+                        walk_expr(&prop.value, name, out);
+                    }
+                }
+                Expr::ArrayExpression { elements, .. } => {
+                    for el in elements {
+                        match el {
+                            ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {
+                                walk_expr(expr, name, out);
+                            }
+                        }
+                    }
+                }
+                Expr::MemberExpression {
+                    object,
+                    property,
+                    computed,
+                    ..
+                } => {
+                    walk_expr(object, name, out);
+                    if *computed {
+                        walk_expr(property, name, out);
+                    }
+                }
+                // Function bodies walked via Stmt::FunctionDeclaration path when needed.
+                Expr::FunctionExpression { .. } | Expr::ArrowFunction { .. } => {}
+                Expr::ArrayPattern { elements, .. } => {
+                    for el in elements {
+                        match el {
+                            ArrayPatternElement::Pattern(BindingPattern::Ident(id))
+                                if id.name == name =>
+                            {
+                                *out = Some(id.span);
+                            }
+                            ArrayPatternElement::Pattern(BindingPattern::Ident(_)) => {}
+                            ArrayPatternElement::Pattern(BindingPattern::Array {
+                                elements: nested,
+                                ..
+                            }) => {
+                                walk_expr(
+                                    &Expr::ArrayPattern {
+                                        elements: nested.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
+                            ArrayPatternElement::Rest(id) if id.name == name => {
+                                *out = Some(id.span);
+                            }
+                            ArrayPatternElement::Rest(_) => {}
+                        }
                     }
                 }
             }
@@ -1330,6 +3232,23 @@ mod tests {
                     let _ = params;
                     walk_stmt(body, name, out);
                 }
+                Stmt::ClassDeclaration {
+                    super_class,
+                    body,
+                    ..
+                } => {
+                    if let Some(sc) = super_class {
+                        walk_expr(sc, name, out);
+                    }
+                    for el in body {
+                        match el {
+                            ClassElement::Constructor { body, .. }
+                            | ClassElement::Method { body, .. } => {
+                                walk_stmt(body, name, out);
+                            }
+                        }
+                    }
+                }
                 Stmt::Return {
                     argument: Some(arg),
                     ..
@@ -1337,6 +3256,28 @@ mod tests {
                 Stmt::Return {
                     argument: None, ..
                 } => {}
+                Stmt::Throw { argument, .. } => walk_expr(argument, name, out),
+                Stmt::Try {
+                    block,
+                    handler,
+                    finalizer,
+                    ..
+                } => {
+                    walk_stmt(block, name, out);
+                    if let Some(handler) = handler {
+                        walk_stmt(handler, name, out);
+                    }
+                    if let Some(finalizer) = finalizer {
+                        walk_stmt(finalizer, name, out);
+                    }
+                }
+                Stmt::With { object, body, .. } => {
+                    walk_expr(object, name, out);
+                    walk_stmt(body, name, out);
+                }
+                Stmt::ImportDeclaration { .. }
+                | Stmt::ExportNamedDeclaration { .. }
+                | Stmt::ExportDefaultDeclaration { .. } => {}
             }
         }
 
@@ -1389,7 +3330,9 @@ mod tests {
                 Expr::Call { callee, args, .. } => {
                     walk(callee, op, out);
                     for a in args {
-                        walk(a, op, out);
+                        match a {
+                            Arg::Expr(expr) | Arg::Spread(expr) => walk(expr, op, out),
+                        }
                     }
                 }
                 _ => {}

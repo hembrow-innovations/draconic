@@ -1,0 +1,9 @@
+import * as ns from "./ns_lib.drac";
+import answer, * as ns2 from "./ns_lib.drac";
+let a = ns.value;
+let b = ns.inc(ns.value);
+let c = ns.label;
+let d = ns.default();
+let e = answer();
+let f = ns2.value;
+let g = ns2.default();

@@ -1,0 +1,9 @@
+import { readB } from "./cyclic_live_b.drac";
+export let n = 0;
+export function bump() {
+  n = n + 1;
+  return n;
+}
+export function viaB() {
+  return readB();
+}

@@ -1,0 +1,18 @@
+let tRace = typeof Promise.race;
+let winner = -1;
+let mixed = -1;
+let rejected = 0;
+Promise.race([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+  winner = v;
+});
+Promise.race([1, Promise.resolve(2)]).then(function (v) {
+  mixed = v;
+});
+Promise.race([Promise.reject(7), Promise.resolve(1)]).then(
+  function () {
+    rejected = -1;
+  },
+  function (e) {
+    rejected = e;
+  }
+);

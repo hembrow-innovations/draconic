@@ -1,0 +1,6 @@
+id: es/builtins/uri_functions
+targets: js,native
+js.exit: 0
+js.check: if (teu !== "function") process.exit(1); if (tdu !== "function") process.exit(2); if (teuc !== "function") process.exit(3); if (tduc !== "function") process.exit(4); if (geu !== true) process.exit(5); if (gdu !== true) process.exit(6); if (geuc !== true) process.exit(7); if (gduc !== true) process.exit(8); if (a !== "https://example.com/a%20b") process.exit(9); if (b !== "https://example.com/a b") process.exit(10); if (c !== "a%20b%26c%3Dd") process.exit(11); if (d !== "a b&c=d") process.exit(12); if (e !== "caf%C3%A9") process.exit(13); if (f !== "x/y?z=1") process.exit(14); if (typeof teu !== "string") process.exit(15);
+native.exit: 0
+native.stdout: hello\n

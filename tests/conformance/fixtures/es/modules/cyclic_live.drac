@@ -1,0 +1,8 @@
+import { n, bump, viaB } from "./cyclic_live_a.drac";
+import { bumpViaB, readB } from "./cyclic_live_b.drac";
+let a = n;
+let b = bump();
+let c = n;
+let d = readB();
+let e = bumpViaB();
+let f = viaB();

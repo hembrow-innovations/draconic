@@ -1,0 +1,69 @@
+// E09.03 — abstract equality (==/!=) and ToNumber/ToString/ToBoolean via +/==/if
+let eq_num_str = 1 == "1";
+let ne_num_str = 1 != "2";
+let eq_num_bool = 1 == true;
+let eq_zero_false = 0 == false;
+let eq_empty_false = "" == false;
+let eq_str0_false = "0" == false;
+let eq_null_zero = null == 0;
+let eq_null_null = null == null;
+let eq_null_undef = null == void 0;
+let ne_null_undef = null != void 0;
+let eq_true_one = true == 1;
+let eq_false_zero = false == 0;
+let eq_ws_zero = " \t\n" == 0;
+let eq_str1_true = "1" == true;
+let eq_str_str = "abc" == "abc";
+let strict_differs = 1 === "1";
+let nan_eq = NaN == NaN;
+let same_obj = {};
+let eq_same_obj = same_obj == same_obj;
+let eq_diff_obj = {} == {};
+
+// ToString via binary +
+let str_num = "5" + 1;
+let num_str = 1 + "5";
+let str_bool = "a" + true;
+let str_null = "a" + null;
+let str_undef = "a" + void 0;
+
+// ToNumber via unary + and numeric binary +
+let tonum_str = +"42";
+let tonum_bool_t = +true;
+let tonum_bool_f = +false;
+let tonum_null = +null;
+let tonum_empty = +"";
+let tonum_undef = +void 0;
+let bool_plus_num = true + 1;
+let null_plus_num = null + 1;
+let false_plus_true = false + true;
+
+// ToBoolean via if
+let tb_zero = 0;
+if (0) {
+  tb_zero = 1;
+}
+let tb_one = 0;
+if (1) {
+  tb_one = 1;
+}
+let tb_empty = 0;
+if ("") {
+  tb_empty = 1;
+}
+let tb_str = 0;
+if ("x") {
+  tb_str = 1;
+}
+let tb_null = 0;
+if (null) {
+  tb_null = 1;
+}
+let tb_undef = 0;
+if (void 0) {
+  tb_undef = 1;
+}
+let tb_obj = 0;
+if ({}) {
+  tb_obj = 1;
+}

@@ -1,0 +1,10 @@
+let te = typeof escape;
+let tu = typeof unescape;
+let ge = globalThis.escape === escape;
+let gu = globalThis.unescape === unescape;
+let a = escape("a b");
+let b = unescape("%20");
+let c = escape("café");
+let d = unescape(escape("hello world"));
+let e = escape("");
+let f = unescape("");

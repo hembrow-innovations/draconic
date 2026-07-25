@@ -1,4 +1,5 @@
 use draconic_diagnostics::Span;
+pub use draconic_lexer::JsString;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16,16 +17,60 @@ pub enum BindingKind {
     Function,
 }
 
+/// Binding target for `let` / `const`: simple name or array destructuring pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BindingPattern {
+    Ident(Ident),
+    /// `[a, b, ...rest]` (no holes/defaults in this surface).
+    Array {
+        elements: Vec<ArrayPatternElement>,
+        span: Span,
+    },
+}
+
+/// One element of an array binding/assignment pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayPatternElement {
+    /// Nested or simple binding (`a` or `[a, b]`).
+    Pattern(BindingPattern),
+    /// `...name` rest (must be last; simple ident only).
+    Rest(Ident),
+}
+
+impl BindingPattern {
+    pub fn span(&self) -> Span {
+        match self {
+            BindingPattern::Ident(id) => id.span,
+            BindingPattern::Array { span, .. } => *span,
+        }
+    }
+
+    /// Visit every identifier bound by this pattern (declaration names).
+    pub fn for_each_ident(&self, f: &mut dyn FnMut(&Ident)) {
+        match self {
+            BindingPattern::Ident(id) => f(id),
+            BindingPattern::Array { elements, .. } => {
+                for el in elements {
+                    match el {
+                        ArrayPatternElement::Pattern(p) => p.for_each_ident(f),
+                        ArrayPatternElement::Rest(id) => f(id),
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Expression {
         expr: Expr,
         span: Span,
     },
-    /// `let name = init;`, `let name;`, or `const name = init;`
+    /// `let name = init;`, `let name;`, `const name = init;`, or array destructuring.
     Let {
         kind: BindingKind,
-        name: Ident,
+        binding: BindingPattern,
         init: Option<Expr>,
         span: Span,
     },
@@ -101,16 +146,113 @@ pub enum Stmt {
         cases: Vec<SwitchCase>,
         span: Span,
     },
-    /// `function name (params) { body }`
+    /// `async? function *? name (params) { body }`
     FunctionDeclaration {
         name: Ident,
-        params: Vec<Ident>,
+        params: Vec<Param>,
         body: Box<Stmt>,
+        is_async: bool,
+        is_generator: bool,
+        span: Span,
+    },
+    /// `class name extends? super { constructor? methods… }`
+    ClassDeclaration {
+        name: Ident,
+        /// Present when `extends SuperClass`.
+        super_class: Option<Box<Expr>>,
+        body: Vec<ClassElement>,
         span: Span,
     },
     /// `return;` or `return expr;`
     Return {
         argument: Option<Expr>,
+        span: Span,
+    },
+    /// `throw expr;`
+    Throw {
+        argument: Expr,
+        span: Span,
+    },
+    /// `try { … } catch (param)? { … }? finally { … }?` (at least one of catch/finally)
+    Try {
+        block: Box<Stmt>,
+        /// Catch parameter name when present (`catch (e)`).
+        handler_param: Option<Ident>,
+        /// Catch body when a `catch` clause is present.
+        handler: Option<Box<Stmt>>,
+        /// `finally` block when present.
+        finalizer: Option<Box<Stmt>>,
+        span: Span,
+    },
+    /// `with (object) body` — non-strict Object Environment (ECMA-262).
+    With {
+        object: Expr,
+        body: Box<Stmt>,
+        span: Span,
+    },
+    /// `import { a, b as c } from "mod"` / `import d from "mod"` / `import d, { a } from "mod"`
+    /// / `import * as ns from "mod"` / `import d, * as ns from "mod"`.
+    /// Default import is a specifier with `imported.name == "default"`.
+    /// Namespace import binds `namespace` to a module namespace object.
+    ImportDeclaration {
+        specifiers: Vec<ImportSpecifier>,
+        /// `import * as name` binding, when present.
+        namespace: Option<Ident>,
+        source: StringLit,
+        span: Span,
+    },
+    /// `export let/const/function …` or `export { a, b as c }`
+    ExportNamedDeclaration {
+        /// Present for `export let` / `export const` / `export function`.
+        declaration: Option<Box<Stmt>>,
+        /// Present for `export { … }` (and empty when declaration carries the names).
+        specifiers: Vec<ExportSpecifier>,
+        span: Span,
+    },
+    /// `export default function …` / `export default expr`
+    /// Always carries a declaration that binds `local` (function/class or synthetic `let`).
+    ExportDefaultDeclaration {
+        declaration: Box<Stmt>,
+        /// Local binding name of the default export value.
+        local: Ident,
+        span: Span,
+    },
+}
+
+/// One binding of `import { imported as local }`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportSpecifier {
+    /// Exported name in the source module.
+    pub imported: Ident,
+    /// Local binding name in this module.
+    pub local: Ident,
+}
+
+/// One binding of `export { local as exported }`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportSpecifier {
+    /// Local name in this module.
+    pub local: Ident,
+    /// Name under which it is exported.
+    pub exported: Ident,
+}
+
+/// One element of a class body (`constructor` or method).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClassElement {
+    /// `constructor(params) { body }`
+    Constructor {
+        params: Vec<Param>,
+        body: Box<Stmt>,
+        span: Span,
+    },
+    /// `static? *? name(params) { body }` instance or static method (optional generator)
+    Method {
+        name: Ident,
+        params: Vec<Param>,
+        body: Box<Stmt>,
+        is_static: bool,
+        is_generator: bool,
         span: Span,
     },
 }
@@ -128,12 +270,36 @@ pub struct SwitchCase {
 pub enum Expr {
     Ident(Ident),
     Number(NumberLit),
+    BigInt(BigIntLit),
     String(StringLit),
+    /// Untagged template literal: `` `a${x}b` ``.
+    TemplateLiteral {
+        /// Cooked quasi strings; length is always `expressions.len() + 1`.
+        quasis: Vec<TemplateElement>,
+        expressions: Vec<Expr>,
+        span: Span,
+    },
+    /// Tagged template: `` tag`a${x}b` ``.
+    TaggedTemplate {
+        tag: Box<Expr>,
+        /// Cooked quasi strings; length is always `expressions.len() + 1`.
+        quasis: Vec<TemplateElement>,
+        expressions: Vec<Expr>,
+        span: Span,
+    },
     Boolean {
         value: bool,
         span: Span,
     },
     Null {
+        span: Span,
+    },
+    /// `this` binding (method/call-site determined).
+    This {
+        span: Span,
+    },
+    /// `super` (constructor call or parent property access in class body).
+    Super {
         span: Span,
     },
     Unary {
@@ -170,7 +336,47 @@ pub enum Expr {
     },
     Call {
         callee: Box<Expr>,
-        args: Vec<Expr>,
+        args: Vec<Arg>,
+        span: Span,
+    },
+    /// `new callee` or `new callee(args)`.
+    New {
+        callee: Box<Expr>,
+        args: Vec<Arg>,
+        span: Span,
+    },
+    /// `async? function *? name? (params) { body }` as an expression value.
+    FunctionExpression {
+        name: Option<Ident>,
+        params: Vec<Param>,
+        body: Box<Stmt>,
+        is_async: bool,
+        is_generator: bool,
+        span: Span,
+    },
+    /// `async? (params) => body` or bare `async? param => body` (simple ident params only).
+    ArrowFunction {
+        params: Vec<Param>,
+        body: ArrowBody,
+        is_async: bool,
+        span: Span,
+    },
+    /// `{ key: value, … }` — data properties only.
+    ObjectExpression {
+        properties: Vec<ObjectProp>,
+        span: Span,
+    },
+    /// `[elem, …]` array literal (spread elements allowed; no holes in this surface).
+    ArrayExpression {
+        elements: Vec<ArrayElement>,
+        span: Span,
+    },
+    /// `obj.prop` or `obj[expr]` (property read).
+    MemberExpression {
+        object: Box<Expr>,
+        /// Non-computed: `Expr::Ident`. Computed: any expression.
+        property: Box<Expr>,
+        computed: bool,
         span: Span,
     },
     /// Parenthesized expression — preserved for dump fidelity.
@@ -178,6 +384,59 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+    /// Array destructuring pattern used as assignment target: `[a, b, ...rest]`.
+    ArrayPattern {
+        elements: Vec<ArrayPatternElement>,
+        span: Span,
+    },
+}
+
+/// One element of an array literal: value or `...spread`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayElement {
+    Expr(Expr),
+    Spread(Expr),
+}
+
+/// One argument of a call or `new`: value or `...spread`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Arg {
+    Expr(Expr),
+    Spread(Expr),
+}
+
+/// One property in an object literal (`key: value`, shorthand, or method).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectProp {
+    pub key: ObjectKey,
+    pub value: Expr,
+    /// True for property shorthand `{ a }` (value is the same Ident as key).
+    pub shorthand: bool,
+    pub span: Span,
+}
+
+/// Object literal property key (ident, string, or computed `[expr]`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ObjectKey {
+    Ident(Ident),
+    String(StringLit),
+    Computed(Box<Expr>),
+}
+
+/// Concise expression body or block body of an arrow function.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrowBody {
+    Expr(Box<Expr>),
+    Block(Box<Stmt>),
+}
+
+/// Formal parameter: `name`, `name = default`, or `...name` (rest).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Param {
+    pub name: Ident,
+    pub default: Option<Expr>,
+    /// `true` for a rest parameter (`...name`). Must be last; no default.
+    pub rest: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,9 +452,25 @@ pub struct NumberLit {
     pub span: Span,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BigIntLit {
+    /// Canonical source text including `n` suffix (e.g. `1n`, `0xffn`).
+    pub raw: String,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StringLit {
-    pub value: String,
+    pub value: JsString,
+    pub span: Span,
+}
+
+/// One cooked quasi span of a template literal (`cooked` text between interpolations).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateElement {
+    pub cooked: JsString,
+    /// True for the final quasi (after the last `${…}` or the sole quasi of `` `…` ``).
+    pub tail: bool,
     pub span: Span,
 }
 
@@ -208,6 +483,10 @@ pub enum UnaryOp {
     TypeOf,
     Void,
     Delete,
+    Await,
+    Yield,
+    /// `yield* AssignmentExpression` (delegate).
+    YieldStar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,6 +542,7 @@ pub enum BinaryOp {
     Or,
     Nullish,
     Comma,
+    In,
 }
 
 impl fmt::Display for UnaryOp {
@@ -275,6 +555,9 @@ impl fmt::Display for UnaryOp {
             UnaryOp::TypeOf => "typeof",
             UnaryOp::Void => "void",
             UnaryOp::Delete => "delete",
+            UnaryOp::Await => "await",
+            UnaryOp::Yield => "yield",
+            UnaryOp::YieldStar => "yield*",
         };
         write!(f, "{s}")
     }
@@ -365,6 +648,7 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Or => "||",
             BinaryOp::Nullish => "??",
             BinaryOp::Comma => ",",
+            BinaryOp::In => "in",
         };
         write!(f, "{s}")
     }
@@ -386,6 +670,30 @@ fn indent(level: usize, out: &mut String) {
     }
 }
 
+fn dump_binding_pattern(pat: &BindingPattern, level: usize, out: &mut String) {
+    match pat {
+        BindingPattern::Ident(name) => {
+            indent(level, out);
+            out.push_str(&format!("name: {}\n", name.name));
+        }
+        BindingPattern::Array { elements, .. } => {
+            indent(level, out);
+            out.push_str("ArrayPattern\n");
+            for el in elements {
+                match el {
+                    ArrayPatternElement::Pattern(p) => {
+                        dump_binding_pattern(p, level + 1, out);
+                    }
+                    ArrayPatternElement::Rest(id) => {
+                        indent(level + 1, out);
+                        out.push_str(&format!("rest: {}\n", id.name));
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
     match stmt {
         Stmt::Expression { expr, .. } => {
@@ -395,7 +703,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
         }
         Stmt::Let {
             kind,
-            name,
+            binding,
             init,
             ..
         } => {
@@ -405,8 +713,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 BindingKind::Const => out.push_str("Const\n"),
                 BindingKind::Function => out.push_str("FunctionBinding\n"),
             }
-            indent(level + 1, out);
-            out.push_str(&format!("name: {}\n", name.name));
+            dump_binding_pattern(binding, level + 1, out);
             if let Some(init) = init {
                 indent(level + 1, out);
                 out.push_str("init:\n");
@@ -578,23 +885,79 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             name,
             params,
             body,
+            is_async,
+            is_generator,
             ..
         } => {
             indent(level, out);
             out.push_str("FunctionDeclaration\n");
+            if *is_async {
+                indent(level + 1, out);
+                out.push_str("async: true\n");
+            }
+            if *is_generator {
+                indent(level + 1, out);
+                out.push_str("generator: true\n");
+            }
             indent(level + 1, out);
             out.push_str(&format!("name: {}\n", name.name));
-            if !params.is_empty() {
-                indent(level + 1, out);
-                out.push_str("params:\n");
-                for p in params {
-                    indent(level + 2, out);
-                    out.push_str(&format!("name: {}\n", p.name));
-                }
-            }
+            dump_params(params, level + 1, out);
             indent(level + 1, out);
             out.push_str("body:\n");
             dump_stmt(body, level + 2, out);
+        }
+        Stmt::ClassDeclaration {
+            name,
+            super_class,
+            body,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ClassDeclaration\n");
+            indent(level + 1, out);
+            out.push_str(&format!("name: {}\n", name.name));
+            if let Some(sc) = super_class {
+                indent(level + 1, out);
+                out.push_str("extends:\n");
+                dump_expr(sc, level + 2, out);
+            }
+            for el in body {
+                match el {
+                    ClassElement::Constructor { params, body, .. } => {
+                        indent(level + 1, out);
+                        out.push_str("Constructor\n");
+                        dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
+                    ClassElement::Method {
+                        name,
+                        params,
+                        body,
+                        is_static,
+                        is_generator,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        if *is_static {
+                            out.push_str("StaticMethod\n");
+                        } else {
+                            out.push_str("Method\n");
+                        }
+                        indent(level + 2, out);
+                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_generator {
+                            indent(level + 2, out);
+                            out.push_str("generator: true\n");
+                        }
+                        dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
+                }
+            }
         }
         Stmt::Return { argument, .. } => {
             indent(level, out);
@@ -602,6 +965,119 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             if let Some(arg) = argument {
                 dump_expr(arg, level + 1, out);
             }
+        }
+        Stmt::Throw { argument, .. } => {
+            indent(level, out);
+            out.push_str("Throw\n");
+            dump_expr(argument, level + 1, out);
+        }
+        Stmt::ImportDeclaration {
+            specifiers,
+            namespace,
+            source,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ImportDeclaration\n");
+            for spec in specifiers {
+                indent(level + 1, out);
+                out.push_str("ImportSpecifier\n");
+                indent(level + 2, out);
+                out.push_str("imported: ");
+                out.push_str(&spec.imported.name);
+                out.push('\n');
+                indent(level + 2, out);
+                out.push_str("local: ");
+                out.push_str(&spec.local.name);
+                out.push('\n');
+            }
+            if let Some(ns) = namespace {
+                indent(level + 1, out);
+                out.push_str("namespace: ");
+                out.push_str(&ns.name);
+                out.push('\n');
+            }
+            indent(level + 1, out);
+            out.push_str("source: ");
+            out.push_str(&source.value.to_string_lossy());
+            out.push('\n');
+        }
+        Stmt::ExportNamedDeclaration {
+            declaration,
+            specifiers,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ExportNamedDeclaration\n");
+            if let Some(decl) = declaration {
+                indent(level + 1, out);
+                out.push_str("declaration:\n");
+                dump_stmt(decl, level + 2, out);
+            }
+            for spec in specifiers {
+                indent(level + 1, out);
+                out.push_str("ExportSpecifier\n");
+                indent(level + 2, out);
+                out.push_str("local: ");
+                out.push_str(&spec.local.name);
+                out.push('\n');
+                indent(level + 2, out);
+                out.push_str("exported: ");
+                out.push_str(&spec.exported.name);
+                out.push('\n');
+            }
+        }
+        Stmt::ExportDefaultDeclaration {
+            declaration,
+            local,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ExportDefaultDeclaration\n");
+            indent(level + 1, out);
+            out.push_str("local: ");
+            out.push_str(&local.name);
+            out.push('\n');
+            indent(level + 1, out);
+            out.push_str("declaration:\n");
+            dump_stmt(declaration, level + 2, out);
+        }
+        Stmt::Try {
+            block,
+            handler_param,
+            handler,
+            finalizer,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("Try\n");
+            indent(level + 1, out);
+            out.push_str("block:\n");
+            dump_stmt(block, level + 2, out);
+            if let Some(handler) = handler {
+                indent(level + 1, out);
+                out.push_str("catch");
+                if let Some(param) = handler_param {
+                    out.push_str(&format!(" ({})", param.name));
+                }
+                out.push_str(":\n");
+                dump_stmt(handler, level + 2, out);
+            }
+            if let Some(finalizer) = finalizer {
+                indent(level + 1, out);
+                out.push_str("finally:\n");
+                dump_stmt(finalizer, level + 2, out);
+            }
+        }
+        Stmt::With { object, body, .. } => {
+            indent(level, out);
+            out.push_str("With\n");
+            indent(level + 1, out);
+            out.push_str("object:\n");
+            dump_expr(object, level + 2, out);
+            indent(level + 1, out);
+            out.push_str("body:\n");
+            dump_stmt(body, level + 2, out);
         }
     }
 }
@@ -616,9 +1092,47 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str(&format!("Number {}\n", n.raw));
         }
+        Expr::BigInt(n) => {
+            indent(level, out);
+            out.push_str(&format!("BigInt {}\n", n.raw));
+        }
         Expr::String(s) => {
             indent(level, out);
-            out.push_str(&format!("String {:?}\n", s.value));
+            out.push_str(&format!("String {:?}\n", s.value.to_string_lossy()));
+        }
+        Expr::TemplateLiteral {
+            quasis,
+            expressions,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("TemplateLiteral\n");
+            for (i, q) in quasis.iter().enumerate() {
+                indent(level + 1, out);
+                out.push_str(&format!("Quasi {:?}\n", q.cooked.to_string_lossy()));
+                if i < expressions.len() {
+                    dump_expr(&expressions[i], level + 1, out);
+                }
+            }
+        }
+        Expr::TaggedTemplate {
+            tag,
+            quasis,
+            expressions,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("TaggedTemplate\n");
+            indent(level + 1, out);
+            out.push_str("tag:\n");
+            dump_expr(tag, level + 2, out);
+            for (i, q) in quasis.iter().enumerate() {
+                indent(level + 1, out);
+                out.push_str(&format!("Quasi {:?}\n", q.cooked.to_string_lossy()));
+                if i < expressions.len() {
+                    dump_expr(&expressions[i], level + 1, out);
+                }
+            }
         }
         Expr::Boolean { value, .. } => {
             indent(level, out);
@@ -627,6 +1141,14 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::Null { .. } => {
             indent(level, out);
             out.push_str("Null\n");
+        }
+        Expr::This { .. } => {
+            indent(level, out);
+            out.push_str("This\n");
+        }
+        Expr::Super { .. } => {
+            indent(level, out);
+            out.push_str("Super\n");
         }
         Expr::Unary { op, arg, .. } => {
             indent(level, out);
@@ -686,14 +1208,187 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             dump_expr(callee, level + 2, out);
             for (i, arg) in args.iter().enumerate() {
                 indent(level + 1, out);
-                out.push_str(&format!("arg[{i}]:\n"));
-                dump_expr(arg, level + 2, out);
+                match arg {
+                    Arg::Expr(expr) => {
+                        out.push_str(&format!("arg[{i}]:\n"));
+                        dump_expr(expr, level + 2, out);
+                    }
+                    Arg::Spread(expr) => {
+                        out.push_str(&format!("arg[{i}] spread:\n"));
+                        dump_expr(expr, level + 2, out);
+                    }
+                }
             }
+        }
+        Expr::New { callee, args, .. } => {
+            indent(level, out);
+            out.push_str("New\n");
+            indent(level + 1, out);
+            out.push_str("callee:\n");
+            dump_expr(callee, level + 2, out);
+            for (i, arg) in args.iter().enumerate() {
+                indent(level + 1, out);
+                match arg {
+                    Arg::Expr(expr) => {
+                        out.push_str(&format!("arg[{i}]:\n"));
+                        dump_expr(expr, level + 2, out);
+                    }
+                    Arg::Spread(expr) => {
+                        out.push_str(&format!("arg[{i}] spread:\n"));
+                        dump_expr(expr, level + 2, out);
+                    }
+                }
+            }
+        }
+        Expr::FunctionExpression {
+            name,
+            params,
+            body,
+            is_async,
+            is_generator,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("FunctionExpression\n");
+            if *is_async {
+                indent(level + 1, out);
+                out.push_str("async: true\n");
+            }
+            if *is_generator {
+                indent(level + 1, out);
+                out.push_str("generator: true\n");
+            }
+            if let Some(name) = name {
+                indent(level + 1, out);
+                out.push_str(&format!("name: {}\n", name.name));
+            }
+            dump_params(params, level + 1, out);
+            indent(level + 1, out);
+            out.push_str("body:\n");
+            dump_stmt(body, level + 2, out);
+        }
+        Expr::ArrowFunction {
+            params,
+            body,
+            is_async,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ArrowFunction\n");
+            if *is_async {
+                indent(level + 1, out);
+                out.push_str("async: true\n");
+            }
+            dump_params(params, level + 1, out);
+            indent(level + 1, out);
+            out.push_str("body:\n");
+            match body {
+                ArrowBody::Expr(expr) => dump_expr(expr, level + 2, out),
+                ArrowBody::Block(stmt) => dump_stmt(stmt, level + 2, out),
+            }
+        }
+        Expr::ObjectExpression { properties, .. } => {
+            indent(level, out);
+            out.push_str("ObjectExpression\n");
+            for prop in properties {
+                indent(level + 1, out);
+                if prop.shorthand {
+                    out.push_str("prop shorthand:\n");
+                } else {
+                    out.push_str("prop:\n");
+                }
+                indent(level + 2, out);
+                match &prop.key {
+                    ObjectKey::Ident(id) => out.push_str(&format!("key: Ident {}\n", id.name)),
+                    ObjectKey::String(s) => {
+                        out.push_str(&format!("key: String {:?}\n", s.value.to_string_lossy()))
+                    }
+                    ObjectKey::Computed(expr) => {
+                        out.push_str("key: Computed\n");
+                        dump_expr(expr, level + 3, out);
+                    }
+                }
+                indent(level + 2, out);
+                out.push_str("value:\n");
+                dump_expr(&prop.value, level + 3, out);
+            }
+        }
+        Expr::ArrayExpression { elements, .. } => {
+            indent(level, out);
+            out.push_str("ArrayExpression\n");
+            for (i, el) in elements.iter().enumerate() {
+                indent(level + 1, out);
+                match el {
+                    ArrayElement::Expr(expr) => {
+                        out.push_str(&format!("element[{i}]:\n"));
+                        dump_expr(expr, level + 2, out);
+                    }
+                    ArrayElement::Spread(expr) => {
+                        out.push_str(&format!("element[{i}] spread:\n"));
+                        dump_expr(expr, level + 2, out);
+                    }
+                }
+            }
+        }
+        Expr::MemberExpression {
+            object,
+            property,
+            computed,
+            ..
+        } => {
+            indent(level, out);
+            if *computed {
+                out.push_str("MemberExpression computed\n");
+            } else {
+                out.push_str("MemberExpression\n");
+            }
+            indent(level + 1, out);
+            out.push_str("object:\n");
+            dump_expr(object, level + 2, out);
+            indent(level + 1, out);
+            out.push_str("property:\n");
+            dump_expr(property, level + 2, out);
         }
         Expr::Paren { expr, .. } => {
             indent(level, out);
             out.push_str("Paren\n");
             dump_expr(expr, level + 1, out);
+        }
+        Expr::ArrayPattern { elements, .. } => {
+            indent(level, out);
+            out.push_str("ArrayPattern\n");
+            for el in elements {
+                match el {
+                    ArrayPatternElement::Pattern(p) => {
+                        dump_binding_pattern(p, level + 1, out);
+                    }
+                    ArrayPatternElement::Rest(id) => {
+                        indent(level + 1, out);
+                        out.push_str(&format!("rest: {}\n", id.name));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn dump_params(params: &[Param], level: usize, out: &mut String) {
+    if params.is_empty() {
+        return;
+    }
+    indent(level, out);
+    out.push_str("params:\n");
+    for p in params {
+        indent(level + 1, out);
+        if p.rest {
+            out.push_str(&format!("rest: {}\n", p.name.name));
+        } else {
+            out.push_str(&format!("name: {}\n", p.name.name));
+        }
+        if let Some(default) = &p.default {
+            indent(level + 2, out);
+            out.push_str("default:\n");
+            dump_expr(default, level + 3, out);
         }
     }
 }
@@ -708,10 +1403,10 @@ mod tests {
         let program = Program {
             body: vec![Stmt::Let {
                 kind: BindingKind::Let,
-                name: Ident {
+                binding: BindingPattern::Ident(Ident {
                     name: "x".into(),
                     span: Span::dummy(),
-                },
+                }),
                 init: Some(Expr::Number(NumberLit {
                     raw: "1".into(),
                     span: Span::dummy(),

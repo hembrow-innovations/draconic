@@ -1,0 +1,42 @@
+let tr = typeof Reflect;
+let tg = typeof Reflect.get;
+let ts = typeof Reflect.set;
+let th = typeof Reflect.has;
+let td = typeof Reflect.deleteProperty;
+let ta = typeof Reflect.apply;
+let tc = typeof Reflect.construct;
+let obj = { a: 1, b: 2 };
+let g1 = Reflect.get(obj, "a");
+let g2 = Reflect.get(obj, "b");
+let g3 = Reflect.get(obj, "missing");
+let setOk = Reflect.set(obj, "a", 10);
+let g4 = Reflect.get(obj, "a");
+let setNew = Reflect.set(obj, "c", 3);
+let g5 = Reflect.get(obj, "c");
+let h1 = Reflect.has(obj, "a");
+let h2 = Reflect.has(obj, "missing");
+let delOk = Reflect.deleteProperty(obj, "b");
+let h3 = Reflect.has(obj, "b");
+let g6 = Reflect.get(obj, "b");
+let add = function (x, y) {
+  return x + y;
+};
+let ar = Reflect.apply(add, null, [4, 5]);
+let Ctor = function (x, y) {
+  this.sum = x + y;
+};
+let inst = Reflect.construct(Ctor, [6, 7]);
+let isum = inst.sum;
+let target = { x: 10 };
+let p = new Proxy(target, {
+  get: function (t, key) {
+    if (key === "x") {
+      return t.x + 1;
+    }
+    return Reflect.get(t, key);
+  },
+});
+let pg = Reflect.get(p, "x");
+let ps = Reflect.set(p, "y", 20);
+let py = Reflect.get(p, "y");
+let ty = target.y;

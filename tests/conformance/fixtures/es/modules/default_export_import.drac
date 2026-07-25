@@ -1,0 +1,5 @@
+import answer from "./default_lib.drac";
+import ans, { tag } from "./default_lib.drac";
+let a = answer();
+let b = ans();
+let c = tag;

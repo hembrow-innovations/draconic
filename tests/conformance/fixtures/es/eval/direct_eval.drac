@@ -1,0 +1,6 @@
+let t = typeof eval;
+let g = globalThis.eval === eval;
+let a = eval("1 + 2");
+let b = eval("typeof undefined");
+let c = eval("3 * 4");
+let d = eval("'hi'");

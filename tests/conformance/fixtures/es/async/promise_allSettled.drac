@@ -1,0 +1,27 @@
+let tAllSettled = typeof Promise.allSettled;
+let emptyLen = -1;
+let settledLen = -1;
+let s0 = "";
+let v0 = -1;
+let s1 = "";
+let r1 = -1;
+let mixed0 = "";
+let mixedV0 = -1;
+let mixed1 = "";
+let mixedV1 = -1;
+Promise.allSettled([]).then(function (v) {
+  emptyLen = v.length;
+});
+Promise.allSettled([Promise.resolve(10), Promise.reject(7)]).then(function (v) {
+  settledLen = v.length;
+  s0 = v[0].status;
+  v0 = v[0].value;
+  s1 = v[1].status;
+  r1 = v[1].reason;
+});
+Promise.allSettled([1, Promise.resolve(2)]).then(function (v) {
+  mixed0 = v[0].status;
+  mixedV0 = v[0].value;
+  mixed1 = v[1].status;
+  mixedV1 = v[1].value;
+});

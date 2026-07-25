@@ -1,0 +1,6 @@
+id: es/builtins/regexp
+targets: js,native
+js.exit: 0
+js.check: if (tr !== "function") process.exit(1); if (gr !== true) process.exit(2); if (src !== "a+b") process.exit(3); if (fl !== "") process.exit(4); if (t1 !== true) process.exit(5); if (t2 !== false) process.exit(6); if (src2 !== "foo") process.exit(7); if (fl2 !== "i") process.exit(8); if (t3 !== true) process.exit(9); if (m0 !== "FOO") process.exit(10); if (csrc !== "bar") process.exit(11); if (ctest !== true) process.exit(12); if (typeof tr !== "string") process.exit(13);
+native.exit: 0
+native.stdout: hello\n

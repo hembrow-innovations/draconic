@@ -24,3 +24,9 @@ This repo **is** the Draconic toolchain. Completeness is driven by:
 Prefer `cargo test --workspace` and the `draconic` CLI over ad-hoc scripts.
 
 Unattended multi-iteration driver: `node .loop/opencode-loop.mjs <n>` (see `.loop/`).
+
+Each `rs` file should have a soft limit of 1,000 lines.
+
+### Git
+
+**Commit every work package.** When a Roadmap Loop item (or any discrete unit of work) is marked `done` or otherwise finished, stage its changes and create a git commit before starting the next item. One commit per completed work package; message should name the Roadmap ID(s) and summarize the change.

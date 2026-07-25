@@ -1,0 +1,6 @@
+id: es/proxies/proxy_extensible
+targets: js,native
+js.exit: 0
+js.check: if (ti !== "function") process.exit(1); if (tp !== "function") process.exit(2); if (plainExt !== true) process.exit(3); if (plainPrev !== true) process.exit(4); if (plainAfter !== false) process.exit(5); if (passExt !== true) process.exit(6); if (passPrev !== true) process.exit(7); if (passAfter !== false) process.exit(8); if (targetAfter !== false) process.exit(9); if (isCalls !== 1) process.exit(10); if (trapIs !== false) process.exit(11); if (prevCalls !== 1) process.exit(12); if (trapPrev !== true) process.exit(13); if (trapPrevAfter !== false) process.exit(14);
+native.exit: 0
+native.stdout: hello\n

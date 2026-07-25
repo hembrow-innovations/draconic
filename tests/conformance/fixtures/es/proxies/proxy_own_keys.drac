@@ -1,0 +1,26 @@
+let obj = { a: 1, b: 2 };
+let plainKeys = Reflect.ownKeys(obj);
+let plainLen = plainKeys.length;
+let plain0 = plainKeys[0];
+let plain1 = plainKeys[1];
+let target = { x: 10, y: 20 };
+let passthrough = new Proxy(target, {});
+let passKeys = Reflect.ownKeys(passthrough);
+let passLen = passKeys.length;
+let pass0 = passKeys[0];
+let pass1 = passKeys[1];
+let calls = 0;
+let p = new Proxy(
+  { m: 1, n: 2 },
+  {
+    ownKeys: function (t) {
+      calls = calls + 1;
+      return ["m", "extra"];
+    },
+  }
+);
+let trapKeys = Reflect.ownKeys(p);
+let trapLen = trapKeys.length;
+let trap0 = trapKeys[0];
+let trap1 = trapKeys[1];
+let to = typeof Reflect.ownKeys;

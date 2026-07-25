@@ -1,0 +1,6 @@
+id: es/async/async_arrow
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { if (concise !== 1) process.exit(1); if (blocked !== 3) process.exit(2); if (rejected !== 5) process.exit(3); if (bare !== 7) process.exit(4); }, 0);
+native.exit: 0
+native.stdout: hello\n

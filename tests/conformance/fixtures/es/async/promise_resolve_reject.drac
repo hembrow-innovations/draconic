@@ -1,0 +1,22 @@
+let tResolve = typeof Promise.resolve;
+let tReject = typeof Promise.reject;
+let resolved = 0;
+let rejected = 0;
+let caught = 0;
+let p = Promise.resolve(42);
+p.then(function (v) {
+  resolved = v;
+});
+let q = Promise.reject(7);
+q.then(
+  function () {
+    rejected = -1;
+  },
+  function (e) {
+    rejected = e;
+  }
+);
+let r = Promise.reject(9);
+r.catch(function (e) {
+  caught = e;
+});

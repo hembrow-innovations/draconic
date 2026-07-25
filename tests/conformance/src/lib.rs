@@ -10,7 +10,7 @@ use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
 use draconic_check::check;
 use draconic_ir::lower;
-use draconic_parser::parse;
+use draconic_parser::{link_entry, parse};
 
 /// Backend a fixture may target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +99,12 @@ fn collect_drac(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         if path.is_dir() {
             collect_drac(&path, out)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("drac") {
-            out.push(path);
+            // Only entry fixtures have a `.meta` sidecar. Dependency modules
+            // (imported by entries) are plain `.drac` without meta.
+            let meta = path.with_extension("meta");
+            if meta.is_file() {
+                out.push(path);
+            }
         }
     }
     Ok(())
@@ -257,9 +262,13 @@ fn unescape(s: &str) -> String {
     out
 }
 
-/// Compile source through the Frontend + IR.
-fn compile_module(source: &str) -> Result<draconic_ir::Module, String> {
-    let program = parse(source).map_err(|d| format!("parse: {d}"))?;
+/// Compile a fixture entry through the Frontend + IR (links static imports).
+fn compile_module(source_path: &Path, source: &str) -> Result<draconic_ir::Module, String> {
+    let program = if source.contains("import ") || source.contains("export ") {
+        link_entry(source_path).map_err(|d| format!("link: {d}"))?
+    } else {
+        parse(source).map_err(|d| format!("parse: {d}"))?
+    };
     let checked = check(program).map_err(|d| format!("check: {d}"))?;
     Ok(lower(&checked))
 }
@@ -310,7 +319,7 @@ pub fn run_all(root: &Path) -> Result<Vec<RunResult>, String> {
 }
 
 fn run_js(fixture: &Fixture) -> Result<(), String> {
-    let module = compile_module(&fixture.source)?;
+    let module = compile_module(&fixture.source_path, &fixture.source)?;
     let js = emit_js(&module).map_err(|d| format!("emit_js: {d}"))?;
     let expect = &fixture.expect_js;
 
@@ -351,7 +360,7 @@ fn run_js(fixture: &Fixture) -> Result<(), String> {
 }
 
 fn run_native(fixture: &Fixture) -> Result<(), String> {
-    let module = compile_module(&fixture.source)?;
+    let module = compile_module(&fixture.source_path, &fixture.source)?;
     let ll = emit_llvm_ir(&module).map_err(|d| format!("emit_llvm_ir: {d}"))?;
     let out = temp_bin_path(&fixture.id);
     build_native_binary(&ll, &out).map_err(|d| format!("build_native_binary: {d}"))?;

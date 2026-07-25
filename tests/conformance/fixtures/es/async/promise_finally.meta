@@ -1,0 +1,6 @@
+id: es/async/promise_finally
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { if (tFinally !== "function") process.exit(1); if (fulfilledSide !== 1) process.exit(2); if (rejectedSide !== 1) process.exit(3); if (resolved !== 42) process.exit(4); if (caught !== 7) process.exit(5); }, 0);
+native.exit: 0
+native.stdout: hello\n

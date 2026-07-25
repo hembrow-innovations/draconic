@@ -1,0 +1,6 @@
+id: es/classes/class_static
+targets: js,native
+js.exit: 0
+js.check: if (a !== 5) process.exit(1); if (b !== 42) process.exit(1); if (c !== "inst") process.exit(1); if (d !== "hi") process.exit(1);
+native.exit: 0
+native.stdout: hello\n

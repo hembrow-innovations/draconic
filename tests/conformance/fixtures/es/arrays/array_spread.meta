@@ -1,0 +1,6 @@
+id: es/arrays/array_spread
+targets: js,native
+js.exit: 0
+js.check: if (b0 !== 1) process.exit(1); if (b1 !== 2) process.exit(1); if (blen !== 2) process.exit(1); if (c0 !== 1) process.exit(1); if (c1 !== 2) process.exit(1); if (c2 !== 3) process.exit(1); if (clen !== 3) process.exit(1); if (d0 !== 0) process.exit(1); if (d1 !== 1) process.exit(1); if (d2 !== 2) process.exit(1); if (d3 !== 3) process.exit(1); if (dlen !== 4) process.exit(1); if (f0 !== 10) process.exit(1); if (f1 !== 1) process.exit(1); if (f2 !== 2) process.exit(1); if (f3 !== 3) process.exit(1); if (f4 !== 1) process.exit(1); if (f5 !== 2) process.exit(1); if (f6 !== 99) process.exit(1); if (flen !== 7) process.exit(1); if (glen !== 0) process.exit(1); if (h0 !== 5) process.exit(1); if (hlen !== 1) process.exit(1); if (i0 !== 1) process.exit(1); if (i1 !== 2) process.exit(1); if (i2 !== 3) process.exit(1); if (ilen !== 3) process.exit(1); if (ch0 !== "a") process.exit(1); if (ch1 !== "b") process.exit(1); if (chlen !== 2) process.exit(1); if (!Array.isArray(b)) process.exit(1); if (!Array.isArray(f)) process.exit(1);
+native.exit: 0
+native.stdout: hello\n

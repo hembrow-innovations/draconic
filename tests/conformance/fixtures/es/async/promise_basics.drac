@@ -1,0 +1,28 @@
+let tf = typeof Promise;
+let resolved = 0;
+let rejected = 0;
+let chained = 0;
+let p = new Promise(function (resolve) {
+  resolve(42);
+});
+p.then(function (v) {
+  resolved = v;
+});
+let q = new Promise(function (_resolve, reject) {
+  reject(7);
+});
+q.then(
+  function () {
+    rejected = -1;
+  },
+  function (e) {
+    rejected = e;
+  }
+);
+new Promise(function (resolve) {
+  resolve(1);
+}).then(function (v) {
+  return v + 1;
+}).then(function (v) {
+  chained = v;
+});

@@ -1,0 +1,11 @@
+function* g() {
+  yield 10;
+  return 20;
+}
+let it = g();
+let r1 = it.next();
+let r2 = it.next();
+let v1 = r1.value;
+let d1 = r1.done;
+let v2 = r2.value;
+let d2 = r2.done;

@@ -1,0 +1,17 @@
+let p = {};
+let a = p.__proto__ === Object.prototype;
+let base = { k: 9 };
+let child = { m: 1 };
+child.__proto__ = base;
+let b = child.k;
+let c = child.m;
+let d = child.__proto__ === base;
+let o = { __proto__: base, y: 2 };
+let e = o.k;
+let f = o.y;
+let g = o.__proto__ === base;
+let h = Object.prototype.hasOwnProperty.call(o, "__proto__");
+let o2 = { ["__proto__"]: base };
+let i = Object.prototype.hasOwnProperty.call(o2, "__proto__");
+let j = o2.__proto__ === base;
+let k = Object.getPrototypeOf(o2) === Object.prototype;

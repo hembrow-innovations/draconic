@@ -1,0 +1,24 @@
+function f(a = 10) {
+  return a;
+}
+function g(a, b = a + 1) {
+  return b;
+}
+function h(a = 1, b = 2) {
+  return a + b;
+}
+let id = function (x = 5) {
+  return x;
+};
+let arrow = (n = 3) => n * 2;
+let a = f();
+let b = f(7);
+let c = g(10);
+let d = g(10, 3);
+let e = h();
+let i = h(7);
+let j = id();
+let k = id(9);
+let m = arrow();
+let n = arrow(4);
+let o = f(void 0);

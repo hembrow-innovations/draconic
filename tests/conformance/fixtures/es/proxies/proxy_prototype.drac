@@ -1,0 +1,48 @@
+let tfn = typeof Reflect.getPrototypeOf;
+let tset = typeof Reflect.setPrototypeOf;
+let plain = {};
+let plainProto = Reflect.getPrototypeOf(plain);
+let plainIsObj = typeof plainProto === "object";
+let plainNullOk = Reflect.setPrototypeOf(plain, null);
+let plainAfter = Reflect.getPrototypeOf(plain);
+let plainIsNull = plainAfter === null;
+let target = {};
+let passthrough = new Proxy(target, {});
+let passProto = Reflect.getPrototypeOf(passthrough);
+let other = {};
+let otherProto = Reflect.getPrototypeOf(other);
+let passSame = passProto === otherProto;
+let base = {};
+let passSet = Reflect.setPrototypeOf(passthrough, base);
+let targetAfter = Reflect.getPrototypeOf(target);
+let passAfter = Reflect.getPrototypeOf(passthrough);
+let passSetOk = passSet === true;
+let targetLinked = targetAfter === base;
+let passLinked = passAfter === base;
+let gets = 0;
+let pGet = new Proxy(
+  {},
+  {
+    getPrototypeOf: function (t) {
+      gets = gets + 1;
+      return null;
+    },
+  }
+);
+let trapGet = Reflect.getPrototypeOf(pGet);
+let trapGetNull = trapGet === null;
+let sets = 0;
+let lastProto = 0;
+let pSet = new Proxy(
+  {},
+  {
+    setPrototypeOf: function (t, proto) {
+      sets = sets + 1;
+      lastProto = proto;
+      return true;
+    },
+  }
+);
+let trapSet = Reflect.setPrototypeOf(pSet, null);
+let trapSetOk = trapSet === true;
+let lastIsNull = lastProto === null;

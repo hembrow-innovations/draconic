@@ -1,0 +1,6 @@
+id: es/builtins/global_basics
+targets: js,native
+js.exit: 0
+js.check: if (tu !== "undefined") process.exit(1); if (u !== undefined) process.exit(2); if (tg !== "object") process.exit(3); if (g !== globalThis) process.exit(4); if (same !== true) process.exit(5); if (to !== "function") process.exit(6); if (tf !== "function") process.exit(7); if (ta !== "function") process.exit(8); if (ts !== "function") process.exit(9); if (tb !== "function") process.exit(10); if (go !== true) process.exit(11); if (gf !== true) process.exit(12); if (ga !== true) process.exit(13); if (gs !== true) process.exit(14); if (gb !== true) process.exit(15); if (gu !== true) process.exit(16); if (o !== true) process.exit(17); if (a !== true) process.exit(18); if (typeof tu !== "string") process.exit(19);
+native.exit: 0
+native.stdout: hello\n

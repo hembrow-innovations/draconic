@@ -1,0 +1,28 @@
+let target = function (a, b) {
+  return a + b;
+};
+let passthrough = new Proxy(target, {});
+let passR = passthrough(2, 3);
+let calls = 0;
+let lastThis = 0;
+let lastArg0 = 0;
+let lastArg1 = 0;
+let lastLen = 0;
+let p = new Proxy(
+  function (a, b) {
+    return a * b;
+  },
+  {
+    apply: function (t, thisArg, args) {
+      calls = calls + 1;
+      lastThis = thisArg;
+      lastArg0 = args[0];
+      lastArg1 = args[1];
+      lastLen = args.length;
+      return t(args[0], args[1]) + 1;
+    },
+  }
+);
+let r = p(4, 5);
+let obj = { m: p };
+let rm = obj.m(6, 7);

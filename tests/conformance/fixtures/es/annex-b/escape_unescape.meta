@@ -1,0 +1,6 @@
+id: es/annex-b/escape_unescape
+targets: js,native
+js.exit: 0
+js.check: if (te !== "function") process.exit(1); if (tu !== "function") process.exit(2); if (ge !== true) process.exit(3); if (gu !== true) process.exit(4); if (a !== "a%20b") process.exit(5); if (b !== " ") process.exit(6); if (c !== "caf%E9") process.exit(7); if (d !== "hello world") process.exit(8); if (e !== "") process.exit(9); if (f !== "") process.exit(10); if (typeof te !== "string") process.exit(11);
+native.exit: 0
+native.stdout: hello\n

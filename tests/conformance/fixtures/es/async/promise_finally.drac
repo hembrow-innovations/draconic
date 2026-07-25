@@ -1,0 +1,17 @@
+let tFinally = typeof Promise.resolve(1).finally;
+let fulfilledSide = 0;
+let rejectedSide = 0;
+let resolved = 0;
+let caught = 0;
+let p = Promise.resolve(42);
+p.finally(function () {
+  fulfilledSide = 1;
+}).then(function (v) {
+  resolved = v;
+});
+let q = Promise.reject(7);
+q.finally(function () {
+  rejectedSide = 1;
+}).catch(function (e) {
+  caught = e;
+});

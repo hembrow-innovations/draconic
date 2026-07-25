@@ -1,0 +1,42 @@
+let te = typeof Error;
+let tt = typeof TypeError;
+let tr = typeof RangeError;
+let tref = typeof ReferenceError;
+let ts = typeof SyntaxError;
+let tu = typeof URIError;
+let tev = typeof EvalError;
+let ta = typeof AggregateError;
+let ge = globalThis.Error === Error;
+let gt = globalThis.TypeError === TypeError;
+let gr = globalThis.RangeError === RangeError;
+let gref = globalThis.ReferenceError === ReferenceError;
+let gs = globalThis.SyntaxError === SyntaxError;
+let gu = globalThis.URIError === URIError;
+let gev = globalThis.EvalError === EvalError;
+let ga = globalThis.AggregateError === AggregateError;
+let e = new Error("msg");
+let en = e.name;
+let em = e.message;
+let ty = new TypeError("t");
+let tyn = ty.name;
+let tym = ty.message;
+let rg = new RangeError("r");
+let rgn = rg.name;
+let rf = new ReferenceError("rf");
+let rfn = rf.name;
+let sy = new SyntaxError("s");
+let syn = sy.name;
+let ur = new URIError("u");
+let urn = ur.name;
+let ev = new EvalError("e");
+let evn = ev.name;
+let ag = new AggregateError([1, 2], "a");
+let agn = ag.name;
+let agm = ag.message;
+let agl = ag.errors.length;
+let thr = 0;
+try {
+  throw new TypeError("boom");
+} catch (err) {
+  thr = err.name === "TypeError" && err.message === "boom" ? 1 : -1;
+}

@@ -8,7 +8,7 @@ use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
 use draconic_check::check;
 use draconic_diagnostics::Diagnostic;
 use draconic_ir::lower;
-use draconic_parser::parse;
+use draconic_parser::{link_entry, parse};
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
@@ -100,7 +100,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
         None => default_output(&parsed.input, parsed.target),
     };
 
-    if let Err(d) = build_program(&source, parsed.target, &out) {
+    if let Err(d) = build_program(&source, &parsed.input, parsed.target, &out) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
     }
@@ -187,8 +187,17 @@ fn default_output(input: &Path, target: Target) -> PathBuf {
     }
 }
 
-fn build_program(source: &str, target: Target, out: &Path) -> Result<(), Diagnostic> {
-    let program = parse(source)?;
+fn build_program(
+    source: &str,
+    input: &Path,
+    target: Target,
+    out: &Path,
+) -> Result<(), Diagnostic> {
+    let program = if source.contains("import ") || source.contains("export ") {
+        link_entry(input)?
+    } else {
+        parse(source)?
+    };
     let checked = check(program)?;
     let module = lower(&checked);
 
@@ -294,7 +303,8 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         let out = dir.join("t.js");
-        build_program("let x = 1;", Target::Js, &out).unwrap();
+        let input = dir.join("t.drac");
+        build_program("let x = 1;", &input, Target::Js, &out).unwrap();
         let js = fs::read_to_string(&out).unwrap();
         assert!(js.contains("let x"));
         let _ = fs::remove_dir_all(&dir);

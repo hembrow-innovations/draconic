@@ -1,0 +1,18 @@
+let tu = typeof undefined;
+let u = undefined;
+let tg = typeof globalThis;
+let g = globalThis;
+let same = globalThis === globalThis;
+let to = typeof Object;
+let tf = typeof Function;
+let ta = typeof Array;
+let ts = typeof String;
+let tb = typeof Boolean;
+let go = globalThis.Object === Object;
+let gf = globalThis.Function === Function;
+let ga = globalThis.Array === Array;
+let gs = globalThis.String === String;
+let gb = globalThis.Boolean === Boolean;
+let gu = globalThis.undefined === undefined;
+let o = Object["prototype"] !== undefined;
+let a = Array["isArray"] !== undefined;

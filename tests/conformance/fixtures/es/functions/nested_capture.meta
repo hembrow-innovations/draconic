@@ -1,0 +1,6 @@
+id: es/functions/nested_capture
+targets: js,native
+js.exit: 0
+js.check: if (a !== 42) process.exit(1); if (b !== 17) process.exit(1); if (c !== 3) process.exit(1);
+native.exit: 0
+native.stdout: hello\n

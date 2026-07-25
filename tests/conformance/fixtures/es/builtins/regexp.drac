@@ -1,0 +1,16 @@
+let tr = typeof RegExp;
+let gr = globalThis.RegExp === RegExp;
+let r = new RegExp("a+b");
+let src = r.source;
+let fl = r.flags;
+let t1 = r.test("xaabx");
+let t2 = r.test("xyz");
+let r2 = new RegExp("foo", "i");
+let src2 = r2.source;
+let fl2 = r2.flags;
+let t3 = r2.test("FOO");
+let m = r2.exec("xFOOy");
+let m0 = m[0];
+let call = RegExp("bar");
+let csrc = call.source;
+let ctest = call.test("bar");

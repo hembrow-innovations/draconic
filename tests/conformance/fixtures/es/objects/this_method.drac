@@ -1,0 +1,16 @@
+let o = {
+  x: 10,
+  getX: function () {
+    return this.x;
+  },
+  add: function (n) {
+    return this.x + n;
+  }
+};
+let a = o.getX();
+let b = o["getX"]();
+let c = o.add(5);
+let d = { y: 3, m: function () { return this.y; } }.m();
+let p = { inner: { v: 7, g: function () { return this.v; } } };
+let e = p.inner.g();
+let f = p["inner"]["g"]();

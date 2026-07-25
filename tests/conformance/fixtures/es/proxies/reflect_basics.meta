@@ -1,0 +1,6 @@
+id: es/proxies/reflect_basics
+targets: js,native
+js.exit: 0
+js.check: if (tr !== "object") process.exit(1); if (tg !== "function") process.exit(2); if (ts !== "function") process.exit(3); if (th !== "function") process.exit(4); if (td !== "function") process.exit(5); if (ta !== "function") process.exit(6); if (tc !== "function") process.exit(7); if (g1 !== 1) process.exit(8); if (g2 !== 2) process.exit(9); if (g3 !== undefined) process.exit(10); if (setOk !== true) process.exit(11); if (g4 !== 10) process.exit(12); if (setNew !== true) process.exit(13); if (g5 !== 3) process.exit(14); if (h1 !== true) process.exit(15); if (h2 !== false) process.exit(16); if (delOk !== true) process.exit(17); if (h3 !== false) process.exit(18); if (g6 !== undefined) process.exit(19); if (ar !== 9) process.exit(20); if (isum !== 13) process.exit(21); if (!(inst instanceof Ctor)) process.exit(22); if (pg !== 11) process.exit(23); if (ps !== true) process.exit(24); if (py !== 20) process.exit(25); if (ty !== 20) process.exit(26); if (typeof Reflect !== "object") process.exit(27);
+native.exit: 0
+native.stdout: hello\n

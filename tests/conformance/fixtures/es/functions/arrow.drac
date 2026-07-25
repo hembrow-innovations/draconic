@@ -1,0 +1,14 @@
+let id = (a) => a;
+let add = (x, y) => x + y;
+let a = id(42);
+let b = add(1, 2);
+let double = (n) => {
+  return n * 2;
+};
+let c = double(21);
+let bare = x => x + 1;
+let d = bare(41);
+let zero = () => 0;
+let e = zero();
+let make = (base) => (x) => base + x;
+let f = make(10)(7);

@@ -1,0 +1,33 @@
+let sym = Symbol("k");
+let o = {};
+o[sym] = 1;
+let a = o[sym];
+let miss = o["k"];
+let missT = typeof miss;
+
+let p = { [sym]: 2 };
+let b = p[sym];
+let pMiss = p["k"];
+let pMissT = typeof pMiss;
+
+let shared = Symbol.for("shared");
+let q = { [shared]: 3 };
+let c = q[shared];
+let d = q[Symbol.for("shared")];
+let qMiss = q["shared"];
+let qMissT = typeof qMiss;
+
+let r = {};
+r[Symbol.for("x")] = 4;
+let e = r[Symbol.for("x")];
+let rMiss = r["x"];
+let rMissT = typeof rMiss;
+
+let s1 = Symbol();
+let s2 = Symbol();
+let m = { [s1]: 5, [s2]: 6 };
+let g = m[s1];
+let h = m[s2];
+m[s1] = 7;
+let g2 = m[s1];
+let h2 = m[s2];

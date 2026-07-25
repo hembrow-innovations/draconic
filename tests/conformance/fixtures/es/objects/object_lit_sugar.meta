@@ -1,0 +1,6 @@
+id: es/objects/object_lit_sugar
+targets: js,native
+js.exit: 0
+js.check: if (x !== 1) process.exit(1); if (y !== 2) process.exit(1); if (p !== 3) process.exit(1); if (q !== 4) process.exit(1); if (r !== 5) process.exit(1); if (s !== 6) process.exit(1); if (t !== 7) process.exit(1); if (u !== 1) process.exit(1);
+native.exit: 0
+native.stdout: hello\n

@@ -1,0 +1,18 @@
+let plain = `hello`;
+let empty = ``;
+let multi = `a
+b`;
+let name = "world";
+let interp = `hello ${name}`;
+let both = `${name}!`;
+let mid = `a${name}b`;
+let n = 3;
+let num = `n=${n}`;
+let two = `x${1}y${2}z`;
+let expr = `sum=${1 + 2}`;
+let nested = `outer ${`inner ${name}`} end`;
+let esc = `a\`b\$c\\d`;
+let esc_n = `a\nb`;
+let t = typeof plain;
+let eq = `ab` === "ab";
+let cat = `a` + `b`;

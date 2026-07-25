@@ -1,0 +1,40 @@
+function tag0(strings) {
+  return strings[0] + strings.length;
+}
+let plain = tag0`hello`;
+
+function tag1(strings, a) {
+  return strings[0] + a + strings[1];
+}
+let name = "world";
+let one = tag1`hello ${name}!`;
+
+function tag2(strings, a, b) {
+  return strings[0] + a + strings[1] + b + strings[2] + strings.length;
+}
+let two = tag2`x${1}y${2}z`;
+
+function tagEsc(strings) {
+  return strings[0];
+}
+let esc = tagEsc`a\`b`;
+
+function tagEmpty(strings) {
+  return strings.length === 1 && strings[0] === "";
+}
+let empty = tagEmpty``;
+
+function tagCall(strings, a) {
+  return strings[0] + a + strings[1];
+}
+function makeTag() {
+  return tagCall;
+}
+let viaCall = makeTag()`p${9}q`;
+
+let obj = {
+  m(strings, a) {
+    return strings[0] + a + strings[1];
+  },
+};
+let viaMethod = obj.m`m${7}n`;

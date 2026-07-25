@@ -1,0 +1,18 @@
+let tpi = typeof parseInt;
+let tpf = typeof parseFloat;
+let tin = typeof isNaN;
+let tif = typeof isFinite;
+let gpi = globalThis.parseInt === parseInt;
+let gpf = globalThis.parseFloat === parseFloat;
+let gin = globalThis.isNaN === isNaN;
+let gif = globalThis.isFinite === isFinite;
+let a = parseInt("42");
+let b = parseInt("10", 16);
+let c = parseFloat("3.14");
+let d = parseFloat("1e2");
+let e = isNaN(NaN);
+let f = isNaN(1);
+let g = isFinite(1);
+let h = isFinite(Infinity);
+let i = isNaN("foo");
+let j = isFinite("10");

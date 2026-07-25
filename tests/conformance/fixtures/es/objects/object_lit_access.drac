@@ -1,0 +1,11 @@
+let o = { a: 1, b: 2 };
+let d = { "c": 3 };
+let x = o.a;
+let y = o["a"];
+let z = d.c;
+let w = d["c"];
+let nested = { inner: { n: 4 } };
+let n = nested.inner.n;
+let m = nested["inner"]["n"];
+let empty = {};
+let e = empty;

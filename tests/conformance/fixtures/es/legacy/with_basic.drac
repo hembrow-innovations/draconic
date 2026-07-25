@@ -1,0 +1,21 @@
+let obj = { x: 1, y: 0 };
+let a = 0;
+with (obj) {
+  a = x;
+}
+let b = 0;
+with (obj) {
+  y = 2;
+  b = y;
+}
+let outer = 10;
+let box = { outer: 20 };
+let c = 0;
+with (box) {
+  c = outer;
+}
+let inner = 0;
+with (obj) {
+  let local = 3;
+  inner = local;
+}

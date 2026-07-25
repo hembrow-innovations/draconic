@@ -1,0 +1,69 @@
+let td = typeof Reflect.defineProperty;
+let tg = typeof Reflect.getOwnPropertyDescriptor;
+let obj = {};
+let defOk = Reflect.defineProperty(obj, "a", {
+  value: 1,
+  writable: true,
+  enumerable: true,
+  configurable: true,
+});
+let desc = Reflect.getOwnPropertyDescriptor(obj, "a");
+let dv = desc.value;
+let dw = desc.writable;
+let de = desc.enumerable;
+let dc = desc.configurable;
+let missing = Reflect.getOwnPropertyDescriptor(obj, "missing");
+let missUndef = missing === void 0;
+let target = {};
+let passthrough = new Proxy(target, {});
+let passDef = Reflect.defineProperty(passthrough, "x", {
+  value: 10,
+  writable: true,
+  enumerable: true,
+  configurable: true,
+});
+let passDesc = Reflect.getOwnPropertyDescriptor(passthrough, "x");
+let passV = passDesc.value;
+let targetV = target.x;
+let defines = 0;
+let lastKey = "";
+let lastVal = 0;
+let p = new Proxy(
+  {},
+  {
+    defineProperty: function (t, key, desc) {
+      defines = defines + 1;
+      lastKey = key;
+      lastVal = desc.value;
+      return Reflect.defineProperty(t, key, desc);
+    },
+  }
+);
+let trapDef = Reflect.defineProperty(p, "m", {
+  value: 42,
+  writable: true,
+  enumerable: true,
+  configurable: true,
+});
+let pm = p.m;
+let gets = 0;
+let pGet = new Proxy(
+  { n: 7 },
+  {
+    getOwnPropertyDescriptor: function (t, key) {
+      gets = gets + 1;
+      let d = Reflect.getOwnPropertyDescriptor(t, key);
+      if (d === void 0) {
+        return d;
+      }
+      return {
+        value: d.value + 1,
+        writable: d.writable,
+        enumerable: d.enumerable,
+        configurable: d.configurable,
+      };
+    },
+  }
+);
+let trapDesc = Reflect.getOwnPropertyDescriptor(pGet, "n");
+let trapV = trapDesc.value;

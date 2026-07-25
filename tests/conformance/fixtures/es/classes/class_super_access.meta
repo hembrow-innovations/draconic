@@ -1,0 +1,6 @@
+id: es/classes/class_super_access
+targets: js,native
+js.exit: 0
+js.check: if (a !== "rex") process.exit(1); if (b !== "animal") process.exit(1); if (c !== "rex") process.exit(1); if (e !== "mia") process.exit(1);
+native.exit: 0
+native.stdout: hello\n

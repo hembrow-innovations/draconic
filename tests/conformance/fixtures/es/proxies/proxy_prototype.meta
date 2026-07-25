@@ -1,0 +1,6 @@
+id: es/proxies/proxy_prototype
+targets: js,native
+js.exit: 0
+js.check: if (tfn !== "function") process.exit(1); if (tset !== "function") process.exit(2); if (plainIsObj !== true) process.exit(3); if (plainNullOk !== true) process.exit(4); if (plainIsNull !== true) process.exit(5); if (passSame !== true) process.exit(6); if (passSetOk !== true) process.exit(7); if (targetLinked !== true) process.exit(8); if (passLinked !== true) process.exit(9); if (gets !== 1) process.exit(10); if (trapGetNull !== true) process.exit(11); if (sets !== 1) process.exit(12); if (trapSetOk !== true) process.exit(13); if (lastIsNull !== true) process.exit(14);
+native.exit: 0
+native.stdout: hello\n

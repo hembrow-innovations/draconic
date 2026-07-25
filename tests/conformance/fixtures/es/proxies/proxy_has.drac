@@ -1,0 +1,27 @@
+let target = { a: 1, b: 2 };
+let plainInA = "a" in target;
+let plainInC = "c" in target;
+let passthrough = new Proxy(target, {});
+let passA = "a" in passthrough;
+let passC = "c" in passthrough;
+let checks = 0;
+let lastKey = "";
+let p = new Proxy(
+  { x: 10 },
+  {
+    has: function (t, key) {
+      checks = checks + 1;
+      lastKey = key;
+      if (key === "x") {
+        return true;
+      }
+      if (key === "hidden") {
+        return true;
+      }
+      return key in t;
+    },
+  }
+);
+let hx = "x" in p;
+let hy = "y" in p;
+let hh = "hidden" in p;

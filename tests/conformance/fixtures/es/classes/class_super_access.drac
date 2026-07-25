@@ -1,0 +1,40 @@
+class Animal {
+  constructor(name) {
+    this.name = name;
+  }
+  greet() {
+    return this.name;
+  }
+  tag() {
+    return "animal";
+  }
+}
+class Dog extends Animal {
+  constructor(name) {
+    super(name);
+  }
+  greet() {
+    return super.greet();
+  }
+  both() {
+    return super.tag();
+  }
+  parentGreetProp() {
+    let f = super.greet;
+    return f.call(this);
+  }
+}
+let d = new Dog("rex");
+let a = d.greet();
+let b = d.both();
+let c = d.parentGreetProp();
+class Cat extends Animal {
+  constructor(name) {
+    super(name);
+  }
+  loud() {
+    return super.greet();
+  }
+}
+let cat = new Cat("mia");
+let e = cat.loud();

@@ -60,23 +60,110 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E02.07 | done | both | Labeled statements + labeled `break` / `continue` | `tests/conformance` fixtures `es/statements` |
 | E02.08 | done | both | `for-in` / `for-of` loops (incl. `let` binding, block bodies; iterate strings) | `tests/conformance` fixtures `es/statements` |
 | E02.09 | done | both | `const` declarations (required initializer; no reassignment; `for`/`for-of`/`for-in` binding) | `tests/conformance` fixtures `es/statements` |
-| E03 | todo | both | Functions, closures, arguments, arrows (§15) | `tests/conformance/es/functions` |
+| E03 | done | both | Functions, closures, arguments, arrows (§15) | `tests/conformance/es/functions` |
 | E03.01 | done | both | Function declaration + `return` + call (no params) | `tests/conformance` fixtures `es/functions` |
-| E04 | todo | both | Objects, prototypes, `this`, property access (§10, §20) | `tests/conformance/es/objects` |
-| E05 | todo | both | Classes (§15.7) | `tests/conformance/es/classes` |
-| E06 | todo | both | Arrays, iterators, spread/rest | `tests/conformance/es/arrays` |
-| E07 | todo | both | Strings, template literals, UTF-16 semantics | `tests/conformance/es/strings` |
-| E08 | todo | both | Numbers, BigInt, Math, bitwise | `tests/conformance/es/numbers` |
-| E09 | todo | both | Symbols, equality, coercion rules | `tests/conformance/es/values` |
-| E10 | todo | both | Exceptions: try/catch/finally/throw | `tests/conformance/es/exceptions` |
-| E11 | todo | both | Modules (ESM): import/export, cyclic | `tests/conformance/es/modules` |
-| E12 | todo | both | Promises, job queue, async/await | `tests/conformance/es/async` |
-| E13 | todo | both | Generators, `yield` | `tests/conformance/es/generators` |
-| E14 | todo | both | Proxies, Reflect, exotic objects | `tests/conformance/es/proxies` |
-| E15 | todo | both | Realms, globals, built-ins surface | `tests/conformance/es/builtins` |
-| E16 | todo | both | `eval`, `new Function`, indirect eval | `tests/conformance/es/eval` |
-| E17 | todo | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
+| E03.02 | done | both | Function parameters + call with arguments | `tests/conformance` fixtures `es/functions` |
+| E03.03 | done | both | Nested function declarations + free-variable capture (outer `let`/params) | `tests/conformance` fixtures `es/functions` |
+| E03.04 | done | both | Function expressions: `function (params) { … }` as values (incl. named, IIFE) | `tests/conformance` fixtures `es/functions` |
+| E03.05 | done | both | Arrow functions: `(params) => expr` and `(params) => { … }` (simple ident params; no `this`) | `tests/conformance` fixtures `es/functions` |
+| E03.06 | done | both | Default parameters: `function f(a = expr)` / `(a = expr) => …` (missing/`undefined` → default) | `tests/conformance` fixtures `es/functions` |
+| E03.07 | done | both | Rest parameters: `function f(...args)` / `(...args) => …` (last param; binds array of remaining args) | `tests/conformance` fixtures `es/functions` |
+| E04 | done | both | Objects, prototypes, `this`, property access (§10, §20) | `tests/conformance/es/objects` |
+| E04.01 | done | both | Object literals `{ k: v }` + property access `obj.k` / `obj["k"]` (read; string keys) | `tests/conformance` fixtures `es/objects` |
+| E04.02 | done | both | Property assignment: `obj.k = v` / `obj["k"] = v` (simple `=`; read-back) | `tests/conformance` fixtures `es/objects` |
+| E04.03 | done | both | `this` + method call: `obj.m()` / `obj["m"]()` preserves `this`; `function` methods as values | `tests/conformance` fixtures `es/objects` |
+| E04.04 | done | both | `new` constructor: `new F(args)` with `function` ctor setting `this` props; returns instance | `tests/conformance` fixtures `es/objects` |
+| E04.05 | done | both | Prototypes: `F.prototype.m = function…`; instances inherit methods; `this` in prototype methods | `tests/conformance` fixtures `es/objects` |
+| E04.06 | done | both | Object literal sugar: property shorthand `{ a }`, method shorthand `{ m() {…} }`, computed keys `{ [expr]: v }` | `tests/conformance` fixtures `es/objects` |
+| E05 | done | both | Classes (§15.7) | `tests/conformance/es/classes` |
+| E05.01 | done | both | Class declaration: `class C { constructor(…) {…} m(…) {…} }`; `new C(args)`; instance methods + `this` | `tests/conformance` fixtures `es/classes` |
+| E05.02 | done | both | Class heritage: `extends Parent`; `super(…)` in constructor; inherit parent prototype methods | `tests/conformance` fixtures `es/classes` |
+| E05.03 | done | both | Static methods: `static m(…) {…}`; call as `C.m(…)` / `new C().constructor.m` not required; no `this` instance binding | `tests/conformance` fixtures `es/classes` |
+| E05.04 | done | both | `super` property access: `super.m(…)` / `super.prop` in methods (parent prototype, correct `this`) | `tests/conformance` fixtures `es/classes` |
+| E06 | done | both | Arrays, iterators, spread/rest | `tests/conformance/es/arrays` |
+| E06.01 | done | both | Array literals `[a, b]` + index access `arr[i]` / `arr.length` (read) | `tests/conformance` fixtures `es/arrays` |
+| E06.02 | done | both | Array element assignment: `arr[i] = v` (simple `=`; read-back; length may grow) | `tests/conformance` fixtures `es/arrays` |
+| E06.03 | done | both | Spread in array literals: `[...a]` / `[...a, b]` / `[a, ...b, c]` (iterable copy/concat) | `tests/conformance` fixtures `es/arrays` |
+| E06.04 | done | both | Spread in call/new args: `f(...a)` / `f(x, ...a, y)` / `new F(...a)` (iterable expand into arguments) | `tests/conformance` fixtures `es/arrays` |
+| E06.05 | done | both | `for-of` over arrays: iterate elements; `let`/assign binding; block bodies; nested arrays | `tests/conformance` fixtures `es/arrays` |
+| E06.06 | done | both | Array destructuring: `let [a, b] = arr` / `let [a, ...rest] = arr` / assignment `[a, b] = arr` (holes, defaults deferred) | `tests/conformance` fixtures `es/arrays` |
+| E07 | done | both | Strings, template literals, UTF-16 semantics | `tests/conformance/es/strings` |
+| E07.01 | done | both | String literals (`"`/`'`) + concat `+` + `.length` + index `s[i]` (read; basic escapes `\n` `\r` `\t` `\\` `\'` `\"` `\0`) | `tests/conformance` fixtures `es/strings` |
+| E07.02 | done | both | Template literals: `` `…` `` / `` `a${x}b` `` (untagged; cooked escapes; multi-interp) | `tests/conformance` fixtures `es/strings` |
+| E07.03 | done | both | Unicode escapes: `\xHH`, `\uXXXX`, `\u{X…}` in string/template literals (cooked; well-formed scalar values) | `tests/conformance` fixtures `es/strings` |
+| E07.04 | done | both | Tagged templates: `tag\`…\`` / `tag\`a${x}b\`` (tag call; cooked quasis + interpolations as args) | `tests/conformance` fixtures `es/strings` |
+| E07.05 | done | both | UTF-16 code-unit semantics: `.length`/index by code unit; lone surrogates via `\uXXXX`; surrogate-pair escapes equal code-point | `tests/conformance` fixtures `es/strings` |
+| E08 | done | both | Numbers, BigInt, Math, bitwise | `tests/conformance/es/numbers` |
+| E08.01 | done | both | Number literals: decimal floats, scientific `e`/`E`, hex `0x`, binary `0b`, octal `0o`, numeric separators `_`, leading-dot (`.5`) | `tests/conformance` fixtures `es/numbers` |
+| E08.02 | done | both | BigInt integer literals (`1n`, `0xffn`, `0b…n`, `0o…n`, `_` separators) + same-type `+` `-` `*` `/` `%` and unary `-` | `tests/conformance` fixtures `es/numbers` |
+| E08.03 | done | both | BigInt comparison & bitwise: `<` `<=` `>` `>=` `==` `!=` `===` `!==` `&` `\|` `^` `~` `<<` `>>` (no `>>>`) | `tests/conformance` fixtures `es/numbers` |
+| E08.04 | done | both | BigInt exponentiation: `**` (right-associative) and `**=` (same-type BigInt only) | `tests/conformance` fixtures `es/numbers` |
+| E08.05 | done | both | Global `Math`: constants (`E`, `PI`) + methods (`abs`, `floor`, `ceil`, `round`, `min`, `max`, `pow`, `sqrt`, `sign`) via `.` / `[]` and calls | `tests/conformance` fixtures `es/numbers` |
+| E08.06 | done | both | Global `NaN` / `Infinity` + `Number`: constants (`NaN`, `POSITIVE_INFINITY`, `NEGATIVE_INFINITY`, `MAX_VALUE`, `MIN_VALUE`, `EPSILON`, `MAX_SAFE_INTEGER`, `MIN_SAFE_INTEGER`) + static methods (`isNaN`, `isFinite`, `isInteger`, `isSafeInteger`) via `.` / `[]` and calls | `tests/conformance` fixtures `es/numbers` |
+| E09 | done | both | Symbols, equality, coercion rules | `tests/conformance/es/values` |
+| E09.01 | done | both | Symbol constructor basics: `Symbol()` / `Symbol(desc)`, `typeof` `"symbol"`, uniqueness; `Symbol.for` / `Symbol.keyFor` | `tests/conformance` fixtures `es/values` |
+| E09.02 | done | both | Symbol property keys: `obj[sym]`, computed keys in literals; own-key read/write (no string collision) | `tests/conformance` fixtures `es/values` |
+| E09.03 | done | both | Abstract equality & coercion: `==`/`!=` mixed types; `ToNumber`/`ToString`/`ToBoolean` via `+`/`==`/`if` | `tests/conformance` fixtures `es/values` |
+| E09.04 | done | both | `ToPrimitive`: `valueOf` / `toString` hooks in `+` and `==` | `tests/conformance` fixtures `es/values` |
+| E10 | done | both | Exceptions: try/catch/finally/throw | `tests/conformance/es/exceptions` |
+| E10.01 | done | both | `throw` expression + bare `try`/`catch` (bind catch param; no finally) | `tests/conformance` fixtures `es/exceptions` |
+| E10.02 | done | both | `finally`: `try`/`catch`/`finally` and `try`/`finally` (always runs; completion after finally) | `tests/conformance` fixtures `es/exceptions` |
+| E10.03 | done | both | Optional catch binding: `catch { … }` (no param; with/without `finally`) | `tests/conformance` fixtures `es/exceptions` |
+| E11 | done | both | Modules (ESM): import/export, cyclic | `tests/conformance/es/modules` |
+| E11.01 | done | both | Named export + import: `export let`/`const`/`function`, `import { x } from "./mod"` (static relative; no default/star/cycles) | `tests/conformance` fixtures `es/modules` |
+| E11.02 | done | both | Default export + import: `export default …` / `export default function…`, `import d from "./mod"` / `import d, { x } from "./mod"` (static relative; no star/cycles) | `tests/conformance` fixtures `es/modules` |
+| E11.03 | done | both | Namespace import: `import * as ns from "./mod"` / `import d, * as ns from "./mod"` (static relative; ns props are named exports + `default` when present; no cycles) | `tests/conformance` fixtures `es/modules` |
+| E11.04 | done | both | Cyclic modules: mutual static relative imports; named exports as functions + live `let` bindings (no namespace/`export *` in cycle fixtures) | `tests/conformance` fixtures `es/modules` |
+| E12 | done | both | Promises, job queue, async/await | `tests/conformance/es/async` |
+| E12.01 | done | both | Promise constructor basics: `new Promise(executor)`, sync `resolve`/`reject`, one-hop `.then`, `typeof Promise` | `tests/conformance` fixtures `es/async` |
+| E12.02 | done | both | Promise statics + catch: `Promise.resolve` / `Promise.reject`, `.catch`; sync settle values; typeof of statics | `tests/conformance` fixtures `es/async` |
+| E12.03 | done | both | `Promise.prototype.finally`: fulfill + reject paths; value/reason pass-through; `typeof p.finally` | `tests/conformance` fixtures `es/async` |
+| E12.04 | done | both | `Promise.all`: iterable of promises/values; fulfill with array; reject on first rejection; empty → `[]` | `tests/conformance` fixtures `es/async` |
+| E12.05 | done | both | `Promise.race`: iterable of promises/values; settle with first fulfillment or rejection | `tests/conformance` fixtures `es/async` |
+| E12.06 | done | both | `Promise.allSettled`: iterable of promises/values; fulfill with `{status,value\|reason}[]`; empty → `[]` | `tests/conformance` fixtures `es/async` |
+| E12.07 | done | both | `Promise.any`: iterable of promises/values; fulfill with first fulfillment; reject `AggregateError` if all reject; empty → reject | `tests/conformance` fixtures `es/async` |
+| E12.08 | done | both | `async function` + `await`: declaration/expression, `await` expr; returns Promise; sync throw → reject | `tests/conformance` fixtures `es/async` |
+| E12.09 | done | both | Arrow functions: `async (params) => expr` / `async (params) => { … }` (simple ident params; `await` in body; returns Promise) | `tests/conformance` fixtures `es/async` |
+| E13 | done | both | Generators, `yield` | `tests/conformance/es/generators` |
+| E13.01 | done | both | Generator function declaration: `function* g() { yield expr; return expr; }`; call returns iterator; `.next()` → `{value, done}` | `tests/conformance` fixtures `es/generators` |
+| E13.02 | done | both | Yield expression RHS: AssignmentExpression-level (not unary); bare `yield` → undefined; multiple sequential yields; generator params | `tests/conformance` fixtures `es/generators` |
+| E13.03 | done | both | Yield resume: `.next(arg)` becomes the value of the paused `yield` expr; first `.next()` arg ignored; bare/`yield expr` both resume | `tests/conformance` fixtures `es/generators` |
+| E13.04 | done | both | `yield*`: delegate to iterable/iterator (`yield* expr`); flatten nested generators; completion value of inner | `tests/conformance` fixtures `es/generators` |
+| E13.05 | done | both | Generator function expressions: `function* (params) { … }` as values (incl. named, IIFE); call returns iterator | `tests/conformance` fixtures `es/generators` |
+| E13.06 | done | both | Generator methods: object `{ *m() {…} }` / class `*m()` / `static *m()`; call returns iterator; `yield` in method body | `tests/conformance` fixtures `es/generators` |
+| E13.07 | done | both | `for-of` over generators: iterate yielded values; `let`/assign binding; block bodies; early `break` | `tests/conformance` fixtures `es/generators` |
+| E13.08 | done | both | Generator `.return(value)` / `.throw(exception)`: close with value; inject exception at paused `yield`; try/catch in body | `tests/conformance` fixtures `es/generators` |
+| E14 | done | both | Proxies, Reflect, exotic objects | `tests/conformance/es/proxies` |
+| E14.01 | done | both | Proxy constructor basics: `new Proxy(target, handler)`; empty-handler pass-through get; `get` trap; `typeof Proxy` | `tests/conformance` fixtures `es/proxies` |
+| E14.02 | done | both | Proxy `set` trap: empty-handler pass-through set; `set` trap intercept write; read-back | `tests/conformance` fixtures `es/proxies` |
+| E14.03 | done | both | Proxy `has` trap + `in`: empty-handler pass-through `"k" in obj`; `has` trap intercept; plain object `in` | `tests/conformance` fixtures `es/proxies` |
+| E14.04 | done | both | Proxy `deleteProperty` trap + `delete`: empty-handler pass-through `delete obj.k`; trap intercept; plain object `delete` | `tests/conformance` fixtures `es/proxies` |
+| E14.05 | done | both | Proxy `apply` trap: empty-handler pass-through call; `apply` trap intercept call; callable target | `tests/conformance` fixtures `es/proxies` |
+| E14.06 | done | both | Proxy `construct` trap: empty-handler pass-through `new`; `construct` trap intercept `new`; constructable target | `tests/conformance` fixtures `es/proxies` |
+| E14.07 | done | both | Reflect basics: `typeof Reflect`; `Reflect.get`/`set`/`has`/`deleteProperty`/`apply`/`construct` on plain objects + Proxy targets | `tests/conformance` fixtures `es/proxies` |
+| E14.08 | done | both | Proxy `ownKeys` trap + `Reflect.ownKeys`: empty-handler pass-through; trap intercept; plain object keys | `tests/conformance` fixtures `es/proxies` |
+| E14.09 | done | both | Proxy `getPrototypeOf`/`setPrototypeOf` traps + `Reflect.getPrototypeOf`/`setPrototypeOf`: empty-handler pass-through; trap intercept; plain object | `tests/conformance` fixtures `es/proxies` |
+| E14.10 | done | both | Proxy `defineProperty`/`getOwnPropertyDescriptor` traps + `Reflect.defineProperty`/`getOwnPropertyDescriptor`: empty-handler pass-through; trap intercept; plain object data descriptors | `tests/conformance` fixtures `es/proxies` |
+| E14.11 | done | both | Proxy `isExtensible`/`preventExtensions` traps + `Reflect.isExtensible`/`preventExtensions`: empty-handler pass-through; trap intercept; plain object | `tests/conformance` fixtures `es/proxies` |
+| E15 | done | both | Realms, globals, built-ins surface | `tests/conformance/es/builtins` |
+| E15.01 | done | both | Global object basics: `undefined`, `globalThis`, fundamental constructors `Object`/`Function`/`Array`/`String`/`Boolean` (`typeof`) | `tests/conformance` fixtures `es/builtins` |
+| E15.02 | done | both | Error constructors: `Error` / `TypeError` / `RangeError` / `ReferenceError` / `SyntaxError` / `URIError` / `EvalError` / `AggregateError` (`typeof`, `globalThis` identity, `new …(msg)`, `.name`/`.message`) | `tests/conformance` fixtures `es/builtins` |
+| E15.03 | done | both | Global functions: `parseInt` / `parseFloat` / `isNaN` / `isFinite` (`typeof`, `globalThis` identity, basic call behavior) | `tests/conformance` fixtures `es/builtins` |
+| E15.04 | done | both | URI encode/decode: `encodeURI` / `decodeURI` / `encodeURIComponent` / `decodeURIComponent` (`typeof`, `globalThis` identity, basic call behavior) | `tests/conformance` fixtures `es/builtins` |
+| E15.05 | done | both | Global `JSON`: `typeof JSON`, `globalThis` identity, `JSON.parse` / `JSON.stringify` basics | `tests/conformance` fixtures `es/builtins` |
+| E15.06 | done | both | Global `Date`: `typeof Date`, `globalThis` identity, `Date.now`, `new Date(ms)` / `.getTime()` / `.valueOf()` basics | `tests/conformance` fixtures `es/builtins` |
+| E15.07 | done | both | Global `RegExp`: `typeof RegExp`, `globalThis` identity, `new RegExp(pattern)` / `new RegExp(pattern, flags)`, `.test` / `.exec` / `.source` / `.flags` basics | `tests/conformance` fixtures `es/builtins` |
+| E15.08 | done | both | Global `Map` / `Set`: `typeof`, `globalThis` identity, `new Map` / `new Set`, `.set`/`.get`/`.has`/`.size` and `.add`/`.has`/`.size` basics | `tests/conformance` fixtures `es/builtins` |
+| E15.09 | done | both | Global `WeakMap` / `WeakSet`: `typeof`, `globalThis` identity, `new WeakMap` / `new WeakSet`, `.set`/`.get`/`.has`/`.delete` and `.add`/`.has`/`.delete` (object keys only) | `tests/conformance` fixtures `es/builtins` |
+| E15.10 | done | both | Global `ArrayBuffer` / `DataView` / TypedArrays: `typeof`, `globalThis` identity, `new ArrayBuffer(n)` / `.byteLength`, `new Uint8Array`/`Int32Array`/`Float64Array`, `.length`/index read-write, `new DataView(buf)` / `.getUint8`/`.setUint8` | `tests/conformance` fixtures `es/builtins` |
+| E16 | done | both | `eval`, `new Function`, indirect eval | `tests/conformance/es/eval` |
+| E16.01 | done | both | Direct `eval`: `typeof eval`, `globalThis` identity, `eval(string)` expression/statement basics | `tests/conformance` fixtures `es/eval` |
+| E16.02 | done | both | `new Function` / `Function(...)`: construct from strings; call returns function; simple body/params | `tests/conformance` fixtures `es/eval` |
+| E16.03 | done | both | Indirect eval: `(0, eval)(s)` / `globalThis.eval(s)` (global scope; not caller lexical) | `tests/conformance` fixtures `es/eval` |
+| E17 | done | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
 | E18 | todo | both | Remaining Annex B / full 262 gaps (track explicitly, do not drop) | `tests/conformance/es/annex-b` |
+| E18.01 | done | both | Global `escape` / `unescape` (Annex B.2.1): `typeof`, `globalThis` identity, basic call behavior | `tests/conformance` fixtures `es/annex-b` |
+| E18.02 | done | both | `Object.prototype.__proto__` (Annex B.2.2 / B.3.1): get/set prototype; object literal `__proto__` vs computed `["__proto__"]` | `tests/conformance` fixtures `es/annex-b` |
 
 ---
 

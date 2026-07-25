@@ -1,0 +1,34 @@
+let resolved = 0;
+let fromAwait = 0;
+let rejected = 0;
+let exprResolved = 0;
+async function f() {
+  return 42;
+}
+f().then(function (v) {
+  resolved = v;
+});
+async function g() {
+  let x = await Promise.resolve(7);
+  return x + 1;
+}
+g().then(function (v) {
+  fromAwait = v;
+});
+async function h() {
+  throw 9;
+}
+h().then(
+  function () {
+    rejected = -1;
+  },
+  function (e) {
+    rejected = e;
+  }
+);
+let af = async function () {
+  return 1;
+};
+af().then(function (v) {
+  exprResolved = v;
+});

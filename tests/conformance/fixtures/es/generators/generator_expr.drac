@@ -1,0 +1,40 @@
+let g = function* (a) {
+  yield a;
+  yield a + 1;
+  return a + 2;
+};
+let it = g(10);
+let r1 = it.next();
+let r2 = it.next();
+let r3 = it.next();
+let v1 = r1.value;
+let d1 = r1.done;
+let v2 = r2.value;
+let d2 = r2.done;
+let v3 = r3.value;
+let d3 = r3.done;
+
+let named = function* gen(n) {
+  yield n;
+  yield gen;
+};
+let it2 = named(5);
+let n1 = it2.next();
+let n2 = it2.next();
+let nv1 = n1.value;
+let nd1 = n1.done;
+let nv2 = n2.value;
+let nd2 = n2.done;
+let n3 = it2.next();
+let nd3 = n3.done;
+
+let it3 = (function* (x) {
+  yield x * 2;
+  return x * 3;
+})(7);
+let i1 = it3.next();
+let i2 = it3.next();
+let iv1 = i1.value;
+let id1 = i1.done;
+let iv2 = i2.value;
+let id2 = i2.done;

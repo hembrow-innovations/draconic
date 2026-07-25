@@ -1,0 +1,33 @@
+let target = { a: 1 };
+let passthrough = new Proxy(target, {});
+passthrough.a = 2;
+let g1 = passthrough.a;
+passthrough["b"] = 3;
+let g2 = passthrough["b"];
+let t1 = target.a;
+let t2 = target.b;
+let writes = 0;
+let lastKey = "";
+let lastVal = 0;
+let p = new Proxy(
+  { x: 10 },
+  {
+    set: function (t, key, value) {
+      writes = writes + 1;
+      lastKey = key;
+      lastVal = value;
+      if (key === "x") {
+        t.x = value + 1;
+        return true;
+      }
+      t[key] = value;
+      return true;
+    },
+  }
+);
+p.x = 20;
+let gx = p.x;
+p["y"] = 30;
+let gy = p.y;
+let assignResult = (p.z = 40);
+let gz = p.z;

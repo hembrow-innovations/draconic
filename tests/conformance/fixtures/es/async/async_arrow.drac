@@ -1,0 +1,30 @@
+let concise = 0;
+let blocked = 0;
+let rejected = 0;
+let bare = 0;
+let a = async () => 1;
+a().then(function (v) {
+  concise = v;
+});
+let b = async () => {
+  let x = await Promise.resolve(2);
+  return x + 1;
+};
+b().then(function (v) {
+  blocked = v;
+});
+let c = async () => {
+  throw 5;
+};
+c().then(
+  function () {
+    rejected = -1;
+  },
+  function (e) {
+    rejected = e;
+  }
+);
+let d = async (x) => x + 1;
+d(6).then(function (v) {
+  bare = v;
+});

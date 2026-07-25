@@ -1,0 +1,38 @@
+let a = 0;
+try {
+  throw 1;
+} catch (e) {
+  a = e;
+}
+let b = 0;
+try {
+  throw "x";
+} catch (err) {
+  b = 1;
+}
+let c = 0;
+try {
+  c = 1;
+} catch (e) {
+  c = 99;
+}
+let d = 0;
+function f() {
+  throw 7;
+}
+try {
+  f();
+  d = 1;
+} catch (e) {
+  d = e;
+}
+let nested = 0;
+try {
+  try {
+    throw 2;
+  } catch (inner) {
+    throw inner + 3;
+  }
+} catch (outer) {
+  nested = outer;
+}

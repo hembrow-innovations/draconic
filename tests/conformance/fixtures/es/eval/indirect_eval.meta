@@ -1,0 +1,6 @@
+id: es/eval/indirect_eval
+targets: js,native
+js.exit: 0
+js.check: if (d !== 200) process.exit(1); if (i !== 100) process.exit(2); if (g !== 100) process.exit(3); if (t !== "function") process.exit(4); if (same !== true) process.exit(5); if (a !== 3) process.exit(6); if (b !== "hi") process.exit(7); if (typeof d !== "number") process.exit(8);
+native.exit: 0
+native.stdout: hello\n

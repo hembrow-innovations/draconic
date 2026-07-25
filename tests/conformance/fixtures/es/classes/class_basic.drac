@@ -1,0 +1,28 @@
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  sum() {
+    return this.x + this.y;
+  }
+}
+let p = new Point(1, 2);
+let a = p.x;
+let b = p.y;
+let c = p.sum();
+class Counter {
+  constructor(start) {
+    this.n = start;
+  }
+  inc() {
+    this.n = this.n + 1;
+  }
+  value() {
+    return this.n;
+  }
+}
+let ctr = new Counter(5);
+ctr.inc();
+let d = ctr.value();
+let e = new Point(3, 4).sum();

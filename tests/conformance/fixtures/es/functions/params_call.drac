@@ -1,0 +1,14 @@
+function id(a) {
+  return a;
+}
+function add(a, b) {
+  return a + b;
+}
+function third(a, b, c) {
+  return c;
+}
+let a = id(42);
+let b = add(1, 2);
+let c = add(10, add(3, 4));
+let d = third(1, 2, 3);
+let e = id(add(5, 6));

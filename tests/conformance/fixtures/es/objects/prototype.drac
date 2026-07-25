@@ -1,0 +1,33 @@
+function Point(x, y) {
+  this.x = x;
+  this.y = y;
+}
+Point.prototype.sum = function () {
+  return this.x + this.y;
+};
+Point.prototype.scale = function (n) {
+  this.x = this.x * n;
+  this.y = this.y * n;
+};
+let p = new Point(1, 2);
+let a = p.sum();
+p.scale(3);
+let b = p.x;
+let c = p.y;
+let d = p.sum();
+function Animal(name) {
+  this.name = name;
+}
+Animal.prototype.greet = function () {
+  return this.name;
+};
+function Dog(name) {
+  this.name = name;
+}
+Dog.prototype = new Animal("proto");
+Dog.prototype.bark = function () {
+  return this.name;
+};
+let dog = new Dog("rex");
+let e = dog.bark();
+let f = dog.greet();

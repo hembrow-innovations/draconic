@@ -1,0 +1,31 @@
+let Target = function (a, b) {
+  this.sum = a + b;
+};
+let passthrough = new Proxy(Target, {});
+let passInst = new passthrough(2, 3);
+let passSum = passInst.sum;
+let calls = 0;
+let lastArg0 = 0;
+let lastArg1 = 0;
+let lastLen = 0;
+let lastNewTarget = 0;
+let P = new Proxy(
+  function (a, b) {
+    this.prod = a * b;
+  },
+  {
+    construct: function (t, args, newTarget) {
+      calls = calls + 1;
+      lastArg0 = args[0];
+      lastArg1 = args[1];
+      lastLen = args.length;
+      lastNewTarget = newTarget;
+      let inst = new t(args[0], args[1]);
+      inst.extra = 1;
+      return inst;
+    },
+  }
+);
+let r = new P(4, 5);
+let rx = r.prod;
+let re = r.extra;

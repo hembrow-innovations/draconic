@@ -1,0 +1,6 @@
+id: es/strings/unicode_escapes
+targets: js,native
+js.exit: 0
+js.check: if (hex !== "AB") process.exit(1); if (hex_low !== "a") process.exit(2); if (hex_null.length !== 1 || hex_null.charCodeAt(0) !== 0) process.exit(3); if (u4 !== "A") process.exit(4); if (u4_copy !== "\u00A9") process.exit(5); if (u4_space !== " ") process.exit(6); if (cp !== "A") process.exit(7); if (cp_emoji !== "\u{1F600}") process.exit(8); if (cp_ff !== "\u00FF") process.exit(9); if (mixed !== "ABC") process.exit(10); if (t_hex !== "Hi") process.exit(11); if (t_u !== "OK") process.exit(12); if (t_cp !== "\u{1F4A9}") process.exit(13); if (t_mix !== "xAy") process.exit(14); if (eq_hex !== true) process.exit(15); if (eq_u !== true) process.exit(16); if (eq_cp !== true) process.exit(17); if (len_emoji !== 2) process.exit(18); if (len_u4 !== 1) process.exit(19); if (cat !== "Hi") process.exit(20); if (typeof hex !== "string") process.exit(21);
+native.exit: 0
+native.stdout: hello\n

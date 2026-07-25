@@ -1,0 +1,15 @@
+let lt = 1n < 2n;
+let le = 2n <= 2n;
+let gt = 3n > 1n;
+let ge = 3n >= 3n;
+let eq = 1n == 1n;
+let ne = 1n != 2n;
+let seq = 1n === 1n;
+let sne = 1n !== 2n;
+let band = 0b1100n & 0b1010n;
+let bor = 0b1100n | 0b1010n;
+let bxor = 0b1100n ^ 0b1010n;
+let bnot = ~0n;
+let shl = 1n << 3n;
+let shr = 16n >> 2n;
+let mix = (1n + 2n) * 3n < 10n && (0xffn & 0x0fn) === 0x0fn;

@@ -1,0 +1,4 @@
+export default function answer() {
+  return 42;
+}
+export let tag = "def";

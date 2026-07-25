@@ -1,0 +1,14 @@
+let teu = typeof encodeURI;
+let tdu = typeof decodeURI;
+let teuc = typeof encodeURIComponent;
+let tduc = typeof decodeURIComponent;
+let geu = globalThis.encodeURI === encodeURI;
+let gdu = globalThis.decodeURI === decodeURI;
+let geuc = globalThis.encodeURIComponent === encodeURIComponent;
+let gduc = globalThis.decodeURIComponent === decodeURIComponent;
+let a = encodeURI("https://example.com/a b");
+let b = decodeURI("https://example.com/a%20b");
+let c = encodeURIComponent("a b&c=d");
+let d = decodeURIComponent("a%20b%26c%3Dd");
+let e = encodeURI("café");
+let f = decodeURIComponent(encodeURIComponent("x/y?z=1"));

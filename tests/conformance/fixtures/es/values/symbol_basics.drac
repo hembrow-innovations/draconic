@@ -1,0 +1,14 @@
+let s = Symbol();
+let t = typeof s;
+let d = Symbol("desc");
+let u = typeof d;
+let a = Symbol();
+let b = Symbol();
+let uniq = a !== b;
+let f = Symbol.for("shared");
+let g = Symbol.for("shared");
+let same = f === g;
+let key = Symbol.keyFor(f);
+let tf = typeof Symbol;
+let tfor = typeof Symbol.for;
+let tkey = typeof Symbol.keyFor;

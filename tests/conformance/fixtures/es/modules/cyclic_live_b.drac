@@ -1,0 +1,7 @@
+import { n, bump } from "./cyclic_live_a.drac";
+export function readB() {
+  return n;
+}
+export function bumpViaB() {
+  return bump();
+}

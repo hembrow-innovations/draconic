@@ -1,0 +1,6 @@
+id: es/proxies/proxy_basics
+targets: js,native
+js.exit: 0
+js.check: if (tf !== "function") process.exit(1); if (g1 !== 1) process.exit(2); if (g2 !== 2) process.exit(3); if (gx !== 11) process.exit(4); if (gy !== 0) process.exit(5); if (intercepted !== 2) process.exit(6); if (tp !== "object") process.exit(7); if (typeof Proxy !== "function") process.exit(8);
+native.exit: 0
+native.stdout: hello\n

@@ -1,0 +1,59 @@
+// E09.04 — ToPrimitive: valueOf / toString hooks in + and ==
+// OrdinaryToPrimitive default hint is number → valueOf before toString.
+
+// valueOf preferred for + (numeric default hint)
+let nbox = {
+  valueOf: function () {
+    return 10;
+  },
+  toString: function () {
+    return "str";
+  },
+};
+let add_num_left = nbox + 5;
+let add_num_right = 5 + nbox;
+let add_two_nbox = nbox + nbox;
+
+// valueOf preferred for == with number
+let eq_nbox_num = nbox == 10;
+let ne_nbox_num = nbox == 11;
+let eq_num_nbox = 10 == nbox;
+
+// string side of + still prefers string concat after ToPrimitive
+let add_str_left = "x" + nbox;
+let add_str_right = nbox + "x";
+
+// toString used when valueOf is missing or returns object
+let sbox = {
+  toString: function () {
+    return "7";
+  },
+};
+let add_sbox_num = sbox + 1;
+let eq_sbox_num = sbox == 7;
+let eq_sbox_str = sbox == "7";
+
+// valueOf returns object → fall through to toString
+let fallback = {
+  valueOf: function () {
+    return {};
+  },
+  toString: function () {
+    return "9";
+  },
+};
+let add_fallback = fallback + 1;
+let eq_fallback = fallback == 9;
+
+// only valueOf (no custom toString) — default Object toString is not number-like
+let vonly = {
+  valueOf: function () {
+    return 3;
+  },
+};
+let add_vonly = vonly + 4;
+let eq_vonly = vonly == 3;
+
+// == between object and boolean (ToNumber path after ToPrimitive)
+let eq_nbox_true = nbox == true;
+let eq_sbox_true = sbox == true;

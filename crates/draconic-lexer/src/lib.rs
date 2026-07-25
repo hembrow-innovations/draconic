@@ -1,4 +1,87 @@
 use draconic_diagnostics::{Diagnostic, Span};
+use std::fmt;
+
+/// ECMAScript string value: a sequence of UTF-16 code units (may include unpaired surrogates).
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct JsString {
+    units: Vec<u16>,
+}
+
+impl JsString {
+    pub fn new() -> Self {
+        Self { units: Vec::new() }
+    }
+
+    pub fn units(&self) -> &[u16] {
+        &self.units
+    }
+
+    pub fn push_code_unit(&mut self, unit: u16) {
+        self.units.push(unit);
+    }
+
+    /// Push a Unicode scalar value as one or two UTF-16 code units.
+    pub fn push_scalar(&mut self, c: char) {
+        let mut buf = [0u16; 2];
+        for u in c.encode_utf16(&mut buf) {
+            self.units.push(*u);
+        }
+    }
+
+    /// Push a code point from `\xHH` / `\uXXXX` (any 16-bit unit, incl. surrogates)
+    /// or `\u{…}` scalar (validated by caller for braced form).
+    pub fn push_code_point_unit(&mut self, cp: u32) -> Result<(), ()> {
+        if cp <= 0xFFFF {
+            self.units.push(cp as u16);
+            Ok(())
+        } else if cp <= 0x10FFFF {
+            let c = cp - 0x10000;
+            self.units.push(0xD800 + ((c >> 10) as u16));
+            self.units.push(0xDC00 + ((c & 0x3FF) as u16));
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    /// Lossy UTF-8 for diagnostics/dumps (unpaired surrogates → U+FFFD).
+    pub fn to_string_lossy(&self) -> String {
+        String::from_utf16_lossy(&self.units)
+    }
+
+    /// Well-formed UTF-16 only; `None` if unpaired surrogates present.
+    pub fn to_string_strict(&self) -> Option<String> {
+        String::from_utf16(&self.units).ok()
+    }
+}
+
+impl From<&str> for JsString {
+    fn from(s: &str) -> Self {
+        Self {
+            units: s.encode_utf16().collect(),
+        }
+    }
+}
+
+impl From<String> for JsString {
+    fn from(s: String) -> Self {
+        JsString::from(s.as_str())
+    }
+}
+
+impl fmt::Debug for JsString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("JsString")
+            .field(&self.to_string_lossy())
+            .finish()
+    }
+}
+
+impl fmt::Display for JsString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_string_lossy())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
@@ -18,6 +101,8 @@ pub enum TokenKind {
     Semi,
     Comma,
     Dot,
+    /// `...` rest/spread
+    DotDotDot,
     Colon,
     Question,
     QuestionQuestion,
@@ -41,6 +126,8 @@ pub enum TokenKind {
     Eq,
     EqEq,
     EqEqEq,
+    /// `=>` arrow function punctuator
+    Arrow,
     NotEq,
     NotEqEq,
     Lt,
@@ -67,7 +154,17 @@ pub enum TokenKind {
     // keywords / atoms
     Ident(String),
     Number(String),
-    String(String),
+    /// BigInt integer literal including `n` suffix (e.g. `1n`, `0xffn`).
+    BigInt(String),
+    String(JsString),
+    /// `` `foo` `` — no `${` interpolations.
+    TemplateNoSubstitution(JsString),
+    /// `` `foo${ `` — cooked head before first interpolation.
+    TemplateHead(JsString),
+    /// `` }foo${ `` — cooked middle between interpolations.
+    TemplateMiddle(JsString),
+    /// `` }foo` `` — cooked tail after last interpolation.
+    TemplateTail(JsString),
     True,
     False,
     Null,
@@ -90,15 +187,41 @@ pub enum TokenKind {
     In,
     Of,
     Function,
+    Async,
+    Await,
+    Yield,
     Return,
+    This,
+    New,
+    Class,
+    Extends,
+    Super,
+    Static,
+    Throw,
+    Try,
+    Catch,
+    Finally,
+    With,
+    Import,
+    Export,
+    From,
+    As,
     // other
     Eof,
+}
+
+enum TemplateScanEnd {
+    Tick,
+    DollarBrace,
 }
 
 pub struct Lexer<'a> {
     src: &'a str,
     bytes: &'a [u8],
     pos: usize,
+    /// Stack of open template `${…}` frames. Each entry is the `{`/`}` nesting
+    /// depth *inside* that expression (0 ⇒ next `}` closes the interpolation).
+    template_expr_braces: Vec<u32>,
 }
 
 impl<'a> Lexer<'a> {
@@ -107,6 +230,7 @@ impl<'a> Lexer<'a> {
             src,
             bytes: src.as_bytes(),
             pos: 0,
+            template_expr_braces: Vec::new(),
         }
     }
 
@@ -145,12 +269,27 @@ impl<'a> Lexer<'a> {
             }
             b'{' => {
                 self.bump();
+                if let Some(depth) = self.template_expr_braces.last_mut() {
+                    *depth += 1;
+                }
                 TokenKind::LBrace
             }
-            b'}' => {
-                self.bump();
-                TokenKind::RBrace
-            }
+            b'}' => match self.template_expr_braces.last().copied() {
+                Some(0) => {
+                    // Close `${…}` and resume the template.
+                    self.template_expr_braces.pop();
+                    return self.template_continuation(start);
+                }
+                Some(_) => {
+                    *self.template_expr_braces.last_mut().unwrap() -= 1;
+                    self.bump();
+                    TokenKind::RBrace
+                }
+                None => {
+                    self.bump();
+                    TokenKind::RBrace
+                }
+            },
             b'[' => {
                 self.bump();
                 TokenKind::LBracket
@@ -168,8 +307,23 @@ impl<'a> Lexer<'a> {
                 TokenKind::Comma
             }
             b'.' => {
-                self.bump();
-                TokenKind::Dot
+                if self.peek_at(1).is_some_and(|b| b.is_ascii_digit()) {
+                    self.number_literal_leading_dot()?
+                } else {
+                    self.bump();
+                    if self.eat(b'.') {
+                        if self.eat(b'.') {
+                            TokenKind::DotDotDot
+                        } else {
+                            return Err(Diagnostic::new(
+                                "expected `...`",
+                                Span::new(start, self.pos as u32),
+                            ));
+                        }
+                    } else {
+                        TokenKind::Dot
+                    }
+                }
             }
             b':' => {
                 self.bump();
@@ -258,6 +412,8 @@ impl<'a> Lexer<'a> {
                     } else {
                         TokenKind::EqEq
                     }
+                } else if self.eat(b'>') {
+                    TokenKind::Arrow
                 } else {
                     TokenKind::Eq
                 }
@@ -337,6 +493,7 @@ impl<'a> Lexer<'a> {
                 TokenKind::Tilde
             }
             b'"' | b'\'' => self.string_literal()?,
+            b'`' => self.template_literal()?,
             b if b.is_ascii_digit() => self.number_literal()?,
             b if is_ident_start(b) => self.ident_or_keyword()?,
             _ => {
@@ -396,34 +553,23 @@ impl<'a> Lexer<'a> {
     fn string_literal(&mut self) -> Result<TokenKind, Diagnostic> {
         let quote = self.bump();
         let start = self.pos as u32;
-        let mut value = String::new();
+        let mut value = JsString::new();
         while !self.is_eof() {
-            let c = self.bump();
+            let c = self.peek();
             if c == quote {
+                self.bump();
                 return Ok(TokenKind::String(value));
             }
             if c == b'\\' {
-                if self.is_eof() {
-                    break;
-                }
-                let esc = self.bump();
-                match esc {
-                    b'n' => value.push('\n'),
-                    b'r' => value.push('\r'),
-                    b't' => value.push('\t'),
-                    b'\\' => value.push('\\'),
-                    b'\'' => value.push('\''),
-                    b'"' => value.push('"'),
-                    b'0' => value.push('\0'),
-                    other => value.push(other as char),
-                }
+                self.bump();
+                self.scan_escape_into(&mut value)?;
             } else if c == b'\n' {
                 return Err(Diagnostic::new(
                     "unterminated string literal",
                     Span::new(start.saturating_sub(1), self.pos as u32),
                 ));
             } else {
-                value.push(c as char);
+                self.scan_source_char_into(&mut value);
             }
         }
         Err(Diagnostic::new(
@@ -432,22 +578,376 @@ impl<'a> Lexer<'a> {
         ))
     }
 
+    /// Scan `` `…` `` or `` `…${ `` at the opening backtick.
+    fn template_literal(&mut self) -> Result<TokenKind, Diagnostic> {
+        let start = self.pos as u32;
+        self.bump(); // `
+        let (value, end) = self.scan_template_chars(start)?;
+        match end {
+            TemplateScanEnd::Tick => Ok(TokenKind::TemplateNoSubstitution(value)),
+            TemplateScanEnd::DollarBrace => {
+                self.template_expr_braces.push(0);
+                Ok(TokenKind::TemplateHead(value))
+            }
+        }
+    }
+
+    /// After a template `${expr` closes with `}`, scan middle/tail (leading `}` already at pos).
+    fn template_continuation(&mut self, start: u32) -> Result<Token, Diagnostic> {
+        self.bump(); // consume closing `}` of `${…}`
+        let (value, end) = self.scan_template_chars(start)?;
+        let kind = match end {
+            TemplateScanEnd::Tick => TokenKind::TemplateTail(value),
+            TemplateScanEnd::DollarBrace => {
+                self.template_expr_braces.push(0);
+                TokenKind::TemplateMiddle(value)
+            }
+        };
+        Ok(Token {
+            kind,
+            span: Span::new(start, self.pos as u32),
+        })
+    }
+
+    fn scan_template_chars(
+        &mut self,
+        start: u32,
+    ) -> Result<(JsString, TemplateScanEnd), Diagnostic> {
+        let mut value = JsString::new();
+        while !self.is_eof() {
+            let c = self.peek();
+            if c == b'`' {
+                self.bump();
+                return Ok((value, TemplateScanEnd::Tick));
+            }
+            if c == b'$' && self.peek_at(1) == Some(b'{') {
+                self.bump(); // $
+                self.bump(); // {
+                return Ok((value, TemplateScanEnd::DollarBrace));
+            }
+            if c == b'\\' {
+                self.bump();
+                self.scan_escape_into(&mut value)?;
+            } else {
+                self.scan_source_char_into(&mut value);
+            }
+        }
+        Err(Diagnostic::new(
+            "unterminated template literal",
+            Span::new(start, self.pos as u32),
+        ))
+    }
+
+    /// Decode one UTF-8 scalar from source into UTF-16 code units.
+    fn scan_source_char_into(&mut self, value: &mut JsString) {
+        let ch = self.src[self.pos..].chars().next().expect("eof checked");
+        self.pos += ch.len_utf8();
+        value.push_scalar(ch);
+    }
+
+    /// Cook a single escape sequence after the leading `\`.
+    /// Supports basic escapes, `\xHH`, `\uXXXX` (any code unit incl. surrogates),
+    /// and `\u{X…}` (well-formed scalar values only).
+    fn scan_escape_into(&mut self, value: &mut JsString) -> Result<(), Diagnostic> {
+        if self.is_eof() {
+            return Err(Diagnostic::new(
+                "unterminated escape sequence",
+                Span::new(self.pos.saturating_sub(1) as u32, self.pos as u32),
+            ));
+        }
+        let esc_start = self.pos as u32;
+        let esc = self.bump();
+        match esc {
+            b'n' => value.push_scalar('\n'),
+            b'r' => value.push_scalar('\r'),
+            b't' => value.push_scalar('\t'),
+            b'\\' => value.push_scalar('\\'),
+            b'\'' => value.push_scalar('\''),
+            b'"' => value.push_scalar('"'),
+            b'`' => value.push_scalar('`'),
+            b'$' => value.push_scalar('$'),
+            b'0' => value.push_scalar('\0'),
+            b'x' => {
+                let cp = self.scan_hex_digits(2, esc_start)?;
+                push_code_point(value, cp, esc_start, self.pos as u32, false)?;
+            }
+            b'u' => {
+                if self.peek() == b'{' {
+                    self.bump(); // {
+                    let cp = self.scan_braced_hex(esc_start)?;
+                    // Braced form: scalar values only (no lone surrogates).
+                    push_code_point(value, cp, esc_start, self.pos as u32, true)?;
+                } else {
+                    let cp = self.scan_hex_digits(4, esc_start)?;
+                    // `\uXXXX` may be any 16-bit code unit, including surrogates.
+                    push_code_point(value, cp, esc_start, self.pos as u32, false)?;
+                }
+            }
+            other => value.push_scalar(other as char),
+        }
+        Ok(())
+    }
+
+    fn scan_hex_digits(&mut self, n: usize, esc_start: u32) -> Result<u32, Diagnostic> {
+        let mut value: u32 = 0;
+        for _ in 0..n {
+            if self.is_eof() {
+                return Err(Diagnostic::new(
+                    "invalid hex escape sequence",
+                    Span::new(esc_start, self.pos as u32),
+                ));
+            }
+            let b = self.peek();
+            let digit = match hex_digit(b) {
+                Some(d) => d,
+                None => {
+                    return Err(Diagnostic::new(
+                        "invalid hex escape sequence",
+                        Span::new(esc_start, self.pos as u32),
+                    ));
+                }
+            };
+            self.bump();
+            value = (value << 4) | digit;
+        }
+        Ok(value)
+    }
+
+    fn scan_braced_hex(&mut self, esc_start: u32) -> Result<u32, Diagnostic> {
+        if self.is_eof() || hex_digit(self.peek()).is_none() {
+            return Err(Diagnostic::new(
+                "invalid Unicode escape sequence",
+                Span::new(esc_start, self.pos as u32),
+            ));
+        }
+        let mut value: u32 = 0;
+        let mut digits = 0usize;
+        while !self.is_eof() {
+            let b = self.peek();
+            if b == b'}' {
+                self.bump();
+                if digits == 0 {
+                    return Err(Diagnostic::new(
+                        "invalid Unicode escape sequence",
+                        Span::new(esc_start, self.pos as u32),
+                    ));
+                }
+                return Ok(value);
+            }
+            let digit = match hex_digit(b) {
+                Some(d) => d,
+                None => {
+                    return Err(Diagnostic::new(
+                        "invalid Unicode escape sequence",
+                        Span::new(esc_start, self.pos as u32),
+                    ));
+                }
+            };
+            self.bump();
+            digits += 1;
+            if digits > 6 {
+                return Err(Diagnostic::new(
+                    "invalid Unicode escape sequence",
+                    Span::new(esc_start, self.pos as u32),
+                ));
+            }
+            value = (value << 4) | digit;
+        }
+        Err(Diagnostic::new(
+            "invalid Unicode escape sequence",
+            Span::new(esc_start, self.pos as u32),
+        ))
+    }
+
     fn number_literal(&mut self) -> Result<TokenKind, Diagnostic> {
         let start = self.pos;
-        while !self.is_eof() && self.peek().is_ascii_digit() {
-            self.bump();
-        }
-        if !self.is_eof() && self.peek() == b'.' {
-            let next = self.peek_at(1);
-            if next.is_some_and(|b| b.is_ascii_digit()) {
-                self.bump();
-                while !self.is_eof() && self.peek().is_ascii_digit() {
-                    self.bump();
+        // Non-decimal integer: 0x / 0b / 0o (case-insensitive prefix).
+        if self.peek() == b'0' {
+            match self.peek_at(1) {
+                Some(b'x' | b'X') => {
+                    self.bump(); // 0
+                    self.bump(); // x
+                    self.scan_radix_digits(16, start)?;
+                    return self.finish_number_or_bigint(start, true);
                 }
+                Some(b'b' | b'B') => {
+                    self.bump();
+                    self.bump();
+                    self.scan_radix_digits(2, start)?;
+                    return self.finish_number_or_bigint(start, true);
+                }
+                Some(b'o' | b'O') => {
+                    self.bump();
+                    self.bump();
+                    self.scan_radix_digits(8, start)?;
+                    return self.finish_number_or_bigint(start, true);
+                }
+                _ => {}
+            }
+        }
+
+        // DecimalIntegerLiteral (with optional numeric separators).
+        self.scan_decimal_integer_digits(start)?;
+
+        // Optional fractional part: `.` DecimalDigits
+        let mut is_integer = true;
+        if !self.is_eof() && self.peek() == b'.' {
+            // Only consume `.` when it begins a fraction (digit or separator+digit),
+            // not when it is member access (`1.toString`) or `...`.
+            let next = self.peek_at(1);
+            if next.is_some_and(|b| b.is_ascii_digit())
+                || (next == Some(b'_') && self.peek_at(2).is_some_and(|b| b.is_ascii_digit()))
+            {
+                self.bump(); // .
+                self.scan_decimal_digits_required(start)?;
+                is_integer = false;
+            }
+        }
+
+        let had_exponent = self.scan_exponent_opt(start)?;
+        if had_exponent {
+            is_integer = false;
+        }
+        self.finish_number_or_bigint(start, is_integer)
+    }
+
+    /// Leading-dot decimal: `.` DecimalDigits ExponentPart_opt
+    fn number_literal_leading_dot(&mut self) -> Result<TokenKind, Diagnostic> {
+        let start = self.pos;
+        self.bump(); // .
+        self.scan_decimal_digits_required(start)?;
+        self.scan_exponent_opt(start)?;
+        // Leading-dot forms are never BigInt (`n` after a float is invalid).
+        self.finish_number_or_bigint(start, false)
+    }
+
+    /// Finish a numeric token; optional `n` suffix yields BigInt when `allow_bigint`.
+    fn finish_number_or_bigint(
+        &mut self,
+        start: usize,
+        allow_bigint: bool,
+    ) -> Result<TokenKind, Diagnostic> {
+        if !self.is_eof() && self.peek() == b'n' {
+            let after = self.peek_at(1);
+            if after.is_none_or(|b| !is_ident_continue(b)) {
+                if !allow_bigint {
+                    return Err(Diagnostic::new(
+                        "Invalid BigInt literal",
+                        Span::new(start as u32, (self.pos + 1) as u32),
+                    ));
+                }
+                self.bump(); // n
+                let raw = self.src[start..self.pos].to_string();
+                return Ok(TokenKind::BigInt(raw));
             }
         }
         let raw = self.src[start..self.pos].to_string();
         Ok(TokenKind::Number(raw))
+    }
+
+    /// Returns `true` if an exponent part was consumed.
+    fn scan_exponent_opt(&mut self, start: usize) -> Result<bool, Diagnostic> {
+        if self.is_eof() {
+            return Ok(false);
+        }
+        let e = self.peek();
+        if e != b'e' && e != b'E' {
+            return Ok(false);
+        }
+        self.bump();
+        if !self.is_eof() && (self.peek() == b'+' || self.peek() == b'-') {
+            self.bump();
+        }
+        self.scan_decimal_digits_required(start)?;
+        Ok(true)
+    }
+
+    /// Decimal integer digits with optional `_` separators (at least one digit already at pos).
+    fn scan_decimal_integer_digits(&mut self, start: usize) -> Result<(), Diagnostic> {
+        if self.is_eof() || !self.peek().is_ascii_digit() {
+            return Err(Diagnostic::new(
+                "invalid number literal",
+                Span::new(start as u32, self.pos as u32),
+            ));
+        }
+        self.scan_decimal_digits_required(start)
+    }
+
+    /// One or more decimal digits with optional `_` between digits (not leading/trailing/adjacent).
+    fn scan_decimal_digits_required(&mut self, start: usize) -> Result<(), Diagnostic> {
+        if self.is_eof() || !self.peek().is_ascii_digit() {
+            return Err(Diagnostic::new(
+                "invalid number literal",
+                Span::new(start as u32, self.pos as u32),
+            ));
+        }
+        self.bump();
+        loop {
+            if self.is_eof() {
+                break;
+            }
+            if self.peek().is_ascii_digit() {
+                self.bump();
+                continue;
+            }
+            if self.peek() == b'_' {
+                let after = self.peek_at(1);
+                if after.is_some_and(|b| b.is_ascii_digit()) {
+                    self.bump(); // _
+                    self.bump(); // digit
+                    continue;
+                }
+                return Err(Diagnostic::new(
+                    "invalid numeric separator in number literal",
+                    Span::new(start as u32, (self.pos + 1) as u32),
+                ));
+            }
+            break;
+        }
+        Ok(())
+    }
+
+    /// Radix digits after `0x`/`0b`/`0o` prefix; requires ≥1 digit; allows `_` separators.
+    fn scan_radix_digits(&mut self, radix: u32, start: usize) -> Result<(), Diagnostic> {
+        let is_digit = |b: u8| -> bool {
+            match radix {
+                2 => b == b'0' || b == b'1',
+                8 => (b'0'..=b'7').contains(&b),
+                16 => hex_digit(b).is_some(),
+                _ => false,
+            }
+        };
+
+        if self.is_eof() || !is_digit(self.peek()) {
+            return Err(Diagnostic::new(
+                "invalid number literal",
+                Span::new(start as u32, self.pos as u32),
+            ));
+        }
+        self.bump();
+        loop {
+            if self.is_eof() {
+                break;
+            }
+            if is_digit(self.peek()) {
+                self.bump();
+                continue;
+            }
+            if self.peek() == b'_' {
+                let after = self.peek_at(1);
+                if after.is_some_and(|b| is_digit(b)) {
+                    self.bump(); // _
+                    self.bump(); // digit
+                    continue;
+                }
+                return Err(Diagnostic::new(
+                    "invalid numeric separator in number literal",
+                    Span::new(start as u32, (self.pos + 1) as u32),
+                ));
+            }
+            break;
+        }
+        Ok(())
     }
 
     fn ident_or_keyword(&mut self) -> Result<TokenKind, Diagnostic> {
@@ -480,7 +980,25 @@ impl<'a> Lexer<'a> {
             "in" => TokenKind::In,
             "of" => TokenKind::Of,
             "function" => TokenKind::Function,
+            "async" => TokenKind::Async,
+            "await" => TokenKind::Await,
+            "yield" => TokenKind::Yield,
             "return" => TokenKind::Return,
+            "this" => TokenKind::This,
+            "new" => TokenKind::New,
+            "class" => TokenKind::Class,
+            "extends" => TokenKind::Extends,
+            "super" => TokenKind::Super,
+            "static" => TokenKind::Static,
+            "throw" => TokenKind::Throw,
+            "try" => TokenKind::Try,
+            "catch" => TokenKind::Catch,
+            "finally" => TokenKind::Finally,
+            "with" => TokenKind::With,
+            "import" => TokenKind::Import,
+            "export" => TokenKind::Export,
+            "from" => TokenKind::From,
+            "as" => TokenKind::As,
             _ => TokenKind::Ident(name.to_string()),
         })
     }
@@ -519,6 +1037,43 @@ fn is_ident_start(b: u8) -> bool {
 
 fn is_ident_continue(b: u8) -> bool {
     is_ident_start(b) || b.is_ascii_digit()
+}
+
+fn hex_digit(b: u8) -> Option<u32> {
+    match b {
+        b'0'..=b'9' => Some((b - b'0') as u32),
+        b'a'..=b'f' => Some((b - b'a') as u32 + 10),
+        b'A'..=b'F' => Some((b - b'A') as u32 + 10),
+        _ => None,
+    }
+}
+
+fn push_code_point(
+    value: &mut JsString,
+    cp: u32,
+    start: u32,
+    end: u32,
+    scalar_only: bool,
+) -> Result<(), Diagnostic> {
+    if scalar_only {
+        match char::from_u32(cp) {
+            Some(c) => {
+                value.push_scalar(c);
+                Ok(())
+            }
+            None => Err(Diagnostic::new(
+                "invalid Unicode escape sequence",
+                Span::new(start, end),
+            )),
+        }
+    } else if value.push_code_point_unit(cp).is_ok() {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "invalid Unicode escape sequence",
+            Span::new(start, end),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -604,6 +1159,108 @@ mod tests {
     }
 
     #[test]
+    fn lex_number_scientific() {
+        assert_eq!(
+            kinds("1e3 1.5E+2 2e-1"),
+            vec![
+                TokenKind::Number("1e3".into()),
+                TokenKind::Number("1.5E+2".into()),
+                TokenKind::Number("2e-1".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_number_radix() {
+        assert_eq!(
+            kinds("0xff 0b1010 0o17 0XFF 0B10 0O7"),
+            vec![
+                TokenKind::Number("0xff".into()),
+                TokenKind::Number("0b1010".into()),
+                TokenKind::Number("0o17".into()),
+                TokenKind::Number("0XFF".into()),
+                TokenKind::Number("0B10".into()),
+                TokenKind::Number("0O7".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_number_leading_dot() {
+        assert_eq!(
+            kinds(".5 .25e1"),
+            vec![
+                TokenKind::Number(".5".into()),
+                TokenKind::Number(".25e1".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_number_separators() {
+        assert_eq!(
+            kinds("1_000 0xFF_FF 0b1010_0001 1_000.5_00 1e1_0"),
+            vec![
+                TokenKind::Number("1_000".into()),
+                TokenKind::Number("0xFF_FF".into()),
+                TokenKind::Number("0b1010_0001".into()),
+                TokenKind::Number("1_000.5_00".into()),
+                TokenKind::Number("1e1_0".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_bigint_literals() {
+        assert_eq!(
+            kinds("1n 0n 0xffn 0b1010n 0o17n 1_000n 0xFF_FFn"),
+            vec![
+                TokenKind::BigInt("1n".into()),
+                TokenKind::BigInt("0n".into()),
+                TokenKind::BigInt("0xffn".into()),
+                TokenKind::BigInt("0b1010n".into()),
+                TokenKind::BigInt("0o17n".into()),
+                TokenKind::BigInt("1_000n".into()),
+                TokenKind::BigInt("0xFF_FFn".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_bigint_rejects_float_suffix() {
+        let err = Lexer::new("1.0n").tokenize().unwrap_err();
+        assert!(
+            err.message.contains("Invalid BigInt"),
+            "unexpected: {}",
+            err.message
+        );
+        let err = Lexer::new("1e2n").tokenize().unwrap_err();
+        assert!(
+            err.message.contains("Invalid BigInt"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn lex_number_dot_still_member() {
+        assert_eq!(
+            kinds("1.toString"),
+            vec![
+                TokenKind::Number("1".into()),
+                TokenKind::Dot,
+                TokenKind::Ident("toString".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
     fn lex_star_star() {
         assert_eq!(
             kinds("2 ** 3 * 4"),
@@ -613,6 +1270,50 @@ mod tests {
                 TokenKind::Number("3".into()),
                 TokenKind::Star,
                 TokenKind::Number("4".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_dot_dot_dot() {
+        assert_eq!(
+            kinds("function f(...a) {}"),
+            vec![
+                TokenKind::Function,
+                TokenKind::Ident("f".into()),
+                TokenKind::LParen,
+                TokenKind::DotDotDot,
+                TokenKind::Ident("a".into()),
+                TokenKind::RParen,
+                TokenKind::LBrace,
+                TokenKind::RBrace,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_arrow() {
+        assert_eq!(
+            kinds("(x) => x"),
+            vec![
+                TokenKind::LParen,
+                TokenKind::Ident("x".into()),
+                TokenKind::RParen,
+                TokenKind::Arrow,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("a => b = 1"),
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::Arrow,
+                TokenKind::Ident("b".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
                 TokenKind::Eof,
             ]
         );
@@ -717,6 +1418,142 @@ mod tests {
                 TokenKind::Ident("l".into()),
                 TokenKind::BitOrEq,
                 TokenKind::Ident("m".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_template_no_substitution() {
+        assert_eq!(
+            kinds("`hello`"),
+            vec![
+                TokenKind::TemplateNoSubstitution("hello".into()),
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds(r#"`a\`b\n`"#),
+            vec![
+                TokenKind::TemplateNoSubstitution("a`b\n".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_template_with_interpolation() {
+        assert_eq!(
+            kinds("`a${x}b${y}c`"),
+            vec![
+                TokenKind::TemplateHead("a".into()),
+                TokenKind::Ident("x".into()),
+                TokenKind::TemplateMiddle("b".into()),
+                TokenKind::Ident("y".into()),
+                TokenKind::TemplateTail("c".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_template_nested_and_braces() {
+        assert_eq!(
+            kinds("`o${{a:1}.a}z`"),
+            vec![
+                TokenKind::TemplateHead("o".into()),
+                TokenKind::LBrace,
+                TokenKind::Ident("a".into()),
+                TokenKind::Colon,
+                TokenKind::Number("1".into()),
+                TokenKind::RBrace,
+                TokenKind::Dot,
+                TokenKind::Ident("a".into()),
+                TokenKind::TemplateTail("z".into()),
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("`a${`b${c}`}d`"),
+            vec![
+                TokenKind::TemplateHead("a".into()),
+                TokenKind::TemplateHead("b".into()),
+                TokenKind::Ident("c".into()),
+                TokenKind::TemplateTail("".into()),
+                TokenKind::TemplateTail("d".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_string_hex_and_unicode_escapes() {
+        assert_eq!(
+            kinds(r#""\x41\x42""#),
+            vec![TokenKind::String("AB".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\u0041""#),
+            vec![TokenKind::String("A".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\u{1F600}""#),
+            vec![TokenKind::String("😀".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#"'A\u0042C'"#),
+            vec![TokenKind::String("ABC".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds(r#""\x00""#),
+            vec![TokenKind::String("\0".into()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lex_string_lone_surrogates_and_pairs() {
+        let hi = match &kinds(r#""\uD800""#)[..] {
+            [TokenKind::String(s), TokenKind::Eof] => s.clone(),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(hi.units(), &[0xD800]);
+
+        let pair = match &kinds(r#""\uD83D\uDE00""#)[..] {
+            [TokenKind::String(s), TokenKind::Eof] => s.clone(),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(pair.units(), &[0xD83D, 0xDE00]);
+        assert_eq!(pair, JsString::from("😀"));
+
+        let braced = match &kinds(r#""\u{1F600}""#)[..] {
+            [TokenKind::String(s), TokenKind::Eof] => s.clone(),
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(braced.units(), &[0xD83D, 0xDE00]);
+    }
+
+    #[test]
+    fn lex_template_hex_and_unicode_escapes() {
+        assert_eq!(
+            kinds(r#"`\x48i`"#),
+            vec![
+                TokenKind::TemplateNoSubstitution("Hi".into()),
+                TokenKind::Eof
+            ]
+        );
+        assert_eq!(
+            kinds(r#"`\u004F\u004B`"#),
+            vec![
+                TokenKind::TemplateNoSubstitution("OK".into()),
+                TokenKind::Eof
+            ]
+        );
+        assert_eq!(
+            kinds(r#"`a\u{41}${x}\u{42}`"#),
+            vec![
+                TokenKind::TemplateHead("aA".into()),
+                TokenKind::Ident("x".into()),
+                TokenKind::TemplateTail("B".into()),
                 TokenKind::Eof,
             ]
         );

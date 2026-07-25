@@ -1,0 +1,28 @@
+let tAll = typeof Promise.all;
+let emptyLen = -1;
+let allLen = -1;
+let a0 = -1;
+let a1 = -1;
+let mixed0 = -1;
+let mixed1 = -1;
+let rejected = 0;
+Promise.all([]).then(function (v) {
+  emptyLen = v.length;
+});
+Promise.all([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+  allLen = v.length;
+  a0 = v[0];
+  a1 = v[1];
+});
+Promise.all([1, Promise.resolve(2)]).then(function (v) {
+  mixed0 = v[0];
+  mixed1 = v[1];
+});
+Promise.all([Promise.resolve(1), Promise.reject(7)]).then(
+  function () {
+    rejected = -1;
+  },
+  function (e) {
+    rejected = e;
+  }
+);

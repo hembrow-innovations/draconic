@@ -1,0 +1,34 @@
+let ti = typeof Reflect.isExtensible;
+let tp = typeof Reflect.preventExtensions;
+let obj = {};
+let plainExt = Reflect.isExtensible(obj);
+let plainPrev = Reflect.preventExtensions(obj);
+let plainAfter = Reflect.isExtensible(obj);
+let target = {};
+let passthrough = new Proxy(target, {});
+let passExt = Reflect.isExtensible(passthrough);
+let passPrev = Reflect.preventExtensions(passthrough);
+let passAfter = Reflect.isExtensible(passthrough);
+let targetAfter = Reflect.isExtensible(target);
+let isCalls = 0;
+let sealed = {};
+Reflect.preventExtensions(sealed);
+let pIs = new Proxy(sealed, {
+  isExtensible: function (t) {
+    isCalls = isCalls + 1;
+    return false;
+  },
+});
+let trapIs = Reflect.isExtensible(pIs);
+let prevCalls = 0;
+let pPrev = new Proxy(
+  {},
+  {
+    preventExtensions: function (t) {
+      prevCalls = prevCalls + 1;
+      return Reflect.preventExtensions(t);
+    },
+  }
+);
+let trapPrev = Reflect.preventExtensions(pPrev);
+let trapPrevAfter = Reflect.isExtensible(pPrev);

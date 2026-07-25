@@ -1,0 +1,13 @@
+let a = 2n ** 3n;
+let b = 2n ** 10n;
+let c = 2n ** 3n ** 2n;
+let d = (2n ** 3n) ** 2n;
+let e = 10n ** 0n;
+let f = 0n ** 0n;
+let g = 2n;
+g **= 5n;
+let h = 3n;
+h **= 2n;
+let i = (-2n) ** 3n;
+let j = 2n ** 3n * 2n;
+let k = typeof a;

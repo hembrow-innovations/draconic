@@ -1,0 +1,48 @@
+// E10.02 — finally: try/catch/finally and try/finally
+let a = 0;
+try {
+  a = 1;
+} finally {
+  a = a + 10;
+}
+
+let b = 0;
+try {
+  throw 1;
+} catch (e) {
+  b = e;
+} finally {
+  b = b + 10;
+}
+
+let c = 0;
+try {
+  try {
+    throw 2;
+  } finally {
+    c = 3;
+  }
+} catch (e) {
+  c = c + 20;
+}
+
+let d = 0;
+function f() {
+  try {
+    return 1;
+  } finally {
+    d = 5;
+  }
+}
+let e = f();
+
+let nested = 0;
+try {
+  try {
+    throw 1;
+  } finally {
+    nested = nested + 1;
+  }
+} catch (err) {
+  nested = nested + 10;
+}

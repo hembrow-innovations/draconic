@@ -1,0 +1,6 @@
+id: es/legacy/with_nested
+targets: js,native
+js.exit: 0
+js.check: if (a !== 1) process.exit(1); if (b !== 2) process.exit(2); if (o3.n !== 7) process.exit(3);
+native.exit: 0
+native.stdout: hello\n
