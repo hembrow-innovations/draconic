@@ -855,6 +855,8 @@ fn lower_expr(
 ) -> Expr {
     match expr {
         AstExpr::Paren { expr: inner, .. } => lower_expr(checked, inner, super_class),
+        // Dual-worlds `as` is a type-level boundary only (T06); erase at IR.
+        AstExpr::As { expr: inner, .. } => lower_expr(checked, inner, super_class),
         AstExpr::ArrayPattern { .. } => {
             panic!("array pattern must only appear as assignment target")
         }

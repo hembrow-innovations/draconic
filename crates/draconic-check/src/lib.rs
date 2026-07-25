@@ -1252,6 +1252,7 @@ impl Binder {
                 Ok(())
             }
             Expr::Paren { expr, .. } => self.bind_expr(expr),
+            Expr::As { expr, .. } => self.bind_expr(expr),
             Expr::ArrayPattern { elements, .. } => {
                 for el in elements {
                     match el {
@@ -2048,6 +2049,28 @@ impl<'a> Checker<'a> {
                 let ty = self.check_expr(inner)?;
                 self.record(*span, ty);
                 ty
+            }
+            Expr::As {
+                expr: inner,
+                ty: ann,
+                span,
+            } => {
+                let from = self.check_expr(inner)?;
+                let to = self.resolve_type_ann(ann)?;
+                if !self.is_assignable(from, to) && !Self::is_dual_world_boundary(from, to) {
+                    let from_s =
+                        format_type_full(from, &self.shapes, &self.unions, &self.intersections);
+                    let to_s =
+                        format_type_full(to, &self.shapes, &self.unions, &self.intersections);
+                    return Err(Diagnostic::new(
+                        format!(
+                            "cannot convert type `{from_s}` to `{to_s}` across dual-worlds boundary"
+                        ),
+                        *span,
+                    ));
+                }
+                self.record(*span, to);
+                to
             }
             Expr::Unary { op, arg, span } => {
                 if *op == UnaryOp::Await && !self.in_async {
@@ -2887,13 +2910,23 @@ impl<'a> Checker<'a> {
                 arg,
                 ..
             } => matches!(arg.as_ref(), Expr::Number(_)),
-            Expr::Paren { expr, .. } => Self::is_number_literal_expr(expr),
+            Expr::Paren { expr, .. } | Expr::As { expr, .. } => {
+                Self::is_number_literal_expr(expr)
+            }
             _ => false,
         }
     }
 
     fn number_literal_ok_for_native(to: Type) -> bool {
         matches!(to, Type::Native(_))
+    }
+
+    /// Explicit dual-worlds boundary (`as`): JS `number` ↔ unboxed native (T06).
+    fn is_dual_world_boundary(from: Type, to: Type) -> bool {
+        matches!(
+            (from, to),
+            (Type::Number, Type::Native(_)) | (Type::Native(_), Type::Number)
+        )
     }
 
     /// Assignability with contextual typing of numeric literals to native types (T05).
@@ -3372,7 +3405,8 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::ArrayExpression { span, .. }
         | Expr::ArrayPattern { span, .. }
         | Expr::MemberExpression { span, .. }
-        | Expr::Paren { span, .. } => *span,
+        | Expr::Paren { span, .. }
+        | Expr::As { span, .. } => *span,
     }
 }
 
@@ -4546,7 +4580,9 @@ mod tests {
                         walk_expr(e, name, out);
                     }
                 }
-                Expr::Unary { arg, .. } | Expr::Paren { expr: arg, .. } => {
+                Expr::Unary { arg, .. }
+                | Expr::Paren { expr: arg, .. }
+                | Expr::As { expr: arg, .. } => {
                     walk_expr(arg, name, out)
                 }
                 Expr::Binary { left, right, .. } => {
@@ -4806,7 +4842,8 @@ mod tests {
                 }
                 Expr::Unary { arg, .. }
                 | Expr::Paren { expr: arg, .. }
-                | Expr::Update { arg, .. } => walk(arg, op, out),
+                | Expr::Update { arg, .. }
+                | Expr::As { expr: arg, .. } => walk(arg, op, out),
                 Expr::Conditional {
                     test,
                     consequent,

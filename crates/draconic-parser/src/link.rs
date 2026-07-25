@@ -625,6 +625,10 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             *span = spans.next();
             uniqueify_expr_spans(arg, spans);
         }
+        Expr::As { expr, span, .. } => {
+            *span = spans.next();
+            uniqueify_expr_spans(expr, spans);
+        }
         Expr::Binary {
             left,
             right,
@@ -1142,6 +1146,7 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         Expr::Unary { arg, .. } | Expr::Update { arg, .. } | Expr::Paren { expr: arg, .. } => {
             rename_expr(arg, renames, scopes)
         }
+        Expr::As { expr, .. } => rename_expr(expr, renames, scopes),
         Expr::Binary { left, right, .. } => {
             rename_expr(left, renames, scopes);
             rename_expr(right, renames, scopes);

@@ -410,6 +410,12 @@ pub enum Expr {
         expr: Box<Expr>,
         span: Span,
     },
+    /// Dual-worlds / type boundary: `expr as T` (T06). Erased at emit.
+    As {
+        expr: Box<Expr>,
+        ty: TypeAnn,
+        span: Span,
+    },
     /// Array destructuring pattern used as assignment target: `[a, b, ...rest]`.
     ArrayPattern {
         elements: Vec<ArrayPatternElement>,
@@ -1485,6 +1491,14 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str("Paren\n");
             dump_expr(expr, level + 1, out);
+        }
+        Expr::As { expr, ty, .. } => {
+            indent(level, out);
+            out.push_str("As\n");
+            dump_expr(expr, level + 1, out);
+            indent(level + 1, out);
+            out.push_str("type:\n");
+            dump_type_ann(ty, level + 2, out);
         }
         Expr::ArrayPattern { elements, .. } => {
             indent(level, out);

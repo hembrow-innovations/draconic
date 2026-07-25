@@ -1979,7 +1979,24 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
-        self.parse_update()
+        self.parse_as()
+    }
+
+    /// Dual-worlds / type boundary: `expr as T` (postfix after update; T06).
+    fn parse_as(&mut self) -> Result<Expr, Diagnostic> {
+        let mut expr = self.parse_update()?;
+        while self.check(&TokenKind::As) {
+            self.bump();
+            let ty = self.parse_type()?;
+            let end = ty.span().end.0;
+            let start = expr_span(&expr).start.0;
+            expr = Expr::As {
+                expr: Box::new(expr),
+                ty,
+                span: Span::new(start, end),
+            };
+        }
+        Ok(expr)
     }
 
     /// Postfix update (`lhs++` / `lhs--`) and call.
@@ -2671,7 +2688,8 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::ArrayExpression { span, .. }
         | Expr::ArrayPattern { span, .. }
         | Expr::MemberExpression { span, .. }
-        | Expr::Paren { span, .. } => *span,
+        | Expr::Paren { span, .. }
+        | Expr::As { span, .. } => *span,
     }
 }
 
@@ -4029,6 +4047,22 @@ Program
         assert!(
             star.contains("Unary yield*") && star.contains("Array"),
             "yield* array iterable, got:\n{star}"
+        );
+    }
+
+    #[test]
+    fn parse_as_type_assertion() {
+        let dump = parse_and_dump("let x = n as i32;").unwrap();
+        assert!(
+            dump.contains("As\n")
+                && dump.contains("Ident n")
+                && dump.contains("NamedType i32"),
+            "expected As node, got:\n{dump}"
+        );
+        let chain = parse_and_dump("let y = (n + 1) as number as i32;").unwrap();
+        assert!(
+            chain.matches("As\n").count() >= 2,
+            "chained as, got:\n{chain}"
         );
     }
 }

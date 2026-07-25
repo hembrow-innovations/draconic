@@ -1,0 +1,9 @@
+let n: number = 42;
+let i: i32 = n as i32;
+let back: number = i as number;
+let f: f64 = back as f64;
+let j: i32 = (n + 1) as i32;
+function scale(x: i32): number {
+  return (x as number) * 2;
+}
+let s: number = scale(i);

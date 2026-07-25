@@ -1,4 +1,4 @@
-//! ROADMAP T01–T05: type annotations, object types, unions/intersections/narrowing, generics, native types.
+//! ROADMAP T01–T06: type annotations, object types, unions/intersections/narrowing, generics, native types, dual-worlds boundary.
 
 use draconic_check::{check, BoundProgram, CheckedProgram, NativeType, Type};
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
@@ -965,4 +965,127 @@ fn native_unary_minus_literal_ok() {
     let program = parse("let x: i32 = -1;").unwrap();
     let checked = check(program).unwrap();
     assert_eq!(type_of(&checked, "x"), Type::Native(NativeType::I32));
+}
+
+// --- T06: dual-worlds boundary (`as`) ---
+
+#[test]
+fn dual_boundary_as_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/dual/boundary_as"),
+        "missing types/dual/boundary_as fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn dual_boundary_as_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/dual/boundary_as")
+        .expect("types/dual/boundary_as");
+    assert!(fixture.targets.contains(&Target::Js));
+    assert!(fixture.targets.contains(&Target::Native));
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn as_number_to_i32() {
+    let program = parse("let n: number = 1; let x: i32 = n as i32;").unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "x"), Type::Native(NativeType::I32));
+}
+
+#[test]
+fn as_i32_to_number() {
+    let program = parse("let x: i32 = 1; let n: number = x as number;").unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "n"), Type::Number);
+}
+
+#[test]
+fn as_f64_to_number_and_back() {
+    let program = parse(
+        r#"
+        let f: f64 = 1.5;
+        let n: number = f as number;
+        let g: f64 = n as f64;
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "n"), Type::Number);
+    assert_eq!(type_of(&checked, "g"), Type::Native(NativeType::F64));
+}
+
+#[test]
+fn as_same_type_identity() {
+    let program = parse("let x: i32 = 1; let y: i32 = x as i32;").unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "y"), Type::Native(NativeType::I32));
+}
+
+#[test]
+fn as_rejects_string_to_i32() {
+    let program = parse(r#"let s: string = "1"; let x: i32 = s as i32;"#).unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("dual-worlds")
+            && err.message.contains("string")
+            && err.message.contains("i32"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn as_rejects_i32_to_string() {
+    let program = parse(r#"let x: i32 = 1; let s: string = x as string;"#).unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("dual-worlds")
+            && err.message.contains("i32")
+            && err.message.contains("string"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn as_rejects_i32_to_i64_without_number_hop() {
+    let program = parse("let x: i32 = 1; let y: i64 = x as i64;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("dual-worlds")
+            && err.message.contains("i32")
+            && err.message.contains("i64"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn as_in_call_arg_and_return() {
+    let program = parse(
+        r#"
+        function f(a: i32): number {
+          return a as number;
+        }
+        let n: number = 3;
+        let r: number = f(n as i32);
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "r"), Type::Number);
 }
