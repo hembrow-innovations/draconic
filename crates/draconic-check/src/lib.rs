@@ -35,10 +35,18 @@ pub enum Type {
     Null,
     /// Callable function value (declaration or expression).
     Function,
-    /// Ordinary object value (object literal).
+    /// Ordinary object value without a known shape.
     Object,
+    /// Structural object type; index into the shape table on `CheckedProgram`.
+    Shape(u32),
     /// Flexible / unannotated (e.g. `let x;` with no initializer).
     Any,
+}
+
+/// Property list for a structural object type (`Type::Shape`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectShape {
+    pub props: Vec<(String, Type)>,
 }
 
 impl fmt::Display for Type {
@@ -51,6 +59,7 @@ impl fmt::Display for Type {
             Type::Null => "null",
             Type::Function => "function",
             Type::Object => "object",
+            Type::Shape(_) => "object",
             Type::Any => "any",
         };
         write!(f, "{s}")
@@ -88,6 +97,8 @@ pub struct CheckedProgram {
     symbol_types: Vec<Type>,
     /// Expression span → type.
     expr_types: HashMap<Span, Type>,
+    /// Structural object shapes referenced by `Type::Shape`.
+    shapes: Vec<ObjectShape>,
 }
 
 impl CheckedProgram {
@@ -97,6 +108,32 @@ impl CheckedProgram {
 
     pub fn type_of_expr(&self, span: Span) -> Option<Type> {
         self.expr_types.get(&span).copied()
+    }
+
+    pub fn shapes(&self) -> &[ObjectShape] {
+        &self.shapes
+    }
+
+    /// Pretty-print a type, expanding structural shapes.
+    pub fn format_type(&self, ty: Type) -> String {
+        format_type_with_shapes(ty, &self.shapes)
+    }
+}
+
+fn format_type_with_shapes(ty: Type, shapes: &[ObjectShape]) -> String {
+    match ty {
+        Type::Shape(id) => {
+            let Some(shape) = shapes.get(id as usize) else {
+                return "object".to_string();
+            };
+            let props: Vec<String> = shape
+                .props
+                .iter()
+                .map(|(n, t)| format!("{n}: {}", format_type_with_shapes(*t, shapes)))
+                .collect();
+            format!("{{ {} }}", props.join("; "))
+        }
+        other => other.to_string(),
     }
 }
 
@@ -112,10 +149,12 @@ pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
     checker.check_program()?;
     let symbol_types = checker.symbol_types;
     let expr_types = checker.expr_types;
+    let shapes = checker.shapes;
     Ok(CheckedProgram {
         bound,
         symbol_types,
         expr_types,
+        shapes,
     })
 }
 
@@ -545,6 +584,7 @@ impl Binder {
                 }
                 Ok(())
             }
+            Stmt::TypeAlias { .. } => Ok(()),
             Stmt::Empty { .. } => Ok(()),
             Stmt::Block { body, .. } => {
                 self.push_scope();
@@ -926,6 +966,10 @@ struct Checker<'a> {
     bound: &'a BoundProgram,
     symbol_types: Vec<Type>,
     expr_types: HashMap<Span, Type>,
+    /// Structural object shapes (`Type::Shape` indices).
+    shapes: Vec<ObjectShape>,
+    /// Type aliases in scope (name → resolved type). Program-level for T02.
+    type_aliases: HashMap<String, Type>,
     /// True while typechecking an `async` function body.
     in_async: bool,
     /// True while typechecking a generator function body.
@@ -963,6 +1007,8 @@ impl<'a> Checker<'a> {
             bound,
             symbol_types,
             expr_types: HashMap::new(),
+            shapes: Vec::new(),
+            type_aliases: HashMap::new(),
             in_async: false,
             in_generator: false,
             expected_return: None,
@@ -970,6 +1016,32 @@ impl<'a> Checker<'a> {
     }
 
     fn check_program(&mut self) -> Result<(), Diagnostic> {
+        // Program-level type aliases (T02): declare names, then resolve bodies.
+        for stmt in &self.bound.program.body {
+            if let Stmt::TypeAlias { name, .. } = stmt {
+                if self.type_aliases.contains_key(&name.name) {
+                    return Err(Diagnostic::new(
+                        format!("duplicate type alias `{}`", name.name),
+                        name.span,
+                    ));
+                }
+                self.type_aliases.insert(name.name.clone(), Type::Any);
+            }
+        }
+        let alias_bodies: Vec<(String, TypeAnn)> = self
+            .bound
+            .program
+            .body
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::TypeAlias { name, ty, .. } => Some((name.name.clone(), ty.clone())),
+                _ => None,
+            })
+            .collect();
+        for (name, ty) in alias_bodies {
+            let resolved = self.resolve_type_ann(&ty)?;
+            self.type_aliases.insert(name, resolved);
+        }
         let mut labels = Vec::new();
         for stmt in &self.bound.program.body {
             self.check_stmt(stmt, 0, 0, 0, &mut labels)?;
@@ -1049,7 +1121,8 @@ impl<'a> Checker<'a> {
                     | Stmt::Expression { span, .. }
                     | Stmt::ImportDeclaration { span, .. }
                     | Stmt::ExportNamedDeclaration { span, .. }
-                    | Stmt::ExportDefaultDeclaration { span, .. } => *span,
+                    | Stmt::ExportDefaultDeclaration { span, .. }
+                    | Stmt::TypeAlias { span, .. } => *span,
                 },
             )),
         }
@@ -1161,6 +1234,7 @@ impl<'a> Checker<'a> {
                 self.check_expr(expr)?;
                 Ok(())
             }
+            Stmt::TypeAlias { .. } => Ok(()),
             Stmt::Let {
                 binding,
                 type_ann,
@@ -1877,14 +1951,33 @@ impl<'a> Checker<'a> {
                 Type::Function
             }
             Expr::ObjectExpression { properties, span } => {
+                let mut shape_props: Vec<(String, Type)> = Vec::new();
+                let mut structural = true;
                 for prop in properties {
                     if let ObjectKey::Computed(expr) = &prop.key {
                         self.check_expr(expr)?;
+                        structural = false;
                     }
-                    self.check_expr(&prop.value)?;
+                    let val_ty = self.check_expr(&prop.value)?;
+                    if structural {
+                        match &prop.key {
+                            ObjectKey::Ident(id) => {
+                                shape_props.push((id.name.clone(), val_ty));
+                            }
+                            ObjectKey::String(s) => {
+                                shape_props.push((s.value.to_string_lossy(), val_ty));
+                            }
+                            ObjectKey::Computed(_) => unreachable!(),
+                        }
+                    }
                 }
-                self.record(*span, Type::Object);
-                Type::Object
+                let ty = if structural {
+                    self.intern_shape(shape_props)
+                } else {
+                    Type::Object
+                };
+                self.record(*span, ty);
+                ty
             }
             Expr::ArrayExpression { elements, span } => {
                 for el in elements {
@@ -1903,12 +1996,17 @@ impl<'a> Checker<'a> {
                 computed,
                 span,
             } => {
-                self.check_expr(object)?;
-                if *computed {
+                let obj_ty = self.check_expr(object)?;
+                let ty = if *computed {
                     self.check_expr(property)?;
-                }
-                self.record(*span, Type::Any);
-                Type::Any
+                    Type::Any
+                } else if let Expr::Ident(id) = property.as_ref() {
+                    self.prop_type(obj_ty, &id.name).unwrap_or(Type::Any)
+                } else {
+                    Type::Any
+                };
+                self.record(*span, ty);
+                ty
             }
         };
         Ok(ty)
@@ -1952,30 +2050,89 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    /// Resolve a T01 named type annotation to a Checker `Type`.
-    fn resolve_type_ann(&self, ann: &TypeAnn) -> Result<Type, Diagnostic> {
-        let ty = match ann.name.as_str() {
-            "number" => Type::Number,
-            "string" => Type::String,
-            "boolean" => Type::Boolean,
-            "bigint" => Type::BigInt,
-            "any" => Type::Any,
-            "null" => Type::Null,
-            "object" => Type::Object,
-            "function" => Type::Function,
-            other => {
-                return Err(Diagnostic::new(
-                    format!("unknown type name `{other}`"),
-                    ann.span,
-                ));
-            }
-        };
-        Ok(ty)
+    fn intern_shape(&mut self, props: Vec<(String, Type)>) -> Type {
+        let id = self.shapes.len() as u32;
+        self.shapes.push(ObjectShape { props });
+        Type::Shape(id)
     }
 
-    /// Whether `from` is assignable to `to` under coarse T01 rules (exact match or either side `any`).
+    fn prop_type(&self, obj: Type, name: &str) -> Option<Type> {
+        match obj {
+            Type::Shape(id) => self
+                .shapes
+                .get(id as usize)
+                .and_then(|s| s.props.iter().find(|(n, _)| n == name).map(|(_, t)| *t)),
+            _ => None,
+        }
+    }
+
+    /// Resolve a type annotation to a Checker `Type` (T01 named + T02 object/aliases).
+    fn resolve_type_ann(&mut self, ann: &TypeAnn) -> Result<Type, Diagnostic> {
+        match ann {
+            TypeAnn::Named { name, span } => {
+                let ty = match name.as_str() {
+                    "number" => Type::Number,
+                    "string" => Type::String,
+                    "boolean" => Type::Boolean,
+                    "bigint" => Type::BigInt,
+                    "any" => Type::Any,
+                    "null" => Type::Null,
+                    "object" => Type::Object,
+                    "function" => Type::Function,
+                    other => {
+                        if let Some(aliased) = self.type_aliases.get(other).copied() {
+                            aliased
+                        } else {
+                            return Err(Diagnostic::new(
+                                format!("unknown type name `{other}`"),
+                                *span,
+                            ));
+                        }
+                    }
+                };
+                Ok(ty)
+            }
+            TypeAnn::Object { props, .. } => {
+                let mut shape_props = Vec::with_capacity(props.len());
+                for p in props {
+                    let ty = self.resolve_type_ann(&p.ty)?;
+                    shape_props.push((p.name.clone(), ty));
+                }
+                Ok(self.intern_shape(shape_props))
+            }
+        }
+    }
+
+    /// Whether `from` is assignable to `to` (exact, `any`, or structural object).
     fn is_assignable(&self, from: Type, to: Type) -> bool {
-        from == to || from == Type::Any || to == Type::Any
+        if from == to || from == Type::Any || to == Type::Any {
+            return true;
+        }
+        // Structural: source must supply every property required by the target.
+        if let Type::Shape(to_id) = to {
+            let Some(to_shape) = self.shapes.get(to_id as usize) else {
+                return false;
+            };
+            match from {
+                Type::Shape(from_id) => {
+                    let Some(from_shape) = self.shapes.get(from_id as usize) else {
+                        return false;
+                    };
+                    to_shape.props.iter().all(|(name, want)| {
+                        from_shape
+                            .props
+                            .iter()
+                            .find(|(n, _)| n == name)
+                            .is_some_and(|(_, got)| self.is_assignable(*got, *want))
+                    })
+                }
+                // Unshaped object is not known to have the required props.
+                Type::Object => false,
+                _ => false,
+            }
+        } else {
+            false
+        }
     }
 
     fn require_assignable(
@@ -1987,8 +2144,10 @@ impl<'a> Checker<'a> {
         if self.is_assignable(from, to) {
             Ok(())
         } else {
+            let from_s = format_type_with_shapes(from, &self.shapes);
+            let to_s = format_type_with_shapes(to, &self.shapes);
             Err(Diagnostic::new(
-                format!("type `{from}` is not assignable to type `{to}`"),
+                format!("type `{from_s}` is not assignable to type `{to_s}`"),
                 span,
             ))
         }
@@ -2071,9 +2230,13 @@ impl<'a> Checker<'a> {
                     }
                 } else if left == Type::String || right == Type::String {
                     Ok(Type::String)
-                } else if matches!(left, Type::Object | Type::Function | Type::Any)
-                    || matches!(right, Type::Object | Type::Function | Type::Any)
-                {
+                } else if matches!(
+                    left,
+                    Type::Object | Type::Shape(_) | Type::Function | Type::Any
+                ) || matches!(
+                    right,
+                    Type::Object | Type::Shape(_) | Type::Function | Type::Any
+                ) {
                     if self.is_add_operand(left) && self.is_add_operand(right) {
                         Ok(Type::Any)
                     } else {
@@ -3473,7 +3636,9 @@ mod tests {
                 Stmt::Let {
                     init: Some(init), ..
                 } => walk_expr(init, name, out),
-                Stmt::Let { init: None, .. } | Stmt::Empty { .. } => {}
+                Stmt::Let { init: None, .. }
+                | Stmt::Empty { .. }
+                | Stmt::TypeAlias { .. } => {}
                 Stmt::Block { body, .. } => {
                     for s in body {
                         walk_stmt(s, name, out);
@@ -3595,7 +3760,8 @@ mod tests {
                 }
                 Stmt::ImportDeclaration { .. }
                 | Stmt::ExportNamedDeclaration { .. }
-                | Stmt::ExportDefaultDeclaration { .. } => {}
+                | Stmt::ExportDefaultDeclaration { .. }
+                | Stmt::TypeAlias { .. } => {}
             }
         }
 

@@ -552,6 +552,10 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
         | Stmt::ExportDefaultDeclaration { span, .. } => {
             *span = spans.next();
         }
+        Stmt::TypeAlias { name, span, .. } => {
+            *span = spans.next();
+            name.span = spans.next();
+        }
     }
 }
 
@@ -932,7 +936,8 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
         | Stmt::Continue { .. }
         | Stmt::ImportDeclaration { .. }
         | Stmt::ExportNamedDeclaration { .. }
-        | Stmt::ExportDefaultDeclaration { .. } => {}
+        | Stmt::ExportDefaultDeclaration { .. }
+        | Stmt::TypeAlias { .. } => {}
         Stmt::Block { body, .. } => {
             scopes.push();
             // declare nested first for TDZ-ish list, then rename bodies
@@ -1272,7 +1277,8 @@ fn stmt_span_approx(stmt: &Stmt) -> Span {
         | Stmt::With { span, .. }
         | Stmt::ImportDeclaration { span, .. }
         | Stmt::ExportNamedDeclaration { span, .. }
-        | Stmt::ExportDefaultDeclaration { span, .. } => *span,
+        | Stmt::ExportDefaultDeclaration { span, .. }
+        | Stmt::TypeAlias { span, .. } => *span,
     }
 }
 

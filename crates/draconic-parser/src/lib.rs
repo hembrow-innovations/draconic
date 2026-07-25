@@ -104,6 +104,10 @@ impl Parser {
         if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
             return self.parse_lexical_decl();
         }
+        // `type Name = Type;` (contextual keyword; T02)
+        if self.is_type_alias_start() {
+            return self.parse_type_alias();
+        }
         // `label: statement`
         if matches!(self.current().kind, TokenKind::Ident(_)) && self.peek_is(&TokenKind::Colon) {
             return self.parse_labeled();
@@ -276,7 +280,7 @@ impl Parser {
             let let_end = if let Some(ref e) = init_expr {
                 expr_span(e).end.0
             } else if let Some(ref ann) = type_ann {
-                ann.span.end.0
+                ann.span().end.0
             } else {
                 name.span.end.0
             };
@@ -667,20 +671,92 @@ impl Parser {
         })
     }
 
-    /// Optional `: TypeName` type annotation (T01: named types only).
+    /// Optional `: Type` type annotation (T01 named / T02 object).
     fn parse_optional_type_ann(&mut self) -> Result<Option<draconic_ast::TypeAnn>, Diagnostic> {
         if !self.check(&TokenKind::Colon) {
             return Ok(None);
         }
-        let colon_start = self.bump().span.start.0;
+        self.bump();
+        Ok(Some(self.parse_type()?))
+    }
+
+    /// `type Name = Type;`
+    fn is_type_alias_start(&self) -> bool {
+        matches!(self.current().kind, TokenKind::Ident(ref n) if n == "type")
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                Some(TokenKind::Ident(_))
+            )
+            && self
+                .tokens
+                .get(self.pos + 2)
+                .map(|t| &t.kind == &TokenKind::Eq)
+                .unwrap_or(false)
+    }
+
+    fn parse_type_alias(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.current().span.start.0;
+        // contextual `type`
+        self.bump();
+        let name_tok = self.expect_ident()?;
+        let name = Ident {
+            name: name_tok.ident_name(),
+            span: name_tok.span,
+        };
+        self.expect(&TokenKind::Eq)?;
+        let ty = self.parse_type()?;
+        let mut end = ty.span().end.0;
+        if self.check(&TokenKind::Semi) {
+            end = self.bump().span.end.0;
+        }
+        Ok(Stmt::TypeAlias {
+            name,
+            ty,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Type: named (`number`) or object (`{ a: T; b: U }`).
+    fn parse_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
+        if self.check(&TokenKind::LBrace) {
+            return self.parse_object_type();
+        }
         let err_span = self.current().span;
         let name_tok = self.expect_ident().map_err(|_| {
             Diagnostic::new("expected type name after `:`".to_string(), err_span)
         })?;
-        Ok(Some(draconic_ast::TypeAnn {
+        Ok(draconic_ast::TypeAnn::Named {
             name: name_tok.ident_name(),
-            span: Span::new(colon_start, name_tok.span.end.0),
-        }))
+            span: name_tok.span,
+        })
+    }
+
+    fn parse_object_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
+        let start = self.expect(&TokenKind::LBrace)?.span.start.0;
+        let mut props = Vec::new();
+        while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
+            let name_tok = self.expect_ident()?;
+            let prop_start = name_tok.span.start.0;
+            let prop_name = name_tok.ident_name();
+            self.expect(&TokenKind::Colon)?;
+            let ty = self.parse_type()?;
+            let prop_end = ty.span().end.0;
+            props.push(draconic_ast::TypeProp {
+                name: prop_name,
+                ty,
+                span: Span::new(prop_start, prop_end),
+            });
+            if self.check(&TokenKind::Comma) || self.check(&TokenKind::Semi) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span.end.0;
+        Ok(draconic_ast::TypeAnn::Object {
+            props,
+            span: Span::new(start, end),
+        })
     }
 
     fn parse_return(&mut self) -> Result<Stmt, Diagnostic> {
@@ -1190,7 +1266,7 @@ impl Parser {
             init.as_ref()
                 .map(expr_span)
                 .map(|s| s.end.0)
-                .or_else(|| type_ann.as_ref().map(|a| a.span.end.0))
+                .or_else(|| type_ann.as_ref().map(|a| a.span().end.0))
                 .unwrap_or_else(|| binding.span().end.0)
         };
         Ok(Stmt::Let {
@@ -2567,7 +2643,8 @@ fn stmt_span(stmt: &Stmt) -> Span {
         | Stmt::With { span, .. }
         | Stmt::ImportDeclaration { span, .. }
         | Stmt::ExportNamedDeclaration { span, .. }
-        | Stmt::ExportDefaultDeclaration { span, .. } => *span,
+        | Stmt::ExportDefaultDeclaration { span, .. }
+        | Stmt::TypeAlias { span, .. } => *span,
     }
 }
 

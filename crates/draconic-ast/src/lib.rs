@@ -221,6 +221,12 @@ pub enum Stmt {
         local: Ident,
         span: Span,
     },
+    /// `type Name = Type;` — TS-inspired type alias (erased at emit; T02).
+    TypeAlias {
+        name: Ident,
+        ty: TypeAnn,
+        span: Span,
+    },
 }
 
 /// One binding of `import { imported as local }`.
@@ -449,11 +455,32 @@ pub struct Param {
     pub rest: bool,
 }
 
-/// Type annotation (`: TypeName`) — TS-inspired named types (T01 surface).
+/// Type annotation — named types (T01) or structural object types (T02).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypeAnn {
+pub enum TypeAnn {
+    /// `number`, `string`, user alias name, etc.
+    Named { name: String, span: Span },
+    /// `{ a: T; b: U }` (`;` or `,` separators).
+    Object {
+        props: Vec<TypeProp>,
+        span: Span,
+    },
+}
+
+/// One property in a structural object type (`name: Type`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeProp {
     pub name: String,
+    pub ty: TypeAnn,
     pub span: Span,
+}
+
+impl TypeAnn {
+    pub fn span(&self) -> Span {
+        match self {
+            TypeAnn::Named { span, .. } | TypeAnn::Object { span, .. } => *span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -734,7 +761,8 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             dump_binding_pattern(binding, level + 1, out);
             if let Some(ann) = type_ann {
                 indent(level + 1, out);
-                out.push_str(&format!("type: {}\n", ann.name));
+                out.push_str("type:\n");
+                dump_type_ann(ann, level + 2, out);
             }
             if let Some(init) = init {
                 indent(level + 1, out);
@@ -927,11 +955,21 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             dump_params(params, level + 1, out);
             if let Some(ret) = return_type {
                 indent(level + 1, out);
-                out.push_str(&format!("returnType: {}\n", ret.name));
+                out.push_str("returnType:\n");
+                dump_type_ann(ret, level + 2, out);
             }
             indent(level + 1, out);
             out.push_str("body:\n");
             dump_stmt(body, level + 2, out);
+        }
+        Stmt::TypeAlias { name, ty, .. } => {
+            indent(level, out);
+            out.push_str("TypeAlias\n");
+            indent(level + 1, out);
+            out.push_str(&format!("name: {}\n", name.name));
+            indent(level + 1, out);
+            out.push_str("type:\n");
+            dump_type_ann(ty, level + 2, out);
         }
         Stmt::ClassDeclaration {
             name,
@@ -1293,7 +1331,8 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             dump_params(params, level + 1, out);
             if let Some(ret) = return_type {
                 indent(level + 1, out);
-                out.push_str(&format!("returnType: {}\n", ret.name));
+                out.push_str("returnType:\n");
+                dump_type_ann(ret, level + 2, out);
             }
             indent(level + 1, out);
             out.push_str("body:\n");
@@ -1315,7 +1354,8 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             dump_params(params, level + 1, out);
             if let Some(ret) = return_type {
                 indent(level + 1, out);
-                out.push_str(&format!("returnType: {}\n", ret.name));
+                out.push_str("returnType:\n");
+                dump_type_ann(ret, level + 2, out);
             }
             indent(level + 1, out);
             out.push_str("body:\n");
@@ -1424,12 +1464,31 @@ fn dump_params(params: &[Param], level: usize, out: &mut String) {
         }
         if let Some(ann) = &p.type_ann {
             indent(level + 2, out);
-            out.push_str(&format!("type: {}\n", ann.name));
+            out.push_str("type:\n");
+            dump_type_ann(ann, level + 3, out);
         }
         if let Some(default) = &p.default {
             indent(level + 2, out);
             out.push_str("default:\n");
             dump_expr(default, level + 3, out);
+        }
+    }
+}
+
+fn dump_type_ann(ann: &TypeAnn, level: usize, out: &mut String) {
+    match ann {
+        TypeAnn::Named { name, .. } => {
+            indent(level, out);
+            out.push_str(&format!("NamedType {}\n", name));
+        }
+        TypeAnn::Object { props, .. } => {
+            indent(level, out);
+            out.push_str("ObjectType\n");
+            for p in props {
+                indent(level + 1, out);
+                out.push_str(&format!("prop: {}\n", p.name));
+                dump_type_ann(&p.ty, level + 2, out);
+            }
         }
     }
 }

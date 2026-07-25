@@ -1,0 +1,6 @@
+id: types/object_types_erase
+targets: js,native
+js.exit: 0
+js.check: if (p.x !== 1) process.exit(1); if (p.y !== 2) process.exit(1); if (q.x !== 1) process.exit(1); if (n !== 1) process.exit(1); if (m !== 1) process.exit(1); if (r !== 1) process.exit(1);
+native.exit: 0
+native.stdout: hello\n

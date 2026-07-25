@@ -667,6 +667,8 @@ fn lower_stmt(
         | AstStmt::ExportDefaultDeclaration { .. } => {
             panic!("import/export must be linked before lower")
         }
+        // Type aliases are erased (T02); no runtime value.
+        AstStmt::TypeAlias { .. } => None,
     }
 }
 
