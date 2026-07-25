@@ -167,6 +167,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E18.03 | done | both | `String.prototype` Annex B (B.2.3): `substr` + HTML wrappers (`anchor`, `big`, `blink`, `bold`, `fixed`, `fontcolor`, `fontsize`, `italics`, `link`, `small`, `strike`, `sub`, `sup`) | `tests/conformance` fixtures `es/annex-b` |
 | E18.04 | done | both | `Date.prototype` Annex B (B.2.4–B.2.6): `getYear` / `setYear` / `toGMTString` | `tests/conformance` fixtures `es/annex-b` |
 | E18.05 | done | both | `RegExp.prototype.compile` (Annex B.2.6): `typeof`, recompile pattern/flags, read-back `.source`/`.flags`/`.test` | `tests/conformance` fixtures `es/annex-b` |
+| E18.06 | done | both | `String.prototype.trimLeft` / `trimRight` (Annex B.2.3): aliases of `trimStart`/`trimEnd`; `typeof`, call behavior, identity with trimStart/trimEnd | `tests/conformance` fixtures `es/annex-b` |
 
 ---
 

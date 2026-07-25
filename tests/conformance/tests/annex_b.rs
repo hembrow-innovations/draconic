@@ -76,3 +76,13 @@ fn regexp_compile_fixture_present() {
 fn regexp_compile_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/regexp_compile");
 }
+
+#[test]
+fn string_trim_left_right_fixture_present() {
+    assert_fixture_present("es/annex-b/string_trim_left_right");
+}
+
+#[test]
+fn string_trim_left_right_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/string_trim_left_right");
+}
