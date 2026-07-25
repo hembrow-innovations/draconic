@@ -716,8 +716,55 @@ impl Parser {
         })
     }
 
-    /// Type: named (`number`) or object (`{ a: T; b: U }`).
+    /// Type: union (`A | B`), intersection (`A & B`), named, or object.
     fn parse_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
+        self.parse_union_type()
+    }
+
+    /// `T | U | V` — lowest precedence among type operators.
+    fn parse_union_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
+        let first = self.parse_intersection_type()?;
+        if !self.check(&TokenKind::BitOr) {
+            return Ok(first);
+        }
+        let start = first.span().start.0;
+        let mut types = vec![first];
+        let mut end = types[0].span().end.0;
+        while self.check(&TokenKind::BitOr) {
+            self.bump();
+            let next = self.parse_intersection_type()?;
+            end = next.span().end.0;
+            types.push(next);
+        }
+        Ok(draconic_ast::TypeAnn::Union {
+            types,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `T & U & V` — binds tighter than `|`.
+    fn parse_intersection_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
+        let first = self.parse_primary_type()?;
+        if !self.check(&TokenKind::BitAnd) {
+            return Ok(first);
+        }
+        let start = first.span().start.0;
+        let mut types = vec![first];
+        let mut end = types[0].span().end.0;
+        while self.check(&TokenKind::BitAnd) {
+            self.bump();
+            let next = self.parse_primary_type()?;
+            end = next.span().end.0;
+            types.push(next);
+        }
+        Ok(draconic_ast::TypeAnn::Intersection {
+            types,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// Named (`number`) or object (`{ a: T; b: U }`).
+    fn parse_primary_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
         if self.check(&TokenKind::LBrace) {
             return self.parse_object_type();
         }

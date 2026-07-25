@@ -39,6 +39,10 @@ pub enum Type {
     Object,
     /// Structural object type; index into the shape table on `CheckedProgram`.
     Shape(u32),
+    /// Union type; index into the unions table on `CheckedProgram`.
+    Union(u32),
+    /// Intersection type; index into the intersections table on `CheckedProgram`.
+    Intersection(u32),
     /// Flexible / unannotated (e.g. `let x;` with no initializer).
     Any,
 }
@@ -47,6 +51,18 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectShape {
     pub props: Vec<(String, Type)>,
+}
+
+/// Members of a union type (`Type::Union`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnionType {
+    pub members: Vec<Type>,
+}
+
+/// Members of an intersection type (`Type::Intersection`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntersectionType {
+    pub members: Vec<Type>,
 }
 
 impl fmt::Display for Type {
@@ -60,6 +76,8 @@ impl fmt::Display for Type {
             Type::Function => "function",
             Type::Object => "object",
             Type::Shape(_) => "object",
+            Type::Union(_) => "union",
+            Type::Intersection(_) => "intersection",
             Type::Any => "any",
         };
         write!(f, "{s}")
@@ -99,6 +117,10 @@ pub struct CheckedProgram {
     expr_types: HashMap<Span, Type>,
     /// Structural object shapes referenced by `Type::Shape`.
     shapes: Vec<ObjectShape>,
+    /// Union members referenced by `Type::Union`.
+    unions: Vec<UnionType>,
+    /// Intersection members referenced by `Type::Intersection`.
+    intersections: Vec<IntersectionType>,
 }
 
 impl CheckedProgram {
@@ -114,13 +136,26 @@ impl CheckedProgram {
         &self.shapes
     }
 
-    /// Pretty-print a type, expanding structural shapes.
+    pub fn unions(&self) -> &[UnionType] {
+        &self.unions
+    }
+
+    pub fn intersections(&self) -> &[IntersectionType] {
+        &self.intersections
+    }
+
+    /// Pretty-print a type, expanding structural shapes and unions/intersections.
     pub fn format_type(&self, ty: Type) -> String {
-        format_type_with_shapes(ty, &self.shapes)
+        format_type_full(ty, &self.shapes, &self.unions, &self.intersections)
     }
 }
 
-fn format_type_with_shapes(ty: Type, shapes: &[ObjectShape]) -> String {
+fn format_type_full(
+    ty: Type,
+    shapes: &[ObjectShape],
+    unions: &[UnionType],
+    intersections: &[IntersectionType],
+) -> String {
     match ty {
         Type::Shape(id) => {
             let Some(shape) = shapes.get(id as usize) else {
@@ -129,9 +164,31 @@ fn format_type_with_shapes(ty: Type, shapes: &[ObjectShape]) -> String {
             let props: Vec<String> = shape
                 .props
                 .iter()
-                .map(|(n, t)| format!("{n}: {}", format_type_with_shapes(*t, shapes)))
+                .map(|(n, t)| {
+                    format!("{n}: {}", format_type_full(*t, shapes, unions, intersections))
+                })
                 .collect();
             format!("{{ {} }}", props.join("; "))
+        }
+        Type::Union(id) => {
+            let Some(u) = unions.get(id as usize) else {
+                return "union".to_string();
+            };
+            u.members
+                .iter()
+                .map(|t| format_type_full(*t, shapes, unions, intersections))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        }
+        Type::Intersection(id) => {
+            let Some(i) = intersections.get(id as usize) else {
+                return "intersection".to_string();
+            };
+            i.members
+                .iter()
+                .map(|t| format_type_full(*t, shapes, unions, intersections))
+                .collect::<Vec<_>>()
+                .join(" & ")
         }
         other => other.to_string(),
     }
@@ -150,11 +207,15 @@ pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
     let symbol_types = checker.symbol_types;
     let expr_types = checker.expr_types;
     let shapes = checker.shapes;
+    let unions = checker.unions;
+    let intersections = checker.intersections;
     Ok(CheckedProgram {
         bound,
         symbol_types,
         expr_types,
         shapes,
+        unions,
+        intersections,
     })
 }
 
@@ -968,6 +1029,10 @@ struct Checker<'a> {
     expr_types: HashMap<Span, Type>,
     /// Structural object shapes (`Type::Shape` indices).
     shapes: Vec<ObjectShape>,
+    /// Union members (`Type::Union` indices).
+    unions: Vec<UnionType>,
+    /// Intersection members (`Type::Intersection` indices).
+    intersections: Vec<IntersectionType>,
     /// Type aliases in scope (name → resolved type). Program-level for T02.
     type_aliases: HashMap<String, Type>,
     /// True while typechecking an `async` function body.
@@ -1008,6 +1073,8 @@ impl<'a> Checker<'a> {
             symbol_types,
             expr_types: HashMap::new(),
             shapes: Vec::new(),
+            unions: Vec::new(),
+            intersections: Vec::new(),
             type_aliases: HashMap::new(),
             in_async: false,
             in_generator: false,
@@ -1277,9 +1344,14 @@ impl<'a> Checker<'a> {
                 ..
             } => {
                 self.check_expr(test)?;
-                self.check_stmt(consequent, loop_depth, switch_depth, fn_depth, labels)?;
+                let (then_n, else_n) = self.typeof_narrow_facts(test);
+                self.with_narrows(&then_n, |this| {
+                    this.check_stmt(consequent, loop_depth, switch_depth, fn_depth, labels)
+                })?;
                 if let Some(alt) = alternate {
-                    self.check_stmt(alt, loop_depth, switch_depth, fn_depth, labels)?;
+                    self.with_narrows(&else_n, |this| {
+                        this.check_stmt(alt, loop_depth, switch_depth, fn_depth, labels)
+                    })?;
                 }
                 Ok(())
             }
@@ -2056,17 +2128,127 @@ impl<'a> Checker<'a> {
         Type::Shape(id)
     }
 
+    fn intern_union(&mut self, mut members: Vec<Type>) -> Type {
+        let mut flat = Vec::new();
+        for m in members.drain(..) {
+            self.collect_union_members(m, &mut flat);
+        }
+        // Dedup while preserving order.
+        let mut out = Vec::new();
+        for m in flat {
+            if !out.contains(&m) {
+                out.push(m);
+            }
+        }
+        if out.is_empty() {
+            return Type::Any;
+        }
+        if out.len() == 1 {
+            return out[0];
+        }
+        let id = self.unions.len() as u32;
+        self.unions.push(UnionType { members: out });
+        Type::Union(id)
+    }
+
+    fn intern_intersection(&mut self, mut members: Vec<Type>) -> Type {
+        let mut flat = Vec::new();
+        for m in members.drain(..) {
+            self.collect_intersection_members(m, &mut flat);
+        }
+        let mut out = Vec::new();
+        for m in flat {
+            if !out.contains(&m) {
+                out.push(m);
+            }
+        }
+        // Merge all object shapes into one structural type when possible.
+        let mut shape_props: Option<Vec<(String, Type)>> = None;
+        let mut rest = Vec::new();
+        for m in out {
+            match m {
+                Type::Shape(id) => {
+                    if let Some(shape) = self.shapes.get(id as usize) {
+                        let acc = shape_props.get_or_insert_with(Vec::new);
+                        for (n, t) in &shape.props {
+                            if let Some((_, existing)) = acc.iter_mut().find(|(en, _)| en == n) {
+                                *existing = *t;
+                            } else {
+                                acc.push((n.clone(), *t));
+                            }
+                        }
+                    }
+                }
+                other => rest.push(other),
+            }
+        }
+        if let Some(props) = shape_props {
+            rest.push(self.intern_shape(props));
+        }
+        if rest.is_empty() {
+            return Type::Any;
+        }
+        if rest.len() == 1 {
+            return rest[0];
+        }
+        let id = self.intersections.len() as u32;
+        self.intersections
+            .push(IntersectionType { members: rest });
+        Type::Intersection(id)
+    }
+
+    fn collect_union_members(&self, ty: Type, out: &mut Vec<Type>) {
+        match ty {
+            Type::Union(id) => {
+                if let Some(u) = self.unions.get(id as usize) {
+                    for m in &u.members {
+                        self.collect_union_members(*m, out);
+                    }
+                }
+            }
+            other => out.push(other),
+        }
+    }
+
+    fn collect_intersection_members(&self, ty: Type, out: &mut Vec<Type>) {
+        match ty {
+            Type::Intersection(id) => {
+                if let Some(i) = self.intersections.get(id as usize) {
+                    for m in &i.members {
+                        self.collect_intersection_members(*m, out);
+                    }
+                }
+            }
+            other => out.push(other),
+        }
+    }
+
+    fn union_members(&self, ty: Type) -> Vec<Type> {
+        let mut out = Vec::new();
+        self.collect_union_members(ty, &mut out);
+        out
+    }
+
     fn prop_type(&self, obj: Type, name: &str) -> Option<Type> {
         match obj {
             Type::Shape(id) => self
                 .shapes
                 .get(id as usize)
                 .and_then(|s| s.props.iter().find(|(n, _)| n == name).map(|(_, t)| *t)),
+            Type::Intersection(id) => {
+                let i = self.intersections.get(id as usize)?;
+                for m in &i.members {
+                    if let Some(t) = self.prop_type(*m, name) {
+                        return Some(t);
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }
 
-    /// Resolve a type annotation to a Checker `Type` (T01 named + T02 object/aliases).
+    /// Resolve a type annotation to a Checker `Type` (T01–T03).
     fn resolve_type_ann(&mut self, ann: &TypeAnn) -> Result<Type, Diagnostic> {
         match ann {
             TypeAnn::Named { name, span } => {
@@ -2100,13 +2282,56 @@ impl<'a> Checker<'a> {
                 }
                 Ok(self.intern_shape(shape_props))
             }
+            TypeAnn::Union { types, .. } => {
+                let mut members = Vec::with_capacity(types.len());
+                for t in types {
+                    members.push(self.resolve_type_ann(t)?);
+                }
+                Ok(self.intern_union(members))
+            }
+            TypeAnn::Intersection { types, .. } => {
+                let mut members = Vec::with_capacity(types.len());
+                for t in types {
+                    members.push(self.resolve_type_ann(t)?);
+                }
+                Ok(self.intern_intersection(members))
+            }
         }
     }
 
-    /// Whether `from` is assignable to `to` (exact, `any`, or structural object).
+    /// Whether `from` is assignable to `to` (exact, `any`, structural, union/intersection).
     fn is_assignable(&self, from: Type, to: Type) -> bool {
         if from == to || from == Type::Any || to == Type::Any {
             return true;
+        }
+        // Source union: every member must be assignable to the target.
+        if let Type::Union(id) = from {
+            if let Some(u) = self.unions.get(id as usize) {
+                return u.members.iter().all(|m| self.is_assignable(*m, to));
+            }
+            return false;
+        }
+        // Target union: source must be assignable to some member.
+        if let Type::Union(id) = to {
+            if let Some(u) = self.unions.get(id as usize) {
+                return u.members.iter().any(|m| self.is_assignable(from, *m));
+            }
+            return false;
+        }
+        // Target intersection: source must satisfy every member.
+        if let Type::Intersection(id) = to {
+            if let Some(i) = self.intersections.get(id as usize) {
+                return i.members.iter().all(|m| self.is_assignable(from, *m));
+            }
+            return false;
+        }
+        // Source intersection: assignable if any member is (or the merged whole matches).
+        if let Type::Intersection(id) = from {
+            if let Some(i) = self.intersections.get(id as usize) {
+                if i.members.iter().any(|m| self.is_assignable(*m, to)) {
+                    return true;
+                }
+            }
         }
         // Structural: source must supply every property required by the target.
         if let Type::Shape(to_id) = to {
@@ -2144,13 +2369,147 @@ impl<'a> Checker<'a> {
         if self.is_assignable(from, to) {
             Ok(())
         } else {
-            let from_s = format_type_with_shapes(from, &self.shapes);
-            let to_s = format_type_with_shapes(to, &self.shapes);
+            let from_s =
+                format_type_full(from, &self.shapes, &self.unions, &self.intersections);
+            let to_s = format_type_full(to, &self.shapes, &self.unions, &self.intersections);
             Err(Diagnostic::new(
                 format!("type `{from_s}` is not assignable to type `{to_s}`"),
                 span,
             ))
         }
+    }
+
+    /// Map a `typeof` string tag to a checker type.
+    fn typeof_tag_type(tag: &str) -> Option<Type> {
+        match tag {
+            "string" => Some(Type::String),
+            "number" => Some(Type::Number),
+            "boolean" => Some(Type::Boolean),
+            "bigint" => Some(Type::BigInt),
+            "function" => Some(Type::Function),
+            "object" => Some(Type::Object),
+            _ => None,
+        }
+    }
+
+    /// Whether `ty` is consistent with a `typeof` tag (for filtering unions).
+    fn matches_typeof_tag(&self, ty: Type, tag: &str) -> bool {
+        match tag {
+            "string" => ty == Type::String || ty == Type::Any,
+            "number" => ty == Type::Number || ty == Type::Any,
+            "boolean" => ty == Type::Boolean || ty == Type::Any,
+            "bigint" => ty == Type::BigInt || ty == Type::Any,
+            "function" => ty == Type::Function || ty == Type::Any,
+            "object" => {
+                matches!(
+                    ty,
+                    Type::Object | Type::Shape(_) | Type::Null | Type::Any
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// Filter `ty` to members that match / don't match a typeof tag.
+    fn filter_by_typeof(&mut self, ty: Type, tag: &str, positive: bool) -> Type {
+        let members = self.union_members(ty);
+        let filtered: Vec<Type> = members
+            .into_iter()
+            .filter(|m| {
+                let matches = self.matches_typeof_tag(*m, tag);
+                if positive {
+                    matches
+                } else {
+                    !matches || *m == Type::Any
+                }
+            })
+            .collect();
+        if filtered.is_empty() {
+            // No remaining members: use the tag type (positive) or keep original.
+            if positive {
+                Self::typeof_tag_type(tag).unwrap_or(ty)
+            } else {
+                ty
+            }
+        } else if filtered.len() == 1 {
+            filtered[0]
+        } else {
+            self.intern_union(filtered)
+        }
+    }
+
+    /// Detect `typeof id === "tag"` / `!==` and produce then/else narrow maps.
+    fn typeof_narrow_facts(
+        &mut self,
+        test: &Expr,
+    ) -> (Vec<(SymbolId, Type)>, Vec<(SymbolId, Type)>) {
+        let empty = (Vec::new(), Vec::new());
+        let Expr::Binary {
+            left, op, right, ..
+        } = test
+        else {
+            return empty;
+        };
+        let positive = match op {
+            BinaryOp::EqEqEq | BinaryOp::EqEq => true,
+            BinaryOp::NotEqEq | BinaryOp::NotEq => false,
+            _ => return empty,
+        };
+        // typeof x === "string"  OR  "string" === typeof x
+        let (ident, tag) = if let (
+            Expr::Unary {
+                op: UnaryOp::TypeOf,
+                arg,
+                ..
+            },
+            Expr::String(s),
+        ) = (left.as_ref(), right.as_ref())
+        {
+            let Expr::Ident(id) = arg.as_ref() else {
+                return empty;
+            };
+            (id, s.value.to_string_lossy())
+        } else if let (
+            Expr::String(s),
+            Expr::Unary {
+                op: UnaryOp::TypeOf,
+                arg,
+                ..
+            },
+        ) = (left.as_ref(), right.as_ref())
+        {
+            let Expr::Ident(id) = arg.as_ref() else {
+                return empty;
+            };
+            (id, s.value.to_string_lossy())
+        } else {
+            return empty;
+        };
+        let Some(sym) = self.bound.resolve(ident.span) else {
+            return empty;
+        };
+        let cur = self.symbol_types[sym.0 as usize];
+        let then_ty = self.filter_by_typeof(cur, tag.as_str(), positive);
+        let else_ty = self.filter_by_typeof(cur, tag.as_str(), !positive);
+        (vec![(sym, then_ty)], vec![(sym, else_ty)])
+    }
+
+    fn with_narrows<R>(
+        &mut self,
+        narrows: &[(SymbolId, Type)],
+        f: impl FnOnce(&mut Self) -> Result<R, Diagnostic>,
+    ) -> Result<R, Diagnostic> {
+        let mut saved = Vec::with_capacity(narrows.len());
+        for (id, ty) in narrows {
+            let idx = id.0 as usize;
+            saved.push((*id, self.symbol_types[idx]));
+            self.symbol_types[idx] = *ty;
+        }
+        let result = f(self);
+        for (id, ty) in saved {
+            self.symbol_types[id.0 as usize] = ty;
+        }
+        result
     }
 
     fn record(&mut self, span: Span, ty: Type) {
@@ -3760,8 +4119,7 @@ mod tests {
                 }
                 Stmt::ImportDeclaration { .. }
                 | Stmt::ExportNamedDeclaration { .. }
-                | Stmt::ExportDefaultDeclaration { .. }
-                | Stmt::TypeAlias { .. } => {}
+                | Stmt::ExportDefaultDeclaration { .. } => {}
             }
         }
 

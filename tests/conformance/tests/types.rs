@@ -1,4 +1,4 @@
-//! ROADMAP T01–T02: type annotations, structural object types, type aliases (compiler).
+//! ROADMAP T01–T03: type annotations, object types, unions/intersections/narrowing.
 
 use draconic_check::{check, BoundProgram, CheckedProgram, Type};
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
@@ -346,6 +346,229 @@ fn duplicate_type_alias_errors() {
 #[test]
 fn parse_object_type_and_alias() {
     let program = parse("type P = { x: number, y: string }; let p: P = { x: 1, y: \"a\" };")
+        .unwrap();
+    assert!(!program.body.is_empty());
+    check(program).unwrap();
+}
+
+// --- T03: unions, intersections, typeof narrowing ---
+
+#[test]
+fn union_accepts_each_member() {
+    let program = parse(
+        r#"
+        let a: string | number = 1;
+        let b: string | number = "hi";
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert!(matches!(type_of(&checked, "a"), Type::Union(_)));
+    assert!(matches!(type_of(&checked, "b"), Type::Union(_)));
+}
+
+#[test]
+fn union_rejects_outside_member() {
+    let program = parse(r#"let a: string | number = true;"#).unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn union_member_not_assignable_to_single() {
+    let program = parse(
+        r#"
+        let u: string | number = 1;
+        let n: number = u;
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn type_alias_union() {
+    let program = parse(
+        r#"
+        type StrOrNum = string | number;
+        let x: StrOrNum = "a";
+        let y: StrOrNum = false;
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn intersection_object_merge() {
+    let program = parse(
+        r#"
+        type A = { x: number };
+        type B = { y: string };
+        let o: A & B = { x: 1, y: "a" };
+        let n: number = o.x;
+        let s: string = o.y;
+        "#,
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn intersection_requires_all_props() {
+    let program = parse(
+        r#"
+        type A = { x: number };
+        type B = { y: string };
+        let o: A & B = { x: 1 };
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn intersection_assignable_to_each_part() {
+    let program = parse(
+        r#"
+        type A = { x: number };
+        type B = { y: string };
+        let o: A & B = { x: 1, y: "a" };
+        let a: A = o;
+        let b: B = o;
+        "#,
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn typeof_narrow_string_branch() {
+    let program = parse(
+        r#"
+        function f(x: string | number): string {
+          if (typeof x === "string") {
+            let s: string = x;
+            return s;
+          } else {
+            let n: number = x;
+            return "n";
+          }
+        }
+        "#,
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn typeof_narrow_rejects_wrong_branch() {
+    let program = parse(
+        r#"
+        function f(x: string | number): number {
+          if (typeof x === "string") {
+            let n: number = x;
+            return n;
+          }
+          return 0;
+        }
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn typeof_narrow_else_branch() {
+    let program = parse(
+        r#"
+        function f(x: string | number): number {
+          if (typeof x === "string") {
+            return 0;
+          } else {
+            let n: number = x;
+            return n;
+          }
+        }
+        "#,
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn typeof_narrow_flipped_operands() {
+    let program = parse(
+        r#"
+        function f(x: string | number): string {
+          if ("string" === typeof x) {
+            return x;
+          }
+          return "n";
+        }
+        "#,
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn union_erase_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/union_intersection_erase"),
+        "missing types/union_intersection_erase fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn union_erase_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/union_intersection_erase")
+        .expect("types/union_intersection_erase");
+    assert!(fixture.targets.contains(&Target::Js));
+    assert!(fixture.targets.contains(&Target::Native));
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn parse_union_and_intersection() {
+    let program = parse("type T = string | number; type U = { a: number } & { b: string };")
         .unwrap();
     assert!(!program.body.is_empty());
     check(program).unwrap();

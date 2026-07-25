@@ -455,7 +455,7 @@ pub struct Param {
     pub rest: bool,
 }
 
-/// Type annotation — named types (T01) or structural object types (T02).
+/// Type annotation — named (T01), object (T02), union/intersection (T03).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeAnn {
     /// `number`, `string`, user alias name, etc.
@@ -463,6 +463,16 @@ pub enum TypeAnn {
     /// `{ a: T; b: U }` (`;` or `,` separators).
     Object {
         props: Vec<TypeProp>,
+        span: Span,
+    },
+    /// `A | B | C` (flattened left-associative).
+    Union {
+        types: Vec<TypeAnn>,
+        span: Span,
+    },
+    /// `A & B & C` (flattened left-associative).
+    Intersection {
+        types: Vec<TypeAnn>,
         span: Span,
     },
 }
@@ -478,7 +488,10 @@ pub struct TypeProp {
 impl TypeAnn {
     pub fn span(&self) -> Span {
         match self {
-            TypeAnn::Named { span, .. } | TypeAnn::Object { span, .. } => *span,
+            TypeAnn::Named { span, .. }
+            | TypeAnn::Object { span, .. }
+            | TypeAnn::Union { span, .. }
+            | TypeAnn::Intersection { span, .. } => *span,
         }
     }
 }
@@ -1488,6 +1501,20 @@ fn dump_type_ann(ann: &TypeAnn, level: usize, out: &mut String) {
                 indent(level + 1, out);
                 out.push_str(&format!("prop: {}\n", p.name));
                 dump_type_ann(&p.ty, level + 2, out);
+            }
+        }
+        TypeAnn::Union { types, .. } => {
+            indent(level, out);
+            out.push_str("UnionType\n");
+            for t in types {
+                dump_type_ann(t, level + 1, out);
+            }
+        }
+        TypeAnn::Intersection { types, .. } => {
+            indent(level, out);
+            out.push_str("IntersectionType\n");
+            for t in types {
+                dump_type_ann(t, level + 1, out);
             }
         }
     }

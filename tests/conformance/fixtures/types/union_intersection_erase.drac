@@ -1,0 +1,14 @@
+type StrOrNum = string | number;
+type Point = { x: number } & { y: number };
+let u: StrOrNum = 1;
+let v: StrOrNum = "hi";
+let p: Point = { x: 2, y: 3 };
+let n: number = p.x;
+function tag(x: string | number): string {
+  if (typeof x === "string") {
+    return x;
+  }
+  return "num";
+}
+let t1: string = tag(v);
+let t2: string = tag(u);
