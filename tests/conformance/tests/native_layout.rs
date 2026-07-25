@@ -1,4 +1,4 @@
-//! ROADMAP N03.01: native structs (layout types of native scalar fields).
+//! ROADMAP N03.01–N03.02: native structs and fixed arrays (layout types).
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +47,24 @@ fn struct_fields_fixture_present() {
 #[test]
 fn struct_fields_runs_native() {
     assert_fixture_runs_native("native/layout/struct_fields");
+}
+
+#[test]
+fn array_basic_fixture_present() {
+    assert_fixture_present("native/layout/array_basic");
+}
+
+#[test]
+fn array_basic_runs_native() {
+    assert_fixture_runs_native("native/layout/array_basic");
+}
+
+#[test]
+fn array_mixed_fixture_present() {
+    assert_fixture_present("native/layout/array_mixed");
+}
+
+#[test]
+fn array_mixed_runs_native() {
+    assert_fixture_runs_native("native/layout/array_mixed");
 }

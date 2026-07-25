@@ -1,4 +1,4 @@
-//! N01–N03.01: lower pure native scalar/layout Programs to LLVM IR.
+//! N01–N03.02: lower pure native scalar/layout Programs to LLVM IR.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -6,8 +6,8 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp, UpdateOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, NativeType, ObjectProp,
-    ObjectPropKey, ObjectShape, Param, Pattern, Stmt, UpdateTarget,
+    Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, NativeType,
+    ObjectProp, ObjectPropKey, ObjectShape, Param, Pattern, Stmt, UpdateTarget,
 };
 
 /// Unboxed scalar lowered by this backend (native int/float/`bool`).
@@ -112,7 +112,7 @@ fn layout_align(shape: &ObjectShape) -> u32 {
 /// True when every **user-declared** local is a native scalar (`i*`/`u*`/`f*`/`bool`),
 /// a **native layout** shape (all-native fields), or a **function declaration**
 /// binding, and the module has at least one native scalar or layout local
-/// (N01–N03.01 surface).
+/// (N01–N03.02 surface: scalars, structs, fixed-array tuples).
 ///
 /// Arrow / function-expression bindings are excluded so T05 erase fixtures that
 /// mix natives with callable values stay on the B08 hello stub. JS `boolean`
@@ -325,7 +325,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N01–N03.01 native scalars/layouts)"
+            "; Draconic LLVM backend (N01–N03.02 native scalars/layouts)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
@@ -1046,15 +1046,19 @@ impl<'a> Emitter<'a> {
                 if *optional {
                     return Err(diag("native layout: optional member not supported"));
                 }
-                if *computed {
-                    return Err(diag("native layout: computed member not supported"));
-                }
-                let key = match property.as_ref() {
-                    Expr::String { value, .. } => value.to_string_lossy(),
-                    _ => {
-                        return Err(diag(
-                            "native layout: member property must be a static string key",
-                        ))
+                let key = if *computed {
+                    // Fixed-array index: `a[0]` with constant non-neg integer (N03.02).
+                    const_index_key(property).ok_or_else(|| {
+                        diag("native layout: computed member needs constant integer index")
+                    })?
+                } else {
+                    match property.as_ref() {
+                        Expr::String { value, .. } => value.to_string_lossy(),
+                        _ => {
+                            return Err(diag(
+                                "native layout: member property must be a static string key",
+                            ))
+                        }
                     }
                 };
                 let (obj_ptr, layout_ty, idx, sc) = {
@@ -1082,6 +1086,9 @@ impl<'a> Emitter<'a> {
             }
             Expr::Object { .. } => Err(diag(
                 "native layout: object literal only supported as layout init",
+            )),
+            Expr::Array { .. } => Err(diag(
+                "native layout: array literal only supported as layout init",
             )),
             _ => Err(diag(&format!(
                 "native scalars: unsupported expression {expr:?}"
@@ -1162,6 +1169,27 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Expr::Array { elements, .. } => {
+                if elements.len() != field_meta.len() {
+                    return Err(diag(
+                        "native layout: array init length must match tuple layout",
+                    ));
+                }
+                for (i, (_, sc)) in field_meta.iter().enumerate() {
+                    let ArrayElement::Expr(val_expr) = &elements[i] else {
+                        return Err(diag("native layout: spread not supported in array init"));
+                    };
+                    let v = self.emit_expr(val_expr, Some(*sc))?;
+                    let gep = self.fresh_tmp();
+                    writeln!(
+                        self.body,
+                        "  {gep} = getelementptr inbounds {layout_ty}, ptr {dest_ptr}, i32 0, i32 {i}"
+                    )
+                    .ok();
+                    writeln!(self.body, "  store {} {v}, ptr {gep}", sc.llvm_ty()).ok();
+                }
+                Ok(())
+            }
             Expr::Local { id, .. } => {
                 let src_ptr = self
                     .allocas
@@ -1188,7 +1216,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             _ => Err(diag(
-                "native layout: init must be object literal or layout local",
+                "native layout: init must be object/array literal or layout local",
             )),
         }
     }
@@ -1675,6 +1703,19 @@ fn parse_int_bits(digits: &str) -> Result<u64, Diagnostic> {
     digits
         .parse::<u64>()
         .map_err(|_| diag(&format!("invalid integer literal {digits}")))
+}
+
+/// Constant non-negative integer index key from IR number literal (`0` → `"0"`).
+fn const_index_key(expr: &Expr) -> Option<String> {
+    let raw = match expr {
+        Expr::Number { raw, .. } => raw.as_str(),
+        _ => return None,
+    };
+    if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n: u64 = raw.parse().ok()?;
+    Some(n.to_string())
 }
 
 fn infer_return_scalar(body: &[Stmt]) -> Option<Scalar> {

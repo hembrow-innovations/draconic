@@ -918,10 +918,13 @@ impl Parser {
         })
     }
 
-    /// Named (`number`), generic app (`Box<T>`), or object (`{ a: T; b: U }`).
+    /// Named (`number`), generic app (`Box<T>`), object (`{ a: T }`), or tuple (`[T, U]`).
     fn parse_primary_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
         if self.check(&TokenKind::LBrace) {
             return self.parse_object_type();
+        }
+        if self.check(&TokenKind::LBracket) {
+            return self.parse_tuple_type();
         }
         let err_span = self.current().span;
         let name_tok = self.expect_ident().map_err(|_| {
@@ -974,6 +977,26 @@ impl Parser {
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
         Ok(draconic_ast::TypeAnn::Object {
             props,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `[T, U, V]` fixed-length tuple type (N03.02).
+    fn parse_tuple_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
+        let start = self.expect(&TokenKind::LBracket)?.span.start.0;
+        let mut elements = Vec::new();
+        while !self.check(&TokenKind::RBracket) && !self.check(&TokenKind::Eof) {
+            let ty = self.parse_type()?;
+            elements.push(ty);
+            if self.check(&TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        let end = self.expect(&TokenKind::RBracket)?.span.end.0;
+        Ok(draconic_ast::TypeAnn::Tuple {
+            elements,
             span: Span::new(start, end),
         })
     }

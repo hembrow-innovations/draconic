@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03.01 native scalars/layouts).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03.02 native scalars/layouts).
 
 mod native_ints;
 
@@ -344,5 +344,42 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "10\n20\n10\n20\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn native_fixed_array_index_read_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            type Vec3 = [i32, i32, i32];
+            let v: Vec3 = [10, 20, 30];
+            let a: i32 = v[0];
+            let b: i32 = v[1];
+            let c: i32 = v[2];
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "native fixed-array program should not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("getelementptr"),
+            "should GEP array elements:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n03-array").expect("workdir");
+        let bin = dir.join("array");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "10\n20\n30\n10\n20\n30\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
     }
 }

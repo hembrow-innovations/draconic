@@ -567,7 +567,8 @@ pub struct Param {
     pub rest: bool,
 }
 
-/// Type annotation — named (T01), object (T02), union/intersection (T03), generic app (T04).
+/// Type annotation — named (T01), object (T02), union/intersection (T03), generic app (T04),
+/// tuple / fixed array (N03.02).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeAnn {
     /// `number`, `string`, user alias name, etc.
@@ -581,6 +582,11 @@ pub enum TypeAnn {
     /// `{ a: T; b: U }` (`;` or `,` separators).
     Object {
         props: Vec<TypeProp>,
+        span: Span,
+    },
+    /// `[T, U, V]` fixed-length tuple / fixed array type (N03.02).
+    Tuple {
+        elements: Vec<TypeAnn>,
         span: Span,
     },
     /// `A | B | C` (flattened left-associative).
@@ -609,6 +615,7 @@ impl TypeAnn {
             TypeAnn::Named { span, .. }
             | TypeAnn::GenericApp { span, .. }
             | TypeAnn::Object { span, .. }
+            | TypeAnn::Tuple { span, .. }
             | TypeAnn::Union { span, .. }
             | TypeAnn::Intersection { span, .. } => *span,
         }
@@ -1834,6 +1841,13 @@ fn dump_type_ann(ann: &TypeAnn, level: usize, out: &mut String) {
                 indent(level + 1, out);
                 out.push_str(&format!("prop: {}\n", p.name));
                 dump_type_ann(&p.ty, level + 2, out);
+            }
+        }
+        TypeAnn::Tuple { elements, .. } => {
+            indent(level, out);
+            out.push_str("TupleType\n");
+            for el in elements {
+                dump_type_ann(el, level + 1, out);
             }
         }
         TypeAnn::Union { types, .. } => {

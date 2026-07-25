@@ -2863,7 +2863,12 @@ impl<'a> Checker<'a> {
                 let obj_ty = self.check_expr(object)?;
                 let ty = if *computed {
                     self.check_expr(property)?;
-                    Type::Any
+                    // Tuple / fixed-array index: `a[0]` → shape prop `"0"` (N03.02).
+                    if let Some(idx) = Self::const_index_key(property) {
+                        self.prop_type(obj_ty, &idx).unwrap_or(Type::Any)
+                    } else {
+                        Type::Any
+                    }
                 } else if let Expr::Ident(id) = property.as_ref() {
                     self.prop_type(obj_ty, &id.name).unwrap_or(Type::Any)
                 } else {
@@ -3107,10 +3112,18 @@ impl<'a> Checker<'a> {
                 resolved
             }
             TypeAnn::Object { props, .. } => {
-                let mut shape_props = Vec::with_capacity(props.len());
+                let mut shape_props = Vec::new();
                 for p in props {
                     let ty = self.resolve_type_ann(&p.ty)?;
                     shape_props.push((p.name.clone(), ty));
+                }
+                Ok(self.intern_shape(shape_props))
+            }
+            TypeAnn::Tuple { elements, .. } => {
+                let mut shape_props = Vec::new();
+                for (i, el) in elements.iter().enumerate() {
+                    let ty = self.resolve_type_ann(el)?;
+                    shape_props.push((i.to_string(), ty));
                 }
                 Ok(self.intern_shape(shape_props))
             }
@@ -3298,6 +3311,22 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// Non-negative integer index key from a constant number literal (`0` → `"0"`).
+    fn const_index_key(expr: &Expr) -> Option<String> {
+        let raw = match expr {
+            Expr::Number(n) => n.raw.as_str(),
+            Expr::Paren { expr, .. } => return Self::const_index_key(expr),
+            _ => return None,
+        };
+        // Decimal integer only (no float/hex/bin for tuple index keys this Loop).
+        if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        // Normalize leading zeros: "00" → "0" via parse.
+        let n: u64 = raw.parse().ok()?;
+        Some(n.to_string())
+    }
+
     fn number_literal_ok_for_native(to: Type) -> bool {
         matches!(to, Type::Native(n) if !n.is_bool())
     }
@@ -3319,8 +3348,9 @@ impl<'a> Checker<'a> {
         )
     }
 
-    /// Assignability with contextual typing of numeric literals to native types (T05)
-    /// and object literals to native-layout shapes (N03.01).
+    /// Assignability with contextual typing of numeric literals to native types (T05),
+    /// object literals to native-layout shapes (N03.01), and array literals to tuple
+    /// layouts (N03.02).
     fn require_assignable_expr(
         &self,
         from: Type,
@@ -3336,6 +3366,13 @@ impl<'a> Checker<'a> {
         if let (Expr::ObjectExpression { properties, .. }, Type::Shape(to_id)) = (from_expr, to) {
             if let Some(to_shape) = self.shapes.get(to_id as usize) {
                 if self.object_literal_contextually_assignable(properties, to_shape) {
+                    return Ok(());
+                }
+            }
+        }
+        if let (Expr::ArrayExpression { elements, .. }, Type::Shape(to_id)) = (from_expr, to) {
+            if let Some(to_shape) = self.shapes.get(to_id as usize) {
+                if self.array_literal_contextually_assignable(elements, to_shape) {
                     return Ok(());
                 }
             }
@@ -3368,24 +3405,49 @@ impl<'a> Checker<'a> {
             let Some(val) = by_name.get(name) else {
                 return false;
             };
-            let got = self
-                .expr_types
-                .get(&expr_span_of(val))
-                .copied()
-                .unwrap_or(Type::Any);
-            if self.is_assignable(got, *want) {
-                return true;
-            }
-            if Self::is_number_literal_expr(val) && Self::number_literal_ok_for_native(*want) {
-                return true;
-            }
-            if matches!(val, Expr::Boolean { .. })
-                && matches!(want, Type::Native(NativeType::Bool))
-            {
-                return true;
-            }
-            false
+            self.expr_contextually_assignable_to(val, *want)
         })
+    }
+
+    /// Array literal may assign to a tuple shape (`"0"`, `"1"`, …) by position (N03.02).
+    fn array_literal_contextually_assignable(
+        &self,
+        elements: &[ArrayElement],
+        to_shape: &ObjectShape,
+    ) -> bool {
+        if elements.len() != to_shape.props.len() {
+            return false;
+        }
+        for (i, (name, want)) in to_shape.props.iter().enumerate() {
+            if name != &i.to_string() {
+                return false;
+            }
+            let ArrayElement::Expr(val) = &elements[i] else {
+                return false;
+            };
+            if !self.expr_contextually_assignable_to(val, *want) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn expr_contextually_assignable_to(&self, val: &Expr, want: Type) -> bool {
+        let got = self
+            .expr_types
+            .get(&expr_span_of(val))
+            .copied()
+            .unwrap_or(Type::Any);
+        if self.is_assignable(got, want) {
+            return true;
+        }
+        if Self::is_number_literal_expr(val) && Self::number_literal_ok_for_native(want) {
+            return true;
+        }
+        if matches!(val, Expr::Boolean { .. }) && matches!(want, Type::Native(NativeType::Bool)) {
+            return true;
+        }
+        false
     }
 
     /// Whether `from` is assignable to `to` (exact, `any`, structural, union/intersection).

@@ -1,0 +1,5 @@
+type Pair = [i32, i64];
+let p: Pair = [1, 2];
+let x: i32 = p[0];
+let y: i64 = p[1];
+let sum: i64 = y + 10;
