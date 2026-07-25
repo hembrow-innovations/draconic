@@ -1,0 +1,28 @@
+let r = /a+b/;
+let src = r.source;
+let fl = r.flags;
+let t1 = r.test("xaabx");
+let t2 = r.test("xyz");
+
+let r2 = /foo/i;
+let src2 = r2.source;
+let fl2 = r2.flags;
+let t3 = r2.test("FOO");
+let m = r2.exec("xFOOy");
+let m0 = m[0];
+
+let r3 = /a\/b/;
+let src3 = r3.source;
+let t4 = r3.test("a/b");
+
+let r4 = /[a/]/;
+let src4 = r4.source;
+let t5 = r4.test("a");
+let t6 = r4.test("/");
+
+let r5 = /=/;
+let t7 = r5.test("=");
+
+let tr = typeof /x/;
+let viaCtor = new RegExp("a+b");
+let sameSrc = r.source === viaCtor.source;

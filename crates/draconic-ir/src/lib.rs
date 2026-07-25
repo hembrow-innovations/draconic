@@ -151,6 +151,12 @@ pub enum Expr {
         value: draconic_ast::JsString,
         ty: Type,
     },
+    /// `/pattern/flags` regular expression literal.
+    RegExp {
+        pattern: String,
+        flags: String,
+        ty: Type,
+    },
     /// Untagged template literal (cooked quasis + interpolations).
     Template {
         quasis: Vec<draconic_ast::JsString>,
@@ -332,6 +338,7 @@ impl Expr {
             | Expr::Number { ty, .. }
             | Expr::BigInt { ty, .. }
             | Expr::String { ty, .. }
+            | Expr::RegExp { ty, .. }
             | Expr::Template { ty, .. }
             | Expr::TaggedTemplate { ty, .. }
             | Expr::Boolean { ty, .. }
@@ -882,6 +889,15 @@ fn lower_expr(
         AstExpr::String(s) => Expr::String {
             value: s.value.clone(),
             ty: expr_ty(checked, s.span),
+        },
+        AstExpr::RegExp {
+            pattern,
+            flags,
+            span,
+        } => Expr::RegExp {
+            pattern: pattern.clone(),
+            flags: flags.clone(),
+            ty: expr_ty(checked, *span),
         },
         AstExpr::TemplateLiteral {
             quasis,
@@ -1693,6 +1709,14 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::String { value, ty } => {
             indent(level, out);
             out.push_str(&format!("String {:?} : {ty}\n", value.to_string_lossy()));
+        }
+        Expr::RegExp {
+            pattern,
+            flags,
+            ty,
+        } => {
+            indent(level, out);
+            out.push_str(&format!("RegExp /{pattern}/{flags} : {ty}\n"));
         }
         Expr::Template {
             quasis,

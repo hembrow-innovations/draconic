@@ -1224,6 +1224,7 @@ impl Binder {
             Expr::Number(_)
             | Expr::BigInt(_)
             | Expr::String(_)
+            | Expr::RegExp { .. }
             | Expr::Boolean { .. }
             | Expr::Null { .. }
             | Expr::This { .. }
@@ -2074,6 +2075,11 @@ impl<'a> Checker<'a> {
             Expr::String(s) => {
                 self.record(s.span, Type::String);
                 Type::String
+            }
+            Expr::RegExp { span, .. } => {
+                // RegExp instance (typeof "object"); not modeled as a distinct type yet.
+                self.record(*span, Type::Any);
+                Type::Any
             }
             Expr::TemplateLiteral {
                 expressions,
@@ -3468,6 +3474,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         Expr::Number(n) => n.span,
         Expr::BigInt(n) => n.span,
         Expr::String(s) => s.span,
+        Expr::RegExp { span, .. } => *span,
         Expr::Boolean { span, .. }
         | Expr::Null { span }
         | Expr::This { span }
@@ -4678,6 +4685,7 @@ mod tests {
                 | Expr::Number(_)
                 | Expr::BigInt(_)
                 | Expr::String(_)
+                | Expr::RegExp { .. }
                 | Expr::Boolean { .. }
                 | Expr::Null { .. }
                 | Expr::This { .. }

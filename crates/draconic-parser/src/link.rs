@@ -589,6 +589,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
         Expr::Number(n) => n.span = spans.next(),
         Expr::BigInt(n) => n.span = spans.next(),
         Expr::String(s) => s.span = spans.next(),
+        Expr::RegExp { span, .. } => *span = spans.next(),
         Expr::Boolean { span, .. }
         | Expr::Null { span }
         | Expr::This { span }
@@ -1126,6 +1127,7 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         Expr::Number(_)
         | Expr::BigInt(_)
         | Expr::String(_)
+        | Expr::RegExp { .. }
         | Expr::Boolean { .. }
         | Expr::Null { .. }
         | Expr::This { .. }

@@ -2416,6 +2416,14 @@ impl Parser {
                     span: tok.span,
                 }))
             }
+            TokenKind::RegExp { pattern, flags } => {
+                self.bump();
+                Ok(Expr::RegExp {
+                    pattern: pattern.clone(),
+                    flags: flags.clone(),
+                    span: tok.span,
+                })
+            }
             TokenKind::TemplateNoSubstitution(_)
             | TokenKind::TemplateHead(_) => self.parse_template_literal(),
             TokenKind::True => {
@@ -2718,6 +2726,7 @@ fn expr_span(expr: &Expr) -> Span {
         Expr::Number(n) => n.span,
         Expr::BigInt(n) => n.span,
         Expr::String(s) => s.span,
+        Expr::RegExp { span, .. } => *span,
         Expr::Boolean { span, .. }
         | Expr::Null { span }
         | Expr::This { span }

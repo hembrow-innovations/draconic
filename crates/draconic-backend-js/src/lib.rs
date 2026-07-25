@@ -357,6 +357,14 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
         Expr::String { value, .. } => {
             push_js_string(out, value);
         }
+        Expr::RegExp {
+            pattern, flags, ..
+        } => {
+            out.push('/');
+            out.push_str(pattern);
+            out.push('/');
+            out.push_str(flags);
+        }
         Expr::Template {
             quasis,
             expressions,

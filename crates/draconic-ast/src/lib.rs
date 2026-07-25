@@ -294,6 +294,12 @@ pub enum Expr {
     Number(NumberLit),
     BigInt(BigIntLit),
     String(StringLit),
+    /// `/pattern/flags` regular expression literal.
+    RegExp {
+        pattern: String,
+        flags: String,
+        span: Span,
+    },
     /// Untagged template literal: `` `a${x}b` ``.
     TemplateLiteral {
         /// Cooked quasi strings; length is always `expressions.len() + 1`.
@@ -1225,6 +1231,12 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::String(s) => {
             indent(level, out);
             out.push_str(&format!("String {:?}\n", s.value.to_string_lossy()));
+        }
+        Expr::RegExp {
+            pattern, flags, ..
+        } => {
+            indent(level, out);
+            out.push_str(&format!("RegExp /{pattern}/{flags}\n"));
         }
         Expr::TemplateLiteral {
             quasis,

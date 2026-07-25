@@ -206,6 +206,11 @@ pub enum TokenKind {
     Export,
     From,
     As,
+    /// `/pattern/flags` regular expression literal (pattern body without slashes).
+    RegExp {
+        pattern: String,
+        flags: String,
+    },
     // other
     Eof,
 }
@@ -224,6 +229,8 @@ pub struct Lexer<'a> {
     template_expr_braces: Vec<u32>,
     /// True at BOF or after a line terminator (Annex B HTML close comment).
     at_line_start: bool,
+    /// When true, `/` starts a RegularExpressionLiteral rather than `/` or `/=`.
+    allow_regexp: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -234,6 +241,7 @@ impl<'a> Lexer<'a> {
             pos: 0,
             template_expr_braces: Vec::new(),
             at_line_start: true,
+            allow_regexp: true,
         }
     }
 
@@ -242,6 +250,9 @@ impl<'a> Lexer<'a> {
         loop {
             let tok = self.next_token()?;
             let is_eof = tok.kind == TokenKind::Eof;
+            if !is_eof {
+                self.allow_regexp = regexp_allowed_after(&tok.kind);
+            }
             tokens.push(tok);
             if is_eof {
                 break;
@@ -387,7 +398,10 @@ impl<'a> Lexer<'a> {
                 }
             }
             b'/' => {
-                // line/block comments handled in skip_trivia; here it's divide
+                // line/block comments handled in skip_trivia.
+                if self.allow_regexp {
+                    return self.scan_regexp_literal(start);
+                }
                 self.bump();
                 if self.eat(b'=') {
                     TokenKind::SlashEq
@@ -1180,6 +1194,71 @@ impl<'a> Lexer<'a> {
         })
     }
 
+    /// `/ RegularExpressionBody / RegularExpressionFlags` (InputElementRegExp).
+    fn scan_regexp_literal(&mut self, start: u32) -> Result<Token, Diagnostic> {
+        self.bump(); // opening `/`
+        let pattern_start = self.pos;
+        let mut in_class = false;
+        loop {
+            if self.is_eof() {
+                return Err(Diagnostic::new(
+                    "unterminated regular expression literal",
+                    Span::new(start, self.pos as u32),
+                ));
+            }
+            let b = self.peek();
+            if b == b'\\' {
+                self.bump();
+                if self.is_eof() {
+                    return Err(Diagnostic::new(
+                        "unterminated regular expression literal",
+                        Span::new(start, self.pos as u32),
+                    ));
+                }
+                if is_line_terminator_byte(self.peek()) {
+                    return Err(Diagnostic::new(
+                        "line terminator in regular expression literal",
+                        Span::new(self.pos as u32, self.pos as u32 + 1),
+                    ));
+                }
+                self.bump();
+                continue;
+            }
+            if is_line_terminator_byte(b) {
+                return Err(Diagnostic::new(
+                    "line terminator in regular expression literal",
+                    Span::new(self.pos as u32, self.pos as u32 + 1),
+                ));
+            }
+            if b == b'[' && !in_class {
+                in_class = true;
+                self.bump();
+                continue;
+            }
+            if b == b']' && in_class {
+                in_class = false;
+                self.bump();
+                continue;
+            }
+            if b == b'/' && !in_class {
+                break;
+            }
+            self.bump();
+        }
+        let pattern = self.src[pattern_start..self.pos].to_string();
+        self.bump(); // closing `/`
+        let flags_start = self.pos;
+        while !self.is_eof() && is_ident_continue(self.peek()) {
+            self.bump();
+        }
+        let flags = self.src[flags_start..self.pos].to_string();
+        self.at_line_start = false;
+        Ok(Token {
+            kind: TokenKind::RegExp { pattern, flags },
+            span: Span::new(start, self.pos as u32),
+        })
+    }
+
     fn peek(&self) -> u8 {
         self.bytes[self.pos]
     }
@@ -1206,6 +1285,32 @@ impl<'a> Lexer<'a> {
     fn is_eof(&self) -> bool {
         self.pos >= self.bytes.len()
     }
+}
+
+/// After `kind`, may the next `/` start a regexp literal (vs division)?
+fn regexp_allowed_after(kind: &TokenKind) -> bool {
+    !matches!(
+        kind,
+        TokenKind::Ident(_)
+            | TokenKind::Number(_)
+            | TokenKind::BigInt(_)
+            | TokenKind::String(_)
+            | TokenKind::TemplateNoSubstitution(_)
+            | TokenKind::TemplateTail(_)
+            | TokenKind::RegExp { .. }
+            | TokenKind::True
+            | TokenKind::False
+            | TokenKind::Null
+            | TokenKind::This
+            | TokenKind::RParen
+            | TokenKind::RBracket
+            | TokenKind::PlusPlus
+            | TokenKind::MinusMinus
+    )
+}
+
+fn is_line_terminator_byte(b: u8) -> bool {
+    b == b'\n' || b == b'\r'
 }
 
 fn is_ident_start(b: u8) -> bool {
@@ -1318,6 +1423,62 @@ mod tests {
                 TokenKind::Eq,
                 TokenKind::Number("1".into()),
                 TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_regexp_literal() {
+        assert_eq!(
+            kinds(r#"let r = /a+b/i;"#),
+            vec![
+                TokenKind::Let,
+                TokenKind::Ident("r".into()),
+                TokenKind::Eq,
+                TokenKind::RegExp {
+                    pattern: "a+b".into(),
+                    flags: "i".into(),
+                },
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds(r#"/a\/b/"#),
+            vec![
+                TokenKind::RegExp {
+                    pattern: r#"a\/b"#.into(),
+                    flags: "".into(),
+                },
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds(r#"/[a/]/"#),
+            vec![
+                TokenKind::RegExp {
+                    pattern: "[a/]".into(),
+                    flags: "".into(),
+                },
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("10 / 2"),
+            vec![
+                TokenKind::Number("10".into()),
+                TokenKind::Slash,
+                TokenKind::Number("2".into()),
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("a /= b"),
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::SlashEq,
+                TokenKind::Ident("b".into()),
                 TokenKind::Eof,
             ]
         );
