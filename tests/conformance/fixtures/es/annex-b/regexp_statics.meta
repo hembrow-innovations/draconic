@@ -1,0 +1,6 @@
+id: es/annex-b/regexp_statics
+targets: js,native
+js.exit: 0
+js.check: if (m0 !== "abcd") process.exit(1); if (m1 !== "b") process.exit(2); if (m2 !== "c") process.exit(3); if (inp !== "xyabcdz") process.exit(4); if (inpAlias !== "xyabcdz") process.exit(5); if (d1 !== "b") process.exit(6); if (d2 !== "c") process.exit(7); if (d3 !== "") process.exit(8); if (lm !== "abcd") process.exit(9); if (lmAlias !== "abcd") process.exit(10); if (lp !== "c") process.exit(11); if (lpAlias !== "c") process.exit(12); if (lc !== "xy") process.exit(13); if (lcAlias !== "xy") process.exit(14); if (rc !== "z") process.exit(15); if (rcAlias !== "z") process.exit(16); if (t1 !== false) process.exit(17); if (afterFailInp !== "xyabcdz") process.exit(18); if (afterFailD1 !== "b") process.exit(19); if (d1b !== "xx") process.exit(20); if (d2b !== "yy") process.exit(21); if (lmb !== "xxyy") process.exit(22);
+native.exit: 0
+native.stdout: hello\n

@@ -162,6 +162,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E16.03 | done | both | Indirect eval: `(0, eval)(s)` / `globalThis.eval(s)` (global scope; not caller lexical) | `tests/conformance` fixtures `es/eval` |
 | E17 | done | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
 | E18 | todo | both | Remaining Annex B / full 262 gaps (track explicitly, do not drop) | `tests/conformance/es/annex-b` |
+| E18.16 | done | both | RegExp constructor Annex B statics (B.2.5): `$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, `lastParen`/`$+`, `leftContext`/`$\``, `rightContext`/`$'` after match/exec | `tests/conformance` fixtures `es/annex-b` |
 | E18.15 | done | both | `var` in `for` heads: `for (var i=…;…;…)`, `for (var k in/of …)`, Annex B.3.5 `for (var k = init in obj)` | `tests/conformance` fixtures `es/annex-b` |
 | E18.14 | done | both | `var` declarations: `var x` / `var x = expr` (function-scoped hoist; redeclaration; no TDZ; simple ident) | `tests/conformance` fixtures `es/annex-b` |
 | E18.13 | done | both | Block-level function declarations (Annex B.3.2): `{ function f(){…} }` (non-strict); name block-local + enclosing var-like binding; assigned when block runs | `tests/conformance` fixtures `es/annex-b` |
