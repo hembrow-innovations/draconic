@@ -266,3 +266,13 @@ fn arguments_object_fixture_present() {
 fn arguments_object_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/arguments_object");
 }
+
+#[test]
+fn param_destructure_fixture_present() {
+    assert_fixture_present("es/annex-b/param_destructure");
+}
+
+#[test]
+fn param_destructure_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/param_destructure");
+}

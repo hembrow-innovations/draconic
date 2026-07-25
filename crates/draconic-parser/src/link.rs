@@ -615,7 +615,7 @@ fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans)
 
 fn uniqueify_params_spans(params: &mut [Param], spans: &mut SyntheticSpans) {
     for p in params {
-        p.name.span = spans.next();
+        uniqueify_binding_spans(&mut p.binding, spans);
         if let Some(default) = &mut p.default {
             uniqueify_expr_spans(default, spans);
         }
@@ -1240,7 +1240,7 @@ fn predeclare_nested(stmt: &Stmt, scopes: &mut ScopeStack) {
 
 fn rename_params(params: &mut [Param], renames: &HashMap<String, String>, scopes: &mut ScopeStack) {
     for p in params.iter_mut() {
-        scopes.declare_nested(&p.name.name);
+        rename_binding_decl(&mut p.binding, renames, scopes);
         if let Some(default) = &mut p.default {
             rename_expr(default, renames, scopes);
         }

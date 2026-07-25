@@ -547,11 +547,12 @@ pub enum ArrowBody {
     Block(Box<Stmt>),
 }
 
-/// Formal parameter: `name`, `name: T`, `name = default`, `name: T = default`, or `...name` / `...name: T`.
+/// Formal parameter: binding pattern (ident / object / array), optional type + default, or rest.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
-    pub name: Ident,
-    /// Optional type annotation after the parameter name.
+    /// `name`, `{ a, b }`, `[a, b]`, etc. Rest params use a simple ident binding.
+    pub binding: BindingPattern,
+    /// Optional type annotation after the parameter binding.
     pub type_ann: Option<TypeAnn>,
     pub default: Option<Expr>,
     /// `true` for a rest parameter (`...name`). Must be last; no default.
@@ -1758,11 +1759,19 @@ fn dump_params(params: &[Param], level: usize, out: &mut String) {
     indent(level, out);
     out.push_str("params:\n");
     for p in params {
-        indent(level + 1, out);
-        if p.rest {
-            out.push_str(&format!("rest: {}\n", p.name.name));
-        } else {
-            out.push_str(&format!("name: {}\n", p.name.name));
+        match (&p.binding, p.rest) {
+            (BindingPattern::Ident(id), true) => {
+                indent(level + 1, out);
+                out.push_str(&format!("rest: {}\n", id.name));
+            }
+            (binding, false) => {
+                dump_binding_pattern(binding, level + 1, out);
+            }
+            (binding, true) => {
+                indent(level + 1, out);
+                out.push_str("rest:\n");
+                dump_binding_pattern(binding, level + 2, out);
+            }
         }
         if let Some(ann) = &p.type_ann {
             indent(level + 2, out);

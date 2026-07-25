@@ -862,7 +862,7 @@ fn emit_params(out: &mut String, params: &[draconic_ir::Param], names: &HashMap<
         if p.rest {
             out.push_str("...");
         }
-        out.push_str(local_name(names, p.local));
+        emit_pattern(out, &p.pattern, names);
         if let Some(default) = &p.default {
             out.push_str(" = ");
             emit_expr(out, default, names);

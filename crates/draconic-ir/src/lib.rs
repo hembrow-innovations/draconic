@@ -366,7 +366,7 @@ pub enum Pattern {
 /// Formal parameter in IR, optionally with a default initializer or rest flag.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
-    pub local: LocalId,
+    pub pattern: Pattern,
     pub default: Option<Expr>,
     pub rest: bool,
 }
@@ -1517,22 +1517,13 @@ fn lower_params(
 ) -> Vec<Param> {
     params
         .iter()
-        .map(|p| {
-            let local = checked
-                .bound
-                .symbols()
-                .iter()
-                .find(|s| s.span == p.name.span)
-                .map(|s| s.id)
-                .expect("param binding must be declared");
-            Param {
-                local,
-                default: p
-                    .default
-                    .as_ref()
-                    .map(|e| lower_expr(checked, e, super_class)),
-                rest: p.rest,
-            }
+        .map(|p| Param {
+            pattern: lower_binding_pattern(checked, &p.binding),
+            default: p
+                .default
+                .as_ref()
+                .map(|e| lower_expr(checked, e, super_class)),
+            rest: p.rest,
         })
         .collect()
 }
@@ -2342,11 +2333,23 @@ fn dump_params(params: &[Param], level: usize, out: &mut String) {
     indent(level, out);
     out.push_str("params:\n");
     for p in params {
-        indent(level + 1, out);
-        if p.rest {
-            out.push_str(&format!("rest %{}\n", p.local.0));
-        } else {
-            out.push_str(&format!("%{}\n", p.local.0));
+        match (&p.pattern, p.rest) {
+            (Pattern::Local(id), true) => {
+                indent(level + 1, out);
+                out.push_str(&format!("rest %{}\n", id.0));
+            }
+            (Pattern::Local(id), false) => {
+                indent(level + 1, out);
+                out.push_str(&format!("%{}\n", id.0));
+            }
+            (pat, true) => {
+                indent(level + 1, out);
+                out.push_str("rest:\n");
+                dump_pattern(pat, level + 2, out);
+            }
+            (pat, false) => {
+                dump_pattern(pat, level + 1, out);
+            }
         }
         if let Some(default) = &p.default {
             indent(level + 2, out);

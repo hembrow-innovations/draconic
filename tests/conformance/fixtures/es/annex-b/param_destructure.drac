@@ -1,0 +1,43 @@
+function f({ a, b }) {
+  return a + b;
+}
+function g([x, y]) {
+  return x + y;
+}
+function h({ a: p, b: q }) {
+  return p + q;
+}
+function nest({ outer: { inner: n }, z }) {
+  return n + z;
+}
+function withRest({ a, ...rest }) {
+  return a + rest.b + rest.c;
+}
+function arrRest([a, ...rest]) {
+  return a + rest[0] + rest[1];
+}
+function defaults({ a = 10, b = 20 } = {}) {
+  return a + b;
+}
+function arrDef([a = 1, b = 2] = []) {
+  return a + b;
+}
+let arrow = ({ x, y }) => x + y;
+let arrowArr = ([m, n]) => m * n;
+function mixed(id, { a }, [b]) {
+  return id + a + b;
+}
+let o = { a: 1, b: 2, c: 3 };
+let r1 = f(o);
+let r2 = g([10, 20]);
+let r3 = h({ a: 3, b: 4 });
+let r4 = nest({ outer: { inner: 5 }, z: 6 });
+let r5 = withRest({ a: 1, b: 2, c: 3 });
+let r6 = arrRest([1, 2, 3]);
+let r7 = defaults({});
+let r8 = defaults({ a: 5 });
+let r9 = arrDef([]);
+let r10 = arrDef([7]);
+let r11 = arrow({ x: 8, y: 9 });
+let r12 = arrowArr([3, 4]);
+let r13 = mixed(100, { a: 10 }, [1]);

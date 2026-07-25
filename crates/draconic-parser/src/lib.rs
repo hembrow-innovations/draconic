@@ -713,16 +713,16 @@ impl Parser {
         Ok(params)
     }
 
-    /// `name`, `name: T`, `name = AssignmentExpression`, `name: T = …`, or `...name` / `...name: T`.
+    /// Binding pattern param, optional `: T` / `= default`, or `...name` / `...name: T`.
     fn parse_param(&mut self) -> Result<Param, Diagnostic> {
         if self.check(&TokenKind::DotDotDot) {
             let dots_start = self.current().span.start.0;
             self.bump();
             let p = self.expect_ident()?;
-            let name = Ident {
+            let binding = BindingPattern::Ident(Ident {
                 name: p.ident_name(),
                 span: Span::new(dots_start, p.span.end.0),
-            };
+            });
             let type_ann = self.parse_optional_type_ann()?;
             if self.check(&TokenKind::Eq) {
                 return Err(Diagnostic::new(
@@ -731,17 +731,13 @@ impl Parser {
                 ));
             }
             return Ok(Param {
-                name,
+                binding,
                 type_ann,
                 default: None,
                 rest: true,
             });
         }
-        let p = self.expect_ident()?;
-        let name = Ident {
-            name: p.ident_name(),
-            span: p.span,
-        };
+        let binding = self.parse_binding_pattern()?;
         let type_ann = self.parse_optional_type_ann()?;
         let default = if self.check(&TokenKind::Eq) {
             self.bump();
@@ -750,7 +746,7 @@ impl Parser {
             None
         };
         Ok(Param {
-            name,
+            binding,
             type_ann,
             default,
             rest: false,
@@ -1817,10 +1813,10 @@ impl Parser {
             let p = self.expect_ident()?;
             (
                 vec![Param {
-                    name: Ident {
+                    binding: BindingPattern::Ident(Ident {
                         name: p.ident_name(),
                         span: p.span,
-                    },
+                    }),
                     type_ann: None,
                     default: None,
                     rest: false,

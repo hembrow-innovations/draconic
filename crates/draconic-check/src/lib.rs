@@ -1471,9 +1471,10 @@ impl Binder {
 
     fn bind_params(&mut self, params: &[Param]) -> Result<(), Diagnostic> {
         for p in params {
-            self.declare(p.name.name.clone(), p.name.span, BindingKind::Let)?;
+            self.declare_binding(&p.binding, BindingKind::Let)?;
         }
         for p in params {
+            self.bind_pattern_defaults(&p.binding)?;
             if let Some(default) = &p.default {
                 self.bind_expr(default)?;
             }
@@ -2832,23 +2833,16 @@ impl<'a> Checker<'a> {
                 if i != params.len() - 1 {
                     return Err(Diagnostic::new(
                         "rest parameter must be last formal parameter".to_string(),
-                        p.name.span,
+                        p.binding.span(),
                     ));
                 }
                 if p.default.is_some() {
                     return Err(Diagnostic::new(
                         "rest parameter cannot have a default".to_string(),
-                        p.name.span,
+                        p.binding.span(),
                     ));
                 }
             }
-            let pid = self
-                .bound
-                .symbols()
-                .iter()
-                .find(|s| s.span == p.name.span)
-                .map(|s| s.id)
-                .expect("param binding must be declared");
             let ann_ty = match &p.type_ann {
                 Some(ann) => Some(self.resolve_type_ann(ann)?),
                 None => None,
@@ -2859,7 +2853,7 @@ impl<'a> Checker<'a> {
                     self.require_assignable_expr(def_ty, ann_ty, default)?;
                 }
             }
-            self.symbol_types[pid.0 as usize] = ann_ty.unwrap_or(Type::Any);
+            self.check_binding_pattern(&p.binding, ann_ty.unwrap_or(Type::Any))?;
         }
         Ok(())
     }

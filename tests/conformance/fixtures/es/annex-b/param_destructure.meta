@@ -1,0 +1,6 @@
+id: es/annex-b/param_destructure
+targets: js,native
+js.exit: 0
+js.check: if (r1 !== 3) process.exit(1); if (r2 !== 30) process.exit(2); if (r3 !== 7) process.exit(3); if (r4 !== 11) process.exit(4); if (r5 !== 6) process.exit(5); if (r6 !== 6) process.exit(6); if (r7 !== 30) process.exit(7); if (r8 !== 25) process.exit(8); if (r9 !== 3) process.exit(9); if (r10 !== 9) process.exit(10); if (r11 !== 17) process.exit(11); if (r12 !== 12) process.exit(12); if (r13 !== 111) process.exit(13);
+native.exit: 0
+native.stdout: hello\n
