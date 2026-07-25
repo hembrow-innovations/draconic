@@ -2,62 +2,57 @@
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
-#[test]
-fn escape_unescape_fixture_present() {
+fn assert_fixture_present(id: &str) {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "es/annex-b/escape_unescape"),
-        "missing es/annex-b/escape_unescape fixture, got {ids:?}"
+        ids.iter().any(|x| *x == id),
+        "missing {id} fixture, got {ids:?}"
     );
+}
+
+fn assert_fixture_runs_js_and_native(id: &str) {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
+    assert!(fixture.targets.contains(&Target::Js));
+    assert!(fixture.targets.contains(&Target::Native));
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn escape_unescape_fixture_present() {
+    assert_fixture_present("es/annex-b/escape_unescape");
 }
 
 #[test]
 fn escape_unescape_runs_js_and_native() {
-    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.id == "es/annex-b/escape_unescape")
-        .expect("es/annex-b/escape_unescape");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
-    for r in run_fixture(fixture) {
-        assert!(
-            r.ok,
-            "{} @ {}: {}",
-            r.fixture_id,
-            r.target.as_str(),
-            r.message
-        );
-    }
+    assert_fixture_runs_js_and_native("es/annex-b/escape_unescape");
 }
 
 #[test]
 fn object_proto_fixture_present() {
-    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
-    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
-    assert!(
-        ids.iter().any(|id| *id == "es/annex-b/object_proto"),
-        "missing es/annex-b/object_proto fixture, got {ids:?}"
-    );
+    assert_fixture_present("es/annex-b/object_proto");
 }
 
 #[test]
 fn object_proto_runs_js_and_native() {
-    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.id == "es/annex-b/object_proto")
-        .expect("es/annex-b/object_proto");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
-    for r in run_fixture(fixture) {
-        assert!(
-            r.ok,
-            "{} @ {}: {}",
-            r.fixture_id,
-            r.target.as_str(),
-            r.message
-        );
-    }
+    assert_fixture_runs_js_and_native("es/annex-b/object_proto");
+}
+
+#[test]
+fn string_proto_annex_fixture_present() {
+    assert_fixture_present("es/annex-b/string_proto_annex");
+}
+
+#[test]
+fn string_proto_annex_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/string_proto_annex");
 }
