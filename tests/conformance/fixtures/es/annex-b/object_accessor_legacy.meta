@@ -1,0 +1,6 @@
+id: es/annex-b/object_accessor_legacy
+targets: js,native
+js.exit: 0
+js.check: if (t_dg !== "function") process.exit(1); if (t_ds !== "function") process.exit(2); if (t_lg !== "function") process.exit(3); if (t_ls !== "function") process.exit(4); if (a !== 42) process.exit(5); if (b !== "function") process.exit(6); if (c !== 42) process.exit(7); if (d !== 7) process.exit(8); if (e !== "function") process.exit(9); if (f !== 9) process.exit(10); if (h !== undefined) process.exit(11); if (i !== undefined) process.exit(12); if (j !== undefined) process.exit(13); if (k !== undefined) process.exit(14); if (m !== "ok") process.exit(15); if (q !== "ok") process.exit(16);
+native.exit: 0
+native.stdout: hello\n

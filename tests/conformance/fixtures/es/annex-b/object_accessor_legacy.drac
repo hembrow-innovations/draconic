@@ -1,0 +1,38 @@
+let t_dg = typeof Object.prototype.__defineGetter__;
+let t_ds = typeof Object.prototype.__defineSetter__;
+let t_lg = typeof Object.prototype.__lookupGetter__;
+let t_ls = typeof Object.prototype.__lookupSetter__;
+
+let o = {};
+o.__defineGetter__("x", function () {
+  return 42;
+});
+let a = o.x;
+let g = o.__lookupGetter__("x");
+let b = typeof g;
+let c = g.call(o);
+
+let n = 0;
+o.__defineSetter__("y", function (v) {
+  n = v;
+});
+o.y = 7;
+let d = n;
+let s = o.__lookupSetter__("y");
+let e = typeof s;
+s.call(o, 9);
+let f = n;
+
+let plain = { z: 1 };
+let h = plain.__lookupGetter__("z");
+let i = plain.__lookupSetter__("z");
+let j = plain.__lookupGetter__("missing");
+let k = plain.__lookupSetter__("missing");
+
+let via = {};
+Object.prototype.__defineGetter__.call(via, "p", function () {
+  return "ok";
+});
+let m = via.p;
+let viaG = Object.prototype.__lookupGetter__.call(via, "p");
+let q = viaG.call(via);

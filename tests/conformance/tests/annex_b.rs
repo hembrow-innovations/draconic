@@ -86,3 +86,13 @@ fn string_trim_left_right_fixture_present() {
 fn string_trim_left_right_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/string_trim_left_right");
 }
+
+#[test]
+fn object_accessor_legacy_fixture_present() {
+    assert_fixture_present("es/annex-b/object_accessor_legacy");
+}
+
+#[test]
+fn object_accessor_legacy_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/object_accessor_legacy");
+}
