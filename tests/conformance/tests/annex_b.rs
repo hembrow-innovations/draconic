@@ -236,3 +236,13 @@ fn instanceof_fixture_present() {
 fn instanceof_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/instanceof");
 }
+
+#[test]
+fn accessors_fixture_present() {
+    assert_fixture_present("es/annex-b/accessors");
+}
+
+#[test]
+fn accessors_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/accessors");
+}

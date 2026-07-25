@@ -1,9 +1,9 @@
 //! Shared IR lowered from checked Programs (ROADMAP B06).
 
 use draconic_ast::{
-    Arg as AstArg, ArrayElement as AstArrayElement, ArrayPatternElement, AssignOp, BinaryOp,
-    BindingPattern, ClassElement, Expr as AstExpr, Ident, ObjectPatternProp, ObjectProp as AstObjectProp,
-    Stmt as AstStmt, UnaryOp, UpdateOp,
+    AccessorKind, Arg as AstArg, ArrayElement as AstArrayElement, ArrayPatternElement, AssignOp,
+    BinaryOp, BindingPattern, ClassElement, Expr as AstExpr, Ident, ObjectPatternProp,
+    ObjectProp as AstObjectProp, Stmt as AstStmt, UnaryOp, UpdateOp,
 };
 use draconic_check::{CheckedProgram, Type};
 use draconic_diagnostics::Span;
@@ -287,6 +287,12 @@ pub enum ObjectPropKey {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectProp {
     Property {
+        key: ObjectPropKey,
+        value: Expr,
+    },
+    /// `get key() { … }` / `set key(v) { … }` — value is the accessor function.
+    Accessor {
+        kind: AccessorKind,
         key: ObjectPropKey,
         value: Expr,
     },
@@ -750,6 +756,13 @@ fn lower_class(
     let mut ctor_params = Vec::new();
     let mut ctor_body = Vec::new();
     let mut methods: Vec<(&Ident, &Vec<draconic_ast::Param>, &AstStmt, bool, bool)> = Vec::new();
+    let mut accessors: Vec<(
+        AccessorKind,
+        &Ident,
+        &Vec<draconic_ast::Param>,
+        &AstStmt,
+        bool,
+    )> = Vec::new();
 
     for el in elements {
         match el {
@@ -771,6 +784,22 @@ fn lower_class(
                     body.as_ref(),
                     *is_static,
                     *is_generator,
+                ));
+            }
+            ClassElement::Accessor {
+                kind,
+                name: acc_name,
+                params,
+                body,
+                is_static,
+                ..
+            } => {
+                accessors.push((
+                    *kind,
+                    acc_name,
+                    params,
+                    body.as_ref(),
+                    *is_static,
                 ));
             }
         }
@@ -823,6 +852,87 @@ fn lower_class(
                 op: AssignOp::Eq,
                 value: Box::new(method_fn),
                 ty: Type::Function,
+            },
+        });
+    }
+
+    for (kind, acc_name, params, body, is_static) in accessors {
+        let accessor_fn = Expr::Function {
+            name: None,
+            params: lower_params(checked, params, super_class),
+            body: lower_fn_body(checked, body, super_class),
+            is_async: false,
+            is_generator: false,
+            ty: Type::Function,
+        };
+        let class_ref = Expr::Local {
+            id: local,
+            ty: Type::Function,
+        };
+        let target_object = if is_static {
+            class_ref
+        } else {
+            Expr::Member {
+                object: Box::new(class_ref),
+                property: Box::new(Expr::String {
+                    value: "prototype".into(),
+                    ty: Type::String,
+                }),
+                computed: false,
+                ty: Type::Any,
+            }
+        };
+        let kind_key = match kind {
+            AccessorKind::Get => "get",
+            AccessorKind::Set => "set",
+        };
+        // Object.defineProperty(target, name, { get|set: fn, configurable: true, enumerable: false })
+        let desc = Expr::Object {
+            properties: vec![
+                ObjectProp::Property {
+                    key: ObjectPropKey::Static(kind_key.into()),
+                    value: accessor_fn,
+                },
+                ObjectProp::Property {
+                    key: ObjectPropKey::Static("configurable".into()),
+                    value: Expr::Boolean {
+                        value: true,
+                        ty: Type::Boolean,
+                    },
+                },
+                ObjectProp::Property {
+                    key: ObjectPropKey::Static("enumerable".into()),
+                    value: Expr::Boolean {
+                        value: false,
+                        ty: Type::Boolean,
+                    },
+                },
+            ],
+            ty: Type::Object,
+        };
+        out.push(Stmt::Expr {
+            expr: Expr::Call {
+                callee: Box::new(Expr::Member {
+                    object: Box::new(Expr::IdentName {
+                        name: "Object".into(),
+                        ty: Type::Object,
+                    }),
+                    property: Box::new(Expr::String {
+                        value: "defineProperty".into(),
+                        ty: Type::String,
+                    }),
+                    computed: false,
+                    ty: Type::Function,
+                }),
+                args: vec![
+                    Arg::Expr(target_object),
+                    Arg::Expr(Expr::String {
+                        value: acc_name.name.clone().into(),
+                        ty: Type::String,
+                    }),
+                    Arg::Expr(desc),
+                ],
+                ty: Type::Any,
             },
         });
     }
@@ -1267,6 +1377,37 @@ fn lower_expr(
                         },
                         value: lower_expr(checked, value, super_class),
                     },
+                    AstObjectProp::Accessor {
+                        kind,
+                        key,
+                        params,
+                        body,
+                        ..
+                    } => {
+                        let key = match key {
+                            draconic_ast::ObjectKey::Ident(id) => {
+                                ObjectPropKey::Static(id.name.clone().into())
+                            }
+                            draconic_ast::ObjectKey::String(s) => {
+                                ObjectPropKey::Static(s.value.clone())
+                            }
+                            draconic_ast::ObjectKey::Computed(expr) => {
+                                ObjectPropKey::Computed(lower_expr(checked, expr, super_class))
+                            }
+                        };
+                        ObjectProp::Accessor {
+                            kind: *kind,
+                            key,
+                            value: Expr::Function {
+                                name: None,
+                                params: lower_params(checked, params, super_class),
+                                body: lower_fn_body(checked, body, super_class),
+                                is_async: false,
+                                is_generator: false,
+                                ty: Type::Function,
+                            },
+                        }
+                    }
                     AstObjectProp::Spread { expr, .. } => {
                         ObjectProp::Spread(lower_expr(checked, expr, super_class))
                     }
@@ -2091,6 +2232,30 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                             dump_expr(value, level + 3, out);
                         }
                     },
+                    ObjectProp::Accessor { kind, key, value } => {
+                        let kind_s = match kind {
+                            AccessorKind::Get => "get",
+                            AccessorKind::Set => "set",
+                        };
+                        match key {
+                            ObjectPropKey::Static(k) => {
+                                out.push_str(&format!(
+                                    "accessor {kind_s} {:?}:\n",
+                                    k.to_string_lossy()
+                                ));
+                                dump_expr(value, level + 2, out);
+                            }
+                            ObjectPropKey::Computed(k) => {
+                                out.push_str(&format!("accessor {kind_s} computed:\n"));
+                                indent(level + 2, out);
+                                out.push_str("key:\n");
+                                dump_expr(k, level + 3, out);
+                                indent(level + 2, out);
+                                out.push_str("value:\n");
+                                dump_expr(value, level + 3, out);
+                            }
+                        }
+                    }
                     ObjectProp::Spread(expr) => {
                         out.push_str("spread:\n");
                         dump_expr(expr, level + 2, out);

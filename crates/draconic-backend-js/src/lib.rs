@@ -581,6 +581,48 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                         }
                         emit_expr(out, value, names);
                     }
+                    draconic_ir::ObjectProp::Accessor { kind, key, value } => {
+                        let kind_s = match kind {
+                            draconic_ast::AccessorKind::Get => "get ",
+                            draconic_ast::AccessorKind::Set => "set ",
+                        };
+                        out.push_str(kind_s);
+                        match key {
+                            draconic_ir::ObjectPropKey::Static(k) => {
+                                if let Some(s) = k.to_string_strict().filter(|s| is_js_ident(s)) {
+                                    out.push_str(&s);
+                                } else {
+                                    push_js_string(out, k);
+                                }
+                            }
+                            draconic_ir::ObjectPropKey::Computed(k) => {
+                                out.push('[');
+                                emit_expr(out, k, names);
+                                out.push(']');
+                            }
+                        }
+                        // value is Function — emit as method body `(params) { … }`
+                        match value {
+                            Expr::Function {
+                                params,
+                                body,
+                                ..
+                            } => {
+                                out.push('(');
+                                emit_params(out, params, names);
+                                out.push_str(") {\n");
+                                for s in body {
+                                    emit_stmt(out, s, names);
+                                }
+                                out.push('}');
+                            }
+                            other => {
+                                // Fallback: treat as value expression (should not happen).
+                                out.push_str(": ");
+                                emit_expr(out, other, names);
+                            }
+                        }
+                    }
                     draconic_ir::ObjectProp::Spread(expr) => {
                         out.push_str("...");
                         emit_expr(out, expr, names);

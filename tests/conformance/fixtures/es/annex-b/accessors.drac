@@ -1,0 +1,52 @@
+let _priv = 0;
+let o = {
+  get x() {
+    return _priv;
+  },
+  set x(v) {
+    _priv = v;
+  },
+  get y() {
+    return this.x + 1;
+  }
+};
+let a = o.x;
+o.x = 10;
+let b = o.x;
+let c = o.y;
+let k = "z";
+let p = {
+  get [k]() {
+    return 7;
+  },
+  set [k](v) {
+    _priv = v;
+  }
+};
+let d = p.z;
+p.z = 3;
+let e = _priv;
+class C {
+  constructor() {
+    this._n = 1;
+  }
+  get n() {
+    return this._n;
+  }
+  set n(v) {
+    this._n = v;
+  }
+  static get tag() {
+    return "C";
+  }
+  static set tag(v) {
+    C._tag = v;
+  }
+}
+let inst = new C();
+let f = inst.n;
+inst.n = 9;
+let g = inst.n;
+let h = C.tag;
+C.tag = "D";
+let i = C._tag;

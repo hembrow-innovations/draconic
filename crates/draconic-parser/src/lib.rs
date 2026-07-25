@@ -1,6 +1,6 @@
 use draconic_ast::{
-    dump_program, Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BinaryOp,
-    BigIntLit, BindingKind, BindingPattern, ClassElement, ExportSpecifier, Expr, Ident,
+    dump_program, AccessorKind, Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp,
+    BinaryOp, BigIntLit, BindingKind, BindingPattern, ClassElement, ExportSpecifier, Expr, Ident,
     ImportSpecifier, NumberLit, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt,
     StringLit, SwitchCase, TemplateElement, UnaryOp, UpdateOp,
 };
@@ -566,6 +566,40 @@ impl Parser {
         } else {
             false
         };
+        // `get name()` / `set name(v)` (not `get()` method or `get:`)
+        if let Some(kind) = self.peek_accessor_kind() {
+            self.bump(); // consume get/set
+            let name_tok = self.expect_ident()?;
+            let name = Ident {
+                name: name_tok.ident_name(),
+                span: name_tok.span,
+            };
+            self.expect(&TokenKind::LParen)?;
+            let params = self.parse_param_list()?;
+            self.expect(&TokenKind::RParen)?;
+            if kind == AccessorKind::Get && !params.is_empty() {
+                return Err(Diagnostic::new(
+                    "getter must have zero parameters".to_string(),
+                    name.span,
+                ));
+            }
+            if kind == AccessorKind::Set && params.len() != 1 {
+                return Err(Diagnostic::new(
+                    "setter must have exactly one parameter".to_string(),
+                    name.span,
+                ));
+            }
+            let body = Box::new(self.parse_block()?);
+            let end = stmt_span(&body).end.0;
+            return Ok(ClassElement::Accessor {
+                kind,
+                name,
+                params,
+                body,
+                is_static,
+                span: Span::new(start, end),
+            });
+        }
         let is_generator = if self.check(&TokenKind::Star) {
             self.bump();
             true
@@ -2327,6 +2361,7 @@ impl Parser {
     }
 
     /// `key: value`, shorthand `{ a }`, method `{ m() {} }` / `{ *m() {} }`,
+    /// accessor `{ get k(){} }` / `{ set k(v){} }`,
     /// spread `{ ...e }`, or computed `{ [e]: v }` / `{ [e]() {} }` / `{ *[e]() {} }`.
     fn parse_object_prop(&mut self) -> Result<ObjectProp, Diagnostic> {
         let prop_start = self.current_span().start.0;
@@ -2336,6 +2371,35 @@ impl Parser {
             let end = expr_span(&expr).end.0;
             return Ok(ObjectProp::Spread {
                 expr,
+                span: Span::new(prop_start, end),
+            });
+        }
+        // Accessor: `get name() {}` / `set name(v) {}` (not `get:` / `get()` / shorthand `get`).
+        if let Some(kind) = self.peek_accessor_kind() {
+            self.bump(); // consume get/set
+            let key = self.parse_object_key()?;
+            self.expect(&TokenKind::LParen)?;
+            let params = self.parse_param_list()?;
+            self.expect(&TokenKind::RParen)?;
+            if kind == AccessorKind::Get && !params.is_empty() {
+                return Err(Diagnostic::new(
+                    "getter must have zero parameters".to_string(),
+                    self.current_span(),
+                ));
+            }
+            if kind == AccessorKind::Set && params.len() != 1 {
+                return Err(Diagnostic::new(
+                    "setter must have exactly one parameter".to_string(),
+                    self.current_span(),
+                ));
+            }
+            let body = Box::new(self.parse_block()?);
+            let end = stmt_span(&body).end.0;
+            return Ok(ObjectProp::Accessor {
+                kind,
+                key,
+                params,
+                body,
                 span: Span::new(prop_start, end),
             });
         }
@@ -2528,6 +2592,53 @@ impl Parser {
             is_generator,
             span: Span::new(start, end),
         })
+    }
+
+    /// True when current token is `get`/`set` and the next token starts an accessor name.
+    fn peek_accessor_kind(&self) -> Option<AccessorKind> {
+        let kind = match &self.current().kind {
+            TokenKind::Ident(name) if name == "get" => AccessorKind::Get,
+            TokenKind::Ident(name) if name == "set" => AccessorKind::Set,
+            _ => return None,
+        };
+        let next = self.tokens.get(self.pos + 1)?;
+        match &next.kind {
+            TokenKind::Ident(_) | TokenKind::String(_) | TokenKind::LBracket => Some(kind),
+            _ => None,
+        }
+    }
+
+    /// Object literal / accessor property key: ident, string, or `[expr]`.
+    fn parse_object_key(&mut self) -> Result<ObjectKey, Diagnostic> {
+        let tok = self.current().clone();
+        match &tok.kind {
+            TokenKind::Ident(name) => {
+                let name = name.clone();
+                self.bump();
+                Ok(ObjectKey::Ident(Ident {
+                    name,
+                    span: tok.span,
+                }))
+            }
+            TokenKind::String(value) => {
+                let value = value.clone();
+                self.bump();
+                Ok(ObjectKey::String(StringLit {
+                    value,
+                    span: tok.span,
+                }))
+            }
+            TokenKind::LBracket => {
+                self.bump();
+                let expr = self.parse_assignment()?;
+                self.expect(&TokenKind::RBracket)?;
+                Ok(ObjectKey::Computed(Box::new(expr)))
+            }
+            _ => Err(Diagnostic::new(
+                format!("expected property name, found {:?}", tok.kind),
+                tok.span,
+            )),
+        }
     }
 
     fn parse_primary(&mut self) -> Result<Expr, Diagnostic> {
@@ -3002,6 +3113,7 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 props.push(ObjectPatternProp::Rest(id.clone()));
                 saw_rest = true;
             }
+            ObjectProp::Accessor { .. } => return None,
         }
     }
     Some(Expr::ObjectPattern {
@@ -3100,6 +3212,7 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         props.push(ObjectPatternProp::Rest(id.clone()));
                         saw_rest = true;
                     }
+                    ObjectProp::Accessor { .. } => return None,
                 }
             }
             Some(BindingPattern::Object {
@@ -3849,6 +3962,20 @@ Program
         assert!(dump.contains("FunctionExpression"));
         assert!(dump.contains("key: Computed"));
         assert!(dump.contains("Ident k"));
+    }
+
+    #[test]
+    fn parse_object_and_class_accessors() {
+        let dump = parse_and_dump(
+            "let o = { get x() { return 1; }, set x(v) { }, get [k]() { return 2; } }; class C { get n() { return 0; } set n(v) {} static get t() { return 1; } }",
+        )
+        .unwrap();
+        assert!(dump.contains("accessor get:"), "{dump}");
+        assert!(dump.contains("accessor set:"), "{dump}");
+        assert!(dump.contains("key: Computed"), "{dump}");
+        assert!(dump.contains("Accessor get"), "{dump}");
+        assert!(dump.contains("Accessor set"), "{dump}");
+        assert!(dump.contains("StaticAccessor get"), "{dump}");
     }
 
     #[test]

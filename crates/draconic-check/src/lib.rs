@@ -1097,7 +1097,8 @@ impl Binder {
                 for el in body {
                     match el {
                         ClassElement::Constructor { params, body, .. }
-                        | ClassElement::Method { params, body, .. } => {
+                        | ClassElement::Method { params, body, .. }
+                        | ClassElement::Accessor { params, body, .. } => {
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.bind_stmt(body)?;
@@ -1307,6 +1308,18 @@ impl Binder {
                                 ObjectKey::Computed(expr) => self.bind_expr(expr)?,
                             }
                             self.bind_expr(value)?;
+                        }
+                        ObjectProp::Accessor {
+                            key, params, body, ..
+                        } => {
+                            match key {
+                                ObjectKey::Ident(_) | ObjectKey::String(_) => {}
+                                ObjectKey::Computed(expr) => self.bind_expr(expr)?,
+                            }
+                            self.push_scope_kind(true);
+                            self.bind_params(params)?;
+                            self.bind_stmt(body)?;
+                            self.pop_scope();
                         }
                         ObjectProp::Spread { expr, .. } => self.bind_expr(expr)?,
                     }
@@ -2128,6 +2141,19 @@ impl<'a> Checker<'a> {
                             self.in_async = prev_async;
                             self.in_generator = prev_generator;
                         }
+                        ClassElement::Accessor {
+                            params, body, ..
+                        } => {
+                            self.check_params(params)?;
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = false;
+                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                        }
                     }
                 }
                 Ok(())
@@ -2713,6 +2739,24 @@ impl<'a> Checker<'a> {
                                     ObjectKey::Computed(_) => unreachable!(),
                                 }
                             }
+                        }
+                        ObjectProp::Accessor {
+                            key, params, body, ..
+                        } => {
+                            if let ObjectKey::Computed(expr) = key {
+                                self.check_expr(expr)?;
+                            }
+                            self.check_params(params)?;
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = false;
+                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                            // Accessors make the shape dynamic for structural typing.
+                            structural = false;
                         }
                         ObjectProp::Spread { expr, .. } => {
                             self.check_expr(expr)?;
@@ -4932,6 +4976,12 @@ mod tests {
                                 }
                                 walk_expr(value, name, out);
                             }
+                            ObjectProp::Accessor { key, body, .. } => {
+                                if let ObjectKey::Computed(expr) = key {
+                                    walk_expr(expr, name, out);
+                                }
+                                walk_stmt(body, name, out);
+                            }
                             ObjectProp::Spread { expr, .. } => walk_expr(expr, name, out),
                         }
                     }
@@ -5189,7 +5239,8 @@ mod tests {
                     for el in body {
                         match el {
                             ClassElement::Constructor { body, .. }
-                            | ClassElement::Method { body, .. } => {
+                            | ClassElement::Method { body, .. }
+                            | ClassElement::Accessor { body, .. } => {
                                 walk_stmt(body, name, out);
                             }
                         }

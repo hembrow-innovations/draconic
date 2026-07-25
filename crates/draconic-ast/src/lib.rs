@@ -315,6 +315,22 @@ pub enum ClassElement {
         is_generator: bool,
         span: Span,
     },
+    /// `static? get name() { body }` / `static? set name(v) { body }`
+    Accessor {
+        kind: AccessorKind,
+        name: Ident,
+        params: Vec<Param>,
+        body: Box<Stmt>,
+        is_static: bool,
+        span: Span,
+    },
+}
+
+/// Object/class accessor kind (`get` / `set`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessorKind {
+    Get,
+    Set,
 }
 
 /// One `case test:` or `default:` clause and its statement list.
@@ -486,7 +502,7 @@ pub enum Arg {
     Spread(Expr),
 }
 
-/// One property in an object literal (`key: value`, shorthand, method, or spread).
+/// One property in an object literal (`key: value`, shorthand, method, accessor, or spread).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectProp {
     /// `key: value`, shorthand `{ a }`, or method `{ m() {} }`.
@@ -495,6 +511,14 @@ pub enum ObjectProp {
         value: Expr,
         /// True for property shorthand `{ a }` (value is the same Ident as key).
         shorthand: bool,
+        span: Span,
+    },
+    /// `get key() { … }` / `set key(v) { … }` (incl. computed keys).
+    Accessor {
+        kind: AccessorKind,
+        key: ObjectKey,
+        params: Vec<Param>,
+        body: Box<Stmt>,
         span: Span,
     },
     /// `...expr` spread element.
@@ -1186,6 +1210,31 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         out.push_str("body:\n");
                         dump_stmt(body, level + 3, out);
                     }
+                    ClassElement::Accessor {
+                        kind,
+                        name,
+                        params,
+                        body,
+                        is_static,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        let kind_s = match kind {
+                            AccessorKind::Get => "get",
+                            AccessorKind::Set => "set",
+                        };
+                        if *is_static {
+                            out.push_str(&format!("StaticAccessor {kind_s}\n"));
+                        } else {
+                            out.push_str(&format!("Accessor {kind_s}\n"));
+                        }
+                        indent(level + 2, out);
+                        out.push_str(&format!("name: {}\n", name.name));
+                        dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
                 }
             }
         }
@@ -1569,6 +1618,38 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         indent(level + 2, out);
                         out.push_str("value:\n");
                         dump_expr(value, level + 3, out);
+                    }
+                    ObjectProp::Accessor {
+                        kind,
+                        key,
+                        params,
+                        body,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        let kind_s = match kind {
+                            AccessorKind::Get => "get",
+                            AccessorKind::Set => "set",
+                        };
+                        out.push_str(&format!("accessor {kind_s}:\n"));
+                        indent(level + 2, out);
+                        match key {
+                            ObjectKey::Ident(id) => {
+                                out.push_str(&format!("key: Ident {}\n", id.name))
+                            }
+                            ObjectKey::String(s) => out.push_str(&format!(
+                                "key: String {:?}\n",
+                                s.value.to_string_lossy()
+                            )),
+                            ObjectKey::Computed(expr) => {
+                                out.push_str("key: Computed\n");
+                                dump_expr(expr, level + 3, out);
+                            }
+                        }
+                        dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
                     }
                     ObjectProp::Spread { expr, .. } => {
                         indent(level + 1, out);

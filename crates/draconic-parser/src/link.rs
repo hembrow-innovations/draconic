@@ -506,6 +506,18 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
                         uniqueify_params_spans(params, spans);
                         uniqueify_stmt_spans(body, spans);
                     }
+                    ClassElement::Accessor {
+                        name,
+                        params,
+                        body,
+                        span,
+                        ..
+                    } => {
+                        *span = spans.next();
+                        name.span = spans.next();
+                        uniqueify_params_spans(params, spans);
+                        uniqueify_stmt_spans(body, spans);
+                    }
                 }
             }
         }
@@ -750,6 +762,22 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                             ObjectKey::Computed(e) => uniqueify_expr_spans(e, spans),
                         }
                         uniqueify_expr_spans(value, spans);
+                    }
+                    ObjectProp::Accessor {
+                        key,
+                        params,
+                        body,
+                        span: prop_span,
+                        ..
+                    } => {
+                        *prop_span = spans.next();
+                        match key {
+                            ObjectKey::Ident(id) => id.span = spans.next(),
+                            ObjectKey::String(s) => s.span = spans.next(),
+                            ObjectKey::Computed(e) => uniqueify_expr_spans(e, spans),
+                        }
+                        uniqueify_params_spans(params, spans);
+                        uniqueify_stmt_spans(body, spans);
                     }
                     ObjectProp::Spread {
                         expr,
@@ -1151,7 +1179,8 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
             for el in body.iter_mut() {
                 match el {
                     ClassElement::Constructor { params, body, .. }
-                    | ClassElement::Method { params, body, .. } => {
+                    | ClassElement::Method { params, body, .. }
+                    | ClassElement::Accessor { params, body, .. } => {
                         scopes.push();
                         rename_params(params, renames, scopes);
                         rename_stmt(body, renames, scopes);
@@ -1308,6 +1337,18 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
                             ObjectKey::Ident(_) | ObjectKey::String(_) => {}
                         }
                         rename_expr(value, renames, scopes);
+                    }
+                    ObjectProp::Accessor {
+                        key, params, body, ..
+                    } => {
+                        match key {
+                            ObjectKey::Computed(e) => rename_expr(e, renames, scopes),
+                            ObjectKey::Ident(_) | ObjectKey::String(_) => {}
+                        }
+                        scopes.push();
+                        rename_params(params, renames, scopes);
+                        rename_stmt(body, renames, scopes);
+                        scopes.pop();
                     }
                     ObjectProp::Spread { expr, .. } => rename_expr(expr, renames, scopes),
                 }
