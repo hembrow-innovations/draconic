@@ -105,6 +105,8 @@ pub enum TokenKind {
     DotDotDot,
     Colon,
     Question,
+    /// `?.` optional chaining punctuator (not when followed by a decimal digit).
+    QuestionDot,
     QuestionQuestion,
     QuestionQuestionEq,
     // operators
@@ -352,6 +354,13 @@ impl<'a> Lexer<'a> {
                     } else {
                         TokenKind::QuestionQuestion
                     }
+                } else if !self.is_eof()
+                    && self.peek() == b'.'
+                    && !self.peek_at(1).is_some_and(|b| b.is_ascii_digit())
+                {
+                    // `?.` optional chaining; not when `?.` is followed by a digit (`x?.3:y`).
+                    self.bump();
+                    TokenKind::QuestionDot
                 } else {
                     TokenKind::Question
                 }
@@ -1864,6 +1873,38 @@ mod tests {
                 TokenKind::Ident("f".into()),
                 TokenKind::Colon,
                 TokenKind::Ident("g".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_optional_chain() {
+        assert_eq!(
+            kinds("a?.b?.[c]?.()"),
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::QuestionDot,
+                TokenKind::Ident("b".into()),
+                TokenKind::QuestionDot,
+                TokenKind::LBracket,
+                TokenKind::Ident("c".into()),
+                TokenKind::RBracket,
+                TokenKind::QuestionDot,
+                TokenKind::LParen,
+                TokenKind::RParen,
+                TokenKind::Eof,
+            ]
+        );
+        // `?.` followed by digit is ternary + leading-dot number, not optional chain.
+        assert_eq!(
+            kinds("a?.3:0"),
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::Question,
+                TokenKind::Number(".3".into()),
+                TokenKind::Colon,
+                TokenKind::Number("0".into()),
                 TokenKind::Eof,
             ]
         );

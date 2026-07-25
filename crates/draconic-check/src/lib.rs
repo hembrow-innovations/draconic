@@ -2581,6 +2581,7 @@ impl<'a> Checker<'a> {
                 callee,
                 args,
                 span,
+                ..
             } => {
                 let callee_ty = self.check_expr(callee)?;
                 let mut arg_tys = Vec::with_capacity(args.len());
@@ -2788,6 +2789,7 @@ impl<'a> Checker<'a> {
                 property,
                 computed,
                 span,
+                ..
             } => {
                 let obj_ty = self.check_expr(object)?;
                 let ty = if *computed {

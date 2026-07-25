@@ -400,9 +400,10 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                     object,
                     property,
                     computed,
+                    optional,
                     ..
                 } => {
-                    emit_member_access(out, object, property, *computed, names);
+                    emit_member_access(out, object, property, *computed, *optional, names);
                 }
                 Expr::Call { .. } => {
                     emit_expr(out, tag, names);
@@ -500,17 +501,24 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
             }
             out.push(')');
         }
-        Expr::Call { callee, args, .. } => {
+        Expr::Call {
+            callee,
+            args,
+            optional,
+            ..
+        } => {
             // Member callee must stay a Reference (`obj.m(args)`), not `(obj.m)(args)`,
-            // so `this` is bound to the receiver.
+            // so `this` is bound to the receiver. Optional member + call emits `obj?.m(…)`
+            // (not `(obj?.m)(…)`), which short-circuits the whole call when the base is nullish.
             match callee.as_ref() {
                 Expr::Member {
                     object,
                     property,
                     computed,
+                    optional: mem_opt,
                     ..
                 } => {
-                    emit_member_access(out, object, property, *computed, names);
+                    emit_member_access(out, object, property, *computed, *mem_opt, names);
                 }
                 _ => {
                     out.push('(');
@@ -518,7 +526,11 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                     out.push(')');
                 }
             }
-            out.push('(');
+            if *optional {
+                out.push_str("?.(");
+            } else {
+                out.push('(');
+            }
             emit_args(out, args, names);
             out.push(')');
         }
@@ -651,9 +663,10 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
             object,
             property,
             computed,
+            optional,
             ..
         } => {
-            emit_member_access(out, object, property, *computed, names);
+            emit_member_access(out, object, property, *computed, *optional, names);
         }
     }
 }
@@ -663,21 +676,34 @@ fn emit_member_access(
     object: &Expr,
     property: &Expr,
     computed: bool,
+    optional: bool,
     names: &HashMap<LocalId, &str>,
 ) {
     out.push('(');
     emit_expr(out, object, names);
     out.push(')');
     if computed {
-        out.push('[');
+        if optional {
+            out.push_str("?.[");
+        } else {
+            out.push('[');
+        }
         emit_expr(out, property, names);
         out.push(']');
     } else {
         match property {
             Expr::String { value, .. } => {
                 if let Some(s) = value.to_string_strict().filter(|s| is_js_ident(s)) {
-                    out.push('.');
+                    if optional {
+                        out.push_str("?.");
+                    } else {
+                        out.push('.');
+                    }
                     out.push_str(&s);
+                } else if optional {
+                    out.push_str("?.[");
+                    emit_expr(out, property, names);
+                    out.push(']');
                 } else {
                     out.push('[');
                     emit_expr(out, property, names);
@@ -685,7 +711,11 @@ fn emit_member_access(
                 }
             }
             _ => {
-                out.push('[');
+                if optional {
+                    out.push_str("?.[");
+                } else {
+                    out.push('[');
+                }
                 emit_expr(out, property, names);
                 out.push(']');
             }
@@ -719,7 +749,7 @@ fn emit_assign_target(
             property,
             computed,
         } => {
-            emit_member_access(out, object, property, *computed, names);
+            emit_member_access(out, object, property, *computed, false, names);
         }
         draconic_ir::AssignTarget::ArrayPattern { elements } => {
             emit_array_pattern(out, elements, names);

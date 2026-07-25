@@ -222,6 +222,8 @@ pub enum Expr {
     Call {
         callee: Box<Expr>,
         args: Vec<Arg>,
+        /// `true` for optional call `callee?.(args)`.
+        optional: bool,
         ty: Type,
     },
     /// `new callee(args?)`.
@@ -250,12 +252,14 @@ pub enum Expr {
         elements: Vec<ArrayElement>,
         ty: Type,
     },
-    /// `obj.prop` or `obj[expr]` property read.
+    /// `obj.prop` / `obj[expr]` / optional `obj?.prop` / `obj?.[expr]` property read.
     Member {
         object: Box<Expr>,
         /// Non-computed: string key name as `String` expr. Computed: any expr.
         property: Box<Expr>,
         computed: bool,
+        /// `true` for optional chaining (`?.` / `?.[]`).
+        optional: bool,
         ty: Type,
     },
 }
@@ -836,6 +840,7 @@ fn lower_class(
                     ty: Type::String,
                 }),
                 computed: false,
+                optional: false,
                 ty: Type::Any,
             }
         };
@@ -879,6 +884,7 @@ fn lower_class(
                     ty: Type::String,
                 }),
                 computed: false,
+                optional: false,
                 ty: Type::Any,
             }
         };
@@ -922,6 +928,7 @@ fn lower_class(
                         ty: Type::String,
                     }),
                     computed: false,
+                    optional: false,
                     ty: Type::Function,
                 }),
                 args: vec![
@@ -932,6 +939,7 @@ fn lower_class(
                     }),
                     Arg::Expr(desc),
                 ],
+                optional: false,
                 ty: Type::Any,
             },
         });
@@ -947,6 +955,7 @@ fn lower_class(
                 ty: Type::String,
             }),
             computed: false,
+            optional: false,
             ty: Type::Any,
         };
         let child_proto = Expr::Member {
@@ -959,6 +968,7 @@ fn lower_class(
                 ty: Type::String,
             }),
             computed: false,
+            optional: false,
             ty: Type::Any,
         };
         out.push(Stmt::Expr {
@@ -1198,6 +1208,7 @@ fn lower_expr(
         AstExpr::Call {
             callee,
             args,
+            optional,
             span,
         } => {
             // `super(args)` → `Parent.call(this, ...args)`
@@ -1212,6 +1223,7 @@ fn lower_expr(
                         ty: Type::String,
                     }),
                     computed: false,
+                    optional: false,
                     ty: Type::Function,
                 };
                 let mut call_args = Vec::with_capacity(args.len() + 1);
@@ -1222,6 +1234,7 @@ fn lower_expr(
                 return Expr::Call {
                     callee: Box::new(call_member),
                     args: call_args,
+                    optional: false,
                     ty: expr_ty(checked, *span),
                 };
             }
@@ -1244,6 +1257,7 @@ fn lower_expr(
                             ty: Type::String,
                         }),
                         computed: false,
+                        optional: false,
                         ty: Type::Any,
                     };
                     let prop = if *computed {
@@ -1261,6 +1275,7 @@ fn lower_expr(
                         object: Box::new(parent_proto),
                         property: Box::new(prop),
                         computed: *computed,
+                        optional: false,
                         ty: Type::Function,
                     };
                     let call_member = Expr::Member {
@@ -1270,6 +1285,7 @@ fn lower_expr(
                             ty: Type::String,
                         }),
                         computed: false,
+                        optional: false,
                         ty: Type::Function,
                     };
                     let mut call_args = Vec::with_capacity(args.len() + 1);
@@ -1280,6 +1296,7 @@ fn lower_expr(
                     return Expr::Call {
                         callee: Box::new(call_member),
                         args: call_args,
+                        optional: false,
                         ty: expr_ty(checked, *span),
                     };
                 }
@@ -1290,6 +1307,7 @@ fn lower_expr(
                     .iter()
                     .map(|a| lower_arg(checked, a, super_class))
                     .collect(),
+                optional: *optional,
                 ty: expr_ty(checked, *span),
             }
         }
@@ -1433,6 +1451,7 @@ fn lower_expr(
             object,
             property,
             computed,
+            optional,
             span,
         } => {
             // `super.prop` → `Parent.prototype.prop`
@@ -1447,6 +1466,7 @@ fn lower_expr(
                         ty: Type::String,
                     }),
                     computed: false,
+                    optional: false,
                     ty: Type::Any,
                 };
                 let property = if *computed {
@@ -1464,6 +1484,7 @@ fn lower_expr(
                     object: Box::new(parent_proto),
                     property: Box::new(property),
                     computed: *computed,
+                    optional: false,
                     ty: expr_ty(checked, *span),
                 };
             }
@@ -1482,6 +1503,7 @@ fn lower_expr(
                 object: Box::new(lower_expr(checked, object, super_class)),
                 property: Box::new(property),
                 computed: *computed,
+                optional: *optional,
                 ty: expr_ty(checked, *span),
             }
         }
@@ -2142,9 +2164,18 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                 }
             }
         }
-        Expr::Call { callee, args, ty } => {
+        Expr::Call {
+            callee,
+            args,
+            optional,
+            ty,
+        } => {
             indent(level, out);
-            out.push_str(&format!("Call : {ty}\n"));
+            if *optional {
+                out.push_str(&format!("Call optional : {ty}\n"));
+            } else {
+                out.push_str(&format!("Call : {ty}\n"));
+            }
             indent(level + 1, out);
             out.push_str("callee:\n");
             dump_expr(callee, level + 2, out);
@@ -2284,13 +2315,15 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             object,
             property,
             computed,
+            optional,
             ty,
         } => {
             indent(level, out);
-            if *computed {
-                out.push_str(&format!("Member computed : {ty}\n"));
-            } else {
-                out.push_str(&format!("Member : {ty}\n"));
+            match (*optional, *computed) {
+                (true, true) => out.push_str(&format!("Member optional computed : {ty}\n")),
+                (true, false) => out.push_str(&format!("Member optional : {ty}\n")),
+                (false, true) => out.push_str(&format!("Member computed : {ty}\n")),
+                (false, false) => out.push_str(&format!("Member : {ty}\n")),
             }
             indent(level + 1, out);
             out.push_str("object:\n");
@@ -2555,9 +2588,15 @@ Module
         let module = lower_src("let f; f(1);");
         match &module.body[1] {
             Stmt::Expr {
-                expr: Expr::Call { callee, args, ty },
+                expr: Expr::Call {
+                    callee,
+                    args,
+                    optional,
+                    ty,
+                },
             } => {
                 assert_eq!(*ty, Type::Any);
+                assert!(!*optional);
                 assert!(matches!(callee.as_ref(), Expr::Local { .. }));
                 assert_eq!(args.len(), 1);
                 assert!(matches!(args[0], Arg::Expr(Expr::Number { .. })));

@@ -704,6 +704,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             callee,
             args,
             span,
+            ..
         }
         | Expr::New {
             callee,

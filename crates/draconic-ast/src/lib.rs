@@ -419,6 +419,8 @@ pub enum Expr {
     Call {
         callee: Box<Expr>,
         args: Vec<Arg>,
+        /// `true` for optional call `callee?.(args)`.
+        optional: bool,
         span: Span,
     },
     /// `new callee` or `new callee(args)`.
@@ -457,12 +459,14 @@ pub enum Expr {
         elements: Vec<ArrayElement>,
         span: Span,
     },
-    /// `obj.prop` or `obj[expr]` (property read).
+    /// `obj.prop` / `obj[expr]` / optional `obj?.prop` / `obj?.[expr]` (property read).
     MemberExpression {
         object: Box<Expr>,
         /// Non-computed: `Expr::Ident`. Computed: any expression.
         property: Box<Expr>,
         computed: bool,
+        /// `true` for optional chaining (`?.` / `?.[]`).
+        optional: bool,
         span: Span,
     },
     /// Parenthesized expression — preserved for dump fidelity.
@@ -1485,9 +1489,18 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             }
             dump_expr(arg, level + 1, out);
         }
-        Expr::Call { callee, args, .. } => {
+        Expr::Call {
+            callee,
+            args,
+            optional,
+            ..
+        } => {
             indent(level, out);
-            out.push_str("Call\n");
+            if *optional {
+                out.push_str("Call optional\n");
+            } else {
+                out.push_str("Call\n");
+            }
             indent(level + 1, out);
             out.push_str("callee:\n");
             dump_expr(callee, level + 2, out);
@@ -1680,13 +1693,15 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             object,
             property,
             computed,
+            optional,
             ..
         } => {
             indent(level, out);
-            if *computed {
-                out.push_str("MemberExpression computed\n");
-            } else {
-                out.push_str("MemberExpression\n");
+            match (*optional, *computed) {
+                (true, true) => out.push_str("MemberExpression optional computed\n"),
+                (true, false) => out.push_str("MemberExpression optional\n"),
+                (false, true) => out.push_str("MemberExpression computed\n"),
+                (false, false) => out.push_str("MemberExpression\n"),
             }
             indent(level + 1, out);
             out.push_str("object:\n");

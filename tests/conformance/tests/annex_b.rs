@@ -246,3 +246,13 @@ fn accessors_fixture_present() {
 fn accessors_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/accessors");
 }
+
+#[test]
+fn optional_chain_fixture_present() {
+    assert_fixture_present("es/annex-b/optional_chain");
+}
+
+#[test]
+fn optional_chain_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/optional_chain");
+}

@@ -1,0 +1,14 @@
+let o = { a: 1, b: { c: 2 }, m: function (x) { return x + 1; } };
+let a = o?.a;
+let b = null?.a;
+let c = undefined?.a;
+let d = o?.b?.c;
+let e = null?.b?.c;
+let k = "a";
+let f = o?.[k];
+let g = null?.[k];
+let h = o?.m?.(10);
+let i = o?.missing?.();
+let j = null?.m?.(1);
+let p = o?.b.c;
+let q = ({ x: 3 })?.x;

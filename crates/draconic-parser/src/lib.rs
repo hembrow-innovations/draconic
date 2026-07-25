@@ -2222,8 +2222,48 @@ impl Parser {
                 expr = Expr::Call {
                     callee: Box::new(expr),
                     args,
+                    optional: false,
                     span: Span::new(start, end),
                 };
+            } else if self.check(&TokenKind::QuestionDot) {
+                self.bump();
+                let start = expr_span(&expr).start.0;
+                if self.check(&TokenKind::LParen) {
+                    self.bump();
+                    let args = self.parse_arg_list()?;
+                    let end = self.expect(&TokenKind::RParen)?.span.end.0;
+                    expr = Expr::Call {
+                        callee: Box::new(expr),
+                        args,
+                        optional: true,
+                        span: Span::new(start, end),
+                    };
+                } else if self.check(&TokenKind::LBracket) {
+                    self.bump();
+                    let property = self.parse_expr()?;
+                    let end = self.expect(&TokenKind::RBracket)?.span.end.0;
+                    expr = Expr::MemberExpression {
+                        object: Box::new(expr),
+                        property: Box::new(property),
+                        computed: true,
+                        optional: true,
+                        span: Span::new(start, end),
+                    };
+                } else {
+                    let (name, prop_span) = self.expect_ident_name()?;
+                    let end = prop_span.end.0;
+                    let property = Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    });
+                    expr = Expr::MemberExpression {
+                        object: Box::new(expr),
+                        property: Box::new(property),
+                        computed: false,
+                        optional: true,
+                        span: Span::new(start, end),
+                    };
+                }
             } else if self.check(&TokenKind::Dot) {
                 self.bump();
                 let (name, prop_span) = self.expect_ident_name()?;
@@ -2237,6 +2277,7 @@ impl Parser {
                     object: Box::new(expr),
                     property: Box::new(property),
                     computed: false,
+                    optional: false,
                     span: Span::new(start, end),
                 };
             } else if self.check(&TokenKind::LBracket) {
@@ -2248,6 +2289,7 @@ impl Parser {
                     object: Box::new(expr),
                     property: Box::new(property),
                     computed: true,
+                    optional: false,
                     span: Span::new(start, end),
                 };
             } else if matches!(
@@ -2285,6 +2327,7 @@ impl Parser {
                     object: Box::new(callee),
                     property: Box::new(property),
                     computed: false,
+                    optional: false,
                     span: Span::new(cstart, end),
                 };
             } else if self.check(&TokenKind::LBracket) {
@@ -2296,6 +2339,7 @@ impl Parser {
                     object: Box::new(callee),
                     property: Box::new(property),
                     computed: true,
+                    optional: false,
                     span: Span::new(cstart, end),
                 };
             } else {
