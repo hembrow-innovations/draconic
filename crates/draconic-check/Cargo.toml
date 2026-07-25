@@ -1,0 +1,12 @@
+[package]
+name = "draconic-check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+draconic-ast.workspace = true
+draconic-diagnostics.workspace = true
+
+[dev-dependencies]
+draconic-parser.workspace = true

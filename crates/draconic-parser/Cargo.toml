@@ -1,0 +1,10 @@
+[package]
+name = "draconic-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+draconic-ast.workspace = true
+draconic-diagnostics.workspace = true
+draconic-lexer.workspace = true

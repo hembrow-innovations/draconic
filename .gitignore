@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+.DS_Store
+.env
+.env.*
+!.env.example
+/dist
+*.ll
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+/tmp
+.scratch/**/claim.lock

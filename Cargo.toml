@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/draconic-diagnostics",
+    "crates/draconic-ast",
+    "crates/draconic-lexer",
+    "crates/draconic-parser",
+    "crates/draconic-check",
+    "crates/draconic-ir",
+    "crates/draconic-backend-js",
+    "crates/draconic-backend-llvm",
+    "crates/draconic-runtime",
+    "crates/draconic-embed",
+    "crates/draconic-cli",
+    "tests/integration",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/draconic/graph-ts"
+
+[workspace.dependencies]
+draconic-diagnostics = { path = "crates/draconic-diagnostics" }
+draconic-ast = { path = "crates/draconic-ast" }
+draconic-lexer = { path = "crates/draconic-lexer" }
+draconic-parser = { path = "crates/draconic-parser" }
+draconic-check = { path = "crates/draconic-check" }
+draconic-ir = { path = "crates/draconic-ir" }
+draconic-backend-js = { path = "crates/draconic-backend-js" }
+draconic-backend-llvm = { path = "crates/draconic-backend-llvm" }
+draconic-runtime = { path = "crates/draconic-runtime" }
+draconic-embed = { path = "crates/draconic-embed" }
+thiserror = "2"
