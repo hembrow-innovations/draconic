@@ -150,9 +150,11 @@ pub enum Stmt {
         cases: Vec<SwitchCase>,
         span: Span,
     },
-    /// `async? function *? name (params): ret? { body }`
+    /// `async? function *? name <T…>? (params): ret? { body }`
     FunctionDeclaration {
         name: Ident,
+        /// Type parameters (`function f<T, U>(…)`); empty when absent (T04).
+        type_params: Vec<TypeParam>,
         params: Vec<Param>,
         /// Optional return type annotation (`: T` after the parameter list).
         return_type: Option<TypeAnn>,
@@ -223,12 +225,20 @@ pub enum Stmt {
         local: Ident,
         span: Span,
     },
-    /// `type Name = Type;` — TS-inspired type alias (erased at emit; T02).
+    /// `type Name <T…>? = Type;` — TS-inspired type alias (erased at emit; T02/T04).
     TypeAlias {
         name: Ident,
+        /// Type parameters (`type Box<T> = …`); empty when absent (T04).
+        type_params: Vec<TypeParam>,
         ty: TypeAnn,
         span: Span,
     },
+}
+
+/// One type parameter: `T` in `function f<T>` / `type Box<T>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeParam {
+    pub name: Ident,
 }
 
 /// One binding of `import { imported as local }`.
@@ -457,11 +467,17 @@ pub struct Param {
     pub rest: bool,
 }
 
-/// Type annotation — named (T01), object (T02), union/intersection (T03).
+/// Type annotation — named (T01), object (T02), union/intersection (T03), generic app (T04).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeAnn {
     /// `number`, `string`, user alias name, etc.
     Named { name: String, span: Span },
+    /// `Foo<T, U>` — generic type application (T04).
+    GenericApp {
+        name: String,
+        args: Vec<TypeAnn>,
+        span: Span,
+    },
     /// `{ a: T; b: U }` (`;` or `,` separators).
     Object {
         props: Vec<TypeProp>,
@@ -491,6 +507,7 @@ impl TypeAnn {
     pub fn span(&self) -> Span {
         match self {
             TypeAnn::Named { span, .. }
+            | TypeAnn::GenericApp { span, .. }
             | TypeAnn::Object { span, .. }
             | TypeAnn::Union { span, .. }
             | TypeAnn::Intersection { span, .. } => *span,
@@ -949,6 +966,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
         }
         Stmt::FunctionDeclaration {
             name,
+            type_params,
             params,
             return_type,
             body,
@@ -968,6 +986,14 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             }
             indent(level + 1, out);
             out.push_str(&format!("name: {}\n", name.name));
+            if !type_params.is_empty() {
+                indent(level + 1, out);
+                out.push_str("typeParams:\n");
+                for tp in type_params {
+                    indent(level + 2, out);
+                    out.push_str(&format!("{}\n", tp.name.name));
+                }
+            }
             dump_params(params, level + 1, out);
             if let Some(ret) = return_type {
                 indent(level + 1, out);
@@ -978,11 +1004,24 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             out.push_str("body:\n");
             dump_stmt(body, level + 2, out);
         }
-        Stmt::TypeAlias { name, ty, .. } => {
+        Stmt::TypeAlias {
+            name,
+            type_params,
+            ty,
+            ..
+        } => {
             indent(level, out);
             out.push_str("TypeAlias\n");
             indent(level + 1, out);
             out.push_str(&format!("name: {}\n", name.name));
+            if !type_params.is_empty() {
+                indent(level + 1, out);
+                out.push_str("typeParams:\n");
+                for tp in type_params {
+                    indent(level + 2, out);
+                    out.push_str(&format!("{}\n", tp.name.name));
+                }
+            }
             indent(level + 1, out);
             out.push_str("type:\n");
             dump_type_ann(ty, level + 2, out);
@@ -1496,6 +1535,13 @@ fn dump_type_ann(ann: &TypeAnn, level: usize, out: &mut String) {
         TypeAnn::Named { name, .. } => {
             indent(level, out);
             out.push_str(&format!("NamedType {}\n", name));
+        }
+        TypeAnn::GenericApp { name, args, .. } => {
+            indent(level, out);
+            out.push_str(&format!("GenericApp {}\n", name));
+            for a in args {
+                dump_type_ann(a, level + 1, out);
+            }
         }
         TypeAnn::Object { props, .. } => {
             indent(level, out);

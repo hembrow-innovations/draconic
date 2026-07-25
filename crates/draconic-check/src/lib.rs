@@ -43,8 +43,27 @@ pub enum Type {
     Union(u32),
     /// Intersection type; index into the intersections table on `CheckedProgram`.
     Intersection(u32),
+    /// Open type parameter while checking a generic body (T04); unique id.
+    TypeParam(u32),
+    /// Generic function signature; index into the generic_fns table (T04).
+    GenericFn(u32),
     /// Flexible / unannotated (e.g. `let x;` with no initializer).
     Any,
+}
+
+/// Generic function signature stored for call-site instantiation (T04).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericFnSig {
+    pub type_params: Vec<String>,
+    pub param_types: Vec<Option<TypeAnn>>,
+    pub return_type: Option<TypeAnn>,
+}
+
+/// Generic type alias body (T04).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GenericAlias {
+    params: Vec<String>,
+    body: TypeAnn,
 }
 
 /// Property list for a structural object type (`Type::Shape`).
@@ -78,6 +97,8 @@ impl fmt::Display for Type {
             Type::Shape(_) => "object",
             Type::Union(_) => "union",
             Type::Intersection(_) => "intersection",
+            Type::TypeParam(_) => "type parameter",
+            Type::GenericFn(_) => "function",
             Type::Any => "any",
         };
         write!(f, "{s}")
@@ -121,6 +142,8 @@ pub struct CheckedProgram {
     unions: Vec<UnionType>,
     /// Intersection members referenced by `Type::Intersection`.
     intersections: Vec<IntersectionType>,
+    /// Generic function signatures referenced by `Type::GenericFn`.
+    generic_fns: Vec<GenericFnSig>,
 }
 
 impl CheckedProgram {
@@ -142,6 +165,10 @@ impl CheckedProgram {
 
     pub fn intersections(&self) -> &[IntersectionType] {
         &self.intersections
+    }
+
+    pub fn generic_fns(&self) -> &[GenericFnSig] {
+        &self.generic_fns
     }
 
     /// Pretty-print a type, expanding structural shapes and unions/intersections.
@@ -190,6 +217,8 @@ fn format_type_full(
                 .collect::<Vec<_>>()
                 .join(" & ")
         }
+        Type::TypeParam(_) => "type parameter".to_string(),
+        Type::GenericFn(_) => "function".to_string(),
         other => other.to_string(),
     }
 }
@@ -209,6 +238,7 @@ pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
     let shapes = checker.shapes;
     let unions = checker.unions;
     let intersections = checker.intersections;
+    let generic_fns = checker.generic_fns;
     Ok(CheckedProgram {
         bound,
         symbol_types,
@@ -216,6 +246,7 @@ pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
         shapes,
         unions,
         intersections,
+        generic_fns,
     })
 }
 
@@ -1221,8 +1252,16 @@ struct Checker<'a> {
     unions: Vec<UnionType>,
     /// Intersection members (`Type::Intersection` indices).
     intersections: Vec<IntersectionType>,
-    /// Type aliases in scope (name → resolved type). Program-level for T02.
+    /// Generic function signatures (`Type::GenericFn` indices).
+    generic_fns: Vec<GenericFnSig>,
+    /// Concrete type aliases in scope (name → resolved type). Program-level for T02.
     type_aliases: HashMap<String, Type>,
+    /// Generic type aliases (`type Box<T> = …`).
+    generic_aliases: HashMap<String, GenericAlias>,
+    /// Active type parameter bindings while resolving/checking (name → Type::TypeParam).
+    type_param_env: HashMap<String, Type>,
+    /// Monotonic id source for open `Type::TypeParam` values.
+    next_type_param_id: u32,
     /// True while typechecking an `async` function body.
     in_async: bool,
     /// True while typechecking a generator function body.
@@ -1263,7 +1302,11 @@ impl<'a> Checker<'a> {
             shapes: Vec::new(),
             unions: Vec::new(),
             intersections: Vec::new(),
+            generic_fns: Vec::new(),
             type_aliases: HashMap::new(),
+            generic_aliases: HashMap::new(),
+            type_param_env: HashMap::new(),
+            next_type_param_id: 0,
             in_async: false,
             in_generator: false,
             expected_return: None,
@@ -1271,31 +1314,78 @@ impl<'a> Checker<'a> {
     }
 
     fn check_program(&mut self) -> Result<(), Diagnostic> {
-        // Program-level type aliases (T02): declare names, then resolve bodies.
+        // Program-level type aliases (T02/T04): declare names, then resolve non-generic bodies.
         for stmt in &self.bound.program.body {
-            if let Stmt::TypeAlias { name, .. } = stmt {
-                if self.type_aliases.contains_key(&name.name) {
+            if let Stmt::TypeAlias {
+                name, type_params, ..
+            } = stmt
+            {
+                if self.type_aliases.contains_key(&name.name)
+                    || self.generic_aliases.contains_key(&name.name)
+                {
                     return Err(Diagnostic::new(
                         format!("duplicate type alias `{}`", name.name),
                         name.span,
                     ));
                 }
-                self.type_aliases.insert(name.name.clone(), Type::Any);
+                if type_params.is_empty() {
+                    self.type_aliases.insert(name.name.clone(), Type::Any);
+                } else {
+                    // Placeholder so mutual refs among generics are not "unknown".
+                    self.generic_aliases.insert(
+                        name.name.clone(),
+                        GenericAlias {
+                            params: type_params.iter().map(|p| p.name.name.clone()).collect(),
+                            body: TypeAnn::Named {
+                                name: "any".into(),
+                                span: name.span,
+                            },
+                        },
+                    );
+                }
             }
         }
-        let alias_bodies: Vec<(String, TypeAnn)> = self
+        let alias_bodies: Vec<(String, Vec<String>, TypeAnn)> = self
             .bound
             .program
             .body
             .iter()
             .filter_map(|s| match s {
-                Stmt::TypeAlias { name, ty, .. } => Some((name.name.clone(), ty.clone())),
+                Stmt::TypeAlias {
+                    name,
+                    type_params,
+                    ty,
+                    ..
+                } => Some((
+                    name.name.clone(),
+                    type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    ty.clone(),
+                )),
                 _ => None,
             })
             .collect();
-        for (name, ty) in alias_bodies {
-            let resolved = self.resolve_type_ann(&ty)?;
-            self.type_aliases.insert(name, resolved);
+        for (name, params, ty) in alias_bodies {
+            if params.is_empty() {
+                let resolved = self.resolve_type_ann(&ty)?;
+                self.type_aliases.insert(name, resolved);
+            } else {
+                // Validate body resolves under open type params.
+                let saved = self.type_param_env.clone();
+                for p in &params {
+                    let id = self.next_type_param_id;
+                    self.next_type_param_id += 1;
+                    self.type_param_env.insert(p.clone(), Type::TypeParam(id));
+                }
+                let _ = self.resolve_type_ann(&ty)?;
+                self.type_param_env = saved;
+                self.generic_aliases.insert(
+                    name,
+                    GenericAlias {
+                        params,
+                        body: ty,
+                    },
+                );
+            }
         }
         let mut labels = Vec::new();
         for stmt in &self.bound.program.body {
@@ -1652,6 +1742,7 @@ impl<'a> Checker<'a> {
             }
             Stmt::FunctionDeclaration {
                 name,
+                type_params,
                 params,
                 return_type,
                 body,
@@ -1666,7 +1757,32 @@ impl<'a> Checker<'a> {
                     .find(|s| s.span == name.span)
                     .map(|s| s.id)
                     .expect("function binding must be declared");
-                self.symbol_types[id.0 as usize] = Type::Function;
+                let fn_ty = if type_params.is_empty() {
+                    Type::Function
+                } else {
+                    let sig = GenericFnSig {
+                        type_params: type_params.iter().map(|p| p.name.name.clone()).collect(),
+                        param_types: params.iter().map(|p| p.type_ann.clone()).collect(),
+                        return_type: return_type.clone(),
+                    };
+                    let gid = self.generic_fns.len() as u32;
+                    self.generic_fns.push(sig);
+                    Type::GenericFn(gid)
+                };
+                self.symbol_types[id.0 as usize] = fn_ty;
+                let saved_env = self.type_param_env.clone();
+                for tp in type_params {
+                    if self.type_param_env.contains_key(&tp.name.name) {
+                        return Err(Diagnostic::new(
+                            format!("duplicate type parameter `{}`", tp.name.name),
+                            tp.name.span,
+                        ));
+                    }
+                    let pid = self.next_type_param_id;
+                    self.next_type_param_id += 1;
+                    self.type_param_env
+                        .insert(tp.name.name.clone(), Type::TypeParam(pid));
+                }
                 self.check_params(params)?;
                 // Fresh label set inside functions (labels do not cross function boundaries).
                 let mut inner_labels = Vec::new();
@@ -1683,6 +1799,7 @@ impl<'a> Checker<'a> {
                 self.in_async = prev_async;
                 self.in_generator = prev_generator;
                 self.expected_return = prev_ret;
+                self.type_param_env = saved_env;
                 result
             }
             Stmt::ClassDeclaration {
@@ -2084,21 +2201,26 @@ impl<'a> Checker<'a> {
                 span,
             } => {
                 let callee_ty = self.check_expr(callee)?;
+                let mut arg_tys = Vec::with_capacity(args.len());
                 for arg in args {
                     match arg {
                         Arg::Expr(expr) | Arg::Spread(expr) => {
-                            self.check_expr(expr)?;
+                            arg_tys.push(self.check_expr(expr)?);
                         }
                     }
                 }
-                if callee_ty != Type::Any && callee_ty != Type::Function {
-                    return Err(Diagnostic::new(
-                        format!("type `{callee_ty}` is not callable"),
-                        *span,
-                    ));
-                }
-                self.record(*span, Type::Any);
-                Type::Any
+                let result_ty = match callee_ty {
+                    Type::Any | Type::Function => Type::Any,
+                    Type::GenericFn(gid) => self.instantiate_generic_call(gid, &arg_tys, *span)?,
+                    _ => {
+                        return Err(Diagnostic::new(
+                            format!("type `{callee_ty}` is not callable"),
+                            *span,
+                        ));
+                    }
+                };
+                self.record(*span, result_ty);
+                result_ty
             }
             Expr::New {
                 callee,
@@ -2114,7 +2236,10 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                if callee_ty != Type::Any && callee_ty != Type::Function {
+                if callee_ty != Type::Any
+                    && callee_ty != Type::Function
+                    && !matches!(callee_ty, Type::GenericFn(_))
+                {
                     return Err(Diagnostic::new(
                         format!("type `{callee_ty}` is not constructable"),
                         *span,
@@ -2436,10 +2561,13 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Resolve a type annotation to a Checker `Type` (T01–T03).
+    /// Resolve a type annotation to a Checker `Type` (T01–T04).
     fn resolve_type_ann(&mut self, ann: &TypeAnn) -> Result<Type, Diagnostic> {
         match ann {
             TypeAnn::Named { name, span } => {
+                if let Some(tp) = self.type_param_env.get(name).copied() {
+                    return Ok(tp);
+                }
                 let ty = match name.as_str() {
                     "number" => Type::Number,
                     "string" => Type::String,
@@ -2452,6 +2580,13 @@ impl<'a> Checker<'a> {
                     other => {
                         if let Some(aliased) = self.type_aliases.get(other).copied() {
                             aliased
+                        } else if self.generic_aliases.contains_key(other) {
+                            return Err(Diagnostic::new(
+                                format!(
+                                    "generic type `{other}` requires type arguments"
+                                ),
+                                *span,
+                            ));
                         } else {
                             return Err(Diagnostic::new(
                                 format!("unknown type name `{other}`"),
@@ -2461,6 +2596,41 @@ impl<'a> Checker<'a> {
                     }
                 };
                 Ok(ty)
+            }
+            TypeAnn::GenericApp { name, args, span } => {
+                let Some(alias) = self.generic_aliases.get(name).cloned() else {
+                    if self.type_aliases.contains_key(name) {
+                        return Err(Diagnostic::new(
+                            format!("type `{name}` is not generic"),
+                            *span,
+                        ));
+                    }
+                    return Err(Diagnostic::new(
+                        format!("unknown type name `{name}`"),
+                        *span,
+                    ));
+                };
+                if args.len() != alias.params.len() {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "generic type `{name}` expects {} type argument(s), got {}",
+                            alias.params.len(),
+                            args.len()
+                        ),
+                        *span,
+                    ));
+                }
+                let mut arg_tys = Vec::with_capacity(args.len());
+                for a in args {
+                    arg_tys.push(self.resolve_type_ann(a)?);
+                }
+                let saved = self.type_param_env.clone();
+                for (p, t) in alias.params.iter().zip(arg_tys.iter()) {
+                    self.type_param_env.insert(p.clone(), *t);
+                }
+                let resolved = self.resolve_type_ann(&alias.body);
+                self.type_param_env = saved;
+                resolved
             }
             TypeAnn::Object { props, .. } => {
                 let mut shape_props = Vec::with_capacity(props.len());
@@ -2484,6 +2654,157 @@ impl<'a> Checker<'a> {
                 }
                 Ok(self.intern_intersection(members))
             }
+        }
+    }
+
+    /// Instantiate a generic function at a call site via argument-driven inference (T04).
+    fn instantiate_generic_call(
+        &mut self,
+        gid: u32,
+        arg_tys: &[Type],
+        span: Span,
+    ) -> Result<Type, Diagnostic> {
+        let sig = self
+            .generic_fns
+            .get(gid as usize)
+            .cloned()
+            .expect("generic fn id");
+        // Open type params as unique placeholders, then unify from annotated params.
+        let mut subst: HashMap<u32, Type> = HashMap::new();
+        let mut open_ids: HashMap<String, u32> = HashMap::new();
+        let saved = self.type_param_env.clone();
+        for p in &sig.type_params {
+            let id = self.next_type_param_id;
+            self.next_type_param_id += 1;
+            open_ids.insert(p.clone(), id);
+            self.type_param_env
+                .insert(p.clone(), Type::TypeParam(id));
+        }
+        // Resolve param annotations under open env and unify with arg types.
+        for (i, pann) in sig.param_types.iter().enumerate() {
+            let Some(ann) = pann else { continue };
+            let expected = self.resolve_type_ann(ann)?;
+            let got = arg_tys.get(i).copied().unwrap_or(Type::Any);
+            self.unify_infer(expected, got, &mut subst, span)?;
+        }
+        let ret = match &sig.return_type {
+            Some(ann) => {
+                let open_ret = self.resolve_type_ann(ann)?;
+                Ok(self.apply_subst(open_ret, &subst))
+            }
+            None => Ok(Type::Any),
+        };
+        self.type_param_env = saved;
+        // Check args assignable to substituted param types.
+        let saved = self.type_param_env.clone();
+        for p in &sig.type_params {
+            if let Some(&id) = open_ids.get(p) {
+                let concrete = subst.get(&id).copied().unwrap_or(Type::Any);
+                self.type_param_env.insert(p.clone(), concrete);
+            }
+        }
+        for (i, pann) in sig.param_types.iter().enumerate() {
+            if let Some(ann) = pann {
+                let expected = self.resolve_type_ann(ann)?;
+                let got = arg_tys.get(i).copied().unwrap_or(Type::Any);
+                if let Err(e) = self.require_assignable(got, expected, span) {
+                    self.type_param_env = saved;
+                    return Err(e);
+                }
+            }
+        }
+        let result = ret?;
+        // Re-resolve return under concrete subst for nested generics in return ann.
+        let result = if let Some(ann) = &sig.return_type {
+            self.resolve_type_ann(ann)?
+        } else {
+            result
+        };
+        self.type_param_env = saved;
+        Ok(result)
+    }
+
+    /// Unify `pattern` (may contain open TypeParams) with `concrete`, recording subst.
+    fn unify_infer(
+        &self,
+        pattern: Type,
+        concrete: Type,
+        subst: &mut HashMap<u32, Type>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        match pattern {
+            Type::TypeParam(id) => {
+                if let Some(existing) = subst.get(&id).copied() {
+                    if existing != concrete
+                        && existing != Type::Any
+                        && concrete != Type::Any
+                        && !self.is_assignable(concrete, existing)
+                        && !self.is_assignable(existing, concrete)
+                    {
+                        return Err(Diagnostic::new(
+                            format!(
+                                "type parameter inferred as both `{}` and `{}`",
+                                format_type_full(
+                                    existing,
+                                    &self.shapes,
+                                    &self.unions,
+                                    &self.intersections
+                                ),
+                                format_type_full(
+                                    concrete,
+                                    &self.shapes,
+                                    &self.unions,
+                                    &self.intersections
+                                )
+                            ),
+                            span,
+                        ));
+                    }
+                    if existing == Type::Any && concrete != Type::Any {
+                        subst.insert(id, concrete);
+                    }
+                } else {
+                    subst.insert(id, concrete);
+                }
+                Ok(())
+            }
+            Type::Shape(pid) => {
+                if let Type::Shape(cid) = concrete {
+                    let Some(ps) = self.shapes.get(pid as usize) else {
+                        return Ok(());
+                    };
+                    let Some(cs) = self.shapes.get(cid as usize) else {
+                        return Ok(());
+                    };
+                    for (name, pt) in &ps.props {
+                        if let Some((_, ct)) = cs.props.iter().find(|(n, _)| n == name) {
+                            self.unify_infer(*pt, *ct, subst, span)?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Type::Union(id) => {
+                // Infer against each member; take first successful path that binds.
+                if let Some(u) = self.unions.get(id as usize) {
+                    for m in &u.members {
+                        let mut trial = subst.clone();
+                        if self.unify_infer(*m, concrete, &mut trial, span).is_ok() {
+                            *subst = trial;
+                            return Ok(());
+                        }
+                    }
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn apply_subst(&self, ty: Type, subst: &HashMap<u32, Type>) -> Type {
+        match ty {
+            Type::TypeParam(id) => subst.get(&id).copied().unwrap_or(ty),
+            other => other,
         }
     }
 

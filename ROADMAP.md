@@ -186,7 +186,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | T01 | done | compiler | Type annotations on bindings and functions | `tests/conformance/types` |
 | T02 | done | compiler | Structural object types, type aliases | `tests/conformance/types` |
 | T03 | done | compiler | Unions, intersections, narrowing | `tests/conformance/types` |
-| T04 | todo | compiler | Generics (functions, types) | `tests/conformance/types` |
+| T04 | done | compiler | Generics (functions, types) | `tests/conformance/types` |
 | T05 | todo | compiler | Native types in the type system (`i32`, `i64`, …) | `tests/conformance/types/native` |
 | T06 | todo | both | Dual-worlds boundary rules (JS value ↔ native) | `tests/conformance/types/dual` |
 

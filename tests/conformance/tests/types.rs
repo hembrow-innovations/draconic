@@ -1,4 +1,4 @@
-//! ROADMAP T01–T03: type annotations, object types, unions/intersections/narrowing.
+//! ROADMAP T01–T04: type annotations, object types, unions/intersections/narrowing, generics.
 
 use draconic_check::{check, BoundProgram, CheckedProgram, Type};
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
@@ -572,4 +572,231 @@ fn parse_union_and_intersection() {
         .unwrap();
     assert!(!program.body.is_empty());
     check(program).unwrap();
+}
+
+// --- T04: generics (functions, types) ---
+
+#[test]
+fn generic_type_alias_app() {
+    let program = parse(
+        r#"
+        type Box<T> = { value: T };
+        let n: Box<number> = { value: 1 };
+        let s: Box<string> = { value: "a" };
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert!(matches!(type_of(&checked, "n"), Type::Shape(_)));
+    assert!(matches!(type_of(&checked, "s"), Type::Shape(_)));
+}
+
+#[test]
+fn generic_type_alias_rejects_wrong_arg() {
+    let program = parse(
+        r#"
+        type Box<T> = { value: T };
+        let bad: Box<number> = { value: "no" };
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn generic_type_alias_arity_error() {
+    let program = parse(
+        r#"
+        type Box<T> = { value: T };
+        let bad: Box = { value: 1 };
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("type argument") || err.message.contains("generic"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn generic_type_alias_two_params() {
+    let program = parse(
+        r#"
+        type Pair<A, B> = { a: A; b: B };
+        let p: Pair<number, string> = { a: 1, b: "x" };
+        let n: number = p.a;
+        let s: string = p.b;
+        "#,
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn generic_function_identity_infers() {
+    let program = parse(
+        r#"
+        function id<T>(x: T): T { return x; }
+        let n = id(1);
+        let s = id("hi");
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "n"), Type::Number);
+    assert_eq!(type_of(&checked, "s"), Type::String);
+}
+
+#[test]
+fn generic_function_identity_rejects_mismatch() {
+    let program = parse(
+        r#"
+        function id<T>(x: T): T { return x; }
+        let bad: string = id(1);
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn generic_function_body_type_param() {
+    let program = parse(
+        r#"
+        function id<T>(x: T): T {
+          let y: T = x;
+          return y;
+        }
+        "#,
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn generic_function_body_rejects_wrong_concrete() {
+    let program = parse(
+        r#"
+        function id<T>(x: T): T {
+          let y: number = x;
+          return x;
+        }
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn generic_function_two_params_same_t_ok() {
+    let program = parse(
+        r#"
+        function both<T>(a: T, b: T): T { return a; }
+        let n = both(1, 2);
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "n"), Type::Number);
+}
+
+#[test]
+fn generic_function_two_params_same_t_conflict() {
+    let program = parse(
+        r#"
+        function both<T>(a: T, b: T): T { return a; }
+        let bad = both(1, "x");
+        "#,
+    )
+    .unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable")
+            || err.message.contains("inferred")
+            || err.message.contains("type parameter"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn generic_box_via_function() {
+    let program = parse(
+        r#"
+        type Box<T> = { value: T };
+        function box<T>(v: T): Box<T> {
+          return { value: v };
+        }
+        let b = box(42);
+        let n: number = b.value;
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "n"), Type::Number);
+    assert!(matches!(type_of(&checked, "b"), Type::Shape(_)));
+}
+
+#[test]
+fn generics_erase_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/generics_erase"),
+        "missing types/generics_erase fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn generics_erase_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/generics_erase")
+        .expect("types/generics_erase");
+    assert!(fixture.targets.contains(&Target::Js));
+    assert!(fixture.targets.contains(&Target::Native));
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn parse_generic_alias_and_fn() {
+    let program = parse(
+        r#"
+        type Id<T> = T;
+        function f<T>(x: T): T { return x; }
+        let a: Id<number> = 1;
+        let b = f(a);
+        "#,
+    )
+    .unwrap();
+    assert!(!program.body.is_empty());
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "a"), Type::Number);
+    assert_eq!(type_of(&checked, "b"), Type::Number);
 }

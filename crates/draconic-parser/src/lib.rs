@@ -458,6 +458,7 @@ impl Parser {
             name: name_tok.ident_name(),
             span: name_tok.span,
         };
+        let type_params = self.parse_optional_type_params()?;
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
@@ -466,6 +467,7 @@ impl Parser {
         let end = stmt_span(&body).end.0;
         Ok(Stmt::FunctionDeclaration {
             name,
+            type_params,
             params,
             return_type,
             body,
@@ -681,7 +683,7 @@ impl Parser {
         Ok(Some(self.parse_type()?))
     }
 
-    /// `type Name = Type;`
+    /// `type Name = Type;` / `type Name<T> = Type;`
     fn is_type_alias_start(&self) -> bool {
         matches!(self.current().kind, TokenKind::Ident(ref n) if n == "type")
             && matches!(
@@ -691,7 +693,7 @@ impl Parser {
             && self
                 .tokens
                 .get(self.pos + 2)
-                .map(|t| &t.kind == &TokenKind::Eq)
+                .map(|t| matches!(t.kind, TokenKind::Eq | TokenKind::Lt))
                 .unwrap_or(false)
     }
 
@@ -704,6 +706,7 @@ impl Parser {
             name: name_tok.ident_name(),
             span: name_tok.span,
         };
+        let type_params = self.parse_optional_type_params()?;
         self.expect(&TokenKind::Eq)?;
         let ty = self.parse_type()?;
         let mut end = ty.span().end.0;
@@ -712,9 +715,55 @@ impl Parser {
         }
         Ok(Stmt::TypeAlias {
             name,
+            type_params,
             ty,
             span: Span::new(start, end),
         })
+    }
+
+    /// Optional `<T, U>` type parameter list (T04).
+    fn parse_optional_type_params(&mut self) -> Result<Vec<draconic_ast::TypeParam>, Diagnostic> {
+        if !self.check(&TokenKind::Lt) {
+            return Ok(Vec::new());
+        }
+        self.bump();
+        let mut params = Vec::new();
+        if !self.check(&TokenKind::Gt) {
+            loop {
+                let name_tok = self.expect_ident()?;
+                params.push(draconic_ast::TypeParam {
+                    name: Ident {
+                        name: name_tok.ident_name(),
+                        span: name_tok.span,
+                    },
+                });
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(&TokenKind::Gt)?;
+        Ok(params)
+    }
+
+    /// `<T, U>` type argument list after a type name (T04).
+    fn parse_type_args(&mut self) -> Result<Vec<draconic_ast::TypeAnn>, Diagnostic> {
+        self.expect(&TokenKind::Lt)?;
+        let mut args = Vec::new();
+        if !self.check(&TokenKind::Gt) {
+            loop {
+                args.push(self.parse_type()?);
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(&TokenKind::Gt)?;
+        Ok(args)
     }
 
     /// Type: union (`A | B`), intersection (`A & B`), named, or object.
@@ -764,7 +813,7 @@ impl Parser {
         })
     }
 
-    /// Named (`number`) or object (`{ a: T; b: U }`).
+    /// Named (`number`), generic app (`Box<T>`), or object (`{ a: T; b: U }`).
     fn parse_primary_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
         if self.check(&TokenKind::LBrace) {
             return self.parse_object_type();
@@ -773,8 +822,25 @@ impl Parser {
         let name_tok = self.expect_ident().map_err(|_| {
             Diagnostic::new("expected type name after `:`".to_string(), err_span)
         })?;
+        let name = name_tok.ident_name();
+        let start = name_tok.span.start.0;
+        if self.check(&TokenKind::Lt) {
+            let args = self.parse_type_args()?;
+            let end = args
+                .last()
+                .map(|a| a.span().end.0)
+                .unwrap_or(name_tok.span.end.0);
+            // Include trailing `>` — already consumed; use current prev end via last arg + 1 is wrong.
+            // parse_type_args consumes `>`; span end is the `>` token we just passed.
+            let end = self.tokens[self.pos - 1].span.end.0.max(end);
+            return Ok(draconic_ast::TypeAnn::GenericApp {
+                name,
+                args,
+                span: Span::new(start, end),
+            });
+        }
         Ok(draconic_ast::TypeAnn::Named {
-            name: name_tok.ident_name(),
+            name,
             span: name_tok.span,
         })
     }
@@ -1168,6 +1234,7 @@ impl Parser {
             } else {
                 Stmt::FunctionDeclaration {
                     name,
+                    type_params: Vec::new(),
                     params,
                     return_type,
                     body,

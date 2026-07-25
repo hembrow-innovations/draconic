@@ -1,0 +1,11 @@
+type Box<T> = { value: T };
+function id<T>(x: T): T {
+  return x;
+}
+function box<T>(v: T): Box<T> {
+  return { value: v };
+}
+let n = id(1);
+let s = id("hi");
+let b = box(42);
+let v = b.value;
