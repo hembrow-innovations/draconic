@@ -1,0 +1,4 @@
+id: native/floats/compare_if
+targets: native
+native.exit: 0
+native.stdout: 5.5\n3.25\n1\n12.5\n

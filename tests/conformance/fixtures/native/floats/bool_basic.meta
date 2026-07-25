@@ -1,0 +1,4 @@
+id: native/floats/bool_basic
+targets: native
+native.exit: 0
+native.stdout: true\nfalse\n3\n1\ntrue\nfalse\n

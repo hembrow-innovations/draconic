@@ -23,6 +23,10 @@ pub const HELLO_SYMBOL: &str = "draconic_rt_hello";
 pub const PRINT_I64_SYMBOL: &str = "draconic_rt_print_i64";
 /// C ABI: print an unsigned 64-bit integer as decimal + newline (N01).
 pub const PRINT_U64_SYMBOL: &str = "draconic_rt_print_u64";
+/// C ABI: print a float/double as decimal + newline (N02).
+pub const PRINT_F64_SYMBOL: &str = "draconic_rt_print_f64";
+/// C ABI: print a bool as `true`/`false` + newline (N02).
+pub const PRINT_BOOL_SYMBOL: &str = "draconic_rt_print_bool";
 
 /// C ABI: init the GC heap.
 pub const GC_INIT_SYMBOL: &str = "draconic_rt_gc_init";
@@ -70,6 +74,19 @@ mod tests {
         assert!(
             src.contains(PRINT_U64_SYMBOL),
             "C runtime must export {PRINT_U64_SYMBOL}"
+        );
+    }
+
+    #[test]
+    fn c_runtime_exports_print_float_bool() {
+        let src = c_runtime_source();
+        assert!(
+            src.contains(PRINT_F64_SYMBOL),
+            "C runtime must export {PRINT_F64_SYMBOL}"
+        );
+        assert!(
+            src.contains(PRINT_BOOL_SYMBOL),
+            "C runtime must export {PRINT_BOOL_SYMBOL}"
         );
     }
 

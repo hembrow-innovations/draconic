@@ -39,6 +39,8 @@ pub enum NativeType {
     U64,
     F32,
     F64,
+    /// Unboxed native boolean (N02); distinct from JS `boolean`.
+    Bool,
 }
 
 impl NativeType {
@@ -54,6 +56,7 @@ impl NativeType {
             "u64" => Self::U64,
             "f32" => Self::F32,
             "f64" => Self::F64,
+            "bool" => Self::Bool,
             _ => return None,
         })
     }
@@ -70,6 +73,7 @@ impl NativeType {
             Self::U64 => "u64",
             Self::F32 => "f32",
             Self::F64 => "f64",
+            Self::Bool => "bool",
         }
     }
 
@@ -77,9 +81,13 @@ impl NativeType {
         matches!(self, Self::F32 | Self::F64)
     }
 
+    pub fn is_bool(self) -> bool {
+        matches!(self, Self::Bool)
+    }
+
     /// Integer native types only (`i8`–`i64`, `u8`–`u64`).
     pub fn is_int(self) -> bool {
-        !self.is_float()
+        !self.is_float() && !self.is_bool()
     }
 
     pub fn is_signed(self) -> bool {
@@ -88,7 +96,7 @@ impl NativeType {
 
     pub fn bit_width(self) -> u32 {
         match self {
-            Self::I8 | Self::U8 => 8,
+            Self::I8 | Self::U8 | Self::Bool => 8,
             Self::I16 | Self::U16 => 16,
             Self::I32 | Self::U32 | Self::F32 => 32,
             Self::I64 | Self::U64 | Self::F64 => 64,
@@ -104,6 +112,7 @@ impl NativeType {
             Self::I64 | Self::U64 => "i64",
             Self::F32 => "float",
             Self::F64 => "double",
+            Self::Bool => "i1",
         }
     }
 }
@@ -2600,7 +2609,7 @@ impl<'a> Checker<'a> {
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let ok = left_ty == Type::Number
                             || left_ty == Type::Any
-                            || matches!(left_ty, Type::Native(n) if !n.is_float());
+                            || matches!(left_ty, Type::Native(n) if n.is_int());
                         if !ok {
                             return Err(Diagnostic::new(
                                 format!("update operator cannot be applied to type `{left_ty}`"),
@@ -3280,14 +3289,23 @@ impl<'a> Checker<'a> {
     }
 
     fn number_literal_ok_for_native(to: Type) -> bool {
-        matches!(to, Type::Native(_))
+        matches!(to, Type::Native(n) if !n.is_bool())
     }
 
-    /// Explicit dual-worlds boundary (`as`): JS `number` ↔ unboxed native (T06).
+    /// Explicit dual-worlds boundary (`as`): JS `number` ↔ unboxed native numeric (T06).
     fn is_dual_world_boundary(from: Type, to: Type) -> bool {
         matches!(
             (from, to),
-            (Type::Number, Type::Native(_)) | (Type::Native(_), Type::Number)
+            (
+                Type::Number,
+                Type::Native(n)
+            ) if !n.is_bool()
+        ) || matches!(
+            (from, to),
+            (
+                Type::Native(n),
+                Type::Number
+            ) if !n.is_bool()
         )
     }
 
@@ -3310,6 +3328,10 @@ impl<'a> Checker<'a> {
     /// Whether `from` is assignable to `to` (exact, `any`, structural, union/intersection).
     fn is_assignable(&self, from: Type, to: Type) -> bool {
         if from == to || from == Type::Any || to == Type::Any {
+            return true;
+        }
+        // JS `boolean` (literals, comparisons) → native `bool` (N02).
+        if from == Type::Boolean && matches!(to, Type::Native(NativeType::Bool)) {
             return true;
         }
         // Source union: every member must be assignable to the target.
@@ -3734,7 +3756,7 @@ impl<'a> Checker<'a> {
         matches!(ty, Type::Number | Type::Any)
     }
 
-    /// Same native type on both sides, or native + number-literal (contextual).
+    /// Same native numeric type on both sides, or native + number-literal (contextual).
     fn native_arith_result(
         &self,
         left: Type,
@@ -3743,9 +3765,17 @@ impl<'a> Checker<'a> {
         right_expr: &Expr,
     ) -> Option<NativeType> {
         match (left, right) {
-            (Type::Native(a), Type::Native(b)) if a == b => Some(a),
-            (Type::Native(a), Type::Number) if Self::is_number_literal_expr(right_expr) => Some(a),
-            (Type::Number, Type::Native(b)) if Self::is_number_literal_expr(left_expr) => Some(b),
+            (Type::Native(a), Type::Native(b)) if a == b && !a.is_bool() => Some(a),
+            (Type::Native(a), Type::Number)
+                if !a.is_bool() && Self::is_number_literal_expr(right_expr) =>
+            {
+                Some(a)
+            }
+            (Type::Number, Type::Native(b))
+                if !b.is_bool() && Self::is_number_literal_expr(left_expr) =>
+            {
+                Some(b)
+            }
             _ => None,
         }
     }

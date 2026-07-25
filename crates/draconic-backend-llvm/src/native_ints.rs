@@ -1,4 +1,4 @@
-//! N01: lower pure native-integer Programs to LLVM IR.
+//! N01/N02: lower pure native scalar Programs (ints, floats, bool) to LLVM IR.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -10,30 +10,125 @@ use draconic_ir::{
     Stmt, UpdateTarget,
 };
 
-/// True when every **user-declared** local is a native integer or a function,
-/// and the module has at least one native integer local (N01 surface).
+/// Unboxed scalar lowered by this backend (native int/float/`bool`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Scalar(NativeType);
+
+impl Scalar {
+    fn llvm_ty(self) -> &'static str {
+        self.0.llvm_ty()
+    }
+
+    fn align(self) -> u32 {
+        if self.0.is_bool() {
+            1
+        } else {
+            (self.0.bit_width() / 8).max(1)
+        }
+    }
+
+    fn is_float(self) -> bool {
+        self.0.is_float()
+    }
+
+    fn is_int(self) -> bool {
+        self.0.is_int()
+    }
+
+    fn is_bool(self) -> bool {
+        self.0.is_bool()
+    }
+
+    fn native(self) -> NativeType {
+        self.0
+    }
+
+    fn zero_const(self) -> &'static str {
+        if self.0.is_float() {
+            "0.000000e+00"
+        } else {
+            "0"
+        }
+    }
+}
+
+fn scalar_of_type(ty: Type) -> Option<Scalar> {
+    match ty {
+        Type::Native(n) => Some(Scalar(n)),
+        // Comparison / logical results are JS `boolean` in the checker; lower as i1
+        // when already inside a native-scalar module.
+        Type::Boolean => Some(Scalar(NativeType::Bool)),
+        _ => None,
+    }
+}
+
+/// True when every **user-declared** local is a native type (`i*`/`u*`/`f*`/`bool`)
+/// or a **function declaration** binding, and the module has at least one native
+/// local (N01/N02 surface).
 ///
-/// Globals (Object/Function builtins) are ignored — they live in `module.locals`
-/// for the JS world but are unused by pure native-int programs.
+/// Arrow / function-expression bindings are excluded so T05 erase fixtures that
+/// mix natives with callable values stay on the B08 hello stub. JS `boolean`
+/// locals alone also do not qualify. Globals (Object/Function builtins) ignored.
 pub(crate) fn is_native_int_module(module: &Module) -> bool {
     let mut user = HashSet::new();
     collect_user_local_ids(&module.body, &mut user);
     if user.is_empty() {
         return false;
     }
+    let fn_decl_locals = function_decl_local_ids(&module.body);
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-    let mut has_int = false;
+    let mut has_native = false;
     for id in user {
         let Some(local) = by_id.get(&id) else {
             return false;
         };
         match local.ty {
-            Type::Native(n) if n.is_int() => has_int = true,
-            Type::Function => {}
+            Type::Native(_) => has_native = true,
+            Type::Function if fn_decl_locals.contains(&id) => {}
             _ => return false,
         }
     }
-    has_int
+    has_native
+}
+
+fn function_decl_local_ids(body: &[Stmt]) -> HashSet<LocalId> {
+    let mut out = HashSet::new();
+    for stmt in body {
+        match stmt {
+            Stmt::Function { local, body, .. } => {
+                out.insert(*local);
+                out.extend(function_decl_local_ids(body));
+            }
+            Stmt::Block { body } => out.extend(function_decl_local_ids(body)),
+            Stmt::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                out.extend(function_decl_local_ids_stmt(consequent));
+                if let Some(a) = alternate {
+                    out.extend(function_decl_local_ids_stmt(a));
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::DoWhile { body, .. }
+            | Stmt::Labeled { body, .. } => {
+                out.extend(function_decl_local_ids_stmt(body));
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(i) = init {
+                    out.extend(function_decl_local_ids_stmt(i));
+                }
+                out.extend(function_decl_local_ids_stmt(body));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn function_decl_local_ids_stmt(stmt: &Stmt) -> HashSet<LocalId> {
+    function_decl_local_ids(std::slice::from_ref(stmt))
 }
 
 fn collect_user_local_ids(body: &[Stmt], out: &mut HashSet<LocalId>) {
@@ -133,12 +228,12 @@ struct Emitter<'a> {
     /// Function IR local → LLVM function name
     fn_names: HashMap<LocalId, String>,
     /// Function param locals (no alloca; SSA param name)
-    params: HashMap<LocalId, (String, NativeType)>,
+    params: HashMap<LocalId, (String, Scalar)>,
     out: String,
     body: String,
     tmp: u32,
     label: u32,
-    /// Top-level native int locals to print at end of main (declare order).
+    /// Top-level native scalar locals to print at end of main (declare order).
     print_order: Vec<LocalId>,
 }
 
@@ -179,9 +274,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM backend (N01 native integers)").ok();
+        writeln!(self.out, "; Draconic LLVM backend (N01/N02 native scalars)").ok();
         writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
         writeln!(self.out, "declare void @draconic_rt_print_u64(i64)").ok();
+        writeln!(self.out, "declare void @draconic_rt_print_f64(double)").ok();
+        writeln!(self.out, "declare void @draconic_rt_print_bool(i8)").ok();
         writeln!(self.out).ok();
 
         // Emit nested function definitions first.
@@ -195,7 +292,7 @@ impl<'a> Emitter<'a> {
             } = stmt
             {
                 if *is_async || *is_generator {
-                    return Err(diag("native ints: async/generator functions not supported"));
+                    return Err(diag("native scalars: async/generator functions not supported"));
                 }
                 self.emit_function(*local, params, body)?;
             }
@@ -217,18 +314,16 @@ impl<'a> Emitter<'a> {
             if matches!(local.ty, Type::Function) {
                 continue;
             }
-            if let Type::Native(n) = local.ty {
-                if n.is_int() {
-                    let ptr = format!("%l{}", local.id.0);
-                    self.allocas.insert(local.id, ptr.clone());
-                    writeln!(
-                        self.out,
-                        "  {ptr} = alloca {}, align {}",
-                        n.llvm_ty(),
-                        n.bit_width() / 8
-                    )
-                    .ok();
-                }
+            if let Some(sc) = scalar_of_type(local.ty) {
+                let ptr = format!("%l{}", local.id.0);
+                self.allocas.insert(local.id, ptr.clone());
+                writeln!(
+                    self.out,
+                    "  {ptr} = alloca {}, align {}",
+                    sc.llvm_ty(),
+                    sc.align()
+                )
+                .ok();
             }
         }
 
@@ -266,18 +361,18 @@ impl<'a> Emitter<'a> {
         let mut param_ids = Vec::new();
         for p in params {
             if p.rest || p.default.is_some() {
-                return Err(diag("native ints: rest/default params not supported"));
+                return Err(diag("native scalars: rest/default params not supported"));
             }
             let Pattern::Local(id) = &p.pattern else {
-                return Err(diag("native ints: only simple ident params supported"));
+                return Err(diag("native scalars: only simple ident params supported"));
             };
-            let ty = self.local_native(*id)?;
+            let ty = self.local_scalar(*id)?;
             param_tys.push(ty);
             param_ids.push(*id);
         }
 
         // Infer return type from first Return with a value, else i32.
-        let ret_ty = infer_return_native(body).unwrap_or(NativeType::I32);
+        let ret_ty = infer_return_scalar(body).unwrap_or(Scalar(NativeType::I32));
 
         let mut sig = String::new();
         write!(sig, "define {} @{fn_name}(", ret_ty.llvm_ty()).ok();
@@ -315,7 +410,7 @@ impl<'a> Emitter<'a> {
                 pre,
                 "  {ptr} = alloca {}, align {}",
                 ty.llvm_ty(),
-                ty.bit_width() / 8
+                ty.align()
             )
             .ok();
             writeln!(
@@ -336,14 +431,14 @@ impl<'a> Emitter<'a> {
             if self.allocas.contains_key(&id) {
                 continue;
             }
-            let ty = self.local_native(id)?;
+            let ty = self.local_scalar(id)?;
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(id, ptr.clone());
             writeln!(
                 pre,
                 "  {ptr} = alloca {}, align {}",
                 ty.llvm_ty(),
-                ty.bit_width() / 8
+                ty.align()
             )
             .ok();
         }
@@ -354,11 +449,13 @@ impl<'a> Emitter<'a> {
 
         // Ensure terminator.
         if !self.body_ends_with_terminator() {
-            // Default return 0 of return type.
-            let zero = format!("{} 0", ret_ty.llvm_ty());
-            // zero is "i32 0" — need just the value part for ret
-            writeln!(self.body, "  ret {} 0", ret_ty.llvm_ty()).ok();
-            let _ = zero;
+            writeln!(
+                self.body,
+                "  ret {} {}",
+                ret_ty.llvm_ty(),
+                ret_ty.zero_const()
+            )
+            .ok();
         }
 
         writeln!(self.out, "{sig} {{").ok();
@@ -391,7 +488,7 @@ impl<'a> Emitter<'a> {
     fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
-                let ty = self.local_native(*local)?;
+                let ty = self.local_scalar(*local)?;
                 let ptr = self
                     .allocas
                     .get(local)
@@ -401,7 +498,13 @@ impl<'a> Emitter<'a> {
                     let v = self.emit_expr(init, Some(ty))?;
                     writeln!(self.body, "  store {} {v}, ptr {ptr}", ty.llvm_ty()).ok();
                 } else {
-                    writeln!(self.body, "  store {} 0, ptr {ptr}", ty.llvm_ty()).ok();
+                    writeln!(
+                        self.body,
+                        "  store {} {}, ptr {ptr}",
+                        ty.llvm_ty(),
+                        ty.zero_const()
+                    )
+                    .ok();
                 }
                 // Main tracks declares for end-of-program print; function emit uses a
                 // saved empty print_order that is discarded.
@@ -422,16 +525,11 @@ impl<'a> Emitter<'a> {
             }
             Stmt::Return { value } => {
                 if let Some(v) = value {
-                    let nty = match v.ty() {
-                        Type::Native(n) if n.is_int() => n,
-                        _ => {
-                            return Err(diag(
-                                "native ints: return value must be a native integer",
-                            ))
-                        }
-                    };
-                    let val = self.emit_expr(v, Some(nty))?;
-                    writeln!(self.body, "  ret {} {val}", nty.llvm_ty()).ok();
+                    let sty = scalar_of_type(v.ty()).ok_or_else(|| {
+                        diag("native scalars: return value must be a native scalar")
+                    })?;
+                    let val = self.emit_expr(v, Some(sty))?;
+                    writeln!(self.body, "  ret {} {val}", sty.llvm_ty()).ok();
                 } else {
                     writeln!(self.body, "  ret i32 0").ok();
                 }
@@ -495,13 +593,13 @@ impl<'a> Emitter<'a> {
             }
             Stmt::Function { .. } => Ok(()), // emitted separately
             other => Err(diag(&format!(
-                "native ints: unsupported statement {other:?}"
+                "native scalars: unsupported statement {other:?}"
             ))),
         }
     }
 
     fn emit_print_local(&mut self, id: LocalId) -> Result<(), Diagnostic> {
-        let ty = self.local_native(id)?;
+        let ty = self.local_scalar(id)?;
         let ptr = self
             .allocas
             .get(&id)
@@ -509,40 +607,57 @@ impl<'a> Emitter<'a> {
             .ok_or_else(|| diag("internal: print missing alloca"))?;
         let v = self.fresh_tmp();
         writeln!(self.body, "  {v} = load {}, ptr {ptr}", ty.llvm_ty()).ok();
-        let ext = self.fresh_tmp();
-        if ty.bit_width() < 64 {
-            if ty.is_signed() {
-                writeln!(
-                    self.body,
-                    "  {ext} = sext {} {v} to i64",
-                    ty.llvm_ty()
-                )
-                .ok();
+        let n = ty.native();
+        if n.is_bool() {
+            let ext = self.fresh_tmp();
+            writeln!(self.body, "  {ext} = zext i1 {v} to i8").ok();
+            writeln!(self.body, "  call void @draconic_rt_print_bool(i8 {ext})").ok();
+        } else if n.is_float() {
+            let d = if n == NativeType::F32 {
+                let t = self.fresh_tmp();
+                writeln!(self.body, "  {t} = fpext float {v} to double").ok();
+                t
             } else {
-                writeln!(
-                    self.body,
-                    "  {ext} = zext {} {v} to i64",
-                    ty.llvm_ty()
-                )
-                .ok();
+                v
+            };
+            writeln!(self.body, "  call void @draconic_rt_print_f64(double {d})").ok();
+        } else {
+            let ext = self.fresh_tmp();
+            if n.bit_width() < 64 {
+                if n.is_signed() {
+                    writeln!(
+                        self.body,
+                        "  {ext} = sext {} {v} to i64",
+                        n.llvm_ty()
+                    )
+                    .ok();
+                } else {
+                    writeln!(
+                        self.body,
+                        "  {ext} = zext {} {v} to i64",
+                        n.llvm_ty()
+                    )
+                    .ok();
+                }
+            } else {
+                writeln!(self.body, "  {ext} = add i64 {v}, 0").ok();
             }
-        } else {
-            // already i64
-            writeln!(self.body, "  {ext} = add i64 {v}, 0").ok();
-        }
-        if ty.is_signed() {
-            writeln!(self.body, "  call void @draconic_rt_print_i64(i64 {ext})").ok();
-        } else {
-            writeln!(self.body, "  call void @draconic_rt_print_u64(i64 {ext})").ok();
+            if n.is_signed() {
+                writeln!(self.body, "  call void @draconic_rt_print_i64(i64 {ext})").ok();
+            } else {
+                writeln!(self.body, "  call void @draconic_rt_print_u64(i64 {ext})").ok();
+            }
         }
         Ok(())
     }
 
     fn emit_bool(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr.ty() {
-            Type::Boolean => self.emit_expr(expr, None),
+            Type::Boolean | Type::Native(NativeType::Bool) => {
+                self.emit_expr(expr, Some(Scalar(NativeType::Bool)))
+            }
             Type::Native(n) if n.is_int() => {
-                let v = self.emit_expr(expr, Some(n))?;
+                let v = self.emit_expr(expr, Some(Scalar(n)))?;
                 let t = self.fresh_tmp();
                 writeln!(
                     self.body,
@@ -552,14 +667,27 @@ impl<'a> Emitter<'a> {
                 .ok();
                 Ok(t)
             }
-            _ => Err(diag("native ints: condition must be bool or native int")),
+            Type::Native(n) if n.is_float() => {
+                let v = self.emit_expr(expr, Some(Scalar(n)))?;
+                let t = self.fresh_tmp();
+                writeln!(
+                    self.body,
+                    "  {t} = fcmp one {} {v}, 0.000000e+00",
+                    n.llvm_ty()
+                )
+                .ok();
+                Ok(t)
+            }
+            _ => Err(diag(
+                "native scalars: condition must be bool or native numeric",
+            )),
         }
     }
 
     fn emit_expr(
         &mut self,
         expr: &Expr,
-        expect: Option<NativeType>,
+        expect: Option<Scalar>,
     ) -> Result<String, Diagnostic> {
         match expr {
             Expr::Local { id, ty } => {
@@ -567,39 +695,56 @@ impl<'a> Emitter<'a> {
                     return Ok(pname.clone());
                 }
                 if let Some(ptr) = self.allocas.get(id).cloned() {
-                    let nty = match ty {
-                        Type::Native(n) if n.is_int() => *n,
-                        _ => self.local_native(*id)?,
-                    };
+                    let sty = scalar_of_type(*ty).unwrap_or(self.local_scalar(*id)?);
                     let t = self.fresh_tmp();
-                    writeln!(self.body, "  {t} = load {}, ptr {ptr}", nty.llvm_ty()).ok();
+                    writeln!(self.body, "  {t} = load {}, ptr {ptr}", sty.llvm_ty()).ok();
                     return Ok(t);
                 }
                 // Function reference used as value — not supported except as callee.
-                Err(diag("native ints: bare function value not supported"))
+                Err(diag("native scalars: bare function value not supported"))
             }
+            Expr::Boolean { value, .. } => Ok(if *value { "1".into() } else { "0".into() }),
             Expr::Number { raw, ty } => {
-                let nty = match (ty, expect) {
-                    (Type::Native(n), _) if n.is_int() => *n,
-                    (_, Some(n)) => n,
+                let sty = match (ty, expect) {
+                    (Type::Native(n), _) if !n.is_bool() => Scalar(*n),
+                    (_, Some(s)) if !s.is_bool() => s,
                     _ => {
                         return Err(diag(
-                            "native ints: number literal needs native integer context",
+                            "native scalars: number literal needs native numeric context",
                         ))
                     }
                 };
-                Ok(format_int_const(raw, nty)?)
+                let nty = sty.native();
+                if nty.is_float() {
+                    Ok(format_float_const(raw, nty)?)
+                } else {
+                    Ok(format_int_const(raw, nty)?)
+                }
             }
             Expr::Unary { op, arg, ty } => {
+                if matches!(op, UnaryOp::Not) {
+                    let a = self.emit_bool(arg)?;
+                    let t = self.fresh_tmp();
+                    writeln!(self.body, "  {t} = xor i1 {a}, true").ok();
+                    return Ok(t);
+                }
                 let nty = match ty {
-                    Type::Native(n) if n.is_int() => *n,
+                    Type::Native(n) if !n.is_bool() => *n,
                     _ => {
-                        return Err(diag("native ints: unary result must be native int"))
+                        return Err(diag("native scalars: unary result must be native numeric"))
                     }
                 };
-                let a = self.emit_expr(arg, Some(nty))?;
+                let a = self.emit_expr(arg, Some(Scalar(nty)))?;
                 let t = self.fresh_tmp();
                 match op {
+                    UnaryOp::Minus if nty.is_float() => {
+                        writeln!(
+                            self.body,
+                            "  {t} = fneg {} {a}",
+                            nty.llvm_ty()
+                        )
+                        .ok();
+                    }
                     UnaryOp::Minus => {
                         writeln!(
                             self.body,
@@ -608,7 +753,7 @@ impl<'a> Emitter<'a> {
                         )
                         .ok();
                     }
-                    UnaryOp::BitNot => {
+                    UnaryOp::BitNot if nty.is_int() => {
                         writeln!(
                             self.body,
                             "  {t} = xor {} {a}, -1",
@@ -616,10 +761,22 @@ impl<'a> Emitter<'a> {
                         )
                         .ok();
                     }
+                    UnaryOp::Plus if nty.is_float() => {
+                        writeln!(
+                            self.body,
+                            "  {t} = fadd {} {a}, 0.000000e+00",
+                            nty.llvm_ty()
+                        )
+                        .ok();
+                    }
                     UnaryOp::Plus => {
                         writeln!(self.body, "  {t} = add {} {a}, 0", nty.llvm_ty()).ok();
                     }
-                    _ => return Err(diag(&format!("native ints: unsupported unary {op}"))),
+                    _ => {
+                        return Err(diag(&format!(
+                            "native scalars: unsupported unary {op}"
+                        )))
+                    }
                 }
                 Ok(t)
             }
@@ -648,33 +805,33 @@ impl<'a> Emitter<'a> {
                 ty,
             } => {
                 if *optional {
-                    return Err(diag("native ints: optional call not supported"));
+                    return Err(diag("native scalars: optional call not supported"));
                 }
                 let Expr::Local { id, .. } = callee.as_ref() else {
-                    return Err(diag("native ints: only direct function calls supported"));
+                    return Err(diag("native scalars: only direct function calls supported"));
                 };
                 let fn_name = self
                     .fn_names
                     .get(id)
                     .cloned()
-                    .ok_or_else(|| diag("native ints: call to unknown function"))?;
+                    .ok_or_else(|| diag("native scalars: call to unknown function"))?;
                 // Checker currently types non-generic calls as `Any`; prefer the
                 // expression type, then expected context, then inferred signature.
-                let ret_ty = match ty {
-                    Type::Native(n) if n.is_int() => *n,
-                    _ => match expect {
+                let ret_ty = match scalar_of_type(*ty) {
+                    Some(s) => s,
+                    None => match expect {
                         Some(n) => n,
                         None => self.function_sig(*id)?.1,
                     },
                 };
                 let (param_tys, _) = self.function_sig(*id)?;
                 if param_tys.len() != args.len() {
-                    return Err(diag("native ints: arity mismatch"));
+                    return Err(diag("native scalars: arity mismatch"));
                 }
                 let mut arg_parts = Vec::new();
                 for (arg, pty) in args.iter().zip(param_tys.iter()) {
                     let Arg::Expr(e) = arg else {
-                        return Err(diag("native ints: spread args not supported"));
+                        return Err(diag("native scalars: spread args not supported"));
                     };
                     let v = self.emit_expr(e, Some(*pty))?;
                     arg_parts.push(format!("{} {v}", pty.llvm_ty()));
@@ -701,10 +858,10 @@ impl<'a> Emitter<'a> {
                 alternate,
                 ty,
             } => {
-                let nty = match ty {
-                    Type::Native(n) if n.is_int() => *n,
-                    _ => expect.ok_or_else(|| {
-                        diag("native ints: conditional needs native int type")
+                let sty = match scalar_of_type(*ty) {
+                    Some(s) => s,
+                    None => expect.ok_or_else(|| {
+                        diag("native scalars: conditional needs native scalar type")
                     })?,
                 };
                 let cond = self.emit_bool(test)?;
@@ -715,8 +872,8 @@ impl<'a> Emitter<'a> {
                 writeln!(
                     self.body,
                     "  {slot} = alloca {}, align {}",
-                    nty.llvm_ty(),
-                    nty.bit_width() / 8
+                    sty.llvm_ty(),
+                    sty.align()
                 )
                 .ok();
                 writeln!(
@@ -725,20 +882,20 @@ impl<'a> Emitter<'a> {
                 )
                 .ok();
                 writeln!(self.body, "{then_l}:").ok();
-                let c = self.emit_expr(consequent, Some(nty))?;
-                writeln!(self.body, "  store {} {c}, ptr {slot}", nty.llvm_ty()).ok();
+                let c = self.emit_expr(consequent, Some(sty))?;
+                writeln!(self.body, "  store {} {c}, ptr {slot}", sty.llvm_ty()).ok();
                 writeln!(self.body, "  br label %{end_l}").ok();
                 writeln!(self.body, "{else_l}:").ok();
-                let a = self.emit_expr(alternate, Some(nty))?;
-                writeln!(self.body, "  store {} {a}, ptr {slot}", nty.llvm_ty()).ok();
+                let a = self.emit_expr(alternate, Some(sty))?;
+                writeln!(self.body, "  store {} {a}, ptr {slot}", sty.llvm_ty()).ok();
                 writeln!(self.body, "  br label %{end_l}").ok();
                 writeln!(self.body, "{end_l}:").ok();
                 let t = self.fresh_tmp();
-                writeln!(self.body, "  {t} = load {}, ptr {slot}", nty.llvm_ty()).ok();
+                writeln!(self.body, "  {t} = load {}, ptr {slot}", sty.llvm_ty()).ok();
                 Ok(t)
             }
             _ => Err(diag(&format!(
-                "native ints: unsupported expression {expr:?}"
+                "native scalars: unsupported expression {expr:?}"
             ))),
         }
     }
@@ -749,7 +906,7 @@ impl<'a> Emitter<'a> {
         op: BinaryOp,
         right: &Expr,
         ty: &Type,
-        expect: Option<NativeType>,
+        expect: Option<Scalar>,
     ) -> Result<String, Diagnostic> {
         // Comparisons → i1
         if matches!(
@@ -763,49 +920,71 @@ impl<'a> Emitter<'a> {
                 | BinaryOp::EqEqEq
                 | BinaryOp::NotEqEq
         ) {
-            let nty = native_operand_ty(left, right, expect)?;
-            let l = self.emit_expr(left, Some(nty))?;
-            let r = self.emit_expr(right, Some(nty))?;
-            let pred = match op {
-                BinaryOp::EqEq | BinaryOp::EqEqEq => "eq",
-                BinaryOp::NotEq | BinaryOp::NotEqEq => "ne",
-                BinaryOp::Lt => {
-                    if nty.is_signed() {
-                        "slt"
-                    } else {
-                        "ult"
-                    }
-                }
-                BinaryOp::LtEq => {
-                    if nty.is_signed() {
-                        "sle"
-                    } else {
-                        "ule"
-                    }
-                }
-                BinaryOp::Gt => {
-                    if nty.is_signed() {
-                        "sgt"
-                    } else {
-                        "ugt"
-                    }
-                }
-                BinaryOp::GtEq => {
-                    if nty.is_signed() {
-                        "sge"
-                    } else {
-                        "uge"
-                    }
-                }
-                _ => unreachable!(),
-            };
+            let sty = scalar_operand_ty(left, right, expect.filter(|s| s.is_int() || s.is_float()))?;
+            if sty.is_bool() {
+                return Err(diag("native scalars: compare needs numeric operands"));
+            }
+            let nty = sty.native();
+            let l = self.emit_expr(left, Some(sty))?;
+            let r = self.emit_expr(right, Some(sty))?;
             let t = self.fresh_tmp();
-            writeln!(
-                self.body,
-                "  {t} = icmp {pred} {} {l}, {r}",
-                nty.llvm_ty()
-            )
-            .ok();
+            if nty.is_float() {
+                let pred = match op {
+                    BinaryOp::EqEq | BinaryOp::EqEqEq => "oeq",
+                    BinaryOp::NotEq | BinaryOp::NotEqEq => "one",
+                    BinaryOp::Lt => "olt",
+                    BinaryOp::LtEq => "ole",
+                    BinaryOp::Gt => "ogt",
+                    BinaryOp::GtEq => "oge",
+                    _ => unreachable!(),
+                };
+                writeln!(
+                    self.body,
+                    "  {t} = fcmp {pred} {} {l}, {r}",
+                    nty.llvm_ty()
+                )
+                .ok();
+            } else {
+                let pred = match op {
+                    BinaryOp::EqEq | BinaryOp::EqEqEq => "eq",
+                    BinaryOp::NotEq | BinaryOp::NotEqEq => "ne",
+                    BinaryOp::Lt => {
+                        if nty.is_signed() {
+                            "slt"
+                        } else {
+                            "ult"
+                        }
+                    }
+                    BinaryOp::LtEq => {
+                        if nty.is_signed() {
+                            "sle"
+                        } else {
+                            "ule"
+                        }
+                    }
+                    BinaryOp::Gt => {
+                        if nty.is_signed() {
+                            "sgt"
+                        } else {
+                            "ugt"
+                        }
+                    }
+                    BinaryOp::GtEq => {
+                        if nty.is_signed() {
+                            "sge"
+                        } else {
+                            "uge"
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                writeln!(
+                    self.body,
+                    "  {t} = icmp {pred} {} {l}, {r}",
+                    nty.llvm_ty()
+                )
+                .ok();
+            }
             return Ok(t);
         }
 
@@ -814,49 +993,68 @@ impl<'a> Emitter<'a> {
             return self.emit_expr(right, expect);
         }
 
-        let nty = match ty {
-            Type::Native(n) if n.is_int() => *n,
-            _ => native_operand_ty(left, right, expect)?,
+        let sty = match scalar_of_type(*ty) {
+            Some(s) if !s.is_bool() => s,
+            _ => scalar_operand_ty(left, right, expect)?,
         };
-        let l = self.emit_expr(left, Some(nty))?;
-        let r = self.emit_expr(right, Some(nty))?;
+        if sty.is_bool() {
+            return Err(diag("native scalars: arithmetic needs numeric type"));
+        }
+        let nty = sty.native();
+        let l = self.emit_expr(left, Some(sty))?;
+        let r = self.emit_expr(right, Some(sty))?;
         let t = self.fresh_tmp();
         let ll = nty.llvm_ty();
-        match op {
-            BinaryOp::Add => writeln!(self.body, "  {t} = add {ll} {l}, {r}").ok(),
-            BinaryOp::Sub => writeln!(self.body, "  {t} = sub {ll} {l}, {r}").ok(),
-            BinaryOp::Mul => writeln!(self.body, "  {t} = mul {ll} {l}, {r}").ok(),
-            BinaryOp::Div => {
-                if nty.is_signed() {
-                    writeln!(self.body, "  {t} = sdiv {ll} {l}, {r}").ok()
-                } else {
-                    writeln!(self.body, "  {t} = udiv {ll} {l}, {r}").ok()
+        if nty.is_float() {
+            match op {
+                BinaryOp::Add => writeln!(self.body, "  {t} = fadd {ll} {l}, {r}").ok(),
+                BinaryOp::Sub => writeln!(self.body, "  {t} = fsub {ll} {l}, {r}").ok(),
+                BinaryOp::Mul => writeln!(self.body, "  {t} = fmul {ll} {l}, {r}").ok(),
+                BinaryOp::Div => writeln!(self.body, "  {t} = fdiv {ll} {l}, {r}").ok(),
+                BinaryOp::Rem => writeln!(self.body, "  {t} = frem {ll} {l}, {r}").ok(),
+                _ => {
+                    return Err(diag(&format!(
+                        "native scalars: unsupported float binary operator {op}"
+                    )))
                 }
-            }
-            BinaryOp::Rem => {
-                if nty.is_signed() {
-                    writeln!(self.body, "  {t} = srem {ll} {l}, {r}").ok()
-                } else {
-                    writeln!(self.body, "  {t} = urem {ll} {l}, {r}").ok()
+            };
+        } else {
+            match op {
+                BinaryOp::Add => writeln!(self.body, "  {t} = add {ll} {l}, {r}").ok(),
+                BinaryOp::Sub => writeln!(self.body, "  {t} = sub {ll} {l}, {r}").ok(),
+                BinaryOp::Mul => writeln!(self.body, "  {t} = mul {ll} {l}, {r}").ok(),
+                BinaryOp::Div => {
+                    if nty.is_signed() {
+                        writeln!(self.body, "  {t} = sdiv {ll} {l}, {r}").ok()
+                    } else {
+                        writeln!(self.body, "  {t} = udiv {ll} {l}, {r}").ok()
+                    }
                 }
-            }
-            BinaryOp::BitAnd => writeln!(self.body, "  {t} = and {ll} {l}, {r}").ok(),
-            BinaryOp::BitOr => writeln!(self.body, "  {t} = or {ll} {l}, {r}").ok(),
-            BinaryOp::BitXor => writeln!(self.body, "  {t} = xor {ll} {l}, {r}").ok(),
-            BinaryOp::Shl => writeln!(self.body, "  {t} = shl {ll} {l}, {r}").ok(),
-            BinaryOp::Shr => {
-                if nty.is_signed() {
-                    writeln!(self.body, "  {t} = ashr {ll} {l}, {r}").ok()
-                } else {
-                    writeln!(self.body, "  {t} = lshr {ll} {l}, {r}").ok()
+                BinaryOp::Rem => {
+                    if nty.is_signed() {
+                        writeln!(self.body, "  {t} = srem {ll} {l}, {r}").ok()
+                    } else {
+                        writeln!(self.body, "  {t} = urem {ll} {l}, {r}").ok()
+                    }
                 }
-            }
-            _ => {
-                return Err(diag(&format!(
-                    "native ints: unsupported binary operator {op}"
-                )))
-            }
-        };
+                BinaryOp::BitAnd => writeln!(self.body, "  {t} = and {ll} {l}, {r}").ok(),
+                BinaryOp::BitOr => writeln!(self.body, "  {t} = or {ll} {l}, {r}").ok(),
+                BinaryOp::BitXor => writeln!(self.body, "  {t} = xor {ll} {l}, {r}").ok(),
+                BinaryOp::Shl => writeln!(self.body, "  {t} = shl {ll} {l}, {r}").ok(),
+                BinaryOp::Shr => {
+                    if nty.is_signed() {
+                        writeln!(self.body, "  {t} = ashr {ll} {l}, {r}").ok()
+                    } else {
+                        writeln!(self.body, "  {t} = lshr {ll} {l}, {r}").ok()
+                    }
+                }
+                _ => {
+                    return Err(diag(&format!(
+                        "native scalars: unsupported binary operator {op}"
+                    )))
+                }
+            };
+        }
         Ok(t)
     }
 
@@ -868,11 +1066,11 @@ impl<'a> Emitter<'a> {
         ty: &Type,
     ) -> Result<String, Diagnostic> {
         let AssignTarget::Local(id) = target else {
-            return Err(diag("native ints: only local assignment supported"));
+            return Err(diag("native scalars: only local assignment supported"));
         };
-        let nty = match ty {
-            Type::Native(n) if n.is_int() => *n,
-            _ => self.local_native(*id)?,
+        let sty = match scalar_of_type(*ty) {
+            Some(s) => s,
+            None => self.local_scalar(*id)?,
         };
         let ptr = self
             .allocas
@@ -881,55 +1079,94 @@ impl<'a> Emitter<'a> {
             .ok_or_else(|| diag("internal: assign missing alloca"))?;
 
         let rhs = if matches!(op, AssignOp::Eq) {
-            self.emit_expr(value, Some(nty))?
+            self.emit_expr(value, Some(sty))?
         } else {
+            if sty.is_bool() {
+                return Err(diag("native scalars: compound assign needs numeric local"));
+            }
+            let nty = sty.native();
             let cur = self.fresh_tmp();
             writeln!(self.body, "  {cur} = load {}, ptr {ptr}", nty.llvm_ty()).ok();
-            let rhs_v = self.emit_expr(value, Some(nty))?;
+            let rhs_v = self.emit_expr(value, Some(sty))?;
             let t = self.fresh_tmp();
             let ll = nty.llvm_ty();
-            match op {
-                AssignOp::AddEq => writeln!(self.body, "  {t} = add {ll} {cur}, {rhs_v}").ok(),
-                AssignOp::SubEq => writeln!(self.body, "  {t} = sub {ll} {cur}, {rhs_v}").ok(),
-                AssignOp::MulEq => writeln!(self.body, "  {t} = mul {ll} {cur}, {rhs_v}").ok(),
-                AssignOp::DivEq => {
-                    if nty.is_signed() {
-                        writeln!(self.body, "  {t} = sdiv {ll} {cur}, {rhs_v}").ok()
-                    } else {
-                        writeln!(self.body, "  {t} = udiv {ll} {cur}, {rhs_v}").ok()
+            if nty.is_float() {
+                match op {
+                    AssignOp::AddEq => {
+                        writeln!(self.body, "  {t} = fadd {ll} {cur}, {rhs_v}").ok()
                     }
-                }
-                AssignOp::RemEq => {
-                    if nty.is_signed() {
-                        writeln!(self.body, "  {t} = srem {ll} {cur}, {rhs_v}").ok()
-                    } else {
-                        writeln!(self.body, "  {t} = urem {ll} {cur}, {rhs_v}").ok()
+                    AssignOp::SubEq => {
+                        writeln!(self.body, "  {t} = fsub {ll} {cur}, {rhs_v}").ok()
                     }
-                }
-                AssignOp::BitAndEq => {
-                    writeln!(self.body, "  {t} = and {ll} {cur}, {rhs_v}").ok()
-                }
-                AssignOp::BitOrEq => writeln!(self.body, "  {t} = or {ll} {cur}, {rhs_v}").ok(),
-                AssignOp::BitXorEq => {
-                    writeln!(self.body, "  {t} = xor {ll} {cur}, {rhs_v}").ok()
-                }
-                AssignOp::ShlEq => writeln!(self.body, "  {t} = shl {ll} {cur}, {rhs_v}").ok(),
-                AssignOp::ShrEq => {
-                    if nty.is_signed() {
-                        writeln!(self.body, "  {t} = ashr {ll} {cur}, {rhs_v}").ok()
-                    } else {
-                        writeln!(self.body, "  {t} = lshr {ll} {cur}, {rhs_v}").ok()
+                    AssignOp::MulEq => {
+                        writeln!(self.body, "  {t} = fmul {ll} {cur}, {rhs_v}").ok()
                     }
-                }
-                _ => {
-                    return Err(diag(&format!(
-                        "native ints: unsupported compound assign {op:?}"
-                    )))
-                }
-            };
+                    AssignOp::DivEq => {
+                        writeln!(self.body, "  {t} = fdiv {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::RemEq => {
+                        writeln!(self.body, "  {t} = frem {ll} {cur}, {rhs_v}").ok()
+                    }
+                    _ => {
+                        return Err(diag(&format!(
+                            "native scalars: unsupported float compound assign {op:?}"
+                        )))
+                    }
+                };
+            } else {
+                match op {
+                    AssignOp::AddEq => {
+                        writeln!(self.body, "  {t} = add {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::SubEq => {
+                        writeln!(self.body, "  {t} = sub {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::MulEq => {
+                        writeln!(self.body, "  {t} = mul {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::DivEq => {
+                        if nty.is_signed() {
+                            writeln!(self.body, "  {t} = sdiv {ll} {cur}, {rhs_v}").ok()
+                        } else {
+                            writeln!(self.body, "  {t} = udiv {ll} {cur}, {rhs_v}").ok()
+                        }
+                    }
+                    AssignOp::RemEq => {
+                        if nty.is_signed() {
+                            writeln!(self.body, "  {t} = srem {ll} {cur}, {rhs_v}").ok()
+                        } else {
+                            writeln!(self.body, "  {t} = urem {ll} {cur}, {rhs_v}").ok()
+                        }
+                    }
+                    AssignOp::BitAndEq => {
+                        writeln!(self.body, "  {t} = and {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::BitOrEq => {
+                        writeln!(self.body, "  {t} = or {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::BitXorEq => {
+                        writeln!(self.body, "  {t} = xor {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::ShlEq => {
+                        writeln!(self.body, "  {t} = shl {ll} {cur}, {rhs_v}").ok()
+                    }
+                    AssignOp::ShrEq => {
+                        if nty.is_signed() {
+                            writeln!(self.body, "  {t} = ashr {ll} {cur}, {rhs_v}").ok()
+                        } else {
+                            writeln!(self.body, "  {t} = lshr {ll} {cur}, {rhs_v}").ok()
+                        }
+                    }
+                    _ => {
+                        return Err(diag(&format!(
+                            "native scalars: unsupported compound assign {op:?}"
+                        )))
+                    }
+                };
+            }
             t
         };
-        writeln!(self.body, "  store {} {rhs}, ptr {ptr}", nty.llvm_ty()).ok();
+        writeln!(self.body, "  store {} {rhs}, ptr {ptr}", sty.llvm_ty()).ok();
         Ok(rhs)
     }
 
@@ -941,12 +1178,16 @@ impl<'a> Emitter<'a> {
         ty: &Type,
     ) -> Result<String, Diagnostic> {
         let UpdateTarget::Local(id) = target else {
-            return Err(diag("native ints: only local ++/-- supported"));
+            return Err(diag("native scalars: only local ++/-- supported"));
         };
-        let nty = match ty {
-            Type::Native(n) if n.is_int() => *n,
-            _ => self.local_native(*id)?,
+        let sty = match scalar_of_type(*ty) {
+            Some(s) => s,
+            None => self.local_scalar(*id)?,
         };
+        if sty.is_bool() || sty.is_float() {
+            return Err(diag("native scalars: ++/-- needs integer local"));
+        }
+        let nty = sty.native();
         let ptr = self
             .allocas
             .get(id)
@@ -971,7 +1212,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn function_sig(&self, id: LocalId) -> Result<(Vec<NativeType>, NativeType), Diagnostic> {
+    fn function_sig(&self, id: LocalId) -> Result<(Vec<Scalar>, Scalar), Diagnostic> {
         for stmt in &self.module.body {
             if let Stmt::Function {
                 local,
@@ -984,27 +1225,27 @@ impl<'a> Emitter<'a> {
                     let mut ptys = Vec::new();
                     for p in params {
                         let Pattern::Local(pid) = &p.pattern else {
-                            return Err(diag("native ints: only simple params"));
+                            return Err(diag("native scalars: only simple params"));
                         };
-                        ptys.push(self.local_native(*pid)?);
+                        ptys.push(self.local_scalar(*pid)?);
                     }
-                    let ret = infer_return_native(body).unwrap_or(NativeType::I32);
+                    let ret = infer_return_scalar(body).unwrap_or(Scalar(NativeType::I32));
                     return Ok((ptys, ret));
                 }
             }
         }
-        Err(diag("native ints: function not found for signature"))
+        Err(diag("native scalars: function not found for signature"))
     }
 
-    fn local_native(&self, id: LocalId) -> Result<NativeType, Diagnostic> {
+    fn local_scalar(&self, id: LocalId) -> Result<Scalar, Diagnostic> {
         let local = self
             .locals
             .get(&id)
             .ok_or_else(|| diag("internal: unknown local"))?;
         match local.ty {
-            Type::Native(n) if n.is_int() => Ok(n),
+            Type::Native(n) => Ok(Scalar(n)),
             _ => Err(diag(&format!(
-                "native ints: local `{}` is not a native integer",
+                "native scalars: local `{}` is not a native scalar",
                 local.name
             ))),
         }
@@ -1023,27 +1264,42 @@ impl<'a> Emitter<'a> {
     }
 }
 
-fn native_operand_ty(
+fn scalar_operand_ty(
     left: &Expr,
     right: &Expr,
-    expect: Option<NativeType>,
-) -> Result<NativeType, Diagnostic> {
+    expect: Option<Scalar>,
+) -> Result<Scalar, Diagnostic> {
     if let Type::Native(n) = left.ty() {
-        if n.is_int() {
-            return Ok(n);
+        if !n.is_bool() {
+            return Ok(Scalar(n));
         }
     }
     if let Type::Native(n) = right.ty() {
-        if n.is_int() {
-            return Ok(n);
+        if !n.is_bool() {
+            return Ok(Scalar(n));
         }
     }
-    if let Some(n) = expect {
-        return Ok(n);
+    if let Some(s) = expect {
+        if !s.is_bool() {
+            return Ok(s);
+        }
     }
     Err(diag(
-        "native ints: cannot determine integer type for operands",
+        "native scalars: cannot determine numeric type for operands",
     ))
+}
+
+fn format_float_const(raw: &str, ty: NativeType) -> Result<String, Diagnostic> {
+    let cleaned: String = raw.chars().filter(|c| *c != '_').collect();
+    let f: f64 = cleaned
+        .parse()
+        .map_err(|_| diag(&format!("invalid float literal {raw}")))?;
+    // LLVM accepts decimal floating constants; keep enough digits for round-trip.
+    let s = format!("{f:.17e}");
+    match ty {
+        NativeType::F32 | NativeType::F64 => Ok(s),
+        _ => Err(diag("internal: format_float_const on non-float")),
+    }
 }
 
 fn format_int_const(raw: &str, ty: NativeType) -> Result<String, Diagnostic> {
@@ -1112,7 +1368,7 @@ fn parse_int_bits(digits: &str) -> Result<u64, Diagnostic> {
             .map_err(|_| diag(&format!("invalid numeric literal {digits}")))?;
         if f.fract() != 0.0 || f < 0.0 || f > u64::MAX as f64 {
             return Err(diag(&format!(
-                "native ints: non-integral literal {digits}"
+                "native scalars: non-integral literal {digits}"
             )));
         }
         return Ok(f as u64);
@@ -1122,31 +1378,28 @@ fn parse_int_bits(digits: &str) -> Result<u64, Diagnostic> {
         .map_err(|_| diag(&format!("invalid integer literal {digits}")))
 }
 
-fn infer_return_native(body: &[Stmt]) -> Option<NativeType> {
+fn infer_return_scalar(body: &[Stmt]) -> Option<Scalar> {
     for stmt in body {
-        if let Some(n) = infer_return_native_stmt(stmt) {
+        if let Some(n) = infer_return_scalar_stmt(stmt) {
             return Some(n);
         }
     }
     None
 }
 
-fn infer_return_native_stmt(stmt: &Stmt) -> Option<NativeType> {
+fn infer_return_scalar_stmt(stmt: &Stmt) -> Option<Scalar> {
     match stmt {
         Stmt::Return {
             value: Some(v), ..
-        } => match v.ty() {
-            Type::Native(n) if n.is_int() => Some(n),
-            _ => None,
-        },
-        Stmt::Block { body } => infer_return_native(body),
+        } => scalar_of_type(v.ty()),
+        Stmt::Block { body } => infer_return_scalar(body),
         Stmt::If {
             consequent,
             alternate,
             ..
-        } => infer_return_native_stmt(consequent)
-            .or_else(|| alternate.as_ref().and_then(|a| infer_return_native_stmt(a))),
-        Stmt::While { body, .. } => infer_return_native_stmt(body),
+        } => infer_return_scalar_stmt(consequent)
+            .or_else(|| alternate.as_ref().and_then(|a| infer_return_scalar_stmt(a))),
+        Stmt::While { body, .. } => infer_return_scalar_stmt(body),
         _ => None,
     }
 }

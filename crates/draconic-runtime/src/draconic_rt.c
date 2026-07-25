@@ -18,6 +18,15 @@ void draconic_rt_print_u64(uint64_t v) {
     printf("%llu\n", (unsigned long long)v);
 }
 
+/* N02: print native floats / bool for conformance observation. */
+void draconic_rt_print_f64(double v) {
+    printf("%.17g\n", v);
+}
+
+void draconic_rt_print_bool(int8_t v) {
+    puts(v ? "true" : "false");
+}
+
 /* --- GC hello (B09): tracing heap for JS strings and objects --- */
 
 typedef enum {

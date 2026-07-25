@@ -1,0 +1,6 @@
+let t: bool = true;
+let f: bool = false;
+let a: f64 = 3.0;
+let b: f64 = 1.0;
+let gt: bool = a > b;
+let eq: bool = a == b;

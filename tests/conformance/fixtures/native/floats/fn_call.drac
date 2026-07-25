@@ -1,0 +1,4 @@
+function add(x: f64, y: f64): f64 {
+  return x + y;
+}
+let s: f64 = add(20.5, 21.5);

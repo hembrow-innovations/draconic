@@ -1,0 +1,4 @@
+id: native/floats/arith_f64
+targets: native
+native.exit: 0
+native.stdout: 10.5\n2\n12.5\n8.5\n21\n5.25\n

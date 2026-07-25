@@ -1,0 +1,4 @@
+id: native/floats/fn_call
+targets: native
+native.exit: 0
+native.stdout: 42\n
