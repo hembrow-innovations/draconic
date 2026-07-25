@@ -25,6 +25,58 @@ pub struct Symbol {
     pub with_depth: u32,
 }
 
+/// Unboxed native / systems types (T05). Outside the JS value heap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NativeType {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F32,
+    F64,
+}
+
+impl NativeType {
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "i8" => Self::I8,
+            "i16" => Self::I16,
+            "i32" => Self::I32,
+            "i64" => Self::I64,
+            "u8" => Self::U8,
+            "u16" => Self::U16,
+            "u32" => Self::U32,
+            "u64" => Self::U64,
+            "f32" => Self::F32,
+            "f64" => Self::F64,
+            _ => return None,
+        })
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+        }
+    }
+
+    fn is_float(self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
+}
+
 /// TypeScript-inspired types for the minimal Program surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -47,6 +99,8 @@ pub enum Type {
     TypeParam(u32),
     /// Generic function signature; index into the generic_fns table (T04).
     GenericFn(u32),
+    /// Unboxed native type (`i32`, `f64`, …); T05.
+    Native(NativeType),
     /// Flexible / unannotated (e.g. `let x;` with no initializer).
     Any,
 }
@@ -99,6 +153,7 @@ impl fmt::Display for Type {
             Type::Intersection(_) => "intersection",
             Type::TypeParam(_) => "type parameter",
             Type::GenericFn(_) => "function",
+            Type::Native(n) => n.as_str(),
             Type::Any => "any",
         };
         write!(f, "{s}")
@@ -219,6 +274,7 @@ fn format_type_full(
         }
         Type::TypeParam(_) => "type parameter".to_string(),
         Type::GenericFn(_) => "function".to_string(),
+        Type::Native(n) => n.as_str().to_string(),
         other => other.to_string(),
     }
 }
@@ -1599,7 +1655,7 @@ impl<'a> Checker<'a> {
                 };
                 let ty = if let Some(ann_ty) = ann_ty {
                     if let Some(init) = init {
-                        self.require_assignable(init_ty, ann_ty, expr_span_of(init))?;
+                        self.require_assignable_expr(init_ty, ann_ty, init)?;
                     }
                     ann_ty
                 } else {
@@ -1866,8 +1922,8 @@ impl<'a> Checker<'a> {
                     Type::Any
                 };
                 if let Some(expected) = self.expected_return {
-                    if argument.is_some() {
-                        self.require_assignable(actual, expected, *span)?;
+                    if let Some(arg) = argument {
+                        self.require_assignable_expr(actual, expected, arg)?;
                     } else if expected != Type::Any {
                         return Err(Diagnostic::new(
                             format!(
@@ -2019,7 +2075,7 @@ impl<'a> Checker<'a> {
             } => {
                 let left_ty = self.check_expr(left)?;
                 let right_ty = self.check_expr(right)?;
-                let ty = self.check_binary(*op, left_ty, right_ty, *span)?;
+                let ty = self.check_binary(*op, left_ty, right_ty, *span, left, right)?;
                 self.record(*span, ty);
                 ty
             }
@@ -2074,19 +2130,23 @@ impl<'a> Checker<'a> {
                         }
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let result_ty = if let Some(bin_op) = op.binary_op() {
-                            self.check_binary(bin_op, left_ty, value_ty, *span)?
+                            self.check_binary(bin_op, left_ty, value_ty, *span, target, value)?
                         } else {
                             value_ty
                         };
                         if left_ty == Type::Any {
                             self.symbol_types[sym.0 as usize] = result_ty;
-                        } else if left_ty != result_ty && result_ty != Type::Any {
-                            return Err(Diagnostic::new(
-                                format!(
-                                    "cannot assign type `{result_ty}` to binding of type `{left_ty}`"
-                                ),
-                                *span,
-                            ));
+                        } else if op.binary_op().is_some() {
+                            if !self.is_assignable(result_ty, left_ty) {
+                                return Err(Diagnostic::new(
+                                    format!(
+                                        "cannot assign type `{result_ty}` to binding of type `{left_ty}`"
+                                    ),
+                                    *span,
+                                ));
+                            }
+                        } else {
+                            self.require_assignable_expr(result_ty, left_ty, value)?;
                         }
                         self.record(id.span, self.symbol_types[sym.0 as usize]);
                         self.record(*span, result_ty);
@@ -2174,7 +2234,10 @@ impl<'a> Checker<'a> {
                             BindingKind::Let | BindingKind::Var => {}
                         }
                         let left_ty = self.symbol_types[sym.0 as usize];
-                        if left_ty != Type::Number && left_ty != Type::Any {
+                        let ok = left_ty == Type::Number
+                            || left_ty == Type::Any
+                            || matches!(left_ty, Type::Native(n) if !n.is_float());
+                        if !ok {
                             return Err(Diagnostic::new(
                                 format!("update operator cannot be applied to type `{left_ty}`"),
                                 *span,
@@ -2183,7 +2246,14 @@ impl<'a> Checker<'a> {
                         if left_ty == Type::Any {
                             self.symbol_types[sym.0 as usize] = Type::Number;
                         }
-                        self.record(id.span, Type::Number);
+                        let out = if matches!(left_ty, Type::Native(_)) {
+                            left_ty
+                        } else {
+                            Type::Number
+                        };
+                        self.record(id.span, out);
+                        self.record(*span, out);
+                        return Ok(out);
                     }
                     _ => {
                         return Err(Diagnostic::new(
@@ -2192,8 +2262,6 @@ impl<'a> Checker<'a> {
                         ));
                     }
                 }
-                self.record(*span, Type::Number);
-                Type::Number
             }
             Expr::Call {
                 callee,
@@ -2322,7 +2390,7 @@ impl<'a> Checker<'a> {
                     ArrowBody::Expr(expr) => {
                         let body_ty = self.check_expr(expr)?;
                         if let Some(expected) = ret_ty {
-                            self.require_assignable(body_ty, expected, expr_span_of(expr))?;
+                            self.require_assignable_expr(body_ty, expected, expr)?;
                         }
                     }
                     ArrowBody::Block(stmt) => {
@@ -2427,7 +2495,7 @@ impl<'a> Checker<'a> {
             if let Some(default) = &p.default {
                 let def_ty = self.check_expr(default)?;
                 if let Some(ann_ty) = ann_ty {
-                    self.require_assignable(def_ty, ann_ty, expr_span_of(default))?;
+                    self.require_assignable_expr(def_ty, ann_ty, default)?;
                 }
             }
             self.symbol_types[pid.0 as usize] = ann_ty.unwrap_or(Type::Any);
@@ -2578,7 +2646,9 @@ impl<'a> Checker<'a> {
                     "object" => Type::Object,
                     "function" => Type::Function,
                     other => {
-                        if let Some(aliased) = self.type_aliases.get(other).copied() {
+                        if let Some(n) = NativeType::from_name(other) {
+                            Type::Native(n)
+                        } else if let Some(aliased) = self.type_aliases.get(other).copied() {
                             aliased
                         } else if self.generic_aliases.contains_key(other) {
                             return Err(Diagnostic::new(
@@ -2806,6 +2876,40 @@ impl<'a> Checker<'a> {
             Type::TypeParam(id) => subst.get(&id).copied().unwrap_or(ty),
             other => other,
         }
+    }
+
+    /// Number (or ±number) literal expression — may contextually type as a native numeric.
+    fn is_number_literal_expr(expr: &Expr) -> bool {
+        match expr {
+            Expr::Number(_) => true,
+            Expr::Unary {
+                op: UnaryOp::Plus | UnaryOp::Minus,
+                arg,
+                ..
+            } => matches!(arg.as_ref(), Expr::Number(_)),
+            Expr::Paren { expr, .. } => Self::is_number_literal_expr(expr),
+            _ => false,
+        }
+    }
+
+    fn number_literal_ok_for_native(to: Type) -> bool {
+        matches!(to, Type::Native(_))
+    }
+
+    /// Assignability with contextual typing of numeric literals to native types (T05).
+    fn require_assignable_expr(
+        &self,
+        from: Type,
+        to: Type,
+        from_expr: &Expr,
+    ) -> Result<(), Diagnostic> {
+        if self.is_assignable(from, to) {
+            return Ok(());
+        }
+        if Self::is_number_literal_expr(from_expr) && Self::number_literal_ok_for_native(to) {
+            return Ok(());
+        }
+        self.require_assignable(from, to, expr_span_of(from_expr))
     }
 
     /// Whether `from` is assignable to `to` (exact, `any`, structural, union/intersection).
@@ -3080,6 +3184,8 @@ impl<'a> Checker<'a> {
         left: Type,
         right: Type,
         span: Span,
+        left_expr: &Expr,
+        right_expr: &Expr,
     ) -> Result<Type, Diagnostic> {
         match op {
             // Binary `+`: string preference (ToString) else numeric (ToNumber), per ECMA-262.
@@ -3098,6 +3204,10 @@ impl<'a> Checker<'a> {
                     }
                 } else if left == Type::String || right == Type::String {
                     Ok(Type::String)
+                } else if let Some(n) =
+                    self.native_arith_result(left, right, left_expr, right_expr)
+                {
+                    Ok(Type::Native(n))
                 } else if matches!(
                     left,
                     Type::Object | Type::Shape(_) | Type::Function | Type::Any
@@ -3149,6 +3259,20 @@ impl<'a> Checker<'a> {
                     } else {
                         Ok(Type::BigInt)
                     }
+                } else if let Some(n) =
+                    self.native_arith_result(left, right, left_expr, right_expr)
+                {
+                    // `>>>` is JS ToUint32; reject on native types.
+                    if matches!(op, BinaryOp::UShr) {
+                        Err(Diagnostic::new(
+                            format!(
+                                "operator `{op}` cannot be applied to types `{left}` and `{right}`"
+                            ),
+                            span,
+                        ))
+                    } else {
+                        Ok(Type::Native(n))
+                    }
                 } else if self.is_numberish(left) && self.is_numberish(right) {
                     Ok(Type::Number)
                 } else {
@@ -3161,6 +3285,9 @@ impl<'a> Checker<'a> {
             BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
                 if (self.is_numberish(left) && self.is_numberish(right))
                     || (left == Type::BigInt && right == Type::BigInt)
+                    || self
+                        .native_arith_result(left, right, left_expr, right_expr)
+                        .is_some()
                 {
                     Ok(Type::Boolean)
                 } else {
@@ -3194,13 +3321,29 @@ impl<'a> Checker<'a> {
         matches!(ty, Type::Number | Type::Any)
     }
 
+    /// Same native type on both sides, or native + number-literal (contextual).
+    fn native_arith_result(
+        &self,
+        left: Type,
+        right: Type,
+        left_expr: &Expr,
+        right_expr: &Expr,
+    ) -> Option<NativeType> {
+        match (left, right) {
+            (Type::Native(a), Type::Native(b)) if a == b => Some(a),
+            (Type::Native(a), Type::Number) if Self::is_number_literal_expr(right_expr) => Some(a),
+            (Type::Number, Type::Native(b)) if Self::is_number_literal_expr(left_expr) => Some(b),
+            _ => None,
+        }
+    }
+
     /// Primitives ToNumber accepts for binary `+` when neither side is string/BigInt/object.
     fn is_primitive_numeric_coercible(&self, ty: Type) -> bool {
         matches!(ty, Type::Number | Type::Boolean | Type::Null)
     }
 
     fn is_add_operand(&self, ty: Type) -> bool {
-        !matches!(ty, Type::BigInt)
+        !matches!(ty, Type::BigInt | Type::Native(_))
     }
 }
 

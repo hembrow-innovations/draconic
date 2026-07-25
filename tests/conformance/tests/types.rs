@@ -1,6 +1,6 @@
-//! ROADMAP T01–T04: type annotations, object types, unions/intersections/narrowing, generics.
+//! ROADMAP T01–T05: type annotations, object types, unions/intersections/narrowing, generics, native types.
 
-use draconic_check::{check, BoundProgram, CheckedProgram, Type};
+use draconic_check::{check, BoundProgram, CheckedProgram, NativeType, Type};
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 use draconic_parser::parse;
 
@@ -799,4 +799,170 @@ fn parse_generic_alias_and_fn() {
     let checked = check(program).unwrap();
     assert_eq!(type_of(&checked, "a"), Type::Number);
     assert_eq!(type_of(&checked, "b"), Type::Number);
+}
+
+// --- T05: native types in the type system ---
+
+#[test]
+fn native_types_erase_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/native/native_types_erase"),
+        "missing types/native/native_types_erase fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn native_types_erase_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/native/native_types_erase")
+        .expect("types/native/native_types_erase");
+    assert!(fixture.targets.contains(&Target::Js));
+    assert!(fixture.targets.contains(&Target::Native));
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn i32_annotation_sets_binding_type() {
+    let program = parse("let x: i32 = 1;").unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "x"), Type::Native(NativeType::I32));
+}
+
+#[test]
+fn native_integer_and_float_names() {
+    let program = parse(
+        r#"
+        let a: i8 = 1;
+        let b: i16 = 2;
+        let c: i32 = 3;
+        let d: i64 = 4;
+        let e: u8 = 5;
+        let f: u16 = 6;
+        let g: u32 = 7;
+        let h: u64 = 8;
+        let i: f32 = 1.5;
+        let j: f64 = 2.5;
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "a"), Type::Native(NativeType::I8));
+    assert_eq!(type_of(&checked, "b"), Type::Native(NativeType::I16));
+    assert_eq!(type_of(&checked, "c"), Type::Native(NativeType::I32));
+    assert_eq!(type_of(&checked, "d"), Type::Native(NativeType::I64));
+    assert_eq!(type_of(&checked, "e"), Type::Native(NativeType::U8));
+    assert_eq!(type_of(&checked, "f"), Type::Native(NativeType::U16));
+    assert_eq!(type_of(&checked, "g"), Type::Native(NativeType::U32));
+    assert_eq!(type_of(&checked, "h"), Type::Native(NativeType::U64));
+    assert_eq!(type_of(&checked, "i"), Type::Native(NativeType::F32));
+    assert_eq!(type_of(&checked, "j"), Type::Native(NativeType::F64));
+}
+
+#[test]
+fn native_rejects_mismatched_native_width() {
+    let program = parse("let x: i32 = 1; let y: i64 = x;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable")
+            && err.message.contains("i32")
+            && err.message.contains("i64"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn native_rejects_number_binding_to_i32() {
+    let program = parse("let n: number = 1; let x: i32 = n;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable")
+            && err.message.contains("number")
+            && err.message.contains("i32"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn native_rejects_i32_to_number() {
+    let program = parse("let x: i32 = 1; let n: number = x;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable")
+            && err.message.contains("i32")
+            && err.message.contains("number"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn native_param_and_return() {
+    let program = parse(
+        r#"
+        function add(a: i32, b: i32): i32 {
+          return a + b;
+        }
+        let s: i32 = add(1, 2);
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "a"), Type::Native(NativeType::I32));
+    assert_eq!(type_of(&checked, "b"), Type::Native(NativeType::I32));
+    assert_eq!(type_of(&checked, "s"), Type::Native(NativeType::I32));
+}
+
+#[test]
+fn native_same_type_assign_and_arith() {
+    let program = parse(
+        r#"
+        let x: i32 = 10;
+        x = 20;
+        let y: i32 = x + 1;
+        let z: i32 = x - y;
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "x"), Type::Native(NativeType::I32));
+    assert_eq!(type_of(&checked, "y"), Type::Native(NativeType::I32));
+    assert_eq!(type_of(&checked, "z"), Type::Native(NativeType::I32));
+}
+
+#[test]
+fn native_in_alias_and_object() {
+    let program = parse(
+        r#"
+        type Point = { x: i32; y: i32 };
+        let x0: i32 = 1;
+        let y0: i32 = 2;
+        let p: Point = { x: x0, y: y0 };
+        let x: i32 = p.x;
+        "#,
+    )
+    .unwrap();
+    let checked = check(program).unwrap();
+    assert!(matches!(type_of(&checked, "p"), Type::Shape(_)));
+    assert_eq!(type_of(&checked, "x"), Type::Native(NativeType::I32));
+}
+
+#[test]
+fn native_unary_minus_literal_ok() {
+    let program = parse("let x: i32 = -1;").unwrap();
+    let checked = check(program).unwrap();
+    assert_eq!(type_of(&checked, "x"), Type::Native(NativeType::I32));
 }
