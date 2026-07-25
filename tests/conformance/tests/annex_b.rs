@@ -166,3 +166,13 @@ fn var_decl_fixture_present() {
 fn var_decl_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/var_decl");
 }
+
+#[test]
+fn var_for_fixture_present() {
+    assert_fixture_present("es/annex-b/var_for");
+}
+
+#[test]
+fn var_for_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/var_for");
+}

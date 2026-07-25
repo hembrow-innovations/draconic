@@ -533,7 +533,9 @@ impl Binder {
                 self.declare_annex_b_block_functions(body)?;
                 self.hoist_vars_from_stmt(body)
             }
-            Stmt::ForIn { body, .. } | Stmt::ForOf { body, .. } => {
+            Stmt::ForIn { body, left, .. } | Stmt::ForOf { body, left, .. } => {
+                self.declare_annex_b_block_functions(left)?;
+                self.hoist_vars_from_stmt(left)?;
                 self.declare_annex_b_block_functions(body)?;
                 self.hoist_vars_from_stmt(body)
             }
@@ -955,8 +957,8 @@ impl Binder {
                 body,
                 ..
             } => {
-                // `for (let …)` introduces a loop-scoped binding visible in
-                // test, update, and body.
+                // `for (let/const …)` introduces a loop-scoped binding visible in
+                // test, update, and body. `for (var …)` is function-scoped (already hoisted).
                 if let Some(Stmt::Let {
                     kind,
                     binding,
@@ -964,39 +966,40 @@ impl Binder {
                     ..
                 }) = init.as_deref()
                 {
-                    self.push_scope();
-                    self.declare_binding(binding, *kind)?;
-                    if let Some(e) = let_init {
-                        self.bind_expr(e)?;
+                    if matches!(kind, BindingKind::Let | BindingKind::Const) {
+                        self.push_scope();
+                        self.declare_binding(binding, *kind)?;
+                        if let Some(e) = let_init {
+                            self.bind_expr(e)?;
+                        }
+                        if let Some(t) = test {
+                            self.bind_expr(t)?;
+                        }
+                        if let Some(u) = update {
+                            self.bind_expr(u)?;
+                        }
+                        self.bind_stmt(body)?;
+                        self.pop_scope();
+                        return Ok(());
                     }
-                    if let Some(t) = test {
-                        self.bind_expr(t)?;
-                    }
-                    if let Some(u) = update {
-                        self.bind_expr(u)?;
-                    }
-                    self.bind_stmt(body)?;
-                    self.pop_scope();
-                    Ok(())
-                } else {
-                    if let Some(init) = init {
-                        self.bind_stmt(init)?;
-                    }
-                    if let Some(t) = test {
-                        self.bind_expr(t)?;
-                    }
-                    if let Some(u) = update {
-                        self.bind_expr(u)?;
-                    }
-                    self.bind_stmt(body)
                 }
+                if let Some(init) = init {
+                    self.bind_stmt(init)?;
+                }
+                if let Some(t) = test {
+                    self.bind_expr(t)?;
+                }
+                if let Some(u) = update {
+                    self.bind_expr(u)?;
+                }
+                self.bind_stmt(body)
             }
             Stmt::ForIn {
                 left, right, body, ..
-            }
-            | Stmt::ForOf {
+            } => self.bind_for_in_of(left, right, body, true),
+            Stmt::ForOf {
                 left, right, body, ..
-            } => self.bind_for_in_of(left, right, body),
+            } => self.bind_for_in_of(left, right, body, false),
             Stmt::Break { .. } | Stmt::Continue { .. } => Ok(()),
             Stmt::Labeled { body, .. } => self.bind_stmt(body),
             Stmt::Switch {
@@ -1107,8 +1110,11 @@ impl Binder {
         left: &Stmt,
         right: &Expr,
         body: &Stmt,
+        is_for_in: bool,
     ) -> Result<(), Diagnostic> {
         // `for (let/const name in/of right)` — loop-scoped binding for name.
+        // `for (var name in/of right)` — function-scoped (already hoisted).
+        // Annex B.3.5: `for (var name = init in right)` only.
         if let Stmt::Let {
             kind,
             binding,
@@ -1117,10 +1123,12 @@ impl Binder {
         } = left
         {
             if init.is_some() {
-                return Err(Diagnostic::new(
-                    "for-in/of binding cannot have an initializer".to_string(),
-                    binding.span(),
-                ));
+                if !(is_for_in && *kind == BindingKind::Var) {
+                    return Err(Diagnostic::new(
+                        "for-in/of binding cannot have an initializer".to_string(),
+                        binding.span(),
+                    ));
+                }
             }
             let BindingPattern::Ident(name) = binding else {
                 return Err(Diagnostic::new(
@@ -1128,12 +1136,24 @@ impl Binder {
                     binding.span(),
                 ));
             };
-            self.push_scope();
-            self.declare(name.name.clone(), name.span, *kind)?;
-            self.bind_expr(right)?;
-            self.bind_stmt(body)?;
-            self.pop_scope();
-            Ok(())
+            if matches!(kind, BindingKind::Let | BindingKind::Const) {
+                self.push_scope();
+                self.declare(name.name.clone(), name.span, *kind)?;
+                if let Some(e) = init {
+                    self.bind_expr(e)?;
+                }
+                self.bind_expr(right)?;
+                self.bind_stmt(body)?;
+                self.pop_scope();
+                Ok(())
+            } else {
+                // var: already hoisted into the enclosing var environment.
+                if let Some(e) = init {
+                    self.bind_expr(e)?;
+                }
+                self.bind_expr(right)?;
+                self.bind_stmt(body)
+            }
         } else {
             self.bind_stmt(left)?;
             self.bind_expr(right)?;
@@ -1451,20 +1471,25 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    /// Left side of `for-in` / `for-of`: `let name` or assignable identifier.
+    /// Left side of `for-in` / `for-of`: `let`/`const`/`var` name or assignable identifier.
+    /// Annex B.3.5 allows `var name = init` only on for-in (checked by the parser).
     fn check_for_in_of_left(&mut self, left: &Stmt) -> Result<(), Diagnostic> {
         match left {
             Stmt::Let {
+                kind,
                 binding,
                 init,
                 span,
                 ..
             } => {
-                if init.is_some() {
+                if init.is_some() && *kind != BindingKind::Var {
                     return Err(Diagnostic::new(
                         "for-in/of binding cannot have an initializer".to_string(),
                         *span,
                     ));
+                }
+                if let Some(init) = init {
+                    self.check_expr(init)?;
                 }
                 let BindingPattern::Ident(name) = binding else {
                     return Err(Diagnostic::new(
@@ -1478,7 +1503,7 @@ impl<'a> Checker<'a> {
                     .iter()
                     .find(|s| s.span == name.span)
                     .map(|s| s.id)
-                    .expect("for-in/of let binding must be declared");
+                    .expect("for-in/of binding must be declared");
                 // Iteration values are JS values; leave as Any until finer types.
                 self.symbol_types[id.0 as usize] = Type::Any;
                 Ok(())

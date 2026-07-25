@@ -221,10 +221,14 @@ impl Parser {
         let start = self.expect(&TokenKind::For)?.span.start.0;
         self.expect(&TokenKind::LParen)?;
 
-        // `for (let/const name in/of right)` — binding without initializer.
-        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
+        // `for (let/const/var name in/of right)` and classic `for (let/const/var …; …; …)`.
+        // Annex B.3.5: `for (var name = init in right)` only.
+        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) || self.check(&TokenKind::Var)
+        {
             let kind = if self.check(&TokenKind::Const) {
                 BindingKind::Const
+            } else if self.check(&TokenKind::Var) {
+                BindingKind::Var
             } else {
                 BindingKind::Let
             };
@@ -265,11 +269,17 @@ impl Parser {
                     })
                 };
             }
-            // Classic `for (let/const name: T? = init; …)` / `for (let name; …)`.
+            // Classic `for (let/const/var name: T? = init; …)` / Annex B `for (var name = init in …)`.
+            // Disable relational `in` while parsing the initializer so
+            // `for (var k = 1 in obj)` is Annex B, not `k = (1 in obj)`.
             let type_ann = self.parse_optional_type_ann()?;
             let init_expr = if self.check(&TokenKind::Eq) {
                 self.bump();
-                Some(self.parse_assignment()?)
+                let prev_allow_in = self.allow_in;
+                self.allow_in = false;
+                let e = self.parse_assignment();
+                self.allow_in = prev_allow_in;
+                Some(e?)
             } else if kind == BindingKind::Const {
                 return Err(Diagnostic::new(
                     "const declaration requires an initializer".to_string(),
@@ -278,6 +288,45 @@ impl Parser {
             } else {
                 None
             };
+            // Annex B.3.5 / for-of reject: initializer then `in`/`of`.
+            if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
+                let is_in = self.check(&TokenKind::In);
+                if !is_in {
+                    return Err(Diagnostic::new(
+                        "for-of binding cannot have an initializer".to_string(),
+                        name.span,
+                    ));
+                }
+                if kind != BindingKind::Var || type_ann.is_some() {
+                    return Err(Diagnostic::new(
+                        "for-in binding cannot have an initializer".to_string(),
+                        name.span,
+                    ));
+                }
+                self.bump();
+                let right = self.parse_expr()?;
+                self.expect(&TokenKind::RParen)?;
+                let body = Box::new(self.parse_stmt()?);
+                let end = stmt_span(&body).end.0;
+                let let_end = if let Some(ref e) = init_expr {
+                    expr_span(e).end.0
+                } else {
+                    name_end
+                };
+                let left = Box::new(Stmt::Let {
+                    kind,
+                    binding: BindingPattern::Ident(name),
+                    type_ann: None,
+                    init: init_expr,
+                    span: Span::new(let_start, let_end),
+                });
+                return Ok(Stmt::ForIn {
+                    left,
+                    right,
+                    body,
+                    span: Span::new(start, end),
+                });
+            }
             let let_end = if let Some(ref e) = init_expr {
                 expr_span(e).end.0
             } else if let Some(ref ann) = type_ann {
@@ -3014,6 +3063,69 @@ Program
             Ident x
             Ident k
 "
+        );
+    }
+
+    #[test]
+    fn parse_for_in_var() {
+        let dump = parse_and_dump("for (var k in s) { x = k; }").unwrap();
+        assert_eq!(
+            dump,
+            "\
+Program
+  ForIn
+    left:
+      Var
+        name: k
+    right:
+      Ident s
+    body:
+      Block
+        ExpressionStatement
+          Assign =
+            Ident x
+            Ident k
+"
+        );
+    }
+
+    #[test]
+    fn parse_for_var_classic() {
+        let dump = parse_and_dump("for (var i = 0; i < 3; i = i + 1) sum = i;").unwrap();
+        assert!(dump.contains("Var"), "{dump}");
+        assert!(dump.contains("For\n"), "{dump}");
+    }
+
+    #[test]
+    fn parse_for_in_var_init_annex_b() {
+        let dump = parse_and_dump("for (var k = 1 in s) x = k;").unwrap();
+        assert_eq!(
+            dump,
+            "\
+Program
+  ForIn
+    left:
+      Var
+        name: k
+        init:
+          Number 1
+    right:
+      Ident s
+    body:
+      ExpressionStatement
+        Assign =
+          Ident x
+          Ident k
+"
+        );
+    }
+
+    #[test]
+    fn parse_for_of_var_init_rejected() {
+        let err = parse_and_dump("for (var k = 1 of s) x = k;").unwrap_err();
+        assert!(
+            err.message.contains("for-of binding cannot have an initializer"),
+            "{err:?}"
         );
     }
 
