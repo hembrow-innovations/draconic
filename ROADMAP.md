@@ -162,6 +162,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E16.03 | done | both | Indirect eval: `(0, eval)(s)` / `globalThis.eval(s)` (global scope; not caller lexical) | `tests/conformance` fixtures `es/eval` |
 | E17 | done | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
 | E18 | todo | both | Remaining Annex B / full 262 gaps (track explicitly, do not drop) | `tests/conformance/es/annex-b` |
+| E18.12 | done | both | FunctionDeclarations in `if` (Annex B.3.4): `if (c) function f(){…}` / `else function f(){…}` (non-strict); name bound in enclosing statement list; assigned when branch runs | `tests/conformance` fixtures `es/annex-b` |
 | E18.11 | done | both | Labelled function declarations (Annex B.3.2): `label: function f() {…}` (non-strict); name hoisted in enclosing statement list; callable | `tests/conformance` fixtures `es/annex-b` |
 | E18.10 | done | both | Legacy octal numeric literals (Annex B.1.1): `0[0-7]+` MV octal; NonOctalDecimal `0\d*[89]\d*` MV decimal; no fraction/exp/bigint on pure legacy octal | `tests/conformance` fixtures `es/annex-b` |
 | E18.09 | done | both | Legacy octal string escapes (Annex B.1.2): `\0`–`\377` octal sequences; NonOctalDecimal `\8`/`\9` | `tests/conformance` fixtures `es/annex-b` |

@@ -270,8 +270,55 @@ impl Binder {
             }
             // Annex B.3.2: `label: function f() {}` hoists `f` in this list.
             Stmt::Labeled { body, .. } => self.declare_list_item(body),
+            // Annex B.3.4: bare `function` as if/else Statement clause.
+            Stmt::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                self.declare_if_function_clause(consequent)?;
+                if let Some(alt) = alternate {
+                    self.declare_if_function_clause(alt)?;
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
+    }
+
+    /// Annex B.3.4: hoist `function f` / `label: function f` when it is the if/else clause.
+    /// Does not walk into blocks (`if (c) { function f(){} }` is B.3.3, not this rule).
+    fn declare_if_function_clause(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+        let mut s = stmt;
+        while let Stmt::Labeled { body, .. } = s {
+            s = body;
+        }
+        let Stmt::FunctionDeclaration { name, .. } = s else {
+            return Ok(());
+        };
+        let scope = self.scopes.last().expect("scope stack non-empty");
+        if let Some(&existing) = scope.get(&name.name) {
+            let existing_kind = self.symbols[existing.0 as usize].kind;
+            if existing_kind != BindingKind::Function {
+                return Err(Diagnostic::new(
+                    format!("duplicate declaration of `{}`", name.name),
+                    name.span,
+                ));
+            }
+            // Same name on both branches (or prior FD): extra symbol for this
+            // declaration span so IR can resolve the site; uses keep the first binding.
+            let id = SymbolId(self.symbols.len() as u32);
+            self.symbols.push(Symbol {
+                id,
+                name: name.name.clone(),
+                span: name.span,
+                kind: BindingKind::Function,
+                with_depth: self.with_depth,
+            });
+            return Ok(());
+        }
+        self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+        Ok(())
     }
 
     fn declare_binding(

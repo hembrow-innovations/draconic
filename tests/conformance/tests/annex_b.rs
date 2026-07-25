@@ -136,3 +136,13 @@ fn labelled_function_fixture_present() {
 fn labelled_function_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/labelled_function");
 }
+
+#[test]
+fn if_function_fixture_present() {
+    assert_fixture_present("es/annex-b/if_function");
+}
+
+#[test]
+fn if_function_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/if_function");
+}

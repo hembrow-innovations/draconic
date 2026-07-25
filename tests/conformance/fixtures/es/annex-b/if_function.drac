@@ -1,0 +1,31 @@
+if (true) function f() {
+  return 1;
+}
+let a = f();
+if (false) function g() {
+  return 2;
+}
+let b = typeof g;
+if (false) function h() {
+  return 3;
+} else function h() {
+  return 4;
+}
+let c = h();
+if (true) function k() {
+  return 5;
+} else function k() {
+  return 6;
+}
+let d = k();
+function outer() {
+  if (true) function inner() {
+    return 7;
+  }
+  return inner();
+}
+let e = outer();
+if (true) L: function m() {
+  return 8;
+}
+let i = m();
