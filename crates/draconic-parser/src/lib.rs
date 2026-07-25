@@ -1494,8 +1494,14 @@ impl Parser {
                     }));
                     saw_rest = true;
                 } else {
-                    let inner = self.parse_binding_pattern()?;
-                    elements.push(ArrayPatternElement::Pattern(inner));
+                    let binding = self.parse_binding_pattern()?;
+                    let default = if self.check(&TokenKind::Eq) {
+                        self.bump();
+                        Some(self.parse_assignment()?)
+                    } else {
+                        None
+                    };
+                    elements.push(ArrayPatternElement::Pattern { binding, default });
                 }
                 if self.check(&TokenKind::Comma) {
                     if saw_rest {
@@ -1549,20 +1555,41 @@ impl Parser {
                     if self.check(&TokenKind::Colon) {
                         self.bump();
                         let binding = self.parse_binding_pattern()?;
-                        let end = binding.span().end.0;
+                        let default = if self.check(&TokenKind::Eq) {
+                            self.bump();
+                            Some(self.parse_assignment()?)
+                        } else {
+                            None
+                        };
+                        let end = default
+                            .as_ref()
+                            .map(|d| expr_span(d).end.0)
+                            .unwrap_or_else(|| binding.span().end.0);
                         properties.push(ObjectPatternProp::Prop {
                             key,
                             binding,
                             shorthand: false,
+                            default,
                             span: Span::new(key_tok.span.start.0, end),
                         });
                     } else {
-                        // Shorthand `{ a }`
+                        // Shorthand `{ a }` or CoverInitializedName `{ a = default }`
+                        let default = if self.check(&TokenKind::Eq) {
+                            self.bump();
+                            Some(self.parse_assignment()?)
+                        } else {
+                            None
+                        };
+                        let end = default
+                            .as_ref()
+                            .map(|d| expr_span(d).end.0)
+                            .unwrap_or(key.span.end.0);
                         properties.push(ObjectPatternProp::Prop {
                             key: key.clone(),
                             binding: BindingPattern::Ident(key.clone()),
                             shorthand: true,
-                            span: key.span,
+                            default,
+                            span: Span::new(key.span.start.0, end),
                         });
                     }
                 }
@@ -2385,8 +2412,33 @@ impl Parser {
                         self.current_span(),
                     ));
                 }
-                // Property shorthand: `{ a }` or `{ a, … }`
-                if self.check(&TokenKind::Comma) || self.check(&TokenKind::RBrace) {
+                // Property shorthand: `{ a }` / CoverInitializedName `{ a = default }`
+                // (latter is only valid as assignment pattern; checker rejects as value).
+                if self.check(&TokenKind::Comma)
+                    || self.check(&TokenKind::RBrace)
+                    || self.check(&TokenKind::Eq)
+                {
+                    if self.check(&TokenKind::Eq) {
+                        self.bump();
+                        let default = self.parse_assignment()?;
+                        let end = expr_span(&default).end.0;
+                        // Encode CoverInitializedName as `a = default` assign value.
+                        let value = Expr::Assign {
+                            target: Box::new(Expr::Ident(Ident {
+                                name: name.clone(),
+                                span: key_span,
+                            })),
+                            op: AssignOp::Eq,
+                            value: Box::new(default),
+                            span: Span::new(key_span.start.0, end),
+                        };
+                        return Ok(ObjectProp::Property {
+                            key,
+                            value,
+                            shorthand: true,
+                            span: Span::new(key_span.start.0, end),
+                        });
+                    }
                     let value = Expr::Ident(Ident {
                         name,
                         span: key_span,
@@ -2837,8 +2889,24 @@ fn expr_span(expr: &Expr) -> Span {
     }
 }
 
+/// Split `pat = default` assignment into binding + default for pattern elements.
+fn expr_to_pattern_element(expr: &Expr) -> Option<(BindingPattern, Option<Expr>)> {
+    if let Expr::Assign {
+        target,
+        op: AssignOp::Eq,
+        value,
+        ..
+    } = expr
+    {
+        let binding = expr_to_binding_pattern(target)?;
+        return Some((binding, Some((**value).clone())));
+    }
+    let binding = expr_to_binding_pattern(expr)?;
+    Some((binding, None))
+}
+
 /// Reinterpret an array literal as an assignment pattern when every element is
-/// a binding target (`ident`, nested array pattern, or trailing `...ident`).
+/// a binding target (`ident`, `pat = default`, nested array pattern, or trailing `...ident`).
 fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
     let Expr::ArrayExpression { elements, span } = expr else {
         return None;
@@ -2851,8 +2919,8 @@ fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
         }
         match el {
             ArrayElement::Expr(inner) => {
-                let binding = expr_to_binding_pattern(inner)?;
-                pat_els.push(ArrayPatternElement::Pattern(binding));
+                let (binding, default) = expr_to_pattern_element(inner)?;
+                pat_els.push(ArrayPatternElement::Pattern { binding, default });
             }
             ArrayElement::Spread(inner) => {
                 let Expr::Ident(id) = inner else {
@@ -2870,7 +2938,7 @@ fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
 }
 
 /// Reinterpret an object literal as an assignment pattern when every property is
-/// a binding target (shorthand, `key: pattern`, or trailing `...ident`).
+/// a binding target (shorthand, CoverInitializedName, `key: pattern`, or trailing `...ident`).
 fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
     let Expr::ObjectExpression { properties, span } = expr else {
         return None;
@@ -2891,11 +2959,37 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 let ObjectKey::Ident(key_id) = key else {
                     return None;
                 };
-                let binding = expr_to_binding_pattern(value)?;
+                // CoverInitializedName: `{ a = default }` encoded as shorthand Assign.
+                if *shorthand {
+                    if let Expr::Assign {
+                        target,
+                        op: AssignOp::Eq,
+                        value: def,
+                        ..
+                    } = value
+                    {
+                        let Expr::Ident(id) = target.as_ref() else {
+                            return None;
+                        };
+                        if id.name != key_id.name {
+                            return None;
+                        }
+                        props.push(ObjectPatternProp::Prop {
+                            key: key_id.clone(),
+                            binding: BindingPattern::Ident(id.clone()),
+                            shorthand: true,
+                            default: Some((**def).clone()),
+                            span: *prop_span,
+                        });
+                        continue;
+                    }
+                }
+                let (binding, default) = expr_to_pattern_element(value)?;
                 props.push(ObjectPatternProp::Prop {
                     key: key_id.clone(),
                     binding,
                     shorthand: *shorthand,
+                    default,
                     span: *prop_span,
                 });
             }
@@ -2926,8 +3020,8 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                 }
                 match el {
                     ArrayElement::Expr(inner) => {
-                        let binding = expr_to_binding_pattern(inner)?;
-                        pat_els.push(ArrayPatternElement::Pattern(binding));
+                        let (binding, default) = expr_to_pattern_element(inner)?;
+                        pat_els.push(ArrayPatternElement::Pattern { binding, default });
                     }
                     ArrayElement::Spread(inner) => {
                         let Expr::Ident(id) = inner else {
@@ -2964,11 +3058,36 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         let ObjectKey::Ident(key_id) = key else {
                             return None;
                         };
-                        let binding = expr_to_binding_pattern(value)?;
+                        if *shorthand {
+                            if let Expr::Assign {
+                                target,
+                                op: AssignOp::Eq,
+                                value: def,
+                                ..
+                            } = value
+                            {
+                                let Expr::Ident(id) = target.as_ref() else {
+                                    return None;
+                                };
+                                if id.name != key_id.name {
+                                    return None;
+                                }
+                                props.push(ObjectPatternProp::Prop {
+                                    key: key_id.clone(),
+                                    binding: BindingPattern::Ident(id.clone()),
+                                    shorthand: true,
+                                    default: Some((**def).clone()),
+                                    span: *prop_span,
+                                });
+                                continue;
+                            }
+                        }
+                        let (binding, default) = expr_to_pattern_element(value)?;
                         props.push(ObjectPatternProp::Prop {
                             key: key_id.clone(),
                             binding,
                             shorthand: *shorthand,
+                            default,
                             span: *prop_span,
                         });
                     }

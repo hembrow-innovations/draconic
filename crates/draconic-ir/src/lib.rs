@@ -324,19 +324,23 @@ pub enum UpdateTarget {
 /// One element of an array destructuring pattern in IR.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayPatternEl {
-    /// Simple or nested binding.
-    Pattern(Pattern),
+    /// Simple or nested binding, optional default (`pat = expr`).
+    Pattern {
+        binding: Pattern,
+        default: Option<Expr>,
+    },
     Rest(LocalId),
 }
 
 /// One property of an object destructuring pattern in IR.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectPatternEl {
-    /// `key` / `key: pattern` (static ident key only).
+    /// `key` / `key: pattern` / defaults (static ident key only).
     Prop {
         key: String,
         binding: Pattern,
         shorthand: bool,
+        default: Option<Expr>,
     },
     Rest(LocalId),
 }
@@ -1383,9 +1387,10 @@ fn lower_array_pattern_els(
     elements
         .iter()
         .map(|el| match el {
-            ArrayPatternElement::Pattern(p) => {
-                ArrayPatternEl::Pattern(lower_binding_pattern(checked, p))
-            }
+            ArrayPatternElement::Pattern { binding, default } => ArrayPatternEl::Pattern {
+                binding: lower_binding_pattern(checked, binding),
+                default: default.as_ref().map(|d| lower_expr(checked, d, None)),
+            },
             ArrayPatternElement::Rest(id) => {
                 let local = checked
                     .bound
@@ -1412,11 +1417,13 @@ fn lower_object_pattern_props(
                 key,
                 binding,
                 shorthand,
+                default,
                 ..
             } => ObjectPatternEl::Prop {
                 key: key.name.clone(),
                 binding: lower_binding_pattern(checked, binding),
                 shorthand: *shorthand,
+                default: default.as_ref().map(|d| lower_expr(checked, d, None)),
             },
             ObjectPatternProp::Rest(id) => {
                 let local = checked
@@ -1484,7 +1491,14 @@ fn indent(level: usize, out: &mut String) {
 fn dump_array_pattern_els(elements: &[ArrayPatternEl], level: usize, out: &mut String) {
     for el in elements {
         match el {
-            ArrayPatternEl::Pattern(p) => dump_pattern(p, level, out),
+            ArrayPatternEl::Pattern { binding, default } => {
+                dump_pattern(binding, level, out);
+                if let Some(def) = default {
+                    indent(level, out);
+                    out.push_str("default:\n");
+                    dump_expr(def, level + 1, out);
+                }
+            }
             ArrayPatternEl::Rest(id) => {
                 indent(level, out);
                 out.push_str(&format!("rest %{}\n", id.0));
@@ -1500,6 +1514,7 @@ fn dump_object_pattern_els(properties: &[ObjectPatternEl], level: usize, out: &m
                 key,
                 binding,
                 shorthand,
+                default,
             } => {
                 indent(level, out);
                 if *shorthand {
@@ -1508,6 +1523,11 @@ fn dump_object_pattern_els(properties: &[ObjectPatternEl], level: usize, out: &m
                     out.push_str(&format!("prop {key}:\n"));
                 }
                 dump_pattern(binding, level + 1, out);
+                if let Some(def) = default {
+                    indent(level + 1, out);
+                    out.push_str("default:\n");
+                    dump_expr(def, level + 2, out);
+                }
             }
             ObjectPatternEl::Rest(id) => {
                 indent(level, out);

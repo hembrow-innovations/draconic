@@ -216,3 +216,13 @@ fn object_destructure_fixture_present() {
 fn object_destructure_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/object_destructure");
 }
+
+#[test]
+fn destructure_defaults_fixture_present() {
+    assert_fixture_present("es/annex-b/destructure_defaults");
+}
+
+#[test]
+fn destructure_defaults_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/destructure_defaults");
+}

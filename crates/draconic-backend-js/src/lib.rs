@@ -699,7 +699,13 @@ fn emit_array_pattern(
             out.push_str(", ");
         }
         match el {
-            ArrayPatternEl::Pattern(p) => emit_pattern(out, p, names),
+            ArrayPatternEl::Pattern { binding, default } => {
+                emit_pattern(out, binding, names);
+                if let Some(def) = default {
+                    out.push_str(" = ");
+                    emit_expr(out, def, names);
+                }
+            }
             ArrayPatternEl::Rest(id) => {
                 out.push_str("...");
                 out.push_str(local_name(names, *id));
@@ -724,6 +730,7 @@ fn emit_object_pattern(
                 key,
                 binding,
                 shorthand,
+                default,
             } => {
                 if *shorthand {
                     if let Pattern::Local(id) = binding {
@@ -737,6 +744,10 @@ fn emit_object_pattern(
                     out.push_str(key);
                     out.push_str(": ");
                     emit_pattern(out, binding, names);
+                }
+                if let Some(def) = default {
+                    out.push_str(" = ");
+                    emit_expr(out, def, names);
                 }
             }
             ObjectPatternEl::Rest(id) => {

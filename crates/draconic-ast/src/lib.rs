@@ -23,12 +23,12 @@ pub enum BindingKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BindingPattern {
     Ident(Ident),
-    /// `[a, b, ...rest]` (no holes/defaults in this surface).
+    /// `[a, b = d, ...rest]` (no holes in this surface).
     Array {
         elements: Vec<ArrayPatternElement>,
         span: Span,
     },
-    /// `{ a, b: c, ...rest }` (no defaults in this surface).
+    /// `{ a, b = d, c: e = f, ...rest }`.
     Object {
         properties: Vec<ObjectPatternProp>,
         span: Span,
@@ -38,8 +38,11 @@ pub enum BindingPattern {
 /// One element of an array binding/assignment pattern.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayPatternElement {
-    /// Nested or simple binding (`a` or `[a, b]`).
-    Pattern(BindingPattern),
+    /// Nested or simple binding (`a` or `[a, b]`), optional default (`pat = expr`).
+    Pattern {
+        binding: BindingPattern,
+        default: Option<Expr>,
+    },
     /// `...name` rest (must be last; simple ident only).
     Rest(Ident),
 }
@@ -47,14 +50,16 @@ pub enum ArrayPatternElement {
 /// One property of an object binding/assignment pattern.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectPatternProp {
-    /// `key` shorthand or `key: nested` / `key: name`.
+    /// `key` shorthand, `key = default`, `key: nested`, or `key: name = default`.
     Prop {
         /// Property key name (ident only in this surface).
         key: Ident,
         /// Binding target for the property value.
         binding: BindingPattern,
-        /// True when written as shorthand `{ a }` (binding is the same Ident as key).
+        /// True when written as shorthand `{ a }` / `{ a = d }` (binding is the same Ident as key).
         shorthand: bool,
+        /// Default when the property value is `undefined` (`pat = expr`).
+        default: Option<Expr>,
         span: Span,
     },
     /// `...name` rest (must be last; simple ident only).
@@ -77,7 +82,9 @@ impl BindingPattern {
             BindingPattern::Array { elements, .. } => {
                 for el in elements {
                     match el {
-                        ArrayPatternElement::Pattern(p) => p.for_each_ident(f),
+                        ArrayPatternElement::Pattern { binding, .. } => {
+                            binding.for_each_ident(f)
+                        }
                         ArrayPatternElement::Rest(id) => f(id),
                     }
                 }
@@ -813,8 +820,13 @@ fn dump_binding_pattern(pat: &BindingPattern, level: usize, out: &mut String) {
             out.push_str("ArrayPattern\n");
             for el in elements {
                 match el {
-                    ArrayPatternElement::Pattern(p) => {
-                        dump_binding_pattern(p, level + 1, out);
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        dump_binding_pattern(binding, level + 1, out);
+                        if let Some(def) = default {
+                            indent(level + 1, out);
+                            out.push_str("default:\n");
+                            dump_expr(def, level + 2, out);
+                        }
                     }
                     ArrayPatternElement::Rest(id) => {
                         indent(level + 1, out);
@@ -838,6 +850,7 @@ fn dump_object_pattern_props(properties: &[ObjectPatternProp], level: usize, out
                 key,
                 binding,
                 shorthand,
+                default,
                 ..
             } => {
                 indent(level, out);
@@ -851,6 +864,11 @@ fn dump_object_pattern_props(properties: &[ObjectPatternProp], level: usize, out
                 indent(level + 1, out);
                 out.push_str("binding:\n");
                 dump_binding_pattern(binding, level + 2, out);
+                if let Some(def) = default {
+                    indent(level + 1, out);
+                    out.push_str("default:\n");
+                    dump_expr(def, level + 2, out);
+                }
             }
             ObjectPatternProp::Rest(id) => {
                 indent(level, out);
@@ -1612,8 +1630,13 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             out.push_str("ArrayPattern\n");
             for el in elements {
                 match el {
-                    ArrayPatternElement::Pattern(p) => {
-                        dump_binding_pattern(p, level + 1, out);
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        dump_binding_pattern(binding, level + 1, out);
+                        if let Some(def) = default {
+                            indent(level + 1, out);
+                            out.push_str("default:\n");
+                            dump_expr(def, level + 2, out);
+                        }
                     }
                     ArrayPatternElement::Rest(id) => {
                         indent(level + 1, out);

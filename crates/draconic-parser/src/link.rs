@@ -566,7 +566,12 @@ fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans)
             *span = spans.next();
             for el in elements {
                 match el {
-                    ArrayPatternElement::Pattern(p) => uniqueify_binding_spans(p, spans),
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        uniqueify_binding_spans(binding, spans);
+                        if let Some(def) = default {
+                            uniqueify_expr_spans(def, spans);
+                        }
+                    }
                     ArrayPatternElement::Rest(id) => id.span = spans.next(),
                 }
             }
@@ -578,12 +583,16 @@ fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans)
                     ObjectPatternProp::Prop {
                         key,
                         binding,
+                        default,
                         span: prop_span,
                         ..
                     } => {
                         *prop_span = spans.next();
                         key.span = spans.next();
                         uniqueify_binding_spans(binding, spans);
+                        if let Some(def) = default {
+                            uniqueify_expr_spans(def, spans);
+                        }
                     }
                     ObjectPatternProp::Rest(id) => id.span = spans.next(),
                 }
@@ -766,7 +775,12 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             *span = spans.next();
             for el in elements {
                 match el {
-                    ArrayPatternElement::Pattern(p) => uniqueify_binding_spans(p, spans),
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        uniqueify_binding_spans(binding, spans);
+                        if let Some(def) = default {
+                            uniqueify_expr_spans(def, spans);
+                        }
+                    }
                     ArrayPatternElement::Rest(id) => id.span = spans.next(),
                 }
             }
@@ -778,12 +792,16 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                     ObjectPatternProp::Prop {
                         key,
                         binding,
+                        default,
                         span: prop_span,
                         ..
                     } => {
                         *prop_span = spans.next();
                         key.span = spans.next();
                         uniqueify_binding_spans(binding, spans);
+                        if let Some(def) = default {
+                            uniqueify_expr_spans(def, spans);
+                        }
                     }
                     ObjectPatternProp::Rest(id) => id.span = spans.next(),
                 }
@@ -965,8 +983,13 @@ fn rename_binding_decl(
         BindingPattern::Object { properties, .. } => {
             for p in properties {
                 match p {
-                    ObjectPatternProp::Prop { binding, .. } => {
-                        rename_binding_decl(binding, renames, scopes)
+                    ObjectPatternProp::Prop {
+                        binding, default, ..
+                    } => {
+                        rename_binding_decl(binding, renames, scopes);
+                        if let Some(def) = default {
+                            rename_expr(def, renames, scopes);
+                        }
                     }
                     ObjectPatternProp::Rest(id) => {
                         if scopes.depth() == 1 {
@@ -981,7 +1004,12 @@ fn rename_binding_decl(
         BindingPattern::Array { elements, .. } => {
             for el in elements {
                 match el {
-                    ArrayPatternElement::Pattern(p) => rename_binding_decl(p, renames, scopes),
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        rename_binding_decl(binding, renames, scopes);
+                        if let Some(def) = default {
+                            rename_expr(def, renames, scopes);
+                        }
+                    }
                     ArrayPatternElement::Rest(id) => {
                         if scopes.depth() == 1 {
                             rename_ident(id, renames, scopes);
@@ -1297,8 +1325,11 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         Expr::ArrayPattern { elements, .. } => {
             for el in elements {
                 match el {
-                    ArrayPatternElement::Pattern(p) => {
-                        rename_binding_pattern_use(p, renames, scopes);
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        rename_binding_pattern_use(binding, renames, scopes);
+                        if let Some(def) = default {
+                            rename_expr(def, renames, scopes);
+                        }
                     }
                     ArrayPatternElement::Rest(id) => rename_ident(id, renames, scopes),
                 }
@@ -1307,8 +1338,13 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         Expr::ObjectPattern { properties, .. } => {
             for p in properties {
                 match p {
-                    ObjectPatternProp::Prop { binding, .. } => {
+                    ObjectPatternProp::Prop {
+                        binding, default, ..
+                    } => {
                         rename_binding_pattern_use(binding, renames, scopes);
+                        if let Some(def) = default {
+                            rename_expr(def, renames, scopes);
+                        }
                     }
                     ObjectPatternProp::Rest(id) => rename_ident(id, renames, scopes),
                 }
@@ -1332,15 +1368,18 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
 fn rename_binding_pattern_use(
     pat: &mut BindingPattern,
     renames: &HashMap<String, String>,
-    scopes: &ScopeStack,
+    scopes: &mut ScopeStack,
 ) {
     match pat {
         BindingPattern::Ident(id) => rename_ident(id, renames, scopes),
         BindingPattern::Array { elements, .. } => {
             for el in elements {
                 match el {
-                    ArrayPatternElement::Pattern(p) => {
-                        rename_binding_pattern_use(p, renames, scopes)
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        rename_binding_pattern_use(binding, renames, scopes);
+                        if let Some(def) = default {
+                            rename_expr(def, renames, scopes);
+                        }
                     }
                     ArrayPatternElement::Rest(id) => rename_ident(id, renames, scopes),
                 }
@@ -1349,8 +1388,13 @@ fn rename_binding_pattern_use(
         BindingPattern::Object { properties, .. } => {
             for p in properties {
                 match p {
-                    ObjectPatternProp::Prop { binding, .. } => {
-                        rename_binding_pattern_use(binding, renames, scopes)
+                    ObjectPatternProp::Prop {
+                        binding, default, ..
+                    } => {
+                        rename_binding_pattern_use(binding, renames, scopes);
+                        if let Some(def) = default {
+                            rename_expr(def, renames, scopes);
+                        }
                     }
                     ObjectPatternProp::Rest(id) => rename_ident(id, renames, scopes),
                 }
