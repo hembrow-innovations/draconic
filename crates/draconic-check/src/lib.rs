@@ -236,6 +236,8 @@ fn is_iteration_labelled_item(stmt: &Stmt) -> bool {
 struct Binder {
     /// Scope stack (innermost last): name → symbol id.
     scopes: Vec<HashMap<String, SymbolId>>,
+    /// Indices into `scopes` that are var environments (program + function).
+    var_env_indices: Vec<usize>,
     /// Host globals (e.g. `Math`): resolve after lexical scopes so `let Math` can shadow.
     builtins: HashMap<String, SymbolId>,
     symbols: Vec<Symbol>,
@@ -248,6 +250,8 @@ impl Binder {
     fn new() -> Self {
         let mut binder = Self {
             scopes: vec![HashMap::new()],
+            // Program/script body is a var environment.
+            var_env_indices: vec![0],
             builtins: HashMap::new(),
             symbols: Vec::new(),
             resolutions: HashMap::new(),
@@ -359,6 +363,11 @@ impl Binder {
     /// Hoistable declarations for one statement-list item (Annex B.3.2 peels labels).
     fn declare_list_item(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
+            Stmt::Let {
+                kind: BindingKind::Var,
+                binding,
+                ..
+            } => self.declare_var_binding(binding),
             Stmt::Let { kind, binding, .. } => self.declare_binding(binding, *kind),
             Stmt::ClassDeclaration { name, .. } => {
                 self.declare(name.name.clone(), name.span, BindingKind::Function)?;
@@ -373,8 +382,19 @@ impl Binder {
                         .last()
                         .is_some_and(|s| s.contains_key(&name.name));
                     if !in_current
-                        && self.symbols[existing.0 as usize].kind == BindingKind::Function
+                        && matches!(
+                            self.symbols[existing.0 as usize].kind,
+                            BindingKind::Function | BindingKind::Var
+                        )
                     {
+                        self.declare_annex_b_function_span(name);
+                        return Ok(());
+                    }
+                }
+                // `var f` then `function f` in the same list: reuse var binding.
+                let scope = self.scopes.last().expect("scope stack non-empty");
+                if let Some(&existing) = scope.get(&name.name) {
+                    if self.symbols[existing.0 as usize].kind == BindingKind::Var {
                         self.declare_annex_b_function_span(name);
                         return Ok(());
                     }
@@ -385,9 +405,11 @@ impl Binder {
             // Annex B.3.2: `label: function f() {}` hoists `f` in this list.
             Stmt::Labeled { body, .. } => self.declare_list_item(body),
             // Annex B.3.2: block-level `function` → enclosing var-like binding.
+            // E18.14: also hoist nested `var` into the current var environment.
             Stmt::Block { body, .. } => {
                 for s in body {
                     self.declare_annex_b_block_functions(s)?;
+                    self.hoist_vars_from_stmt(s)?;
                 }
                 Ok(())
             }
@@ -406,19 +428,27 @@ impl Binder {
                 if let Some(alt) = alternate {
                     self.declare_annex_b_block_functions(alt)?;
                 }
+                self.hoist_vars_from_stmt(consequent)?;
+                if let Some(alt) = alternate {
+                    self.hoist_vars_from_stmt(alt)?;
+                }
                 Ok(())
             }
             Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-                self.declare_annex_b_block_functions(body)
+                self.declare_annex_b_block_functions(body)?;
+                self.hoist_vars_from_stmt(body)
             }
             Stmt::For { init, body, .. } => {
                 if let Some(init) = init {
                     self.declare_annex_b_block_functions(init)?;
+                    self.hoist_vars_from_stmt(init)?;
                 }
-                self.declare_annex_b_block_functions(body)
+                self.declare_annex_b_block_functions(body)?;
+                self.hoist_vars_from_stmt(body)
             }
             Stmt::ForIn { body, .. } | Stmt::ForOf { body, .. } => {
-                self.declare_annex_b_block_functions(body)
+                self.declare_annex_b_block_functions(body)?;
+                self.hoist_vars_from_stmt(body)
             }
             Stmt::Try {
                 block,
@@ -427,16 +457,151 @@ impl Binder {
                 ..
             } => {
                 self.declare_annex_b_block_functions(block)?;
+                self.hoist_vars_from_stmt(block)?;
                 if let Some(handler) = handler {
                     self.declare_annex_b_block_functions(handler)?;
+                    self.hoist_vars_from_stmt(handler)?;
                 }
                 if let Some(finalizer) = finalizer {
                     self.declare_annex_b_block_functions(finalizer)?;
+                    self.hoist_vars_from_stmt(finalizer)?;
                 }
                 Ok(())
             }
             _ => Ok(()),
         }
+    }
+
+    /// Hoist `var` declarations from a nested statement into the current var environment.
+    fn hoist_vars_from_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+        let mut s = stmt;
+        while let Stmt::Labeled { body, .. } = s {
+            s = body;
+        }
+        match s {
+            Stmt::Let {
+                kind: BindingKind::Var,
+                binding,
+                ..
+            } => self.declare_var_binding(binding),
+            Stmt::Block { body, .. } => {
+                for child in body {
+                    self.hoist_vars_from_stmt(child)?;
+                }
+                Ok(())
+            }
+            Stmt::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                self.hoist_vars_from_stmt(consequent)?;
+                if let Some(alt) = alternate {
+                    self.hoist_vars_from_stmt(alt)?;
+                }
+                Ok(())
+            }
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+                self.hoist_vars_from_stmt(body)
+            }
+            Stmt::For { init, body, .. } => {
+                if let Some(init) = init {
+                    self.hoist_vars_from_stmt(init)?;
+                }
+                self.hoist_vars_from_stmt(body)
+            }
+            Stmt::ForIn { body, left, .. } | Stmt::ForOf { body, left, .. } => {
+                self.hoist_vars_from_stmt(left)?;
+                self.hoist_vars_from_stmt(body)
+            }
+            Stmt::Try {
+                block,
+                handler,
+                finalizer,
+                ..
+            } => {
+                self.hoist_vars_from_stmt(block)?;
+                if let Some(handler) = handler {
+                    self.hoist_vars_from_stmt(handler)?;
+                }
+                if let Some(finalizer) = finalizer {
+                    self.hoist_vars_from_stmt(finalizer)?;
+                }
+                Ok(())
+            }
+            // Nested function bodies have their own var environment — do not hoist out.
+            Stmt::FunctionDeclaration { .. } | Stmt::ClassDeclaration { .. } => Ok(()),
+            _ => Ok(()),
+        }
+    }
+
+    fn declare_var_binding(&mut self, binding: &BindingPattern) -> Result<(), Diagnostic> {
+        let mut err = None;
+        binding.for_each_ident(&mut |id| {
+            if err.is_some() {
+                return;
+            }
+            if let Err(e) = self.declare_var(id.name.clone(), id.span) {
+                err = Some(e);
+            }
+        });
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    /// Declare a function-scoped `var` in the nearest var environment.
+    /// Redeclaration with `var`/`function` is allowed; creates a span alias for IR.
+    fn declare_var(&mut self, name: String, span: Span) -> Result<SymbolId, Diagnostic> {
+        let env_idx = *self
+            .var_env_indices
+            .last()
+            .expect("var environment stack non-empty");
+        if let Some(&existing) = self.scopes[env_idx].get(&name) {
+            let existing_kind = self.symbols[existing.0 as usize].kind;
+            match existing_kind {
+                BindingKind::Var | BindingKind::Function => {
+                    self.declare_var_span(&name, span);
+                    return Ok(existing);
+                }
+                BindingKind::Let | BindingKind::Const => {
+                    return Err(Diagnostic::new(
+                        format!("duplicate declaration of `{name}`"),
+                        span,
+                    ));
+                }
+            }
+        }
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbols.push(Symbol {
+            id,
+            name: name.clone(),
+            span,
+            kind: BindingKind::Var,
+            with_depth: self.with_depth,
+        });
+        self.scopes[env_idx].insert(name, id);
+        Ok(id)
+    }
+
+    /// Extra symbol keyed by declaration span for IR; uses keep the scoped binding.
+    fn declare_var_span(&mut self, name: &str, span: Span) {
+        if self
+            .symbols
+            .iter()
+            .any(|s| s.span == span && s.name == name)
+        {
+            return;
+        }
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbols.push(Symbol {
+            id,
+            name: name.to_string(),
+            span,
+            kind: BindingKind::Var,
+            with_depth: self.with_depth,
+        });
     }
 
     /// Annex B.3.2: walk a statement and hoist nested block-level function names
@@ -508,7 +673,7 @@ impl Binder {
         let scope = self.scopes.last().expect("scope stack non-empty");
         if let Some(&existing) = scope.get(&name.name) {
             let existing_kind = self.symbols[existing.0 as usize].kind;
-            if existing_kind != BindingKind::Function {
+            if !matches!(existing_kind, BindingKind::Function | BindingKind::Var) {
                 return Err(Diagnostic::new(
                     format!("duplicate declaration of `{}`", name.name),
                     name.span,
@@ -574,10 +739,22 @@ impl Binder {
     }
 
     fn push_scope(&mut self) {
+        self.push_scope_kind(false);
+    }
+
+    /// Push a scope. `is_var_env` is true for function scopes (params + body share it).
+    fn push_scope_kind(&mut self, is_var_env: bool) {
         self.scopes.push(HashMap::new());
+        if is_var_env {
+            self.var_env_indices.push(self.scopes.len() - 1);
+        }
     }
 
     fn pop_scope(&mut self) {
+        let idx = self.scopes.len() - 1;
+        if self.var_env_indices.last().copied() == Some(idx) {
+            self.var_env_indices.pop();
+        }
         self.scopes.pop();
     }
 
@@ -588,7 +765,17 @@ impl Binder {
         kind: BindingKind,
     ) -> Result<SymbolId, Diagnostic> {
         let scope = self.scopes.last_mut().expect("scope stack non-empty");
-        if scope.contains_key(&name) {
+        if let Some(&existing) = scope.get(&name) {
+            // `var` then `let`/`const` in the same var environment is a conflict.
+            let existing_kind = self.symbols[existing.0 as usize].kind;
+            if existing_kind == BindingKind::Var
+                && matches!(kind, BindingKind::Let | BindingKind::Const)
+            {
+                return Err(Diagnostic::new(
+                    format!("duplicate declaration of `{name}`"),
+                    span,
+                ));
+            }
             return Err(Diagnostic::new(
                 format!("duplicate declaration of `{name}`"),
                 span,
@@ -752,7 +939,8 @@ impl Binder {
             }
             Stmt::FunctionDeclaration { params, body, .. } => {
                 // Name already declared in the enclosing list's first pass.
-                self.push_scope();
+                // Function scope is a var environment.
+                self.push_scope_kind(true);
                 self.bind_params(params)?;
                 // Body is a Block; bind its statements in the param scope (no extra
                 // block scope layer needed beyond the block's own push).
@@ -773,7 +961,7 @@ impl Binder {
                     match el {
                         ClassElement::Constructor { params, body, .. }
                         | ClassElement::Method { params, body, .. } => {
-                            self.push_scope();
+                            self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.bind_stmt(body)?;
                             self.pop_scope();
@@ -924,7 +1112,7 @@ impl Binder {
                 name, params, body, ..
             } => {
                 // Name (if any) is local to the function body only (ES named FE).
-                self.push_scope();
+                self.push_scope_kind(true);
                 if let Some(name) = name {
                     self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 }
@@ -934,7 +1122,7 @@ impl Binder {
                 Ok(())
             }
             Expr::ArrowFunction { params, body, .. } => {
-                self.push_scope();
+                self.push_scope_kind(true);
                 self.bind_params(params)?;
                 match body {
                     ArrowBody::Expr(expr) => self.bind_expr(expr)?,
@@ -1260,7 +1448,7 @@ impl<'a> Checker<'a> {
                             span,
                         ));
                     }
-                    BindingKind::Let => {}
+                    BindingKind::Let | BindingKind::Var => {}
                 }
                 let left_ty = self.symbol_types[sym.0 as usize];
                 if left_ty == Type::Any {
@@ -1765,7 +1953,7 @@ impl<'a> Checker<'a> {
                                     *span,
                                 ));
                             }
-                            BindingKind::Let => {}
+                            BindingKind::Let | BindingKind::Var => {}
                         }
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let result_ty = if let Some(bin_op) = op.binary_op() {
@@ -1866,7 +2054,7 @@ impl<'a> Checker<'a> {
                                     *span,
                                 ));
                             }
-                            BindingKind::Let => {}
+                            BindingKind::Let | BindingKind::Var => {}
                         }
                         let left_ty = self.symbol_types[sym.0 as usize];
                         if left_ty != Type::Number && left_ty != Type::Any {

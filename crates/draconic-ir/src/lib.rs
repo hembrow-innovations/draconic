@@ -1410,6 +1410,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             let kw = match kind {
                 BindingKind::Let => "let",
                 BindingKind::Const => "const",
+                BindingKind::Var => "var",
                 BindingKind::Function => "function",
             };
             out.push_str(&format!("Declare {kw} %{}\n", local.0));
@@ -1428,6 +1429,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             let kw = match kind {
                 BindingKind::Let => "let",
                 BindingKind::Const => "const",
+                BindingKind::Var => "var",
                 BindingKind::Function => "function",
             };
             out.push_str(&format!("DeclareArrayPattern {kw}\n"));

@@ -29,6 +29,7 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) {
             match kind {
                 BindingKind::Let => out.push_str("let "),
                 BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
             }
             out.push_str(name);
@@ -46,6 +47,7 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) {
             match kind {
                 BindingKind::Let => out.push_str("let "),
                 BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
             }
             emit_array_pattern(out, elements, names);
@@ -268,6 +270,7 @@ fn emit_for_init(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) 
             match kind {
                 BindingKind::Let => out.push_str("let "),
                 BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
             }
             out.push_str(name);
@@ -300,6 +303,7 @@ fn emit_for_in_of_left(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &
             match kind {
                 BindingKind::Let => out.push_str("let "),
                 BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
             }
             out.push_str(name);

@@ -1,0 +1,21 @@
+var a = 1;
+var b;
+let c = typeof b;
+b = 2;
+var a = 3;
+{
+  var d = 4;
+}
+let e = d;
+if (false) {
+  var f = 9;
+}
+let g = typeof f;
+function outer() {
+  let before = h;
+  var h = 5;
+  return before;
+}
+let i = outer();
+let j = k;
+var k = 6;

@@ -8,11 +8,13 @@ pub struct Program {
     pub span: Span,
 }
 
-/// Lexical binding kind for `let` / `const` declarations.
+/// Binding kind for `let` / `const` / `var` / function declarations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BindingKind {
     Let,
     Const,
+    /// Function-scoped `var` (hoisted; redeclarable; no TDZ).
+    Var,
     /// Function declaration binding (hoisted, not reassignable in the minimal surface).
     Function,
 }
@@ -769,6 +771,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             match kind {
                 BindingKind::Let => out.push_str("Let\n"),
                 BindingKind::Const => out.push_str("Const\n"),
+                BindingKind::Var => out.push_str("Var\n"),
                 BindingKind::Function => out.push_str("FunctionBinding\n"),
             }
             dump_binding_pattern(binding, level + 1, out);

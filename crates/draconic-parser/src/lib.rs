@@ -101,7 +101,8 @@ impl Parser {
         if self.check(&TokenKind::Export) {
             return self.parse_export();
         }
-        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
+        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) || self.check(&TokenKind::Var)
+        {
             return self.parse_lexical_decl();
         }
         // `type Name = Type;` (contextual keyword; T02)
@@ -1279,10 +1280,20 @@ impl Parser {
         let kind_tok = self.bump();
         let kind = match kind_tok.kind {
             TokenKind::Const => BindingKind::Const,
+            TokenKind::Var => BindingKind::Var,
             _ => BindingKind::Let,
         };
         let start = kind_tok.span.start.0;
-        let binding = self.parse_binding_pattern()?;
+        // `var` surface is simple identifier only (no destructuring in this Loop).
+        let binding = if kind == BindingKind::Var {
+            let name_tok = self.expect_ident()?;
+            BindingPattern::Ident(Ident {
+                name: name_tok.ident_name(),
+                span: name_tok.span,
+            })
+        } else {
+            self.parse_binding_pattern()?
+        };
         // Type annotations only on simple identifier bindings (`let x: T`).
         let type_ann = if matches!(binding, BindingPattern::Ident(_)) {
             self.parse_optional_type_ann()?
