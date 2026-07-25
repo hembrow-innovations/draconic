@@ -1,0 +1,6 @@
+id: es/expressions/unary_keywords
+targets: js,native
+js.exit: 0
+js.check: if (t_num !== "number") process.exit(1); if (t_str !== "string") process.exit(2); if (t_bool !== "boolean") process.exit(3); if (t_null !== "object") process.exit(4); if (v0 !== undefined) process.exit(5); if (v1 !== undefined) process.exit(6); if (d_lit !== true) process.exit(7);
+native.exit: 0
+native.stdout: hello\n

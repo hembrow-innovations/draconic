@@ -1,0 +1,7 @@
+let a = (1, 2);
+let b = (1, 2, 3);
+let c = 0;
+let d = (c = 1, c = 2, 3);
+let e = (true ? 1 : 2, 4);
+let side = 0;
+let f = (side = side + 1, side = side + 1, side);

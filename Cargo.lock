@@ -44,7 +44,22 @@ dependencies = [
 name = "draconic-cli"
 version = "0.1.0"
 dependencies = [
+ "draconic-backend-js",
+ "draconic-backend-llvm",
+ "draconic-check",
  "draconic-diagnostics",
+ "draconic-ir",
+ "draconic-parser",
+]
+
+[[package]]
+name = "draconic-conformance"
+version = "0.1.0"
+dependencies = [
+ "draconic-backend-js",
+ "draconic-backend-llvm",
+ "draconic-check",
+ "draconic-ir",
  "draconic-parser",
 ]
 
@@ -67,6 +82,7 @@ name = "draconic-integration-tests"
 version = "0.1.0"
 dependencies = [
  "draconic-backend-js",
+ "draconic-backend-llvm",
  "draconic-check",
  "draconic-ir",
  "draconic-parser",

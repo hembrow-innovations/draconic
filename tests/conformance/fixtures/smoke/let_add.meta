@@ -1,0 +1,6 @@
+id: smoke/let-add
+targets: js,native
+js.exit: 0
+js.check: if (x !== 3) process.exit(1);
+native.exit: 0
+native.stdout: hello\n

@@ -1,0 +1,34 @@
+let s = "ab";
+let keys = "";
+for (let k in s) {
+  keys = keys + k;
+}
+let chars = "";
+for (let c of s) {
+  chars = chars + c;
+}
+let t = "x";
+let u = "";
+for (let i in t) u = u + i;
+let v = "";
+for (let ch of t) v = v + ch;
+let w = "";
+let x;
+for (x of "yz") {
+  w = w + x;
+}
+let y = "";
+let z;
+for (z in "pq") {
+  y = y + z;
+}
+let n = 0;
+for (let k in "hi") {
+  n = n + 1;
+  if (n === 1) continue;
+  break;
+}
+let m = 0;
+for (let c of "hi") {
+  m = m + 1;
+}

@@ -1,0 +1,7 @@
+let pow = 2 ** 3;
+let right_assoc = 2 ** 3 ** 2;
+let prec = 2 * 3 ** 2;
+let group = (2 * 3) ** 2;
+let nested = 2 ** (1 + 2);
+let zero = 5 ** 0;
+let one = 9 ** 1;

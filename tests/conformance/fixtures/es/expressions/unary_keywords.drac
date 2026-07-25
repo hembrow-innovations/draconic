@@ -1,0 +1,7 @@
+let t_num = typeof 1;
+let t_str = typeof "hi";
+let t_bool = typeof true;
+let t_null = typeof null;
+let v0 = void 0;
+let v1 = void 1;
+let d_lit = delete 1;

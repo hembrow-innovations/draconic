@@ -1,0 +1,15 @@
+const a = 1;
+const b = a + 2;
+let d = 0;
+for (const ch of "ab") {
+  d = d + 1;
+}
+let e = 0;
+const s = "xy";
+for (const k in s) {
+  e = e + 1;
+}
+let f = 0;
+for (const i = 0; f < 2; f = f + 1) {
+  f = f;
+}

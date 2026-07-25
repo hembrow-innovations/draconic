@@ -1,12 +1,9 @@
 [package]
-name = "draconic-cli"
+name = "draconic-conformance"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-
-[[bin]]
-name = "draconic"
-path = "src/main.rs"
+publish = false
 
 [dependencies]
 draconic-parser.workspace = true
@@ -14,4 +11,3 @@ draconic-check.workspace = true
 draconic-ir.workspace = true
 draconic-backend-js.workspace = true
 draconic-backend-llvm.workspace = true
-draconic-diagnostics.workspace = true

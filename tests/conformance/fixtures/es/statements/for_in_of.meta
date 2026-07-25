@@ -1,0 +1,6 @@
+id: es/statements/for_in_of
+targets: js,native
+js.exit: 0
+js.check: if (keys !== "01") process.exit(1); if (chars !== "ab") process.exit(2); if (u !== "0") process.exit(3); if (v !== "x") process.exit(4); if (w !== "yz") process.exit(5); if (y !== "01") process.exit(6); if (n !== 2) process.exit(7); if (m !== 2) process.exit(8);
+native.exit: 0
+native.stdout: hello\n

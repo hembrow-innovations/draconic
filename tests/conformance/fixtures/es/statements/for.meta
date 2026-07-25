@@ -1,0 +1,6 @@
+id: es/statements/for
+targets: js,native
+js.exit: 0
+js.check: if (a !== 3) process.exit(1); if (b !== 2) process.exit(2); if (c !== 6) process.exit(3); if (d !== 3) process.exit(4); if (e !== 5) process.exit(5); if (f !== 3) process.exit(6); if (g !== 2) process.exit(7); if (h !== 2) process.exit(8);
+native.exit: 0
+native.stdout: hello\n

@@ -1,0 +1,6 @@
+id: es/expressions/bitwise
+targets: js,native
+js.exit: 0
+js.check: if (band !== 1) process.exit(1); if (bor !== 7) process.exit(2); if (bxor !== 4) process.exit(3); if (bnot !== -1) process.exit(4); if (shl !== 8) process.exit(5); if (shr !== -2) process.exit(6); if (ushr !== 1073741822) process.exit(7); if (prec !== 1) process.exit(8); if (group !== 0) process.exit(9); if (chain !== 15) process.exit(10);
+native.exit: 0
+native.stdout: hello\n

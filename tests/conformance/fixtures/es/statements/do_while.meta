@@ -1,0 +1,6 @@
+id: es/statements/do_while
+targets: js,native
+js.exit: 0
+js.check: if (a !== 3) process.exit(1); if (b !== 1) process.exit(2); if (c !== 2) process.exit(3); if (d !== 3) process.exit(4); if (e !== 6) process.exit(5); if (f !== 0) process.exit(6);
+native.exit: 0
+native.stdout: hello\n

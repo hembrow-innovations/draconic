@@ -1,0 +1,8 @@
+let x;
+x = 1;
+let y;
+y = x = 2;
+let z = 0;
+z = true ? 3 : 4;
+let w;
+w = false ? 5 : w = 6;

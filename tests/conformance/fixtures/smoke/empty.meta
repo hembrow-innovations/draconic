@@ -1,0 +1,5 @@
+id: smoke/empty
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: hello\n

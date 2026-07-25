@@ -1,0 +1,7 @@
+let t = true ? 1 : 2;
+let f = false ? 1 : 2;
+let nested = true ? false ? 3 : 4 : 5;
+let right_assoc = false ? 1 : true ? 2 : 3;
+let prec = 1 < 2 ? 10 : 20;
+let group = (false ? 1 : 2) + 3;
+let num = 0 ? 100 : 200;

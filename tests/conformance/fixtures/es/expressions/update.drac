@@ -1,0 +1,13 @@
+let a = 1;
+let pre_inc = ++a;
+let b = 1;
+let pre_dec = --b;
+let c = 1;
+let post_inc = c++;
+let d = 1;
+let post_dec = d--;
+let e = 5;
+++e;
+e++;
+--e;
+e--;

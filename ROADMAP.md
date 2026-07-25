@@ -25,7 +25,7 @@ A item is `done` only when its tests are green on every applicable target (`js`,
 | B07 | done | js | JS backend: emit runnable JS for minimal Program | `crates/draconic-backend-js`, `tests/integration` |
 | B08 | done | native | LLVM backend stub + Runtime hello: native binary prints | `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | B09 | done | native | GC hello: allocate string/object on native heap | `crates/draconic-runtime` |
-| B10 | in_progress | both | CLI: `draconic build --target js\|native` end-to-end | `crates/draconic-cli`, `tests/integration` |
+| B10 | done | both | CLI: `draconic build --target js\|native` end-to-end | `crates/draconic-cli`, `tests/integration` |
 
 ---
 
@@ -35,10 +35,33 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
-| E00 | todo | both | Conformance harness: load fixtures, run on js + native runners | `tests/conformance` |
-| E01 | todo | both | Expressions & operators (ECMA-262 §12–13 core) | `tests/conformance/es/expressions` |
-| E02 | todo | both | Statements & control flow (§14) | `tests/conformance/es/statements` |
+| E00 | done | both | Conformance harness: load fixtures, run on js + native runners | `tests/conformance` |
+| E01 | done | both | Expressions & operators (ECMA-262 §12–13 core) | `tests/conformance/es/expressions` |
+| E01.01 | done | both | Numeric arithmetic: `+` `-` `*` `/` `%`, unary `+`/`-`, grouping/precedence | `tests/conformance` fixtures `es/expressions` |
+| E01.02 | done | both | Comparison & equality: `<` `<=` `>` `>=` `==` `!=` `===` `!==` | `tests/conformance` fixtures `es/expressions` |
+| E01.03 | done | both | Logical: `&&` `\|\|` `!` | `tests/conformance` fixtures `es/expressions` |
+| E01.04 | done | both | Remaining §12–13 (bitwise, assignment, conditional, update, `**`, comma, …) | `tests/conformance` fixtures `es/expressions` |
+| E01.04.01 | done | both | Bitwise: `&` `\|` `^` `~` `<<` `>>` `>>>` | `tests/conformance` fixtures `es/expressions` |
+| E01.04.02 | done | both | Exponentiation: `**` (right-associative) | `tests/conformance` fixtures `es/expressions` |
+| E01.04.03 | done | both | Conditional (ternary): `cond ? a : b` | `tests/conformance` fixtures `es/expressions` |
+| E01.04.04 | done | both | Assignment: `=` (simple, right-associative) | `tests/conformance` fixtures `es/expressions` |
+| E01.04.05 | done | both | Update: prefix/postfix `++` `--` | `tests/conformance` fixtures `es/expressions` |
+| E01.04.06 | done | both | Comma operator: `,` (left-to-right, yields RHS) | `tests/conformance` fixtures `es/expressions` |
+| E01.04.07 | done | both | Unary keywords: `typeof` `void` `delete` | `tests/conformance` fixtures `es/expressions` |
+| E01.04.08 | done | both | Compound assignment: `+=` `-=` `*=` `/=` `%=` `**=` `<<=` `>>=` `>>>=` `&=` `^=` `\|=` | `tests/conformance` fixtures `es/expressions` |
+| E01.04.09 | done | both | Nullish coalescing `??` and logical assignment: `&&=` `\|\|=` `??=` | `tests/conformance` fixtures `es/expressions` |
+| E02 | done | both | Statements & control flow (§14) | `tests/conformance/es/statements` |
+| E02.01 | done | both | `if` / `else` (incl. block bodies) | `tests/conformance` fixtures `es/statements` |
+| E02.02 | done | both | `while` loops (incl. block bodies) | `tests/conformance` fixtures `es/statements` |
+| E02.03 | done | both | `do` / `while` loops (incl. block bodies) | `tests/conformance` fixtures `es/statements` |
+| E02.04 | done | both | `for` loops: `for (init; test; update)` (incl. `let` init, omitted clauses, block bodies) | `tests/conformance` fixtures `es/statements` |
+| E02.05 | done | both | `break` / `continue` (unlabeled, in loops) | `tests/conformance` fixtures `es/statements` |
+| E02.06 | done | both | `switch` / `case` / `default` (incl. fall-through, `break`) | `tests/conformance` fixtures `es/statements` |
+| E02.07 | done | both | Labeled statements + labeled `break` / `continue` | `tests/conformance` fixtures `es/statements` |
+| E02.08 | done | both | `for-in` / `for-of` loops (incl. `let` binding, block bodies; iterate strings) | `tests/conformance` fixtures `es/statements` |
+| E02.09 | done | both | `const` declarations (required initializer; no reassignment; `for`/`for-of`/`for-in` binding) | `tests/conformance` fixtures `es/statements` |
 | E03 | todo | both | Functions, closures, arguments, arrows (§15) | `tests/conformance/es/functions` |
+| E03.01 | done | both | Function declaration + `return` + call (no params) | `tests/conformance` fixtures `es/functions` |
 | E04 | todo | both | Objects, prototypes, `this`, property access (§10, §20) | `tests/conformance/es/objects` |
 | E05 | todo | both | Classes (§15.7) | `tests/conformance/es/classes` |
 | E06 | todo | both | Arrays, iterators, spread/rest | `tests/conformance/es/arrays` |

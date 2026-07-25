@@ -1,0 +1,6 @@
+id: es/expressions/compound_assignment
+targets: js,native
+js.exit: 0
+js.check: if (a !== 15) process.exit(1); if (b !== 7) process.exit(2); if (c !== 12) process.exit(3); if (d !== 5) process.exit(4); if (e !== 2) process.exit(5); if (f !== 8) process.exit(6); if (g !== 8) process.exit(7); if (h !== 4) process.exit(8); if (i !== 2147483644) process.exit(9); if (j !== 9) process.exit(10); if (k !== 9) process.exit(11); if (l !== 11) process.exit(12); if (n !== 5) process.exit(13); if (m !== 6) process.exit(14);
+native.exit: 0
+native.stdout: hello\n

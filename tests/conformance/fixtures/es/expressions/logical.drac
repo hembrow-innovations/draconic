@@ -1,0 +1,12 @@
+let and_tt = true && true;
+let and_tf = true && false;
+let and_ft = false && true;
+let or_ff = false || false;
+let or_ft = false || true;
+let or_tf = true || false;
+let not_t = !true;
+let not_f = !false;
+let prec = !false && true || false;
+let value_and = 1 && 2;
+let value_or = 0 || 3;
+let group = !(false || true);

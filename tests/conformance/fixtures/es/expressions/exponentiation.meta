@@ -1,0 +1,6 @@
+id: es/expressions/exponentiation
+targets: js,native
+js.exit: 0
+js.check: if (pow !== 8) process.exit(1); if (right_assoc !== 512) process.exit(2); if (prec !== 18) process.exit(3); if (group !== 36) process.exit(4); if (nested !== 8) process.exit(5); if (zero !== 1) process.exit(6); if (one !== 9) process.exit(7);
+native.exit: 0
+native.stdout: hello\n

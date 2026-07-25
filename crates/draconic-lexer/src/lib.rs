@@ -20,12 +20,23 @@ pub enum TokenKind {
     Dot,
     Colon,
     Question,
+    QuestionQuestion,
+    QuestionQuestionEq,
     // operators
     Plus,
+    PlusPlus,
+    PlusEq,
     Minus,
+    MinusMinus,
+    MinusEq,
     Star,
+    StarStar,
+    StarStarEq,
+    StarEq,
     Slash,
+    SlashEq,
     Percent,
+    PercentEq,
     Bang,
     Eq,
     EqEq,
@@ -37,7 +48,22 @@ pub enum TokenKind {
     Gt,
     GtEq,
     AndAnd,
+    AndAndEq,
     OrOr,
+    OrOrEq,
+    BitAnd,
+    BitAndEq,
+    BitOr,
+    BitOrEq,
+    BitXor,
+    BitXorEq,
+    Tilde,
+    Shl,
+    ShlEq,
+    Shr,
+    ShrEq,
+    UShr,
+    UShrEq,
     // keywords / atoms
     Ident(String),
     Number(String),
@@ -51,6 +77,20 @@ pub enum TokenKind {
     TypeOf,
     Void,
     Delete,
+    If,
+    Else,
+    While,
+    Do,
+    For,
+    Break,
+    Continue,
+    Switch,
+    Case,
+    Default,
+    In,
+    Of,
+    Function,
+    Return,
     // other
     Eof,
 }
@@ -137,28 +177,66 @@ impl<'a> Lexer<'a> {
             }
             b'?' => {
                 self.bump();
-                TokenKind::Question
+                if self.eat(b'?') {
+                    if self.eat(b'=') {
+                        TokenKind::QuestionQuestionEq
+                    } else {
+                        TokenKind::QuestionQuestion
+                    }
+                } else {
+                    TokenKind::Question
+                }
             }
             b'+' => {
                 self.bump();
-                TokenKind::Plus
+                if self.eat(b'+') {
+                    TokenKind::PlusPlus
+                } else if self.eat(b'=') {
+                    TokenKind::PlusEq
+                } else {
+                    TokenKind::Plus
+                }
             }
             b'-' => {
                 self.bump();
-                TokenKind::Minus
+                if self.eat(b'-') {
+                    TokenKind::MinusMinus
+                } else if self.eat(b'=') {
+                    TokenKind::MinusEq
+                } else {
+                    TokenKind::Minus
+                }
             }
             b'*' => {
                 self.bump();
-                TokenKind::Star
+                if self.eat(b'*') {
+                    if self.eat(b'=') {
+                        TokenKind::StarStarEq
+                    } else {
+                        TokenKind::StarStar
+                    }
+                } else if self.eat(b'=') {
+                    TokenKind::StarEq
+                } else {
+                    TokenKind::Star
+                }
             }
             b'%' => {
                 self.bump();
-                TokenKind::Percent
+                if self.eat(b'=') {
+                    TokenKind::PercentEq
+                } else {
+                    TokenKind::Percent
+                }
             }
             b'/' => {
                 // line/block comments handled in skip_trivia; here it's divide
                 self.bump();
-                TokenKind::Slash
+                if self.eat(b'=') {
+                    TokenKind::SlashEq
+                } else {
+                    TokenKind::Slash
+                }
             }
             b'!' => {
                 self.bump();
@@ -186,7 +264,13 @@ impl<'a> Lexer<'a> {
             }
             b'<' => {
                 self.bump();
-                if self.eat(b'=') {
+                if self.eat(b'<') {
+                    if self.eat(b'=') {
+                        TokenKind::ShlEq
+                    } else {
+                        TokenKind::Shl
+                    }
+                } else if self.eat(b'=') {
                     TokenKind::LtEq
                 } else {
                     TokenKind::Lt
@@ -194,7 +278,19 @@ impl<'a> Lexer<'a> {
             }
             b'>' => {
                 self.bump();
-                if self.eat(b'=') {
+                if self.eat(b'>') {
+                    if self.eat(b'>') {
+                        if self.eat(b'=') {
+                            TokenKind::UShrEq
+                        } else {
+                            TokenKind::UShr
+                        }
+                    } else if self.eat(b'=') {
+                        TokenKind::ShrEq
+                    } else {
+                        TokenKind::Shr
+                    }
+                } else if self.eat(b'=') {
                     TokenKind::GtEq
                 } else {
                     TokenKind::Gt
@@ -203,24 +299,42 @@ impl<'a> Lexer<'a> {
             b'&' => {
                 self.bump();
                 if self.eat(b'&') {
-                    TokenKind::AndAnd
+                    if self.eat(b'=') {
+                        TokenKind::AndAndEq
+                    } else {
+                        TokenKind::AndAnd
+                    }
+                } else if self.eat(b'=') {
+                    TokenKind::BitAndEq
                 } else {
-                    return Err(Diagnostic::new(
-                        "bitwise & not yet supported",
-                        Span::new(start, self.pos as u32),
-                    ));
+                    TokenKind::BitAnd
                 }
             }
             b'|' => {
                 self.bump();
                 if self.eat(b'|') {
-                    TokenKind::OrOr
+                    if self.eat(b'=') {
+                        TokenKind::OrOrEq
+                    } else {
+                        TokenKind::OrOr
+                    }
+                } else if self.eat(b'=') {
+                    TokenKind::BitOrEq
                 } else {
-                    return Err(Diagnostic::new(
-                        "bitwise | not yet supported",
-                        Span::new(start, self.pos as u32),
-                    ));
+                    TokenKind::BitOr
                 }
+            }
+            b'^' => {
+                self.bump();
+                if self.eat(b'=') {
+                    TokenKind::BitXorEq
+                } else {
+                    TokenKind::BitXor
+                }
+            }
+            b'~' => {
+                self.bump();
+                TokenKind::Tilde
             }
             b'"' | b'\'' => self.string_literal()?,
             b if b.is_ascii_digit() => self.number_literal()?,
@@ -353,6 +467,20 @@ impl<'a> Lexer<'a> {
             "typeof" => TokenKind::TypeOf,
             "void" => TokenKind::Void,
             "delete" => TokenKind::Delete,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
+            "while" => TokenKind::While,
+            "do" => TokenKind::Do,
+            "for" => TokenKind::For,
+            "break" => TokenKind::Break,
+            "continue" => TokenKind::Continue,
+            "switch" => TokenKind::Switch,
+            "case" => TokenKind::Case,
+            "default" => TokenKind::Default,
+            "in" => TokenKind::In,
+            "of" => TokenKind::Of,
+            "function" => TokenKind::Function,
+            "return" => TokenKind::Return,
             _ => TokenKind::Ident(name.to_string()),
         })
     }
@@ -472,6 +600,125 @@ mod tests {
         assert_eq!(
             kinds("3.14"),
             vec![TokenKind::Number("3.14".into()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lex_star_star() {
+        assert_eq!(
+            kinds("2 ** 3 * 4"),
+            vec![
+                TokenKind::Number("2".into()),
+                TokenKind::StarStar,
+                TokenKind::Number("3".into()),
+                TokenKind::Star,
+                TokenKind::Number("4".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_bitwise_ops() {
+        assert_eq!(
+            kinds("a & b | c ^ ~d << e >> f >>> g"),
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::BitAnd,
+                TokenKind::Ident("b".into()),
+                TokenKind::BitOr,
+                TokenKind::Ident("c".into()),
+                TokenKind::BitXor,
+                TokenKind::Tilde,
+                TokenKind::Ident("d".into()),
+                TokenKind::Shl,
+                TokenKind::Ident("e".into()),
+                TokenKind::Shr,
+                TokenKind::Ident("f".into()),
+                TokenKind::UShr,
+                TokenKind::Ident("g".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_update_ops() {
+        assert_eq!(
+            kinds("++a --b c++ d-- +e -f"),
+            vec![
+                TokenKind::PlusPlus,
+                TokenKind::Ident("a".into()),
+                TokenKind::MinusMinus,
+                TokenKind::Ident("b".into()),
+                TokenKind::Ident("c".into()),
+                TokenKind::PlusPlus,
+                TokenKind::Ident("d".into()),
+                TokenKind::MinusMinus,
+                TokenKind::Plus,
+                TokenKind::Ident("e".into()),
+                TokenKind::Minus,
+                TokenKind::Ident("f".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_nullish_and_logical_assign() {
+        assert_eq!(
+            kinds("a ?? b ??= c &&= d ||= e ? f : g"),
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::QuestionQuestion,
+                TokenKind::Ident("b".into()),
+                TokenKind::QuestionQuestionEq,
+                TokenKind::Ident("c".into()),
+                TokenKind::AndAndEq,
+                TokenKind::Ident("d".into()),
+                TokenKind::OrOrEq,
+                TokenKind::Ident("e".into()),
+                TokenKind::Question,
+                TokenKind::Ident("f".into()),
+                TokenKind::Colon,
+                TokenKind::Ident("g".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_compound_assignment() {
+        assert_eq!(
+            kinds("a += b -= c *= d /= e %= f **= g <<= h >>= i >>>= j &= k ^= l |= m"),
+            vec![
+                TokenKind::Ident("a".into()),
+                TokenKind::PlusEq,
+                TokenKind::Ident("b".into()),
+                TokenKind::MinusEq,
+                TokenKind::Ident("c".into()),
+                TokenKind::StarEq,
+                TokenKind::Ident("d".into()),
+                TokenKind::SlashEq,
+                TokenKind::Ident("e".into()),
+                TokenKind::PercentEq,
+                TokenKind::Ident("f".into()),
+                TokenKind::StarStarEq,
+                TokenKind::Ident("g".into()),
+                TokenKind::ShlEq,
+                TokenKind::Ident("h".into()),
+                TokenKind::ShrEq,
+                TokenKind::Ident("i".into()),
+                TokenKind::UShrEq,
+                TokenKind::Ident("j".into()),
+                TokenKind::BitAndEq,
+                TokenKind::Ident("k".into()),
+                TokenKind::BitXorEq,
+                TokenKind::Ident("l".into()),
+                TokenKind::BitOrEq,
+                TokenKind::Ident("m".into()),
+                TokenKind::Eof,
+            ]
         );
     }
 }

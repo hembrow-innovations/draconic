@@ -1,0 +1,6 @@
+id: es/expressions/nullish_logical_assign
+targets: js,native
+js.exit: 0
+js.check: if (n1 !== 1) process.exit(1); if (n2 !== 2) process.exit(2); if (n3 !== 0) process.exit(3); if (n4 !== "") process.exit(4); if (n5 !== false) process.exit(5); if (n6 !== 6) process.exit(6); if (n7 !== 7) process.exit(7); if (a !== 10) process.exit(8); if (b !== 0) process.exit(9); if (c !== "") process.exit(10); if (d !== 13) process.exit(11); if (e !== 14) process.exit(12); if (f !== 1) process.exit(13); if (g !== 16) process.exit(14); if (h !== null) process.exit(15); if (i !== 18) process.exit(16);
+native.exit: 0
+native.stdout: hello\n
