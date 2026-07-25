@@ -162,6 +162,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E16.03 | done | both | Indirect eval: `(0, eval)(s)` / `globalThis.eval(s)` (global scope; not caller lexical) | `tests/conformance` fixtures `es/eval` |
 | E17 | done | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
 | E18 | todo | both | Remaining Annex B / full 262 gaps (track explicitly, do not drop) | `tests/conformance/es/annex-b` |
+| E18.21 | done | both | `instanceof`: `obj instanceof Ctor` (function/class constructors; prototype chain) | `tests/conformance` fixtures `es/annex-b` |
 | E18.20 | done | both | Destructuring defaults: `let [a = expr] = arr` / `let {a = expr} = obj` / `{a: b = expr}` / assignment patterns with defaults | `tests/conformance` fixtures `es/annex-b` |
 | E18.19 | done | both | Object destructuring: `let {a, b} = obj` / `let {a, ...rest} = obj` / assignment `{a, b} = obj` (rename, nested; defaults deferred) | `tests/conformance` fixtures `es/annex-b` |
 | E18.18 | done | both | Regular expression literals: `/pattern/` / `/pattern/flags`; `typeof` `"object"`; `.source`/`.flags`/`.test`/`.exec` parity with `new RegExp` | `tests/conformance` fixtures `es/annex-b` |

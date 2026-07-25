@@ -3608,6 +3608,8 @@ impl<'a> Checker<'a> {
             }
             // `in`: property-key left, object-like right; result is boolean (ECMA-262).
             BinaryOp::In => Ok(Type::Boolean),
+            // `instanceof`: object left, constructor right; result is boolean (ECMA-262).
+            BinaryOp::InstanceOf => Ok(Type::Boolean),
             BinaryOp::And | BinaryOp::Or | BinaryOp::Nullish => {
                 if left == right {
                     Ok(left)

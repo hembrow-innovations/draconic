@@ -1996,6 +1996,7 @@ impl Parser {
                 TokenKind::Gt => BinaryOp::Gt,
                 TokenKind::GtEq => BinaryOp::GtEq,
                 TokenKind::In if self.allow_in => BinaryOp::In,
+                TokenKind::InstanceOf => BinaryOp::InstanceOf,
                 _ => break,
             };
             self.bump();
@@ -2831,6 +2832,7 @@ impl IdentName for Token {
             TokenKind::Case => Some("case".into()),
             TokenKind::Default => Some("default".into()),
             TokenKind::In => Some("in".into()),
+            TokenKind::InstanceOf => Some("instanceof".into()),
             TokenKind::Of => Some("of".into()),
             TokenKind::Function => Some("function".into()),
             TokenKind::Async => Some("async".into()),

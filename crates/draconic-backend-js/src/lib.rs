@@ -880,6 +880,7 @@ fn binary_op(op: BinaryOp) -> &'static str {
         BinaryOp::Nullish => "??",
         BinaryOp::Comma => ",",
         BinaryOp::In => "in",
+        BinaryOp::InstanceOf => "instanceof",
     }
 }
 

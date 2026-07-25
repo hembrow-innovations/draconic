@@ -1,0 +1,21 @@
+function C() {}
+let c = new C();
+let ok1 = c instanceof C;
+let ok2 = c instanceof Object;
+let bad1 = c instanceof Function;
+function D() {}
+D.prototype = new C();
+let d = new D();
+let ok3 = d instanceof D;
+let ok4 = d instanceof C;
+let ok5 = d instanceof Object;
+let bad2 = c instanceof D;
+class E {}
+let e = new E();
+let ok6 = e instanceof E;
+let ok7 = e instanceof Object;
+let n = 1;
+let bad3 = n instanceof C;
+let arr = [];
+let ok8 = arr instanceof Array;
+let ok9 = arr instanceof Object;

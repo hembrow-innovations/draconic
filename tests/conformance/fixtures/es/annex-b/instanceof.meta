@@ -1,0 +1,6 @@
+id: es/annex-b/instanceof
+targets: js,native
+js.exit: 0
+js.check: if (ok1 !== true) process.exit(1); if (ok2 !== true) process.exit(2); if (bad1 !== false) process.exit(3); if (ok3 !== true) process.exit(4); if (ok4 !== true) process.exit(5); if (ok5 !== true) process.exit(6); if (bad2 !== false) process.exit(7); if (ok6 !== true) process.exit(8); if (ok7 !== true) process.exit(9); if (bad3 !== false) process.exit(10); if (ok8 !== true) process.exit(11); if (ok9 !== true) process.exit(12);
+native.exit: 0
+native.stdout: hello\n

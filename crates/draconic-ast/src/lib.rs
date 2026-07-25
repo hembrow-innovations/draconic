@@ -682,6 +682,7 @@ pub enum BinaryOp {
     Nullish,
     Comma,
     In,
+    InstanceOf,
 }
 
 impl fmt::Display for UnaryOp {
@@ -788,6 +789,7 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Nullish => "??",
             BinaryOp::Comma => ",",
             BinaryOp::In => "in",
+            BinaryOp::InstanceOf => "instanceof",
         };
         write!(f, "{s}")
     }
