@@ -256,3 +256,13 @@ fn optional_chain_fixture_present() {
 fn optional_chain_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/optional_chain");
 }
+
+#[test]
+fn arguments_object_fixture_present() {
+    assert_fixture_present("es/annex-b/arguments_object");
+}
+
+#[test]
+fn arguments_object_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/arguments_object");
+}

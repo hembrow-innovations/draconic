@@ -1079,6 +1079,7 @@ impl Binder {
                 // Function scope is a var environment.
                 self.push_scope_kind(true);
                 self.bind_params(params)?;
+                self.install_arguments_object()?;
                 // Body is a Block; bind its statements in the param scope (no extra
                 // block scope layer needed beyond the block's own push).
                 self.bind_stmt(body)?;
@@ -1101,6 +1102,7 @@ impl Binder {
                         | ClassElement::Accessor { params, body, .. } => {
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
+                            self.install_arguments_object()?;
                             self.bind_stmt(body)?;
                             self.pop_scope();
                         }
@@ -1285,6 +1287,7 @@ impl Binder {
                     self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 }
                 self.bind_params(params)?;
+                self.install_arguments_object()?;
                 self.bind_stmt(body)?;
                 self.pop_scope();
                 Ok(())
@@ -1318,6 +1321,7 @@ impl Binder {
                             }
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
+                            self.install_arguments_object()?;
                             self.bind_stmt(body)?;
                             self.pop_scope();
                         }
@@ -1474,6 +1478,21 @@ impl Binder {
                 self.bind_expr(default)?;
             }
         }
+        Ok(())
+    }
+
+    /// Implicit `arguments` binding for non-arrow functions (E18.24).
+    /// Skipped when a param already shadows the name. Arrows inherit lexically.
+    fn install_arguments_object(&mut self) -> Result<(), Diagnostic> {
+        let scope = self.scopes.last().expect("scope stack non-empty");
+        if scope.contains_key("arguments") {
+            return Ok(());
+        }
+        self.declare(
+            "arguments".into(),
+            Span::dummy(),
+            BindingKind::Var,
+        )?;
         Ok(())
     }
 }
@@ -4740,6 +4759,35 @@ mod tests {
         let a_span = find_ident_use(&bound.program, "a");
         assert_eq!(bound.symbol(bound.resolve(f_span).unwrap()).name, "f");
         assert_eq!(bound.symbol(bound.resolve(a_span).unwrap()).name, "a");
+    }
+
+    #[test]
+    fn bind_resolves_arguments_in_function() {
+        let program = parse("function f(a) { return arguments.length + arguments[0]; }").unwrap();
+        let bound = bind(program).unwrap();
+        let args_span = find_ident_use(&bound.program, "arguments");
+        let sym = bound.symbol(bound.resolve(args_span).unwrap());
+        assert_eq!(sym.name, "arguments");
+        assert_eq!(sym.kind, BindingKind::Var);
+    }
+
+    #[test]
+    fn bind_arguments_unresolved_in_arrow_at_top_level() {
+        let program = parse("let f = () => arguments.length;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("unresolved") && err.message.contains("arguments"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_arguments_in_function_ok() {
+        let program =
+            parse("function f(a, b) { return arguments.length + arguments[0]; } let r = f(1, 2);")
+                .unwrap();
+        check(program).unwrap();
     }
 
     #[test]

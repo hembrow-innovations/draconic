@@ -1,0 +1,26 @@
+function f(a, b) {
+  return arguments.length + arguments[0] + arguments[1];
+}
+function g(a) {
+  return arguments.length + arguments[0] + arguments[1];
+}
+function h(a, b) {
+  return arguments.length;
+}
+let k = function (x) {
+  return arguments[0] + arguments.length;
+};
+let o = {
+  m: function (x, y) {
+    return arguments.length;
+  }
+};
+function idx() {
+  return arguments[0] + arguments[1] + arguments[2];
+}
+let a = f(1, 2);
+let b = g(10, 20);
+let c = h(1);
+let d = k(7);
+let e = o.m(1, 2, 3);
+let p = idx(1, 2, 3);
