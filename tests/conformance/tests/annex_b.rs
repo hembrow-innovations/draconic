@@ -186,3 +186,13 @@ fn regexp_statics_fixture_present() {
 fn regexp_statics_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/regexp_statics");
 }
+
+#[test]
+fn var_catch_fixture_present() {
+    assert_fixture_present("es/annex-b/var_catch");
+}
+
+#[test]
+fn var_catch_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/var_catch");
+}

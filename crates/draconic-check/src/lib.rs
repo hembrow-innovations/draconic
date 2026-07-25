@@ -320,6 +320,51 @@ fn is_iteration_labelled_item(stmt: &Stmt) -> bool {
     }
 }
 
+/// If `param` appears in LexicallyDeclaredNames of the catch Block, return the
+/// conflicting name and its declaration span. Annex B.3.4 allows the same name
+/// in VarDeclaredNames (`var`); only lexical `let`/`const`/`class`/`function`
+/// at the top level of the catch block are rejected.
+fn catch_lexical_conflict(param: &str, handler: &Stmt) -> Option<(String, Span)> {
+    let body: &[Stmt] = match handler {
+        Stmt::Block { body, .. } => body.as_slice(),
+        other => std::slice::from_ref(other),
+    };
+    for stmt in body {
+        if let Some(span) = catch_stmt_lexical_name(stmt, param) {
+            return Some((param.to_string(), span));
+        }
+    }
+    None
+}
+
+fn catch_stmt_lexical_name(stmt: &Stmt, param: &str) -> Option<Span> {
+    let mut s = stmt;
+    while let Stmt::Labeled { body, .. } = s {
+        s = body;
+    }
+    match s {
+        Stmt::Let {
+            kind: BindingKind::Let | BindingKind::Const,
+            binding,
+            ..
+        } => {
+            let mut found = None;
+            binding.for_each_ident(&mut |id| {
+                if found.is_none() && id.name == param {
+                    found = Some(id.span);
+                }
+            });
+            found
+        }
+        Stmt::ClassDeclaration { name, .. } | Stmt::FunctionDeclaration { name, .. }
+            if name.name == param =>
+        {
+            Some(name.span)
+        }
+        _ => None,
+    }
+}
+
 struct Binder {
     /// Scope stack (innermost last): name → symbol id.
     scopes: Vec<HashMap<String, SymbolId>>,
@@ -1077,6 +1122,18 @@ impl Binder {
                 self.bind_stmt(block)?;
                 if let Some(handler) = handler {
                     // Catch binding is scoped to the catch block only.
+                    // Early error: CatchParameter ∩ LexicallyDeclaredNames(Block).
+                    // Annex B.3.4: CatchParameter ∩ VarDeclaredNames(Block) is allowed.
+                    if let Some(param) = handler_param {
+                        if let Some((name, span)) =
+                            catch_lexical_conflict(&param.name, handler)
+                        {
+                            return Err(Diagnostic::new(
+                                format!("duplicate declaration of `{name}`"),
+                                span,
+                            ));
+                        }
+                    }
                     self.push_scope();
                     if let Some(param) = handler_param {
                         self.declare(param.name.clone(), param.span, BindingKind::Let)?;
@@ -4396,6 +4453,39 @@ mod tests {
         let err = bind(program).unwrap_err();
         assert!(
             err.message.contains("duplicate") && err.message.contains("x"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_catch_var_same_name_allowed_annex_b() {
+        let program = parse(
+            r#"function f() {
+                try { throw 1; } catch (e) { var e = 2; return e; }
+            }"#,
+        )
+        .unwrap();
+        bind(program).expect("Annex B.3.4 allows var same name as catch param");
+    }
+
+    #[test]
+    fn bind_catch_let_same_name_errors() {
+        let program = parse("try { throw 1; } catch (e) { let e = 2; }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("e"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_catch_function_same_name_errors() {
+        let program = parse("try { throw 1; } catch (e) { function e() {} }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("e"),
             "unexpected message: {}",
             err.message
         );

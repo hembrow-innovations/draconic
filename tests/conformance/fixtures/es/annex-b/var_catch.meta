@@ -1,0 +1,6 @@
+id: es/annex-b/var_catch
+targets: js,native
+js.exit: 0
+js.check: if (a !== "thrown,init,undefined,undefined") process.exit(1); if (b !== 1) process.exit(2); if (c !== 6) process.exit(3); if (d !== "undefined,10,undefined,undefined") process.exit(4); if (topInside !== "top-init") process.exit(5); if (eAfter !== "undefined") process.exit(6); if (eVal !== "undefined") process.exit(7);
+native.exit: 0
+native.stdout: hello\n

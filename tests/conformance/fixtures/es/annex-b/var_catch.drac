@@ -1,0 +1,54 @@
+function f() {
+  let inside = "";
+  try {
+    throw "thrown";
+  } catch (e) {
+    inside = e;
+    var e = "init";
+    inside = inside + "," + e;
+  }
+  return inside + "," + typeof e + "," + String(e);
+}
+let a = f();
+
+function g() {
+  try {
+    throw 1;
+  } catch (e) {
+    var e;
+    return e;
+  }
+}
+let b = g();
+
+function h() {
+  try {
+    throw 5;
+  } catch (e) {
+    var e = e + 1;
+    return e;
+  }
+}
+let c = h();
+
+function i() {
+  var seen = typeof x;
+  try {
+    throw 9;
+  } catch (x) {
+    var x = 10;
+    seen = seen + "," + x;
+  }
+  return seen + "," + typeof x + "," + String(x);
+}
+let d = i();
+
+let topInside = "";
+try {
+  throw "top";
+} catch (e) {
+  var e = "top-init";
+  topInside = e;
+}
+let eAfter = typeof e;
+let eVal = String(e);
