@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01/N02 native scalars).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03.01 native scalars/layouts).
 
 mod native_ints;
 
@@ -13,9 +13,9 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// Emit LLVM IR text for a shared IR module.
 ///
 /// Programs that use only native scalar types (`i8`–`i64`, `u8`–`u64`, `f32`/
-/// `f64`, `boolean`) and a supported statement/expression subset are lowered
-/// for real. Everything else keeps the B08 hello stub so existing ES
-/// conformance fixtures stay green.
+/// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
+/// with a supported statement/expression subset are lowered for real. Everything
+/// else keeps the B08 hello stub so existing ES conformance fixtures stay green.
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         emit_native_ints(module)
@@ -311,5 +311,38 @@ mod tests {
         assert!(output.status.success());
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "true\nfalse\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn native_struct_field_read_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            type Point = { x: i32; y: i32 };
+            let p: Point = { x: 10, y: 20 };
+            let a: i32 = p.x;
+            let b: i32 = p.y;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "native struct program should not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("getelementptr"),
+            "should GEP struct fields:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n03-struct").expect("workdir");
+        let bin = dir.join("struct");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "10\n20\n10\n20\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 }

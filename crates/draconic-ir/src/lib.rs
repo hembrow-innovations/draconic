@@ -9,13 +9,15 @@ use draconic_check::{CheckedProgram, Type};
 use draconic_diagnostics::Span;
 
 pub use draconic_ast::BindingKind;
-pub use draconic_check::{NativeType, SymbolId as LocalId, Type as IrType};
+pub use draconic_check::{NativeType, ObjectShape, SymbolId as LocalId, Type as IrType};
 
 /// Top-level IR unit both backends consume.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     pub locals: Vec<Local>,
     pub body: Vec<Stmt>,
+    /// Structural object shapes referenced by `Type::Shape` (N03 native layouts).
+    pub shapes: Vec<ObjectShape>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -419,7 +421,11 @@ pub fn lower(checked: &CheckedProgram) -> Module {
         body.extend(lower_stmt_expand(checked, stmt, None));
     }
 
-    Module { locals, body }
+    Module {
+        locals,
+        body,
+        shapes: checked.shapes().to_vec(),
+    }
 }
 
 /// Lower one AST statement, expanding constructs that become multiple IR stmts (e.g. class).

@@ -3319,7 +3319,8 @@ impl<'a> Checker<'a> {
         )
     }
 
-    /// Assignability with contextual typing of numeric literals to native types (T05).
+    /// Assignability with contextual typing of numeric literals to native types (T05)
+    /// and object literals to native-layout shapes (N03.01).
     fn require_assignable_expr(
         &self,
         from: Type,
@@ -3332,7 +3333,59 @@ impl<'a> Checker<'a> {
         if Self::is_number_literal_expr(from_expr) && Self::number_literal_ok_for_native(to) {
             return Ok(());
         }
+        if let (Expr::ObjectExpression { properties, .. }, Type::Shape(to_id)) = (from_expr, to) {
+            if let Some(to_shape) = self.shapes.get(to_id as usize) {
+                if self.object_literal_contextually_assignable(properties, to_shape) {
+                    return Ok(());
+                }
+            }
+        }
         self.require_assignable(from, to, expr_span_of(from_expr))
+    }
+
+    /// Object literal may assign to a shape when each required property is present and
+    /// assignable, allowing number/boolean literals to fill native scalar fields.
+    fn object_literal_contextually_assignable(
+        &self,
+        properties: &[ObjectProp],
+        to_shape: &ObjectShape,
+    ) -> bool {
+        let mut by_name: HashMap<String, &Expr> = HashMap::new();
+        for prop in properties {
+            match prop {
+                ObjectProp::Property { key, value, .. } => {
+                    let name = match key {
+                        ObjectKey::Ident(id) => id.name.clone(),
+                        ObjectKey::String(s) => s.value.to_string_lossy(),
+                        ObjectKey::Computed(_) => return false,
+                    };
+                    by_name.insert(name, value);
+                }
+                ObjectProp::Accessor { .. } | ObjectProp::Spread { .. } => return false,
+            }
+        }
+        to_shape.props.iter().all(|(name, want)| {
+            let Some(val) = by_name.get(name) else {
+                return false;
+            };
+            let got = self
+                .expr_types
+                .get(&expr_span_of(val))
+                .copied()
+                .unwrap_or(Type::Any);
+            if self.is_assignable(got, *want) {
+                return true;
+            }
+            if Self::is_number_literal_expr(val) && Self::number_literal_ok_for_native(*want) {
+                return true;
+            }
+            if matches!(val, Expr::Boolean { .. })
+                && matches!(want, Type::Native(NativeType::Bool))
+            {
+                return true;
+            }
+            false
+        })
     }
 
     /// Whether `from` is assignable to `to` (exact, `any`, structural, union/intersection).

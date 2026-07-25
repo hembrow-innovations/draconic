@@ -1,0 +1,4 @@
+id: native/layout/struct_basic
+targets: native
+native.exit: 0
+native.stdout: 10\n20\n10\n20\n

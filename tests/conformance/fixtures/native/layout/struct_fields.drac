@@ -1,0 +1,5 @@
+type Pair = { a: i32; b: i64 };
+let p: Pair = { a: 1, b: 2 };
+let x: i32 = p.a;
+let y: i64 = p.b;
+let sum: i64 = y + 10;

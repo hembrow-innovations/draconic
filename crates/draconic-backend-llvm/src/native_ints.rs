@@ -1,4 +1,4 @@
-//! N01/N02: lower pure native scalar Programs (ints, floats, bool) to LLVM IR.
+//! N01–N03.01: lower pure native scalar/layout Programs to LLVM IR.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -6,8 +6,8 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp, UpdateOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, NativeType, Param, Pattern,
-    Stmt, UpdateTarget,
+    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, NativeType, ObjectProp,
+    ObjectPropKey, ObjectShape, Param, Pattern, Stmt, UpdateTarget,
 };
 
 /// Unboxed scalar lowered by this backend (native int/float/`bool`).
@@ -62,9 +62,57 @@ fn scalar_of_type(ty: Type) -> Option<Scalar> {
     }
 }
 
-/// True when every **user-declared** local is a native type (`i*`/`u*`/`f*`/`bool`)
-/// or a **function declaration** binding, and the module has at least one native
-/// local (N01/N02 surface).
+/// True when `shape` is a native layout: every field is a native scalar.
+fn shape_is_native_layout(shape: &ObjectShape) -> bool {
+    !shape.props.is_empty()
+        && shape
+            .props
+            .iter()
+            .all(|(_, t)| matches!(t, Type::Native(_)))
+}
+
+fn native_layout_of<'a>(module: &'a Module, ty: Type) -> Option<&'a ObjectShape> {
+    match ty {
+        Type::Shape(id) => {
+            let shape = module.shapes.get(id as usize)?;
+            if shape_is_native_layout(shape) {
+                Some(shape)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn llvm_layout_ty(shape: &ObjectShape) -> String {
+    let mut s = String::from("{ ");
+    for (i, (_, t)) in shape.props.iter().enumerate() {
+        if i > 0 {
+            s.push_str(", ");
+        }
+        let Type::Native(n) = *t else {
+            unreachable!("native layout fields are Native");
+        };
+        s.push_str(n.llvm_ty());
+    }
+    s.push_str(" }");
+    s
+}
+
+fn layout_align(shape: &ObjectShape) -> u32 {
+    shape
+        .props
+        .iter()
+        .filter_map(|(_, t)| scalar_of_type(*t).map(|s| s.align()))
+        .max()
+        .unwrap_or(1)
+}
+
+/// True when every **user-declared** local is a native scalar (`i*`/`u*`/`f*`/`bool`),
+/// a **native layout** shape (all-native fields), or a **function declaration**
+/// binding, and the module has at least one native scalar or layout local
+/// (N01–N03.01 surface).
 ///
 /// Arrow / function-expression bindings are excluded so T05 erase fixtures that
 /// mix natives with callable values stay on the B08 hello stub. JS `boolean`
@@ -84,6 +132,7 @@ pub(crate) fn is_native_int_module(module: &Module) -> bool {
         };
         match local.ty {
             Type::Native(_) => has_native = true,
+            Type::Shape(_) if native_layout_of(module, local.ty).is_some() => has_native = true,
             Type::Function if fn_decl_locals.contains(&id) => {}
             _ => return false,
         }
@@ -274,7 +323,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM backend (N01/N02 native scalars)").ok();
+        writeln!(
+            self.out,
+            "; Draconic LLVM backend (N01–N03.01 native scalars/layouts)"
+        )
+        .ok();
         writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
         writeln!(self.out, "declare void @draconic_rt_print_u64(i64)").ok();
         writeln!(self.out, "declare void @draconic_rt_print_f64(double)").ok();
@@ -322,6 +375,16 @@ impl<'a> Emitter<'a> {
                     "  {ptr} = alloca {}, align {}",
                     sc.llvm_ty(),
                     sc.align()
+                )
+                .ok();
+            } else if let Some(shape) = native_layout_of(self.module, local.ty) {
+                let ptr = format!("%l{}", local.id.0);
+                self.allocas.insert(local.id, ptr.clone());
+                writeln!(
+                    self.out,
+                    "  {ptr} = alloca {}, align {}",
+                    llvm_layout_ty(shape),
+                    layout_align(shape)
                 )
                 .ok();
             }
@@ -431,16 +494,27 @@ impl<'a> Emitter<'a> {
             if self.allocas.contains_key(&id) {
                 continue;
             }
-            let ty = self.local_scalar(id)?;
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(id, ptr.clone());
-            writeln!(
-                pre,
-                "  {ptr} = alloca {}, align {}",
-                ty.llvm_ty(),
-                ty.align()
-            )
-            .ok();
+            if let Ok(ty) = self.local_scalar(id) {
+                writeln!(
+                    pre,
+                    "  {ptr} = alloca {}, align {}",
+                    ty.llvm_ty(),
+                    ty.align()
+                )
+                .ok();
+            } else if let Some(shape) = self.local_layout(id) {
+                writeln!(
+                    pre,
+                    "  {ptr} = alloca {}, align {}",
+                    llvm_layout_ty(shape),
+                    layout_align(shape)
+                )
+                .ok();
+            } else {
+                return Err(diag("native scalars: unsupported local type in function"));
+            }
         }
 
         for stmt in body {
@@ -488,23 +562,58 @@ impl<'a> Emitter<'a> {
     fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
-                let ty = self.local_scalar(*local)?;
                 let ptr = self
                     .allocas
                     .get(local)
                     .cloned()
                     .ok_or_else(|| diag("internal: missing alloca for local"))?;
-                if let Some(init) = init {
-                    let v = self.emit_expr(init, Some(ty))?;
-                    writeln!(self.body, "  store {} {v}, ptr {ptr}", ty.llvm_ty()).ok();
+                if let Ok(ty) = self.local_scalar(*local) {
+                    if let Some(init) = init {
+                        let v = self.emit_expr(init, Some(ty))?;
+                        writeln!(self.body, "  store {} {v}, ptr {ptr}", ty.llvm_ty()).ok();
+                    } else {
+                        writeln!(
+                            self.body,
+                            "  store {} {}, ptr {ptr}",
+                            ty.llvm_ty(),
+                            ty.zero_const()
+                        )
+                        .ok();
+                    }
+                } else if let Some(shape) = self.local_layout(*local).cloned() {
+                    let layout_ty = llvm_layout_ty(&shape);
+                    let fields: Vec<Scalar> = shape
+                        .props
+                        .iter()
+                        .map(|(_, fty)| {
+                            let Type::Native(n) = *fty else {
+                                return Err(diag("native layout: non-native field"));
+                            };
+                            Ok(Scalar(n))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if let Some(init) = init {
+                        self.emit_store_layout(&ptr, &shape, init)?;
+                    } else {
+                        // Zero-init each field.
+                        for (i, sc) in fields.iter().enumerate() {
+                            let gep = self.fresh_tmp();
+                            writeln!(
+                                self.body,
+                                "  {gep} = getelementptr inbounds {layout_ty}, ptr {ptr}, i32 0, i32 {i}"
+                            )
+                            .ok();
+                            writeln!(
+                                self.body,
+                                "  store {} {}, ptr {gep}",
+                                sc.llvm_ty(),
+                                sc.zero_const()
+                            )
+                            .ok();
+                        }
+                    }
                 } else {
-                    writeln!(
-                        self.body,
-                        "  store {} {}, ptr {ptr}",
-                        ty.llvm_ty(),
-                        ty.zero_const()
-                    )
-                    .ok();
+                    return Err(diag("native scalars: declare needs scalar or layout local"));
                 }
                 // Main tracks declares for end-of-program print; function emit uses a
                 // saved empty print_order that is discarded.
@@ -599,14 +708,47 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_print_local(&mut self, id: LocalId) -> Result<(), Diagnostic> {
-        let ty = self.local_scalar(id)?;
         let ptr = self
             .allocas
             .get(&id)
             .cloned()
             .ok_or_else(|| diag("internal: print missing alloca"))?;
-        let v = self.fresh_tmp();
-        writeln!(self.body, "  {v} = load {}, ptr {ptr}", ty.llvm_ty()).ok();
+        if let Ok(ty) = self.local_scalar(id) {
+            let v = self.fresh_tmp();
+            writeln!(self.body, "  {v} = load {}, ptr {ptr}", ty.llvm_ty()).ok();
+            return self.emit_print_scalar_value(ty, &v);
+        }
+        if let Some(shape) = self.local_layout(id) {
+            let layout_ty = llvm_layout_ty(shape);
+            let fields: Vec<Scalar> = shape
+                .props
+                .iter()
+                .map(|(_, fty)| {
+                    let Type::Native(n) = *fty else {
+                        return Err(diag("native layout: non-native field"));
+                    };
+                    Ok(Scalar(n))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            for (i, sc) in fields.iter().enumerate() {
+                let gep = self.fresh_tmp();
+                writeln!(
+                    self.body,
+                    "  {gep} = getelementptr inbounds {layout_ty}, ptr {ptr}, i32 0, i32 {i}"
+                )
+                .ok();
+                let v = self.fresh_tmp();
+                writeln!(self.body, "  {v} = load {}, ptr {gep}", sc.llvm_ty()).ok();
+                self.emit_print_scalar_value(*sc, &v)?;
+            }
+            return Ok(());
+        }
+        Err(diag(
+            "native scalars: print only supports native scalars/layouts",
+        ))
+    }
+
+    fn emit_print_scalar_value(&mut self, ty: Scalar, v: &str) -> Result<(), Diagnostic> {
         let n = ty.native();
         if n.is_bool() {
             let ext = self.fresh_tmp();
@@ -618,7 +760,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = fpext float {v} to double").ok();
                 t
             } else {
-                v
+                v.to_string()
             };
             writeln!(self.body, "  call void @draconic_rt_print_f64(double {d})").ok();
         } else {
@@ -894,9 +1036,160 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = load {}, ptr {slot}", sty.llvm_ty()).ok();
                 Ok(t)
             }
+            Expr::Member {
+                object,
+                property,
+                computed,
+                optional,
+                ty,
+            } => {
+                if *optional {
+                    return Err(diag("native layout: optional member not supported"));
+                }
+                if *computed {
+                    return Err(diag("native layout: computed member not supported"));
+                }
+                let key = match property.as_ref() {
+                    Expr::String { value, .. } => value.to_string_lossy(),
+                    _ => {
+                        return Err(diag(
+                            "native layout: member property must be a static string key",
+                        ))
+                    }
+                };
+                let (obj_ptr, layout_ty, idx, sc) = {
+                    let (obj_ptr, shape) = self.emit_layout_base(object)?;
+                    let idx = shape
+                        .props
+                        .iter()
+                        .position(|(n, _)| n == &key)
+                        .ok_or_else(|| diag(&format!("native layout: unknown field `{key}`")))?;
+                    let field_ty = shape.props[idx].1;
+                    let sc = scalar_of_type(field_ty)
+                        .or_else(|| scalar_of_type(*ty))
+                        .ok_or_else(|| diag("native layout: field must be native scalar"))?;
+                    (obj_ptr, llvm_layout_ty(shape), idx, sc)
+                };
+                let gep = self.fresh_tmp();
+                writeln!(
+                    self.body,
+                    "  {gep} = getelementptr inbounds {layout_ty}, ptr {obj_ptr}, i32 0, i32 {idx}"
+                )
+                .ok();
+                let t = self.fresh_tmp();
+                writeln!(self.body, "  {t} = load {}, ptr {gep}", sc.llvm_ty()).ok();
+                Ok(t)
+            }
+            Expr::Object { .. } => Err(diag(
+                "native layout: object literal only supported as layout init",
+            )),
             _ => Err(diag(&format!(
                 "native scalars: unsupported expression {expr:?}"
             ))),
+        }
+    }
+
+    /// Pointer to a layout local + its shape (for field GEP).
+    fn emit_layout_base<'b>(
+        &'b self,
+        expr: &'b Expr,
+    ) -> Result<(String, &'b ObjectShape), Diagnostic> {
+        match expr {
+            Expr::Local { id, ty } => {
+                let shape = native_layout_of(self.module, *ty)
+                    .or_else(|| self.local_layout(*id))
+                    .ok_or_else(|| diag("native layout: member base is not a layout local"))?;
+                let ptr = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("internal: layout local missing alloca"))?;
+                Ok((ptr, shape))
+            }
+            _ => Err(diag(
+                "native layout: only direct local field access supported",
+            )),
+        }
+    }
+
+    fn emit_store_layout(
+        &mut self,
+        dest_ptr: &str,
+        shape: &ObjectShape,
+        init: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let layout_ty = llvm_layout_ty(shape);
+        let field_meta: Vec<(String, Scalar)> = shape
+            .props
+            .iter()
+            .map(|(name, fty)| {
+                let Type::Native(n) = *fty else {
+                    return Err(diag("native layout: non-native field"));
+                };
+                Ok((name.clone(), Scalar(n)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        match init {
+            Expr::Object { properties, .. } => {
+                let mut by_name: HashMap<String, &Expr> = HashMap::new();
+                for prop in properties {
+                    match prop {
+                        ObjectProp::Property {
+                            key: ObjectPropKey::Static(k),
+                            value,
+                        } => {
+                            by_name.insert(k.to_string_lossy(), value);
+                        }
+                        _ => {
+                            return Err(diag(
+                                "native layout: only static data properties in object init",
+                            ))
+                        }
+                    }
+                }
+                for (i, (name, sc)) in field_meta.iter().enumerate() {
+                    let val_expr = by_name.get(name).ok_or_else(|| {
+                        diag(&format!("native layout: missing field `{name}` in init"))
+                    })?;
+                    let v = self.emit_expr(val_expr, Some(*sc))?;
+                    let gep = self.fresh_tmp();
+                    writeln!(
+                        self.body,
+                        "  {gep} = getelementptr inbounds {layout_ty}, ptr {dest_ptr}, i32 0, i32 {i}"
+                    )
+                    .ok();
+                    writeln!(self.body, "  store {} {v}, ptr {gep}", sc.llvm_ty()).ok();
+                }
+                Ok(())
+            }
+            Expr::Local { id, .. } => {
+                let src_ptr = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("internal: layout copy missing src alloca"))?;
+                for (i, (_, sc)) in field_meta.iter().enumerate() {
+                    let src_gep = self.fresh_tmp();
+                    writeln!(
+                        self.body,
+                        "  {src_gep} = getelementptr inbounds {layout_ty}, ptr {src_ptr}, i32 0, i32 {i}"
+                    )
+                    .ok();
+                    let v = self.fresh_tmp();
+                    writeln!(self.body, "  {v} = load {}, ptr {src_gep}", sc.llvm_ty()).ok();
+                    let dst_gep = self.fresh_tmp();
+                    writeln!(
+                        self.body,
+                        "  {dst_gep} = getelementptr inbounds {layout_ty}, ptr {dest_ptr}, i32 0, i32 {i}"
+                    )
+                    .ok();
+                    writeln!(self.body, "  store {} {v}, ptr {dst_gep}", sc.llvm_ty()).ok();
+                }
+                Ok(())
+            }
+            _ => Err(diag(
+                "native layout: init must be object literal or layout local",
+            )),
         }
     }
 
@@ -1244,11 +1537,17 @@ impl<'a> Emitter<'a> {
             .ok_or_else(|| diag("internal: unknown local"))?;
         match local.ty {
             Type::Native(n) => Ok(Scalar(n)),
+            Type::Boolean => Ok(Scalar(NativeType::Bool)),
             _ => Err(diag(&format!(
                 "native scalars: local `{}` is not a native scalar",
                 local.name
             ))),
         }
+    }
+
+    fn local_layout(&self, id: LocalId) -> Option<&ObjectShape> {
+        let local = self.locals.get(&id)?;
+        native_layout_of(self.module, local.ty)
     }
 
     fn fresh_tmp(&mut self) -> String {
