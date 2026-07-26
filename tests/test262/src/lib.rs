@@ -252,6 +252,14 @@ pub fn is_negative_parse(source: &str) -> bool {
     meta.contains("phase: parse") || meta.contains("phase: early")
 }
 
+/// True when frontmatter declares a negative runtime expectation (error must be thrown).
+pub fn is_negative_runtime(source: &str) -> bool {
+    let Some(meta) = frontmatter_meta(source) else {
+        return false;
+    };
+    meta.contains("negative:") && meta.contains("phase: runtime")
+}
+
 /// Compile Test262 test body (+ shim) through frontend → JS emit.
 pub fn compile_test_to_js(test_body: &str) -> Result<String, String> {
     let body = strip_frontmatter(test_body);
@@ -343,6 +351,21 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             };
         }
     };
+    if is_negative_runtime(&source) {
+        // Negative runtime: pass iff Node throws (exit ≠ 0).
+        return match run_js_in_node(&js) {
+            Err(_) => CaseResult {
+                path: rel.to_string(),
+                status: Status::Pass,
+                message: "ok (negative runtime)".to_string(),
+            },
+            Ok(()) => CaseResult {
+                path: rel.to_string(),
+                status: Status::Fail,
+                message: "expected runtime failure for negative runtime test".to_string(),
+            },
+        };
+    }
     match run_js_in_node(&js) {
         Ok(()) => CaseResult {
             path: rel.to_string(),

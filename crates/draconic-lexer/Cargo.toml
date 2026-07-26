@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 draconic-diagnostics.workspace = true
+unicode-id-start = "1.4"

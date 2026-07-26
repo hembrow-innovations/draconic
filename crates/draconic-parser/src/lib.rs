@@ -2513,11 +2513,16 @@ impl Parser {
     fn parse_update(&mut self) -> Result<Expr, Diagnostic> {
         let mut expr = self.parse_lhs()?;
         loop {
-            let op = match &self.current().kind {
+            let tok = self.current();
+            let op = match &tok.kind {
                 TokenKind::PlusPlus => UpdateOp::Inc,
                 TokenKind::MinusMinus => UpdateOp::Dec,
                 _ => break,
             };
+            // ECMA-262: no LineTerminator between LeftHandSideExpression and `++`/`--`.
+            if tok.preceded_by_line_terminator {
+                break;
+            }
             let end = self.bump().span.end.0;
             let start = expr_span(&expr).start.0;
             expr = Expr::Update {
@@ -3169,6 +3174,10 @@ impl Parser {
                 self.bump();
                 Ok(Expr::Super { span: tok.span })
             }
+            TokenKind::Ident(name) if is_reserved_word(name) => Err(Diagnostic::new(
+                format!("'{name}' is a reserved word and cannot be used as an identifier"),
+                tok.span,
+            )),
             TokenKind::Ident(name) => {
                 self.bump();
                 Ok(Expr::Ident(Ident {
@@ -3358,6 +3367,10 @@ impl Parser {
     fn expect_ident(&mut self) -> Result<Token, Diagnostic> {
         let tok = self.current().clone();
         match &tok.kind {
+            TokenKind::Ident(name) if is_reserved_word(name) => Err(Diagnostic::new(
+                format!("'{name}' is a reserved word and cannot be used as an identifier"),
+                tok.span,
+            )),
             TokenKind::Ident(_) => {
                 self.bump();
                 Ok(tok)
@@ -3442,6 +3455,51 @@ impl IdentName for Token {
             _ => None,
         }
     }
+}
+
+/// ECMA-262 ReservedWord (always reserved; not strict-only FutureReservedWord).
+fn is_reserved_word(name: &str) -> bool {
+    matches!(
+        name,
+        "await"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "enum"
+            | "export"
+            | "extends"
+            | "false"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "new"
+            | "null"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
+    )
 }
 
 fn expr_span(expr: &Expr) -> Span {

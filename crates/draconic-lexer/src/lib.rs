@@ -87,6 +87,9 @@ impl fmt::Display for JsString {
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
+    /// True when a LineTerminator was skipped immediately before this token
+    /// (restricted productions: postfix `++`/`--`, `continue`/`break`/`return`/`throw`).
+    pub preceded_by_line_terminator: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -236,6 +239,8 @@ pub struct Lexer<'a> {
     at_line_start: bool,
     /// When true, `/` starts a RegularExpressionLiteral rather than `/` or `/=`.
     allow_regexp: bool,
+    /// Set while skipping trivia that includes a LineTerminator; consumed by next token.
+    had_line_terminator: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -247,6 +252,17 @@ impl<'a> Lexer<'a> {
             template_expr_braces: Vec::new(),
             at_line_start: true,
             allow_regexp: true,
+            had_line_terminator: false,
+        }
+    }
+
+    fn finish_token(&mut self, kind: TokenKind, span: Span) -> Token {
+        let preceded_by_line_terminator = self.had_line_terminator;
+        self.had_line_terminator = false;
+        Token {
+            kind,
+            span,
+            preceded_by_line_terminator,
         }
     }
 
@@ -270,10 +286,7 @@ impl<'a> Lexer<'a> {
         self.skip_trivia()?;
         let start = self.pos as u32;
         if self.is_eof() {
-            return Ok(Token {
-                kind: TokenKind::Eof,
-                span: Span::new(start, start),
-            });
+            return Ok(self.finish_token(TokenKind::Eof, Span::new(start, start)));
         }
 
         let b = self.peek();
@@ -525,20 +538,18 @@ impl<'a> Lexer<'a> {
             b'"' | b'\'' => self.string_literal()?,
             b'`' => self.template_literal()?,
             b if b.is_ascii_digit() => self.number_literal()?,
-            b if is_ident_start(b) => self.ident_or_keyword()?,
+            _ if self.can_start_ident() => self.ident_or_keyword()?,
             _ => {
+                let ch = self.src[self.pos..].chars().next().expect("eof checked");
                 return Err(Diagnostic::new(
-                    format!("unexpected character {:?}", b as char),
-                    Span::new(start, start + 1),
+                    format!("unexpected character {:?}", ch),
+                    Span::new(start, start + ch.len_utf8() as u32),
                 ));
             }
         };
 
         self.at_line_start = false;
-        Ok(Token {
-            kind,
-            span: Span::new(start, self.pos as u32),
-        })
+        Ok(self.finish_token(kind, Span::new(start, self.pos as u32)))
     }
 
     fn skip_trivia(&mut self) -> Result<(), Diagnostic> {
@@ -547,7 +558,8 @@ impl<'a> Lexer<'a> {
                 return Ok(());
             }
             match self.peek() {
-                b' ' | b'\t' => {
+                // WhiteSpace: TAB, VT, FF, SP (multi-byte USP/NBSP/ZWNBSP below).
+                b' ' | b'\t' | 0x0b | 0x0c => {
                     self.bump();
                 }
                 b'\r' => {
@@ -556,16 +568,22 @@ impl<'a> Lexer<'a> {
                         self.bump();
                     }
                     self.at_line_start = true;
+                    self.had_line_terminator = true;
                 }
                 b'\n' => {
                     self.bump();
                     self.at_line_start = true;
+                    self.had_line_terminator = true;
                 }
                 b'/' if self.peek_at(1) == Some(b'/') => {
                     self.bump();
                     self.bump();
-                    while !self.is_eof() && self.peek() != b'\n' && self.peek() != b'\r' {
-                        self.bump();
+                    while !self.is_eof() {
+                        let ch = self.peek_char();
+                        if is_line_terminator_char(ch) {
+                            break;
+                        }
+                        self.bump_char();
                     }
                 }
                 b'/' if self.peek_at(1) == Some(b'*') => {
@@ -585,14 +603,15 @@ impl<'a> Lexer<'a> {
                             self.bump();
                             break;
                         }
-                        let c = self.peek();
-                        if c == b'\n' || c == b'\r' {
+                        let ch = self.peek_char();
+                        if is_line_terminator_char(ch) {
                             saw_line_terminator = true;
                         }
-                        self.bump();
+                        self.bump_char();
                     }
                     if saw_line_terminator {
                         self.at_line_start = true;
+                        self.had_line_terminator = true;
                     }
                 }
                 // Annex B.1.3 SingleLineHTMLOpenComment: `<!--` …
@@ -604,8 +623,12 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     self.bump();
                     self.bump();
-                    while !self.is_eof() && self.peek() != b'\n' && self.peek() != b'\r' {
-                        self.bump();
+                    while !self.is_eof() {
+                        let ch = self.peek_char();
+                        if is_line_terminator_char(ch) {
+                            break;
+                        }
+                        self.bump_char();
                     }
                 }
                 // Annex B.1.3 HTMLCloseComment at line start: `-->` …
@@ -616,11 +639,26 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     self.bump();
                     self.bump();
-                    while !self.is_eof() && self.peek() != b'\n' && self.peek() != b'\r' {
-                        self.bump();
+                    while !self.is_eof() {
+                        let ch = self.peek_char();
+                        if is_line_terminator_char(ch) {
+                            break;
+                        }
+                        self.bump_char();
                     }
                 }
-                _ => return Ok(()),
+                _ => {
+                    let ch = self.peek_char();
+                    if is_whitespace_char(ch) {
+                        self.bump_char();
+                    } else if ch == '\u{2028}' || ch == '\u{2029}' {
+                        self.bump_char();
+                        self.at_line_start = true;
+                        self.had_line_terminator = true;
+                    } else {
+                        return Ok(());
+                    }
+                }
             }
         }
     }
@@ -679,10 +717,7 @@ impl<'a> Lexer<'a> {
             }
         };
         self.at_line_start = false;
-        Ok(Token {
-            kind,
-            span: Span::new(start, self.pos as u32),
-        })
+        Ok(self.finish_token(kind, Span::new(start, self.pos as u32)))
     }
 
     fn scan_template_chars(
@@ -1074,28 +1109,22 @@ impl<'a> Lexer<'a> {
             }
             self.scan_exponent_opt(start)?;
             // BigInt suffix not allowed on zero-prefixed multi-digit forms.
-            if !self.is_eof() && self.peek() == b'n' {
-                let after = self.peek_at(1);
-                if after.is_none_or(|b| !is_ident_continue(b)) {
-                    return Err(Diagnostic::new(
-                        "Invalid BigInt literal",
-                        Span::new(start as u32, (self.pos + 1) as u32),
-                    ));
-                }
+            if !self.is_eof() && self.peek() == b'n' && !self.is_ident_continue_at(self.pos + 1) {
+                return Err(Diagnostic::new(
+                    "Invalid BigInt literal",
+                    Span::new(start as u32, (self.pos + 1) as u32),
+                ));
             }
             let raw = self.src[start..self.pos].to_string();
             return Ok(TokenKind::Number(canonicalize_leading_zero_decimal(&raw)));
         }
 
         // LegacyOctalIntegerLiteral: do not consume `.`/`e` as part of this token.
-        if !self.is_eof() && self.peek() == b'n' {
-            let after = self.peek_at(1);
-            if after.is_none_or(|b| !is_ident_continue(b)) {
-                return Err(Diagnostic::new(
-                    "Invalid BigInt literal",
-                    Span::new(start as u32, (self.pos + 1) as u32),
-                ));
-            }
+        if !self.is_eof() && self.peek() == b'n' && !self.is_ident_continue_at(self.pos + 1) {
+            return Err(Diagnostic::new(
+                "Invalid BigInt literal",
+                Span::new(start as u32, (self.pos + 1) as u32),
+            ));
         }
         let raw = &self.src[start..self.pos];
         let mv = legacy_octal_mv(raw);
@@ -1118,19 +1147,16 @@ impl<'a> Lexer<'a> {
         start: usize,
         allow_bigint: bool,
     ) -> Result<TokenKind, Diagnostic> {
-        if !self.is_eof() && self.peek() == b'n' {
-            let after = self.peek_at(1);
-            if after.is_none_or(|b| !is_ident_continue(b)) {
-                if !allow_bigint {
-                    return Err(Diagnostic::new(
-                        "Invalid BigInt literal",
-                        Span::new(start as u32, (self.pos + 1) as u32),
-                    ));
-                }
-                self.bump(); // n
-                let raw = self.src[start..self.pos].to_string();
-                return Ok(TokenKind::BigInt(raw));
+        if !self.is_eof() && self.peek() == b'n' && !self.is_ident_continue_at(self.pos + 1) {
+            if !allow_bigint {
+                return Err(Diagnostic::new(
+                    "Invalid BigInt literal",
+                    Span::new(start as u32, (self.pos + 1) as u32),
+                ));
             }
+            self.bump(); // n
+            let raw = self.src[start..self.pos].to_string();
+            return Ok(TokenKind::BigInt(raw));
         }
         let raw = self.src[start..self.pos].to_string();
         Ok(TokenKind::Number(raw))
@@ -1244,28 +1270,22 @@ impl<'a> Lexer<'a> {
     /// `#IdentifierName` private identifier.
     fn private_ident(&mut self, start: u32) -> Result<TokenKind, Diagnostic> {
         self.bump(); // `#`
-        if self.is_eof() || !is_ident_start(self.peek()) {
+        if self.is_eof() || !self.can_start_ident() {
             return Err(Diagnostic::new(
                 "expected identifier after `#`",
                 Span::new(start, self.pos as u32),
             ));
         }
-        let name_start = self.pos;
-        self.bump();
-        while !self.is_eof() && is_ident_continue(self.peek()) {
-            self.bump();
-        }
-        Ok(TokenKind::PrivateIdent(self.src[name_start..self.pos].to_string()))
+        let (name, _) = self.scan_identifier_name()?;
+        Ok(TokenKind::PrivateIdent(name))
     }
 
     fn ident_or_keyword(&mut self) -> Result<TokenKind, Diagnostic> {
-        let start = self.pos;
-        self.bump();
-        while !self.is_eof() && is_ident_continue(self.peek()) {
-            self.bump();
+        let (name, had_escape) = self.scan_identifier_name()?;
+        if had_escape {
+            return Ok(TokenKind::Ident(name));
         }
-        let name = &self.src[start..self.pos];
-        Ok(match name {
+        Ok(match name.as_str() {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "null" => TokenKind::Null,
@@ -1308,8 +1328,105 @@ impl<'a> Lexer<'a> {
             "export" => TokenKind::Export,
             "from" => TokenKind::From,
             "as" => TokenKind::As,
-            _ => TokenKind::Ident(name.to_string()),
+            _ => TokenKind::Ident(name),
         })
+    }
+
+    /// Scan IdentifierName (start + continues). Returns (decoded name, had Unicode escape).
+    fn scan_identifier_name(&mut self) -> Result<(String, bool), Diagnostic> {
+        let mut name = String::new();
+        let mut had_escape = false;
+        let (first, esc) = self.scan_ident_start_char()?;
+        name.push(first);
+        had_escape |= esc;
+        while !self.is_eof() {
+            if self.peek() == b'\\' {
+                let (ch, _) = self.scan_ident_unicode_escape(false)?;
+                name.push(ch);
+                had_escape = true;
+            } else {
+                let ch = self.peek_char();
+                if !is_ident_continue_char(ch) {
+                    break;
+                }
+                self.bump_char();
+                name.push(ch);
+            }
+        }
+        Ok((name, had_escape))
+    }
+
+    fn can_start_ident(&self) -> bool {
+        if self.is_eof() {
+            return false;
+        }
+        if self.peek() == b'\\' {
+            return self.peek_at(1) == Some(b'u');
+        }
+        is_ident_start_char(self.peek_char())
+    }
+
+    fn scan_ident_start_char(&mut self) -> Result<(char, bool), Diagnostic> {
+        if self.is_eof() {
+            return Err(Diagnostic::new(
+                "expected identifier",
+                Span::new(self.pos as u32, self.pos as u32),
+            ));
+        }
+        if self.peek() == b'\\' {
+            return self.scan_ident_unicode_escape(true);
+        }
+        let ch = self.peek_char();
+        if !is_ident_start_char(ch) {
+            return Err(Diagnostic::new(
+                format!("unexpected character {:?}", ch),
+                Span::new(self.pos as u32, self.pos as u32 + ch.len_utf8() as u32),
+            ));
+        }
+        self.bump_char();
+        Ok((ch, false))
+    }
+
+    /// `\UnicodeEscapeSequence` in IdentifierName. `start` selects ID_Start vs ID_Continue.
+    fn scan_ident_unicode_escape(&mut self, start: bool) -> Result<(char, bool), Diagnostic> {
+        let esc_start = self.pos as u32;
+        if self.bump() != b'\\' {
+            return Err(Diagnostic::new(
+                "expected Unicode escape in identifier",
+                Span::new(esc_start, self.pos as u32),
+            ));
+        }
+        if self.is_eof() || self.peek() != b'u' {
+            return Err(Diagnostic::new(
+                "invalid Unicode escape in identifier",
+                Span::new(esc_start, self.pos as u32),
+            ));
+        }
+        self.bump(); // u
+        let cp = if !self.is_eof() && self.peek() == b'{' {
+            self.bump(); // {
+            self.scan_braced_hex(esc_start)?
+        } else {
+            self.scan_hex_digits(4, esc_start)?
+        };
+        let ch = char::from_u32(cp).ok_or_else(|| {
+            Diagnostic::new(
+                "invalid Unicode escape in identifier",
+                Span::new(esc_start, self.pos as u32),
+            )
+        })?;
+        let ok = if start {
+            is_ident_start_char(ch)
+        } else {
+            is_ident_continue_char(ch)
+        };
+        if !ok {
+            return Err(Diagnostic::new(
+                "invalid identifier escape",
+                Span::new(esc_start, self.pos as u32),
+            ));
+        }
+        Ok((ch, true))
     }
 
     /// `/ RegularExpressionBody / RegularExpressionFlags` (InputElementRegExp).
@@ -1366,15 +1483,15 @@ impl<'a> Lexer<'a> {
         let pattern = self.src[pattern_start..self.pos].to_string();
         self.bump(); // closing `/`
         let flags_start = self.pos;
-        while !self.is_eof() && is_ident_continue(self.peek()) {
-            self.bump();
+        while !self.is_eof() && is_ident_continue_char(self.peek_char()) {
+            self.bump_char();
         }
         let flags = self.src[flags_start..self.pos].to_string();
         self.at_line_start = false;
-        Ok(Token {
-            kind: TokenKind::RegExp { pattern, flags },
-            span: Span::new(start, self.pos as u32),
-        })
+        Ok(self.finish_token(
+            TokenKind::RegExp { pattern, flags },
+            Span::new(start, self.pos as u32),
+        ))
     }
 
     fn peek(&self) -> u8 {
@@ -1385,10 +1502,20 @@ impl<'a> Lexer<'a> {
         self.bytes.get(self.pos + offset).copied()
     }
 
+    fn peek_char(&self) -> char {
+        self.src[self.pos..].chars().next().expect("eof checked")
+    }
+
     fn bump(&mut self) -> u8 {
         let b = self.bytes[self.pos];
         self.pos += 1;
         b
+    }
+
+    fn bump_char(&mut self) -> char {
+        let ch = self.peek_char();
+        self.pos += ch.len_utf8();
+        ch
     }
 
     fn eat(&mut self, b: u8) -> bool {
@@ -1402,6 +1529,15 @@ impl<'a> Lexer<'a> {
 
     fn is_eof(&self) -> bool {
         self.pos >= self.bytes.len()
+    }
+
+    /// Whether the UTF-8 scalar at `pos` is IdentifierPart (char-boundary `pos`).
+    fn is_ident_continue_at(&self, pos: usize) -> bool {
+        if pos >= self.bytes.len() {
+            return false;
+        }
+        let ch = self.src[pos..].chars().next().expect("pos in bounds");
+        is_ident_continue_char(ch)
     }
 }
 
@@ -1432,12 +1568,38 @@ fn is_line_terminator_byte(b: u8) -> bool {
     b == b'\n' || b == b'\r'
 }
 
-fn is_ident_start(b: u8) -> bool {
-    b.is_ascii_alphabetic() || b == b'_' || b == b'$'
+fn is_line_terminator_char(ch: char) -> bool {
+    matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
 
-fn is_ident_continue(b: u8) -> bool {
-    is_ident_start(b) || b.is_ascii_digit()
+/// ECMA-262 WhiteSpace beyond single-byte TAB/VT/FF/SP (handled inline).
+fn is_whitespace_char(ch: char) -> bool {
+    matches!(ch, '\u{00A0}' | '\u{FEFF}') || unicode_general_category_space_separator(ch)
+}
+
+fn unicode_general_category_space_separator(ch: char) -> bool {
+    // Zs: Space_Separator (USP in ECMA-262).
+    matches!(
+        ch,
+        '\u{1680}'
+            | '\u{2000}'..='\u{200A}'
+            | '\u{202F}'
+            | '\u{205F}'
+            | '\u{3000}'
+    )
+}
+
+/// IdentifierStart: Unicode ID_Start | `$` | `_`
+fn is_ident_start_char(ch: char) -> bool {
+    ch == '$' || ch == '_' || unicode_id_start::is_id_start(ch)
+}
+
+/// IdentifierPart: Unicode ID_Continue | `$` | ZWNJ | ZWJ
+fn is_ident_continue_char(ch: char) -> bool {
+    ch == '$'
+        || ch == '\u{200C}'
+        || ch == '\u{200D}'
+        || unicode_id_start::is_id_continue(ch)
 }
 
 fn hex_digit(b: u8) -> Option<u32> {
@@ -1530,6 +1692,200 @@ mod tests {
             .into_iter()
             .map(|t| t.kind)
             .collect()
+    }
+
+    #[test]
+    fn lex_whitespace_vt_ff_nbsp_between_tokens() {
+        assert_eq!(
+            kinds("var\u{0b}x\u{0b}=\u{0b}1\u{0b};"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("var\u{0c}x=1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("var\u{00a0}x\u{00a0}=\u{00a0}2;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eq,
+                TokenKind::Number("2".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("var\u{feff}x=1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("var\u{2003}x=1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_line_separator_as_line_terminator() {
+        assert_eq!(
+            kinds("var x=1\u{2028}var y=2"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Var,
+                TokenKind::Ident("y".into()),
+                TokenKind::Eq,
+                TokenKind::Number("2".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_unicode_identifiers() {
+        assert_eq!(
+            kinds("var а = 1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("а".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        // Other_ID_Start U+2118
+        assert_eq!(
+            kinds("var ℘ = 1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("℘".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        // Other_ID_Continue U+00B7
+        assert_eq!(
+            kinds("var a· = 1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("a·".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        // ZWNJ in IdentifierPart
+        assert_eq!(
+            kinds("var a\u{200c}b = 1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("a\u{200c}b".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        // Vertical tilde U+2E2F is not ID_Start
+        assert!(Lexer::new("var ⸯ;").tokenize().is_err());
+    }
+
+    #[test]
+    fn lex_identifier_unicode_escapes() {
+        assert_eq!(
+            kinds(r"var \u0078 = 1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("x".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds(r"var \u{61}bc = 1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("abc".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        // Escaped keyword is Ident, not keyword token
+        assert_eq!(
+            kinds(r"\u0062reak"),
+            vec![TokenKind::Ident("break".into()), TokenKind::Eof,]
+        );
+        assert_eq!(
+            kinds(r"var x\u0061 = 1;"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Ident("xa".into()),
+                TokenKind::Eq,
+                TokenKind::Number("1".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_private_ident_unicode() {
+        assert_eq!(
+            kinds("this.#а"),
+            vec![
+                TokenKind::This,
+                TokenKind::Dot,
+                TokenKind::PrivateIdent("а".into()),
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds(r"this.#\u0078"),
+            vec![
+                TokenKind::This,
+                TokenKind::Dot,
+                TokenKind::PrivateIdent("x".into()),
+                TokenKind::Eof,
+            ]
+        );
     }
 
     #[test]
