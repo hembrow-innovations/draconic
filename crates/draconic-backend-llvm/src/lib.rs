@@ -37,17 +37,12 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
 }
 
 fn emit_hello_stub() -> String {
-    concat!(
-        "; Draconic LLVM backend stub (B08)\n",
-        "declare void @draconic_rt_hello()\n",
-        "\n",
-        "define i32 @main() {\n",
-        "entry:\n",
-        "  call void @draconic_rt_hello()\n",
-        "  ret i32 0\n",
-        "}\n",
+    use draconic_runtime::abi::HELLO;
+    format!(
+        "; Draconic LLVM backend stub (B08)\n{}\n\ndefine i32 @main() {{\nentry:\n  {}\n  ret i32 0\n}}\n",
+        HELLO.declare(),
+        HELLO.call(""),
     )
-    .to_string()
 }
 
 /// Compile LLVM IR + Runtime C into a native executable via `clang`.

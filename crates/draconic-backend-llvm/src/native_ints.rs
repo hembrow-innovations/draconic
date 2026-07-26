@@ -9,6 +9,9 @@ use draconic_ir::{
     Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, NativeType,
     ObjectProp, ObjectPropKey, ObjectShape, Param, Pattern, Stmt, UpdateTarget,
 };
+use draconic_runtime::abi::{
+    llvm_declares, PRINT_BOOL, PRINT_F64, PRINT_I64, PRINT_U64, NATIVE_INT_DECLARES,
+};
 
 /// LLVM IR type spelling for a semantic native type (backend-owned mapping).
 fn llvm_ty(n: NativeType) -> &'static str {
@@ -342,10 +345,7 @@ impl<'a> Emitter<'a> {
             "; Draconic LLVM backend (N01–N03.03 native scalars/layouts/pointers)"
         )
         .ok();
-        writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
-        writeln!(self.out, "declare void @draconic_rt_print_u64(i64)").ok();
-        writeln!(self.out, "declare void @draconic_rt_print_f64(double)").ok();
-        writeln!(self.out, "declare void @draconic_rt_print_bool(i8)").ok();
+        writeln!(self.out, "{}", llvm_declares(NATIVE_INT_DECLARES)).ok();
         writeln!(self.out).ok();
 
         // Emit nested function definitions first.
@@ -792,7 +792,7 @@ impl<'a> Emitter<'a> {
         if n.is_bool() {
             let ext = self.fresh_tmp();
             writeln!(self.body, "  {ext} = zext i1 {v} to i8").ok();
-            writeln!(self.body, "  call void @draconic_rt_print_bool(i8 {ext})").ok();
+            writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {ext}"))).ok();
         } else if n.is_float() {
             let d = if n == NativeType::F32 {
                 let t = self.fresh_tmp();
@@ -801,7 +801,7 @@ impl<'a> Emitter<'a> {
             } else {
                 v.to_string()
             };
-            writeln!(self.body, "  call void @draconic_rt_print_f64(double {d})").ok();
+            writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {d}"))).ok();
         } else {
             let ext = self.fresh_tmp();
             if n.bit_width() < 64 {
@@ -824,9 +824,9 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {ext} = add i64 {v}, 0").ok();
             }
             if n.is_signed() {
-                writeln!(self.body, "  call void @draconic_rt_print_i64(i64 {ext})").ok();
+                writeln!(self.body, "  {}", PRINT_I64.call(&format!("i64 {ext}"))).ok();
             } else {
-                writeln!(self.body, "  call void @draconic_rt_print_u64(i64 {ext})").ok();
+                writeln!(self.body, "  {}", PRINT_U64.call(&format!("i64 {ext}"))).ok();
             }
         }
         Ok(())

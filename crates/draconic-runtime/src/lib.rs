@@ -1,5 +1,8 @@
 //! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.10); embed later (N07).
 
+pub mod abi;
+pub use abi::*;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -27,148 +30,6 @@ pub fn c_runtime_header_source() -> &'static str {
 pub fn print_hello() {
     println!("hello");
 }
-
-/// C ABI symbol name expected by the LLVM backend stub.
-pub const HELLO_SYMBOL: &str = "draconic_rt_hello";
-/// C ABI: print a signed 64-bit integer as decimal + newline (N01).
-pub const PRINT_I64_SYMBOL: &str = "draconic_rt_print_i64";
-/// C ABI: print an unsigned 64-bit integer as decimal + newline (N01).
-pub const PRINT_U64_SYMBOL: &str = "draconic_rt_print_u64";
-/// C ABI: print a float/double as decimal + newline (N02).
-pub const PRINT_F64_SYMBOL: &str = "draconic_rt_print_f64";
-/// C ABI: print a bool as `true`/`false` + newline (N02).
-pub const PRINT_BOOL_SYMBOL: &str = "draconic_rt_print_bool";
-/// C ABI: print a NUL-terminated C string + newline (N06.03).
-pub const PRINT_STR_SYMBOL: &str = "draconic_rt_print_str";
-
-/// C ABI: init the GC heap.
-pub const GC_INIT_SYMBOL: &str = "draconic_rt_gc_init";
-/// C ABI: shut down the GC heap.
-pub const GC_SHUTDOWN_SYMBOL: &str = "draconic_rt_gc_shutdown";
-/// C ABI: allocate a JS string on the GC heap.
-pub const ALLOC_STRING_SYMBOL: &str = "draconic_rt_alloc_string";
-/// C ABI: allocate a plain JS object on the GC heap.
-pub const ALLOC_OBJECT_SYMBOL: &str = "draconic_rt_alloc_object";
-/// C ABI: push a GC root (keeps a value live across collect).
-pub const GC_ROOT_PUSH_SYMBOL: &str = "draconic_rt_gc_root_push";
-/// C ABI: pop a GC root.
-pub const GC_ROOT_POP_SYMBOL: &str = "draconic_rt_gc_root_pop";
-/// C ABI: run a tracing collection.
-pub const GC_COLLECT_SYMBOL: &str = "draconic_rt_gc_collect";
-/// C ABI: live object count on the GC heap (for tests / diagnostics).
-pub const GC_LIVE_COUNT_SYMBOL: &str = "draconic_rt_gc_live_count";
-/// C ABI: string payload pointer.
-pub const STRING_DATA_SYMBOL: &str = "draconic_rt_string_data";
-/// C ABI: string length in bytes.
-pub const STRING_LEN_SYMBOL: &str = "draconic_rt_string_len";
-/// C ABI: tag predicate for strings.
-pub const IS_STRING_SYMBOL: &str = "draconic_rt_is_string";
-/// C ABI: tag predicate for objects.
-pub const IS_OBJECT_SYMBOL: &str = "draconic_rt_is_object";
-
-/// C ABI: enqueue a host job (Promise Jobs / microtasks; N06.01).
-pub const JOB_ENQUEUE_SYMBOL: &str = "draconic_rt_job_enqueue";
-/// C ABI: drain the job queue until empty (FIFO; nested enqueue runs after current).
-pub const JOB_DRAIN_SYMBOL: &str = "draconic_rt_job_drain";
-/// C ABI: number of pending (not yet run) jobs.
-pub const JOB_PENDING_SYMBOL: &str = "draconic_rt_job_pending";
-
-/// Minimal std I/O + GC ABI symbols that form the N05 Runtime surface.
-pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
-    HELLO_SYMBOL,
-    PRINT_I64_SYMBOL,
-    PRINT_U64_SYMBOL,
-    PRINT_F64_SYMBOL,
-    PRINT_BOOL_SYMBOL,
-    PRINT_STR_SYMBOL,
-    GC_INIT_SYMBOL,
-    GC_SHUTDOWN_SYMBOL,
-    ALLOC_STRING_SYMBOL,
-    ALLOC_OBJECT_SYMBOL,
-    GC_ROOT_PUSH_SYMBOL,
-    GC_ROOT_POP_SYMBOL,
-    GC_COLLECT_SYMBOL,
-    GC_LIVE_COUNT_SYMBOL,
-    STRING_DATA_SYMBOL,
-    STRING_LEN_SYMBOL,
-    IS_STRING_SYMBOL,
-    IS_OBJECT_SYMBOL,
-];
-
-/// Job queue ABI symbols (N06.01).
-pub const JOB_QUEUE_SYMBOLS: &[&str] = &[
-    JOB_ENQUEUE_SYMBOL,
-    JOB_DRAIN_SYMBOL,
-    JOB_PENDING_SYMBOL,
-];
-
-/// C ABI: allocate a pending Promise (N06.02).
-pub const PROMISE_NEW_SYMBOL: &str = "draconic_rt_promise_new";
-/// C ABI: tag predicate for Promise values.
-pub const IS_PROMISE_SYMBOL: &str = "draconic_rt_is_promise";
-/// C ABI: Promise state — 0 pending, 1 fulfilled, 2 rejected.
-pub const PROMISE_STATE_SYMBOL: &str = "draconic_rt_promise_state";
-/// C ABI: Promise result (fulfillment value or rejection reason).
-pub const PROMISE_RESULT_SYMBOL: &str = "draconic_rt_promise_result";
-/// C ABI: fulfill a Promise once (second settle is a no-op).
-pub const PROMISE_RESOLVE_SYMBOL: &str = "draconic_rt_promise_resolve";
-/// C ABI: reject a Promise once (second settle is a no-op).
-pub const PROMISE_REJECT_SYMBOL: &str = "draconic_rt_promise_reject";
-/// C ABI: attach then reactions; returns a derived Promise for chaining.
-pub const PROMISE_THEN_SYMBOL: &str = "draconic_rt_promise_then";
-/// C ABI: `new Promise(executor)` — construct + invoke executor with settle caps (N06.03).
-pub const PROMISE_CONSTRUCT_SYMBOL: &str = "draconic_rt_promise_construct";
-/// C ABI: `Promise.prototype.finally` — pass-through settle after side-effect callback (N06.05).
-pub const PROMISE_FINALLY_SYMBOL: &str = "draconic_rt_promise_finally";
-/// C ABI: allocate a JS array of `len` slots (N06.06).
-pub const ARRAY_NEW_SYMBOL: &str = "draconic_rt_array_new";
-/// C ABI: tag predicate for array values.
-pub const IS_ARRAY_SYMBOL: &str = "draconic_rt_is_array";
-/// C ABI: array `.length`.
-pub const ARRAY_LEN_SYMBOL: &str = "draconic_rt_array_len";
-/// C ABI: array index get.
-pub const ARRAY_GET_SYMBOL: &str = "draconic_rt_array_get";
-/// C ABI: array index set.
-pub const ARRAY_SET_SYMBOL: &str = "draconic_rt_array_set";
-/// C ABI: `Promise.all(iterable)` — array of promises/values (N06.06).
-pub const PROMISE_ALL_SYMBOL: &str = "draconic_rt_promise_all";
-/// C ABI: `Promise.race(iterable)` — first settle wins (N06.07).
-pub const PROMISE_RACE_SYMBOL: &str = "draconic_rt_promise_race";
-/// C ABI: object property get by NUL-terminated key (N06.08).
-pub const OBJECT_GET_SYMBOL: &str = "draconic_rt_object_get";
-/// C ABI: object property set by NUL-terminated key (N06.08).
-pub const OBJECT_SET_SYMBOL: &str = "draconic_rt_object_set";
-/// C ABI: `Promise.allSettled(iterable)` — array of status objects (N06.08).
-pub const PROMISE_ALL_SETTLED_SYMBOL: &str = "draconic_rt_promise_all_settled";
-/// C ABI: `Promise.any(iterable)` — first fulfillment or AggregateError (N06.09).
-pub const PROMISE_ANY_SYMBOL: &str = "draconic_rt_promise_any";
-/// C ABI: `await` operand — Promise as-is, else wrap fulfilled (N06.10).
-pub const PROMISE_AWAIT_SYMBOL: &str = "draconic_rt_promise_await";
-
-/// Promise ABI symbols (N06.02–N06.10).
-pub const PROMISE_SYMBOLS: &[&str] = &[
-    PROMISE_NEW_SYMBOL,
-    IS_PROMISE_SYMBOL,
-    PROMISE_STATE_SYMBOL,
-    PROMISE_RESULT_SYMBOL,
-    PROMISE_RESOLVE_SYMBOL,
-    PROMISE_REJECT_SYMBOL,
-    PROMISE_THEN_SYMBOL,
-    PROMISE_CONSTRUCT_SYMBOL,
-    PROMISE_FINALLY_SYMBOL,
-    ARRAY_NEW_SYMBOL,
-    IS_ARRAY_SYMBOL,
-    ARRAY_LEN_SYMBOL,
-    ARRAY_GET_SYMBOL,
-    ARRAY_SET_SYMBOL,
-    PROMISE_ALL_SYMBOL,
-    PROMISE_RACE_SYMBOL,
-    OBJECT_GET_SYMBOL,
-    OBJECT_SET_SYMBOL,
-    PROMISE_ALL_SETTLED_SYMBOL,
-    PROMISE_ANY_SYMBOL,
-    PROMISE_AWAIT_SYMBOL,
-];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
 ///

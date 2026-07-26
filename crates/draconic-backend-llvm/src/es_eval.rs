@@ -7,6 +7,9 @@ use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_embed::{eval_function_call, eval_source_with_bindings, EmbedValue};
 use draconic_ir::{Arg, AssignTarget, Expr, Local, LocalId, Module, Pattern, Stmt};
+use draconic_runtime::abi::{
+    llvm_declares, ES_EVAL_DECLARES, GC_INIT, PRINT_BOOL, PRINT_I64, PRINT_STR,
+};
 
 /// True when this module is the supported eval/Function subset (E16 / N07.02–N07.04).
 pub(crate) fn is_es_eval_module(module: &Module) -> bool {
@@ -841,10 +844,7 @@ fn emit_observations(obs: &[Observation], tag: &str) -> Result<String, Diagnosti
     let mut tmp = 0u32;
 
     writeln!(out, "; Draconic LLVM backend ({tag})").ok();
-    writeln!(out, "declare void @draconic_rt_gc_init()").ok();
-    writeln!(out, "declare void @draconic_rt_print_i64(i64)").ok();
-    writeln!(out, "declare void @draconic_rt_print_bool(i8)").ok();
-    writeln!(out, "declare void @draconic_rt_print_str(ptr)").ok();
+    writeln!(out, "{}", llvm_declares(ES_EVAL_DECLARES)).ok();
     writeln!(out).ok();
 
     for o in obs {
@@ -854,11 +854,11 @@ fn emit_observations(obs: &[Observation], tag: &str) -> Result<String, Diagnosti
                     return Err(diag(format!("number not representable as i64: {n}")));
                 }
                 let v = *n as i64;
-                writeln!(body, "  call void @draconic_rt_print_i64(i64 {v})").ok();
+                writeln!(body, "  {}", PRINT_I64.call(&format!("i64 {v}"))).ok();
             }
             FoldValue::Bool(b) => {
                 let v = if *b { 1 } else { 0 };
-                writeln!(body, "  call void @draconic_rt_print_bool(i8 {v})").ok();
+                writeln!(body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
             }
             FoldValue::String(s) => {
                 let gname = if let Some(g) = str_globals.get(s) {
@@ -876,7 +876,7 @@ fn emit_observations(obs: &[Observation], tag: &str) -> Result<String, Diagnosti
                     "  {t} = getelementptr inbounds [{n} x i8], ptr @{gname}, i64 0, i64 0"
                 )
                 .ok();
-                writeln!(body, "  call void @draconic_rt_print_str(ptr {t})").ok();
+                writeln!(body, "  {}", PRINT_STR.call(&format!("ptr {t}"))).ok();
             }
             FoldValue::Func => {
                 let s = "function";
@@ -895,7 +895,7 @@ fn emit_observations(obs: &[Observation], tag: &str) -> Result<String, Diagnosti
                     "  {t} = getelementptr inbounds [{n} x i8], ptr @{gname}, i64 0, i64 0"
                 )
                 .ok();
-                writeln!(body, "  call void @draconic_rt_print_str(ptr {t})").ok();
+                writeln!(body, "  {}", PRINT_STR.call(&format!("ptr {t}"))).ok();
             }
         }
     }
@@ -915,7 +915,7 @@ fn emit_observations(obs: &[Observation], tag: &str) -> Result<String, Diagnosti
 
     writeln!(out, "define i32 @main() {{").ok();
     writeln!(out, "entry:").ok();
-    writeln!(out, "  call void @draconic_rt_gc_init()").ok();
+    writeln!(out, "  {}", GC_INIT.call("")).ok();
     out.push_str(&body);
     writeln!(out, "  ret i32 0").ok();
     writeln!(out, "}}").ok();

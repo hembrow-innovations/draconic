@@ -9,6 +9,12 @@ use draconic_ir::{
     Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern,
     Stmt,
 };
+use draconic_runtime::abi::{
+    llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, ES_PROMISE_DECLARES, GC_INIT,
+    JOB_DRAIN, OBJECT_GET, PRINT_I64, PRINT_STR, PROMISE_ALL, PROMISE_ALL_SETTLED, PROMISE_ANY,
+    PROMISE_AWAIT, PROMISE_CONSTRUCT, PROMISE_FINALLY, PROMISE_NEW, PROMISE_RACE, PROMISE_REJECT,
+    PROMISE_RESOLVE, PROMISE_THEN,
+};
 
 /// True when this module is the supported Promise/async subset (E12.01–E12.09 / N06.03–N06.11).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
@@ -381,54 +387,7 @@ impl<'a> Emitter<'a> {
             "; Draconic LLVM backend (N06.03–N06.11 Promise/async via Runtime ABI)"
         )
         .ok();
-        writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
-        writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
-        writeln!(self.out, "declare void @draconic_rt_print_str(ptr)").ok();
-        writeln!(self.out, "declare void @draconic_rt_job_drain()").ok();
-        writeln!(self.out, "declare ptr @draconic_rt_promise_new()").ok();
-        writeln!(
-            self.out,
-            "declare void @draconic_rt_promise_resolve(ptr, ptr)"
-        )
-        .ok();
-        writeln!(
-            self.out,
-            "declare void @draconic_rt_promise_reject(ptr, ptr)"
-        )
-        .ok();
-        writeln!(
-            self.out,
-            "declare ptr @draconic_rt_promise_construct(ptr, ptr)"
-        )
-        .ok();
-        writeln!(
-            self.out,
-            "declare ptr @draconic_rt_promise_then(ptr, ptr, ptr, ptr, ptr)"
-        )
-        .ok();
-        writeln!(
-            self.out,
-            "declare ptr @draconic_rt_promise_finally(ptr, ptr, ptr)"
-        )
-        .ok();
-        writeln!(self.out, "declare ptr @draconic_rt_array_new(i64)").ok();
-        writeln!(
-            self.out,
-            "declare void @draconic_rt_array_set(ptr, i64, ptr)"
-        )
-        .ok();
-        writeln!(self.out, "declare ptr @draconic_rt_array_get(ptr, i64)").ok();
-        writeln!(self.out, "declare i64 @draconic_rt_array_len(ptr)").ok();
-        writeln!(self.out, "declare ptr @draconic_rt_promise_all(ptr)").ok();
-        writeln!(self.out, "declare ptr @draconic_rt_promise_race(ptr)").ok();
-        writeln!(
-            self.out,
-            "declare ptr @draconic_rt_promise_all_settled(ptr)"
-        )
-        .ok();
-        writeln!(self.out, "declare ptr @draconic_rt_promise_any(ptr)").ok();
-        writeln!(self.out, "declare ptr @draconic_rt_promise_await(ptr)").ok();
-        writeln!(self.out, "declare ptr @draconic_rt_object_get(ptr, ptr)").ok();
+        writeln!(self.out, "{}", llvm_declares(ES_PROMISE_DECLARES)).ok();
         writeln!(self.out).ok();
 
         // Pre-scan string constants from typeof etc. by emitting body into buffer first.
@@ -455,7 +414,7 @@ impl<'a> Emitter<'a> {
         }
 
         // Drain microtasks before observing locals.
-        writeln!(self.body, "  call void @draconic_rt_job_drain()").ok();
+        writeln!(self.body, "  {}", JOB_DRAIN.call("")).ok();
 
         for (id, kind) in self.info.user_locals.clone() {
             let ptr = self.allocas.get(&id).cloned().unwrap();
@@ -463,12 +422,12 @@ impl<'a> Emitter<'a> {
                 SlotKind::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i64, ptr {ptr}").ok();
-                    writeln!(self.body, "  call void @draconic_rt_print_i64(i64 {v})").ok();
+                    writeln!(self.body, "  {}", PRINT_I64.call(&format!("i64 {v}"))).ok();
                 }
                 SlotKind::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
-                    writeln!(self.body, "  call void @draconic_rt_print_str(ptr {v})").ok();
+                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
                 SlotKind::Object => {
                     // Promise objects are not printed (observation is via number/string side effects).
@@ -498,7 +457,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(self.out, "define i32 @main() {{").ok();
         writeln!(self.out, "entry:").ok();
-        writeln!(self.out, "  call void @draconic_rt_gc_init()").ok();
+        writeln!(self.out, "  {}", GC_INIT.call("")).ok();
         self.out.push_str(&self.body);
         writeln!(self.out, "  ret i32 0").ok();
         writeln!(self.out, "}}").ok();
@@ -747,7 +706,8 @@ impl<'a> Emitter<'a> {
         let arr = self.fresh();
         writeln!(
             self.body,
-            "  {arr} = call ptr @draconic_rt_array_new(i64 {n})"
+            "  {}",
+            ARRAY_NEW.call_to(&arr, &format!("i64 {n}"))
         )
         .ok();
         for (i, el) in elements.iter().enumerate() {
@@ -757,7 +717,8 @@ impl<'a> Emitter<'a> {
             let v = self.emit_expr(e)?;
             writeln!(
                 self.body,
-                "  call void @draconic_rt_array_set(ptr {arr}, i64 {i}, ptr {v})"
+                "  {}",
+                ARRAY_SET.call(&format!("ptr {arr}, i64 {i}, ptr {v}"))
             )
             .ok();
         }
@@ -778,7 +739,8 @@ impl<'a> Emitter<'a> {
             writeln!(self.body, "  {idx} = ptrtoint ptr {idx_ptr} to i64").ok();
             writeln!(
                 self.body,
-                "  {t} = call ptr @draconic_rt_array_get(ptr {obj}, i64 {idx})"
+                "  {}",
+                ARRAY_GET.call_to(&t, &format!("ptr {obj}, i64 {idx}"))
             )
             .ok();
             return Ok(t);
@@ -791,7 +753,12 @@ impl<'a> Emitter<'a> {
             let obj = self.emit_expr(object)?;
             let n = self.fresh();
             let t = self.fresh();
-            writeln!(self.body, "  {n} = call i64 @draconic_rt_array_len(ptr {obj})").ok();
+            writeln!(
+                self.body,
+                "  {}",
+                ARRAY_LEN.call_to(&n, &format!("ptr {obj}"))
+            )
+            .ok();
             writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
             return Ok(t);
         }
@@ -806,7 +773,8 @@ impl<'a> Emitter<'a> {
             let t = self.fresh();
             writeln!(
                 self.body,
-                "  {t} = call ptr @draconic_rt_object_get(ptr {obj}, ptr {key})"
+                "  {}",
+                OBJECT_GET.call_to(&t, &format!("ptr {obj}, ptr {key}"))
             )
             .ok();
             return Ok(t);
@@ -933,7 +901,8 @@ impl<'a> Emitter<'a> {
         let t = self.fresh();
         writeln!(
             self.body,
-            "  {t} = call ptr @draconic_rt_promise_construct(ptr @{fn_name}, ptr null)"
+            "  {}",
+            PROMISE_CONSTRUCT.call_to(&t, &format!("ptr @{fn_name}, ptr null"))
         )
         .ok();
         Ok(t)
@@ -1040,7 +1009,13 @@ impl<'a> Emitter<'a> {
                     let t = self.fresh();
                     writeln!(
                         self.body,
-                        "  {t} = call ptr @draconic_rt_promise_then(ptr {p}, ptr {on_ful}, ptr {ful_data}, ptr {on_rej}, ptr {rej_data})"
+                        "  {}",
+                        PROMISE_THEN.call_to(
+                            &t,
+                            &format!(
+                                "ptr {p}, ptr {on_ful}, ptr {ful_data}, ptr {on_rej}, ptr {rej_data}"
+                            )
+                        )
                     )
                     .ok();
                     return Ok(t);
@@ -1061,7 +1036,11 @@ impl<'a> Emitter<'a> {
                     let t = self.fresh();
                     writeln!(
                         self.body,
-                        "  {t} = call ptr @draconic_rt_promise_then(ptr {p}, ptr null, ptr null, ptr @{name}, ptr {data})"
+                        "  {}",
+                        PROMISE_THEN.call_to(
+                            &t,
+                            &format!("ptr {p}, ptr null, ptr null, ptr @{name}, ptr {data}")
+                        )
                     )
                     .ok();
                     return Ok(t);
@@ -1081,7 +1060,8 @@ impl<'a> Emitter<'a> {
                     let t = self.fresh();
                     writeln!(
                         self.body,
-                        "  {t} = call ptr @draconic_rt_promise_finally(ptr {p}, ptr @{name}, ptr {data})"
+                        "  {}",
+                        PROMISE_FINALLY.call_to(&t, &format!("ptr {p}, ptr @{name}, ptr {data}"))
                     )
                     .ok();
                     return Ok(t);
@@ -1113,19 +1093,21 @@ impl<'a> Emitter<'a> {
         };
         let v = self.emit_expr(vexpr)?;
         let p = self.fresh();
-        writeln!(self.body, "  {p} = call ptr @draconic_rt_promise_new()").ok();
+        writeln!(self.body, "  {}", PROMISE_NEW.call_to(&p, "")).ok();
         match which {
             "resolve" => {
                 writeln!(
                     self.body,
-                    "  call void @draconic_rt_promise_resolve(ptr {p}, ptr {v})"
+                    "  {}",
+                    PROMISE_RESOLVE.call(&format!("ptr {p}, ptr {v}"))
                 )
                 .ok();
             }
             "reject" => {
                 writeln!(
                     self.body,
-                    "  call void @draconic_rt_promise_reject(ptr {p}, ptr {v})"
+                    "  {}",
+                    PROMISE_REJECT.call(&format!("ptr {p}, ptr {v}"))
                 )
                 .ok();
             }
@@ -1155,7 +1137,8 @@ impl<'a> Emitter<'a> {
         let t = self.fresh();
         writeln!(
             self.body,
-            "  {t} = call ptr @draconic_rt_promise_all(ptr {arr})"
+            "  {}",
+            PROMISE_ALL.call_to(&t, &format!("ptr {arr}"))
         )
         .ok();
         Ok(t)
@@ -1182,7 +1165,8 @@ impl<'a> Emitter<'a> {
         let t = self.fresh();
         writeln!(
             self.body,
-            "  {t} = call ptr @draconic_rt_promise_race(ptr {arr})"
+            "  {}",
+            PROMISE_RACE.call_to(&t, &format!("ptr {arr}"))
         )
         .ok();
         Ok(t)
@@ -1209,7 +1193,8 @@ impl<'a> Emitter<'a> {
         let t = self.fresh();
         writeln!(
             self.body,
-            "  {t} = call ptr @draconic_rt_promise_all_settled(ptr {arr})"
+            "  {}",
+            PROMISE_ALL_SETTLED.call_to(&t, &format!("ptr {arr}"))
         )
         .ok();
         Ok(t)
@@ -1236,7 +1221,8 @@ impl<'a> Emitter<'a> {
         let t = self.fresh();
         writeln!(
             self.body,
-            "  {t} = call ptr @draconic_rt_promise_any(ptr {arr})"
+            "  {}",
+            PROMISE_ANY.call_to(&t, &format!("ptr {arr}"))
         )
         .ok();
         Ok(t)
@@ -1313,7 +1299,8 @@ impl<'a> Emitter<'a> {
                 let p = self.fresh();
                 writeln!(
                     self.body,
-                    "  {p} = call ptr @draconic_rt_promise_await(ptr {v})"
+                    "  {}",
+                    PROMISE_AWAIT.call_to(&p, &format!("ptr {v}"))
                 )
                 .ok();
                 let rest = &body[i + 1..];
@@ -1321,7 +1308,11 @@ impl<'a> Emitter<'a> {
                 let out = self.fresh();
                 writeln!(
                     self.body,
-                    "  {out} = call ptr @draconic_rt_promise_then(ptr {p}, ptr @{cont}, ptr {data}, ptr null, ptr null)"
+                    "  {}",
+                    PROMISE_THEN.call_to(
+                        &out,
+                        &format!("ptr {p}, ptr @{cont}, ptr {data}, ptr null, ptr null")
+                    )
                 )
                 .ok();
                 return Ok(out);
@@ -1335,7 +1326,7 @@ impl<'a> Emitter<'a> {
 
     fn emit_async_sync_body(&mut self, body: &[Stmt]) -> Result<String, Diagnostic> {
         let p = self.fresh();
-        writeln!(self.body, "  {p} = call ptr @draconic_rt_promise_new()").ok();
+        writeln!(self.body, "  {}", PROMISE_NEW.call_to(&p, "")).ok();
         for stmt in body {
             match stmt {
                 Stmt::Return { value } => {
@@ -1348,7 +1339,8 @@ impl<'a> Emitter<'a> {
                     };
                     writeln!(
                         self.body,
-                        "  call void @draconic_rt_promise_resolve(ptr {p}, ptr {v})"
+                        "  {}",
+                        PROMISE_RESOLVE.call(&format!("ptr {p}, ptr {v}"))
                     )
                     .ok();
                     return Ok(p);
@@ -1357,7 +1349,8 @@ impl<'a> Emitter<'a> {
                     let v = self.emit_expr(value)?;
                     writeln!(
                         self.body,
-                        "  call void @draconic_rt_promise_reject(ptr {p}, ptr {v})"
+                        "  {}",
+                        PROMISE_REJECT.call(&format!("ptr {p}, ptr {v}"))
                     )
                     .ok();
                     return Ok(p);
@@ -1369,7 +1362,8 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {u} = inttoptr i64 0 to ptr").ok();
         writeln!(
             self.body,
-            "  call void @draconic_rt_promise_resolve(ptr {p}, ptr {u})"
+            "  {}",
+            PROMISE_RESOLVE.call(&format!("ptr {p}, ptr {u}"))
         )
         .ok();
         Ok(p)
@@ -1475,7 +1469,8 @@ impl<'a> Emitter<'a> {
                 let p = self.fresh();
                 writeln!(
                     self.body,
-                    "  {p} = call ptr @draconic_rt_promise_await(ptr {v})"
+                    "  {}",
+                    PROMISE_AWAIT.call_to(&p, &format!("ptr {v}"))
                 )
                 .ok();
                 // Nested await: build another continuation for remaining rest and return that promise.
@@ -1914,7 +1909,8 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {idx} = ptrtoint ptr {idx_ptr} to i64").ok();
                     writeln!(
                         self.body,
-                        "  {t} = call ptr @draconic_rt_array_get(ptr {obj}, i64 {idx})"
+                        "  {}",
+                        ARRAY_GET.call_to(&t, &format!("ptr {obj}, i64 {idx}"))
                     )
                     .ok();
                     return Ok(t);
@@ -1929,7 +1925,8 @@ impl<'a> Emitter<'a> {
                     let t = self.fresh();
                     writeln!(
                         self.body,
-                        "  {n} = call i64 @draconic_rt_array_len(ptr {obj})"
+                        "  {}",
+                        ARRAY_LEN.call_to(&n, &format!("ptr {obj}"))
                     )
                     .ok();
                     writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
@@ -1946,7 +1943,8 @@ impl<'a> Emitter<'a> {
                     let t = self.fresh();
                     writeln!(
                         self.body,
-                        "  {t} = call ptr @draconic_rt_object_get(ptr {obj}, ptr {key})"
+                        "  {}",
+                        OBJECT_GET.call_to(&t, &format!("ptr {obj}, ptr {key}"))
                     )
                     .ok();
                     return Ok(t);
