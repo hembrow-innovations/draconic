@@ -1,4 +1,4 @@
-//! N06.03–N06.06: lower Promise constructor/statics/catch/finally/all to Runtime ABI.
+//! N06.03–N06.07: lower Promise constructor/statics/catch/finally/all/race to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -10,7 +10,7 @@ use draconic_ir::{
     Stmt,
 };
 
-/// True when this module is the supported Promise subset (E12.01–E12.04 / N06.03–N06.06).
+/// True when this module is the supported Promise subset (E12.01–E12.05 / N06.03–N06.07).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -221,14 +221,17 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                     Ok(())
                 }
                 "length" => Ok(()),
-                "resolve" | "reject" | "all" => {
+                "resolve" | "reject" | "all" | "race" => {
                     if let Expr::Local { id, .. } = object.as_ref() {
                         if Some(*id) == promise_id {
                             *uses = true;
                             return Ok(());
                         }
                     }
-                    Err("only Promise.resolve / Promise.reject / Promise.all supported".into())
+                    Err(
+                        "only Promise.resolve / Promise.reject / Promise.all / Promise.race supported"
+                            .into(),
+                    )
                 }
                 _ => Err(format!("unsupported property `{}` in Promise path", prop)),
             }
@@ -333,7 +336,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03–N06.06 Promise via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.07 Promise via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
@@ -375,6 +378,7 @@ impl<'a> Emitter<'a> {
         writeln!(self.out, "declare ptr @draconic_rt_array_get(ptr, i64)").ok();
         writeln!(self.out, "declare i64 @draconic_rt_array_len(ptr)").ok();
         writeln!(self.out, "declare ptr @draconic_rt_promise_all(ptr)").ok();
+        writeln!(self.out, "declare ptr @draconic_rt_promise_race(ptr)").ok();
         writeln!(self.out).ok();
 
         // Pre-scan string constants from typeof etc. by emitting body into buffer first.
@@ -760,7 +764,7 @@ impl<'a> Emitter<'a> {
                 if let Expr::String { value, .. } = property.as_ref() {
                     let prop = value.to_string_lossy();
                     match prop.as_ref() {
-                        "resolve" | "reject" | "all" => {
+                        "resolve" | "reject" | "all" | "race" => {
                             if let Expr::Local { id, .. } = object.as_ref() {
                                 if Some(*id) == self.info.promise_id {
                                     return self.string_const("function");
@@ -873,6 +877,9 @@ impl<'a> Emitter<'a> {
                 }
                 "all" => {
                     return self.emit_promise_all(object, args);
+                }
+                "race" => {
+                    return self.emit_promise_race(object, args);
                 }
                 "then" => {
                     let p = self.emit_expr(object)?;
@@ -1017,6 +1024,33 @@ impl<'a> Emitter<'a> {
         writeln!(
             self.body,
             "  {t} = call ptr @draconic_rt_promise_all(ptr {arr})"
+        )
+        .ok();
+        Ok(t)
+    }
+
+    fn emit_promise_race(
+        &mut self,
+        object: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        let Expr::Local { id, .. } = object else {
+            return Err(diag("Promise.race requires Promise receiver"));
+        };
+        if Some(*id) != self.info.promise_id {
+            return Err(diag("only Promise.race supported"));
+        }
+        if args.len() != 1 {
+            return Err(diag("Promise.race expects 1 argument"));
+        }
+        let Arg::Expr(vexpr) = &args[0] else {
+            return Err(diag("spread not supported"));
+        };
+        let arr = self.emit_expr(vexpr)?;
+        let t = self.fresh();
+        writeln!(
+            self.body,
+            "  {t} = call ptr @draconic_rt_promise_race(ptr {arr})"
         )
         .ok();
         Ok(t)

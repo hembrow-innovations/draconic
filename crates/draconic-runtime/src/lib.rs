@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.06); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.07); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -132,8 +132,10 @@ pub const ARRAY_GET_SYMBOL: &str = "draconic_rt_array_get";
 pub const ARRAY_SET_SYMBOL: &str = "draconic_rt_array_set";
 /// C ABI: `Promise.all(iterable)` — array of promises/values (N06.06).
 pub const PROMISE_ALL_SYMBOL: &str = "draconic_rt_promise_all";
+/// C ABI: `Promise.race(iterable)` — first settle wins (N06.07).
+pub const PROMISE_RACE_SYMBOL: &str = "draconic_rt_promise_race";
 
-/// Promise ABI symbols (N06.02–N06.06).
+/// Promise ABI symbols (N06.02–N06.07).
 pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_NEW_SYMBOL,
     IS_PROMISE_SYMBOL,
@@ -150,6 +152,7 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     ARRAY_GET_SYMBOL,
     ARRAY_SET_SYMBOL,
     PROMISE_ALL_SYMBOL,
+    PROMISE_RACE_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -1083,6 +1086,126 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "promise-all-ok\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn promise_race_via_job_queue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_promise_race");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+
+            static int g_winner = -1;
+            static int g_mixed = -1;
+            static int g_rejected = 0;
+
+            static void *on_winner(void *data, void *value) {
+                (void)data;
+                g_winner = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_mixed(void *data, void *value) {
+                (void)data;
+                g_mixed = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_reject_ok(void *data, void *value) {
+                (void)data; (void)value;
+                g_rejected = -1;
+                return value;
+            }
+
+            static void *on_reject_err(void *data, void *reason) {
+                (void)data;
+                g_rejected = (int)(intptr_t)reason;
+                return reason;
+            }
+
+            int main(void) {
+                DraconicValue *a = draconic_rt_array_new(2);
+                DraconicValue *p0 = draconic_rt_promise_new();
+                DraconicValue *p1 = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(p0, (void *)(intptr_t)10);
+                draconic_rt_promise_resolve(p1, (void *)(intptr_t)20);
+                draconic_rt_array_set(a, 0, p0);
+                draconic_rt_array_set(a, 1, p1);
+                DraconicValue *p_race = draconic_rt_promise_race(a);
+                (void)draconic_rt_promise_then(p_race, on_winner, NULL, NULL, NULL);
+
+                DraconicValue *m = draconic_rt_array_new(2);
+                draconic_rt_array_set(m, 0, (void *)(intptr_t)1);
+                DraconicValue *pm = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(pm, (void *)(intptr_t)2);
+                draconic_rt_array_set(m, 1, pm);
+                DraconicValue *p_mixed = draconic_rt_promise_race(m);
+                (void)draconic_rt_promise_then(p_mixed, on_mixed, NULL, NULL, NULL);
+
+                DraconicValue *r = draconic_rt_array_new(2);
+                DraconicValue *bad = draconic_rt_promise_new();
+                DraconicValue *ok = draconic_rt_promise_new();
+                draconic_rt_promise_reject(bad, (void *)(intptr_t)7);
+                draconic_rt_promise_resolve(ok, (void *)(intptr_t)1);
+                draconic_rt_array_set(r, 0, bad);
+                draconic_rt_array_set(r, 1, ok);
+                DraconicValue *p_rej = draconic_rt_promise_race(r);
+                (void)draconic_rt_promise_then(p_rej, on_reject_ok, NULL, on_reject_err, NULL);
+
+                draconic_rt_job_drain();
+
+                if (g_winner != 10) {
+                    fprintf(stderr, "winner want 10 got %d\n", g_winner);
+                    return 1;
+                }
+                if (g_mixed != 1) {
+                    fprintf(stderr, "mixed want 1 got %d\n", g_mixed);
+                    return 2;
+                }
+                if (g_rejected != 7) {
+                    fprintf(stderr, "rejected want 7 got %d\n", g_rejected);
+                    return 3;
+                }
+
+                draconic_rt_print_str("promise-race-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link promise race test");
+
+        let output = Command::new(&bin).output().expect("run rt_promise_race");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "promise race binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "promise-race-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

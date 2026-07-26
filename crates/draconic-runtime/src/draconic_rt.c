@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (N05–N06.06). Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05–N06.07). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -791,6 +791,91 @@ DraconicValue *draconic_rt_promise_all(DraconicValue *arr) {
                 promise_all_on_fulfill,
                 slot,
                 promise_all_on_reject,
+                slot
+            );
+        }
+    }
+    return out;
+}
+
+/* --- Promise.race (N06.07) --- */
+
+typedef struct {
+    DraconicValue *race_promise;
+    int *settled_flag;
+} PromiseRaceSlot;
+
+static void *promise_race_on_fulfill(void *data, void *value) {
+    PromiseRaceSlot *slot = (PromiseRaceSlot *)data;
+    if (!slot || !slot->settled_flag) {
+        return value;
+    }
+    if (!*slot->settled_flag) {
+        *slot->settled_flag = 1;
+        draconic_rt_promise_resolve(slot->race_promise, value);
+    }
+    return value;
+}
+
+static void *promise_race_on_reject(void *data, void *reason) {
+    PromiseRaceSlot *slot = (PromiseRaceSlot *)data;
+    if (!slot || !slot->settled_flag) {
+        return reason;
+    }
+    if (!*slot->settled_flag) {
+        *slot->settled_flag = 1;
+        draconic_rt_promise_reject(slot->race_promise, reason);
+    }
+    return reason;
+}
+
+DraconicValue *draconic_rt_promise_race(DraconicValue *arr) {
+    DraconicValue *out = draconic_rt_promise_new();
+    if (!out) {
+        return NULL;
+    }
+    size_t n = 0;
+    if (arr && arr->tag == DRACONIC_TAG_ARRAY) {
+        n = arr->as.array.len;
+    }
+    /* Empty iterable: result stays pending (ECMA-262). */
+    if (n == 0) {
+        return out;
+    }
+
+    int *settled_flag = (int *)malloc(sizeof(int));
+    if (!settled_flag) {
+        draconic_rt_promise_reject(out, NULL);
+        return out;
+    }
+    *settled_flag = 0;
+
+    for (size_t i = 0; i < n; i++) {
+        void *elem = draconic_rt_array_get(arr, i);
+        PromiseRaceSlot *slot = (PromiseRaceSlot *)calloc(1, sizeof(PromiseRaceSlot));
+        if (!slot) {
+            fprintf(stderr, "draconic_rt: promise_race OOM\n");
+            abort();
+        }
+        slot->race_promise = out;
+        slot->settled_flag = settled_flag;
+
+        if (draconic_rt_is_promise((DraconicValue *)elem)) {
+            (void)draconic_rt_promise_then(
+                (DraconicValue *)elem,
+                promise_race_on_fulfill,
+                slot,
+                promise_race_on_reject,
+                slot
+            );
+        } else {
+            DraconicValue *wrapped = draconic_rt_promise_new();
+            draconic_rt_promise_resolve(wrapped, elem);
+            (void)draconic_rt_promise_then(
+                wrapped,
+                promise_race_on_fulfill,
+                slot,
+                promise_race_on_reject,
                 slot
             );
         }
