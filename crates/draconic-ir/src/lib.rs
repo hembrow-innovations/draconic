@@ -1,6 +1,5 @@
 //! Shared IR lowered from checked Programs (ROADMAP B06).
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 
 use draconic_ast::{
@@ -14,17 +13,44 @@ use draconic_diagnostics::Span;
 pub use draconic_ast::BindingKind;
 pub use draconic_check::{NativeType, ObjectShape, SymbolId as LocalId, Type as IrType};
 
-// Private field name → WeakMap local; private method name → function local;
-// private accessor name → (get fn, set fn) locals;
-// private method/accessor brand → WeakSet local (E18.40; fields use WeakMap as brand).
-thread_local! {
-    static PRIVATE_FIELDS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
-    static PRIVATE_METHODS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
-    static PRIVATE_ACCESSORS: RefCell<HashMap<String, (Option<LocalId>, Option<LocalId>)>> =
-        RefCell::new(HashMap::new());
-    static PRIVATE_BRANDS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
-    static EXTRA_LOCALS: RefCell<Vec<Local>> = RefCell::new(Vec::new());
-    static NEXT_SYNTH_ID: RefCell<u32> = RefCell::new(0);
+/// Per-`lower` bookkeeping for private fields/methods/brands and synthetic locals.
+/// Owned by `lower` for the duration of one lowering — no process-global state.
+struct LowerCtx {
+    /// Private field name → WeakMap local.
+    private_fields: HashMap<String, LocalId>,
+    /// Private method name → function local.
+    private_methods: HashMap<String, LocalId>,
+    /// Private accessor name → (get fn, set fn) locals.
+    private_accessors: HashMap<String, (Option<LocalId>, Option<LocalId>)>,
+    /// Private method/accessor brand → WeakSet local (E18.40; fields use WeakMap as brand).
+    private_brands: HashMap<String, LocalId>,
+    extra_locals: Vec<Local>,
+    next_synth_id: u32,
+}
+
+impl LowerCtx {
+    fn new(next_synth_id: u32) -> Self {
+        Self {
+            private_fields: HashMap::new(),
+            private_methods: HashMap::new(),
+            private_accessors: HashMap::new(),
+            private_brands: HashMap::new(),
+            extra_locals: Vec::new(),
+            next_synth_id,
+        }
+    }
+
+    fn alloc_synthetic_local(&mut self, name: String, ty: Type) -> LocalId {
+        let id = LocalId(self.next_synth_id);
+        self.next_synth_id += 1;
+        self.extra_locals.push(Local {
+            id,
+            name,
+            ty,
+            kind: BindingKind::Let,
+        });
+        id
+    }
 }
 
 /// Top-level IR unit both backends consume.
@@ -446,29 +472,20 @@ pub fn lower(checked: &CheckedProgram) -> Module {
         .collect();
 
     let max_id = locals.iter().map(|l| l.id.0).max().unwrap_or(0);
-    NEXT_SYNTH_ID.with(|n| *n.borrow_mut() = max_id.saturating_add(1));
-    EXTRA_LOCALS.with(|e| e.borrow_mut().clear());
-    PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
-    PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
-    PRIVATE_ACCESSORS.with(|p| p.borrow_mut().clear());
-    PRIVATE_BRANDS.with(|p| p.borrow_mut().clear());
+    let mut ctx = LowerCtx::new(max_id.saturating_add(1));
 
     let mut body = Vec::new();
     let mut body_spans = Vec::new();
     for stmt in &checked.bound.program.body {
         let span = ast_stmt_span(stmt);
-        let expanded = lower_stmt_expand(checked, stmt, None);
+        let expanded = lower_stmt_expand(checked, &mut ctx, stmt, None);
         for s in expanded {
             body.push(s);
             body_spans.push(span);
         }
     }
 
-    EXTRA_LOCALS.with(|e| locals.extend(e.borrow_mut().drain(..)));
-    PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
-    PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
-    PRIVATE_ACCESSORS.with(|p| p.borrow_mut().clear());
-    PRIVATE_BRANDS.with(|p| p.borrow_mut().clear());
+    locals.extend(ctx.extra_locals.drain(..));
 
     debug_assert_eq!(body.len(), body_spans.len());
     Module {
@@ -509,26 +526,10 @@ fn ast_stmt_span(stmt: &AstStmt) -> Span {
     }
 }
 
-fn alloc_synthetic_local(name: String, ty: Type) -> LocalId {
-    let id = NEXT_SYNTH_ID.with(|n| {
-        let id = LocalId(*n.borrow());
-        *n.borrow_mut() += 1;
-        id
-    });
-    EXTRA_LOCALS.with(|e| {
-        e.borrow_mut().push(Local {
-            id,
-            name,
-            ty,
-            kind: BindingKind::Let,
-        });
-    });
-    id
-}
-
 /// Lower one AST statement, expanding constructs that become multiple IR stmts (e.g. class).
 fn lower_stmt_expand(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     stmt: &AstStmt,
     super_class: Option<&AstExpr>,
 ) -> Vec<Stmt> {
@@ -538,8 +539,8 @@ fn lower_stmt_expand(
             super_class: sc,
             body,
             ..
-        } => lower_class(checked, name, sc.as_deref(), body),
-        other => lower_stmt(checked, other, super_class)
+        } => lower_class(checked, ctx, name, sc.as_deref(), body),
+        other => lower_stmt(checked, ctx, other, super_class)
             .into_iter()
             .collect(),
     }
@@ -547,16 +548,20 @@ fn lower_stmt_expand(
 
 fn lower_stmt_body(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     body: &[AstStmt],
     super_class: Option<&AstExpr>,
 ) -> Vec<Stmt> {
-    body.iter()
-        .flat_map(|s| lower_stmt_expand(checked, s, super_class))
-        .collect()
+    let mut out = Vec::new();
+    for s in body {
+        out.extend(lower_stmt_expand(checked, ctx, s, super_class));
+    }
+    out
 }
 
 fn lower_stmt(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     stmt: &AstStmt,
     super_class: Option<&AstExpr>,
 ) -> Option<Stmt> {
@@ -567,7 +572,7 @@ fn lower_stmt(
             None
         }
         AstStmt::Expression { expr, .. } => Some(Stmt::Expr {
-            expr: lower_expr(checked, expr, super_class),
+            expr: lower_expr(checked, ctx, expr, super_class),
         }),
         AstStmt::Let {
             kind,
@@ -587,35 +592,35 @@ fn lower_stmt(
                     local,
                     init: init
                         .as_ref()
-                        .map(|e| lower_expr(checked, e, super_class)),
+                        .map(|e| lower_expr(checked, ctx, e, super_class)),
                     kind: *kind,
                 })
             }
             BindingPattern::Array { elements, .. } => {
                 let init = init
                     .as_ref()
-                    .map(|e| lower_expr(checked, e, super_class))
+                    .map(|e| lower_expr(checked, ctx, e, super_class))
                     .expect("array pattern declaration requires initializer");
                 Some(Stmt::DeclareArrayPattern {
                     kind: *kind,
-                    elements: lower_array_pattern_els(checked, elements),
+                    elements: lower_array_pattern_els(checked, ctx, elements),
                     init,
                 })
             }
             BindingPattern::Object { properties, .. } => {
                 let init = init
                     .as_ref()
-                    .map(|e| lower_expr(checked, e, super_class))
+                    .map(|e| lower_expr(checked, ctx, e, super_class))
                     .expect("object pattern declaration requires initializer");
                 Some(Stmt::DeclareObjectPattern {
                     kind: *kind,
-                    properties: lower_object_pattern_props(checked, properties),
+                    properties: lower_object_pattern_props(checked, ctx, properties),
                     init,
                 })
             }
         }
         AstStmt::Block { body, .. } => {
-            let body = lower_stmt_body(checked, body, super_class);
+            let body = lower_stmt_body(checked, ctx, body, super_class);
             Some(Stmt::Block { body })
         }
         AstStmt::If {
@@ -625,39 +630,39 @@ fn lower_stmt(
             ..
         } => {
             let consequent = Box::new(
-                lower_stmt(checked, consequent, super_class)
+                lower_stmt(checked, ctx, consequent, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             let alternate = alternate.as_ref().map(|alt| {
                 Box::new(
-                    lower_stmt(checked, alt, super_class)
+                    lower_stmt(checked, ctx, alt, super_class)
                         .unwrap_or(Stmt::Block { body: vec![] }),
                 )
             });
             Some(Stmt::If {
-                test: lower_expr(checked, test, super_class),
+                test: lower_expr(checked, ctx, test, super_class),
                 consequent,
                 alternate,
             })
         }
         AstStmt::While { test, body, .. } => {
             let body = Box::new(
-                lower_stmt(checked, body, super_class)
+                lower_stmt(checked, ctx, body, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::While {
-                test: lower_expr(checked, test, super_class),
+                test: lower_expr(checked, ctx, test, super_class),
                 body,
             })
         }
         AstStmt::DoWhile { body, test, .. } => {
             let body = Box::new(
-                lower_stmt(checked, body, super_class)
+                lower_stmt(checked, ctx, body, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::DoWhile {
                 body,
-                test: lower_expr(checked, test, super_class),
+                test: lower_expr(checked, ctx, test, super_class),
             })
         }
         AstStmt::For {
@@ -669,15 +674,15 @@ fn lower_stmt(
         } => {
             let init = init
                 .as_ref()
-                .and_then(|s| lower_stmt(checked, s, super_class).map(Box::new));
+                .and_then(|s| lower_stmt(checked, ctx, s, super_class).map(Box::new));
             let test = test
                 .as_ref()
-                .map(|e| lower_expr(checked, e, super_class));
+                .map(|e| lower_expr(checked, ctx, e, super_class));
             let update = update
                 .as_ref()
-                .map(|e| lower_expr(checked, e, super_class));
+                .map(|e| lower_expr(checked, ctx, e, super_class));
             let body = Box::new(
-                lower_stmt(checked, body, super_class)
+                lower_stmt(checked, ctx, body, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::For {
@@ -691,16 +696,16 @@ fn lower_stmt(
             left, right, body, ..
         } => {
             let left = Box::new(
-                lower_stmt(checked, left, super_class)
+                lower_stmt(checked, ctx, left, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             let body = Box::new(
-                lower_stmt(checked, body, super_class)
+                lower_stmt(checked, ctx, body, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::ForIn {
                 left,
-                right: lower_expr(checked, right, super_class),
+                right: lower_expr(checked, ctx, right, super_class),
                 body,
             })
         }
@@ -712,16 +717,16 @@ fn lower_stmt(
             ..
         } => {
             let left = Box::new(
-                lower_stmt(checked, left, super_class)
+                lower_stmt(checked, ctx, left, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             let body = Box::new(
-                lower_stmt(checked, body, super_class)
+                lower_stmt(checked, ctx, body, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::ForOf {
                 left,
-                right: lower_expr(checked, right, super_class),
+                right: lower_expr(checked, ctx, right, super_class),
                 body,
                 is_await: *is_await,
             })
@@ -734,7 +739,7 @@ fn lower_stmt(
         }),
         AstStmt::Labeled { label, body, .. } => {
             let body = Box::new(
-                lower_stmt(checked, body, super_class)
+                lower_stmt(checked, ctx, body, super_class)
                     .unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::Labeled {
@@ -753,12 +758,12 @@ fn lower_stmt(
                     test: c
                         .test
                         .as_ref()
-                        .map(|e| lower_expr(checked, e, super_class)),
-                    body: lower_stmt_body(checked, &c.body, super_class),
+                        .map(|e| lower_expr(checked, ctx, e, super_class)),
+                    body: lower_stmt_body(checked, ctx, &c.body, super_class),
                 })
                 .collect();
             Some(Stmt::Switch {
-                discriminant: lower_expr(checked, discriminant, super_class),
+                discriminant: lower_expr(checked, ctx, discriminant, super_class),
                 cases,
             })
         }
@@ -777,9 +782,9 @@ fn lower_stmt(
                 .find(|s| s.span == name.span)
                 .map(|s| s.id)
                 .expect("function binding must be declared");
-            let params = lower_params(checked, params, None);
+            let params = lower_params(checked, ctx, params, None);
             // Nested functions do not inherit `super`.
-            let body = lower_fn_body(checked, body, None);
+            let body = lower_fn_body(checked, ctx, body, None);
             Some(Stmt::Function {
                 local,
                 params,
@@ -791,10 +796,10 @@ fn lower_stmt(
         AstStmt::Return { argument, .. } => Some(Stmt::Return {
             value: argument
                 .as_ref()
-                .map(|e| lower_expr(checked, e, super_class)),
+                .map(|e| lower_expr(checked, ctx, e, super_class)),
         }),
         AstStmt::Throw { argument, .. } => Some(Stmt::Throw {
-            value: lower_expr(checked, argument, super_class),
+            value: lower_expr(checked, ctx, argument, super_class),
         }),
         AstStmt::Try {
             block,
@@ -803,7 +808,7 @@ fn lower_stmt(
             finalizer,
             ..
         } => {
-            let block = lower_fn_body(checked, block, super_class);
+            let block = lower_fn_body(checked, ctx, block, super_class);
             let handler_param = handler_param.as_ref().map(|param| {
                 checked
                     .bound
@@ -815,10 +820,10 @@ fn lower_stmt(
             });
             let handler = handler
                 .as_ref()
-                .map(|h| lower_fn_body(checked, h, super_class));
+                .map(|h| lower_fn_body(checked, ctx, h, super_class));
             let finalizer = finalizer
                 .as_ref()
-                .map(|f| lower_fn_body(checked, f, super_class));
+                .map(|f| lower_fn_body(checked, ctx, f, super_class));
             Some(Stmt::Try {
                 block,
                 handler_param,
@@ -827,8 +832,8 @@ fn lower_stmt(
             })
         }
         AstStmt::With { object, body, .. } => Some(Stmt::With {
-            object: lower_expr(checked, object, super_class),
-            body: lower_fn_body(checked, body, super_class),
+            object: lower_expr(checked, ctx, object, super_class),
+            body: lower_fn_body(checked, ctx, body, super_class),
         }),
         AstStmt::ImportDeclaration { .. }
         | AstStmt::ExportNamedDeclaration { .. }
@@ -843,18 +848,20 @@ fn lower_stmt(
 
 fn lower_fn_body(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     body: &AstStmt,
     super_class: Option<&AstExpr>,
 ) -> Vec<Stmt> {
     match body {
-        AstStmt::Block { body, .. } => lower_stmt_body(checked, body, super_class),
-        other => lower_stmt_expand(checked, other, super_class),
+        AstStmt::Block { body, .. } => lower_stmt_body(checked, ctx, body, super_class),
+        other => lower_stmt_expand(checked, ctx, other, super_class),
     }
 }
 
 /// Desugar `class Name extends? Super { constructor… methods… fields… }` to function + assigns.
 fn lower_class(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     name: &Ident,
     super_class: Option<&AstExpr>,
     elements: &[ClassElement],
@@ -866,12 +873,13 @@ fn lower_class(
         .find(|s| s.span == name.span)
         .map(|s| s.id)
         .expect("class binding must be declared");
-    lower_class_local(checked, local, super_class, elements)
+    lower_class_local(checked, ctx, local, super_class, elements)
 }
 
 /// Class expression → IIFE that builds the constructor and returns it (E18.33).
 fn lower_class_expression(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     name: Option<&Ident>,
     super_class: Option<&AstExpr>,
     elements: &[ClassElement],
@@ -885,7 +893,7 @@ fn lower_class_expression(
         .find(|s| s.span == class_span)
         .map(|s| s.id)
         .expect("class expression binding must be declared");
-    let mut body = lower_class_local(checked, local, super_class, elements);
+    let mut body = lower_class_local(checked, ctx, local, super_class, elements);
     body.push(Stmt::Return {
         value: Some(Expr::Local {
             id: local,
@@ -910,6 +918,7 @@ fn lower_class_expression(
 
 fn lower_class_local(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     local: LocalId,
     super_class: Option<&AstExpr>,
     elements: &[ClassElement],
@@ -944,7 +953,7 @@ fn lower_class_local(
     for el in elements {
         match el {
             ClassElement::Constructor { params, body, .. } => {
-                ctor_params = lower_params(checked, params, super_class);
+                ctor_params = lower_params(checked, ctx, params, super_class);
                 ctor_body_ast = Some(body.as_ref());
             }
             ClassElement::Method {
@@ -1013,7 +1022,7 @@ fn lower_class_local(
             return;
         }
         let wm_name = format!("__drac_pf_{}_{}", local.0, fname.name);
-        let wm_id = alloc_synthetic_local(wm_name, Type::Any);
+        let wm_id = ctx.alloc_synthetic_local(wm_name, Type::Any);
         private_map.insert(fname.name.clone(), wm_id);
         private_wm_decls.push(Stmt::Declare {
             local: wm_id,
@@ -1054,38 +1063,6 @@ fn lower_class_local(
     let mut private_brand_decls: Vec<Stmt> = Vec::new();
     let mut instance_brands: Vec<LocalId> = Vec::new();
     let mut static_brands: Vec<LocalId> = Vec::new();
-    let mut add_private_brand = |name: &str, is_static: bool| {
-        if let Some(existing) = private_brand_map.get(name) {
-            if is_static {
-                if !static_brands.contains(existing) {
-                    static_brands.push(*existing);
-                }
-            } else if !instance_brands.contains(existing) {
-                instance_brands.push(*existing);
-            }
-            return;
-        }
-        let brand_name = format!("__drac_pb_{}_{}", local.0, name);
-        let brand_id = alloc_synthetic_local(brand_name, Type::Any);
-        private_brand_map.insert(name.to_string(), brand_id);
-        private_brand_decls.push(Stmt::Declare {
-            local: brand_id,
-            init: Some(Expr::New {
-                callee: Box::new(Expr::IdentName {
-                    name: "WeakSet".into(),
-                    ty: Type::Function,
-                }),
-                args: Vec::new(),
-                ty: Type::Any,
-            }),
-            kind: BindingKind::Let,
-        });
-        if is_static {
-            static_brands.push(brand_id);
-        } else {
-            instance_brands.push(brand_id);
-        }
-    };
     for (method_name, params, body, is_static, is_async, is_generator, is_private) in &methods {
         if !*is_private {
             continue;
@@ -1094,10 +1071,19 @@ fn lower_class_local(
             continue;
         }
         let fn_name = format!("__drac_pm_{}_{}", local.0, method_name.name);
-        let fn_id = alloc_synthetic_local(fn_name, Type::Function);
+        let fn_id = ctx.alloc_synthetic_local(fn_name, Type::Function);
         private_method_map.insert(method_name.name.clone(), fn_id);
         private_method_meta.push((fn_id, params, body, *is_async, *is_generator));
-        add_private_brand(&method_name.name, *is_static);
+        ensure_private_brand(
+            ctx,
+            local,
+            &mut private_brand_map,
+            &mut private_brand_decls,
+            &mut instance_brands,
+            &mut static_brands,
+            &method_name.name,
+            *is_static,
+        );
     }
 
     // Private accessors: synthetic get/set function locals (E18.39).
@@ -1120,30 +1106,36 @@ fn lower_class_local(
             AccessorKind::Set => "s",
         };
         let fn_name = format!("__drac_pa{}_{}_{}", tag, local.0, acc_name.name);
-        let fn_id = alloc_synthetic_local(fn_name, Type::Function);
+        let fn_id = ctx.alloc_synthetic_local(fn_name, Type::Function);
         match kind {
             AccessorKind::Get => entry.0 = Some(fn_id),
             AccessorKind::Set => entry.1 = Some(fn_id),
         }
         private_accessor_meta.push((fn_id, params, body));
-        add_private_brand(&acc_name.name, *is_static);
+        ensure_private_brand(
+            ctx,
+            local,
+            &mut private_brand_map,
+            &mut private_brand_decls,
+            &mut instance_brands,
+            &mut static_brands,
+            &acc_name.name,
+            *is_static,
+        );
     }
 
-    let prev_privates =
-        PRIVATE_FIELDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_map));
-    let prev_private_methods =
-        PRIVATE_METHODS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_method_map));
-    let prev_private_accessors = PRIVATE_ACCESSORS
-        .with(|p| std::mem::replace(&mut *p.borrow_mut(), private_accessor_map));
-    let prev_private_brands =
-        PRIVATE_BRANDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_brand_map));
+    let prev_privates = std::mem::replace(&mut ctx.private_fields, private_map);
+    let prev_private_methods = std::mem::replace(&mut ctx.private_methods, private_method_map);
+    let prev_private_accessors =
+        std::mem::replace(&mut ctx.private_accessors, private_accessor_map);
+    let prev_private_brands = std::mem::replace(&mut ctx.private_brands, private_brand_map);
 
     let mut private_method_fns: Vec<Stmt> = Vec::new();
     for (fn_id, params, body, is_async, is_generator) in private_method_meta {
         private_method_fns.push(Stmt::Function {
             local: fn_id,
-            params: lower_params(checked, params, super_class),
-            body: lower_fn_body(checked, body, super_class),
+            params: lower_params(checked, ctx, params, super_class),
+            body: lower_fn_body(checked, ctx, body, super_class),
             is_async,
             is_generator,
         });
@@ -1151,15 +1143,15 @@ fn lower_class_local(
     for (fn_id, params, body) in private_accessor_meta {
         private_method_fns.push(Stmt::Function {
             local: fn_id,
-            params: lower_params(checked, params, super_class),
-            body: lower_fn_body(checked, body, super_class),
+            params: lower_params(checked, ctx, params, super_class),
+            body: lower_fn_body(checked, ctx, body, super_class),
             is_async: false,
             is_generator: false,
         });
     }
 
     let mut ctor_body = match ctor_body_ast {
-        Some(body) => lower_fn_body(checked, body, super_class),
+        Some(body) => lower_fn_body(checked, ctx, body, super_class),
         None => Vec::new(),
     };
 
@@ -1168,18 +1160,17 @@ fn lower_class_local(
             .iter()
             .map(|(fname, value, is_private)| {
                 let init = match value {
-                    Some(v) => lower_expr(checked, v, super_class),
+                    Some(v) => lower_expr(checked, ctx, v, super_class),
                     None => Expr::IdentName {
                         name: "undefined".into(),
                         ty: Type::Any,
                     },
                 };
                 if *is_private {
-                    let wm = PRIVATE_FIELDS.with(|p| {
-                        *p.borrow()
-                            .get(&fname.name)
-                            .expect("private field WeakMap")
-                    });
+                    let wm = *ctx
+                        .private_fields
+                        .get(&fname.name)
+                        .expect("private field WeakMap");
                     // wm.set(this, init)
                     Stmt::Expr {
                         expr: Expr::Call {
@@ -1290,8 +1281,8 @@ fn lower_class_local(
         }
         let method_fn = Expr::Function {
             name: None,
-            params: lower_params(checked, params, super_class),
-            body: lower_fn_body(checked, body, super_class),
+            params: lower_params(checked, ctx, params, super_class),
+            body: lower_fn_body(checked, ctx, body, super_class),
             is_async,
             is_generator,
             is_arrow: false,
@@ -1339,8 +1330,8 @@ fn lower_class_local(
         }
         let accessor_fn = Expr::Function {
             name: None,
-            params: lower_params(checked, params, super_class),
-            body: lower_fn_body(checked, body, super_class),
+            params: lower_params(checked, ctx, params, super_class),
+            body: lower_fn_body(checked, ctx, body, super_class),
             is_async: false,
             is_generator: false,
             is_arrow: false,
@@ -1423,7 +1414,7 @@ fn lower_class_local(
 
     if let Some(sc) = super_class {
         // Child.prototype.__proto__ = Parent.prototype
-        let parent = lower_expr(checked, sc, None);
+        let parent = lower_expr(checked, ctx, sc, None);
         let parent_proto = Expr::Member {
             object: Box::new(parent.clone()),
             property: Box::new(Expr::String {
@@ -1500,18 +1491,17 @@ fn lower_class_local(
         match init {
             StaticInit::Field(fname, value, is_private) => {
                 let init_expr = match value {
-                    Some(v) => lower_expr(checked, v, None),
+                    Some(v) => lower_expr(checked, ctx, v, None),
                     None => Expr::IdentName {
                         name: "undefined".into(),
                         ty: Type::Any,
                     },
                 };
                 if is_private {
-                    let wm = PRIVATE_FIELDS.with(|p| {
-                        *p.borrow()
-                            .get(&fname.name)
-                            .expect("static private field WeakMap")
-                    });
+                    let wm = *ctx
+                        .private_fields
+                        .get(&fname.name)
+                        .expect("static private field WeakMap");
                     // wm.set(Class, init)
                     out.push(Stmt::Expr {
                         expr: Expr::Call {
@@ -1562,7 +1552,7 @@ fn lower_class_local(
             }
             StaticInit::Block(body) => {
                 // (function() { … }).call(Class) so `this` is the constructor.
-                let block_body = lower_fn_body(checked, body, None);
+                let block_body = lower_fn_body(checked, ctx, body, None);
                 out.push(Stmt::Expr {
                     expr: Expr::Call {
                         callee: Box::new(Expr::Member {
@@ -1595,10 +1585,10 @@ fn lower_class_local(
         }
     }
 
-    PRIVATE_FIELDS.with(|p| *p.borrow_mut() = prev_privates);
-    PRIVATE_METHODS.with(|p| *p.borrow_mut() = prev_private_methods);
-    PRIVATE_ACCESSORS.with(|p| *p.borrow_mut() = prev_private_accessors);
-    PRIVATE_BRANDS.with(|p| *p.borrow_mut() = prev_private_brands);
+    ctx.private_fields = prev_privates;
+    ctx.private_methods = prev_private_methods;
+    ctx.private_accessors = prev_private_accessors;
+    ctx.private_brands = prev_private_brands;
     out
 }
 
@@ -1727,11 +1717,54 @@ fn private_in_check(brand: LocalId, object: Expr) -> Expr {
     }
 }
 
-fn resolve_private_brand(name: &str) -> LocalId {
-    if let Some(wm) = PRIVATE_FIELDS.with(|p| p.borrow().get(name).copied()) {
+
+fn ensure_private_brand(
+    ctx: &mut LowerCtx,
+    class_local: LocalId,
+    private_brand_map: &mut HashMap<String, LocalId>,
+    private_brand_decls: &mut Vec<Stmt>,
+    instance_brands: &mut Vec<LocalId>,
+    static_brands: &mut Vec<LocalId>,
+    name: &str,
+    is_static: bool,
+) {
+    if let Some(existing) = private_brand_map.get(name) {
+        if is_static {
+            if !static_brands.contains(existing) {
+                static_brands.push(*existing);
+            }
+        } else if !instance_brands.contains(existing) {
+            instance_brands.push(*existing);
+        }
+        return;
+    }
+    let brand_name = format!("__drac_pb_{}_{}", class_local.0, name);
+    let brand_id = ctx.alloc_synthetic_local(brand_name, Type::Any);
+    private_brand_map.insert(name.to_string(), brand_id);
+    private_brand_decls.push(Stmt::Declare {
+        local: brand_id,
+        init: Some(Expr::New {
+            callee: Box::new(Expr::IdentName {
+                name: "WeakSet".into(),
+                ty: Type::Function,
+            }),
+            args: Vec::new(),
+            ty: Type::Any,
+        }),
+        kind: BindingKind::Let,
+    });
+    if is_static {
+        static_brands.push(brand_id);
+    } else {
+        instance_brands.push(brand_id);
+    }
+}
+
+fn resolve_private_brand(ctx: &LowerCtx, name: &str) -> LocalId {
+    if let Some(wm) = ctx.private_fields.get(name).copied() {
         return wm;
     }
-    if let Some(brand) = PRIVATE_BRANDS.with(|p| p.borrow().get(name).copied()) {
+    if let Some(brand) = ctx.private_brands.get(name).copied() {
         return brand;
     }
     panic!("unknown private brand #{name}");
@@ -1787,22 +1820,28 @@ fn private_field_set(wm: LocalId, object: Expr, value: Expr) -> Expr {
     }
 }
 
-fn lower_arg(checked: &CheckedProgram, arg: &AstArg, super_class: Option<&AstExpr>) -> Arg {
+fn lower_arg(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    arg: &AstArg,
+    super_class: Option<&AstExpr>,
+) -> Arg {
     match arg {
-        AstArg::Expr(e) => Arg::Expr(lower_expr(checked, e, super_class)),
-        AstArg::Spread(e) => Arg::Spread(lower_expr(checked, e, super_class)),
+        AstArg::Expr(e) => Arg::Expr(lower_expr(checked, ctx, e, super_class)),
+        AstArg::Spread(e) => Arg::Spread(lower_expr(checked, ctx, e, super_class)),
     }
 }
 
 fn lower_expr(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     expr: &AstExpr,
     super_class: Option<&AstExpr>,
 ) -> Expr {
     match expr {
-        AstExpr::Paren { expr: inner, .. } => lower_expr(checked, inner, super_class),
+        AstExpr::Paren { expr: inner, .. } => lower_expr(checked, ctx, inner, super_class),
         // Dual-worlds `as` is a type-level boundary only (T06); erase at IR.
-        AstExpr::As { expr: inner, .. } => lower_expr(checked, inner, super_class),
+        AstExpr::As { expr: inner, .. } => lower_expr(checked, ctx, inner, super_class),
         AstExpr::ArrayPattern { .. } => {
             panic!("array pattern must only appear as assignment target")
         }
@@ -1849,7 +1888,7 @@ fn lower_expr(
             quasis: quasis.iter().map(|q| q.cooked.clone()).collect(),
             expressions: expressions
                 .iter()
-                .map(|e| lower_expr(checked, e, super_class))
+                .map(|e| lower_expr(checked, ctx, e, super_class))
                 .collect(),
             ty: expr_ty(checked, *span),
         },
@@ -1859,11 +1898,11 @@ fn lower_expr(
             expressions,
             span,
         } => Expr::TaggedTemplate {
-            tag: Box::new(lower_expr(checked, tag, super_class)),
+            tag: Box::new(lower_expr(checked, ctx, tag, super_class)),
             quasis: quasis.iter().map(|q| q.cooked.clone()).collect(),
             expressions: expressions
                 .iter()
-                .map(|e| lower_expr(checked, e, super_class))
+                .map(|e| lower_expr(checked, ctx, e, super_class))
                 .collect(),
             ty: expr_ty(checked, *span),
         },
@@ -1885,7 +1924,7 @@ fn lower_expr(
         }
         AstExpr::Unary { op, arg, span } => Expr::Unary {
             op: *op,
-            arg: Box::new(lower_expr(checked, arg, super_class)),
+            arg: Box::new(lower_expr(checked, ctx, arg, super_class)),
             ty: expr_ty(checked, *span),
         },
         AstExpr::Binary {
@@ -1894,14 +1933,14 @@ fn lower_expr(
             right,
             span,
         } => Expr::Binary {
-            left: Box::new(lower_expr(checked, left, super_class)),
+            left: Box::new(lower_expr(checked, ctx, left, super_class)),
             op: *op,
-            right: Box::new(lower_expr(checked, right, super_class)),
+            right: Box::new(lower_expr(checked, ctx, right, super_class)),
             ty: expr_ty(checked, *span),
         },
         AstExpr::PrivateIn { name, object, span } => {
-            let brand = resolve_private_brand(&name.name);
-            let obj = lower_expr(checked, object, super_class);
+            let brand = resolve_private_brand(ctx, &name.name);
+            let obj = lower_expr(checked, ctx, object, super_class);
             let _ = span;
             private_in_check(brand, obj)
         }
@@ -1911,9 +1950,9 @@ fn lower_expr(
             alternate,
             span,
         } => Expr::Conditional {
-            test: Box::new(lower_expr(checked, test, super_class)),
-            consequent: Box::new(lower_expr(checked, consequent, super_class)),
-            alternate: Box::new(lower_expr(checked, alternate, super_class)),
+            test: Box::new(lower_expr(checked, ctx, test, super_class)),
+            consequent: Box::new(lower_expr(checked, ctx, consequent, super_class)),
+            alternate: Box::new(lower_expr(checked, ctx, alternate, super_class)),
             ty: expr_ty(checked, *span),
         },
         AstExpr::Assign {
@@ -1938,13 +1977,13 @@ fn lower_expr(
                     matches!(op, AssignOp::Eq),
                     "only simple `=` supported on private fields/accessors"
                 );
-                let obj = lower_expr(checked, object, super_class);
-                let rhs = lower_expr(checked, value, super_class);
-                if let Some(set_id) = PRIVATE_ACCESSORS.with(|p| {
-                    p.borrow()
-                        .get(&fname)
-                        .and_then(|(_, set)| *set)
-                }) {
+                let obj = lower_expr(checked, ctx, object, super_class);
+                let rhs = lower_expr(checked, ctx, value, super_class);
+                if let Some(set_id) = ctx
+                    .private_accessors
+                    .get(&fname)
+                    .and_then(|(_, set)| *set)
+                {
                     // `(setter.call(obj, v), v)`
                     let set_call =
                         private_fn_call(set_id, obj, vec![Arg::Expr(rhs.clone())]);
@@ -1955,12 +1994,11 @@ fn lower_expr(
                         ty: Type::Any,
                     };
                 }
-                let wm = PRIVATE_FIELDS.with(|p| {
-                    p.borrow()
-                        .get(&fname)
-                        .copied()
-                        .unwrap_or_else(|| panic!("unknown private field #{fname}"))
-                });
+                let wm = ctx
+                    .private_fields
+                    .get(&fname)
+                    .copied()
+                    .unwrap_or_else(|| panic!("unknown private field #{fname}"));
                 return private_field_set(wm, obj, rhs);
             }
             let target = match target.as_ref() {
@@ -1979,18 +2017,18 @@ fn lower_expr(
                     ..
                 } => {
                     let property = if *computed {
-                        lower_expr(checked, property, super_class)
+                        lower_expr(checked, ctx, property, super_class)
                     } else {
                         match property.as_ref() {
                             AstExpr::Ident(id) => Expr::String {
                                 value: id.name.clone().into(),
                                 ty: Type::String,
                             },
-                            other => lower_expr(checked, other, super_class),
+                            other => lower_expr(checked, ctx, other, super_class),
                         }
                     };
                     AssignTarget::Member {
-                        object: Box::new(lower_expr(checked, object, super_class)),
+                        object: Box::new(lower_expr(checked, ctx, object, super_class)),
                         property: Box::new(property),
                         computed: *computed,
                     }
@@ -1999,12 +2037,12 @@ fn lower_expr(
                     op: UnaryOp::Deref,
                     arg,
                     ..
-                } => AssignTarget::Deref(Box::new(lower_expr(checked, arg, super_class))),
+                } => AssignTarget::Deref(Box::new(lower_expr(checked, ctx, arg, super_class))),
                 AstExpr::ArrayPattern { elements, .. } => AssignTarget::ArrayPattern {
-                    elements: lower_array_pattern_els(checked, elements),
+                    elements: lower_array_pattern_els(checked, ctx, elements),
                 },
                 AstExpr::ObjectPattern { properties, .. } => AssignTarget::ObjectPattern {
-                    properties: lower_object_pattern_props(checked, properties),
+                    properties: lower_object_pattern_props(checked, ctx, properties),
                 },
                 _ => panic!(
                     "assign target must be ident, member, deref, array pattern, or object pattern after check"
@@ -2013,7 +2051,7 @@ fn lower_expr(
             Expr::Assign {
                 target,
                 op: *op,
-                value: Box::new(lower_expr(checked, value, super_class)),
+                value: Box::new(lower_expr(checked, ctx, value, super_class)),
                 ty: expr_ty(checked, *span),
             }
         }
@@ -2048,7 +2086,7 @@ fn lower_expr(
             if matches!(callee.as_ref(), AstExpr::Super { .. }) {
                 let parent_ast = super_class
                     .expect("`super(...)` requires `extends` on the enclosing class");
-                let parent = lower_expr(checked, parent_ast, None);
+                let parent = lower_expr(checked, ctx, parent_ast, None);
                 let call_member = Expr::Member {
                     object: Box::new(parent),
                     property: Box::new(Expr::String {
@@ -2062,7 +2100,7 @@ fn lower_expr(
                 let mut call_args = Vec::with_capacity(args.len() + 1);
                 call_args.push(Arg::Expr(Expr::This { ty: Type::Any }));
                 for a in args {
-                    call_args.push(lower_arg(checked, a, super_class));
+                    call_args.push(lower_arg(checked, ctx, a, super_class));
                 }
                 return Expr::Call {
                     callee: Box::new(call_member),
@@ -2083,7 +2121,7 @@ fn lower_expr(
                 if matches!(object.as_ref(), AstExpr::Super { .. }) {
                     let parent_ast = super_class
                         .expect("`super.prop` requires `extends` on the enclosing class");
-                    let parent = lower_expr(checked, parent_ast, None);
+                    let parent = lower_expr(checked, ctx, parent_ast, None);
                     let parent_proto = Expr::Member {
                         object: Box::new(parent),
                         property: Box::new(Expr::String {
@@ -2095,14 +2133,14 @@ fn lower_expr(
                         ty: Type::Any,
                     };
                     let prop = if *computed {
-                        lower_expr(checked, property, super_class)
+                        lower_expr(checked, ctx, property, super_class)
                     } else {
                         match property.as_ref() {
                             AstExpr::Ident(id) => Expr::String {
                                 value: id.name.clone().into(),
                                 ty: Type::String,
                             },
-                            other => lower_expr(checked, other, super_class),
+                            other => lower_expr(checked, ctx, other, super_class),
                         }
                     };
                     let method = Expr::Member {
@@ -2125,7 +2163,7 @@ fn lower_expr(
                     let mut call_args = Vec::with_capacity(args.len() + 1);
                     call_args.push(Arg::Expr(Expr::This { ty: Type::Any }));
                     for a in args {
-                        call_args.push(lower_arg(checked, a, super_class));
+                        call_args.push(lower_arg(checked, ctx, a, super_class));
                     }
                     return Expr::Call {
                         callee: Box::new(call_member),
@@ -2140,7 +2178,7 @@ fn lower_expr(
                         AstExpr::Ident(id) => id.name.clone(),
                         _ => panic!("private member property must be ident"),
                     };
-                    if let Some(fn_id) = PRIVATE_METHODS.with(|p| p.borrow().get(&fname).copied()) {
+                    if let Some(fn_id) = ctx.private_methods.get(&fname).copied() {
                         let call_member = Expr::Member {
                             object: Box::new(Expr::Local {
                                 id: fn_id,
@@ -2155,9 +2193,9 @@ fn lower_expr(
                             ty: Type::Function,
                         };
                         let mut call_args = Vec::with_capacity(args.len() + 1);
-                        call_args.push(Arg::Expr(lower_expr(checked, object, super_class)));
+                        call_args.push(Arg::Expr(lower_expr(checked, ctx, object, super_class)));
                         for a in args {
-                            call_args.push(lower_arg(checked, a, super_class));
+                            call_args.push(lower_arg(checked, ctx, a, super_class));
                         }
                         return Expr::Call {
                             callee: Box::new(call_member),
@@ -2169,10 +2207,10 @@ fn lower_expr(
                 }
             }
             Expr::Call {
-                callee: Box::new(lower_expr(checked, callee, super_class)),
+                callee: Box::new(lower_expr(checked, ctx, callee, super_class)),
                 args: args
                     .iter()
-                    .map(|a| lower_arg(checked, a, super_class))
+                    .map(|a| lower_arg(checked, ctx, a, super_class))
                     .collect(),
                 optional: *optional,
                 ty: expr_ty(checked, *span),
@@ -2183,10 +2221,10 @@ fn lower_expr(
             args,
             span,
         } => Expr::New {
-            callee: Box::new(lower_expr(checked, callee, super_class)),
+            callee: Box::new(lower_expr(checked, ctx, callee, super_class)),
             args: args
                 .iter()
-                .map(|a| lower_arg(checked, a, super_class))
+                .map(|a| lower_arg(checked, ctx, a, super_class))
                 .collect(),
             ty: expr_ty(checked, *span),
         },
@@ -2208,8 +2246,8 @@ fn lower_expr(
                     .map(|s| s.id)
                     .expect("function expression name must be declared")
             });
-            let params = lower_params(checked, params, None);
-            let body = lower_fn_body(checked, body, None);
+            let params = lower_params(checked, ctx, params, None);
+            let body = lower_fn_body(checked, ctx, body, None);
             Expr::Function {
                 name,
                 params,
@@ -2225,7 +2263,7 @@ fn lower_expr(
             super_class: sc,
             body,
             span,
-        } => lower_class_expression(checked, name.as_ref(), sc.as_deref(), body, *span),
+        } => lower_class_expression(checked, ctx, name.as_ref(), sc.as_deref(), body, *span),
         AstExpr::ArrowFunction {
             params,
             body,
@@ -2233,12 +2271,12 @@ fn lower_expr(
             span,
             ..
         } => {
-            let params = lower_params(checked, params, None);
+            let params = lower_params(checked, ctx, params, None);
             let body = match body {
-                draconic_ast::ArrowBody::Block(stmt) => lower_fn_body(checked, stmt, None),
+                draconic_ast::ArrowBody::Block(stmt) => lower_fn_body(checked, ctx, stmt, None),
                 draconic_ast::ArrowBody::Expr(expr) => {
                     vec![Stmt::Return {
-                        value: Some(lower_expr(checked, expr, None)),
+                        value: Some(lower_expr(checked, ctx, expr, None)),
                     }]
                 }
             };
@@ -2265,10 +2303,10 @@ fn lower_expr(
                                 ObjectPropKey::Static(s.value.clone())
                             }
                             draconic_ast::ObjectKey::Computed(expr) => {
-                                ObjectPropKey::Computed(lower_expr(checked, expr, super_class))
+                                ObjectPropKey::Computed(lower_expr(checked, ctx, expr, super_class))
                             }
                         },
-                        value: lower_expr(checked, value, super_class),
+                        value: lower_expr(checked, ctx, value, super_class),
                     },
                     AstObjectProp::Accessor {
                         kind,
@@ -2285,7 +2323,7 @@ fn lower_expr(
                                 ObjectPropKey::Static(s.value.clone())
                             }
                             draconic_ast::ObjectKey::Computed(expr) => {
-                                ObjectPropKey::Computed(lower_expr(checked, expr, super_class))
+                                ObjectPropKey::Computed(lower_expr(checked, ctx, expr, super_class))
                             }
                         };
                         ObjectProp::Accessor {
@@ -2293,8 +2331,8 @@ fn lower_expr(
                             key,
                             value: Expr::Function {
                                 name: None,
-                                params: lower_params(checked, params, super_class),
-                                body: lower_fn_body(checked, body, super_class),
+                                params: lower_params(checked, ctx, params, super_class),
+                                body: lower_fn_body(checked, ctx, body, super_class),
                                 is_async: false,
                                 is_generator: false,
                                 is_arrow: false,
@@ -2303,7 +2341,7 @@ fn lower_expr(
                         }
                     }
                     AstObjectProp::Spread { expr, .. } => {
-                        ObjectProp::Spread(lower_expr(checked, expr, super_class))
+                        ObjectProp::Spread(lower_expr(checked, ctx, expr, super_class))
                     }
                 })
                 .collect(),
@@ -2314,10 +2352,10 @@ fn lower_expr(
                 .iter()
                 .map(|el| match el {
                     AstArrayElement::Expr(e) => {
-                        ArrayElement::Expr(lower_expr(checked, e, super_class))
+                        ArrayElement::Expr(lower_expr(checked, ctx, e, super_class))
                     }
                     AstArrayElement::Spread(e) => {
-                        ArrayElement::Spread(lower_expr(checked, e, super_class))
+                        ArrayElement::Spread(lower_expr(checked, ctx, e, super_class))
                     }
                 })
                 .collect(),
@@ -2336,7 +2374,7 @@ fn lower_expr(
                     AstExpr::Ident(id) => id.name.clone(),
                     _ => panic!("private member property must be ident"),
                 };
-                if let Some(fn_id) = PRIVATE_METHODS.with(|p| p.borrow().get(&fname).copied()) {
+                if let Some(fn_id) = ctx.private_methods.get(&fname).copied() {
                     // Private method as value (unbound function).
                     let _ = object;
                     return Expr::Local {
@@ -2344,28 +2382,27 @@ fn lower_expr(
                         ty: Type::Function,
                     };
                 }
-                let obj = lower_expr(checked, object, super_class);
-                if let Some(get_id) = PRIVATE_ACCESSORS.with(|p| {
-                    p.borrow()
-                        .get(&fname)
-                        .and_then(|(get, _)| *get)
-                }) {
+                let obj = lower_expr(checked, ctx, object, super_class);
+                if let Some(get_id) = ctx
+                    .private_accessors
+                    .get(&fname)
+                    .and_then(|(get, _)| *get)
+                {
                     // Private getter: `getter.call(obj)`
                     return private_fn_call(get_id, obj, Vec::new());
                 }
-                let wm = PRIVATE_FIELDS.with(|p| {
-                    p.borrow()
-                        .get(&fname)
-                        .copied()
-                        .unwrap_or_else(|| panic!("unknown private field #{fname}"))
-                });
+                let wm = ctx
+                    .private_fields
+                    .get(&fname)
+                    .copied()
+                    .unwrap_or_else(|| panic!("unknown private field #{fname}"));
                 return private_field_get(wm, obj);
             }
             // `super.prop` → `Parent.prototype.prop`
             if matches!(object.as_ref(), AstExpr::Super { .. }) {
                 let parent_ast = super_class
                     .expect("`super.prop` requires `extends` on the enclosing class");
-                let parent = lower_expr(checked, parent_ast, None);
+                let parent = lower_expr(checked, ctx, parent_ast, None);
                 let parent_proto = Expr::Member {
                     object: Box::new(parent),
                     property: Box::new(Expr::String {
@@ -2377,14 +2414,14 @@ fn lower_expr(
                     ty: Type::Any,
                 };
                 let property = if *computed {
-                    lower_expr(checked, property, super_class)
+                    lower_expr(checked, ctx, property, super_class)
                 } else {
                     match property.as_ref() {
                         AstExpr::Ident(id) => Expr::String {
                             value: id.name.clone().into(),
                             ty: Type::String,
                         },
-                        other => lower_expr(checked, other, super_class),
+                        other => lower_expr(checked, ctx, other, super_class),
                     }
                 };
                 return Expr::Member {
@@ -2396,18 +2433,18 @@ fn lower_expr(
                 };
             }
             let property = if *computed {
-                lower_expr(checked, property, super_class)
+                lower_expr(checked, ctx, property, super_class)
             } else {
                 match property.as_ref() {
                     AstExpr::Ident(id) => Expr::String {
                         value: id.name.clone().into(),
                         ty: Type::String,
                     },
-                    other => lower_expr(checked, other, super_class),
+                    other => lower_expr(checked, ctx, other, super_class),
                 }
             };
             Expr::Member {
-                object: Box::new(lower_expr(checked, object, super_class)),
+                object: Box::new(lower_expr(checked, ctx, object, super_class)),
                 property: Box::new(property),
                 computed: *computed,
                 optional: *optional,
@@ -2419,20 +2456,22 @@ fn lower_expr(
 
 fn lower_params(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     params: &[draconic_ast::Param],
     super_class: Option<&AstExpr>,
 ) -> Vec<Param> {
-    params
-        .iter()
-        .map(|p| Param {
-            pattern: lower_binding_pattern(checked, &p.binding),
+    let mut out = Vec::with_capacity(params.len());
+    for p in params {
+        out.push(Param {
+            pattern: lower_binding_pattern(checked, ctx, &p.binding),
             default: p
                 .default
                 .as_ref()
-                .map(|e| lower_expr(checked, e, super_class)),
+                .map(|e| lower_expr(checked, ctx, e, super_class)),
             rest: p.rest,
-        })
-        .collect()
+        });
+    }
+    out
 }
 
 fn expr_ty(checked: &CheckedProgram, span: Span) -> Type {
@@ -2443,14 +2482,17 @@ fn expr_ty(checked: &CheckedProgram, span: Span) -> Type {
 
 fn lower_array_pattern_els(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     elements: &[ArrayPatternElement],
 ) -> Vec<ArrayPatternEl> {
-    elements
-        .iter()
-        .map(|el| match el {
+    let mut out = Vec::with_capacity(elements.len());
+    for el in elements {
+        out.push(match el {
             ArrayPatternElement::Pattern { binding, default } => ArrayPatternEl::Pattern {
-                binding: lower_binding_pattern(checked, binding),
-                default: default.as_ref().map(|d| lower_expr(checked, d, None)),
+                binding: lower_binding_pattern(checked, ctx, binding),
+                default: default
+                    .as_ref()
+                    .map(|d| lower_expr(checked, ctx, d, None)),
             },
             ArrayPatternElement::Rest(id) => {
                 let local = checked
@@ -2463,17 +2505,19 @@ fn lower_array_pattern_els(
                     .expect("rest binding must be declared or resolved");
                 ArrayPatternEl::Rest(local)
             }
-        })
-        .collect()
+        });
+    }
+    out
 }
 
 fn lower_object_pattern_props(
     checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
     properties: &[ObjectPatternProp],
 ) -> Vec<ObjectPatternEl> {
-    properties
-        .iter()
-        .map(|p| match p {
+    let mut out = Vec::with_capacity(properties.len());
+    for p in properties {
+        out.push(match p {
             ObjectPatternProp::Prop {
                 key,
                 binding,
@@ -2482,9 +2526,11 @@ fn lower_object_pattern_props(
                 ..
             } => ObjectPatternEl::Prop {
                 key: key.name.clone(),
-                binding: lower_binding_pattern(checked, binding),
+                binding: lower_binding_pattern(checked, ctx, binding),
                 shorthand: *shorthand,
-                default: default.as_ref().map(|d| lower_expr(checked, d, None)),
+                default: default
+                    .as_ref()
+                    .map(|d| lower_expr(checked, ctx, d, None)),
             },
             ObjectPatternProp::Rest(id) => {
                 let local = checked
@@ -2497,11 +2543,16 @@ fn lower_object_pattern_props(
                     .expect("rest binding must be declared or resolved");
                 ObjectPatternEl::Rest(local)
             }
-        })
-        .collect()
+        });
+    }
+    out
 }
 
-fn lower_binding_pattern(checked: &CheckedProgram, pat: &BindingPattern) -> Pattern {
+fn lower_binding_pattern(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    pat: &BindingPattern,
+) -> Pattern {
     match pat {
         BindingPattern::Ident(id) => {
             let local = checked
@@ -2515,10 +2566,10 @@ fn lower_binding_pattern(checked: &CheckedProgram, pat: &BindingPattern) -> Patt
             Pattern::Local(local)
         }
         BindingPattern::Array { elements, .. } => {
-            Pattern::Array(lower_array_pattern_els(checked, elements))
+            Pattern::Array(lower_array_pattern_els(checked, ctx, elements))
         }
         BindingPattern::Object { properties, .. } => {
-            Pattern::Object(lower_object_pattern_props(checked, properties))
+            Pattern::Object(lower_object_pattern_props(checked, ctx, properties))
         }
     }
 }
@@ -3575,5 +3626,83 @@ Module
             }
             other => panic!("unexpected postfix: {other:?}"),
         }
+    }
+
+
+    /// Repeated / nested lower must not share private-field bookkeeping (issues-15).
+    #[test]
+    fn lower_private_field_state_isolated_across_calls() {
+        let src_a = r#"
+            class A {
+                #x = 1;
+                getX() { return this.#x; }
+            }
+        "#;
+        let src_b = r#"
+            class B {
+                #y = 2;
+                getY() { return this.#y; }
+            }
+        "#;
+
+        let a1 = lower_src(src_a);
+        let b = lower_src(src_b);
+        let a2 = lower_src(src_a);
+
+        let wm_a1: Vec<_> = a1
+            .locals
+            .iter()
+            .filter(|l| l.name.contains("__drac_pf_"))
+            .map(|l| l.name.as_str())
+            .collect();
+        let wm_b: Vec<_> = b
+            .locals
+            .iter()
+            .filter(|l| l.name.contains("__drac_pf_"))
+            .map(|l| l.name.as_str())
+            .collect();
+        let wm_a2: Vec<_> = a2
+            .locals
+            .iter()
+            .filter(|l| l.name.contains("__drac_pf_"))
+            .map(|l| l.name.as_str())
+            .collect();
+
+        assert_eq!(wm_a1.len(), 1, "A should allocate one private-field WeakMap");
+        assert_eq!(wm_b.len(), 1, "B should allocate one private-field WeakMap");
+        assert_eq!(wm_a2.len(), 1, "second A lower should allocate one WeakMap");
+        assert!(wm_a1[0].contains("x"), "A WeakMap name should mention x: {}", wm_a1[0]);
+        assert!(wm_b[0].contains("y"), "B WeakMap name should mention y: {}", wm_b[0]);
+        assert_ne!(wm_a1[0], wm_b[0]);
+        assert_eq!(wm_a1[0], wm_a2[0]);
+        assert_eq!(dump_module(&a1), dump_module(&a2));
+    }
+
+    #[test]
+    fn lower_nested_classes_private_fields_do_not_clobber() {
+        let module = lower_src(
+            r#"
+            class Outer {
+                #o = 1;
+                inner() {
+                    class Inner {
+                        #i = 2;
+                        getI() { return this.#i; }
+                    }
+                    return new Inner();
+                }
+                getO() { return this.#o; }
+            }
+        "#,
+        );
+        let pfs: Vec<_> = module
+            .locals
+            .iter()
+            .filter(|l| l.name.starts_with("__drac_pf_"))
+            .map(|l| l.name.as_str())
+            .collect();
+        assert_eq!(pfs.len(), 2, "outer and inner each need a WeakMap: {pfs:?}");
+        assert!(pfs.iter().any(|n| n.contains("o")), "{pfs:?}");
+        assert!(pfs.iter().any(|n| n.contains("i")), "{pfs:?}");
     }
 }
