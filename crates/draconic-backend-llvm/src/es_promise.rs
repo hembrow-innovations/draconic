@@ -1,4 +1,4 @@
-//! N06.03–N06.04: lower Promise constructor/statics/catch to Runtime ABI.
+//! N06.03–N06.05: lower Promise constructor/statics/catch/finally to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -9,7 +9,7 @@ use draconic_ir::{
     Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt,
 };
 
-/// True when this module is the supported Promise subset (E12.01–E12.02 / N06.03–N06.04).
+/// True when this module is the supported Promise subset (E12.01–E12.03 / N06.03–N06.05).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -211,7 +211,7 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             };
             let prop = value.to_string_lossy();
             match prop.as_ref() {
-                "then" | "catch" => {
+                "then" | "catch" | "finally" => {
                     *uses = true;
                     Ok(())
                 }
@@ -316,7 +316,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03–N06.04 Promise via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.05 Promise via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
@@ -342,6 +342,11 @@ impl<'a> Emitter<'a> {
         writeln!(
             self.out,
             "declare ptr @draconic_rt_promise_then(ptr, ptr, ptr, ptr, ptr)"
+        )
+        .ok();
+        writeln!(
+            self.out,
+            "declare ptr @draconic_rt_promise_finally(ptr, ptr, ptr)"
         )
         .ok();
         writeln!(self.out).ok();
@@ -638,7 +643,7 @@ impl<'a> Emitter<'a> {
                 return self.string_const("function");
             }
         }
-        // typeof Promise.resolve / Promise.reject → "function"
+        // typeof Promise.resolve / Promise.reject / p.then|catch|finally → "function"
         if let Expr::Member {
             object,
             property,
@@ -648,14 +653,21 @@ impl<'a> Emitter<'a> {
         } = arg
         {
             if !*optional && !*computed {
-                if let (Expr::Local { id, .. }, Expr::String { value, .. }) =
-                    (object.as_ref(), property.as_ref())
-                {
-                    if Some(*id) == self.info.promise_id {
-                        let prop = value.to_string_lossy();
-                        if prop == "resolve" || prop == "reject" {
+                if let Expr::String { value, .. } = property.as_ref() {
+                    let prop = value.to_string_lossy();
+                    match prop.as_ref() {
+                        "resolve" | "reject" => {
+                            if let Expr::Local { id, .. } = object.as_ref() {
+                                if Some(*id) == self.info.promise_id {
+                                    return self.string_const("function");
+                                }
+                            }
+                        }
+                        "then" | "catch" | "finally" => {
+                            let _ = self.emit_expr(object)?;
                             return self.string_const("function");
                         }
+                        _ => {}
                     }
                 }
             }
@@ -804,6 +816,26 @@ impl<'a> Emitter<'a> {
                     writeln!(
                         self.body,
                         "  {t} = call ptr @draconic_rt_promise_then(ptr {p}, ptr null, ptr null, ptr @{name}, ptr {data})"
+                    )
+                    .ok();
+                    return Ok(t);
+                }
+                "finally" => {
+                    if args.len() != 1 {
+                        return Err(diag("finally expects 1 argument"));
+                    }
+                    let p = self.emit_expr(object)?;
+                    let Arg::Expr(f0) = &args[0] else {
+                        return Err(diag("spread not supported"));
+                    };
+                    let Expr::Function { params, body, .. } = f0 else {
+                        return Err(diag("finally callback must be function expression"));
+                    };
+                    let (name, data) = self.emit_reaction_fn(params, body)?;
+                    let t = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {t} = call ptr @draconic_rt_promise_finally(ptr {p}, ptr @{name}, ptr {data})"
                     )
                     .ok();
                     return Ok(t);

@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.03); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.05); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -118,8 +118,10 @@ pub const PROMISE_REJECT_SYMBOL: &str = "draconic_rt_promise_reject";
 pub const PROMISE_THEN_SYMBOL: &str = "draconic_rt_promise_then";
 /// C ABI: `new Promise(executor)` — construct + invoke executor with settle caps (N06.03).
 pub const PROMISE_CONSTRUCT_SYMBOL: &str = "draconic_rt_promise_construct";
+/// C ABI: `Promise.prototype.finally` — pass-through settle after side-effect callback (N06.05).
+pub const PROMISE_FINALLY_SYMBOL: &str = "draconic_rt_promise_finally";
 
-/// Promise ABI symbols (N06.02–N06.03).
+/// Promise ABI symbols (N06.02–N06.05).
 pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_NEW_SYMBOL,
     IS_PROMISE_SYMBOL,
@@ -129,6 +131,7 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_REJECT_SYMBOL,
     PROMISE_THEN_SYMBOL,
     PROMISE_CONSTRUCT_SYMBOL,
+    PROMISE_FINALLY_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -919,6 +922,126 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "construct-ok\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn promise_finally_pass_through_via_job_queue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_promise_finally");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+
+            static int g_fulfilled_side;
+            static int g_rejected_side;
+            static int g_resolved;
+            static int g_caught;
+
+            static void *on_fulfilled_side(void *data, void *value) {
+                (void)data; (void)value;
+                g_fulfilled_side = 1;
+                return (void *)(intptr_t)999;
+            }
+
+            static void *on_rejected_side(void *data, void *reason) {
+                (void)data; (void)reason;
+                g_rejected_side = 1;
+                return (void *)(intptr_t)888;
+            }
+
+            static void *on_resolve(void *data, void *value) {
+                (void)data;
+                g_resolved = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_catch(void *data, void *reason) {
+                (void)data;
+                g_caught = (int)(intptr_t)reason;
+                return reason;
+            }
+
+            int main(void) {
+                DraconicValue *p = draconic_rt_promise_new();
+                DraconicValue *pf = draconic_rt_promise_finally(p, on_fulfilled_side, NULL);
+                (void)draconic_rt_promise_then(pf, on_resolve, NULL, NULL, NULL);
+                draconic_rt_promise_resolve(p, (void *)(intptr_t)42);
+                draconic_rt_job_drain();
+                if (g_fulfilled_side != 1) {
+                    fprintf(stderr, "fulfilled side want 1 got %d\n", g_fulfilled_side);
+                    return 1;
+                }
+                if (g_resolved != 42) {
+                    fprintf(stderr, "resolved want 42 got %d (callback return must not replace)\n", g_resolved);
+                    return 2;
+                }
+
+                DraconicValue *q = draconic_rt_promise_new();
+                DraconicValue *qf = draconic_rt_promise_finally(q, on_rejected_side, NULL);
+                (void)draconic_rt_promise_then(qf, NULL, NULL, on_catch, NULL);
+                draconic_rt_promise_reject(q, (void *)(intptr_t)7);
+                draconic_rt_job_drain();
+                if (g_rejected_side != 1) {
+                    fprintf(stderr, "rejected side want 1 got %d\n", g_rejected_side);
+                    return 3;
+                }
+                if (g_caught != 7) {
+                    fprintf(stderr, "caught want 7 got %d\n", g_caught);
+                    return 4;
+                }
+
+                /* already settled */
+                g_fulfilled_side = 0;
+                g_resolved = 0;
+                DraconicValue *r = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(r, (void *)(intptr_t)11);
+                DraconicValue *rf = draconic_rt_promise_finally(r, on_fulfilled_side, NULL);
+                (void)draconic_rt_promise_then(rf, on_resolve, NULL, NULL, NULL);
+                draconic_rt_job_drain();
+                if (g_fulfilled_side != 1 || g_resolved != 11) {
+                    fprintf(stderr, "settled finally failed side=%d resolved=%d\n",
+                        g_fulfilled_side, g_resolved);
+                    return 5;
+                }
+
+                draconic_rt_print_str("finally-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link promise finally test");
+
+        let output = Command::new(&bin).output().expect("run rt_promise_finally");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "finally binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "finally-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

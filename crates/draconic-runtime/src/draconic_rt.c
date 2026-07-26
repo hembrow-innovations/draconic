@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (N05–N06.03). Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05–N06.05). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -53,6 +53,7 @@ struct DraconicPromiseReaction {
     DraconicPromiseReactionFn on_rejected;
     void *reject_data;
     struct DraconicValue *derived;
+    int finally_mode; /* N06.05: both paths run one callback; pass through settle */
     DraconicPromiseReaction *next;
 };
 
@@ -317,7 +318,8 @@ typedef struct {
     DraconicPromiseReactionFn fn;
     void *data;
     void *arg;
-    int reject_passthrough; /* fn == NULL on reject path → reject derived */
+    int reject_passthrough; /* no handler on reject → reject derived with arg */
+    int finally_pass; /* call fn for side effects; settle derived with original arg */
     DraconicValue *derived;
 } PromiseReactionJob;
 
@@ -328,7 +330,16 @@ static void promise_reaction_job(void *data) {
         free(job);
         return;
     }
-    if (job->fn) {
+    if (job->finally_pass) {
+        if (job->fn) {
+            (void)job->fn(job->data, job->arg);
+        }
+        if (job->reject_passthrough) {
+            draconic_rt_promise_reject(derived, job->arg);
+        } else {
+            draconic_rt_promise_resolve(derived, job->arg);
+        }
+    } else if (job->fn) {
         void *out = job->fn(job->data, job->arg);
         draconic_rt_promise_resolve(derived, out);
     } else if (job->reject_passthrough) {
@@ -355,6 +366,28 @@ static void enqueue_promise_reaction(
     job->data = data;
     job->arg = arg;
     job->reject_passthrough = reject_passthrough;
+    job->finally_pass = 0;
+    job->derived = derived;
+    draconic_rt_job_enqueue(promise_reaction_job, job);
+}
+
+static void enqueue_promise_finally_reaction(
+    DraconicPromiseReactionFn fn,
+    void *data,
+    void *arg,
+    int is_reject,
+    DraconicValue *derived
+) {
+    PromiseReactionJob *job = (PromiseReactionJob *)calloc(1, sizeof(PromiseReactionJob));
+    if (!job) {
+        fprintf(stderr, "draconic_rt: promise finally OOM\n");
+        abort();
+    }
+    job->fn = fn;
+    job->data = data;
+    job->arg = arg;
+    job->reject_passthrough = is_reject ? 1 : 0;
+    job->finally_pass = 1;
     job->derived = derived;
     draconic_rt_job_enqueue(promise_reaction_job, job);
 }
@@ -375,7 +408,15 @@ static void promise_settle(DraconicValue *p, int state, void *result) {
 
     while (r) {
         DraconicPromiseReaction *next = r->next;
-        if (state == DRACONIC_PROMISE_FULFILLED) {
+        if (r->finally_mode) {
+            enqueue_promise_finally_reaction(
+                r->on_fulfilled,
+                r->fulfill_data,
+                result,
+                state == DRACONIC_PROMISE_REJECTED ? 1 : 0,
+                r->derived
+            );
+        } else if (state == DRACONIC_PROMISE_FULFILLED) {
             enqueue_promise_reaction(
                 r->on_fulfilled,
                 r->fulfill_data,
@@ -464,6 +505,7 @@ DraconicValue *draconic_rt_promise_then(
         r->on_rejected = on_rejected;
         r->reject_data = reject_data;
         r->derived = derived;
+        r->finally_mode = 0;
         r->next = NULL;
         if (p->as.promise.reactions_tail) {
             p->as.promise.reactions_tail->next = r;
@@ -523,4 +565,54 @@ DraconicValue *draconic_rt_promise_construct(
         (void *)p
     );
     return p;
+}
+
+/* --- Promise.prototype.finally (N06.05) --- */
+
+DraconicValue *draconic_rt_promise_finally(
+    DraconicValue *p,
+    DraconicPromiseReactionFn on_finally,
+    void *data
+) {
+    DraconicValue *derived = draconic_rt_promise_new();
+    if (!derived) {
+        return NULL;
+    }
+    if (!p || p->tag != DRACONIC_TAG_PROMISE) {
+        draconic_rt_promise_reject(derived, NULL);
+        return derived;
+    }
+
+    int state = p->as.promise.state;
+    if (state == DRACONIC_PROMISE_PENDING) {
+        DraconicPromiseReaction *r =
+            (DraconicPromiseReaction *)calloc(1, sizeof(DraconicPromiseReaction));
+        if (!r) {
+            fprintf(stderr, "draconic_rt: promise_finally OOM\n");
+            abort();
+        }
+        r->on_fulfilled = on_finally;
+        r->fulfill_data = data;
+        r->on_rejected = on_finally;
+        r->reject_data = data;
+        r->derived = derived;
+        r->finally_mode = 1;
+        r->next = NULL;
+        if (p->as.promise.reactions_tail) {
+            p->as.promise.reactions_tail->next = r;
+        } else {
+            p->as.promise.reactions_head = r;
+        }
+        p->as.promise.reactions_tail = r;
+        return derived;
+    }
+
+    enqueue_promise_finally_reaction(
+        on_finally,
+        data,
+        p->as.promise.result,
+        state == DRACONIC_PROMISE_REJECTED ? 1 : 0,
+        derived
+    );
+    return derived;
 }

@@ -1,4 +1,4 @@
-/* Draconic Native Runtime C ABI (N05–N06.03: GC, job queue, Promise + executor). */
+/* Draconic Native Runtime C ABI (N05–N06.05: GC, job queue, Promise + finally). */
 #ifndef DRACONIC_RT_H
 #define DRACONIC_RT_H
 
@@ -76,6 +76,14 @@ typedef void (*DraconicPromiseExecutorFn)(
 /* Create a pending Promise and invoke `executor` with resolve/reject caps. */
 DraconicValue *draconic_rt_promise_construct(
     DraconicPromiseExecutorFn executor,
+    void *data);
+
+/* --- Promise.prototype.finally (N06.05) --- */
+/* Run `on_finally` on settle; pass through fulfillment value or rejection reason.
+   Callback return is ignored (simple subset; thenables/throws deferred). */
+DraconicValue *draconic_rt_promise_finally(
+    DraconicValue *p,
+    DraconicPromiseReactionFn on_finally,
     void *data);
 
 #ifdef __cplusplus

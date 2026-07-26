@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.04 Promise).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.05 Promise).
 
 mod es_promise;
 mod native_ints;
@@ -482,6 +482,63 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "function\nfunction\n42\n7\n9\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_promise_finally_prints_after_drain() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let tFinally = typeof Promise.resolve(1).finally;
+            let fulfilledSide = 0;
+            let rejectedSide = 0;
+            let resolved = 0;
+            let caught = 0;
+            let p = Promise.resolve(42);
+            p.finally(function () {
+              fulfilledSide = 1;
+            }).then(function (v) {
+              resolved = v;
+            });
+            let q = Promise.reject(7);
+            q.finally(function () {
+              rejectedSide = 1;
+            }).catch(function (e) {
+              caught = e;
+            });
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "Promise finally must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_finally"),
+            "should finally via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_then"),
+            "should then/catch via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_job_drain"),
+            "should drain jobs before observe:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n06-promise-finally").expect("workdir");
+        let bin = dir.join("promise_finally");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "function\n1\n1\n42\n7\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
