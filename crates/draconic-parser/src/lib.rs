@@ -648,16 +648,10 @@ impl Parser {
                 .map(|v| expr_span(v).end.0)
                 .unwrap_or(name.span.end.0);
             let span = Span::new(start, end);
-            if is_static {
-                return Err(Diagnostic::new(
-                    "static private fields are not supported yet".to_string(),
-                    span,
-                ));
-            }
             return Ok(ClassElement::Field {
                 name,
                 value,
-                is_static: false,
+                is_static,
                 is_private: true,
                 span,
             });

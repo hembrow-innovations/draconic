@@ -867,7 +867,7 @@ fn lower_class_local(
         bool,
     )> = Vec::new();
     let mut instance_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
-    let mut static_fields: Vec<(&Ident, Option<&AstExpr>)> = Vec::new();
+    let mut static_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
 
     for el in elements {
         match el {
@@ -918,7 +918,7 @@ fn lower_class_local(
             } => {
                 let v = value.as_ref();
                 if *is_static {
-                    static_fields.push((field_name, v));
+                    static_fields.push((field_name, v, *is_private));
                 } else {
                     instance_fields.push((field_name, v, *is_private));
                 }
@@ -926,12 +926,12 @@ fn lower_class_local(
         }
     }
 
-    // WeakMap per private instance field (E18.35).
+    // WeakMap per private field (E18.35 instance; E18.36 static — class as key).
     let mut private_map: HashMap<String, LocalId> = HashMap::new();
     let mut private_wm_decls: Vec<Stmt> = Vec::new();
-    for (fname, _, is_private) in &instance_fields {
-        if !*is_private {
-            continue;
+    let mut add_private_wm = |fname: &Ident| {
+        if private_map.contains_key(&fname.name) {
+            return;
         }
         let wm_name = format!("__drac_pf_{}_{}", local.0, fname.name);
         let wm_id = alloc_synthetic_local(wm_name, Type::Any);
@@ -948,6 +948,16 @@ fn lower_class_local(
             }),
             kind: BindingKind::Let,
         });
+    };
+    for (fname, _, is_private) in &instance_fields {
+        if *is_private {
+            add_private_wm(fname);
+        }
+    }
+    for (fname, _, is_private) in &static_fields {
+        if *is_private {
+            add_private_wm(fname);
+        }
     }
 
     let prev_privates = PRIVATE_FIELDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_map));
@@ -1232,7 +1242,7 @@ fn lower_class_local(
     }
 
     // Static fields run after the class definition is fully linked.
-    for (fname, value) in static_fields {
+    for (fname, value, is_private) in static_fields {
         let init = match value {
             Some(v) => lower_expr(checked, v, None),
             None => Expr::IdentName {
@@ -1240,24 +1250,59 @@ fn lower_class_local(
                 ty: Type::Any,
             },
         };
-        out.push(Stmt::Expr {
-            expr: Expr::Assign {
-                target: AssignTarget::Member {
-                    object: Box::new(Expr::Local {
-                        id: local,
+        if is_private {
+            let wm = PRIVATE_FIELDS.with(|p| {
+                *p.borrow()
+                    .get(&fname.name)
+                    .expect("static private field WeakMap")
+            });
+            // wm.set(Class, init)
+            out.push(Stmt::Expr {
+                expr: Expr::Call {
+                    callee: Box::new(Expr::Member {
+                        object: Box::new(Expr::Local {
+                            id: wm,
+                            ty: Type::Any,
+                        }),
+                        property: Box::new(Expr::String {
+                            value: "set".into(),
+                            ty: Type::String,
+                        }),
+                        computed: false,
+                        optional: false,
                         ty: Type::Function,
                     }),
-                    property: Box::new(Expr::String {
-                        value: fname.name.clone().into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
+                    args: vec![
+                        Arg::Expr(Expr::Local {
+                            id: local,
+                            ty: Type::Function,
+                        }),
+                        Arg::Expr(init),
+                    ],
+                    optional: false,
+                    ty: Type::Any,
                 },
-                op: AssignOp::Eq,
-                value: Box::new(init),
-                ty: Type::Any,
-            },
-        });
+            });
+        } else {
+            out.push(Stmt::Expr {
+                expr: Expr::Assign {
+                    target: AssignTarget::Member {
+                        object: Box::new(Expr::Local {
+                            id: local,
+                            ty: Type::Function,
+                        }),
+                        property: Box::new(Expr::String {
+                            value: fname.name.clone().into(),
+                            ty: Type::String,
+                        }),
+                        computed: false,
+                    },
+                    op: AssignOp::Eq,
+                    value: Box::new(init),
+                    ty: Type::Any,
+                },
+            });
+        }
     }
 
     PRIVATE_FIELDS.with(|p| *p.borrow_mut() = prev_privates);

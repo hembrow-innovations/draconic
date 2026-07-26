@@ -1,0 +1,60 @@
+class Counter {
+  static #n = 0;
+  static #tag;
+  static inc() {
+    Counter.#n = Counter.#n + 1;
+  }
+  static value() {
+    return Counter.#n;
+  }
+  static tagType() {
+    return typeof Counter.#tag;
+  }
+  static setN(v) {
+    Counter.#n = v;
+  }
+}
+Counter.inc();
+Counter.inc();
+let a = Counter.value();
+let b = Counter.tagType();
+Counter.setN(10);
+let c = Counter.value();
+let d = typeof Counter.n;
+let e = typeof new Counter().n;
+
+class WithThis {
+  static #x = 1;
+  static bump() {
+    this.#x = this.#x + 2;
+    return this.#x;
+  }
+  static get() {
+    return this.#x;
+  }
+}
+let f = WithThis.bump();
+let g = WithThis.get();
+
+class Box {
+  static #v = 1 + 2 * 3;
+  static get() {
+    return Box.#v;
+  }
+}
+let h = Box.get();
+
+class Parent {
+  static #base = 100;
+  static base() {
+    return Parent.#base;
+  }
+}
+class Child extends Parent {
+  static #extra = 1;
+  static total() {
+    return Parent.base() + Child.#extra;
+  }
+}
+let i = Child.total();
+let j = Parent.base();
