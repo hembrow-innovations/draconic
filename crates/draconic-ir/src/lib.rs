@@ -386,6 +386,12 @@ pub enum AssignTarget {
 pub enum UpdateTarget {
     Local(LocalId),
     Name(String),
+    /// Property update `obj.prop++` / `obj[k]++` (E19.13).
+    Member {
+        object: Box<Expr>,
+        property: Box<Expr>,
+        computed: bool,
+    },
 }
 
 /// One element of an array destructuring pattern in IR.
@@ -2075,13 +2081,39 @@ fn lower_expr(
             prefix,
             span,
         } => {
-            let AstExpr::Ident(id) = arg.as_ref() else {
-                panic!("update target must be ident after check");
-            };
-            let target = if let Some(local) = checked.bound.resolve(id.span) {
-                UpdateTarget::Local(local)
-            } else {
-                UpdateTarget::Name(id.name.clone())
+            let target = match arg.as_ref() {
+                AstExpr::Ident(id) => {
+                    if let Some(local) = checked.bound.resolve(id.span) {
+                        UpdateTarget::Local(local)
+                    } else {
+                        UpdateTarget::Name(id.name.clone())
+                    }
+                }
+                AstExpr::MemberExpression {
+                    object,
+                    property,
+                    computed,
+                    private: false,
+                    ..
+                } => {
+                    let property = if *computed {
+                        lower_expr(checked, ctx, property, super_class)
+                    } else {
+                        match property.as_ref() {
+                            AstExpr::Ident(id) => Expr::String {
+                                value: id.name.clone().into(),
+                                ty: Type::String,
+                            },
+                            other => lower_expr(checked, ctx, other, super_class),
+                        }
+                    };
+                    UpdateTarget::Member {
+                        object: Box::new(lower_expr(checked, ctx, object, super_class)),
+                        property: Box::new(property),
+                        computed: *computed,
+                    }
+                }
+                _ => panic!("update target must be ident or member after check"),
             };
             Expr::Update {
                 op: *op,
@@ -3178,6 +3210,19 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                 UpdateTarget::Name(name) => {
                     out.push_str(&format!("Update {kind} {op} {name} : {ty}\n"));
                 }
+                UpdateTarget::Member {
+                    object,
+                    property,
+                    computed,
+                } => {
+                    out.push_str(&format!("Update {kind} {op} Member : {ty}\n"));
+                    dump_expr(object, level + 1, out);
+                    if *computed {
+                        dump_expr(property, level + 1, out);
+                    } else {
+                        dump_expr(property, level + 1, out);
+                    }
+                }
             }
         }
         Expr::Call {
@@ -3678,6 +3723,42 @@ Module
                 assert_eq!(*ty, Type::Number);
             }
             other => panic!("unexpected postfix: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lower_update_on_member() {
+        let module = lower_src("let o = { x: 1 }; o.x++; ++o[\"x\"];");
+        match &module.body[1] {
+            Stmt::Expr {
+                expr:
+                    Expr::Update {
+                        op,
+                        target: UpdateTarget::Member { computed, .. },
+                        prefix,
+                        ty,
+                    },
+            } => {
+                assert_eq!(*op, UpdateOp::Inc);
+                assert!(!*computed);
+                assert!(!*prefix);
+                assert_eq!(*ty, Type::Number);
+            }
+            other => panic!("unexpected member postfix: {other:?}"),
+        }
+        match &module.body[2] {
+            Stmt::Expr {
+                expr:
+                    Expr::Update {
+                        target: UpdateTarget::Member { computed, .. },
+                        prefix,
+                        ..
+                    },
+            } => {
+                assert!(*computed);
+                assert!(*prefix);
+            }
+            other => panic!("unexpected member prefix: {other:?}"),
         }
     }
 

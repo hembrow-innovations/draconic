@@ -480,19 +480,29 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
             ..
         } => {
             out.push('(');
-            let name = match target {
-                draconic_ir::UpdateTarget::Local(id) => local_name(names, *id),
-                draconic_ir::UpdateTarget::Name(n) => n.as_str(),
-            };
             let op_s = match op {
                 UpdateOp::Inc => "++",
                 UpdateOp::Dec => "--",
             };
             if *prefix {
                 out.push_str(op_s);
-                out.push_str(name);
-            } else {
-                out.push_str(name);
+            }
+            match target {
+                draconic_ir::UpdateTarget::Local(id) => {
+                    out.push_str(local_name(names, *id));
+                }
+                draconic_ir::UpdateTarget::Name(n) => {
+                    out.push_str(n);
+                }
+                draconic_ir::UpdateTarget::Member {
+                    object,
+                    property,
+                    computed,
+                } => {
+                    emit_member_access(out, object, property, *computed, false, names);
+                }
+            }
+            if !*prefix {
                 out.push_str(op_s);
             }
             out.push(')');

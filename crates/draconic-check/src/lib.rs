@@ -2762,27 +2762,35 @@ impl<'a> Checker<'a> {
                             BindingKind::Let | BindingKind::Var => {}
                         }
                         let left_ty = self.symbol_types[sym.0 as usize];
-                        // E19.04: ++/-- apply ToNumber; BigInt stays BigInt; native ints ok.
-                        let ok = left_ty == Type::BigInt
-                            || matches!(left_ty, Type::Native(n) if n.is_int())
-                            || self.is_js_to_number_operand(left_ty);
-                        if !ok {
-                            return Err(Diagnostic::new(
-                                format!("update operator cannot be applied to type `{left_ty}`"),
-                                *span,
-                            ));
-                        }
+                        let out = self.check_update_operand(left_ty, *span)?;
                         if left_ty == Type::Any {
-                            self.symbol_types[sym.0 as usize] = Type::Number;
+                            self.symbol_types[sym.0 as usize] = out;
                         }
-                        let out = if matches!(left_ty, Type::Native(_)) {
-                            left_ty
-                        } else if left_ty == Type::BigInt {
-                            Type::BigInt
-                        } else {
-                            Type::Number
-                        };
                         self.record(id.span, out);
+                        self.record(*span, out);
+                        return Ok(out);
+                    }
+                    // E19.13: property ++/-- (ToNumber via valueOf/toString at runtime).
+                    Expr::MemberExpression {
+                        object,
+                        property,
+                        computed,
+                        ..
+                    } => {
+                        let obj_ty = self.check_expr(object)?;
+                        let left_ty = if *computed {
+                            self.check_expr(property)?;
+                            if let Some(idx) = Self::const_index_key(property) {
+                                self.prop_type(obj_ty, &idx).unwrap_or(Type::Any)
+                            } else {
+                                Type::Any
+                            }
+                        } else if let Expr::Ident(id) = property.as_ref() {
+                            self.prop_type(obj_ty, &id.name).unwrap_or(Type::Any)
+                        } else {
+                            Type::Any
+                        };
+                        let out = self.check_update_operand(left_ty, *span)?;
                         self.record(*span, out);
                         return Ok(out);
                     }
@@ -2810,7 +2818,8 @@ impl<'a> Checker<'a> {
                     }
                 }
                 let result_ty = match callee_ty {
-                    Type::Any | Type::Function => Type::Any,
+                    // E19.13: Object/Shape may or may not have [[Call]]; TypeError is runtime.
+                    Type::Any | Type::Function | Type::Object | Type::Shape(_) => Type::Any,
                     Type::GenericFn(gid) => self.instantiate_generic_call(gid, &arg_tys, *span)?,
                     _ => {
                         return Err(Diagnostic::new(
@@ -4186,6 +4195,26 @@ impl<'a> Checker<'a> {
         )
     }
 
+    /// E19.04 / E19.13: `++`/`--` apply ToNumber (objects via valueOf/toString); BigInt stays BigInt.
+    fn check_update_operand(&self, left_ty: Type, span: Span) -> Result<Type, Diagnostic> {
+        let ok = left_ty == Type::BigInt
+            || matches!(left_ty, Type::Native(n) if n.is_int())
+            || self.is_js_to_number_operand(left_ty);
+        if !ok {
+            return Err(Diagnostic::new(
+                format!("update operator cannot be applied to type `{left_ty}`"),
+                span,
+            ));
+        }
+        Ok(if matches!(left_ty, Type::Native(_)) {
+            left_ty
+        } else if left_ty == Type::BigInt {
+            Type::BigInt
+        } else {
+            Type::Number
+        })
+    }
+
     /// E19.07: BigInt or JS value that may mix with BigInt at runtime (TypeError / ToPrimitive).
     fn is_js_bigint_mixed_operand(&self, ty: Type) -> bool {
         ty == Type::BigInt || self.is_js_to_number_operand(ty)
@@ -4584,14 +4613,10 @@ mod tests {
     }
 
     #[test]
-    fn check_proxy_of_object_is_not_callable() {
-        let program = parse("let p = new Proxy({}, {}); p();").unwrap();
-        let err = check(program).unwrap_err();
-        assert!(
-            err.message.contains("not callable"),
-            "unexpected message: {}",
-            err.message
-        );
+    fn check_proxy_of_object_call_typechecks() {
+        // E19.13: Object/Proxy callability is a runtime [[Call]] check, not compile reject.
+        let program = parse("let p = new Proxy({}, {}); try { p(); } catch (e) {}").unwrap();
+        check(program).expect("calling Proxy of object should typecheck");
     }
 
     #[test]
@@ -5575,6 +5600,53 @@ mod tests {
             "unexpected message: {}",
             err.message
         );
+    }
+
+    // E19.13: ++/-- and call on ToPrimitive / object values — runtime ToNumber/[[Call]], not compile reject.
+    #[test]
+    fn check_update_on_object_to_primitive() {
+        let program = parse(
+            r#"
+            let o = { valueOf: function () { return 1; } };
+            o++;
+            ++o;
+            let f = function () { return 1; };
+            f++;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("update on object/function should typecheck (ToNumber)");
+    }
+
+    #[test]
+    fn check_update_on_member_to_primitive() {
+        let program = parse(
+            r#"
+            let o = { x: 1, y: true };
+            o.x++;
+            ++o["y"];
+            let a = [0];
+            a[0]++;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("update on property should typecheck");
+    }
+
+    #[test]
+    fn check_call_on_object_typechecks() {
+        let program = parse(
+            r#"
+            let o = {};
+            try { o(); } catch (e) {}
+            try { Math(); } catch (e) {}
+            try { new Boolean(true)(); } catch (e) {}
+            let b = new Boolean(true);
+            try { b(); } catch (e) {}
+            "#,
+        )
+        .unwrap();
+        check(program).expect("calling object should typecheck; [[Call]] is runtime");
     }
 
     #[test]

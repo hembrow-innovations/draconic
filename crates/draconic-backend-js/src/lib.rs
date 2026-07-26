@@ -579,6 +579,12 @@ mod tests {
     }
 
     #[test]
+    fn emit_update_on_property() {
+        let js = emit_src("let o = { a: 1 }; o.a++; ++o[\"a\"];");
+        assert_eq!(js, "let o = {a: 1};\n((o).a++);\n(++(o)[\"a\"]);\n");
+    }
+
+    #[test]
     fn emit_empty_program() {
         assert_eq!(emit_src(""), "");
     }
