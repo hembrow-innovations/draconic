@@ -618,12 +618,18 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
             right,
             body,
             span,
+        } => {
+            *span = spans.next();
+            uniqueify_stmt_spans(left, spans);
+            uniqueify_expr_spans(right, spans);
+            uniqueify_stmt_spans(body, spans);
         }
-        | Stmt::ForOf {
+        Stmt::ForOf {
             left,
             right,
             body,
             span,
+            ..
         } => {
             *span = spans.next();
             uniqueify_stmt_spans(left, spans);

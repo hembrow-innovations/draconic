@@ -436,3 +436,13 @@ fn static_blocks_fixture_present() {
 fn static_blocks_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/static_blocks");
 }
+
+#[test]
+fn for_await_of_fixture_present() {
+    assert_fixture_present("es/annex-b/for_await_of");
+}
+
+#[test]
+fn for_await_of_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/for_await_of");
+}

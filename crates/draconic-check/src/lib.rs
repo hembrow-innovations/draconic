@@ -2074,10 +2074,24 @@ impl<'a> Checker<'a> {
             }
             Stmt::ForIn {
                 left, right, body, ..
-            }
-            | Stmt::ForOf {
-                left, right, body, ..
             } => {
+                self.check_for_in_of_left(left)?;
+                self.check_expr(right)?;
+                self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
+            }
+            Stmt::ForOf {
+                left,
+                right,
+                body,
+                is_await,
+                span,
+            } => {
+                if *is_await && !self.in_async {
+                    return Err(Diagnostic::new(
+                        "for await is only valid in async functions".to_string(),
+                        *span,
+                    ));
+                }
                 self.check_for_in_of_left(left)?;
                 self.check_expr(right)?;
                 self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)

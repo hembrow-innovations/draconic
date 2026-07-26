@@ -110,7 +110,13 @@ fn reject_native_only_stmt(stmt: &Stmt) -> Result<(), Diagnostic> {
             }
             reject_native_only_stmt(body)?;
         }
-        Stmt::ForIn { left, right, body } | Stmt::ForOf { left, right, body } => {
+        Stmt::ForIn { left, right, body }
+        | Stmt::ForOf {
+            left,
+            right,
+            body,
+            ..
+        } => {
             reject_native_only_stmt(left)?;
             reject_native_only_expr(right)?;
             reject_native_only_stmt(body)?;
@@ -494,8 +500,17 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) {
             out.push_str(") ");
             emit_stmt_as_body(out, body, names);
         }
-        Stmt::ForOf { left, right, body } => {
-            out.push_str("for (");
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            is_await,
+        } => {
+            if *is_await {
+                out.push_str("for await (");
+            } else {
+                out.push_str("for (");
+            }
             emit_for_in_of_left(out, left, names);
             out.push_str(" of ");
             emit_expr(out, right, names);

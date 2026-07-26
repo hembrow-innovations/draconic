@@ -98,6 +98,7 @@ pub enum Stmt {
         left: Box<Stmt>,
         right: Expr,
         body: Box<Stmt>,
+        is_await: bool,
     },
     Break {
         label: Option<String>,
@@ -663,7 +664,11 @@ fn lower_stmt(
             })
         }
         AstStmt::ForOf {
-            left, right, body, ..
+            left,
+            right,
+            body,
+            is_await,
+            ..
         } => {
             let left = Box::new(
                 lower_stmt(checked, left, super_class)
@@ -677,6 +682,7 @@ fn lower_stmt(
                 left,
                 right: lower_expr(checked, right, super_class),
                 body,
+                is_await: *is_await,
             })
         }
         AstStmt::Break { label, .. } => Some(Stmt::Break {
@@ -2714,9 +2720,18 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             out.push_str("body:\n");
             dump_stmt(body, level + 2, out);
         }
-        Stmt::ForOf { left, right, body } => {
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            is_await,
+        } => {
             indent(level, out);
-            out.push_str("ForOf\n");
+            if *is_await {
+                out.push_str("ForOf await\n");
+            } else {
+                out.push_str("ForOf\n");
+            }
             indent(level + 1, out);
             out.push_str("left:\n");
             dump_stmt(left, level + 2, out);

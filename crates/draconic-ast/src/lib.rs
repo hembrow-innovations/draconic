@@ -159,11 +159,13 @@ pub enum Stmt {
         body: Box<Stmt>,
         span: Span,
     },
-    /// `for (left of right) body` — `left` is `Let` or assignable `Expression`.
+    /// `for await? (left of right) body` — `left` is `Let` or assignable `Expression`.
     ForOf {
         left: Box<Stmt>,
         right: Expr,
         body: Box<Stmt>,
+        /// `for await (… of …)` (async iteration; only valid in async functions).
+        is_await: bool,
         span: Span,
     },
     /// `break;` or `break label;`
@@ -1114,10 +1116,15 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             left,
             right,
             body,
+            is_await,
             ..
         } => {
             indent(level, out);
-            out.push_str("ForOf\n");
+            if *is_await {
+                out.push_str("ForOf await\n");
+            } else {
+                out.push_str("ForOf\n");
+            }
             indent(level + 1, out);
             out.push_str("left:\n");
             dump_stmt(left, level + 2, out);

@@ -219,6 +219,13 @@ impl Parser {
 
     fn parse_for(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::For)?.span.start.0;
+        // `for await (… of …)` — async iteration (E18.42).
+        let is_await = if self.check(&TokenKind::Await) {
+            self.bump();
+            true
+        } else {
+            false
+        };
         self.expect(&TokenKind::LParen)?;
 
         // `for (let/const/var name in/of right)` and classic `for (let/const/var …; …; …)`.
@@ -254,6 +261,12 @@ impl Parser {
                     span: Span::new(let_start, name_end),
                 });
                 return if is_in {
+                    if is_await {
+                        return Err(Diagnostic::new(
+                            "for await…in is not allowed".to_string(),
+                            Span::new(start, end),
+                        ));
+                    }
                     Ok(Stmt::ForIn {
                         left,
                         right,
@@ -265,9 +278,16 @@ impl Parser {
                         left,
                         right,
                         body,
+                        is_await,
                         span: Span::new(start, end),
                     })
                 };
+            }
+            if is_await {
+                return Err(Diagnostic::new(
+                    "for await requires `of`".to_string(),
+                    Span::new(start, name_end),
+                ));
             }
             // Classic `for (let/const/var name: T? = init; …)` / Annex B `for (var name = init in …)`.
             // Disable relational `in` while parsing the initializer so
@@ -346,6 +366,12 @@ impl Parser {
         }
 
         if self.check(&TokenKind::Semi) {
+            if is_await {
+                return Err(Diagnostic::new(
+                    "for await requires `of`".to_string(),
+                    Span::new(start, self.current_span().start.0),
+                ));
+            }
             self.bump();
             return self.finish_classic_for(start, None);
         }
@@ -370,6 +396,12 @@ impl Parser {
                 span: expr_span,
             });
             return if is_in {
+                if is_await {
+                    return Err(Diagnostic::new(
+                        "for await…in is not allowed".to_string(),
+                        Span::new(start, end),
+                    ));
+                }
                 Ok(Stmt::ForIn {
                     left,
                     right,
@@ -381,11 +413,18 @@ impl Parser {
                     left,
                     right,
                     body,
+                    is_await,
                     span: Span::new(start, end),
                 })
             };
         }
 
+        if is_await {
+            return Err(Diagnostic::new(
+                "for await requires `of`".to_string(),
+                Span::new(start, expr_span.end.0),
+            ));
+        }
         self.expect(&TokenKind::Semi)?;
         let init = Some(Box::new(Stmt::Expression {
             expr,
@@ -3983,6 +4022,28 @@ Program
     body:
       Block
 "
+        );
+    }
+
+    #[test]
+    fn parse_for_await_of_let() {
+        let dump = parse_and_dump("async function f() { for await (let x of a) { y = x; } }").unwrap();
+        assert!(dump.contains("ForOf await"), "got:\n{dump}");
+        assert!(dump.contains("name: x"), "got:\n{dump}");
+    }
+
+    #[test]
+    fn parse_for_await_of_assign() {
+        let dump = parse_and_dump("async function f() { for await (x of a) {} }").unwrap();
+        assert!(dump.contains("ForOf await"), "got:\n{dump}");
+    }
+
+    #[test]
+    fn parse_for_await_in_rejected() {
+        let err = parse_and_dump("async function f() { for await (let x in a) {} }").unwrap_err();
+        assert!(
+            err.message.contains("for await") && err.message.contains("in"),
+            "{err:?}"
         );
     }
 
