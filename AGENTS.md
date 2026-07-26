@@ -27,7 +27,7 @@ This repo **is** the Draconic toolchain. Completeness is driven by:
 
 Prefer `cargo test --workspace` and the `draconic` CLI over ad-hoc scripts.
 
-Unattended multi-iteration driver: `node .loop/opencode-loop.mjs <n>` (see `.loop/`).
+Unattended multi-iteration driver: `node .loop/opencode-loop.mjs <n>` (see `.loop/`; stall watchdog via `STALL_SEC`). TUI: `/loop` (default 100×).
 
 Each `rs` file should have a soft limit of 1,000 lines.
 

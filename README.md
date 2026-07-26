@@ -99,11 +99,17 @@ Invoke the **draconic-loop** skill to claim the next Roadmap item and implement 
 Or run N iterations unattended (same pattern as life-engine):
 
 ```bash
-# OpenCode — default prompt = one draconic-loop each iteration
+# OpenCode TUI — /loop (default 100×) or /loop 20
+# (see .opencode/command/loop.md)
+
+# OpenCode CLI — default prompt = one draconic-loop each iteration
 node .loop/opencode-loop.mjs 10
 
 # Optional sleep between loops (seconds)
 SLEEP=30 node .loop/opencode-loop.mjs 10
+
+# Stall watchdog: kill a hung iteration after N seconds with no stdout (default 600)
+STALL_SEC=900 STALL_ACTION=continue node .loop/opencode-loop.mjs 100
 
 # Custom prompt / model flags after --
 node .loop/opencode-loop.mjs 5 "run the draconic-loop skill once" -- -m xai/grok-4.5
