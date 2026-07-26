@@ -1,0 +1,57 @@
+// E17.02.03: delete IdentifierReference (non-strict).
+// Returns boolean; local var/param bindings are not removed.
+var top = 1;
+let a = delete top;
+let b = top;
+
+function localVar() {
+  var y = 2;
+  let r = delete y;
+  return r === false && y === 2;
+}
+let c = localVar();
+
+function localParam(p) {
+  let r = delete p;
+  return r === false && p === 9;
+}
+let d = localParam(9);
+
+function nested() {
+  function inner() {
+    var z = 3;
+    let r = delete z;
+    return r === false && z === 3;
+  }
+  return inner();
+}
+let e = nested();
+
+// Unresolvable IdentifierReference → true (non-strict).
+let f = delete nosuch_ident_e170203;
+
+// let/const bindings: non-configurable; delete returns false, binding remains.
+let held = 4;
+let g = delete held;
+let h = held;
+const frozen = 5;
+let i = delete frozen;
+let j = frozen;
+
+// Function expression param + body var.
+let named = function (q) {
+  var inner = 6;
+  let rq = delete q;
+  let ri = delete inner;
+  return rq === false && q === 7 && ri === false && inner === 6;
+};
+let k = named(7);
+
+// Object method (non-arrow): param not removed.
+let o = {
+  m: function (p) {
+    let r = delete p;
+    return r === false && p === 8;
+  }
+};
+let l = o.m(8);

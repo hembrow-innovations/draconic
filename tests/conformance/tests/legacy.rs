@@ -68,3 +68,13 @@ fn arguments_mapped_fixture_present() {
 fn arguments_mapped_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_mapped");
 }
+
+#[test]
+fn delete_identifier_fixture_present() {
+    assert_fixture_present("es/legacy/delete_identifier");
+}
+
+#[test]
+fn delete_identifier_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/delete_identifier");
+}

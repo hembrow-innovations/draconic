@@ -170,7 +170,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E17.02 | todo | js | Other non-strict legacy beyond `with` (children below; untracked remainder stays here) | `tests/conformance/es/legacy` |
 | E17.02.01 | done | js | `arguments.callee`: non-strict function `arguments.callee ===` that function; `typeof` `"function"` | `tests/conformance` fixtures `es/legacy` |
 | E17.02.02 | done | js | Mapped `arguments` object: non-strict simple-params; `args[i]` ↔ formal param alias (assign either side) | `tests/conformance` fixtures `es/legacy` |
-| E17.02.03 | todo | js | `delete` IdentifierReference (non-strict): returns boolean; local `var`/binding not removed | `tests/conformance` fixtures `es/legacy` |
+| E17.02.03 | done | js | `delete` IdentifierReference (non-strict): returns boolean; local `var`/binding not removed | `tests/conformance` fixtures `es/legacy` |
 | E18 | done | js | Annex B / late ES features tracked as children below (remainder → E18.44) | `tests/conformance/es/annex-b` |
 | E18.44 | todo | js | Untracked ECMA-262 remainder beyond E01–E18 children (file finer rows as discovered; do not drop) | `tests/conformance` (new fixtures as filed) |
 | E18.43 | done | js | Async generators: `async function* g(){ yield expr; }` / `async function* (params){…}` / `{ async *m(){…} }` / class `async *m()`; call returns async iterator; `.next()` → Promise of `{value,done}`; `for await` over async gen | `tests/conformance` fixtures `es/annex-b` |
