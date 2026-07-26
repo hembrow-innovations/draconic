@@ -1,11 +1,12 @@
 #
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02–E19.23 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
+# Expanded under ROADMAP E19.02–E19.24 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
 # statements/control, call/new/delete/in/instanceof, compound/logical assignment greens,
 # object/assignment/try dstr fill-ins, for-head dstr, catch dstr, RegExp literal early errors,
 # ASI, statementList, directive-prologue, reserved words, arrow/eval/function-code/with/for-of
 # greens after E19.16–E19.19, call Arguments trailing comma E19.21, class computed names E19.22,
-# object-method super / arrow lexical super E19.23).
+# object-method super / arrow lexical super E19.23, early SyntaxError arrow eval/arguments +
+# block/switch redeclaration E19.24).
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 # Lines starting with # and blank lines are ignored.
 test/language/arguments-object/10.5-1-s.js
@@ -214,6 +215,22 @@ test/language/block-scope/syntax/function-declarations/in-statement-position-def
 test/language/block-scope/syntax/redeclaration-global/allowed-to-declare-function-with-function-declaration.js
 test/language/block-scope/syntax/redeclaration-global/allowed-to-redeclare-function-declaration-with-var.js
 test/language/block-scope/syntax/redeclaration-global/allowed-to-redeclare-var-with-function-declaration.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-async-function.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-async-generator.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-class.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-const.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-function.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-generator.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-let.js
+test/language/block-scope/syntax/redeclaration/async-function-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-async-function.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-async-generator.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-class.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-const.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-function.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-generator.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-let.js
+test/language/block-scope/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-var.js
 test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-with-async-function.js
 test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-with-async-generator.js
 test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-with-class.js
@@ -221,6 +238,7 @@ test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-
 test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-with-function.js
 test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-with-generator.js
 test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-with-let.js
+test/language/block-scope/syntax/redeclaration/class-name-redeclaration-attempt-with-var.js
 test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-with-async-function.js
 test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-with-async-generator.js
 test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-with-class.js
@@ -228,8 +246,47 @@ test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-
 test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-with-function.js
 test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-with-generator.js
 test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-with-let.js
+test/language/block-scope/syntax/redeclaration/const-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-async-function.js
+test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-async-generator.js
+test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-class.js
+test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-const.js
+test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-function.js
+test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-generator.js
+test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-let.js
 test/language/block-scope/syntax/redeclaration/fn-scope-var-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/function-declaration-attempt-to-redeclare-with-var-declaration-nested-in-function.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-async-function.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-async-generator.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-class.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-const.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-function.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-generator.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-let.js
+test/language/block-scope/syntax/redeclaration/function-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-async-function.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-async-generator.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-class.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-const.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-function.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-generator.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-let.js
+test/language/block-scope/syntax/redeclaration/generator-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-async-function.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-async-generator.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-class.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-const.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-function.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-generator.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-let.js
 test/language/block-scope/syntax/redeclaration/inner-block-var-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-redeclaration-attempt-after-async-function.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-redeclaration-attempt-after-async-generator.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-redeclaration-attempt-after-class.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-redeclaration-attempt-after-const.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-redeclaration-attempt-after-function.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-redeclaration-attempt-after-generator.js
+test/language/block-scope/syntax/redeclaration/inner-block-var-redeclaration-attempt-after-let.js
 test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-with-async-function.js
 test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-with-async-generator.js
 test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-with-class.js
@@ -237,7 +294,22 @@ test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-wi
 test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-with-function.js
 test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-with-generator.js
 test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-with-let.js
+test/language/block-scope/syntax/redeclaration/let-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-async-function.js
+test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-async-generator.js
+test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-class.js
+test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-const.js
+test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-function.js
+test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-generator.js
+test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-let.js
 test/language/block-scope/syntax/redeclaration/var-name-redeclaration-attempt-with-var.js
+test/language/block-scope/syntax/redeclaration/var-redeclaration-attempt-after-async-function.js
+test/language/block-scope/syntax/redeclaration/var-redeclaration-attempt-after-async-generator.js
+test/language/block-scope/syntax/redeclaration/var-redeclaration-attempt-after-class.js
+test/language/block-scope/syntax/redeclaration/var-redeclaration-attempt-after-const.js
+test/language/block-scope/syntax/redeclaration/var-redeclaration-attempt-after-function.js
+test/language/block-scope/syntax/redeclaration/var-redeclaration-attempt-after-generator.js
+test/language/block-scope/syntax/redeclaration/var-redeclaration-attempt-after-let.js
 test/language/comments/S7.4_A1_T1.js
 test/language/comments/S7.4_A1_T2.js
 test/language/comments/S7.4_A2_T1.js
@@ -907,8 +979,11 @@ test/language/expressions/arrow-function/syntax/arrowparameters-cover-rest-conci
 test/language/expressions/arrow-function/syntax/arrowparameters-cover-rest-lineterminator-concisebody-functionbody.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-bindingidentifier-identifier-futurereservedword.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-bindingidentifier-identifier.js
+test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-bindingidentifier-no-arguments.js
+test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-bindingidentifier-no-eval.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-bindingidentifier-no-yield.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-bindingidentifier-rest.js
+test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-arguments.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates-binding-array-1.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates-binding-array-2.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates-binding-array-3.js
@@ -920,6 +995,7 @@ test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cov
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates-binding-object-6.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates-rest.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates.js
+test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-eval.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-yield.js
 test/language/expressions/arrow-function/syntax/variations.js
 test/language/expressions/arrow-function/throw-new.js
@@ -6228,6 +6304,7 @@ test/language/statements/switch/syntax/redeclaration/async-function-name-redecla
 test/language/statements/switch/syntax/redeclaration/async-function-name-redeclaration-attempt-with-function.js
 test/language/statements/switch/syntax/redeclaration/async-function-name-redeclaration-attempt-with-generator.js
 test/language/statements/switch/syntax/redeclaration/async-function-name-redeclaration-attempt-with-let.js
+test/language/statements/switch/syntax/redeclaration/async-function-name-redeclaration-attempt-with-var.js
 test/language/statements/switch/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-async-function.js
 test/language/statements/switch/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-async-generator.js
 test/language/statements/switch/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-class.js
@@ -6235,6 +6312,7 @@ test/language/statements/switch/syntax/redeclaration/async-generator-name-redecl
 test/language/statements/switch/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-function.js
 test/language/statements/switch/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-generator.js
 test/language/statements/switch/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-let.js
+test/language/statements/switch/syntax/redeclaration/async-generator-name-redeclaration-attempt-with-var.js
 test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-attempt-with-async-function.js
 test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-attempt-with-async-generator.js
 test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-attempt-with-class.js
@@ -6242,6 +6320,7 @@ test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-at
 test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-attempt-with-function.js
 test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-attempt-with-generator.js
 test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-attempt-with-let.js
+test/language/statements/switch/syntax/redeclaration/class-name-redeclaration-attempt-with-var.js
 test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-attempt-with-async-function.js
 test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-attempt-with-async-generator.js
 test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-attempt-with-class.js
@@ -6249,6 +6328,7 @@ test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-at
 test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-attempt-with-function.js
 test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-attempt-with-generator.js
 test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-attempt-with-let.js
+test/language/statements/switch/syntax/redeclaration/const-name-redeclaration-attempt-with-var.js
 test/language/statements/switch/syntax/redeclaration/function-name-redeclaration-attempt-with-async-function.js
 test/language/statements/switch/syntax/redeclaration/function-name-redeclaration-attempt-with-async-generator.js
 test/language/statements/switch/syntax/redeclaration/function-name-redeclaration-attempt-with-class.js
@@ -6256,6 +6336,7 @@ test/language/statements/switch/syntax/redeclaration/function-name-redeclaration
 test/language/statements/switch/syntax/redeclaration/function-name-redeclaration-attempt-with-function.js
 test/language/statements/switch/syntax/redeclaration/function-name-redeclaration-attempt-with-generator.js
 test/language/statements/switch/syntax/redeclaration/function-name-redeclaration-attempt-with-let.js
+test/language/statements/switch/syntax/redeclaration/function-name-redeclaration-attempt-with-var.js
 test/language/statements/switch/syntax/redeclaration/generator-name-redeclaration-attempt-with-async-function.js
 test/language/statements/switch/syntax/redeclaration/generator-name-redeclaration-attempt-with-async-generator.js
 test/language/statements/switch/syntax/redeclaration/generator-name-redeclaration-attempt-with-class.js
@@ -6263,6 +6344,7 @@ test/language/statements/switch/syntax/redeclaration/generator-name-redeclaratio
 test/language/statements/switch/syntax/redeclaration/generator-name-redeclaration-attempt-with-function.js
 test/language/statements/switch/syntax/redeclaration/generator-name-redeclaration-attempt-with-generator.js
 test/language/statements/switch/syntax/redeclaration/generator-name-redeclaration-attempt-with-let.js
+test/language/statements/switch/syntax/redeclaration/generator-name-redeclaration-attempt-with-var.js
 test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-attempt-with-async-function.js
 test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-attempt-with-async-generator.js
 test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-attempt-with-class.js
@@ -6270,6 +6352,14 @@ test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-atte
 test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-attempt-with-function.js
 test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-attempt-with-generator.js
 test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-attempt-with-let.js
+test/language/statements/switch/syntax/redeclaration/let-name-redeclaration-attempt-with-var.js
+test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-async-function.js
+test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-async-generator.js
+test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-class.js
+test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-const.js
+test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-function.js
+test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-generator.js
+test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-let.js
 test/language/statements/switch/syntax/redeclaration/var-name-redeclaration-attempt-with-var.js
 test/language/statements/throw/S12.13_A1.js
 test/language/statements/throw/S12.13_A2_T1.js

@@ -404,6 +404,235 @@ fn catch_stmt_lexical_name(stmt: &Stmt, param: &str) -> Option<Span> {
     }
 }
 
+/// Lexical binding kind for statement-list early errors (E19.24 / Annex B.3.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LexNameKind {
+    /// Plain `function` (not async/generator): sloppy mode may allow duplicates among these only.
+    PlainFunction,
+    Other,
+}
+
+fn peel_labels(stmt: &Stmt) -> &Stmt {
+    let mut s = stmt;
+    while let Stmt::Labeled { body, .. } = s {
+        s = body;
+    }
+    s
+}
+
+/// `true` when `stmts` begins with a `"use strict"` directive prologue.
+fn stmt_list_has_use_strict(stmts: &[Stmt]) -> bool {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Expression {
+                expr: Expr::String(s),
+                ..
+            } => {
+                if s.value.to_string_lossy() == "use strict" {
+                    return true;
+                }
+            }
+            _ => break,
+        }
+    }
+    false
+}
+
+fn body_has_use_strict(body: &Stmt) -> bool {
+    match body {
+        Stmt::Block { body, .. } => stmt_list_has_use_strict(body),
+        _ => false,
+    }
+}
+
+/// LexicallyDeclaredNames of a StatementList (not nested blocks).
+///
+/// When `top_level` (Script / FunctionBody), hoistable `function`/`async`/`generator`
+/// declarations are **not** lexical (TopLevelLexicallyDeclaredNames); they are var-like.
+fn collect_lexically_declared_names<'a, I>(
+    stmts: I,
+    top_level: bool,
+) -> Vec<(String, Span, LexNameKind)>
+where
+    I: IntoIterator<Item = &'a Stmt>,
+{
+    let mut out = Vec::new();
+    for stmt in stmts {
+        let s = peel_labels(stmt);
+        match s {
+            Stmt::Let {
+                kind: BindingKind::Let | BindingKind::Const,
+                binding,
+                ..
+            } => {
+                binding.for_each_ident(&mut |id| {
+                    out.push((id.name.clone(), id.span, LexNameKind::Other));
+                });
+            }
+            Stmt::ClassDeclaration { name, .. } => {
+                out.push((name.name.clone(), name.span, LexNameKind::Other));
+            }
+            Stmt::FunctionDeclaration {
+                name,
+                is_async,
+                is_generator,
+                ..
+            } => {
+                // Script/FunctionBody: hoistables are TopLevelVarDeclaredNames only.
+                if top_level {
+                    continue;
+                }
+                let kind = if *is_async || *is_generator {
+                    LexNameKind::Other
+                } else {
+                    LexNameKind::PlainFunction
+                };
+                out.push((name.name.clone(), name.span, kind));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// VarDeclaredNames of a StatementList (walks nested statements; not function/class bodies).
+///
+/// When `top_level`, direct hoistable function declarations are included
+/// (TopLevelVarDeclaredNames).
+fn collect_var_declared_names<'a, I>(stmts: I, top_level: bool) -> Vec<(String, Span)>
+where
+    I: IntoIterator<Item = &'a Stmt>,
+{
+    let mut out = Vec::new();
+    for stmt in stmts {
+        if top_level {
+            let s = peel_labels(stmt);
+            if let Stmt::FunctionDeclaration { name, .. } = s {
+                out.push((name.name.clone(), name.span));
+            }
+        }
+        collect_var_declared_names_stmt(stmt, &mut out);
+    }
+    out
+}
+
+fn collect_var_declared_names_stmt(stmt: &Stmt, out: &mut Vec<(String, Span)>) {
+    match stmt {
+        Stmt::Labeled { body, .. } => collect_var_declared_names_stmt(body, out),
+        Stmt::Let {
+            kind: BindingKind::Var,
+            binding,
+            ..
+        } => {
+            binding.for_each_ident(&mut |id| {
+                out.push((id.name.clone(), id.span));
+            });
+        }
+        Stmt::Block { body, .. } => {
+            for child in body {
+                collect_var_declared_names_stmt(child, out);
+            }
+        }
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            collect_var_declared_names_stmt(consequent, out);
+            if let Some(alt) = alternate {
+                collect_var_declared_names_stmt(alt, out);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::With { body, .. } => {
+            collect_var_declared_names_stmt(body, out);
+        }
+        Stmt::For {
+            init, body, ..
+        } => {
+            if let Some(init) = init {
+                collect_var_declared_names_stmt(init, out);
+            }
+            collect_var_declared_names_stmt(body, out);
+        }
+        Stmt::ForIn { left, body, .. } | Stmt::ForOf { left, body, .. } => {
+            collect_var_declared_names_stmt(left, out);
+            collect_var_declared_names_stmt(body, out);
+        }
+        Stmt::Switch { cases, .. } => {
+            for case in cases {
+                for child in &case.body {
+                    collect_var_declared_names_stmt(child, out);
+                }
+            }
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            collect_var_declared_names_stmt(block, out);
+            if let Some(handler) = handler {
+                collect_var_declared_names_stmt(handler, out);
+            }
+            if let Some(finalizer) = finalizer {
+                collect_var_declared_names_stmt(finalizer, out);
+            }
+        }
+        Stmt::FunctionDeclaration { .. } | Stmt::ClassDeclaration { .. } => {}
+        _ => {}
+    }
+}
+
+/// Statement-list early errors (E19.24).
+///
+/// - LexicallyDeclaredNames must not contain duplicates (Annex B: sloppy plain
+///   `function` duplicates only are allowed — block/switch only).
+/// - LexicallyDeclaredNames ∩ VarDeclaredNames must be empty.
+///
+/// `top_level`: Script or FunctionBody (TopLevel*DeclaredNames); otherwise Block/CaseBlock.
+fn check_statement_list_early_errors<'a, I>(
+    stmts: I,
+    strict: bool,
+    top_level: bool,
+) -> Result<(), Diagnostic>
+where
+    I: IntoIterator<Item = &'a Stmt> + Clone,
+{
+    let lexical = collect_lexically_declared_names(stmts.clone(), top_level);
+    let mut seen: HashMap<String, LexNameKind> = HashMap::new();
+    for (name, span, kind) in &lexical {
+        if let Some(prev) = seen.get(name) {
+            let allow_sloppy_fn = !strict
+                && !top_level
+                && *prev == LexNameKind::PlainFunction
+                && *kind == LexNameKind::PlainFunction;
+            if !allow_sloppy_fn {
+                return Err(Diagnostic::new(
+                    format!("duplicate declaration of `{name}`"),
+                    *span,
+                ));
+            }
+        } else {
+            seen.insert(name.clone(), *kind);
+        }
+    }
+    let vars = collect_var_declared_names(stmts, top_level);
+    let mut var_names = HashMap::new();
+    for (name, span) in vars {
+        var_names.entry(name).or_insert(span);
+    }
+    for (name, span, _) in &lexical {
+        if var_names.contains_key(name) {
+            return Err(Diagnostic::new(
+                format!("duplicate declaration of `{name}`"),
+                *span,
+            ));
+        }
+    }
+    Ok(())
+}
+
 struct Binder {
     /// Scope stack (innermost last): name → symbol id.
     scopes: Vec<HashMap<String, SymbolId>>,
@@ -415,6 +644,8 @@ struct Binder {
     resolutions: HashMap<Span, SymbolId>,
     /// Nesting depth of enclosing `with` statements.
     with_depth: u32,
+    /// Current strict-mode code (directive prologue / nested function body).
+    strict: bool,
 }
 
 impl Binder {
@@ -427,6 +658,7 @@ impl Binder {
             symbols: Vec::new(),
             resolutions: HashMap::new(),
             with_depth: 0,
+            strict: false,
         };
         binder.install_builtin("Math", BindingKind::Const);
         binder.install_builtin("Number", BindingKind::Const);
@@ -511,7 +743,10 @@ impl Binder {
     }
 
     fn bind_program(&mut self, program: Program) -> Result<BoundProgram, Diagnostic> {
-        self.bind_stmt_list(&program.body)?;
+        if stmt_list_has_use_strict(&program.body) {
+            self.strict = true;
+        }
+        self.bind_stmt_list(&program.body, true)?;
 
         Ok(BoundProgram {
             program,
@@ -521,7 +756,11 @@ impl Binder {
     }
 
     /// Two-pass list bind: declare lexical bindings in this scope, then bind each statement.
-    fn bind_stmt_list(&mut self, stmts: &[Stmt]) -> Result<(), Diagnostic> {
+    ///
+    /// `top_level`: Script or FunctionBody (TopLevel*DeclaredNames early errors).
+    fn bind_stmt_list(&mut self, stmts: &[Stmt], top_level: bool) -> Result<(), Diagnostic> {
+        // E19.24: LexicallyDeclaredNames / VarDeclaredNames early errors.
+        check_statement_list_early_errors(stmts, self.strict, top_level)?;
         for stmt in stmts {
             self.declare_list_item(stmt)?;
         }
@@ -529,6 +768,19 @@ impl Binder {
             self.bind_stmt(stmt)?;
         }
         Ok(())
+    }
+
+    /// Bind a function/method/arrow block body with FunctionBody (top-level) early errors.
+    fn bind_function_body(&mut self, body: &Stmt) -> Result<(), Diagnostic> {
+        match body {
+            Stmt::Block { body, .. } => {
+                self.push_scope();
+                self.bind_stmt_list(body, true)?;
+                self.pop_scope();
+                Ok(())
+            }
+            other => self.bind_stmt(other),
+        }
     }
 
     /// Hoistable declarations for one statement-list item (Annex B.3.2 peels labels).
@@ -544,7 +796,12 @@ impl Binder {
                 self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 Ok(())
             }
-            Stmt::FunctionDeclaration { name, .. } => {
+            Stmt::FunctionDeclaration {
+                name,
+                is_async,
+                is_generator,
+                ..
+            } => {
                 // Annex B.3.2: outer var-like binding already hosts this name — do not
                 // shadow with a block-local binding (IR + uses share the outer symbol).
                 if let Some(existing) = self.resolve_name(&name.name) {
@@ -563,9 +820,16 @@ impl Binder {
                     }
                 }
                 // `var f` then `function f` in the same list: reuse var binding.
+                // Annex B / E19.24: sloppy duplicate plain FunctionDeclarations share binding.
                 let scope = self.scopes.last().expect("scope stack non-empty");
                 if let Some(&existing) = scope.get(&name.name) {
-                    if self.symbols[existing.0 as usize].kind == BindingKind::Var {
+                    let existing_kind = self.symbols[existing.0 as usize].kind;
+                    if existing_kind == BindingKind::Var
+                        || (!self.strict
+                            && !*is_async
+                            && !*is_generator
+                            && existing_kind == BindingKind::Function)
+                    {
                         self.declare_annex_b_function_span(name);
                         return Ok(());
                     }
@@ -1010,7 +1274,7 @@ impl Binder {
             Stmt::Empty { .. } => Ok(()),
             Stmt::Block { body, .. } => {
                 self.push_scope();
-                self.bind_stmt_list(body)?;
+                self.bind_stmt_list(body, false)?;
                 self.pop_scope();
                 Ok(())
             }
@@ -1102,6 +1366,8 @@ impl Binder {
                     }
                     all_stmts.extend(case.body.iter());
                 }
+                // E19.24: CaseBlock LexicallyDeclaredNames / VarDeclaredNames early errors.
+                check_statement_list_early_errors(all_stmts.iter().copied(), self.strict, false)?;
                 // Two-pass bind over concatenated case bodies.
                 for stmt in &all_stmts {
                     self.declare_list_item(stmt)?;
@@ -1115,13 +1381,17 @@ impl Binder {
             Stmt::FunctionDeclaration { params, body, .. } => {
                 // Name already declared in the enclosing list's first pass.
                 // Function scope is a var environment.
+                let prev_strict = self.strict;
+                if body_has_use_strict(body) {
+                    self.strict = true;
+                }
                 self.push_scope_kind(true);
                 self.bind_params(params)?;
                 self.install_arguments_object()?;
-                // Body is a Block; bind its statements in the param scope (no extra
-                // block scope layer needed beyond the block's own push).
-                self.bind_stmt(body)?;
+                // FunctionBody uses TopLevel*DeclaredNames early errors (E19.24).
+                self.bind_function_body(body)?;
                 self.pop_scope();
+                self.strict = prev_strict;
                 Ok(())
             }
             Stmt::ClassDeclaration {
@@ -1136,11 +1406,15 @@ impl Binder {
                 for el in body {
                     match el {
                         ClassElement::Constructor { params, body, .. } => {
+                            // Class bodies are always strict mode code.
+                            let prev_strict = self.strict;
+                            self.strict = true;
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.install_arguments_object()?;
-                            self.bind_stmt(body)?;
+                            self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.strict = prev_strict;
                         }
                         ClassElement::Method {
                             key, params, body, ..
@@ -1149,11 +1423,14 @@ impl Binder {
                             key, params, body, ..
                         } => {
                             self.bind_object_key(key)?;
+                            let prev_strict = self.strict;
+                            self.strict = true;
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.install_arguments_object()?;
-                            self.bind_stmt(body)?;
+                            self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.strict = prev_strict;
                         }
                         ClassElement::Field { key, value, .. } => {
                             self.bind_object_key(key)?;
@@ -1163,7 +1440,10 @@ impl Binder {
                         }
                         ClassElement::StaticBlock { body, .. } => {
                             // No `arguments`; block body provides its own scope.
+                            let prev_strict = self.strict;
+                            self.strict = true;
                             self.bind_stmt(body)?;
+                            self.strict = prev_strict;
                         }
                     }
                 }
@@ -1345,14 +1625,19 @@ impl Binder {
                 name, params, body, ..
             } => {
                 // Name (if any) is local to the function body only (ES named FE).
+                let prev_strict = self.strict;
+                if body_has_use_strict(body) {
+                    self.strict = true;
+                }
                 self.push_scope_kind(true);
                 if let Some(name) = name {
                     self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 }
                 self.bind_params(params)?;
                 self.install_arguments_object()?;
-                self.bind_stmt(body)?;
+                self.bind_function_body(body)?;
                 self.pop_scope();
+                self.strict = prev_strict;
                 Ok(())
             }
             Expr::ClassExpression {
@@ -1376,11 +1661,14 @@ impl Binder {
                 for el in body {
                     match el {
                         ClassElement::Constructor { params, body, .. } => {
+                            let prev_strict = self.strict;
+                            self.strict = true;
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.install_arguments_object()?;
-                            self.bind_stmt(body)?;
+                            self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.strict = prev_strict;
                         }
                         ClassElement::Method {
                             key, params, body, ..
@@ -1389,11 +1677,14 @@ impl Binder {
                             key, params, body, ..
                         } => {
                             self.bind_object_key(key)?;
+                            let prev_strict = self.strict;
+                            self.strict = true;
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.install_arguments_object()?;
-                            self.bind_stmt(body)?;
+                            self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.strict = prev_strict;
                         }
                         ClassElement::Field { key, value, .. } => {
                             self.bind_object_key(key)?;
@@ -1402,7 +1693,10 @@ impl Binder {
                             }
                         }
                         ClassElement::StaticBlock { body, .. } => {
+                            let prev_strict = self.strict;
+                            self.strict = true;
                             self.bind_stmt(body)?;
+                            self.strict = prev_strict;
                         }
                     }
                 }
@@ -1410,13 +1704,22 @@ impl Binder {
                 Ok(())
             }
             Expr::ArrowFunction { params, body, .. } => {
+                let prev_strict = self.strict;
+                let body_strict = match body {
+                    ArrowBody::Block(stmt) => body_has_use_strict(stmt),
+                    ArrowBody::Expr(_) => false,
+                };
+                if body_strict {
+                    self.strict = true;
+                }
                 self.push_scope_kind(true);
                 self.bind_params(params)?;
                 match body {
                     ArrowBody::Expr(expr) => self.bind_expr(expr)?,
-                    ArrowBody::Block(stmt) => self.bind_stmt(stmt)?,
+                    ArrowBody::Block(stmt) => self.bind_function_body(stmt)?,
                 }
                 self.pop_scope();
+                self.strict = prev_strict;
                 Ok(())
             }
             Expr::ObjectExpression { properties, .. } => {
@@ -1439,7 +1742,7 @@ impl Binder {
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.install_arguments_object()?;
-                            self.bind_stmt(body)?;
+                            self.bind_function_body(body)?;
                             self.pop_scope();
                         }
                         ObjectProp::Spread { expr, .. } => self.bind_expr(expr)?,
@@ -1604,6 +1907,29 @@ impl Binder {
     }
 
     fn bind_params(&mut self, params: &[Param]) -> Result<(), Diagnostic> {
+        // E19.24: strict FormalParameters / ArrowParameters cannot bind `eval` or `arguments`.
+        if self.strict {
+            for p in params {
+                let mut err = None;
+                p.binding.for_each_ident(&mut |id| {
+                    if err.is_some() {
+                        return;
+                    }
+                    if id.name == "eval" || id.name == "arguments" {
+                        err = Some(Diagnostic::new(
+                            format!(
+                                "binding `{}` is invalid in strict mode",
+                                id.name
+                            ),
+                            id.span,
+                        ));
+                    }
+                });
+                if let Some(e) = err {
+                    return Err(e);
+                }
+            }
+        }
         for p in params {
             self.declare_binding(&p.binding, BindingKind::Let)?;
         }
@@ -5389,6 +5715,96 @@ mod tests {
         let err = bind(program).unwrap_err();
         assert!(
             err.message.contains("duplicate") && err.message.contains("x"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    // E19.24: early SyntaxError for strict arrow eval/arguments + block/switch redeclarations.
+    #[test]
+    fn bind_strict_arrow_eval_param_errors() {
+        let program = parse("\"use strict\"; let af = eval => 1;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("eval") && err.message.contains("strict"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_strict_arrow_arguments_param_errors() {
+        let program = parse("\"use strict\"; let af = (arguments) => 1;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("arguments") && err.message.contains("strict"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_sloppy_arrow_eval_param_ok() {
+        let program = parse("let af = eval => eval;").unwrap();
+        bind(program).expect("sloppy arrow may bind eval");
+    }
+
+    #[test]
+    fn bind_block_function_let_redeclaration_errors() {
+        let program = parse("{ function f() {} let f }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("f"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_block_var_let_redeclaration_errors() {
+        let program = parse("{ var f; let f }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("f"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_switch_var_let_redeclaration_errors() {
+        let program = parse("switch (0) { case 1: var f; default: let f }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("f"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_inner_block_var_outer_let_redeclaration_errors() {
+        let program = parse("{ let f; { var f; } }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("f"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_sloppy_block_duplicate_function_ok() {
+        let program = parse("{ function f() {} function f() {} }").unwrap();
+        bind(program).expect("Annex B allows sloppy duplicate plain functions");
+    }
+
+    #[test]
+    fn bind_strict_block_duplicate_function_errors() {
+        let program = parse("\"use strict\"; { function f() {} function f() {} }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("f"),
             "unexpected message: {}",
             err.message
         );
