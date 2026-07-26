@@ -346,3 +346,13 @@ fn export_class_fixture_present() {
 fn export_class_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/export_class");
 }
+
+#[test]
+fn class_expr_fixture_present() {
+    assert_fixture_present("es/annex-b/class_expr");
+}
+
+#[test]
+fn class_expr_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/class_expr");
+}

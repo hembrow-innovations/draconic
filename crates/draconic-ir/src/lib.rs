@@ -772,7 +772,54 @@ fn lower_class(
         .find(|s| s.span == name.span)
         .map(|s| s.id)
         .expect("class binding must be declared");
+    lower_class_local(checked, local, super_class, elements)
+}
 
+/// Class expression → IIFE that builds the constructor and returns it (E18.33).
+fn lower_class_expression(
+    checked: &CheckedProgram,
+    name: Option<&Ident>,
+    super_class: Option<&AstExpr>,
+    elements: &[ClassElement],
+    span: Span,
+) -> Expr {
+    let class_span = name.map(|n| n.span).unwrap_or(span);
+    let local = checked
+        .bound
+        .symbols()
+        .iter()
+        .find(|s| s.span == class_span)
+        .map(|s| s.id)
+        .expect("class expression binding must be declared");
+    let mut body = lower_class_local(checked, local, super_class, elements);
+    body.push(Stmt::Return {
+        value: Some(Expr::Local {
+            id: local,
+            ty: Type::Function,
+        }),
+    });
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: Vec::new(),
+            body,
+            is_async: false,
+            is_generator: false,
+            is_arrow: false,
+            ty: Type::Function,
+        }),
+        args: Vec::new(),
+        optional: false,
+        ty: Type::Function,
+    }
+}
+
+fn lower_class_local(
+    checked: &CheckedProgram,
+    local: LocalId,
+    super_class: Option<&AstExpr>,
+    elements: &[ClassElement],
+) -> Vec<Stmt> {
     let mut ctor_params = Vec::new();
     let mut ctor_body = Vec::new();
     let mut methods: Vec<(&Ident, &Vec<draconic_ast::Param>, &AstStmt, bool, bool)> = Vec::new();
@@ -1464,6 +1511,12 @@ fn lower_expr(
                 ty: expr_ty(checked, *span),
             }
         }
+        AstExpr::ClassExpression {
+            name,
+            super_class: sc,
+            body,
+            span,
+        } => lower_class_expression(checked, name.as_ref(), sc.as_deref(), body, *span),
         AstExpr::ArrowFunction {
             params,
             body,

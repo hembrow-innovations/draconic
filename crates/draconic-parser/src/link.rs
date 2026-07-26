@@ -941,6 +941,65 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             uniqueify_params_spans(params, spans);
             uniqueify_stmt_spans(body, spans);
         }
+        Expr::ClassExpression {
+            name,
+            super_class,
+            body,
+            span,
+        } => {
+            *span = spans.next();
+            if let Some(name) = name {
+                name.span = spans.next();
+            }
+            if let Some(sc) = super_class {
+                uniqueify_expr_spans(sc, spans);
+            }
+            for el in body {
+                match el {
+                    ClassElement::Constructor { params, body, span } => {
+                        *span = spans.next();
+                        uniqueify_params_spans(params, spans);
+                        uniqueify_stmt_spans(body, spans);
+                    }
+                    ClassElement::Method {
+                        name,
+                        params,
+                        body,
+                        span,
+                        ..
+                    } => {
+                        *span = spans.next();
+                        name.span = spans.next();
+                        uniqueify_params_spans(params, spans);
+                        uniqueify_stmt_spans(body, spans);
+                    }
+                    ClassElement::Accessor {
+                        name,
+                        params,
+                        body,
+                        span,
+                        ..
+                    } => {
+                        *span = spans.next();
+                        name.span = spans.next();
+                        uniqueify_params_spans(params, spans);
+                        uniqueify_stmt_spans(body, spans);
+                    }
+                    ClassElement::Field {
+                        name,
+                        value,
+                        span,
+                        ..
+                    } => {
+                        *span = spans.next();
+                        name.span = spans.next();
+                        if let Some(v) = value {
+                            uniqueify_expr_spans(v, spans);
+                        }
+                    }
+                }
+            }
+        }
         Expr::ArrowFunction {
             params,
             body,
@@ -1525,6 +1584,38 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
             }
             rename_params(params, renames, scopes);
             rename_stmt(body, renames, scopes);
+            scopes.pop();
+        }
+        Expr::ClassExpression {
+            name,
+            super_class,
+            body,
+            ..
+        } => {
+            scopes.push();
+            if let Some(name) = name {
+                scopes.declare_nested(&name.name);
+            }
+            if let Some(sc) = super_class {
+                rename_expr(sc, renames, scopes);
+            }
+            for el in body.iter_mut() {
+                match el {
+                    ClassElement::Constructor { params, body, .. }
+                    | ClassElement::Method { params, body, .. }
+                    | ClassElement::Accessor { params, body, .. } => {
+                        scopes.push();
+                        rename_params(params, renames, scopes);
+                        rename_stmt(body, renames, scopes);
+                        scopes.pop();
+                    }
+                    ClassElement::Field { value, .. } => {
+                        if let Some(v) = value {
+                            rename_expr(v, renames, scopes);
+                        }
+                    }
+                }
+            }
             scopes.pop();
         }
         Expr::ArrowFunction { params, body, .. } => {

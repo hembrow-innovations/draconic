@@ -534,6 +534,40 @@ impl Parser {
             name: name_tok.ident_name(),
             span: name_tok.span,
         };
+        let (super_class, body, end) = self.parse_class_tail()?;
+        Ok(Stmt::ClassDeclaration {
+            name,
+            super_class,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `class Name? extends Super? { … }` in expression position (E18.33).
+    fn parse_class_expression(&mut self) -> Result<Expr, Diagnostic> {
+        let start = self.expect(&TokenKind::Class)?.span.start.0;
+        let name = if matches!(self.current().kind, TokenKind::Ident(_)) {
+            let name_tok = self.expect_ident()?;
+            Some(Ident {
+                name: name_tok.ident_name(),
+                span: name_tok.span,
+            })
+        } else {
+            None
+        };
+        let (super_class, body, end) = self.parse_class_tail()?;
+        Ok(Expr::ClassExpression {
+            name,
+            super_class,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `extends Super? { elements… }` shared by class declaration and expression.
+    fn parse_class_tail(
+        &mut self,
+    ) -> Result<(Option<Box<Expr>>, Vec<ClassElement>, u32), Diagnostic> {
         let super_class = if self.check(&TokenKind::Extends) {
             self.bump();
             Some(Box::new(self.parse_lhs()?))
@@ -550,12 +584,7 @@ impl Parser {
             }
         }
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
-        Ok(Stmt::ClassDeclaration {
-            name,
-            super_class,
-            body,
-            span: Span::new(start, end),
-        })
+        Ok((super_class, body, end))
     }
 
     fn parse_class_element(&mut self) -> Result<ClassElement, Diagnostic> {
@@ -2900,6 +2929,7 @@ impl Parser {
             TokenKind::Async if self.peek_is(&TokenKind::Function) => {
                 self.parse_function_expression()
             }
+            TokenKind::Class => self.parse_class_expression(),
             _ => Err(Diagnostic::new(
                 format!("expected expression, found {:?}", tok.kind),
                 tok.span,
@@ -3169,6 +3199,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Call { span, .. }
         | Expr::New { span, .. }
         | Expr::FunctionExpression { span, .. }
+        | Expr::ClassExpression { span, .. }
         | Expr::ArrowFunction { span, .. }
         | Expr::ObjectExpression { span, .. }
         | Expr::ArrayExpression { span, .. }

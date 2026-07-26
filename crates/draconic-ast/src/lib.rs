@@ -463,6 +463,14 @@ pub enum Expr {
         is_generator: bool,
         span: Span,
     },
+    /// `class Name? extends Super? { … }` as an expression value (E18.33).
+    ClassExpression {
+        name: Option<Ident>,
+        /// Present when `extends SuperClass`.
+        super_class: Option<Box<Expr>>,
+        body: Vec<ClassElement>,
+        span: Span,
+    },
     /// `async? (params): ret? => body` or bare `async? param => body` (simple ident params only).
     ArrowFunction {
         params: Vec<Param>,
@@ -1662,6 +1670,106 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level + 1, out);
             out.push_str("body:\n");
             dump_stmt(body, level + 2, out);
+        }
+        Expr::ClassExpression {
+            name,
+            super_class,
+            body,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ClassExpression\n");
+            if let Some(name) = name {
+                indent(level + 1, out);
+                out.push_str(&format!("name: {}\n", name.name));
+            }
+            if let Some(sc) = super_class {
+                indent(level + 1, out);
+                out.push_str("extends:\n");
+                dump_expr(sc, level + 2, out);
+            }
+            for el in body {
+                match el {
+                    ClassElement::Constructor { params, body, .. } => {
+                        indent(level + 1, out);
+                        out.push_str("Constructor\n");
+                        dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
+                    ClassElement::Method {
+                        name,
+                        params,
+                        body,
+                        is_static,
+                        is_generator,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        if *is_static {
+                            out.push_str("StaticMethod\n");
+                        } else {
+                            out.push_str("Method\n");
+                        }
+                        indent(level + 2, out);
+                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_generator {
+                            indent(level + 2, out);
+                            out.push_str("generator: true\n");
+                        }
+                        dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
+                    ClassElement::Accessor {
+                        kind,
+                        name,
+                        params,
+                        body,
+                        is_static,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        let kind_s = match kind {
+                            AccessorKind::Get => "get",
+                            AccessorKind::Set => "set",
+                        };
+                        if *is_static {
+                            out.push_str(&format!("StaticAccessor {kind_s}\n"));
+                        } else {
+                            out.push_str(&format!("Accessor {kind_s}\n"));
+                        }
+                        indent(level + 2, out);
+                        out.push_str(&format!("name: {}\n", name.name));
+                        dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
+                    ClassElement::Field {
+                        name,
+                        value,
+                        is_static,
+                        ..
+                    } => {
+                        indent(level + 1, out);
+                        if *is_static {
+                            out.push_str("StaticField\n");
+                        } else {
+                            out.push_str("Field\n");
+                        }
+                        indent(level + 2, out);
+                        out.push_str(&format!("name: {}\n", name.name));
+                        if let Some(v) = value {
+                            indent(level + 2, out);
+                            out.push_str("value:\n");
+                            dump_expr(v, level + 3, out);
+                        }
+                    }
+                }
+            }
         }
         Expr::ArrowFunction {
             params,

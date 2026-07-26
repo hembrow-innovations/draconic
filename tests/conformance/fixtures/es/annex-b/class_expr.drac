@@ -1,0 +1,67 @@
+let Point = class {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  sum() {
+    return this.x + this.y;
+  }
+};
+let p = new Point(1, 2);
+let a = p.x;
+let b = p.y;
+let c = p.sum();
+
+let Counter = class Counter {
+  constructor(start) {
+    this.n = start;
+  }
+  inc() {
+    this.n = this.n + 1;
+  }
+  value() {
+    return this.n;
+  }
+  selfName() {
+    return Counter.name;
+  }
+};
+let ctr = new Counter(5);
+ctr.inc();
+let d = ctr.value();
+let e = ctr.selfName();
+
+let Base = class {
+  constructor(v) {
+    this.v = v;
+  }
+  base() {
+    return this.v;
+  }
+};
+let Child = class extends Base {
+  constructor(v, extra) {
+    super(v);
+    this.extra = extra;
+  }
+  total() {
+    return this.base() + this.extra;
+  }
+};
+let ch = new Child(10, 3);
+let f = ch.total();
+let g = ch.v;
+
+let WithField = class {
+  n = 7;
+  getN() {
+    return this.n;
+  }
+};
+let h = new WithField().getN();
+
+let i = new (class {
+  constructor() {
+    this.x = 42;
+  }
+})().x;

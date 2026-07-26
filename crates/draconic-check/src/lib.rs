@@ -1343,6 +1343,45 @@ impl Binder {
                 self.pop_scope();
                 Ok(())
             }
+            Expr::ClassExpression {
+                name,
+                super_class,
+                body,
+                span,
+                ..
+            } => {
+                // Name (if any) is local to the class body only (ES named class expression).
+                // Anonymous class expressions get a synthetic binding keyed by the expr span.
+                self.push_scope_kind(true);
+                if let Some(name) = name {
+                    self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+                } else {
+                    self.declare("__class".into(), *span, BindingKind::Function)?;
+                }
+                if let Some(sc) = super_class {
+                    self.bind_expr(sc)?;
+                }
+                for el in body {
+                    match el {
+                        ClassElement::Constructor { params, body, .. }
+                        | ClassElement::Method { params, body, .. }
+                        | ClassElement::Accessor { params, body, .. } => {
+                            self.push_scope_kind(true);
+                            self.bind_params(params)?;
+                            self.install_arguments_object()?;
+                            self.bind_stmt(body)?;
+                            self.pop_scope();
+                        }
+                        ClassElement::Field { value, .. } => {
+                            if let Some(v) = value {
+                                self.bind_expr(v)?;
+                            }
+                        }
+                    }
+                }
+                self.pop_scope();
+                Ok(())
+            }
             Expr::ArrowFunction { params, body, .. } => {
                 self.push_scope_kind(true);
                 self.bind_params(params)?;
@@ -2792,6 +2831,76 @@ impl<'a> Checker<'a> {
                 self.record(*span, Type::Function);
                 Type::Function
             }
+            Expr::ClassExpression {
+                name,
+                super_class,
+                body,
+                span,
+            } => {
+                let class_span = name.as_ref().map(|n| n.span).unwrap_or(*span);
+                let id = self
+                    .bound
+                    .symbols()
+                    .iter()
+                    .find(|s| s.span == class_span)
+                    .map(|s| s.id)
+                    .expect("class expression binding must be declared");
+                self.symbol_types[id.0 as usize] = Type::Function;
+                if let Some(sc) = super_class {
+                    self.check_expr(sc)?;
+                }
+                for el in body {
+                    match el {
+                        ClassElement::Constructor { params, body, .. } => {
+                            self.check_params(params)?;
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = false;
+                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                        }
+                        ClassElement::Method {
+                            params,
+                            body,
+                            is_generator,
+                            ..
+                        } => {
+                            self.check_params(params)?;
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = *is_generator;
+                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                        }
+                        ClassElement::Accessor {
+                            params, body, ..
+                        } => {
+                            self.check_params(params)?;
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = false;
+                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                        }
+                        ClassElement::Field { value, .. } => {
+                            if let Some(v) = value {
+                                self.check_expr(v)?;
+                            }
+                        }
+                    }
+                }
+                self.record(*span, Type::Function);
+                Type::Function
+            }
             Expr::ArrowFunction {
                 params,
                 return_type,
@@ -4006,6 +4115,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::Call { span, .. }
         | Expr::New { span, .. }
         | Expr::FunctionExpression { span, .. }
+        | Expr::ClassExpression { span, .. }
         | Expr::ArrowFunction { span, .. }
         | Expr::ObjectExpression { span, .. }
         | Expr::ArrayExpression { span, .. }
@@ -5322,8 +5432,10 @@ mod tests {
                         walk_expr(property, name, out);
                     }
                 }
-                // Function bodies walked via Stmt::FunctionDeclaration path when needed.
-                Expr::FunctionExpression { .. } | Expr::ArrowFunction { .. } => {}
+                // Function/class bodies walked via declaration paths when needed.
+                Expr::FunctionExpression { .. }
+                | Expr::ClassExpression { .. }
+                | Expr::ArrowFunction { .. } => {}
                 Expr::ArrayPattern { elements, .. } => {
                     for el in elements {
                         match el {
