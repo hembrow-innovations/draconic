@@ -1,4 +1,4 @@
-/* Draconic Native Runtime C ABI (N05–N06.08: GC, job queue, Promise + all/race/allSettled). */
+/* Draconic Native Runtime C ABI (N05–N06.09: GC, job queue, Promise + all/race/allSettled/any). */
 #ifndef DRACONIC_RT_H
 #define DRACONIC_RT_H
 
@@ -106,6 +106,10 @@ void *draconic_rt_object_get(DraconicValue *obj, const char *key);
 /* --- Promise.allSettled (N06.08): array of promises/values →
        promise of [{status,value|reason}, …] --- */
 DraconicValue *draconic_rt_promise_all_settled(DraconicValue *arr);
+
+/* --- Promise.any (N06.09): array of promises/values → first fulfillment;
+       if all reject (or empty), reject AggregateError { name, errors } --- */
+DraconicValue *draconic_rt_promise_any(DraconicValue *arr);
 
 #ifdef __cplusplus
 }

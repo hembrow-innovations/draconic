@@ -1,4 +1,4 @@
-//! N06.03–N06.08: lower Promise constructor/statics/catch/finally/all/race/allSettled to Runtime ABI.
+//! N06.03–N06.09: lower Promise constructor/statics/catch/finally/all/race/allSettled/any to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -10,7 +10,7 @@ use draconic_ir::{
     Stmt,
 };
 
-/// True when this module is the supported Promise subset (E12.01–E12.06 / N06.03–N06.08).
+/// True when this module is the supported Promise subset (E12.01–E12.07 / N06.03–N06.09).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -220,8 +220,8 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                     *uses = true;
                     Ok(())
                 }
-                "length" | "status" | "value" | "reason" => Ok(()),
-                "resolve" | "reject" | "all" | "race" | "allSettled" => {
+                "length" | "status" | "value" | "reason" | "name" | "errors" => Ok(()),
+                "resolve" | "reject" | "all" | "race" | "allSettled" | "any" => {
                     if let Expr::Local { id, .. } = object.as_ref() {
                         if Some(*id) == promise_id {
                             *uses = true;
@@ -229,7 +229,7 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                         }
                     }
                     Err(
-                        "only Promise.resolve / Promise.reject / Promise.all / Promise.race / Promise.allSettled supported"
+                        "only Promise.resolve / Promise.reject / Promise.all / Promise.race / Promise.allSettled / Promise.any supported"
                             .into(),
                     )
                 }
@@ -336,7 +336,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03–N06.08 Promise via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.09 Promise via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
@@ -384,6 +384,7 @@ impl<'a> Emitter<'a> {
             "declare ptr @draconic_rt_promise_all_settled(ptr)"
         )
         .ok();
+        writeln!(self.out, "declare ptr @draconic_rt_promise_any(ptr)").ok();
         writeln!(self.out, "declare ptr @draconic_rt_object_get(ptr, ptr)").ok();
         writeln!(self.out).ok();
 
@@ -712,7 +713,12 @@ impl<'a> Emitter<'a> {
             writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
             return Ok(t);
         }
-        if prop == "status" || prop == "value" || prop == "reason" {
+        if prop == "status"
+            || prop == "value"
+            || prop == "reason"
+            || prop == "name"
+            || prop == "errors"
+        {
             let obj = self.emit_expr(object)?;
             let key = self.string_const(&prop)?;
             let t = self.fresh();
@@ -782,7 +788,7 @@ impl<'a> Emitter<'a> {
                 if let Expr::String { value, .. } = property.as_ref() {
                     let prop = value.to_string_lossy();
                     match prop.as_ref() {
-                        "resolve" | "reject" | "all" | "race" | "allSettled" => {
+                        "resolve" | "reject" | "all" | "race" | "allSettled" | "any" => {
                             if let Expr::Local { id, .. } = object.as_ref() {
                                 if Some(*id) == self.info.promise_id {
                                     return self.string_const("function");
@@ -901,6 +907,9 @@ impl<'a> Emitter<'a> {
                 }
                 "allSettled" => {
                     return self.emit_promise_all_settled(object, args);
+                }
+                "any" => {
+                    return self.emit_promise_any(object, args);
                 }
                 "then" => {
                     let p = self.emit_expr(object)?;
@@ -1099,6 +1108,33 @@ impl<'a> Emitter<'a> {
         writeln!(
             self.body,
             "  {t} = call ptr @draconic_rt_promise_all_settled(ptr {arr})"
+        )
+        .ok();
+        Ok(t)
+    }
+
+    fn emit_promise_any(
+        &mut self,
+        object: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        let Expr::Local { id, .. } = object else {
+            return Err(diag("Promise.any requires Promise receiver"));
+        };
+        if Some(*id) != self.info.promise_id {
+            return Err(diag("only Promise.any supported"));
+        }
+        if args.len() != 1 {
+            return Err(diag("Promise.any expects 1 argument"));
+        }
+        let Arg::Expr(vexpr) = &args[0] else {
+            return Err(diag("spread not supported"));
+        };
+        let arr = self.emit_expr(vexpr)?;
+        let t = self.fresh();
+        writeln!(
+            self.body,
+            "  {t} = call ptr @draconic_rt_promise_any(ptr {arr})"
         )
         .ok();
         Ok(t)
@@ -1458,7 +1494,12 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
                     return Ok(t);
                 }
-                if prop == "status" || prop == "value" || prop == "reason" {
+                if prop == "status"
+                    || prop == "value"
+                    || prop == "reason"
+                    || prop == "name"
+                    || prop == "errors"
+                {
                     let obj = self.emit_expr_in_reaction(object)?;
                     let key = self.string_const(&prop)?;
                     let t = self.fresh();

@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.08); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.09); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -140,8 +140,10 @@ pub const OBJECT_GET_SYMBOL: &str = "draconic_rt_object_get";
 pub const OBJECT_SET_SYMBOL: &str = "draconic_rt_object_set";
 /// C ABI: `Promise.allSettled(iterable)` — array of status objects (N06.08).
 pub const PROMISE_ALL_SETTLED_SYMBOL: &str = "draconic_rt_promise_all_settled";
+/// C ABI: `Promise.any(iterable)` — first fulfillment or AggregateError (N06.09).
+pub const PROMISE_ANY_SYMBOL: &str = "draconic_rt_promise_any";
 
-/// Promise ABI symbols (N06.02–N06.08).
+/// Promise ABI symbols (N06.02–N06.09).
 pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_NEW_SYMBOL,
     IS_PROMISE_SYMBOL,
@@ -162,6 +164,7 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     OBJECT_GET_SYMBOL,
     OBJECT_SET_SYMBOL,
     PROMISE_ALL_SETTLED_SYMBOL,
+    PROMISE_ANY_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -1356,6 +1359,169 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "promise-all-settled-ok\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn promise_any_via_job_queue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_promise_any");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+            #include <string.h>
+
+            static int g_winner = -1;
+            static int g_mixed = -1;
+            static int g_all_rej = 0;
+            static const char *g_err_name = NULL;
+            static int g_err_len = -1;
+            static int g_empty_rej = 0;
+            static const char *g_empty_name = NULL;
+            static int g_empty_len = -1;
+
+            static void *on_winner(void *data, void *value) {
+                (void)data;
+                g_winner = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_mixed(void *data, void *value) {
+                (void)data;
+                g_mixed = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_all_rej_ok(void *data, void *value) {
+                (void)data; (void)value;
+                g_all_rej = -1;
+                return value;
+            }
+
+            static void *on_all_rej_err(void *data, void *reason) {
+                (void)data;
+                g_all_rej = 1;
+                DraconicValue *e = (DraconicValue *)reason;
+                g_err_name = (const char *)draconic_rt_object_get(e, "name");
+                DraconicValue *errs = (DraconicValue *)draconic_rt_object_get(e, "errors");
+                g_err_len = (int)draconic_rt_array_len(errs);
+                return reason;
+            }
+
+            static void *on_empty_ok(void *data, void *value) {
+                (void)data; (void)value;
+                g_empty_rej = -1;
+                return value;
+            }
+
+            static void *on_empty_err(void *data, void *reason) {
+                (void)data;
+                g_empty_rej = 1;
+                DraconicValue *e = (DraconicValue *)reason;
+                g_empty_name = (const char *)draconic_rt_object_get(e, "name");
+                DraconicValue *errs = (DraconicValue *)draconic_rt_object_get(e, "errors");
+                g_empty_len = (int)draconic_rt_array_len(errs);
+                return reason;
+            }
+
+            int main(void) {
+                DraconicValue *a = draconic_rt_array_new(2);
+                DraconicValue *p0 = draconic_rt_promise_new();
+                DraconicValue *p1 = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(p0, (void *)(intptr_t)10);
+                draconic_rt_promise_resolve(p1, (void *)(intptr_t)20);
+                draconic_rt_array_set(a, 0, p0);
+                draconic_rt_array_set(a, 1, p1);
+                DraconicValue *p_win = draconic_rt_promise_any(a);
+                (void)draconic_rt_promise_then(p_win, on_winner, NULL, NULL, NULL);
+
+                DraconicValue *m = draconic_rt_array_new(2);
+                draconic_rt_array_set(m, 0, (void *)(intptr_t)1);
+                DraconicValue *pm = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(pm, (void *)(intptr_t)2);
+                draconic_rt_array_set(m, 1, pm);
+                DraconicValue *p_mixed = draconic_rt_promise_any(m);
+                (void)draconic_rt_promise_then(p_mixed, on_mixed, NULL, NULL, NULL);
+
+                DraconicValue *r = draconic_rt_array_new(2);
+                DraconicValue *r0 = draconic_rt_promise_new();
+                DraconicValue *r1 = draconic_rt_promise_new();
+                draconic_rt_promise_reject(r0, (void *)(intptr_t)7);
+                draconic_rt_promise_reject(r1, (void *)(intptr_t)9);
+                draconic_rt_array_set(r, 0, r0);
+                draconic_rt_array_set(r, 1, r1);
+                DraconicValue *p_rej = draconic_rt_promise_any(r);
+                (void)draconic_rt_promise_then(p_rej, on_all_rej_ok, NULL, on_all_rej_err, NULL);
+
+                DraconicValue *empty = draconic_rt_array_new(0);
+                DraconicValue *p_empty = draconic_rt_promise_any(empty);
+                (void)draconic_rt_promise_then(p_empty, on_empty_ok, NULL, on_empty_err, NULL);
+
+                draconic_rt_job_drain();
+
+                if (g_winner != 10) {
+                    fprintf(stderr, "winner want 10 got %d\n", g_winner);
+                    return 1;
+                }
+                if (g_mixed != 1) {
+                    fprintf(stderr, "mixed want 1 got %d\n", g_mixed);
+                    return 2;
+                }
+                if (g_all_rej != 1) {
+                    fprintf(stderr, "allRejected want 1 got %d\n", g_all_rej);
+                    return 3;
+                }
+                if (!g_err_name || strcmp(g_err_name, "AggregateError") != 0 || g_err_len != 2) {
+                    fprintf(stderr, "err bad: %s %d\n", g_err_name ? g_err_name : "(null)", g_err_len);
+                    return 4;
+                }
+                if (g_empty_rej != 1) {
+                    fprintf(stderr, "emptyRejected want 1 got %d\n", g_empty_rej);
+                    return 5;
+                }
+                if (!g_empty_name || strcmp(g_empty_name, "AggregateError") != 0 || g_empty_len != 0) {
+                    fprintf(stderr, "empty err bad: %s %d\n",
+                        g_empty_name ? g_empty_name : "(null)", g_empty_len);
+                    return 6;
+                }
+
+                draconic_rt_print_str("promise-any-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link promise any test");
+
+        let output = Command::new(&bin).output().expect("run rt_promise_any");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "promise any binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "promise-any-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

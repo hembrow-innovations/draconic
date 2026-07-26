@@ -1059,3 +1059,123 @@ DraconicValue *draconic_rt_promise_all_settled(DraconicValue *arr) {
     }
     return out;
 }
+
+/* --- Promise.any (N06.09) --- */
+
+static DraconicValue *make_aggregate_error(DraconicValue *errors) {
+    DraconicValue *err = draconic_rt_alloc_object();
+    if (!err) {
+        return NULL;
+    }
+    draconic_rt_object_set(err, "name", (void *)"AggregateError");
+    draconic_rt_object_set(err, "errors", errors);
+    return err;
+}
+
+typedef struct {
+    DraconicValue *any_promise;
+    DraconicValue *errors;
+    size_t *remaining;
+    int *fulfilled_flag;
+    size_t index;
+} PromiseAnySlot;
+
+static void *promise_any_on_fulfill(void *data, void *value) {
+    PromiseAnySlot *slot = (PromiseAnySlot *)data;
+    if (!slot || !slot->fulfilled_flag) {
+        return value;
+    }
+    if (!*slot->fulfilled_flag) {
+        *slot->fulfilled_flag = 1;
+        draconic_rt_promise_resolve(slot->any_promise, value);
+    }
+    return value;
+}
+
+static void *promise_any_on_reject(void *data, void *reason) {
+    PromiseAnySlot *slot = (PromiseAnySlot *)data;
+    if (!slot || !slot->remaining || !slot->fulfilled_flag) {
+        return reason;
+    }
+    if (*slot->fulfilled_flag) {
+        return reason;
+    }
+    draconic_rt_array_set(slot->errors, slot->index, reason);
+    if (*slot->remaining > 0) {
+        (*slot->remaining)--;
+    }
+    if (*slot->remaining == 0) {
+        DraconicValue *agg = make_aggregate_error(slot->errors);
+        draconic_rt_promise_reject(slot->any_promise, agg);
+    }
+    return reason;
+}
+
+DraconicValue *draconic_rt_promise_any(DraconicValue *arr) {
+    DraconicValue *out = draconic_rt_promise_new();
+    if (!out) {
+        return NULL;
+    }
+    size_t n = 0;
+    if (arr && arr->tag == DRACONIC_TAG_ARRAY) {
+        n = arr->as.array.len;
+    }
+    if (n == 0) {
+        DraconicValue *empty = draconic_rt_array_new(0);
+        DraconicValue *agg = make_aggregate_error(empty);
+        draconic_rt_promise_reject(out, agg);
+        return out;
+    }
+
+    DraconicValue *errors = draconic_rt_array_new(n);
+    if (!errors) {
+        draconic_rt_promise_reject(out, NULL);
+        return out;
+    }
+
+    size_t *remaining = (size_t *)malloc(sizeof(size_t));
+    int *fulfilled_flag = (int *)malloc(sizeof(int));
+    if (!remaining || !fulfilled_flag) {
+        free(remaining);
+        free(fulfilled_flag);
+        draconic_rt_promise_reject(out, NULL);
+        return out;
+    }
+    *remaining = n;
+    *fulfilled_flag = 0;
+
+    for (size_t i = 0; i < n; i++) {
+        void *elem = draconic_rt_array_get(arr, i);
+        PromiseAnySlot *slot = (PromiseAnySlot *)calloc(1, sizeof(PromiseAnySlot));
+        if (!slot) {
+            fprintf(stderr, "draconic_rt: promise_any OOM\n");
+            abort();
+        }
+        slot->any_promise = out;
+        slot->errors = errors;
+        slot->remaining = remaining;
+        slot->fulfilled_flag = fulfilled_flag;
+        slot->index = i;
+
+        if (draconic_rt_is_promise((DraconicValue *)elem)) {
+            (void)draconic_rt_promise_then(
+                (DraconicValue *)elem,
+                promise_any_on_fulfill,
+                slot,
+                promise_any_on_reject,
+                slot
+            );
+        } else {
+            DraconicValue *wrapped = draconic_rt_promise_new();
+            draconic_rt_promise_resolve(wrapped, elem);
+            (void)draconic_rt_promise_then(
+                wrapped,
+                promise_any_on_fulfill,
+                slot,
+                promise_any_on_reject,
+                slot
+            );
+        }
+    }
+    return out;
+}

@@ -3,4 +3,4 @@ targets: js,native
 js.exit: 0
 js.check: setTimeout(function () { if (tAny !== "function") process.exit(1); if (winner !== 10) process.exit(2); if (mixed !== 1) process.exit(3); if (allRejected !== 1) process.exit(4); if (errName !== "AggregateError") process.exit(5); if (errLen !== 2) process.exit(6); if (emptyRejected !== 1) process.exit(7); if (emptyName !== "AggregateError") process.exit(8); if (emptyLen !== 0) process.exit(9); }, 0);
 native.exit: 0
-native.stdout: hello\n
+native.stdout: function\n10\n1\n1\nAggregateError\n2\n1\nAggregateError\n0\n

@@ -242,6 +242,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N06.06 | done | native | LLVM `Promise.all` via Runtime ABI: iterable of promises/values; fulfill with array; reject on first rejection; empty → `[]`; real native observations for `es/async/promise_all` | `tests/conformance` fixtures `es/async/promise_all`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N06.07 | done | native | LLVM `Promise.race` via Runtime ABI: iterable of promises/values; settle with first fulfillment or rejection; real native observations for `es/async/promise_race` | `tests/conformance` fixtures `es/async/promise_race`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N06.08 | done | native | LLVM `Promise.allSettled` via Runtime ABI: iterable of promises/values; fulfill with `{status,value\|reason}[]`; empty → `[]`; real native observations for `es/async/promise_allSettled` | `tests/conformance` fixtures `es/async/promise_allSettled`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
+| N06.09 | done | native | LLVM `Promise.any` via Runtime ABI: iterable of promises/values; fulfill with first fulfillment; reject `AggregateError` if all reject; empty → reject; real native observations for `es/async/promise_any` | `tests/conformance` fixtures `es/async/promise_any`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |
 
 ---

@@ -733,6 +733,81 @@ mod tests {
     }
 
     #[test]
+    fn es_promise_any_prints_after_drain() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let tAny = typeof Promise.any;
+            let winner = -1;
+            let mixed = -1;
+            let allRejected = 0;
+            let errName = "";
+            let errLen = -1;
+            let emptyRejected = 0;
+            let emptyName = "";
+            let emptyLen = -1;
+            Promise.any([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+              winner = v;
+            });
+            Promise.any([1, Promise.resolve(2)]).then(function (v) {
+              mixed = v;
+            });
+            Promise.any([Promise.reject(7), Promise.reject(9)]).then(
+              function () {
+                allRejected = -1;
+              },
+              function (e) {
+                allRejected = 1;
+                errName = e.name;
+                errLen = e.errors.length;
+              }
+            );
+            Promise.any([]).then(
+              function () {
+                emptyRejected = -1;
+              },
+              function (e) {
+                emptyRejected = 1;
+                emptyName = e.name;
+                emptyLen = e.errors.length;
+              }
+            );
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "Promise.any must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_any"),
+            "should Promise.any via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_object_get"),
+            "should read name/errors via object_get:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_job_drain"),
+            "should drain jobs before observe:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n06-promise-any").expect("workdir");
+        let bin = dir.join("promise_any");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "function\n10\n1\n1\nAggregateError\n2\n1\nAggregateError\n0\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn native_fixed_array_index_read_prints() {
         let ir = emit_llvm_ir(&module_of(
             r#"
