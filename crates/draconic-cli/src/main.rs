@@ -5,11 +5,9 @@ use std::process::ExitCode;
 
 use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
-use draconic_check::check;
 use draconic_conformance::{load_path, run_fixture};
 use draconic_diagnostics::Diagnostic;
-use draconic_ir::lower;
-use draconic_parser::{link_entry, parse};
+use draconic_frontend::compile_path;
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
@@ -89,20 +87,12 @@ fn cmd_build(args: &[String]) -> ExitCode {
         }
     };
 
-    let source = match fs::read_to_string(&parsed.input) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("failed to read {}: {e}", parsed.input.display());
-            return ExitCode::from(1);
-        }
-    };
-
     let out = match &parsed.output {
         Some(p) => p.clone(),
         None => default_output(&parsed.input, parsed.target),
     };
 
-    if let Err(d) = build_program(&source, &parsed.input, parsed.target, &out) {
+    if let Err(d) = build_program(&parsed.input, parsed.target, &out) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
     }
@@ -189,19 +179,8 @@ fn default_output(input: &Path, target: Target) -> PathBuf {
     }
 }
 
-fn build_program(
-    source: &str,
-    input: &Path,
-    target: Target,
-    out: &Path,
-) -> Result<(), Diagnostic> {
-    let program = if source.contains("import ") || source.contains("export ") {
-        link_entry(input)?
-    } else {
-        parse(source)?
-    };
-    let checked = check(program)?;
-    let module = lower(&checked);
+fn build_program(input: &Path, target: Target, out: &Path) -> Result<(), Diagnostic> {
+    let module = compile_path(input)?;
 
     match target {
         Target::Js => {
@@ -368,7 +347,8 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let out = dir.join("t.js");
         let input = dir.join("t.drac");
-        build_program("let x = 1;", &input, Target::Js, &out).unwrap();
+        fs::write(&input, "let x = 1;").unwrap();
+        build_program(&input, Target::Js, &out).unwrap();
         let js = fs::read_to_string(&out).unwrap();
         assert!(js.contains("let x"));
         let _ = fs::remove_dir_all(&dir);

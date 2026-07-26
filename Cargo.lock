@@ -15,10 +15,9 @@ name = "draconic-backend-js"
 version = "0.1.0"
 dependencies = [
  "draconic-ast",
- "draconic-check",
  "draconic-diagnostics",
+ "draconic-frontend",
  "draconic-ir",
- "draconic-parser",
 ]
 
 [[package]]
@@ -26,11 +25,10 @@ name = "draconic-backend-llvm"
 version = "0.1.0"
 dependencies = [
  "draconic-ast",
- "draconic-check",
  "draconic-diagnostics",
  "draconic-embed",
+ "draconic-frontend",
  "draconic-ir",
- "draconic-parser",
  "draconic-runtime",
 ]
 
@@ -49,10 +47,9 @@ version = "0.1.0"
 dependencies = [
  "draconic-backend-js",
  "draconic-backend-llvm",
- "draconic-check",
  "draconic-conformance",
  "draconic-diagnostics",
- "draconic-ir",
+ "draconic-frontend",
  "draconic-parser",
 ]
 
@@ -63,7 +60,7 @@ dependencies = [
  "draconic-backend-js",
  "draconic-backend-llvm",
  "draconic-check",
- "draconic-ir",
+ "draconic-frontend",
  "draconic-parser",
 ]
 
@@ -79,6 +76,16 @@ name = "draconic-embed"
 version = "0.1.0"
 dependencies = [
  "draconic-ast",
+ "draconic-diagnostics",
+ "draconic-frontend",
+ "draconic-ir",
+]
+
+[[package]]
+name = "draconic-frontend"
+version = "0.1.0"
+dependencies = [
+ "draconic-ast",
  "draconic-check",
  "draconic-diagnostics",
  "draconic-ir",
@@ -91,9 +98,8 @@ version = "0.1.0"
 dependencies = [
  "draconic-backend-js",
  "draconic-backend-llvm",
- "draconic-check",
+ "draconic-frontend",
  "draconic-ir",
- "draconic-parser",
 ]
 
 [[package]]

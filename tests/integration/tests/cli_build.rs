@@ -8,9 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
-use draconic_check::check;
-use draconic_ir::lower;
-use draconic_parser::parse;
+use draconic_frontend::compile_source;
 
 fn temp_dir() -> PathBuf {
     static N: AtomicU64 = AtomicU64::new(0);
@@ -29,9 +27,7 @@ fn temp_dir() -> PathBuf {
 }
 
 fn compile_module(src: &str) -> draconic_ir::Module {
-    let program = parse(src).expect("parse");
-    let checked = check(program).expect("check");
-    lower(&checked)
+    compile_source(src).expect("compile")
 }
 
 /// Same pipeline the CLI `build --target js` uses: source → IR → JS artifact.

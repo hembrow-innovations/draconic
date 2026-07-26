@@ -145,14 +145,10 @@ fn work_dir(prefix: &str) -> Result<PathBuf, Diagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draconic_check::check;
-    use draconic_ir::lower;
-    use draconic_parser::parse;
+    use draconic_frontend::compile_source;
 
     fn module_of(src: &str) -> Module {
-        let program = parse(src).expect("parse");
-        let checked = check(program).expect("check");
-        lower(&checked)
+        compile_source(src).expect("compile")
     }
 
     #[test]

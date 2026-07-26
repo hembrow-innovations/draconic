@@ -9,10 +9,9 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use draconic_ast::{BinaryOp, UnaryOp};
-use draconic_check::check;
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{lower, Expr, LocalId, Module, Stmt};
-use draconic_parser::parse;
+use draconic_frontend::compile_source;
+use draconic_ir::{Expr, LocalId, Module, Stmt};
 
 /// JS-ish value produced by Embed eval (N07.01 subset).
 #[derive(Debug, Clone, PartialEq)]
@@ -55,9 +54,7 @@ impl EmbedValue {
 /// N07.01 supports expression scripts built from literals, arithmetic, unary
 /// `+/-`, grouping, and `typeof` on the supported value set (incl. `undefined`).
 pub fn eval_source(source: &str) -> Result<EmbedValue, Diagnostic> {
-    let program = parse(source)?;
-    let checked = check(program)?;
-    let module = lower(&checked);
+    let module = compile_source(source)?;
     interpret_module(&module)
 }
 

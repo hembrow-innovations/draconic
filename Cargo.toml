@@ -7,6 +7,7 @@ members = [
     "crates/draconic-parser",
     "crates/draconic-check",
     "crates/draconic-ir",
+    "crates/draconic-frontend",
     "crates/draconic-backend-js",
     "crates/draconic-backend-llvm",
     "crates/draconic-runtime",
@@ -29,6 +30,7 @@ draconic-lexer = { path = "crates/draconic-lexer" }
 draconic-parser = { path = "crates/draconic-parser" }
 draconic-check = { path = "crates/draconic-check" }
 draconic-ir = { path = "crates/draconic-ir" }
+draconic-frontend = { path = "crates/draconic-frontend" }
 draconic-backend-js = { path = "crates/draconic-backend-js" }
 draconic-backend-llvm = { path = "crates/draconic-backend-llvm" }
 draconic-runtime = { path = "crates/draconic-runtime" }

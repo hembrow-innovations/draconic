@@ -35,7 +35,7 @@ The Rust program that turns Draconic source into artifacts (JS text or native ob
 _Avoid_: tsc, transpiler (when the native path is in view)
 
 **Frontend**:
-Parse, bind, and typecheck stages that produce a typed representation of a Program.
+The compile path from source (or a filesystem entry) through parse, bind, typecheck, and lower into IR. Script vs Module (link) policy lives here; callers do not wire stage crates.
 _Avoid_: parser (when meaning the whole front half)
 
 **IR**:

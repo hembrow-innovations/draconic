@@ -12,5 +12,4 @@ draconic-runtime.workspace = true
 draconic-embed.workspace = true
 
 [dev-dependencies]
-draconic-parser.workspace = true
-draconic-check.workspace = true
+draconic-frontend.workspace = true

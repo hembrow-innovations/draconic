@@ -3,14 +3,10 @@
 use std::process::{Command, Stdio};
 
 use draconic_backend_js::emit_js;
-use draconic_check::check;
-use draconic_ir::lower;
-use draconic_parser::parse;
+use draconic_frontend::compile_source;
 
 fn compile_to_js(src: &str) -> String {
-    let program = parse(src).expect("parse");
-    let checked = check(program).expect("check");
-    let module = lower(&checked);
+    let module = compile_source(src).expect("compile");
     emit_js(&module).expect("emit_js")
 }
 

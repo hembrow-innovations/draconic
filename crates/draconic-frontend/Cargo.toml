@@ -1,13 +1,12 @@
 [package]
-name = "draconic-backend-js"
+name = "draconic-frontend"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 draconic-ast.workspace = true
-draconic-ir.workspace = true
 draconic-diagnostics.workspace = true
-
-[dev-dependencies]
-draconic-frontend.workspace = true
+draconic-parser.workspace = true
+draconic-check.workspace = true
+draconic-ir.workspace = true

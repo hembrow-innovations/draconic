@@ -10,8 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 draconic-parser.workspace = true
-draconic-check.workspace = true
-draconic-ir.workspace = true
+draconic-frontend.workspace = true
 draconic-backend-js.workspace = true
 draconic-backend-llvm.workspace = true
 draconic-diagnostics.workspace = true

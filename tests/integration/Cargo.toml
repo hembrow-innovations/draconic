@@ -6,8 +6,7 @@ license.workspace = true
 publish = false
 
 [dev-dependencies]
-draconic-parser.workspace = true
-draconic-check.workspace = true
+draconic-frontend.workspace = true
 draconic-ir.workspace = true
 draconic-backend-js.workspace = true
 draconic-backend-llvm.workspace = true

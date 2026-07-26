@@ -8,9 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
-use draconic_check::check;
-use draconic_ir::lower;
-use draconic_parser::{link_entry, parse};
+use draconic_frontend::compile_path;
 
 /// Backend a fixture may target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,15 +282,12 @@ fn unescape(s: &str) -> String {
     out
 }
 
-/// Compile a fixture entry through the Frontend + IR (links static imports).
-fn compile_module(source_path: &Path, source: &str) -> Result<draconic_ir::Module, String> {
-    let program = if source.contains("import ") || source.contains("export ") {
-        link_entry(source_path).map_err(|d| format!("link: {d}"))?
-    } else {
-        parse(source).map_err(|d| format!("parse: {d}"))?
-    };
-    let checked = check(program).map_err(|d| format!("check: {d}"))?;
-    Ok(lower(&checked))
+/// Compile a fixture entry through the Frontend (links static imports when needed).
+fn compile_module(
+    source_path: &Path,
+    _source: &str,
+) -> Result<draconic_frontend::Module, String> {
+    compile_path(source_path).map_err(|d| format!("compile: {d}"))
 }
 
 /// Run one fixture on one target.

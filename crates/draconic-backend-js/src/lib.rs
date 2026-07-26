@@ -430,14 +430,10 @@ fn reject_native_only_object_prop(prop: &draconic_ir::ObjectProp) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draconic_check::check;
-    use draconic_ir::lower;
-    use draconic_parser::parse;
+    use draconic_frontend::compile_source;
 
     fn emit_src(src: &str) -> String {
-        let program = parse(src).expect("parse");
-        let checked = check(program).expect("check");
-        let module = lower(&checked);
+        let module = compile_source(src).expect("compile");
         emit_js(&module).expect("emit")
     }
 
@@ -645,9 +641,7 @@ mod tests {
     }
 
     fn emit_result(src: &str) -> Result<String, Diagnostic> {
-        let program = parse(src).expect("parse");
-        let checked = check(program).expect("check");
-        let module = lower(&checked);
+        let module = compile_source(src).expect("compile");
         emit_js(&module)
     }
 
@@ -696,9 +690,7 @@ mod tests {
     }
 
     fn emit_mapped(src: &str, name: &str) -> EmittedJs {
-        let program = parse(src).expect("parse");
-        let checked = check(program).expect("check");
-        let module = lower(&checked);
+        let module = compile_source(src).expect("compile");
         let opts = SourceMapOptions::new(name)
             .with_content(src)
             .with_output_file("out.js");
