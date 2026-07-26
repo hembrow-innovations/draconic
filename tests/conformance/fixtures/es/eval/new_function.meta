@@ -3,4 +3,4 @@ targets: js,native
 js.exit: 0
 js.check: if (tf !== "function") process.exit(1); if (same !== true) process.exit(2); if (r1 !== 3) process.exit(3); if (r2 !== 6) process.exit(4); if (r3 !== 7) process.exit(5); if (t1 !== "function") process.exit(6); if (t2 !== "function") process.exit(7); if (typeof tf !== "string") process.exit(8);
 native.exit: 0
-native.stdout: hello\n
+native.stdout: function\ntrue\nfunction\nfunction\nfunction\n3\n6\n7\nfunction\nfunction\n

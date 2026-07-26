@@ -248,6 +248,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |
 | N07.01 | done | native | Embed: compile + eval simple expression strings (number/string literals, arithmetic `+` `-` `*` `/` `%`, unary `+/-`, grouping, `typeof` on primitives/`undefined`) via Frontend→IR interpreter | `crates/draconic-embed` |
 | N07.02 | done | native | LLVM direct `eval` via Embed: constant-string `eval(...)` folded through Embed at emit; `typeof eval`; `globalThis.eval === eval`; real native observations for `es/eval/direct_eval` | `tests/conformance` fixtures `es/eval/direct_eval`, `crates/draconic-backend-llvm`, `crates/draconic-embed` |
+| N07.03 | done | native | LLVM `new Function` / `Function(...)` via Embed: constant-string params/body folded at emit into callables; `typeof Function`; `globalThis.Function === Function`; call with args; real native observations for `es/eval/new_function` | `tests/conformance` fixtures `es/eval/new_function`, `crates/draconic-backend-llvm`, `crates/draconic-embed` |
 
 ---
 

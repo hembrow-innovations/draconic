@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async + N07.02 eval).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async + N07.02–N07.03 eval/Function).
 
 mod es_eval;
 mod es_promise;
@@ -20,9 +20,10 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
 /// with a supported statement/expression subset are lowered for real. Promise
 /// constructor basics through async/await and async arrows (N06.03–N06.11) lower
-/// via the Runtime Promise ABI. Direct `eval` of constant strings (N07.02) folds
-/// through Embed at emit time. Everything else keeps the B08 hello stub so
-/// existing ES conformance fixtures stay green.
+/// via the Runtime Promise ABI. Direct `eval` of constant strings (N07.02) and
+/// `new Function` / `Function(...)` (N07.03) fold through Embed at emit time.
+/// Everything else keeps the B08 hello stub so existing ES conformance fixtures
+/// stay green.
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         emit_native_ints(module)
@@ -953,6 +954,48 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "function\ntrue\n3\nundefined\n12\nhi\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_new_function_prints_via_embed() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let tf = typeof Function;
+            let same = globalThis.Function === Function;
+            let f = new Function("a", "b", "return a + b");
+            let g = Function("x", "return x * 2");
+            let h = new Function("return 7");
+            let r1 = f(1, 2);
+            let r2 = g(3);
+            let r3 = h();
+            let t1 = typeof f;
+            let t2 = typeof g;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "new Function must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("N07.03") || ir.contains("Function via Embed"),
+            "should use Function emit path:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n07-new-function").expect("workdir");
+        let bin = dir.join("new_function");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "function\ntrue\nfunction\nfunction\nfunction\n3\n6\n7\nfunction\nfunction\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

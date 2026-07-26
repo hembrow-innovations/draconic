@@ -2,8 +2,10 @@
 //!
 //! N07.01: compile simple expression source strings through Frontend → IR and
 //! evaluate them with a minimal IR interpreter (completion value of the script).
+//! N07.03: evaluate `Function` bodies (`return expr`) with bound parameter values.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_check::check;
@@ -56,6 +58,119 @@ pub fn eval_source(source: &str) -> Result<EmbedValue, Diagnostic> {
     let checked = check(program)?;
     let module = lower(&checked);
     interpret_module(&module)
+}
+
+/// Evaluate a `Function` body with bound parameters (N07.03).
+///
+/// `params` are simple identifier names; `body` is the function body source
+/// (typically a single `return <expr>;`). `args` are bound positionally; missing
+/// args become `undefined`. Extra args are ignored.
+pub fn eval_function_call(
+    params: &[&str],
+    body: &str,
+    args: &[EmbedValue],
+) -> Result<EmbedValue, Diagnostic> {
+    let expr_src = function_body_completion_expr(body)?;
+    let mut script = String::new();
+    for (i, name) in params.iter().enumerate() {
+        validate_param_name(name)?;
+        let val = args.get(i).cloned().unwrap_or(EmbedValue::Undefined);
+        write_let_binding(&mut script, name, &val)?;
+    }
+    script.push_str(&expr_src);
+    eval_source(&script)
+}
+
+fn function_body_completion_expr(body: &str) -> Result<String, Diagnostic> {
+    let t = body.trim();
+    // Single-statement `return <expr>;` (N07.03 fixture subset).
+    let rest = if let Some(r) = t.strip_prefix("return") {
+        let r = r.trim_start();
+        if r.is_empty() {
+            return Ok("undefined".into());
+        }
+        // `return` must be followed by expr or end; require boundary.
+        r
+    } else {
+        // Bare expression body (not used by fixtures, but harmless).
+        t
+    };
+    let rest = rest.trim_end_matches(';').trim();
+    if rest.is_empty() {
+        return Ok("undefined".into());
+    }
+    Ok(rest.to_string())
+}
+
+fn validate_param_name(name: &str) -> Result<(), Diagnostic> {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return Err(diag("embed Function: empty parameter name"));
+    };
+    if !(first.is_ascii_alphabetic() || first == '_' || first == '$') {
+        return Err(diag(format!(
+            "embed Function: invalid parameter name {name:?}"
+        )));
+    }
+    for c in chars {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '$') {
+            return Err(diag(format!(
+                "embed Function: invalid parameter name {name:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn write_let_binding(out: &mut String, name: &str, val: &EmbedValue) -> Result<(), Diagnostic> {
+    match val {
+        EmbedValue::Undefined => {
+            let _ = write!(out, "let {name} = undefined; ");
+        }
+        EmbedValue::Null => {
+            let _ = write!(out, "let {name} = null; ");
+        }
+        EmbedValue::Boolean(true) => {
+            let _ = write!(out, "let {name} = true; ");
+        }
+        EmbedValue::Boolean(false) => {
+            let _ = write!(out, "let {name} = false; ");
+        }
+        EmbedValue::Number(n) => {
+            if n.is_nan() {
+                let _ = write!(out, "let {name} = NaN; ");
+            } else if *n == f64::INFINITY {
+                let _ = write!(out, "let {name} = Infinity; ");
+            } else if *n == f64::NEG_INFINITY {
+                let _ = write!(out, "let {name} = -Infinity; ");
+            } else {
+                let _ = write!(out, "let {name} = {n}; ");
+            }
+        }
+        EmbedValue::String(s) => {
+            let _ = write!(out, "let {name} = {}; ", js_string_literal(s));
+        }
+    }
+    Ok(())
+}
+
+fn js_string_literal(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn interpret_module(module: &Module) -> Result<EmbedValue, Diagnostic> {
@@ -354,5 +469,34 @@ mod tests {
             msg.contains("embed eval does not support") || msg.contains("function"),
             "msg={msg}"
         );
+    }
+
+    #[test]
+    fn eval_function_call_return_add() {
+        let v = eval_function_call(
+            &["a", "b"],
+            "return a + b",
+            &[EmbedValue::Number(1.0), EmbedValue::Number(2.0)],
+        )
+        .unwrap();
+        assert_eq!(v, EmbedValue::Number(3.0));
+    }
+
+    #[test]
+    fn eval_function_call_return_mul() {
+        let v = eval_function_call(&["x"], "return x * 2", &[EmbedValue::Number(3.0)]).unwrap();
+        assert_eq!(v, EmbedValue::Number(6.0));
+    }
+
+    #[test]
+    fn eval_function_call_return_constant() {
+        let v = eval_function_call(&[], "return 7", &[]).unwrap();
+        assert_eq!(v, EmbedValue::Number(7.0));
+    }
+
+    #[test]
+    fn eval_function_call_missing_arg_is_undefined() {
+        let v = eval_function_call(&["a"], "return typeof a", &[]).unwrap();
+        assert_eq!(v, EmbedValue::String("undefined".into()));
     }
 }

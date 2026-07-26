@@ -1,27 +1,27 @@
-//! N07.02: lower direct `eval` basics via Embed (constant-string fold at emit).
+//! N07.02–N07.03: lower direct `eval` and `Function` via Embed (constant-string fold at emit).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_embed::{eval_source, EmbedValue};
+use draconic_embed::{eval_function_call, eval_source, EmbedValue};
 use draconic_ir::{
     Arg, Expr, IrType as Type, Local, LocalId, Module, Stmt,
 };
 
-/// True when this module is the supported direct-eval subset (E16.01 / N07.02).
+/// True when this module is the supported eval/Function subset (E16.01–E16.02 / N07.02–N07.03).
 pub(crate) fn is_es_eval_module(module: &Module) -> bool {
     match try_classify(module) {
-        Ok(info) => info.uses_eval,
+        Ok(info) => info.uses_eval || info.uses_function,
         Err(_) => false,
     }
 }
 
 pub(crate) fn emit_es_eval(module: &Module) -> Result<String, Diagnostic> {
     let info = try_classify(module).map_err(diag)?;
-    if !info.uses_eval {
-        return Err(diag("internal: not an eval module"));
+    if !info.uses_eval && !info.uses_function {
+        return Err(diag("internal: not an eval/Function module"));
     }
     let mut em = Emitter::new(module, info);
     em.emit_module()?;
@@ -33,19 +33,36 @@ enum SlotKind {
     Number,
     String,
     Bool,
+    /// Dynamic function created by `new Function` / `Function(...)`.
+    Func,
+}
+
+#[derive(Debug, Clone)]
+struct DynFunction {
+    params: Vec<String>,
+    body: String,
 }
 
 struct ModuleInfo {
     uses_eval: bool,
+    uses_function: bool,
     eval_id: Option<LocalId>,
+    function_id: Option<LocalId>,
     global_this_id: Option<LocalId>,
     /// Top-level user locals to allocate / print (source order).
     user_locals: Vec<(LocalId, SlotKind)>,
+    /// Locals bound to `new Function` / `Function(...)` creations (emit-time table).
+    dyn_functions: HashMap<LocalId, DynFunction>,
 }
 
 fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let eval_id = module.locals.iter().find(|l| l.name == "eval").map(|l| l.id);
+    let function_id = module
+        .locals
+        .iter()
+        .find(|l| l.name == "Function")
+        .map(|l| l.id);
     let global_this_id = module
         .locals
         .iter()
@@ -54,6 +71,15 @@ fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
 
     let mut user_ids = HashSet::new();
     collect_top_level_decl_ids(&module.body, &mut user_ids);
+
+    let mut dyn_functions = HashMap::new();
+    for stmt in &module.body {
+        if let Stmt::Declare { local, init: Some(e), .. } = stmt {
+            if let Some(df) = try_extract_dyn_function(e, function_id)? {
+                dyn_functions.insert(*local, df);
+            }
+        }
+    }
 
     let mut user_locals = Vec::new();
     let mut seen = HashSet::new();
@@ -72,9 +98,17 @@ fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
                 Type::Number => SlotKind::Number,
                 Type::String => SlotKind::String,
                 Type::Boolean => SlotKind::Bool,
-                // `eval(...)` is typed `any`; infer observation kind from init shape.
+                Type::Function if dyn_functions.contains_key(local) => SlotKind::Func,
+                Type::Function => {
+                    // typeof Function / identity only — treat as Func token if needed.
+                    match init {
+                        Some(e) => infer_slot_kind(e, eval_id, function_id, &dyn_functions)?,
+                        None => SlotKind::Func,
+                    }
+                }
+                // `eval(...)` / `Function(...)` / calls are typed `any`; infer from init.
                 Type::Any => match init {
-                    Some(e) => infer_slot_kind(e, eval_id)?,
+                    Some(e) => infer_slot_kind(e, eval_id, function_id, &dyn_functions)?,
                     None => return Err(format!("untyped local `{}` without init", loc.name)),
                 },
                 _ => return Err(format!("unsupported local type for `{}`", loc.name)),
@@ -84,19 +118,75 @@ fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
     }
 
     let mut uses_eval = false;
+    let mut uses_function = false;
     for stmt in &module.body {
-        check_stmt(stmt, eval_id, global_this_id, &mut uses_eval)?;
+        check_stmt(
+            stmt,
+            eval_id,
+            function_id,
+            global_this_id,
+            &dyn_functions,
+            &mut uses_eval,
+            &mut uses_function,
+        )?;
     }
 
     Ok(ModuleInfo {
         uses_eval,
+        uses_function,
         eval_id,
+        function_id,
         global_this_id,
         user_locals,
+        dyn_functions,
     })
 }
 
-fn infer_slot_kind(expr: &Expr, eval_id: Option<LocalId>) -> Result<SlotKind, String> {
+fn try_extract_dyn_function(
+    expr: &Expr,
+    function_id: Option<LocalId>,
+) -> Result<Option<DynFunction>, String> {
+    match expr {
+        Expr::New { callee, args, .. } | Expr::Call { callee, args, .. } => {
+            let Expr::Local { id, .. } = callee.as_ref() else {
+                return Ok(None);
+            };
+            if Some(*id) != function_id {
+                return Ok(None);
+            }
+            Ok(Some(parse_function_ctor_args(args)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn parse_function_ctor_args(args: &[Arg]) -> Result<DynFunction, String> {
+    if args.is_empty() {
+        return Ok(DynFunction {
+            params: vec![],
+            body: String::new(),
+        });
+    }
+    let mut strs = Vec::with_capacity(args.len());
+    for a in args {
+        let Arg::Expr(Expr::String { value, .. }) = a else {
+            return Err("Function(...) requires constant string arguments".into());
+        };
+        strs.push(value.to_string_lossy());
+    }
+    let body = strs.pop().unwrap_or_default();
+    Ok(DynFunction {
+        params: strs,
+        body,
+    })
+}
+
+fn infer_slot_kind(
+    expr: &Expr,
+    eval_id: Option<LocalId>,
+    function_id: Option<LocalId>,
+    dyn_functions: &HashMap<LocalId, DynFunction>,
+) -> Result<SlotKind, String> {
     match expr {
         Expr::Number { .. } => Ok(SlotKind::Number),
         Expr::String { .. } => Ok(SlotKind::String),
@@ -113,6 +203,15 @@ fn infer_slot_kind(expr: &Expr, eval_id: Option<LocalId>) -> Result<SlotKind, St
         {
             Ok(SlotKind::Bool)
         }
+        Expr::New { callee, args, .. } => {
+            if let Expr::Local { id, .. } = callee.as_ref() {
+                if Some(*id) == function_id {
+                    let _ = parse_function_ctor_args(args)?;
+                    return Ok(SlotKind::Func);
+                }
+            }
+            Err("cannot infer slot kind from new".into())
+        }
         Expr::Call { callee, args, .. } => {
             if let Expr::Local { id, .. } = callee.as_ref() {
                 if Some(*id) == eval_id {
@@ -128,10 +227,52 @@ fn infer_slot_kind(expr: &Expr, eval_id: Option<LocalId>) -> Result<SlotKind, St
                         };
                     }
                 }
+                if Some(*id) == function_id {
+                    let _ = parse_function_ctor_args(args)?;
+                    return Ok(SlotKind::Func);
+                }
+                if let Some(df) = dyn_functions.get(id) {
+                    let arg_vals = const_arg_values(args)?;
+                    let param_refs: Vec<&str> = df.params.iter().map(|s| s.as_str()).collect();
+                    let v = eval_function_call(&param_refs, &df.body, &arg_vals)
+                        .map_err(|e| format!("embed Function call failed: {e}"))?;
+                    return match v {
+                        EmbedValue::Number(_) => Ok(SlotKind::Number),
+                        EmbedValue::String(_) | EmbedValue::Undefined => Ok(SlotKind::String),
+                        EmbedValue::Boolean(_) => Ok(SlotKind::Bool),
+                        EmbedValue::Null => Err("null Function result unsupported".into()),
+                    };
+                }
             }
             Err("cannot infer slot kind from call".into())
         }
         _ => Err(format!("cannot infer slot kind from {expr:?}")),
+    }
+}
+
+fn const_arg_values(args: &[Arg]) -> Result<Vec<EmbedValue>, String> {
+    let mut out = Vec::with_capacity(args.len());
+    for a in args {
+        let Arg::Expr(e) = a else {
+            return Err("spread args not supported".into());
+        };
+        out.push(const_embed_value(e)?);
+    }
+    Ok(out)
+}
+
+fn const_embed_value(expr: &Expr) -> Result<EmbedValue, String> {
+    match expr {
+        Expr::Number { raw, .. } => {
+            let n = raw.replace('_', "").parse::<f64>().map_err(|_| {
+                format!("bad number literal in Function call arg: {raw}")
+            })?;
+            Ok(EmbedValue::Number(n))
+        }
+        Expr::String { value, .. } => Ok(EmbedValue::String(value.to_string_lossy())),
+        Expr::Boolean { value, .. } => Ok(EmbedValue::Boolean(*value)),
+        Expr::Null { .. } => Ok(EmbedValue::Null),
+        _ => Err("Function call args must be constant literals".into()),
     }
 }
 
@@ -151,20 +292,47 @@ fn collect_top_level_decl_ids(body: &[Stmt], out: &mut HashSet<LocalId>) {
 fn check_stmt(
     stmt: &Stmt,
     eval_id: Option<LocalId>,
+    function_id: Option<LocalId>,
     global_this_id: Option<LocalId>,
-    uses: &mut bool,
+    dyn_functions: &HashMap<LocalId, DynFunction>,
+    uses_eval: &mut bool,
+    uses_function: &mut bool,
 ) -> Result<(), String> {
     match stmt {
         Stmt::Declare { init, .. } => {
             if let Some(e) = init {
-                check_expr(e, eval_id, global_this_id, uses)?;
+                check_expr(
+                    e,
+                    eval_id,
+                    function_id,
+                    global_this_id,
+                    dyn_functions,
+                    uses_eval,
+                    uses_function,
+                )?;
             }
             Ok(())
         }
-        Stmt::Expr { expr } => check_expr(expr, eval_id, global_this_id, uses),
+        Stmt::Expr { expr } => check_expr(
+            expr,
+            eval_id,
+            function_id,
+            global_this_id,
+            dyn_functions,
+            uses_eval,
+            uses_function,
+        ),
         Stmt::Block { body } => {
             for s in body {
-                check_stmt(s, eval_id, global_this_id, uses)?;
+                check_stmt(
+                    s,
+                    eval_id,
+                    function_id,
+                    global_this_id,
+                    dyn_functions,
+                    uses_eval,
+                    uses_function,
+                )?;
             }
             Ok(())
         }
@@ -175,8 +343,11 @@ fn check_stmt(
 fn check_expr(
     expr: &Expr,
     eval_id: Option<LocalId>,
+    function_id: Option<LocalId>,
     global_this_id: Option<LocalId>,
-    uses: &mut bool,
+    dyn_functions: &HashMap<LocalId, DynFunction>,
+    uses_eval: &mut bool,
+    uses_function: &mut bool,
 ) -> Result<(), String> {
     match expr {
         Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => {
@@ -184,11 +355,22 @@ fn check_expr(
         }
         Expr::Local { id, .. } => {
             if Some(*id) == eval_id {
-                *uses = true;
+                *uses_eval = true;
+            }
+            if Some(*id) == function_id {
+                *uses_function = true;
             }
             Ok(())
         }
-        Expr::Unary { arg, .. } => check_expr(arg, eval_id, global_this_id, uses),
+        Expr::Unary { arg, .. } => check_expr(
+            arg,
+            eval_id,
+            function_id,
+            global_this_id,
+            dyn_functions,
+            uses_eval,
+            uses_function,
+        ),
         Expr::Binary {
             left, op, right, ..
         } => {
@@ -198,8 +380,24 @@ fn check_expr(
             ) {
                 return Err(format!("unsupported binary op in eval path: {op:?}"));
             }
-            check_expr(left, eval_id, global_this_id, uses)?;
-            check_expr(right, eval_id, global_this_id, uses)
+            check_expr(
+                left,
+                eval_id,
+                function_id,
+                global_this_id,
+                dyn_functions,
+                uses_eval,
+                uses_function,
+            )?;
+            check_expr(
+                right,
+                eval_id,
+                function_id,
+                global_this_id,
+                dyn_functions,
+                uses_eval,
+                uses_function,
+            )
         }
         Expr::Member {
             object,
@@ -211,8 +409,38 @@ fn check_expr(
             if *optional || *computed {
                 return Err("optional/computed member not supported in eval path".into());
             }
-            check_expr(object, eval_id, global_this_id, uses)?;
-            check_expr(property, eval_id, global_this_id, uses)
+            check_expr(
+                object,
+                eval_id,
+                function_id,
+                global_this_id,
+                dyn_functions,
+                uses_eval,
+                uses_function,
+            )?;
+            check_expr(
+                property,
+                eval_id,
+                function_id,
+                global_this_id,
+                dyn_functions,
+                uses_eval,
+                uses_function,
+            )
+        }
+        Expr::New {
+            callee,
+            args,
+            ..
+        } => {
+            if let Expr::Local { id, .. } = callee.as_ref() {
+                if Some(*id) == function_id {
+                    *uses_function = true;
+                    let _ = parse_function_ctor_args(args)?;
+                    return Ok(());
+                }
+            }
+            Err("only new Function(...) supported in eval path".into())
         }
         Expr::Call {
             callee,
@@ -225,7 +453,7 @@ fn check_expr(
             }
             if let Expr::Local { id, .. } = callee.as_ref() {
                 if Some(*id) == eval_id {
-                    *uses = true;
+                    *uses_eval = true;
                     if args.len() != 1 {
                         return Err("eval expects 1 argument".into());
                     }
@@ -237,8 +465,18 @@ fn check_expr(
                     };
                     return Ok(());
                 }
+                if Some(*id) == function_id {
+                    *uses_function = true;
+                    let _ = parse_function_ctor_args(args)?;
+                    return Ok(());
+                }
+                if dyn_functions.contains_key(id) {
+                    *uses_function = true;
+                    let _ = const_arg_values(args)?;
+                    return Ok(());
+                }
             }
-            Err("only eval(...) calls supported in eval path".into())
+            Err("only eval(...)/Function(...)/dyn-fn calls supported in eval path".into())
         }
         other => Err(format!("unsupported expr in eval path: {other:?}")),
     }
@@ -278,11 +516,14 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(
-            self.out,
-            "; Draconic LLVM backend (N07.02 direct eval via Embed)"
-        )
-        .ok();
+        let tag = if self.info.uses_function && self.info.uses_eval {
+            "N07.02/N07.03 eval+Function via Embed"
+        } else if self.info.uses_function {
+            "N07.03 Function via Embed"
+        } else {
+            "N07.02 direct eval via Embed"
+        };
+        writeln!(self.out, "; Draconic LLVM backend ({tag})").ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
         writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
         writeln!(self.out, "declare void @draconic_rt_print_bool(i8)").ok();
@@ -304,7 +545,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
                     writeln!(self.body, "  store i8 0, ptr {ptr}").ok();
                 }
-                SlotKind::String => {
+                SlotKind::String | SlotKind::Func => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                 }
@@ -332,6 +573,11 @@ impl<'a> Emitter<'a> {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  call void @draconic_rt_print_str(ptr {v})").ok();
+                }
+                SlotKind::Func => {
+                    // Observation: print typeof-style "function" for dyn functions.
+                    let s = self.string_const("function")?;
+                    writeln!(self.body, "  call void @draconic_rt_print_str(ptr {s})").ok();
                 }
             }
         }
@@ -405,7 +651,7 @@ impl<'a> Emitter<'a> {
             SlotKind::Bool => {
                 writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
             }
-            SlotKind::String => {
+            SlotKind::String | SlotKind::Func => {
                 writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
             }
         }
@@ -421,11 +667,15 @@ impl<'a> Emitter<'a> {
             Expr::Boolean { value, .. } => Ok(if *value { "1".into() } else { "0".into() }),
             Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
             Expr::Local { id, .. } => {
-                if Some(*id) == self.info.eval_id {
+                if Some(*id) == self.info.eval_id || Some(*id) == self.info.function_id {
                     // Opaque function token; only used for typeof / identity.
                     return Ok("null".into());
                 }
                 if Some(*id) == self.info.global_this_id {
+                    return Ok("null".into());
+                }
+                if self.info.dyn_functions.contains_key(id) {
+                    // Dyn function token (not loaded for calls — calls fold via table).
                     return Ok("null".into());
                 }
                 if let Some(ptr) = self.allocas.get(id).cloned() {
@@ -444,7 +694,7 @@ impl<'a> Emitter<'a> {
                         SlotKind::Bool => {
                             writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                         }
-                        SlotKind::String => {
+                        SlotKind::String | SlotKind::Func => {
                             writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                         }
                     }
@@ -470,11 +720,12 @@ impl<'a> Emitter<'a> {
                 if *optional || *computed {
                     return Err(diag("optional/computed member not supported"));
                 }
-                // globalThis.eval → eval builtin token
+                // globalThis.eval / globalThis.Function → builtin token
                 if let Expr::Local { id, .. } = object.as_ref() {
                     if Some(*id) == self.info.global_this_id {
                         if let Expr::String { value, .. } = property.as_ref() {
-                            if value.to_string_lossy() == "eval" {
+                            let name = value.to_string_lossy();
+                            if name == "eval" || name == "Function" {
                                 return Ok("null".into());
                             }
                         }
@@ -482,9 +733,10 @@ impl<'a> Emitter<'a> {
                 }
                 Err(diag("unsupported member in eval path"))
             }
+            Expr::New { callee, args, .. } => self.emit_function_ctor(callee, args),
             Expr::Call {
                 callee, args, ..
-            } => self.emit_eval_call(callee, args),
+            } => self.emit_call(callee, args),
             other => Err(diag(format!(
                 "unsupported expr in eval emit: {other:?}"
             ))),
@@ -493,12 +745,23 @@ impl<'a> Emitter<'a> {
 
     fn emit_typeof(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
         if let Expr::Local { id, .. } = arg {
-            if Some(*id) == self.info.eval_id {
+            if Some(*id) == self.info.eval_id || Some(*id) == self.info.function_id {
+                return self.string_const("function");
+            }
+            if self.info.dyn_functions.contains_key(id) {
+                return self.string_const("function");
+            }
+            // typeof of a Func-slot local
+            if self
+                .info
+                .user_locals
+                .iter()
+                .any(|(l, k)| *l == *id && *k == SlotKind::Func)
+            {
                 return self.string_const("function");
             }
         }
-        // typeof of other supported values: not needed for direct_eval fixture.
-        Err(diag("typeof only supported on eval in eval path"))
+        Err(diag("typeof only supported on eval/Function/dyn-fn in eval path"))
     }
 
     fn emit_equality(
@@ -507,14 +770,39 @@ impl<'a> Emitter<'a> {
         op: BinaryOp,
         right: &Expr,
     ) -> Result<String, Diagnostic> {
-        // globalThis.eval === eval (or ==) → true; !== / != → false
-        let left_is_eval = is_eval_ref(left, self.info.eval_id, self.info.global_this_id);
-        let right_is_eval = is_eval_ref(right, self.info.eval_id, self.info.global_this_id);
+        // globalThis.eval === eval / globalThis.Function === Function
+        let left_is_eval = is_builtin_ref(
+            left,
+            self.info.eval_id,
+            self.info.global_this_id,
+            "eval",
+        );
+        let right_is_eval = is_builtin_ref(
+            right,
+            self.info.eval_id,
+            self.info.global_this_id,
+            "eval",
+        );
         if left_is_eval && right_is_eval {
             let eq = matches!(op, BinaryOp::EqEqEq | BinaryOp::EqEq);
             return Ok(if eq { "1".into() } else { "0".into() });
         }
-        // Fall back: evaluate both (for completeness) then compare numbers/bools only.
+        let left_is_fn = is_builtin_ref(
+            left,
+            self.info.function_id,
+            self.info.global_this_id,
+            "Function",
+        );
+        let right_is_fn = is_builtin_ref(
+            right,
+            self.info.function_id,
+            self.info.global_this_id,
+            "Function",
+        );
+        if left_is_fn && right_is_fn {
+            let eq = matches!(op, BinaryOp::EqEqEq | BinaryOp::EqEq);
+            return Ok(if eq { "1".into() } else { "0".into() });
+        }
         let _l = self.emit_expr(left)?;
         let _r = self.emit_expr(right)?;
         Err(diag(format!(
@@ -522,13 +810,39 @@ impl<'a> Emitter<'a> {
         )))
     }
 
-    fn emit_eval_call(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+    fn emit_function_ctor(
+        &mut self,
+        callee: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = callee else {
-            return Err(diag("eval callee must be local"));
+            return Err(diag("Function ctor callee must be local"));
         };
-        if Some(*id) != self.info.eval_id {
-            return Err(diag("only eval(...) supported"));
+        if Some(*id) != self.info.function_id {
+            return Err(diag("only new Function(...) supported"));
         }
+        // Validate args; value is an opaque function token.
+        let _ = parse_function_ctor_args(args).map_err(diag)?;
+        Ok("null".into())
+    }
+
+    fn emit_call(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+        let Expr::Local { id, .. } = callee else {
+            return Err(diag("call callee must be local"));
+        };
+        if Some(*id) == self.info.eval_id {
+            return self.emit_eval_call(args);
+        }
+        if Some(*id) == self.info.function_id {
+            return self.emit_function_ctor(callee, args);
+        }
+        if let Some(df) = self.info.dyn_functions.get(id).cloned() {
+            return self.emit_dyn_function_call(&df, args);
+        }
+        Err(diag("only eval(...)/Function(...)/dyn-fn calls supported"))
+    }
+
+    fn emit_eval_call(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
         if args.len() != 1 {
             return Err(diag("eval expects 1 argument"));
         }
@@ -544,20 +858,37 @@ impl<'a> Emitter<'a> {
                 "embed eval failed for {src:?}: {e}"
             ))
         })?;
+        self.emit_embed_value(result)
+    }
+
+    fn emit_dyn_function_call(
+        &mut self,
+        df: &DynFunction,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        let arg_vals = const_arg_values(args).map_err(diag)?;
+        let param_refs: Vec<&str> = df.params.iter().map(|s| s.as_str()).collect();
+        let result = eval_function_call(&param_refs, &df.body, &arg_vals).map_err(|e| {
+            diag(format!("embed Function call failed: {e}"))
+        })?;
+        self.emit_embed_value(result)
+    }
+
+    fn emit_embed_value(&mut self, result: EmbedValue) -> Result<String, Diagnostic> {
         match result {
             EmbedValue::Number(n) => {
                 if n.fract() == 0.0 && n.is_finite() && n.abs() < (i64::MAX as f64) {
                     Ok(format!("{}", n as i64))
                 } else {
                     Err(diag(format!(
-                        "eval result number not representable as i64: {n}"
+                        "result number not representable as i64: {n}"
                     )))
                 }
             }
             EmbedValue::String(s) => self.string_const(&s),
             EmbedValue::Boolean(b) => Ok(if b { "1".into() } else { "0".into() }),
             EmbedValue::Undefined => self.string_const("undefined"),
-            EmbedValue::Null => Err(diag("null eval result not supported in observations")),
+            EmbedValue::Null => Err(diag("null result not supported in observations")),
         }
     }
 
@@ -580,9 +911,14 @@ impl<'a> Emitter<'a> {
     }
 }
 
-fn is_eval_ref(expr: &Expr, eval_id: Option<LocalId>, global_this_id: Option<LocalId>) -> bool {
+fn is_builtin_ref(
+    expr: &Expr,
+    builtin_id: Option<LocalId>,
+    global_this_id: Option<LocalId>,
+    prop_name: &str,
+) -> bool {
     match expr {
-        Expr::Local { id, .. } => Some(*id) == eval_id,
+        Expr::Local { id, .. } => Some(*id) == builtin_id,
         Expr::Member {
             object,
             property,
@@ -593,7 +929,7 @@ fn is_eval_ref(expr: &Expr, eval_id: Option<LocalId>, global_this_id: Option<Loc
             if let Expr::Local { id, .. } = object.as_ref() {
                 if Some(*id) == global_this_id {
                     if let Expr::String { value, .. } = property.as_ref() {
-                        return value.to_string_lossy() == "eval";
+                        return value.to_string_lossy() == prop_name;
                     }
                 }
             }
