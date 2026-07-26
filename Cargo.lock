@@ -76,7 +76,11 @@ dependencies = [
 name = "draconic-embed"
 version = "0.1.0"
 dependencies = [
+ "draconic-ast",
+ "draconic-check",
  "draconic-diagnostics",
+ "draconic-ir",
+ "draconic-parser",
 ]
 
 [[package]]
