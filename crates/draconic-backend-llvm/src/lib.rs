@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async + N07.02–N07.03 eval/Function).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async + N07.02–N07.04 eval/Function).
 
 mod es_eval;
 mod es_promise;
@@ -20,10 +20,10 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
 /// with a supported statement/expression subset are lowered for real. Promise
 /// constructor basics through async/await and async arrows (N06.03–N06.11) lower
-/// via the Runtime Promise ABI. Direct `eval` of constant strings (N07.02) and
-/// `new Function` / `Function(...)` (N07.03) fold through Embed at emit time.
-/// Everything else keeps the B08 hello stub so existing ES conformance fixtures
-/// stay green.
+/// via the Runtime Promise ABI. Direct `eval` of constant strings (N07.02),
+/// `new Function` / `Function(...)` (N07.03), and indirect eval (N07.04) fold
+/// through Embed at emit time. Everything else keeps the B08 hello stub so
+/// existing ES conformance fixtures stay green.
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         emit_native_ints(module)
@@ -996,6 +996,58 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "function\ntrue\nfunction\nfunction\nfunction\n3\n6\n7\nfunction\nfunction\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_indirect_eval_prints_via_embed() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            globalThis.gx = 100;
+            function probeDirect() {
+              let gx = 200;
+              return eval("gx");
+            }
+            function probeIndirectComma() {
+              let gx = 200;
+              return (0, eval)("gx");
+            }
+            function probeIndirectGlobalThis() {
+              let gx = 200;
+              return globalThis.eval("gx");
+            }
+            let d = probeDirect();
+            let i = probeIndirectComma();
+            let g = probeIndirectGlobalThis();
+            let t = typeof (0, eval);
+            let same = globalThis.eval === eval;
+            let a = (0, eval)("1 + 2");
+            let b = globalThis.eval("'hi'");
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "indirect eval must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("N07.04") || ir.contains("indirect eval"),
+            "should use indirect eval emit path:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n07-indirect-eval").expect("workdir");
+        let bin = dir.join("indirect_eval");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "200\n100\n100\nfunction\ntrue\n3\nhi\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

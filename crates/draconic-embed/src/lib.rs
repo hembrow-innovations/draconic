@@ -3,6 +3,7 @@
 //! N07.01: compile simple expression source strings through Frontend → IR and
 //! evaluate them with a minimal IR interpreter (completion value of the script).
 //! N07.03: evaluate `Function` bodies (`return expr`) with bound parameter values.
+//! N07.04: evaluate with injected name bindings (direct lexical / indirect global).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -60,6 +61,35 @@ pub fn eval_source(source: &str) -> Result<EmbedValue, Diagnostic> {
     interpret_module(&module)
 }
 
+/// Like [`eval_source`], but prepends `let` bindings for free names (N07.04).
+///
+/// Used for direct eval (caller lexical names) and indirect eval (global object
+/// properties). Each binding name must appear at most once (caller merges
+/// shadowing: lexical over global).
+pub fn eval_source_with_bindings(
+    source: &str,
+    bindings: &[(String, EmbedValue)],
+) -> Result<EmbedValue, Diagnostic> {
+    if bindings.is_empty() {
+        return eval_source(source);
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (name, _) in bindings {
+        if !seen.insert(name.as_str()) {
+            return Err(diag(format!(
+                "embed eval: duplicate binding name {name:?}"
+            )));
+        }
+    }
+    let mut script = String::new();
+    for (name, val) in bindings {
+        validate_param_name(name)?;
+        write_let_binding(&mut script, name, val)?;
+    }
+    script.push_str(source);
+    eval_source(&script)
+}
+
 /// Evaluate a `Function` body with bound parameters (N07.03).
 ///
 /// `params` are simple identifier names; `body` is the function body source
@@ -71,14 +101,13 @@ pub fn eval_function_call(
     args: &[EmbedValue],
 ) -> Result<EmbedValue, Diagnostic> {
     let expr_src = function_body_completion_expr(body)?;
-    let mut script = String::new();
+    let mut bindings = Vec::with_capacity(params.len());
     for (i, name) in params.iter().enumerate() {
         validate_param_name(name)?;
         let val = args.get(i).cloned().unwrap_or(EmbedValue::Undefined);
-        write_let_binding(&mut script, name, &val)?;
+        bindings.push(((*name).to_string(), val));
     }
-    script.push_str(&expr_src);
-    eval_source(&script)
+    eval_source_with_bindings(&expr_src, &bindings)
 }
 
 fn function_body_completion_expr(body: &str) -> Result<String, Diagnostic> {
@@ -498,5 +527,25 @@ mod tests {
     fn eval_function_call_missing_arg_is_undefined() {
         let v = eval_function_call(&["a"], "return typeof a", &[]).unwrap();
         assert_eq!(v, EmbedValue::String("undefined".into()));
+    }
+
+    #[test]
+    fn eval_source_with_bindings_resolves_free_ident() {
+        let v = eval_source_with_bindings(
+            "gx",
+            &[("gx".into(), EmbedValue::Number(200.0))],
+        )
+        .unwrap();
+        assert_eq!(v, EmbedValue::Number(200.0));
+    }
+
+    #[test]
+    fn eval_source_with_bindings_global_style() {
+        let v = eval_source_with_bindings(
+            "gx",
+            &[("gx".into(), EmbedValue::Number(100.0))],
+        )
+        .unwrap();
+        assert_eq!(v, EmbedValue::Number(100.0));
     }
 }
