@@ -1,4 +1,4 @@
-//! N06.03: lower Promise constructor basics to Runtime ABI (executor + then + drain).
+//! N06.03–N06.04: lower Promise constructor/statics/catch to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -9,7 +9,7 @@ use draconic_ir::{
     Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt,
 };
 
-/// True when this module is the supported Promise-basics subset (E12.01 / N06.03).
+/// True when this module is the supported Promise subset (E12.01–E12.02 / N06.03–N06.04).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -203,12 +203,28 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             ..
         } => {
             if *optional || *computed {
-                return Err("only plain `.then` member access supported".into());
+                return Err("only plain member access supported in Promise path".into());
             }
             check_expr(object, promise_id, uses)?;
-            match property.as_ref() {
-                Expr::String { value, .. } if value.to_string_lossy() == "then" => Ok(()),
-                _ => Err("only `.then` supported".into()),
+            let Expr::String { value, .. } = property.as_ref() else {
+                return Err("only string property keys supported".into());
+            };
+            let prop = value.to_string_lossy();
+            match prop.as_ref() {
+                "then" | "catch" => {
+                    *uses = true;
+                    Ok(())
+                }
+                "resolve" | "reject" => {
+                    if let Expr::Local { id, .. } = object.as_ref() {
+                        if Some(*id) == promise_id {
+                            *uses = true;
+                            return Ok(());
+                        }
+                    }
+                    Err("only Promise.resolve / Promise.reject supported".into())
+                }
+                _ => Err(format!("unsupported property `{}` in Promise path", prop)),
             }
         }
         Expr::Function {
@@ -300,13 +316,24 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03 Promise basics via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.04 Promise via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
         writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
         writeln!(self.out, "declare void @draconic_rt_print_str(ptr)").ok();
         writeln!(self.out, "declare void @draconic_rt_job_drain()").ok();
+        writeln!(self.out, "declare ptr @draconic_rt_promise_new()").ok();
+        writeln!(
+            self.out,
+            "declare void @draconic_rt_promise_resolve(ptr, ptr)"
+        )
+        .ok();
+        writeln!(
+            self.out,
+            "declare void @draconic_rt_promise_reject(ptr, ptr)"
+        )
+        .ok();
         writeln!(
             self.out,
             "declare ptr @draconic_rt_promise_construct(ptr, ptr)"
@@ -611,6 +638,28 @@ impl<'a> Emitter<'a> {
                 return self.string_const("function");
             }
         }
+        // typeof Promise.resolve / Promise.reject → "function"
+        if let Expr::Member {
+            object,
+            property,
+            computed,
+            optional,
+            ..
+        } = arg
+        {
+            if !*optional && !*computed {
+                if let (Expr::Local { id, .. }, Expr::String { value, .. }) =
+                    (object.as_ref(), property.as_ref())
+                {
+                    if Some(*id) == self.info.promise_id {
+                        let prop = value.to_string_lossy();
+                        if prop == "resolve" || prop == "reject" {
+                            return self.string_const("function");
+                        }
+                    }
+                }
+            }
+        }
         // typeof promise object → "object"
         let _ = self.emit_expr(arg)?;
         self.string_const("object")
@@ -686,7 +735,7 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        // promise.then(onFulfilled[, onRejected])
+        // Promise.resolve(v) / Promise.reject(v) / promise.then / promise.catch
         if let Expr::Member {
             object,
             property,
@@ -699,44 +748,112 @@ impl<'a> Emitter<'a> {
                 return Err(diag("unsupported member call"));
             }
             let Expr::String { value, .. } = property.as_ref() else {
-                return Err(diag("only .then supported"));
+                return Err(diag("only string property calls supported"));
             };
-            if value.to_string_lossy() != "then" {
-                return Err(diag("only .then supported"));
-            }
-            let p = self.emit_expr(object)?;
-            let mut on_ful = "null".to_string();
-            let mut ful_data = "null".to_string();
-            let mut on_rej = "null".to_string();
-            let mut rej_data = "null".to_string();
-            if let Some(Arg::Expr(f0)) = args.first() {
-                if let Expr::Function { params, body, .. } = f0 {
-                    let (name, data) = self.emit_reaction_fn(params, body)?;
-                    on_ful = format!("@{name}");
-                    ful_data = data;
-                } else {
-                    return Err(diag("then callback must be function expression"));
+            let prop = value.to_string_lossy();
+            match prop.as_ref() {
+                "resolve" | "reject" => {
+                    return self.emit_promise_static(object, prop.as_ref(), args);
                 }
-            }
-            if let Some(Arg::Expr(f1)) = args.get(1) {
-                if let Expr::Function { params, body, .. } = f1 {
-                    let (name, data) = self.emit_reaction_fn(params, body)?;
-                    on_rej = format!("@{name}");
-                    rej_data = data;
-                } else {
-                    return Err(diag("then callback must be function expression"));
+                "then" => {
+                    let p = self.emit_expr(object)?;
+                    let mut on_ful = "null".to_string();
+                    let mut ful_data = "null".to_string();
+                    let mut on_rej = "null".to_string();
+                    let mut rej_data = "null".to_string();
+                    if let Some(Arg::Expr(f0)) = args.first() {
+                        if let Expr::Function { params, body, .. } = f0 {
+                            let (name, data) = self.emit_reaction_fn(params, body)?;
+                            on_ful = format!("@{name}");
+                            ful_data = data;
+                        } else {
+                            return Err(diag("then callback must be function expression"));
+                        }
+                    }
+                    if let Some(Arg::Expr(f1)) = args.get(1) {
+                        if let Expr::Function { params, body, .. } = f1 {
+                            let (name, data) = self.emit_reaction_fn(params, body)?;
+                            on_rej = format!("@{name}");
+                            rej_data = data;
+                        } else {
+                            return Err(diag("then callback must be function expression"));
+                        }
+                    }
+                    let t = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {t} = call ptr @draconic_rt_promise_then(ptr {p}, ptr {on_ful}, ptr {ful_data}, ptr {on_rej}, ptr {rej_data})"
+                    )
+                    .ok();
+                    return Ok(t);
                 }
+                "catch" => {
+                    // p.catch(onRejected) ≡ p.then(undefined, onRejected)
+                    if args.len() != 1 {
+                        return Err(diag("catch expects 1 argument"));
+                    }
+                    let p = self.emit_expr(object)?;
+                    let Arg::Expr(f0) = &args[0] else {
+                        return Err(diag("spread not supported"));
+                    };
+                    let Expr::Function { params, body, .. } = f0 else {
+                        return Err(diag("catch callback must be function expression"));
+                    };
+                    let (name, data) = self.emit_reaction_fn(params, body)?;
+                    let t = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {t} = call ptr @draconic_rt_promise_then(ptr {p}, ptr null, ptr null, ptr @{name}, ptr {data})"
+                    )
+                    .ok();
+                    return Ok(t);
+                }
+                _ => return Err(diag(format!("unsupported method `{prop}`"))),
             }
-            let t = self.fresh();
-            writeln!(
-                self.body,
-                "  {t} = call ptr @draconic_rt_promise_then(ptr {p}, ptr {on_ful}, ptr {ful_data}, ptr {on_rej}, ptr {rej_data})"
-            )
-            .ok();
-            return Ok(t);
         }
 
         Err(diag("unsupported call"))
+    }
+
+    fn emit_promise_static(
+        &mut self,
+        object: &Expr,
+        which: &str,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        let Expr::Local { id, .. } = object else {
+            return Err(diag("static Promise methods require Promise receiver"));
+        };
+        if Some(*id) != self.info.promise_id {
+            return Err(diag("only Promise.resolve / Promise.reject supported"));
+        }
+        if args.len() != 1 {
+            return Err(diag(format!("Promise.{which} expects 1 argument")));
+        }
+        let Arg::Expr(vexpr) = &args[0] else {
+            return Err(diag("spread not supported"));
+        };
+        let v = self.emit_expr(vexpr)?;
+        let p = self.fresh();
+        writeln!(self.body, "  {p} = call ptr @draconic_rt_promise_new()").ok();
+        match which {
+            "resolve" => {
+                writeln!(
+                    self.body,
+                    "  call void @draconic_rt_promise_resolve(ptr {p}, ptr {v})"
+                )
+                .ok();
+            }
+            "reject" => {
+                writeln!(
+                    self.body,
+                    "  call void @draconic_rt_promise_reject(ptr {p}, ptr {v})"
+                )
+                .ok();
+            }
+            _ => return Err(diag("internal: bad Promise static")),
+        }
+        Ok(p)
     }
 
     fn emit_executor_fn(

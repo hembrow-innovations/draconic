@@ -237,6 +237,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N06.01 | done | native | Job queue Runtime ABI: enqueue host jobs + drain FIFO (nested enqueue during drain runs after current job) | `crates/draconic-runtime` |
 | N06.02 | done | native | Runtime Promise ABI: construct, sync resolve/reject, one-hop `then` reactions via job queue (FIFO drain) | `crates/draconic-runtime` |
 | N06.03 | done | native | LLVM Promise basics via Runtime ABI: `new Promise(executor)`, one-hop `.then`, end-of-main `job_drain`; real native observations for `es/async/promise_basics` | `tests/conformance` fixtures `es/async/promise_basics`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
+| N06.04 | done | native | LLVM Promise statics + catch via Runtime ABI: `Promise.resolve` / `Promise.reject`, `.catch`; real native observations for `es/async/promise_resolve_reject` | `tests/conformance` fixtures `es/async/promise_resolve_reject`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |
 
 ---
