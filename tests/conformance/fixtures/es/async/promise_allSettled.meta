@@ -3,4 +3,4 @@ targets: js,native
 js.exit: 0
 js.check: setTimeout(function () { if (tAllSettled !== "function") process.exit(1); if (emptyLen !== 0) process.exit(2); if (settledLen !== 2) process.exit(3); if (s0 !== "fulfilled") process.exit(4); if (v0 !== 10) process.exit(5); if (s1 !== "rejected") process.exit(6); if (r1 !== 7) process.exit(7); if (mixed0 !== "fulfilled") process.exit(8); if (mixedV0 !== 1) process.exit(9); if (mixed1 !== "fulfilled") process.exit(10); if (mixedV1 !== 2) process.exit(11); }, 0);
 native.exit: 0
-native.stdout: hello\n
+native.stdout: function\n0\n2\nfulfilled\n10\nrejected\n7\nfulfilled\n1\nfulfilled\n2\n

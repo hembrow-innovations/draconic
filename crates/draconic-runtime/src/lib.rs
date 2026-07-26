@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.07); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.08); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -134,8 +134,14 @@ pub const ARRAY_SET_SYMBOL: &str = "draconic_rt_array_set";
 pub const PROMISE_ALL_SYMBOL: &str = "draconic_rt_promise_all";
 /// C ABI: `Promise.race(iterable)` — first settle wins (N06.07).
 pub const PROMISE_RACE_SYMBOL: &str = "draconic_rt_promise_race";
+/// C ABI: object property get by NUL-terminated key (N06.08).
+pub const OBJECT_GET_SYMBOL: &str = "draconic_rt_object_get";
+/// C ABI: object property set by NUL-terminated key (N06.08).
+pub const OBJECT_SET_SYMBOL: &str = "draconic_rt_object_set";
+/// C ABI: `Promise.allSettled(iterable)` — array of status objects (N06.08).
+pub const PROMISE_ALL_SETTLED_SYMBOL: &str = "draconic_rt_promise_all_settled";
 
-/// Promise ABI symbols (N06.02–N06.07).
+/// Promise ABI symbols (N06.02–N06.08).
 pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_NEW_SYMBOL,
     IS_PROMISE_SYMBOL,
@@ -153,6 +159,9 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     ARRAY_SET_SYMBOL,
     PROMISE_ALL_SYMBOL,
     PROMISE_RACE_SYMBOL,
+    OBJECT_GET_SYMBOL,
+    OBJECT_SET_SYMBOL,
+    PROMISE_ALL_SETTLED_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -1206,6 +1215,147 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "promise-race-ok\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn promise_all_settled_via_job_queue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_promise_all_settled");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+            #include <string.h>
+
+            static int g_empty_len = -1;
+            static int g_settled_len = -1;
+            static const char *g_s0 = NULL;
+            static int g_v0 = -1;
+            static const char *g_s1 = NULL;
+            static int g_r1 = -1;
+            static const char *g_m0 = NULL;
+            static int g_mv0 = -1;
+            static const char *g_m1 = NULL;
+            static int g_mv1 = -1;
+
+            static void *on_empty(void *data, void *value) {
+                (void)data;
+                g_empty_len = (int)draconic_rt_array_len((DraconicValue *)value);
+                return value;
+            }
+
+            static void *on_settled(void *data, void *value) {
+                (void)data;
+                DraconicValue *arr = (DraconicValue *)value;
+                g_settled_len = (int)draconic_rt_array_len(arr);
+                DraconicValue *e0 = (DraconicValue *)draconic_rt_array_get(arr, 0);
+                DraconicValue *e1 = (DraconicValue *)draconic_rt_array_get(arr, 1);
+                g_s0 = (const char *)draconic_rt_object_get(e0, "status");
+                g_v0 = (int)(intptr_t)draconic_rt_object_get(e0, "value");
+                g_s1 = (const char *)draconic_rt_object_get(e1, "status");
+                g_r1 = (int)(intptr_t)draconic_rt_object_get(e1, "reason");
+                return value;
+            }
+
+            static void *on_mixed(void *data, void *value) {
+                (void)data;
+                DraconicValue *arr = (DraconicValue *)value;
+                DraconicValue *e0 = (DraconicValue *)draconic_rt_array_get(arr, 0);
+                DraconicValue *e1 = (DraconicValue *)draconic_rt_array_get(arr, 1);
+                g_m0 = (const char *)draconic_rt_object_get(e0, "status");
+                g_mv0 = (int)(intptr_t)draconic_rt_object_get(e0, "value");
+                g_m1 = (const char *)draconic_rt_object_get(e1, "status");
+                g_mv1 = (int)(intptr_t)draconic_rt_object_get(e1, "value");
+                return value;
+            }
+
+            int main(void) {
+                DraconicValue *empty = draconic_rt_array_new(0);
+                DraconicValue *p_empty = draconic_rt_promise_all_settled(empty);
+                (void)draconic_rt_promise_then(p_empty, on_empty, NULL, NULL, NULL);
+
+                DraconicValue *a = draconic_rt_array_new(2);
+                DraconicValue *p0 = draconic_rt_promise_new();
+                DraconicValue *p1 = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(p0, (void *)(intptr_t)10);
+                draconic_rt_promise_reject(p1, (void *)(intptr_t)7);
+                draconic_rt_array_set(a, 0, p0);
+                draconic_rt_array_set(a, 1, p1);
+                DraconicValue *p_set = draconic_rt_promise_all_settled(a);
+                (void)draconic_rt_promise_then(p_set, on_settled, NULL, NULL, NULL);
+
+                DraconicValue *m = draconic_rt_array_new(2);
+                draconic_rt_array_set(m, 0, (void *)(intptr_t)1);
+                DraconicValue *pm = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(pm, (void *)(intptr_t)2);
+                draconic_rt_array_set(m, 1, pm);
+                DraconicValue *p_mixed = draconic_rt_promise_all_settled(m);
+                (void)draconic_rt_promise_then(p_mixed, on_mixed, NULL, NULL, NULL);
+
+                draconic_rt_job_drain();
+
+                if (g_empty_len != 0) {
+                    fprintf(stderr, "emptyLen want 0 got %d\n", g_empty_len);
+                    return 1;
+                }
+                if (g_settled_len != 2) {
+                    fprintf(stderr, "settledLen want 2 got %d\n", g_settled_len);
+                    return 2;
+                }
+                if (!g_s0 || strcmp(g_s0, "fulfilled") != 0 || g_v0 != 10) {
+                    fprintf(stderr, "s0/v0 bad: %s %d\n", g_s0 ? g_s0 : "(null)", g_v0);
+                    return 3;
+                }
+                if (!g_s1 || strcmp(g_s1, "rejected") != 0 || g_r1 != 7) {
+                    fprintf(stderr, "s1/r1 bad: %s %d\n", g_s1 ? g_s1 : "(null)", g_r1);
+                    return 4;
+                }
+                if (!g_m0 || strcmp(g_m0, "fulfilled") != 0 || g_mv0 != 1) {
+                    fprintf(stderr, "mixed0 bad: %s %d\n", g_m0 ? g_m0 : "(null)", g_mv0);
+                    return 5;
+                }
+                if (!g_m1 || strcmp(g_m1, "fulfilled") != 0 || g_mv1 != 2) {
+                    fprintf(stderr, "mixed1 bad: %s %d\n", g_m1 ? g_m1 : "(null)", g_mv1);
+                    return 6;
+                }
+
+                draconic_rt_print_str("promise-all-settled-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link promise allSettled test");
+
+        let output = Command::new(&bin).output().expect("run rt_promise_all_settled");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "promise allSettled binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "promise-all-settled-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

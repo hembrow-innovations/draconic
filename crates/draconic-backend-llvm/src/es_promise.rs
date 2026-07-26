@@ -1,4 +1,4 @@
-//! N06.03–N06.07: lower Promise constructor/statics/catch/finally/all/race to Runtime ABI.
+//! N06.03–N06.08: lower Promise constructor/statics/catch/finally/all/race/allSettled to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -10,7 +10,7 @@ use draconic_ir::{
     Stmt,
 };
 
-/// True when this module is the supported Promise subset (E12.01–E12.05 / N06.03–N06.07).
+/// True when this module is the supported Promise subset (E12.01–E12.06 / N06.03–N06.08).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -220,8 +220,8 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                     *uses = true;
                     Ok(())
                 }
-                "length" => Ok(()),
-                "resolve" | "reject" | "all" | "race" => {
+                "length" | "status" | "value" | "reason" => Ok(()),
+                "resolve" | "reject" | "all" | "race" | "allSettled" => {
                     if let Expr::Local { id, .. } = object.as_ref() {
                         if Some(*id) == promise_id {
                             *uses = true;
@@ -229,7 +229,7 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                         }
                     }
                     Err(
-                        "only Promise.resolve / Promise.reject / Promise.all / Promise.race supported"
+                        "only Promise.resolve / Promise.reject / Promise.all / Promise.race / Promise.allSettled supported"
                             .into(),
                     )
                 }
@@ -336,7 +336,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03–N06.07 Promise via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.08 Promise via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
@@ -379,6 +379,12 @@ impl<'a> Emitter<'a> {
         writeln!(self.out, "declare i64 @draconic_rt_array_len(ptr)").ok();
         writeln!(self.out, "declare ptr @draconic_rt_promise_all(ptr)").ok();
         writeln!(self.out, "declare ptr @draconic_rt_promise_race(ptr)").ok();
+        writeln!(
+            self.out,
+            "declare ptr @draconic_rt_promise_all_settled(ptr)"
+        )
+        .ok();
+        writeln!(self.out, "declare ptr @draconic_rt_object_get(ptr, ptr)").ok();
         writeln!(self.out).ok();
 
         // Pre-scan string constants from typeof etc. by emitting body into buffer first.
@@ -585,6 +591,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
                 Ok(t)
             }
+            Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
             Expr::Local { id, .. } => self.load_local(*id),
             Expr::Unary { op, arg, .. } => match op {
                 UnaryOp::TypeOf => self.emit_typeof(arg),
@@ -705,6 +712,17 @@ impl<'a> Emitter<'a> {
             writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
             return Ok(t);
         }
+        if prop == "status" || prop == "value" || prop == "reason" {
+            let obj = self.emit_expr(object)?;
+            let key = self.string_const(&prop)?;
+            let t = self.fresh();
+            writeln!(
+                self.body,
+                "  {t} = call ptr @draconic_rt_object_get(ptr {obj}, ptr {key})"
+            )
+            .ok();
+            return Ok(t);
+        }
         Err(diag(format!("unsupported member `{}`", prop)))
     }
 
@@ -764,7 +782,7 @@ impl<'a> Emitter<'a> {
                 if let Expr::String { value, .. } = property.as_ref() {
                     let prop = value.to_string_lossy();
                     match prop.as_ref() {
-                        "resolve" | "reject" | "all" | "race" => {
+                        "resolve" | "reject" | "all" | "race" | "allSettled" => {
                             if let Expr::Local { id, .. } = object.as_ref() {
                                 if Some(*id) == self.info.promise_id {
                                     return self.string_const("function");
@@ -880,6 +898,9 @@ impl<'a> Emitter<'a> {
                 }
                 "race" => {
                     return self.emit_promise_race(object, args);
+                }
+                "allSettled" => {
+                    return self.emit_promise_all_settled(object, args);
                 }
                 "then" => {
                     let p = self.emit_expr(object)?;
@@ -1056,6 +1077,33 @@ impl<'a> Emitter<'a> {
         Ok(t)
     }
 
+    fn emit_promise_all_settled(
+        &mut self,
+        object: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        let Expr::Local { id, .. } = object else {
+            return Err(diag("Promise.allSettled requires Promise receiver"));
+        };
+        if Some(*id) != self.info.promise_id {
+            return Err(diag("only Promise.allSettled supported"));
+        }
+        if args.len() != 1 {
+            return Err(diag("Promise.allSettled expects 1 argument"));
+        }
+        let Arg::Expr(vexpr) = &args[0] else {
+            return Err(diag("spread not supported"));
+        };
+        let arr = self.emit_expr(vexpr)?;
+        let t = self.fresh();
+        writeln!(
+            self.body,
+            "  {t} = call ptr @draconic_rt_promise_all_settled(ptr {arr})"
+        )
+        .ok();
+        Ok(t)
+    }
+
     fn emit_executor_fn(
         &mut self,
         params: &[Param],
@@ -1157,12 +1205,17 @@ impl<'a> Emitter<'a> {
             param_id = Some(*id);
         }
 
-        // Find assigned top-level number locals (captures), stable order by id.
+        // Find assigned top-level number/string locals (captures), stable order by id.
         let mut assigned = HashSet::new();
         collect_assigned_locals(body, &mut assigned);
         let mut captures: Vec<LocalId> = assigned
             .into_iter()
-            .filter(|id| self.slot_kind(*id) == Some(SlotKind::Number))
+            .filter(|id| {
+                matches!(
+                    self.slot_kind(*id),
+                    Some(SlotKind::Number) | Some(SlotKind::String)
+                )
+            })
             .collect();
         captures.sort_by_key(|id| id.0);
 
@@ -1303,6 +1356,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
                 Ok(t)
             }
+            Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
             Expr::Local { id, .. } => {
                 if let Some(v) = self.reaction_params.get(id).cloned() {
                     return Ok(v);
@@ -1311,11 +1365,20 @@ impl<'a> Emitter<'a> {
                     let mut buf = String::new();
                     let slot = self.reaction_capture_slot(*id, &mut buf)?;
                     self.body.push_str(&buf);
-                    let n = self.fresh();
-                    let t = self.fresh();
-                    writeln!(self.body, "  {n} = load i64, ptr {slot}").ok();
-                    writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
-                    return Ok(t);
+                    match self.slot_kind(*id) {
+                        Some(SlotKind::String) | Some(SlotKind::Object) => {
+                            let t = self.fresh();
+                            writeln!(self.body, "  {t} = load ptr, ptr {slot}").ok();
+                            return Ok(t);
+                        }
+                        _ => {
+                            let n = self.fresh();
+                            let t = self.fresh();
+                            writeln!(self.body, "  {n} = load i64, ptr {slot}").ok();
+                            writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
+                            return Ok(t);
+                        }
+                    }
                 }
                 let t = self.fresh();
                 writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
@@ -1393,6 +1456,17 @@ impl<'a> Emitter<'a> {
                     )
                     .ok();
                     writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
+                    return Ok(t);
+                }
+                if prop == "status" || prop == "value" || prop == "reason" {
+                    let obj = self.emit_expr_in_reaction(object)?;
+                    let key = self.string_const(&prop)?;
+                    let t = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {t} = call ptr @draconic_rt_object_get(ptr {obj}, ptr {key})"
+                    )
+                    .ok();
                     return Ok(t);
                 }
                 Err(diag(format!("unsupported member `{}` in reaction", prop)))

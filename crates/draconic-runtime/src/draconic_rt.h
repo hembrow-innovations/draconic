@@ -1,4 +1,4 @@
-/* Draconic Native Runtime C ABI (N05–N06.07: GC, job queue, Promise + all/race). */
+/* Draconic Native Runtime C ABI (N05–N06.08: GC, job queue, Promise + all/race/allSettled). */
 #ifndef DRACONIC_RT_H
 #define DRACONIC_RT_H
 
@@ -98,6 +98,14 @@ DraconicValue *draconic_rt_promise_all(DraconicValue *arr);
 
 /* --- Promise.race (N06.07): array of promises/values → first settle wins --- */
 DraconicValue *draconic_rt_promise_race(DraconicValue *arr);
+
+/* --- Plain object props (N06.08; keys are NUL-terminated C strings) --- */
+void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value);
+void *draconic_rt_object_get(DraconicValue *obj, const char *key);
+
+/* --- Promise.allSettled (N06.08): array of promises/values →
+       promise of [{status,value|reason}, …] --- */
+DraconicValue *draconic_rt_promise_all_settled(DraconicValue *arr);
 
 #ifdef __cplusplus
 }

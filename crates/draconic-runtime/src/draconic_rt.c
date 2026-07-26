@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (N05–N06.07). Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05–N06.08). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -47,6 +47,7 @@ typedef enum {
 } DraconicTag;
 
 typedef struct DraconicPromiseReaction DraconicPromiseReaction;
+typedef struct DraconicProp DraconicProp;
 
 struct DraconicPromiseReaction {
     DraconicPromiseReactionFn on_fulfilled;
@@ -56,6 +57,13 @@ struct DraconicPromiseReaction {
     struct DraconicValue *derived;
     int finally_mode; /* N06.05: both paths run one callback; pass through settle */
     DraconicPromiseReaction *next;
+};
+
+/* N06.08: simple string-key property list (keys heap-owned C strings). */
+struct DraconicProp {
+    char *key;
+    void *value;
+    DraconicProp *next;
 };
 
 struct DraconicValue {
@@ -68,8 +76,7 @@ struct DraconicValue {
             char *data; /* heap-owned UTF-8 bytes, not null-required */
         } string;
         struct {
-            /* empty object for GC hello; properties come later */
-            int _pad;
+            DraconicProp *props; /* N06.08 own properties */
         } object;
         struct {
             int state; /* DRACONIC_PROMISE_* */
@@ -109,10 +116,22 @@ static void free_promise_reactions(DraconicPromiseReaction *head) {
     }
 }
 
+static void free_props(DraconicProp *head) {
+    while (head) {
+        DraconicProp *next = head->next;
+        free(head->key);
+        free(head);
+        head = next;
+    }
+}
+
 static void free_value(DraconicValue *v) {
     if (v->tag == DRACONIC_TAG_STRING && v->as.string.data) {
         free(v->as.string.data);
         v->as.string.data = NULL;
+    } else if (v->tag == DRACONIC_TAG_OBJECT) {
+        free_props(v->as.object.props);
+        v->as.object.props = NULL;
     } else if (v->tag == DRACONIC_TAG_PROMISE) {
         free_promise_reactions(v->as.promise.reactions_head);
         v->as.promise.reactions_head = NULL;
@@ -876,6 +895,164 @@ DraconicValue *draconic_rt_promise_race(DraconicValue *arr) {
                 promise_race_on_fulfill,
                 slot,
                 promise_race_on_reject,
+                slot
+            );
+        }
+    }
+    return out;
+}
+
+/* --- Object properties (N06.08) --- */
+
+void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
+        return;
+    }
+    for (DraconicProp *p = obj->as.object.props; p; p = p->next) {
+        if (strcmp(p->key, key) == 0) {
+            p->value = value;
+            return;
+        }
+    }
+    DraconicProp *prop = (DraconicProp *)calloc(1, sizeof(DraconicProp));
+    if (!prop) {
+        fprintf(stderr, "draconic_rt: object_set OOM\n");
+        abort();
+    }
+    size_t klen = strlen(key);
+    prop->key = (char *)malloc(klen + 1);
+    if (!prop->key) {
+        free(prop);
+        fprintf(stderr, "draconic_rt: object_set OOM\n");
+        abort();
+    }
+    memcpy(prop->key, key, klen + 1);
+    prop->value = value;
+    prop->next = obj->as.object.props;
+    obj->as.object.props = prop;
+}
+
+void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
+        return NULL;
+    }
+    for (DraconicProp *p = obj->as.object.props; p; p = p->next) {
+        if (strcmp(p->key, key) == 0) {
+            return p->value;
+        }
+    }
+    return NULL;
+}
+
+/* --- Promise.allSettled (N06.08) --- */
+
+typedef struct {
+    DraconicValue *all_promise;
+    DraconicValue *results;
+    size_t *remaining;
+    size_t index;
+} PromiseAllSettledSlot;
+
+static DraconicValue *make_settled_result(const char *status, const char *payload_key, void *payload) {
+    DraconicValue *obj = draconic_rt_alloc_object();
+    if (!obj) {
+        return NULL;
+    }
+    /* status is a static C string so print_str on string locals works. */
+    draconic_rt_object_set(obj, "status", (void *)status);
+    draconic_rt_object_set(obj, payload_key, payload);
+    return obj;
+}
+
+static void *promise_all_settled_on_fulfill(void *data, void *value) {
+    PromiseAllSettledSlot *slot = (PromiseAllSettledSlot *)data;
+    if (!slot || !slot->remaining) {
+        return value;
+    }
+    DraconicValue *entry = make_settled_result("fulfilled", "value", value);
+    draconic_rt_array_set(slot->results, slot->index, entry);
+    if (*slot->remaining > 0) {
+        (*slot->remaining)--;
+    }
+    if (*slot->remaining == 0) {
+        draconic_rt_promise_resolve(slot->all_promise, slot->results);
+    }
+    return value;
+}
+
+static void *promise_all_settled_on_reject(void *data, void *reason) {
+    PromiseAllSettledSlot *slot = (PromiseAllSettledSlot *)data;
+    if (!slot || !slot->remaining) {
+        return reason;
+    }
+    DraconicValue *entry = make_settled_result("rejected", "reason", reason);
+    draconic_rt_array_set(slot->results, slot->index, entry);
+    if (*slot->remaining > 0) {
+        (*slot->remaining)--;
+    }
+    if (*slot->remaining == 0) {
+        draconic_rt_promise_resolve(slot->all_promise, slot->results);
+    }
+    return reason;
+}
+
+DraconicValue *draconic_rt_promise_all_settled(DraconicValue *arr) {
+    DraconicValue *out = draconic_rt_promise_new();
+    if (!out) {
+        return NULL;
+    }
+    size_t n = 0;
+    if (arr && arr->tag == DRACONIC_TAG_ARRAY) {
+        n = arr->as.array.len;
+    }
+    if (n == 0) {
+        DraconicValue *empty = draconic_rt_array_new(0);
+        draconic_rt_promise_resolve(out, empty);
+        return out;
+    }
+
+    DraconicValue *results = draconic_rt_array_new(n);
+    if (!results) {
+        draconic_rt_promise_reject(out, NULL);
+        return out;
+    }
+
+    size_t *remaining = (size_t *)malloc(sizeof(size_t));
+    if (!remaining) {
+        draconic_rt_promise_reject(out, NULL);
+        return out;
+    }
+    *remaining = n;
+
+    for (size_t i = 0; i < n; i++) {
+        void *elem = draconic_rt_array_get(arr, i);
+        PromiseAllSettledSlot *slot =
+            (PromiseAllSettledSlot *)calloc(1, sizeof(PromiseAllSettledSlot));
+        if (!slot) {
+            fprintf(stderr, "draconic_rt: promise_all_settled OOM\n");
+            abort();
+        }
+        slot->all_promise = out;
+        slot->results = results;
+        slot->remaining = remaining;
+        slot->index = i;
+
+        if (draconic_rt_is_promise((DraconicValue *)elem)) {
+            (void)draconic_rt_promise_then(
+                (DraconicValue *)elem,
+                promise_all_settled_on_fulfill,
+                slot,
+                promise_all_settled_on_reject,
+                slot
+            );
+        } else {
+            DraconicValue *wrapped = draconic_rt_promise_new();
+            draconic_rt_promise_resolve(wrapped, elem);
+            (void)draconic_rt_promise_then(
+                wrapped,
+                promise_all_settled_on_fulfill,
+                slot,
+                promise_all_settled_on_reject,
                 slot
             );
         }

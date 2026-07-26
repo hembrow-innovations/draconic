@@ -666,6 +666,73 @@ mod tests {
     }
 
     #[test]
+    fn es_promise_all_settled_prints_after_drain() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let tAllSettled = typeof Promise.allSettled;
+            let emptyLen = -1;
+            let settledLen = -1;
+            let s0 = "";
+            let v0 = -1;
+            let s1 = "";
+            let r1 = -1;
+            let mixed0 = "";
+            let mixedV0 = -1;
+            let mixed1 = "";
+            let mixedV1 = -1;
+            Promise.allSettled([]).then(function (v) {
+              emptyLen = v.length;
+            });
+            Promise.allSettled([Promise.resolve(10), Promise.reject(7)]).then(function (v) {
+              settledLen = v.length;
+              s0 = v[0].status;
+              v0 = v[0].value;
+              s1 = v[1].status;
+              r1 = v[1].reason;
+            });
+            Promise.allSettled([1, Promise.resolve(2)]).then(function (v) {
+              mixed0 = v[0].status;
+              mixedV0 = v[0].value;
+              mixed1 = v[1].status;
+              mixedV1 = v[1].value;
+            });
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "Promise.allSettled must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_all_settled"),
+            "should Promise.allSettled via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_object_get"),
+            "should read status/value/reason via object_get:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_job_drain"),
+            "should drain jobs before observe:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n06-promise-all-settled").expect("workdir");
+        let bin = dir.join("promise_all_settled");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "function\n0\n2\nfulfilled\n10\nrejected\n7\nfulfilled\n1\nfulfilled\n2\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn native_fixed_array_index_read_prints() {
         let ir = emit_llvm_ir(&module_of(
             r#"
