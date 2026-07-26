@@ -233,7 +233,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.09 | done | js | Lexer/parser: remaining numeric-separator + string-escape failures (`unexpected character '\\'`, invalid separators, hex escapes) | `crates/draconic-lexer`, `crates/draconic-parser`, `tests/test262` |
 | E19.10 | done | js | Expand allowlist further after E19.07–E19.09 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 | E19.11 | done | js | Compound assignment to property: `obj.p op= v` / `obj[k] op= v` (currently compile reject “not yet supported”) | `crates/draconic-check` / IR, `tests/test262` |
-| E19.12 | todo | js | Untyped compound assignment applicability: do not reject ECMA-262 `x op= y` when binding/RHS types widen via ToNumber (boolean/string/null/`any`) without annotations | `crates/draconic-check`, `tests/test262` |
+| E19.12 | done | js | Untyped compound assignment applicability: do not reject ECMA-262 `x op= y` when binding/RHS types widen via ToNumber (boolean/string/null/`any`) without annotations | `crates/draconic-check`, `tests/test262` |
 | E19.13 | todo | js | Update/call on ToPrimitive objects: `++`/`--` and call sites must accept object LHS/callee with `valueOf`/`toString` (not compile “object is not callable”) | `crates/draconic-check`, `tests/test262` |
 | E19.14 | todo | js | Unicode / exotic identifiers + whitespace: multi-byte ID_Start/ID_Continue, vertical tab `\u{b}` / form feed in source (lexer `unexpected character`) | `crates/draconic-lexer`, `tests/test262` |
 | E19.15 | todo | js | Expand allowlist further after E19.11–E19.14 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |

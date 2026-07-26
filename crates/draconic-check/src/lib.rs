@@ -2591,12 +2591,19 @@ impl<'a> Checker<'a> {
                             self.symbol_types[sym.0 as usize] = result_ty;
                         } else if op.binary_op().is_some() {
                             if !self.is_assignable(result_ty, left_ty) {
-                                return Err(Diagnostic::new(
-                                    format!(
-                                        "cannot assign type `{result_ty}` to binding of type `{left_ty}`"
-                                    ),
-                                    *span,
-                                ));
+                                // E19.12: untyped JS compound assign applies ToNumber/ToString;
+                                // widen inferred binding rather than reject (native stays strict).
+                                if matches!(left_ty, Type::Native(_) | Type::Ptr(_))
+                                    || matches!(result_ty, Type::Native(_) | Type::Ptr(_))
+                                {
+                                    return Err(Diagnostic::new(
+                                        format!(
+                                            "cannot assign type `{result_ty}` to binding of type `{left_ty}`"
+                                        ),
+                                        *span,
+                                    ));
+                                }
+                                self.symbol_types[sym.0 as usize] = result_ty;
                             }
                         } else {
                             self.require_assignable_expr(result_ty, left_ty, value)?;
@@ -4313,6 +4320,43 @@ mod tests {
     fn check_compound_assignment_to_computed_property_ok() {
         let program = parse("let o = {}; let k = \"x\"; o[k] = 1; o[k] += 2;").unwrap();
         check(program).expect("compound assignment to computed property should typecheck");
+    }
+
+    // E19.12: untyped compound assignment — ToNumber widen; do not reject assign-back.
+    #[test]
+    fn check_untyped_compound_assignment_boolean() {
+        let program = parse("let x = true; x += 1; x *= false;").unwrap();
+        check(program).expect("boolean compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_string_numeric() {
+        let program = parse(r#"let x = "2"; x *= 3; x -= "1";"#).unwrap();
+        check(program).expect("string numeric compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_null() {
+        let program = parse("let x = null; x -= 1; x += true;").unwrap();
+        check(program).expect("null compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_add_string_concat() {
+        let program = parse(r#"let x = 1; x += "a";"#).unwrap();
+        check(program).expect("number += string should typecheck (ToString concat)");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_uninitialized_any() {
+        let program = parse("let x; x += 1; x *= true;").unwrap();
+        check(program).expect("any compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_property_coerced() {
+        let program = parse(r#"let o = { a: true }; o.a += 1; o["a"] *= "2";"#).unwrap();
+        check(program).expect("property compound assign with coercion should typecheck");
     }
 
     #[test]
