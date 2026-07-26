@@ -263,10 +263,30 @@ pub fn is_negative_runtime(source: &str) -> bool {
     meta.contains("negative:") && meta.contains("phase: runtime")
 }
 
+/// True when frontmatter requires strict mode only (`flags: [onlyStrict]`).
+///
+/// E19.19: strict PutValue TypeError on compound assignment needs a leading
+/// `"use strict"` so Node observes the same mode as Test262's onlyStrict run.
+pub fn is_only_strict(source: &str) -> bool {
+    let Some(meta) = frontmatter_meta(source) else {
+        return false;
+    };
+    // flags: [onlyStrict] or flags: [onlyStrict, ...] — bracket form used by suite.
+    meta.lines().any(|line| {
+        let t = line.trim();
+        t.starts_with("flags:") && t.contains("onlyStrict")
+    }) || meta.contains("onlyStrict")
+}
+
 /// Compile Test262 test body (+ shim) through frontend → JS emit.
 pub fn compile_test_to_js(test_body: &str) -> Result<String, String> {
     let body = strip_frontmatter(test_body);
-    let source = format!("{HARNESS_SHIM}\n{body}");
+    // `"use strict"` must be the first statement so the whole script (incl. body) is strict.
+    let source = if is_only_strict(test_body) {
+        format!("\"use strict\";\n{HARNESS_SHIM}\n{body}")
+    } else {
+        format!("{HARNESS_SHIM}\n{body}")
+    };
     let module = compile_source(&source).map_err(|d| format!("compile: {d}"))?;
     emit_js(&module).map_err(|d| format!("emit_js: {d}"))
 }
@@ -532,6 +552,59 @@ mod tests {
         let src = "/*---\nnegative:\n  phase: parse\n  type: SyntaxError\n---*/\n1_\n";
         assert!(is_negative_parse(src));
         assert!(!is_negative_parse("/*---\ndescription: x\n---*/\n1\n"));
+    }
+
+    #[test]
+    fn only_strict_meta_detected() {
+        let src = "/*---\nflags: [onlyStrict]\ndescription: x\n---*/\n1\n";
+        assert!(is_only_strict(src));
+        assert!(!is_only_strict("/*---\ndescription: x\n---*/\n1\n"));
+        assert!(!is_only_strict("/*---\nflags: [noStrict]\n---*/\n1\n"));
+    }
+
+    #[test]
+    fn only_strict_compound_assign_putvalue_typeerror() {
+        // E19.19: non-writable data prop + compound `*=` must TypeError under onlyStrict.
+        let src = r#"
+/*---
+description: strict PutValue TypeError on compound assign to non-writable
+flags: [onlyStrict]
+---*/
+var obj = {};
+Object.defineProperty(obj, "prop", {
+  value: 10,
+  writable: false,
+  enumerable: true,
+  configurable: true
+});
+assert.throws(TypeError, function() {
+  obj.prop *= 20;
+});
+assert.sameValue(obj.prop, 10, "obj.prop");
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        assert!(
+            js.contains("use strict"),
+            "emitted JS must include use strict for onlyStrict: {js}"
+        );
+        run_js_in_node(&js).expect("node strict PutValue");
+    }
+
+    #[test]
+    fn only_strict_compound_assign_nonextensible_typeerror() {
+        // E19.19: missing prop on non-extensible object.
+        let src = r#"
+/*---
+flags: [onlyStrict]
+---*/
+var obj = {};
+Object.preventExtensions(obj);
+assert.throws(TypeError, function() {
+  obj.len *= 10;
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&js).expect("node non-extensible PutValue");
     }
 
     #[test]
