@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[[bin]]
+name = "probe"
+path = "src/bin/probe.rs"
+
 [dependencies]
 draconic-frontend.workspace = true
 draconic-backend-js.workspace = true
