@@ -1,6 +1,6 @@
-//! ROADMAP E04: object fixtures on js + native.
+//! ROADMAP E04: object fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn object_lit_access_fixture_present() {
@@ -13,14 +13,13 @@ fn object_lit_access_fixture_present() {
 }
 
 #[test]
-fn object_lit_access_runs_js_and_native() {
+fn object_lit_access_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/objects/object_lit_access")
         .expect("es/objects/object_lit_access");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn property_assign_fixture_present() {
 }
 
 #[test]
-fn property_assign_runs_js_and_native() {
+fn property_assign_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/objects/property_assign")
         .expect("es/objects/property_assign");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn this_method_fixture_present() {
 }
 
 #[test]
-fn this_method_runs_js_and_native() {
+fn this_method_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/objects/this_method")
         .expect("es/objects/this_method");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn new_ctor_fixture_present() {
 }
 
 #[test]
-fn new_ctor_runs_js_and_native() {
+fn new_ctor_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/objects/new_ctor")
         .expect("es/objects/new_ctor");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -133,14 +129,13 @@ fn object_lit_sugar_fixture_present() {
 }
 
 #[test]
-fn object_lit_sugar_runs_js_and_native() {
+fn object_lit_sugar_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/objects/object_lit_sugar")
         .expect("es/objects/object_lit_sugar");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -163,14 +158,13 @@ fn prototype_fixture_present() {
 }
 
 #[test]
-fn prototype_runs_js_and_native() {
+fn prototype_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/objects/prototype")
         .expect("es/objects/prototype");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

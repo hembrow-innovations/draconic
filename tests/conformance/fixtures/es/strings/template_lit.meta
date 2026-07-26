@@ -1,6 +1,4 @@
 id: es/strings/template_lit
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (plain !== "hello") process.exit(1); if (empty !== "") process.exit(2); if (multi.length !== 3 || multi.charCodeAt(0) !== 97 || multi.charCodeAt(1) !== 10 || multi.charCodeAt(2) !== 98) process.exit(3); if (interp !== "hello world") process.exit(4); if (both !== "world!") process.exit(5); if (mid !== "aworldb") process.exit(6); if (num !== "n=3") process.exit(7); if (two !== "x1y2z") process.exit(8); if (expr !== "sum=3") process.exit(9); if (nested !== "outer inner world end") process.exit(10); if (esc.length !== 7 || esc.charCodeAt(0) !== 97 || esc.charCodeAt(1) !== 96 || esc.charCodeAt(2) !== 98 || esc.charCodeAt(3) !== 36 || esc.charCodeAt(4) !== 99 || esc.charCodeAt(5) !== 92 || esc.charCodeAt(6) !== 100) process.exit(11); if (esc_n.length !== 3 || esc_n.charCodeAt(1) !== 10) process.exit(12); if (t !== "string") process.exit(13); if (eq !== true) process.exit(14); if (cat !== "ab") process.exit(15); if (typeof interp !== "string") process.exit(16);
-native.exit: 0
-native.stdout: hello\n

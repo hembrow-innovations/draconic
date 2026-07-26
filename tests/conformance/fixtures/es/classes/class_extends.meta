@@ -1,6 +1,4 @@
 id: es/classes/class_extends
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== "rex") process.exit(1); if (b !== 3) process.exit(1); if (c !== "rex") process.exit(1); if (e !== "rex") process.exit(1); if (f !== "mia") process.exit(1);
-native.exit: 0
-native.stdout: hello\n

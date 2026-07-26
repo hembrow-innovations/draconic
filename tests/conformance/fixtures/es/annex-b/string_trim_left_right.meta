@@ -1,6 +1,4 @@
 id: es/annex-b/string_trim_left_right
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (t_left !== "function") process.exit(1); if (t_right !== "function") process.exit(2); if (t_start !== "function") process.exit(3); if (t_end !== "function") process.exit(4); if (a !== "hi  ") process.exit(5); if (b !== "  hi") process.exit(6); if (c !== "hi  ") process.exit(7); if (d !== "  hi") process.exit(8); if (sameL !== true) process.exit(9); if (sameR !== true) process.exit(10); if (e !== "x\\t\\n") process.exit(11); if (f !== "\\t\\nx") process.exit(12); if (g !== "") process.exit(13); if (h !== "") process.exit(14); if (i !== "nospace") process.exit(15); if (j !== "nospace") process.exit(16); if (viaL !== "z") process.exit(17); if (viaR !== "z") process.exit(18); if (typeof t_left !== "string") process.exit(19);
-native.exit: 0
-native.stdout: hello\n

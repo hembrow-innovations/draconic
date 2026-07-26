@@ -84,7 +84,8 @@ fn build_target_js_writes_runnable_js() {
 #[test]
 fn build_target_native_writes_runnable_binary() {
     let dir = temp_dir();
-    let src = write_program(&dir, "prog.drac", "let x = 1;");
+    // Real native path (N01), not the empty-program hello demo.
+    let src = write_program(&dir, "prog.drac", "let x: i32 = 42;");
     let out = dir.join("prog");
 
     run_ok(
@@ -107,7 +108,35 @@ fn build_target_native_writes_runnable_binary() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout, "hello\n", "stdout={stdout:?}");
+    assert_eq!(stdout, "42\n", "stdout={stdout:?}");
+}
+
+#[test]
+fn build_target_native_rejects_unsupported_js() {
+    let dir = temp_dir();
+    let src = write_program(&dir, "prog.drac", "let x = 1;");
+    let out = dir.join("prog");
+
+    let output = draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("native")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn draconic");
+    assert!(
+        !output.status.success(),
+        "unsupported JS must fail native emit"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unsupported") || stderr.contains("native target"),
+        "stderr={stderr}"
+    );
 }
 
 #[test]
@@ -128,7 +157,7 @@ fn build_js_default_output_next_to_source() {
 #[test]
 fn build_native_default_output_next_to_source() {
     let dir = temp_dir();
-    let src = write_program(&dir, "hello.drac", "let n = 0;");
+    let src = write_program(&dir, "hello.drac", "let n: i32 = 0;");
 
     run_ok(
         draconic()

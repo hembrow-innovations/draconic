@@ -1,6 +1,4 @@
 id: es/annex-b/export_ns_from
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 41) process.exit(1); if (b !== 42) process.exit(2); if (c !== 99) process.exit(3); if (d !== "ok") process.exit(4); if (e !== 7) process.exit(5); if (ma !== 41) process.exit(6); if (mb !== 2) process.exit(7); if (mc !== 99) process.exit(8); if (me !== 7) process.exit(9);
-native.exit: 0
-native.stdout: hello\n

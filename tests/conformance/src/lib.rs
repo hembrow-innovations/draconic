@@ -177,12 +177,10 @@ impl Meta {
     fn default_for(source_path: &Path) -> Self {
         let mut m = Meta {
             id: Some(default_id(source_path)),
-            targets: vec![Target::Js, Target::Native],
+            targets: vec![Target::Js],
             ..Meta::default()
         };
         m.expect_js.exit = 0;
-        m.expect_native.exit = 0;
-        m.expect_native.stdout = Some("hello\n".to_string());
         m
     }
 }
@@ -190,12 +188,13 @@ impl Meta {
 /// Line-oriented sidecar:
 /// ```text
 /// id: smoke/let-add
-/// targets: js,native
+/// targets: js
 /// js.exit: 0
 /// js.check: if (x !== 3) process.exit(1);
-/// native.exit: 0
-/// native.stdout: hello\n
 /// ```
+///
+/// Native expectations are only used when `targets` includes `native`. Do not
+/// default `native.stdout` to the B08 hello stub — stub-hello is not feature coverage.
 fn parse_meta(text: &str) -> Result<Meta, String> {
     let mut meta = Meta::default();
     meta.expect_js.exit = 0;
@@ -247,9 +246,6 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
         }
     }
 
-    if meta.expect_native.stdout.is_none() {
-        meta.expect_native.stdout = Some("hello\n".to_string());
-    }
     Ok(meta)
 }
 
@@ -488,22 +484,35 @@ mod tests {
         let meta = parse_meta(
             "\
 id: smoke/let-add
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (x !== 3) process.exit(1);
-native.exit: 0
-native.stdout: hello\\n
 ",
         )
         .unwrap();
         assert_eq!(meta.id.as_deref(), Some("smoke/let-add"));
-        assert_eq!(meta.targets, vec![Target::Js, Target::Native]);
+        assert_eq!(meta.targets, vec![Target::Js]);
         assert_eq!(meta.expect_js.exit, 0);
         assert_eq!(
             meta.expect_js.check.as_deref(),
             Some("if (x !== 3) process.exit(1);")
         );
-        assert_eq!(meta.expect_native.stdout.as_deref(), Some("hello\n"));
+        assert!(meta.expect_native.stdout.is_none());
+    }
+
+    #[test]
+    fn parse_meta_native_real_stdout() {
+        let meta = parse_meta(
+            "\
+id: native/ints/arith_i32
+targets: native
+native.exit: 0
+native.stdout: 10\\n3\\n13\\n
+",
+        )
+        .unwrap();
+        assert_eq!(meta.targets, vec![Target::Native]);
+        assert_eq!(meta.expect_native.stdout.as_deref(), Some("10\n3\n13\n"));
     }
 
     #[test]

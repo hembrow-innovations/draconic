@@ -1,6 +1,4 @@
 id: es/arrays/array_element_assign
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (x !== 10) process.exit(1); if (y !== 2) process.exit(1); if (z !== 20) process.exit(1); if (w !== 30) process.exit(1); if (r !== 40) process.exit(1); if (s !== 40) process.exit(1); if (g !== 7) process.exit(1); if (blen !== 1) process.exit(1); if (h !== 9) process.exit(1); if (blen2 !== 3) process.exit(1); if (n !== 5) process.exit(1); if (m !== 6) process.exit(1); if (!Array.isArray(a)) process.exit(1); if (!Array.isArray(b)) process.exit(1);
-native.exit: 0
-native.stdout: hello\n

@@ -1,6 +1,4 @@
 id: es/modules/cyclic_live
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 0) process.exit(1); if (b !== 1) process.exit(2); if (c !== 1) process.exit(3); if (d !== 1) process.exit(4); if (e !== 2) process.exit(5); if (f !== 2) process.exit(6);
-native.exit: 0
-native.stdout: hello\n

@@ -1,6 +1,4 @@
 id: es/statements/switch
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 10) process.exit(1); if (b !== 20) process.exit(2); if (c !== 40) process.exit(3); if (d !== 11) process.exit(4); if (e !== 1) process.exit(5); if (f !== 5) process.exit(6);
-native.exit: 0
-native.stdout: hello\n

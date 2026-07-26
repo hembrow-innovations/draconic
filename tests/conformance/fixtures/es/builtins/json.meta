@@ -1,6 +1,4 @@
 id: es/builtins/json
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (tj !== "object") process.exit(1); if (gj !== true) process.exit(2); if (tp !== "function") process.exit(3); if (ts !== "function") process.exit(4); if (gp !== true) process.exit(5); if (gs !== true) process.exit(6); if (a !== "1") process.exit(7); if (b !== "\"hi\"") process.exit(8); if (c !== "true") process.exit(9); if (d !== "null") process.exit(10); if (e !== 1) process.exit(11); if (f !== "hi") process.exit(12); if (g !== true) process.exit(13); if (h !== null) process.exit(14); if (ox !== 2) process.exit(15); if (a0 !== 1) process.exit(16); if (a1 !== 2) process.exit(17); if (ra !== 1) process.exit(18); if (rb !== "two") process.exit(19); if (typeof tj !== "string") process.exit(20);
-native.exit: 0
-native.stdout: hello\n

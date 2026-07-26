@@ -1,6 +1,4 @@
 id: es/arrays/array_lit_access
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (x !== 1) process.exit(1); if (y !== 2) process.exit(1); if (z !== 3) process.exit(1); if (n !== 3) process.exit(1); if (elen !== 0) process.exit(1); if (m !== 10) process.exit(1); if (p !== 21) process.exit(1); if (dyn !== 2) process.exit(1); if (s !== "two") process.exit(1); if (b !== true) process.exit(1); if (nu !== null) process.exit(1); if (t0 !== 7) process.exit(1); if (t1 !== 8) process.exit(1); if (tlen !== 2) process.exit(1); if (!Array.isArray(a)) process.exit(1); if (!Array.isArray(empty)) process.exit(1);
-native.exit: 0
-native.stdout: hello\n

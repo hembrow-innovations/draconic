@@ -1,6 +1,6 @@
-//! ROADMAP E09.01+: symbols, equality, coercion fixtures on js + native.
+//! ROADMAP E09.01+: symbols, equality, coercion fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn symbol_basics_fixture_present() {
@@ -13,14 +13,13 @@ fn symbol_basics_fixture_present() {
 }
 
 #[test]
-fn symbol_basics_runs_js_and_native() {
+fn symbol_basics_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/values/symbol_basics")
         .expect("es/values/symbol_basics");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn symbol_property_keys_fixture_present() {
 }
 
 #[test]
-fn symbol_property_keys_runs_js_and_native() {
+fn symbol_property_keys_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/values/symbol_property_keys")
         .expect("es/values/symbol_property_keys");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -74,14 +72,13 @@ fn abstract_eq_coercion_fixture_present() {
 }
 
 #[test]
-fn abstract_eq_coercion_runs_js_and_native() {
+fn abstract_eq_coercion_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/values/abstract_eq_coercion")
         .expect("es/values/abstract_eq_coercion");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -104,14 +101,13 @@ fn to_primitive_fixture_present() {
 }
 
 #[test]
-fn to_primitive_runs_js_and_native() {
+fn to_primitive_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/values/to_primitive")
         .expect("es/values/to_primitive");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

@@ -1,6 +1,4 @@
 id: es/objects/object_lit_access
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (x !== 1) process.exit(1); if (y !== 1) process.exit(1); if (z !== 3) process.exit(1); if (w !== 3) process.exit(1); if (n !== 4) process.exit(1); if (m !== 4) process.exit(1); if (typeof e !== "object") process.exit(1);
-native.exit: 0
-native.stdout: hello\n

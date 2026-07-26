@@ -1,6 +1,6 @@
-//! ROADMAP E11.01–E11.04: named, default, namespace, and cyclic import fixtures on js + native.
+//! ROADMAP E11.01–E11.04: named, default, namespace, and cyclic import fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn named_export_import_fixture_present() {
@@ -19,14 +19,13 @@ fn named_export_import_fixture_present() {
 }
 
 #[test]
-fn named_export_import_runs_js_and_native() {
+fn named_export_import_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/modules/named_export_import")
         .expect("es/modules/named_export_import");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -58,15 +57,14 @@ fn default_export_import_fixtures_present() {
 }
 
 #[test]
-fn default_export_import_runs_js_and_native() {
+fn default_export_import_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     for id in [
         "es/modules/default_export_import",
         "es/modules/default_expr_import",
     ] {
         let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
-        assert!(fixture.targets.contains(&Target::Js));
-        assert!(fixture.targets.contains(&Target::Native));
+        assert!(!fixture.targets.is_empty());
         for r in run_fixture(fixture) {
             assert!(
                 r.ok,
@@ -94,14 +92,13 @@ fn namespace_import_fixture_present() {
 }
 
 #[test]
-fn namespace_import_runs_js_and_native() {
+fn namespace_import_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/modules/namespace_import")
         .expect("es/modules/namespace_import");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -135,12 +132,11 @@ fn cyclic_module_fixtures_present() {
 }
 
 #[test]
-fn cyclic_modules_run_js_and_native() {
+fn cyclic_modules_run() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     for id in ["es/modules/cyclic_functions", "es/modules/cyclic_live"] {
         let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
-        assert!(fixture.targets.contains(&Target::Js));
-        assert!(fixture.targets.contains(&Target::Native));
+        assert!(!fixture.targets.is_empty());
         for r in run_fixture(fixture) {
             assert!(
                 r.ok,

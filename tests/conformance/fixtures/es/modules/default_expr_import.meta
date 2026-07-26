@@ -1,6 +1,4 @@
 id: es/modules/default_expr_import
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 42) process.exit(1);
-native.exit: 0
-native.stdout: hello\n

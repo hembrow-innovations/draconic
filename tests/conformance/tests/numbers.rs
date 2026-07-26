@@ -1,6 +1,6 @@
-//! ROADMAP E08.01–E08.06: number, BigInt, Math, and Number global fixtures on js + native.
+//! ROADMAP E08.01–E08.06: number, BigInt, Math, and Number global fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn number_literals_fixture_present() {
@@ -13,14 +13,13 @@ fn number_literals_fixture_present() {
 }
 
 #[test]
-fn number_literals_runs_js_and_native() {
+fn number_literals_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/numbers/number_literals")
         .expect("es/numbers/number_literals");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn bigint_literals_fixture_present() {
 }
 
 #[test]
-fn bigint_literals_runs_js_and_native() {
+fn bigint_literals_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/numbers/bigint_literals")
         .expect("es/numbers/bigint_literals");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn bigint_ops_fixture_present() {
 }
 
 #[test]
-fn bigint_ops_runs_js_and_native() {
+fn bigint_ops_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/numbers/bigint_ops")
         .expect("es/numbers/bigint_ops");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn bigint_pow_fixture_present() {
 }
 
 #[test]
-fn bigint_pow_runs_js_and_native() {
+fn bigint_pow_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/numbers/bigint_pow")
         .expect("es/numbers/bigint_pow");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -133,14 +129,13 @@ fn math_basics_fixture_present() {
 }
 
 #[test]
-fn math_basics_runs_js_and_native() {
+fn math_basics_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/numbers/math_basics")
         .expect("es/numbers/math_basics");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -163,14 +158,13 @@ fn number_global_fixture_present() {
 }
 
 #[test]
-fn number_global_runs_js_and_native() {
+fn number_global_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/numbers/number_global")
         .expect("es/numbers/number_global");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

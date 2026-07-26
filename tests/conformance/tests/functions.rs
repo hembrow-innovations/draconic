@@ -1,6 +1,6 @@
-//! ROADMAP E03: function fixtures on js + native.
+//! ROADMAP E03: function fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn decl_return_call_fixture_present() {
@@ -13,14 +13,13 @@ fn decl_return_call_fixture_present() {
 }
 
 #[test]
-fn decl_return_call_runs_js_and_native() {
+fn decl_return_call_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/functions/decl_return_call")
         .expect("es/functions/decl_return_call");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn params_call_fixture_present() {
 }
 
 #[test]
-fn params_call_runs_js_and_native() {
+fn params_call_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/functions/params_call")
         .expect("es/functions/params_call");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn nested_capture_fixture_present() {
 }
 
 #[test]
-fn nested_capture_runs_js_and_native() {
+fn nested_capture_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/functions/nested_capture")
         .expect("es/functions/nested_capture");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn function_expr_fixture_present() {
 }
 
 #[test]
-fn function_expr_runs_js_and_native() {
+fn function_expr_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/functions/function_expr")
         .expect("es/functions/function_expr");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -133,14 +129,13 @@ fn arrow_fixture_present() {
 }
 
 #[test]
-fn arrow_runs_js_and_native() {
+fn arrow_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/functions/arrow")
         .expect("es/functions/arrow");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -163,14 +158,13 @@ fn default_params_fixture_present() {
 }
 
 #[test]
-fn default_params_runs_js_and_native() {
+fn default_params_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/functions/default_params")
         .expect("es/functions/default_params");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -193,14 +187,13 @@ fn rest_params_fixture_present() {
 }
 
 #[test]
-fn rest_params_runs_js_and_native() {
+fn rest_params_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/functions/rest_params")
         .expect("es/functions/rest_params");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

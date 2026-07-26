@@ -1,6 +1,4 @@
 id: es/exceptions/optional_catch
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 2) process.exit(1); if (b !== 1) process.exit(2); if (c !== 13) process.exit(3); if (d !== 4) process.exit(4); if (e !== 5) process.exit(5);
-native.exit: 0
-native.stdout: hello\n

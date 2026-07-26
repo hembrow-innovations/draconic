@@ -1,6 +1,6 @@
-//! ROADMAP E13.01+: generator / yield fixtures on js + native.
+//! ROADMAP E13.01+: generator / yield fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn basic_yield_fixture_present() {
@@ -13,14 +13,13 @@ fn basic_yield_fixture_present() {
 }
 
 #[test]
-fn basic_yield_runs_js_and_native() {
+fn basic_yield_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/basic_yield")
         .expect("es/generators/basic_yield");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn yield_expr_fixture_present() {
 }
 
 #[test]
-fn yield_expr_runs_js_and_native() {
+fn yield_expr_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/yield_expr")
         .expect("es/generators/yield_expr");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn yield_resume_fixture_present() {
 }
 
 #[test]
-fn yield_resume_runs_js_and_native() {
+fn yield_resume_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/yield_resume")
         .expect("es/generators/yield_resume");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn yield_star_fixture_present() {
 }
 
 #[test]
-fn yield_star_runs_js_and_native() {
+fn yield_star_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/yield_star")
         .expect("es/generators/yield_star");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -133,14 +129,13 @@ fn generator_expr_fixture_present() {
 }
 
 #[test]
-fn generator_expr_runs_js_and_native() {
+fn generator_expr_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/generator_expr")
         .expect("es/generators/generator_expr");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -163,14 +158,13 @@ fn generator_methods_fixture_present() {
 }
 
 #[test]
-fn generator_methods_runs_js_and_native() {
+fn generator_methods_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/generator_methods")
         .expect("es/generators/generator_methods");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -193,14 +187,13 @@ fn generator_for_of_fixture_present() {
 }
 
 #[test]
-fn generator_for_of_runs_js_and_native() {
+fn generator_for_of_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/generator_for_of")
         .expect("es/generators/generator_for_of");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -224,14 +217,13 @@ fn generator_return_throw_fixture_present() {
 }
 
 #[test]
-fn generator_return_throw_runs_js_and_native() {
+fn generator_return_throw_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/generators/generator_return_throw")
         .expect("es/generators/generator_return_throw");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

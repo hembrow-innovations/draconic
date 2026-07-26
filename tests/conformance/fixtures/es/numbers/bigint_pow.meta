@@ -1,6 +1,4 @@
 id: es/numbers/bigint_pow
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 8n) process.exit(1); if (b !== 1024n) process.exit(2); if (c !== 512n) process.exit(3); if (d !== 64n) process.exit(4); if (e !== 1n) process.exit(5); if (f !== 1n) process.exit(6); if (g !== 32n) process.exit(7); if (h !== 9n) process.exit(8); if (i !== -8n) process.exit(9); if (j !== 16n) process.exit(10); if (k !== "bigint") process.exit(11); if (typeof a !== "bigint") process.exit(12); if (typeof g !== "bigint") process.exit(13);
-native.exit: 0
-native.stdout: hello\n

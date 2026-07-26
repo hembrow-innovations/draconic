@@ -62,11 +62,22 @@ fn e2e_js_build_artifact_runs() {
 fn e2e_native_build_artifact_runs() {
     let dir = temp_dir();
     let out = dir.join("prog");
-    let module = compile_module("let x = 1;");
+    let module = compile_module("let x: i32 = 42;");
     let ll = emit_llvm_ir(&module).expect("emit_llvm_ir");
     build_native_binary(&ll, Path::new(&out)).expect("build_native_binary");
 
     let output = Command::new(&out).output().expect("run");
     assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello\n");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
+}
+
+#[test]
+fn e2e_native_rejects_unsupported_js() {
+    let module = compile_module("let x = 1;");
+    let err = emit_llvm_ir(&module).expect_err("unsupported JS must fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("unsupported") || msg.contains("native target"),
+        "msg={msg}"
+    );
 }

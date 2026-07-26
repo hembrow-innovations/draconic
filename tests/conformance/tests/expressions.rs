@@ -1,6 +1,6 @@
-//! ROADMAP E01: expression fixtures on js + native.
+//! ROADMAP E01: expression fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn arithmetic_fixture_present() {
@@ -13,14 +13,13 @@ fn arithmetic_fixture_present() {
 }
 
 #[test]
-fn arithmetic_runs_js_and_native() {
+fn arithmetic_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/arithmetic")
         .expect("es/expressions/arithmetic");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn comparison_fixture_present() {
 }
 
 #[test]
-fn comparison_runs_js_and_native() {
+fn comparison_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/comparison")
         .expect("es/expressions/comparison");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn logical_fixture_present() {
 }
 
 #[test]
-fn logical_runs_js_and_native() {
+fn logical_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/logical")
         .expect("es/expressions/logical");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn bitwise_fixture_present() {
 }
 
 #[test]
-fn bitwise_runs_js_and_native() {
+fn bitwise_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/bitwise")
         .expect("es/expressions/bitwise");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -134,14 +130,13 @@ fn exponentiation_fixture_present() {
 }
 
 #[test]
-fn exponentiation_runs_js_and_native() {
+fn exponentiation_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/exponentiation")
         .expect("es/expressions/exponentiation");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -164,14 +159,13 @@ fn conditional_fixture_present() {
 }
 
 #[test]
-fn conditional_runs_js_and_native() {
+fn conditional_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/conditional")
         .expect("es/expressions/conditional");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -194,14 +188,13 @@ fn assignment_fixture_present() {
 }
 
 #[test]
-fn assignment_runs_js_and_native() {
+fn assignment_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/assignment")
         .expect("es/expressions/assignment");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -224,14 +217,13 @@ fn update_fixture_present() {
 }
 
 #[test]
-fn update_runs_js_and_native() {
+fn update_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/update")
         .expect("es/expressions/update");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -254,14 +246,13 @@ fn comma_fixture_present() {
 }
 
 #[test]
-fn comma_runs_js_and_native() {
+fn comma_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/comma")
         .expect("es/expressions/comma");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -285,14 +276,13 @@ fn unary_keywords_fixture_present() {
 }
 
 #[test]
-fn unary_keywords_runs_js_and_native() {
+fn unary_keywords_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/unary_keywords")
         .expect("es/expressions/unary_keywords");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -316,14 +306,13 @@ fn compound_assignment_fixture_present() {
 }
 
 #[test]
-fn compound_assignment_runs_js_and_native() {
+fn compound_assignment_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/compound_assignment")
         .expect("es/expressions/compound_assignment");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -347,14 +336,13 @@ fn nullish_logical_assign_fixture_present() {
 }
 
 #[test]
-fn nullish_logical_assign_runs_js_and_native() {
+fn nullish_logical_assign_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/expressions/nullish_logical_assign")
         .expect("es/expressions/nullish_logical_assign");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

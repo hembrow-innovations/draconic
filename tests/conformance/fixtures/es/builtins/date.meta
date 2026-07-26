@@ -1,6 +1,4 @@
 id: es/builtins/date
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (td !== "function") process.exit(1); if (gd !== true) process.exit(2); if (tn !== "function") process.exit(3); if (gn !== true) process.exit(4); if (gt !== 0) process.exit(5); if (vo !== 0) process.exit(6); if (utc !== 0) process.exit(7); if (nowType !== "number") process.exit(8); if (!(now >= 0)) process.exit(9); if (typeof td !== "string") process.exit(10);
-native.exit: 0
-native.stdout: hello\n

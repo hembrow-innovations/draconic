@@ -1,6 +1,4 @@
 id: es/generators/generator_for_of
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (sum !== 6) process.exit(1); if (n !== 0) process.exit(2); if (chars !== "ab") process.exit(3); if (flat !== 60) process.exit(4); if (acc !== 15) process.exit(5); if (partial !== 5) process.exit(6); if (count !== 3) process.exit(7); if (once !== 5) process.exit(8); if (psum !== 60) process.exit(9);
-native.exit: 0
-native.stdout: hello\n

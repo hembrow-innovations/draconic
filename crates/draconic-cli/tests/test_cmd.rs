@@ -80,11 +80,9 @@ fn test_runs_passing_fixture_dir() {
         "smoke.meta",
         "\
 id: smoke
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (x !== 3) process.exit(1);
-native.exit: 0
-native.stdout: hello\\n
 ",
     );
 

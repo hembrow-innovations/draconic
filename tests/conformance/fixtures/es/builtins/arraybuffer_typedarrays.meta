@@ -1,6 +1,4 @@
 id: es/builtins/arraybuffer_typedarrays
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (tab !== "function") process.exit(1); if (tdv !== "function") process.exit(2); if (tu8 !== "function") process.exit(3); if (ti32 !== "function") process.exit(4); if (tf64 !== "function") process.exit(5); if (gab !== true) process.exit(6); if (gdv !== true) process.exit(7); if (gu8 !== true) process.exit(8); if (gi32 !== true) process.exit(9); if (gf64 !== true) process.exit(10); if (blen !== 8) process.exit(11); if (u8len !== 8) process.exit(12); if (u8_0 !== 1) process.exit(13); if (u8_1 !== 2) process.exit(14); if (i32_0 !== 42) process.exit(15); if (i32_1 !== -7) process.exit(16); if (i32len !== 2) process.exit(17); if (f64_0 !== 1.5) process.exit(18); if (f64_1 !== 2.25) process.exit(19); if (f64len !== 2) process.exit(20); if (dv2 !== 3) process.exit(21); if (dv0 !== 1) process.exit(22); if (typeof tab !== "string") process.exit(23);
-native.exit: 0
-native.stdout: hello\n

@@ -1,6 +1,6 @@
-//! ROADMAP E12.01+: Promise / async fixtures on js + native.
+//! ROADMAP E12.01+: Promise / async fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn promise_basics_fixture_present() {
@@ -13,14 +13,13 @@ fn promise_basics_fixture_present() {
 }
 
 #[test]
-fn promise_basics_runs_js_and_native() {
+fn promise_basics_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/promise_basics")
         .expect("es/async/promise_basics");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn promise_resolve_reject_fixture_present() {
 }
 
 #[test]
-fn promise_resolve_reject_runs_js_and_native() {
+fn promise_resolve_reject_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/promise_resolve_reject")
         .expect("es/async/promise_resolve_reject");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn promise_finally_fixture_present() {
 }
 
 #[test]
-fn promise_finally_runs_js_and_native() {
+fn promise_finally_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/promise_finally")
         .expect("es/async/promise_finally");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn promise_all_fixture_present() {
 }
 
 #[test]
-fn promise_all_runs_js_and_native() {
+fn promise_all_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/promise_all")
         .expect("es/async/promise_all");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -133,14 +129,13 @@ fn promise_race_fixture_present() {
 }
 
 #[test]
-fn promise_race_runs_js_and_native() {
+fn promise_race_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/promise_race")
         .expect("es/async/promise_race");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -163,14 +158,13 @@ fn promise_all_settled_fixture_present() {
 }
 
 #[test]
-fn promise_all_settled_runs_js_and_native() {
+fn promise_all_settled_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/promise_allSettled")
         .expect("es/async/promise_allSettled");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -193,14 +187,13 @@ fn promise_any_fixture_present() {
 }
 
 #[test]
-fn promise_any_runs_js_and_native() {
+fn promise_any_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/promise_any")
         .expect("es/async/promise_any");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -223,14 +216,13 @@ fn async_await_fixture_present() {
 }
 
 #[test]
-fn async_await_runs_js_and_native() {
+fn async_await_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/async_await")
         .expect("es/async/async_await");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -253,14 +245,13 @@ fn async_arrow_fixture_present() {
 }
 
 #[test]
-fn async_arrow_runs_js_and_native() {
+fn async_arrow_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/async/async_arrow")
         .expect("es/async/async_arrow");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

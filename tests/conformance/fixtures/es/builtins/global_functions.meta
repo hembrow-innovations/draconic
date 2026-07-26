@@ -1,6 +1,4 @@
 id: es/builtins/global_functions
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (tpi !== "function") process.exit(1); if (tpf !== "function") process.exit(2); if (tin !== "function") process.exit(3); if (tif !== "function") process.exit(4); if (gpi !== true) process.exit(5); if (gpf !== true) process.exit(6); if (gin !== true) process.exit(7); if (gif !== true) process.exit(8); if (a !== 42) process.exit(9); if (b !== 16) process.exit(10); if (c !== 3.14) process.exit(11); if (d !== 100) process.exit(12); if (e !== true) process.exit(13); if (f !== false) process.exit(14); if (g !== true) process.exit(15); if (h !== false) process.exit(16); if (i !== true) process.exit(17); if (j !== true) process.exit(18); if (typeof tpi !== "string") process.exit(19);
-native.exit: 0
-native.stdout: hello\n

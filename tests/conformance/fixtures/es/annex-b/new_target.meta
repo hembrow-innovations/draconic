@@ -1,6 +1,4 @@
 id: es/annex-b/new_target
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== true) process.exit(1); if (b !== "function") process.exit(2); if (d !== true) process.exit(3); if (e !== undefined) process.exit(4); if (f !== "undefined") process.exit(5); if (g !== true) process.exit(6); if (h !== "undefined") process.exit(7); if (i !== "function") process.exit(8); if (j !== true) process.exit(9); if (k !== true) process.exit(10); if (p !== true) process.exit(11); if (l !== true) process.exit(12); if (m !== true) process.exit(13);
-native.exit: 0
-native.stdout: hello\n

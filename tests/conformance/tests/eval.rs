@@ -1,6 +1,6 @@
-//! ROADMAP E16.01+: eval / Function fixtures on js + native.
+//! ROADMAP E16.01+: eval / Function fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn direct_eval_fixture_present() {
@@ -13,14 +13,13 @@ fn direct_eval_fixture_present() {
 }
 
 #[test]
-fn direct_eval_runs_js_and_native() {
+fn direct_eval_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/eval/direct_eval")
         .expect("es/eval/direct_eval");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn new_function_fixture_present() {
 }
 
 #[test]
-fn new_function_runs_js_and_native() {
+fn new_function_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/eval/new_function")
         .expect("es/eval/new_function");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn indirect_eval_fixture_present() {
 }
 
 #[test]
-fn indirect_eval_runs_js_and_native() {
+fn indirect_eval_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/eval/indirect_eval")
         .expect("es/eval/indirect_eval");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

@@ -1,6 +1,4 @@
 id: types/annotations_erase
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (n !== 1) process.exit(1); if (s !== "hi") process.exit(1); if (b !== true) process.exit(1); if (sum !== 3) process.exit(1); if (y !== 3) process.exit(1);
-native.exit: 0
-native.stdout: hello\n

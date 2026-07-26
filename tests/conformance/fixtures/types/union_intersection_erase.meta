@@ -1,6 +1,4 @@
 id: types/union_intersection_erase
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (u !== 1) process.exit(1); if (v !== "hi") process.exit(1); if (p.x !== 2) process.exit(1); if (p.y !== 3) process.exit(1); if (n !== 2) process.exit(1); if (t1 !== "hi") process.exit(1); if (t2 !== "num") process.exit(1);
-native.exit: 0
-native.stdout: hello\n

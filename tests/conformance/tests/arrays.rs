@@ -1,6 +1,6 @@
-//! ROADMAP E06: array fixtures on js + native.
+//! ROADMAP E06: array fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn array_lit_access_fixture_present() {
@@ -13,14 +13,13 @@ fn array_lit_access_fixture_present() {
 }
 
 #[test]
-fn array_lit_access_runs_js_and_native() {
+fn array_lit_access_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/arrays/array_lit_access")
         .expect("es/arrays/array_lit_access");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn array_element_assign_fixture_present() {
 }
 
 #[test]
-fn array_element_assign_runs_js_and_native() {
+fn array_element_assign_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/arrays/array_element_assign")
         .expect("es/arrays/array_element_assign");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn array_spread_fixture_present() {
 }
 
 #[test]
-fn array_spread_runs_js_and_native() {
+fn array_spread_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/arrays/array_spread")
         .expect("es/arrays/array_spread");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn call_spread_fixture_present() {
 }
 
 #[test]
-fn call_spread_runs_js_and_native() {
+fn call_spread_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/arrays/call_spread")
         .expect("es/arrays/call_spread");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -133,14 +129,13 @@ fn array_for_of_fixture_present() {
 }
 
 #[test]
-fn array_for_of_runs_js_and_native() {
+fn array_for_of_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/arrays/array_for_of")
         .expect("es/arrays/array_for_of");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -163,14 +158,13 @@ fn array_destructure_fixture_present() {
 }
 
 #[test]
-fn array_destructure_runs_js_and_native() {
+fn array_destructure_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/arrays/array_destructure")
         .expect("es/arrays/array_destructure");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

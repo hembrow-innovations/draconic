@@ -1,6 +1,4 @@
 id: es/proxies/proxy_delete
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (plainDel !== true) process.exit(1); if (plainIn !== false) process.exit(2); if (plainB !== 2) process.exit(3); if (passDel !== true) process.exit(4); if (passIn !== false) process.exit(5); if (passY !== 20) process.exit(6); if (t2x !== undefined) process.exit(7); if (dm !== true) process.exit(8); if (pm !== 1) process.exit(9); if (dn !== true) process.exit(10); if (pn !== undefined) process.exit(11); if (tn !== false) process.exit(12); if (dk !== false) process.exit(13); if (pk !== 3) process.exit(14); if (deletes !== 3) process.exit(15); if (lastKey !== "keep") process.exit(16);
-native.exit: 0
-native.stdout: hello\n

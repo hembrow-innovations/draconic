@@ -1,7 +1,7 @@
 //! ROADMAP T01–T06: type annotations, object types, unions/intersections/narrowing, generics, native types, dual-worlds boundary.
 
 use draconic_check::{check, BoundProgram, CheckedProgram, NativeType, Type};
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 use draconic_parser::parse;
 
 fn user_sym<'a>(bound: &'a BoundProgram, name: &str) -> &'a draconic_check::Symbol {
@@ -30,14 +30,13 @@ fn annotations_erase_fixture_present() {
 }
 
 #[test]
-fn annotations_erase_runs_js_and_native() {
+fn annotations_erase_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "types/annotations_erase")
         .expect("types/annotations_erase");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -313,14 +312,13 @@ fn object_types_erase_fixture_present() {
 }
 
 #[test]
-fn object_types_erase_runs_js_and_native() {
+fn object_types_erase_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "types/object_types_erase")
         .expect("types/object_types_erase");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -547,14 +545,13 @@ fn union_erase_fixture_present() {
 }
 
 #[test]
-fn union_erase_runs_js_and_native() {
+fn union_erase_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "types/union_intersection_erase")
         .expect("types/union_intersection_erase");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -765,14 +762,13 @@ fn generics_erase_fixture_present() {
 }
 
 #[test]
-fn generics_erase_runs_js_and_native() {
+fn generics_erase_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "types/generics_erase")
         .expect("types/generics_erase");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -814,14 +810,13 @@ fn native_types_erase_fixture_present() {
 }
 
 #[test]
-fn native_types_erase_runs_js_and_native() {
+fn native_types_erase_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "types/native/native_types_erase")
         .expect("types/native/native_types_erase");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -980,14 +975,13 @@ fn dual_boundary_as_fixture_present() {
 }
 
 #[test]
-fn dual_boundary_as_runs_js_and_native() {
+fn dual_boundary_as_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "types/dual/boundary_as")
         .expect("types/dual/boundary_as");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

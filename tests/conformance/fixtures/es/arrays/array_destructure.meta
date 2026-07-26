@@ -1,6 +1,4 @@
 id: es/arrays/array_destructure
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 1) process.exit(1); if (b !== 2) process.exit(1); if (c !== 3) process.exit(1); if (x !== 1) process.exit(1); if (y !== 2) process.exit(1); if (r0 !== 3) process.exit(1); if (r1 !== 4) process.exit(1); if (rlen !== 2) process.exit(1); if (n0 !== 10) process.exit(1); if (n1 !== 20) process.exit(1); if (n2 !== 30) process.exit(1); if (p !== 60) process.exit(1); if (u !== 7) process.exit(1); if (v !== 8) process.exit(1); if (s !== 15) process.exit(1); if (q !== 100) process.exit(1); if (t0 !== 200) process.exit(1); if (t1 !== 300) process.exit(1); if (tlen !== 2) process.exit(1); if (k !== 5) process.exit(1); if (m !== 6) process.exit(1); if (km !== 11) process.exit(1); if (!Array.isArray(rest)) process.exit(1); if (!Array.isArray(tail)) process.exit(1);
-native.exit: 0
-native.stdout: hello\n

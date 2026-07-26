@@ -1,5 +1,4 @@
 id: es/strings/utf16_semantics
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (elen !== 2) process.exit(1); if (typeof e0 !== "string" || e0.length !== 1 || e0.charCodeAt(0) !== 0xd83d) process.exit(2); if (typeof e1 !== "string" || e1.length !== 1 || e1.charCodeAt(0) !== 0xde00) process.exit(3); if (e2 !== undefined) process.exit(4); if (plen !== 2) process.exit(5); if (peq !== true) process.exit(6); if (hlen !== 1 || hi.charCodeAt(0) !== 0xd800) process.exit(7); if (llen !== 1 || lo.charCodeAt(0) !== 0xdc00) process.exit(8); if (h0 !== hi) process.exit(9); if (clen !== 2) process.exit(10); if (ceq !== true) process.exit(11); if (clen1 !== 1 || c0 !== copy) process.exit(12); if (tlen !== 2 || t0.charCodeAt(0) !== 0xd83d) process.exit(13); if (thlen !== 1 || t_hi.charCodeAt(0) !== 0xd800) process.exit(14); if (dyn !== e0) process.exit(15); if (dyn1 !== e1) process.exit(16); if (typeof emoji !== "string") process.exit(17);
-native.exit: 0

@@ -1,6 +1,4 @@
 id: es/modules/namespace_import
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 41) process.exit(1); if (b !== 42) process.exit(2); if (c !== "ok") process.exit(3); if (d !== 42) process.exit(4); if (e !== 42) process.exit(5); if (f !== 41) process.exit(6); if (g !== 42) process.exit(7);
-native.exit: 0
-native.stdout: hello\n

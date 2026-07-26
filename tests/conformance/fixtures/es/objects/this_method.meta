@@ -1,6 +1,4 @@
 id: es/objects/this_method
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 10) process.exit(1); if (b !== 10) process.exit(1); if (c !== 15) process.exit(1); if (d !== 3) process.exit(1); if (e !== 7) process.exit(1); if (f !== 7) process.exit(1);
-native.exit: 0
-native.stdout: hello\n

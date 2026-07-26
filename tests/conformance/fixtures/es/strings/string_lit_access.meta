@@ -1,6 +1,4 @@
 id: es/strings/string_lit_access
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (dquote !== "hello") process.exit(1); if (squote !== "world") process.exit(2); if (empty !== "") process.exit(3); if (empty2 !== "") process.exit(4); if (concat !== "helloworld") process.exit(5); if (chain !== "abc") process.exit(6); if (with_num !== "n1") process.exit(7); if (num_with !== "2n") process.exit(8); if (empty_cat !== "x") process.exit(9); if (cat_empty !== "y") process.exit(10); if (n !== 3) process.exit(11); if (elen !== 0) process.exit(12); if (c0 !== "a") process.exit(13); if (c1 !== "b") process.exit(14); if (c2 !== "c") process.exit(15); if (dyn !== "b") process.exit(16); if (esc_n.length !== 3 || esc_n.charCodeAt(0) !== 97 || esc_n.charCodeAt(1) !== 10 || esc_n.charCodeAt(2) !== 98) process.exit(17); if (esc_t.length !== 3 || esc_t.charCodeAt(1) !== 9) process.exit(18); if (esc_r.length !== 3 || esc_r.charCodeAt(1) !== 13) process.exit(19); if (esc_bs.length !== 3 || esc_bs.charCodeAt(1) !== 92) process.exit(20); if (esc_dq.length !== 3 || esc_dq.charCodeAt(1) !== 34) process.exit(21); if (esc_sq.length !== 3 || esc_sq.charCodeAt(1) !== 39) process.exit(22); if (esc_0.length !== 3 || esc_0.charCodeAt(1) !== 0) process.exit(23); if (mixed_q !== "it's \"ok\"") process.exit(24); if (t !== "string") process.exit(25); if (eq !== true) process.exit(26); if (ne !== true) process.exit(27); if (typeof s !== "string") process.exit(28);
-native.exit: 0
-native.stdout: hello\n

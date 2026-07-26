@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async + N07.02–N07.04 eval/Function).
+//! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
 mod es_eval;
 mod es_promise;
@@ -16,30 +16,49 @@ use native_ints::{emit_native_ints, is_native_int_module};
 
 /// Emit LLVM IR text for a shared IR module.
 ///
-/// Programs that use only native scalar types (`i8`–`i64`, `u8`–`u64`, `f32`/
-/// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
-/// with a supported statement/expression subset are lowered for real. Promise
-/// constructor basics through async/await and async arrows (N06.03–N06.11) lower
-/// via the Runtime Promise ABI. Direct `eval` of constant strings (N07.02),
-/// `new Function` / `Function(...)` (N07.03), and indirect eval (N07.04) fold
-/// through Embed at emit time. Everything else keeps the B08 hello stub so
-/// existing ES conformance fixtures stay green.
+/// Selects a private adapter for a supported subset, otherwise returns a hard
+/// diagnostic (no silent hello-stub success for arbitrary Programs):
+///
+/// - **Native scalars/layouts** (`i8`–`i64`, `u8`–`u64`, `f32`/`f64`, `bool`,
+///   native structs/arrays/pointers) — N01–N03
+/// - **Promise / async** (constructor basics through async/await and async
+///   arrows) via Runtime Promise ABI — N06.03–N06.11
+/// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
+/// - **Empty program** — B08 Runtime hello demo only (`main` calls
+///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
-        emit_native_ints(module)
-    } else if is_es_promise_module(module) {
-        emit_es_promise(module)
-    } else if is_es_eval_module(module) {
-        emit_es_eval(module)
-    } else {
-        Ok(emit_hello_stub())
+        return emit_native_ints(module);
     }
+    if is_es_promise_module(module) {
+        return emit_es_promise(module);
+    }
+    if is_es_eval_module(module) {
+        return emit_es_eval(module);
+    }
+    if is_empty_program(module) {
+        return Ok(emit_empty_hello());
+    }
+    Err(unsupported_native_diagnostic())
 }
 
-fn emit_hello_stub() -> String {
+fn is_empty_program(module: &Module) -> bool {
+    module.body.is_empty()
+}
+
+fn unsupported_native_diagnostic() -> Diagnostic {
+    Diagnostic::new(
+        "native target: unsupported IR (no LLVM lowering for this program; \
+         supported: native scalars/layouts, Promise/async subset, eval/Function fold, empty hello)",
+        Span::dummy(),
+    )
+}
+
+/// B08 empty-program demo: link Runtime hello. Not used for non-empty unsupported IR.
+fn emit_empty_hello() -> String {
     use draconic_runtime::abi::HELLO;
     format!(
-        "; Draconic LLVM backend stub (B08)\n{}\n\ndefine i32 @main() {{\nentry:\n  {}\n  ret i32 0\n}}\n",
+        "; Draconic LLVM backend empty program (B08 hello)\n{}\n\ndefine i32 @main() {{\nentry:\n  {}\n  ret i32 0\n}}\n",
         HELLO.declare(),
         HELLO.call(""),
     )
@@ -147,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn emit_stub_calls_runtime_hello() {
+    fn empty_program_emits_runtime_hello() {
         let ir = emit_llvm_ir(&module_of("")).expect("emit");
         assert!(
             ir.contains("draconic_rt_hello"),
@@ -162,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn native_binary_prints_hello() {
+    fn empty_native_binary_prints_hello() {
         let ir = emit_llvm_ir(&module_of("")).expect("emit");
         let dir = work_dir("draconic-llvm-test").expect("workdir");
         let bin = dir.join("hello");
@@ -180,10 +199,17 @@ mod tests {
     }
 
     #[test]
-    fn emit_accepts_nonempty_js_module_as_stub() {
-        let ir = emit_llvm_ir(&module_of("let x = 1;")).expect("emit");
-        assert!(ir.contains("@main"));
-        assert!(ir.contains("draconic_rt_hello"));
+    fn unsupported_js_module_errors() {
+        let err = emit_llvm_ir(&module_of("let x = 1;")).expect_err("must reject");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unsupported") || msg.contains("native target"),
+            "diagnostic should mention unsupported native IR:\n{msg}"
+        );
+        assert!(
+            !msg.contains("draconic_rt_hello"),
+            "error must not be a hello-stub success path:\n{msg}"
+        );
     }
 
     #[test]

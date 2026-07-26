@@ -1,6 +1,4 @@
 id: es/builtins/map_set
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (tm !== "function") process.exit(1); if (ts !== "function") process.exit(2); if (gm !== true) process.exit(3); if (gs !== true) process.exit(4); if (mGet !== 1) process.exit(5); if (mHas !== true) process.exit(6); if (mMiss !== false) process.exit(7); if (mSize !== 1) process.exit(8); if (mGet2 !== "two") process.exit(9); if (mSize2 !== 2) process.exit(10); if (sHas !== true) process.exit(11); if (sMiss !== false) process.exit(12); if (sSize !== 1) process.exit(13); if (sSize2 !== 1) process.exit(14); if (sHas3 !== true) process.exit(15); if (sSize3 !== 2) process.exit(16); if (mSet !== m) process.exit(17); if (sAdd !== s) process.exit(18); if (typeof tm !== "string") process.exit(19);
-native.exit: 0
-native.stdout: hello\n

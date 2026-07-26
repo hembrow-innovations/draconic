@@ -1,6 +1,4 @@
 id: es/expressions/logical
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (and_tt !== true) process.exit(1); if (and_tf !== false) process.exit(2); if (and_ft !== false) process.exit(3); if (or_ff !== false) process.exit(4); if (or_ft !== true) process.exit(5); if (or_tf !== true) process.exit(6); if (not_t !== false) process.exit(7); if (not_f !== true) process.exit(8); if (prec !== true) process.exit(9); if (value_and !== 2) process.exit(10); if (value_or !== 3) process.exit(11); if (group !== false) process.exit(12);
-native.exit: 0
-native.stdout: hello\n

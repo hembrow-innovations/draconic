@@ -1,6 +1,6 @@
-//! ROADMAP E18.01+: Annex B fixtures on js + native.
+//! ROADMAP E18.01+: Annex B fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 fn assert_fixture_present(id: &str) {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
@@ -11,11 +11,13 @@ fn assert_fixture_present(id: &str) {
     );
 }
 
-fn assert_fixture_runs_js_and_native(id: &str) {
+fn assert_fixture_runs_declared_targets(id: &str) {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(
+        !fixture.targets.is_empty(),
+        "{id} must declare at least one target"
+    );
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -33,8 +35,8 @@ fn escape_unescape_fixture_present() {
 }
 
 #[test]
-fn escape_unescape_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/escape_unescape");
+fn escape_unescape_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/escape_unescape");
 }
 
 #[test]
@@ -43,8 +45,8 @@ fn object_proto_fixture_present() {
 }
 
 #[test]
-fn object_proto_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/object_proto");
+fn object_proto_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/object_proto");
 }
 
 #[test]
@@ -53,8 +55,8 @@ fn string_proto_annex_fixture_present() {
 }
 
 #[test]
-fn string_proto_annex_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/string_proto_annex");
+fn string_proto_annex_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/string_proto_annex");
 }
 
 #[test]
@@ -63,8 +65,8 @@ fn date_proto_annex_fixture_present() {
 }
 
 #[test]
-fn date_proto_annex_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/date_proto_annex");
+fn date_proto_annex_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/date_proto_annex");
 }
 
 #[test]
@@ -73,8 +75,8 @@ fn regexp_compile_fixture_present() {
 }
 
 #[test]
-fn regexp_compile_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/regexp_compile");
+fn regexp_compile_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_compile");
 }
 
 #[test]
@@ -83,8 +85,8 @@ fn string_trim_left_right_fixture_present() {
 }
 
 #[test]
-fn string_trim_left_right_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/string_trim_left_right");
+fn string_trim_left_right_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/string_trim_left_right");
 }
 
 #[test]
@@ -93,8 +95,8 @@ fn object_accessor_legacy_fixture_present() {
 }
 
 #[test]
-fn object_accessor_legacy_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/object_accessor_legacy");
+fn object_accessor_legacy_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/object_accessor_legacy");
 }
 
 #[test]
@@ -103,8 +105,8 @@ fn html_comments_fixture_present() {
 }
 
 #[test]
-fn html_comments_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/html_comments");
+fn html_comments_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/html_comments");
 }
 
 #[test]
@@ -113,8 +115,8 @@ fn legacy_octal_string_fixture_present() {
 }
 
 #[test]
-fn legacy_octal_string_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/legacy_octal_string");
+fn legacy_octal_string_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/legacy_octal_string");
 }
 
 #[test]
@@ -123,8 +125,8 @@ fn legacy_octal_numeric_fixture_present() {
 }
 
 #[test]
-fn legacy_octal_numeric_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/legacy_octal_numeric");
+fn legacy_octal_numeric_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/legacy_octal_numeric");
 }
 
 #[test]
@@ -133,8 +135,8 @@ fn labelled_function_fixture_present() {
 }
 
 #[test]
-fn labelled_function_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/labelled_function");
+fn labelled_function_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/labelled_function");
 }
 
 #[test]
@@ -143,8 +145,8 @@ fn if_function_fixture_present() {
 }
 
 #[test]
-fn if_function_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/if_function");
+fn if_function_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/if_function");
 }
 
 #[test]
@@ -153,8 +155,8 @@ fn block_function_fixture_present() {
 }
 
 #[test]
-fn block_function_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/block_function");
+fn block_function_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/block_function");
 }
 
 #[test]
@@ -163,8 +165,8 @@ fn var_decl_fixture_present() {
 }
 
 #[test]
-fn var_decl_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/var_decl");
+fn var_decl_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/var_decl");
 }
 
 #[test]
@@ -173,8 +175,8 @@ fn var_for_fixture_present() {
 }
 
 #[test]
-fn var_for_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/var_for");
+fn var_for_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/var_for");
 }
 
 #[test]
@@ -183,8 +185,8 @@ fn regexp_statics_fixture_present() {
 }
 
 #[test]
-fn regexp_statics_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/regexp_statics");
+fn regexp_statics_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_statics");
 }
 
 #[test]
@@ -193,8 +195,8 @@ fn var_catch_fixture_present() {
 }
 
 #[test]
-fn var_catch_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/var_catch");
+fn var_catch_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/var_catch");
 }
 
 #[test]
@@ -203,8 +205,8 @@ fn regexp_literal_fixture_present() {
 }
 
 #[test]
-fn regexp_literal_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/regexp_literal");
+fn regexp_literal_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_literal");
 }
 
 #[test]
@@ -213,8 +215,8 @@ fn object_destructure_fixture_present() {
 }
 
 #[test]
-fn object_destructure_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/object_destructure");
+fn object_destructure_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/object_destructure");
 }
 
 #[test]
@@ -223,8 +225,8 @@ fn destructure_defaults_fixture_present() {
 }
 
 #[test]
-fn destructure_defaults_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/destructure_defaults");
+fn destructure_defaults_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/destructure_defaults");
 }
 
 #[test]
@@ -233,8 +235,8 @@ fn instanceof_fixture_present() {
 }
 
 #[test]
-fn instanceof_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/instanceof");
+fn instanceof_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/instanceof");
 }
 
 #[test]
@@ -243,8 +245,8 @@ fn accessors_fixture_present() {
 }
 
 #[test]
-fn accessors_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/accessors");
+fn accessors_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/accessors");
 }
 
 #[test]
@@ -253,8 +255,8 @@ fn optional_chain_fixture_present() {
 }
 
 #[test]
-fn optional_chain_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/optional_chain");
+fn optional_chain_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/optional_chain");
 }
 
 #[test]
@@ -263,8 +265,8 @@ fn arguments_object_fixture_present() {
 }
 
 #[test]
-fn arguments_object_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/arguments_object");
+fn arguments_object_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/arguments_object");
 }
 
 #[test]
@@ -273,8 +275,8 @@ fn param_destructure_fixture_present() {
 }
 
 #[test]
-fn param_destructure_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/param_destructure");
+fn param_destructure_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/param_destructure");
 }
 
 #[test]
@@ -283,8 +285,8 @@ fn class_fields_fixture_present() {
 }
 
 #[test]
-fn class_fields_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/class_fields");
+fn class_fields_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/class_fields");
 }
 
 #[test]
@@ -293,8 +295,8 @@ fn new_target_fixture_present() {
 }
 
 #[test]
-fn new_target_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/new_target");
+fn new_target_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/new_target");
 }
 
 #[test]
@@ -303,8 +305,8 @@ fn object_spread_fixture_present() {
 }
 
 #[test]
-fn object_spread_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/object_spread");
+fn object_spread_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/object_spread");
 }
 
 #[test]
@@ -313,8 +315,8 @@ fn export_star_fixture_present() {
 }
 
 #[test]
-fn export_star_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/export_star");
+fn export_star_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/export_star");
 }
 
 #[test]
@@ -323,8 +325,8 @@ fn export_named_from_fixture_present() {
 }
 
 #[test]
-fn export_named_from_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/export_named_from");
+fn export_named_from_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/export_named_from");
 }
 
 #[test]
@@ -333,8 +335,8 @@ fn export_ns_from_fixture_present() {
 }
 
 #[test]
-fn export_ns_from_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/export_ns_from");
+fn export_ns_from_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/export_ns_from");
 }
 
 #[test]
@@ -343,8 +345,8 @@ fn export_class_fixture_present() {
 }
 
 #[test]
-fn export_class_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/export_class");
+fn export_class_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/export_class");
 }
 
 #[test]
@@ -353,8 +355,8 @@ fn class_expr_fixture_present() {
 }
 
 #[test]
-fn class_expr_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/class_expr");
+fn class_expr_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/class_expr");
 }
 
 #[test]
@@ -363,8 +365,8 @@ fn async_methods_fixture_present() {
 }
 
 #[test]
-fn async_methods_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/async_methods");
+fn async_methods_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/async_methods");
 }
 
 #[test]
@@ -373,8 +375,8 @@ fn private_fields_fixture_present() {
 }
 
 #[test]
-fn private_fields_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/private_fields");
+fn private_fields_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/private_fields");
 }
 
 #[test]
@@ -383,8 +385,8 @@ fn static_private_fields_fixture_present() {
 }
 
 #[test]
-fn static_private_fields_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/static_private_fields");
+fn static_private_fields_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/static_private_fields");
 }
 
 #[test]
@@ -393,8 +395,8 @@ fn private_methods_fixture_present() {
 }
 
 #[test]
-fn private_methods_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/private_methods");
+fn private_methods_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/private_methods");
 }
 
 #[test]
@@ -403,8 +405,8 @@ fn static_private_methods_fixture_present() {
 }
 
 #[test]
-fn static_private_methods_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/static_private_methods");
+fn static_private_methods_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/static_private_methods");
 }
 
 #[test]
@@ -413,8 +415,8 @@ fn private_accessors_fixture_present() {
 }
 
 #[test]
-fn private_accessors_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/private_accessors");
+fn private_accessors_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/private_accessors");
 }
 
 #[test]
@@ -423,8 +425,8 @@ fn private_in_fixture_present() {
 }
 
 #[test]
-fn private_in_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/private_in");
+fn private_in_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/private_in");
 }
 
 #[test]
@@ -433,8 +435,8 @@ fn static_blocks_fixture_present() {
 }
 
 #[test]
-fn static_blocks_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/static_blocks");
+fn static_blocks_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/static_blocks");
 }
 
 #[test]
@@ -443,8 +445,8 @@ fn for_await_of_fixture_present() {
 }
 
 #[test]
-fn for_await_of_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/for_await_of");
+fn for_await_of_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/for_await_of");
 }
 
 #[test]
@@ -453,6 +455,6 @@ fn async_generators_fixture_present() {
 }
 
 #[test]
-fn async_generators_runs_js_and_native() {
-    assert_fixture_runs_js_and_native("es/annex-b/async_generators");
+fn async_generators_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/async_generators");
 }

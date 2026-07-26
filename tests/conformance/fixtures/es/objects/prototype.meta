@@ -1,6 +1,4 @@
 id: es/objects/prototype
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 3) process.exit(1); if (b !== 3) process.exit(1); if (c !== 6) process.exit(1); if (d !== 9) process.exit(1); if (e !== "rex") process.exit(1); if (f !== "rex") process.exit(1);
-native.exit: 0
-native.stdout: hello\n

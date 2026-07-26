@@ -1,6 +1,4 @@
 id: es/numbers/bigint_literals
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (a !== 1n) process.exit(1); if (b !== 2n) process.exit(2); if (sum !== 3n) process.exit(3); if (diff !== 2n) process.exit(4); if (prod !== 20n) process.exit(5); if (quot !== 3n) process.exit(6); if (rem !== 1n) process.exit(7); if (hex !== 255n) process.exit(8); if (hex2 !== 255n) process.exit(9); if (bin !== 10n) process.exit(10); if (bin2 !== 10n) process.exit(11); if (oct !== 15n) process.exit(12); if (oct2 !== 15n) process.exit(13); if (sep !== 1000n) process.exit(14); if (sep2 !== 0xFFFFn) process.exit(15); if (sep3 !== 0b10100001n) process.exit(16); if (zero !== 0n) process.exit(17); if (neg !== -1n) process.exit(18); if (t !== "bigint") process.exit(19); if (typeof a !== "bigint") process.exit(20); if (mix !== 16n + 2n + 8n + 10n) process.exit(21);
-native.exit: 0
-native.stdout: hello\n

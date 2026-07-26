@@ -1,6 +1,4 @@
 id: es/objects/property_assign
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (x !== 2) process.exit(1); if (y !== 3) process.exit(1); if (z !== 4) process.exit(1); if (w !== 5) process.exit(1); if (n !== 6) process.exit(1); if (m !== 7) process.exit(1); if (r !== 8) process.exit(1); if (s !== 8) process.exit(1);
-native.exit: 0
-native.stdout: hello\n

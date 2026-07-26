@@ -1,6 +1,6 @@
-//! ROADMAP E14.01+: Proxy / Reflect fixtures on js + native.
+//! ROADMAP E14.01+: Proxy / Reflect fixtures on declared targets.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
 #[test]
 fn proxy_basics_fixture_present() {
@@ -13,14 +13,13 @@ fn proxy_basics_fixture_present() {
 }
 
 #[test]
-fn proxy_basics_runs_js_and_native() {
+fn proxy_basics_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_basics")
         .expect("es/proxies/proxy_basics");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -43,14 +42,13 @@ fn proxy_set_fixture_present() {
 }
 
 #[test]
-fn proxy_set_runs_js_and_native() {
+fn proxy_set_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_set")
         .expect("es/proxies/proxy_set");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -73,14 +71,13 @@ fn proxy_has_fixture_present() {
 }
 
 #[test]
-fn proxy_has_runs_js_and_native() {
+fn proxy_has_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_has")
         .expect("es/proxies/proxy_has");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -103,14 +100,13 @@ fn proxy_delete_fixture_present() {
 }
 
 #[test]
-fn proxy_delete_runs_js_and_native() {
+fn proxy_delete_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_delete")
         .expect("es/proxies/proxy_delete");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -133,14 +129,13 @@ fn proxy_apply_fixture_present() {
 }
 
 #[test]
-fn proxy_apply_runs_js_and_native() {
+fn proxy_apply_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_apply")
         .expect("es/proxies/proxy_apply");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -163,14 +158,13 @@ fn proxy_construct_fixture_present() {
 }
 
 #[test]
-fn proxy_construct_runs_js_and_native() {
+fn proxy_construct_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_construct")
         .expect("es/proxies/proxy_construct");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -193,14 +187,13 @@ fn reflect_basics_fixture_present() {
 }
 
 #[test]
-fn reflect_basics_runs_js_and_native() {
+fn reflect_basics_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/reflect_basics")
         .expect("es/proxies/reflect_basics");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -223,14 +216,13 @@ fn proxy_own_keys_fixture_present() {
 }
 
 #[test]
-fn proxy_own_keys_runs_js_and_native() {
+fn proxy_own_keys_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_own_keys")
         .expect("es/proxies/proxy_own_keys");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -253,14 +245,13 @@ fn proxy_prototype_fixture_present() {
 }
 
 #[test]
-fn proxy_prototype_runs_js_and_native() {
+fn proxy_prototype_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_prototype")
         .expect("es/proxies/proxy_prototype");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -283,14 +274,13 @@ fn proxy_define_property_fixture_present() {
 }
 
 #[test]
-fn proxy_define_property_runs_js_and_native() {
+fn proxy_define_property_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_define_property")
         .expect("es/proxies/proxy_define_property");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,
@@ -313,14 +303,13 @@ fn proxy_extensible_fixture_present() {
 }
 
 #[test]
-fn proxy_extensible_runs_js_and_native() {
+fn proxy_extensible_runs() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures
         .iter()
         .find(|f| f.id == "es/proxies/proxy_extensible")
         .expect("es/proxies/proxy_extensible");
-    assert!(fixture.targets.contains(&Target::Js));
-    assert!(fixture.targets.contains(&Target::Native));
+    assert!(!fixture.targets.is_empty());
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

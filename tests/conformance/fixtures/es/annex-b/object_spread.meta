@@ -1,6 +1,4 @@
 id: es/annex-b/object_spread
-targets: js,native
+targets: js
 js.exit: 0
 js.check: if (b0 !== 1) process.exit(1); if (b1 !== 2) process.exit(2); if (c0 !== 1) process.exit(3); if (c1 !== 2) process.exit(4); if (c2 !== 3) process.exit(5); if (d0 !== 0) process.exit(6); if (d1 !== 1) process.exit(7); if (d2 !== 9) process.exit(8); if (d3 !== 4) process.exit(9); if (g0 !== 1) process.exit(10); if (g1 !== 2) process.exit(11); if (g2 !== 3) process.exit(12); if (h0 !== 5) process.exit(13); if (i0 !== 7) process.exit(14); if (j0 !== 1) process.exit(15); if (j1 !== 2) process.exit(16); if (k0 !== 1) process.exit(17); if (k1 !== 3) process.exit(18);
-native.exit: 0
-native.stdout: hello\n
