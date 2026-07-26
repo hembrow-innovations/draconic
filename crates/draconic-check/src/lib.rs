@@ -1155,6 +1155,10 @@ impl Binder {
                                 self.bind_expr(v)?;
                             }
                         }
+                        ClassElement::StaticBlock { body, .. } => {
+                            // No `arguments`; block body provides its own scope.
+                            self.bind_stmt(body)?;
+                        }
                     }
                 }
                 Ok(())
@@ -1376,6 +1380,9 @@ impl Binder {
                             if let Some(v) = value {
                                 self.bind_expr(v)?;
                             }
+                        }
+                        ClassElement::StaticBlock { body, .. } => {
+                            self.bind_stmt(body)?;
                         }
                     }
                 }
@@ -2272,6 +2279,17 @@ impl<'a> Checker<'a> {
                                 self.check_expr(v)?;
                             }
                         }
+                        ClassElement::StaticBlock { body, .. } => {
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = false;
+                            // Static blocks are not nested functions for return; treat as fn-like.
+                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
+                        }
                     }
                 }
                 Ok(())
@@ -2898,6 +2916,16 @@ impl<'a> Checker<'a> {
                             if let Some(v) = value {
                                 self.check_expr(v)?;
                             }
+                        }
+                        ClassElement::StaticBlock { body, .. } => {
+                            let mut inner_labels = Vec::new();
+                            let prev_async = self.in_async;
+                            let prev_generator = self.in_generator;
+                            self.in_async = false;
+                            self.in_generator = false;
+                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                            self.in_async = prev_async;
+                            self.in_generator = prev_generator;
                         }
                     }
                 }
@@ -5678,7 +5706,8 @@ mod tests {
                         match el {
                             ClassElement::Constructor { body, .. }
                             | ClassElement::Method { body, .. }
-                            | ClassElement::Accessor { body, .. } => {
+                            | ClassElement::Accessor { body, .. }
+                            | ClassElement::StaticBlock { body, .. } => {
                                 walk_stmt(body, name, out);
                             }
                             ClassElement::Field { value, .. } => {

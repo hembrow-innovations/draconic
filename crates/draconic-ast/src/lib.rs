@@ -350,6 +350,11 @@ pub enum ClassElement {
         is_private: bool,
         span: Span,
     },
+    /// `static { … }` static initialization block (E18.41).
+    StaticBlock {
+        body: Box<Stmt>,
+        span: Span,
+    },
 }
 
 /// Object/class accessor kind (`get` / `set`).
@@ -1327,6 +1332,13 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         out.push_str("body:\n");
                         dump_stmt(body, level + 3, out);
                     }
+                    ClassElement::StaticBlock { body, .. } => {
+                        indent(level + 1, out);
+                        out.push_str("StaticBlock\n");
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
                     ClassElement::Field {
                         name,
                         value,
@@ -1808,6 +1820,13 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                             out.push_str(&format!("name: {}\n", name.name));
                         }
                         dump_params(params, level + 2, out);
+                        indent(level + 2, out);
+                        out.push_str("body:\n");
+                        dump_stmt(body, level + 3, out);
+                    }
+                    ClassElement::StaticBlock { body, .. } => {
+                        indent(level + 1, out);
+                        out.push_str("StaticBlock\n");
                         indent(level + 2, out);
                         out.push_str("body:\n");
                         dump_stmt(body, level + 3, out);

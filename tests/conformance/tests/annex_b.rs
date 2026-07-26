@@ -426,3 +426,13 @@ fn private_in_fixture_present() {
 fn private_in_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/private_in");
 }
+
+#[test]
+fn static_blocks_fixture_present() {
+    assert_fixture_present("es/annex-b/static_blocks");
+}
+
+#[test]
+fn static_blocks_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/static_blocks");
+}

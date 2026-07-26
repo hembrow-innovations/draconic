@@ -1,0 +1,6 @@
+id: es/annex-b/static_blocks
+targets: js,native
+js.exit: 0
+js.check: if (a !== 11) process.exit(1); if (b !== 2) process.exit(2); if (c !== "ABC") process.exit(3); if (d !== 1) process.exit(4); if (e !== 5) process.exit(5); if (f !== 6) process.exit(6); if (g !== 9) process.exit(7); if (h !== 3) process.exit(8); if (i !== 42) process.exit(9); if (j !== "undefined") process.exit(10); if (k !== 101) process.exit(11); if (l !== 7) process.exit(12);
+native.exit: 0
+native.stdout: hello\n

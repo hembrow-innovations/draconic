@@ -595,6 +595,15 @@ impl Parser {
         } else {
             false
         };
+        // `static { … }` static initialization block (E18.41).
+        if is_static && self.check(&TokenKind::LBrace) {
+            let body = Box::new(self.parse_block()?);
+            let end = stmt_span(&body).end.0;
+            return Ok(ClassElement::StaticBlock {
+                body,
+                span: Span::new(start, end),
+            });
+        }
         // `get name()` / `set name(v)` / `get #name()` / `set #name(v)` (not `get()` method or `get:`)
         if let Some(kind) = self.peek_accessor_kind() {
             self.bump(); // consume get/set
@@ -5110,6 +5119,22 @@ Program
                 && dump.contains("ClassDeclaration")
                 && dump.contains("name: Counter"),
             "expected export default class, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_class_static_block() {
+        let dump = parse_and_dump("class C { static { this.x = 1; } static y = 2; }\n").unwrap();
+        assert!(
+            dump.contains("StaticBlock") && dump.contains("StaticField"),
+            "expected static block + field, got:\n{dump}"
+        );
+        let multi = parse_and_dump("class C { static { let a = 1; } static { let b = 2; } }\n")
+            .unwrap();
+        assert_eq!(
+            multi.matches("StaticBlock").count(),
+            2,
+            "two static blocks, got:\n{multi}"
         );
     }
 }

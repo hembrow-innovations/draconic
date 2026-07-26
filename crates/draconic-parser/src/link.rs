@@ -724,6 +724,10 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
                             uniqueify_expr_spans(v, spans);
                         }
                     }
+                    ClassElement::StaticBlock { body, span } => {
+                        *span = spans.next();
+                        uniqueify_stmt_spans(body, spans);
+                    }
                 }
             }
         }
@@ -996,6 +1000,10 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                         if let Some(v) = value {
                             uniqueify_expr_spans(v, spans);
                         }
+                    }
+                    ClassElement::StaticBlock { body, span } => {
+                        *span = spans.next();
+                        uniqueify_stmt_spans(body, spans);
                     }
                 }
             }
@@ -1469,6 +1477,9 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
                             rename_expr(v, renames, scopes);
                         }
                     }
+                    ClassElement::StaticBlock { body, .. } => {
+                        rename_stmt(body, renames, scopes);
+                    }
                 }
             }
         }
@@ -1622,6 +1633,9 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
                         if let Some(v) = value {
                             rename_expr(v, renames, scopes);
                         }
+                    }
+                    ClassElement::StaticBlock { body, .. } => {
+                        rename_stmt(body, renames, scopes);
                     }
                 }
             }

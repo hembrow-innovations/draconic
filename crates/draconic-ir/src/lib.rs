@@ -887,7 +887,12 @@ fn lower_class_local(
         bool,
     )> = Vec::new();
     let mut instance_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
-    let mut static_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
+    // Static fields and static blocks in source order (E18.41).
+    enum StaticInit<'a> {
+        Field(&'a Ident, Option<&'a AstExpr>, bool),
+        Block(&'a AstStmt),
+    }
+    let mut static_inits: Vec<StaticInit<'_>> = Vec::new();
 
     for el in elements {
         match el {
@@ -942,10 +947,13 @@ fn lower_class_local(
             } => {
                 let v = value.as_ref();
                 if *is_static {
-                    static_fields.push((field_name, v, *is_private));
+                    static_inits.push(StaticInit::Field(field_name, v, *is_private));
                 } else {
                     instance_fields.push((field_name, v, *is_private));
                 }
+            }
+            ClassElement::StaticBlock { body, .. } => {
+                static_inits.push(StaticInit::Block(body.as_ref()));
             }
         }
     }
@@ -978,9 +986,11 @@ fn lower_class_local(
             add_private_wm(fname);
         }
     }
-    for (fname, _, is_private) in &static_fields {
-        if *is_private {
-            add_private_wm(fname);
+    for init in &static_inits {
+        if let StaticInit::Field(fname, _, is_private) = init {
+            if *is_private {
+                add_private_wm(fname);
+            }
         }
     }
 
@@ -1426,71 +1436,8 @@ fn lower_class_local(
         });
     }
 
-    // Static fields run after the class definition is fully linked.
-    for (fname, value, is_private) in static_fields {
-        let init = match value {
-            Some(v) => lower_expr(checked, v, None),
-            None => Expr::IdentName {
-                name: "undefined".into(),
-                ty: Type::Any,
-            },
-        };
-        if is_private {
-            let wm = PRIVATE_FIELDS.with(|p| {
-                *p.borrow()
-                    .get(&fname.name)
-                    .expect("static private field WeakMap")
-            });
-            // wm.set(Class, init)
-            out.push(Stmt::Expr {
-                expr: Expr::Call {
-                    callee: Box::new(Expr::Member {
-                        object: Box::new(Expr::Local {
-                            id: wm,
-                            ty: Type::Any,
-                        }),
-                        property: Box::new(Expr::String {
-                            value: "set".into(),
-                            ty: Type::String,
-                        }),
-                        computed: false,
-                        optional: false,
-                        ty: Type::Function,
-                    }),
-                    args: vec![
-                        Arg::Expr(Expr::Local {
-                            id: local,
-                            ty: Type::Function,
-                        }),
-                        Arg::Expr(init),
-                    ],
-                    optional: false,
-                    ty: Type::Any,
-                },
-            });
-        } else {
-            out.push(Stmt::Expr {
-                expr: Expr::Assign {
-                    target: AssignTarget::Member {
-                        object: Box::new(Expr::Local {
-                            id: local,
-                            ty: Type::Function,
-                        }),
-                        property: Box::new(Expr::String {
-                            value: fname.name.clone().into(),
-                            ty: Type::String,
-                        }),
-                        computed: false,
-                    },
-                    op: AssignOp::Eq,
-                    value: Box::new(init),
-                    ty: Type::Any,
-                },
-            });
-        }
-    }
-
-    // Brand the constructor for static private methods/accessors (E18.40).
+    // Brand the constructor for static private methods/accessors (E18.40)
+    // before static field/block evaluation so blocks can use private statics.
     for brand in static_brands {
         out.push(private_brand_add(
             brand,
@@ -1499,6 +1446,106 @@ fn lower_class_local(
                 ty: Type::Function,
             },
         ));
+    }
+
+    // Static fields and static blocks run after the class is fully linked, in order (E18.41).
+    for init in static_inits {
+        match init {
+            StaticInit::Field(fname, value, is_private) => {
+                let init_expr = match value {
+                    Some(v) => lower_expr(checked, v, None),
+                    None => Expr::IdentName {
+                        name: "undefined".into(),
+                        ty: Type::Any,
+                    },
+                };
+                if is_private {
+                    let wm = PRIVATE_FIELDS.with(|p| {
+                        *p.borrow()
+                            .get(&fname.name)
+                            .expect("static private field WeakMap")
+                    });
+                    // wm.set(Class, init)
+                    out.push(Stmt::Expr {
+                        expr: Expr::Call {
+                            callee: Box::new(Expr::Member {
+                                object: Box::new(Expr::Local {
+                                    id: wm,
+                                    ty: Type::Any,
+                                }),
+                                property: Box::new(Expr::String {
+                                    value: "set".into(),
+                                    ty: Type::String,
+                                }),
+                                computed: false,
+                                optional: false,
+                                ty: Type::Function,
+                            }),
+                            args: vec![
+                                Arg::Expr(Expr::Local {
+                                    id: local,
+                                    ty: Type::Function,
+                                }),
+                                Arg::Expr(init_expr),
+                            ],
+                            optional: false,
+                            ty: Type::Any,
+                        },
+                    });
+                } else {
+                    out.push(Stmt::Expr {
+                        expr: Expr::Assign {
+                            target: AssignTarget::Member {
+                                object: Box::new(Expr::Local {
+                                    id: local,
+                                    ty: Type::Function,
+                                }),
+                                property: Box::new(Expr::String {
+                                    value: fname.name.clone().into(),
+                                    ty: Type::String,
+                                }),
+                                computed: false,
+                            },
+                            op: AssignOp::Eq,
+                            value: Box::new(init_expr),
+                            ty: Type::Any,
+                        },
+                    });
+                }
+            }
+            StaticInit::Block(body) => {
+                // (function() { … }).call(Class) so `this` is the constructor.
+                let block_body = lower_fn_body(checked, body, None);
+                out.push(Stmt::Expr {
+                    expr: Expr::Call {
+                        callee: Box::new(Expr::Member {
+                            object: Box::new(Expr::Function {
+                                name: None,
+                                params: Vec::new(),
+                                body: block_body,
+                                is_async: false,
+                                is_generator: false,
+                                is_arrow: false,
+                                ty: Type::Function,
+                            }),
+                            property: Box::new(Expr::String {
+                                value: "call".into(),
+                                ty: Type::String,
+                            }),
+                            computed: false,
+                            optional: false,
+                            ty: Type::Function,
+                        }),
+                        args: vec![Arg::Expr(Expr::Local {
+                            id: local,
+                            ty: Type::Function,
+                        })],
+                        optional: false,
+                        ty: Type::Any,
+                    },
+                });
+            }
+        }
     }
 
     PRIVATE_FIELDS.with(|p| *p.borrow_mut() = prev_privates);

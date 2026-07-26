@@ -1,0 +1,86 @@
+class Basic {
+  static x = 1;
+  static {
+    Basic.x = Basic.x + 10;
+  }
+  static y = 2;
+}
+let a = Basic.x;
+let b = Basic.y;
+
+class Ordered {
+  static log = "";
+  static {
+    Ordered.log = Ordered.log + "A";
+  }
+  static mid = 1;
+  static {
+    Ordered.log = Ordered.log + "B";
+  }
+  static {
+    Ordered.log = Ordered.log + "C";
+  }
+}
+let c = Ordered.log;
+let d = Ordered.mid;
+
+class WithThis {
+  static n = 0;
+  static {
+    this.n = this.n + 5;
+  }
+  static bump() {
+    this.n = this.n + 1;
+    return this.n;
+  }
+}
+let e = WithThis.n;
+let f = WithThis.bump();
+
+class Priv {
+  static #secret = 3;
+  static exposed;
+  static {
+    Priv.exposed = Priv.#secret * 2;
+  }
+  static {
+    this.exposed = this.exposed + this.#secret;
+  }
+  static read() {
+    return Priv.#secret;
+  }
+}
+let g = Priv.exposed;
+let h = Priv.read();
+
+class Scope {
+  static out;
+  static leaked;
+  static {
+    let local = 42;
+    Scope.out = local;
+    Scope.leaked = typeof Scope.local;
+  }
+}
+let i = Scope.out;
+let j = Scope.leaked;
+
+class Parent {
+  static base = 100;
+}
+class Child extends Parent {
+  static extra = 1;
+  static total;
+  static {
+    Child.total = Parent.base + Child.extra;
+  }
+}
+let k = Child.total;
+
+let C = class {
+  static v = 0;
+  static {
+    this.v = 7;
+  }
+};
+let l = C.v;
