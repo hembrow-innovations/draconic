@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (N05–N06.08). Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05–N06.10). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -1178,4 +1178,18 @@ DraconicValue *draconic_rt_promise_any(DraconicValue *arr) {
         }
     }
     return out;
+}
+
+/* --- await operand (N06.10) --- */
+
+DraconicValue *draconic_rt_promise_await(void *value) {
+    if (draconic_rt_is_promise((DraconicValue *)value)) {
+        return (DraconicValue *)value;
+    }
+    DraconicValue *p = draconic_rt_promise_new();
+    if (!p) {
+        return NULL;
+    }
+    draconic_rt_promise_resolve(p, value);
+    return p;
 }

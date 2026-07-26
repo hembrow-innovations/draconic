@@ -111,6 +111,10 @@ DraconicValue *draconic_rt_promise_all_settled(DraconicValue *arr);
        if all reject (or empty), reject AggregateError { name, errors } --- */
 DraconicValue *draconic_rt_promise_any(DraconicValue *arr);
 
+/* --- await operand (N06.10): if value is a Promise, return it; else wrap as
+       fulfilled Promise (PromiseResolve of a non-thenable). --- */
+DraconicValue *draconic_rt_promise_await(void *value);
+
 #ifdef __cplusplus
 }
 #endif

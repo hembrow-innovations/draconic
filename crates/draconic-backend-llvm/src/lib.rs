@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.07 Promise).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.10 Promise/async).
 
 mod es_promise;
 mod native_ints;
@@ -17,7 +17,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// Programs that use only native scalar types (`i8`–`i64`, `u8`–`u64`, `f32`/
 /// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
 /// with a supported statement/expression subset are lowered for real. Promise
-/// constructor basics (N06.03) and statics/catch (N06.04) lower via the Runtime
+/// constructor basics through async/await (N06.03–N06.10) lower via the Runtime
 /// Promise ABI. Everything else keeps the B08 hello stub so existing ES
 /// conformance fixtures stay green.
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -803,6 +803,76 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "function\n10\n1\n1\nAggregateError\n2\n1\nAggregateError\n0\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_async_await_prints_after_drain() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let resolved = 0;
+            let fromAwait = 0;
+            let rejected = 0;
+            let exprResolved = 0;
+            async function f() {
+              return 42;
+            }
+            f().then(function (v) {
+              resolved = v;
+            });
+            async function g() {
+              let x = await Promise.resolve(7);
+              return x + 1;
+            }
+            g().then(function (v) {
+              fromAwait = v;
+            });
+            async function h() {
+              throw 9;
+            }
+            h().then(
+              function () {
+                rejected = -1;
+              },
+              function (e) {
+                rejected = e;
+              }
+            );
+            let af = async function () {
+              return 1;
+            };
+            af().then(function (v) {
+              exprResolved = v;
+            });
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "async/await must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_await") || ir.contains("draconic_rt_promise_new"),
+            "should lower async via Runtime Promise ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_job_drain"),
+            "should drain jobs before observe:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n06-async-await").expect("workdir");
+        let bin = dir.join("async_await");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "42\n8\n9\n1\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

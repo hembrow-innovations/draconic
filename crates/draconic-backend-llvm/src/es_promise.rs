@@ -1,4 +1,4 @@
-//! N06.03–N06.09: lower Promise constructor/statics/catch/finally/all/race/allSettled/any to Runtime ABI.
+//! N06.03–N06.10: lower Promise + async/await to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -10,7 +10,7 @@ use draconic_ir::{
     Stmt,
 };
 
-/// True when this module is the supported Promise subset (E12.01–E12.07 / N06.03–N06.09).
+/// True when this module is the supported Promise/async subset (E12.01–E12.08 / N06.03–N06.10).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -73,11 +73,22 @@ fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
             let kind = match loc.ty {
                 Type::Number => SlotKind::Number,
                 Type::String => SlotKind::String,
-                Type::Object | Type::Any => SlotKind::Object,
-                Type::Function => continue,
+                Type::Object | Type::Any | Type::Function => SlotKind::Object,
                 _ => return Err(format!("unsupported local type for `{}`", loc.name)),
             };
             user_locals.push((*local, kind));
+        }
+    }
+
+    // Async function declarations bind a function local without a `Declare`.
+    for stmt in &module.body {
+        if let Stmt::Function { local, is_async, .. } = stmt {
+            if !*is_async {
+                return Err("only async function declarations supported in Promise path".into());
+            }
+            if seen.insert(*local) {
+                user_locals.push((*local, SlotKind::Object));
+            }
         }
     }
 
@@ -121,13 +132,32 @@ fn check_stmt(stmt: &Stmt, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             }
             Ok(())
         }
+        Stmt::Throw { value } => check_expr(value, promise_id, uses),
         Stmt::Block { body } => {
             for s in body {
                 check_stmt(s, promise_id, uses)?;
             }
             Ok(())
         }
-        Stmt::Function { .. } => Err("function declarations not supported in Promise path".into()),
+        Stmt::Function {
+            params,
+            body,
+            is_async,
+            is_generator,
+            ..
+        } => {
+            if !*is_async || *is_generator {
+                return Err("only async function declarations supported in Promise path".into());
+            }
+            if !params.is_empty() {
+                return Err("async function params not supported yet (N06.10)".into());
+            }
+            *uses = true;
+            for s in body {
+                check_stmt(s, promise_id, uses)?;
+            }
+            Ok(())
+        }
         other => Err(format!("unsupported statement in Promise path: {other:?}")),
     }
 }
@@ -142,6 +172,9 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
         Expr::Unary { op, arg, .. } => {
             match op {
                 UnaryOp::TypeOf | UnaryOp::Minus | UnaryOp::Plus | UnaryOp::Not => {}
+                UnaryOp::Await => {
+                    *uses = true;
+                }
                 _ => return Err(format!("unsupported unary {op:?}")),
             }
             check_expr(arg, promise_id, uses)
@@ -255,8 +288,14 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             is_generator,
             ..
         } => {
-            if *is_async || *is_generator {
-                return Err("async/generator functions not supported in Promise path".into());
+            if *is_generator {
+                return Err("generator functions not supported in Promise path".into());
+            }
+            if *is_async {
+                if !params.is_empty() {
+                    return Err("async function params not supported yet (N06.10)".into());
+                }
+                *uses = true;
             }
             if name.is_some() {
                 return Err("named function expressions not supported".into());
@@ -297,6 +336,8 @@ struct Emitter<'a> {
     reaction_params: HashMap<LocalId, String>,
     /// Capture slots passed as reaction `data` (env of alloca ptrs, or single).
     reaction_captures: Vec<LocalId>,
+    /// Known async function locals → LLVM function name (0-arg, returns Promise ptr).
+    async_fns: HashMap<LocalId, String>,
 }
 
 impl<'a> Emitter<'a> {
@@ -314,6 +355,7 @@ impl<'a> Emitter<'a> {
             executor_params: HashMap::new(),
             reaction_params: HashMap::new(),
             reaction_captures: Vec::new(),
+            async_fns: HashMap::new(),
         }
     }
 
@@ -336,7 +378,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03–N06.09 Promise via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.10 Promise/async via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
@@ -385,6 +427,7 @@ impl<'a> Emitter<'a> {
         )
         .ok();
         writeln!(self.out, "declare ptr @draconic_rt_promise_any(ptr)").ok();
+        writeln!(self.out, "declare ptr @draconic_rt_promise_await(ptr)").ok();
         writeln!(self.out, "declare ptr @draconic_rt_object_get(ptr, ptr)").ok();
         writeln!(self.out).ok();
 
@@ -484,6 +527,23 @@ impl<'a> Emitter<'a> {
                 for s in body {
                     self.emit_stmt(s)?;
                 }
+                Ok(())
+            }
+            Stmt::Function {
+                local,
+                params,
+                body,
+                is_async,
+                is_generator,
+            } => {
+                if !*is_async || *is_generator {
+                    return Err(diag("only async function declarations supported"));
+                }
+                let fn_name = self.emit_async_fn(params, body)?;
+                self.async_fns.insert(*local, fn_name.clone());
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = bitcast ptr @{fn_name} to ptr").ok();
+                self.store_local(*local, &t)?;
                 Ok(())
             }
             _ => Err(diag("unsupported statement")),
@@ -607,6 +667,7 @@ impl<'a> Emitter<'a> {
                     Ok(r)
                 }
                 UnaryOp::Plus => self.emit_expr(arg),
+                UnaryOp::Await => Err(diag("await only valid inside async function body")),
                 _ => Err(diag("unsupported unary")),
             },
             Expr::Binary { left, op, right, .. } => {
@@ -655,7 +716,28 @@ impl<'a> Emitter<'a> {
                 }
                 self.emit_member(object, property, *computed)
             }
-            Expr::Function { .. } => Err(diag("bare function expr not supported at value position")),
+            Expr::Function {
+                name,
+                params,
+                body,
+                is_async,
+                is_generator,
+                ..
+            } => {
+                if name.is_some() {
+                    return Err(diag("named function expressions not supported"));
+                }
+                if *is_generator {
+                    return Err(diag("generator functions not supported"));
+                }
+                if *is_async {
+                    let fn_name = self.emit_async_fn(params, body)?;
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = bitcast ptr @{fn_name} to ptr").ok();
+                    return Ok(t);
+                }
+                Err(diag("bare function expr not supported at value position"))
+            }
             _ => Err(diag("unsupported expression")),
         }
     }
@@ -876,6 +958,20 @@ impl<'a> Emitter<'a> {
                 let t = self.fresh();
                 writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
                 return Ok(t);
+            }
+            // User async function call (0-arg subset for N06.10).
+            if args.is_empty() {
+                if let Some(name) = self.async_fns.get(id).cloned() {
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = call ptr @{name}()").ok();
+                    return Ok(t);
+                }
+                if matches!(self.slot_kind(*id), Some(SlotKind::Object)) {
+                    let fp = self.load_local(*id)?;
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = call ptr {fp}()").ok();
+                    return Ok(t);
+                }
             }
         }
 
@@ -1138,6 +1234,327 @@ impl<'a> Emitter<'a> {
         )
         .ok();
         Ok(t)
+    }
+
+    /// Emit a 0-arg async function: returns a Promise (N06.10).
+    fn emit_async_fn(&mut self, params: &[Param], body: &[Stmt]) -> Result<String, Diagnostic> {
+        if !params.is_empty() {
+            return Err(diag("async function params not supported yet (N06.10)"));
+        }
+        let fn_name = self.fresh_fn("async");
+
+        let saved_body = std::mem::take(&mut self.body);
+        let saved_tmp = self.tmp;
+        let saved_exec = std::mem::take(&mut self.executor_params);
+        let saved_react = std::mem::take(&mut self.reaction_params);
+        let saved_caps = std::mem::take(&mut self.reaction_captures);
+
+        self.tmp = 0;
+        self.body.clear();
+        self.executor_params.clear();
+        self.reaction_params.clear();
+        self.reaction_captures.clear();
+
+        let ret_promise = self.emit_async_body(body)?;
+
+        let mut fn_ir = String::new();
+        writeln!(fn_ir, "define ptr @{fn_name}() {{").ok();
+        writeln!(fn_ir, "entry:").ok();
+        fn_ir.push_str(&self.body);
+        writeln!(fn_ir, "  ret ptr {ret_promise}").ok();
+        writeln!(fn_ir, "}}").ok();
+        self.helpers.push_str(&fn_ir);
+        self.helpers.push('\n');
+
+        self.body = saved_body;
+        self.tmp = saved_tmp;
+        self.executor_params = saved_exec;
+        self.reaction_params = saved_react;
+        self.reaction_captures = saved_caps;
+        Ok(fn_name)
+    }
+
+    /// Lower async body into `self.body`; returns SSA of the result Promise.
+    fn emit_async_body(&mut self, body: &[Stmt]) -> Result<String, Diagnostic> {
+        // Linear await: optional prefix without await, then `let x = await e`, then rest.
+        for (i, stmt) in body.iter().enumerate() {
+            if let Some((bind, await_arg)) = match_await_declare(stmt) {
+                for s in &body[..i] {
+                    if stmt_contains_await(s) {
+                        return Err(diag("await only supported as `let x = await expr`"));
+                    }
+                    self.emit_async_sync_stmt(s)?;
+                }
+                let v = self.emit_expr(await_arg)?;
+                let p = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {p} = call ptr @draconic_rt_promise_await(ptr {v})"
+                )
+                .ok();
+                let rest = &body[i + 1..];
+                let (cont, data) = self.emit_async_continuation(bind, rest)?;
+                let out = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {out} = call ptr @draconic_rt_promise_then(ptr {p}, ptr @{cont}, ptr {data}, ptr null, ptr null)"
+                )
+                .ok();
+                return Ok(out);
+            }
+            if stmt_contains_await(stmt) {
+                return Err(diag("await only supported as `let x = await expr`"));
+            }
+        }
+        self.emit_async_sync_body(body)
+    }
+
+    fn emit_async_sync_body(&mut self, body: &[Stmt]) -> Result<String, Diagnostic> {
+        let p = self.fresh();
+        writeln!(self.body, "  {p} = call ptr @draconic_rt_promise_new()").ok();
+        for stmt in body {
+            match stmt {
+                Stmt::Return { value } => {
+                    let v = if let Some(e) = value {
+                        self.emit_expr(e)?
+                    } else {
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
+                        t
+                    };
+                    writeln!(
+                        self.body,
+                        "  call void @draconic_rt_promise_resolve(ptr {p}, ptr {v})"
+                    )
+                    .ok();
+                    return Ok(p);
+                }
+                Stmt::Throw { value } => {
+                    let v = self.emit_expr(value)?;
+                    writeln!(
+                        self.body,
+                        "  call void @draconic_rt_promise_reject(ptr {p}, ptr {v})"
+                    )
+                    .ok();
+                    return Ok(p);
+                }
+                other => self.emit_async_sync_stmt(other)?,
+            }
+        }
+        let u = self.fresh();
+        writeln!(self.body, "  {u} = inttoptr i64 0 to ptr").ok();
+        writeln!(
+            self.body,
+            "  call void @draconic_rt_promise_resolve(ptr {p}, ptr {u})"
+        )
+        .ok();
+        Ok(p)
+    }
+
+    fn emit_async_sync_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+        match stmt {
+            Stmt::Expr { expr } => {
+                let _ = self.emit_expr(expr)?;
+                Ok(())
+            }
+            Stmt::Declare { local, init, .. } => {
+                // Nested locals inside async without await: store via reaction_params map as SSA.
+                if let Some(e) = init {
+                    let v = self.emit_expr(e)?;
+                    self.reaction_params.insert(*local, v);
+                }
+                Ok(())
+            }
+            Stmt::Block { body } => {
+                for s in body {
+                    self.emit_async_sync_stmt(s)?;
+                }
+                Ok(())
+            }
+            Stmt::Return { .. } | Stmt::Throw { .. } => {
+                Err(diag("return/throw must be handled by async body driver"))
+            }
+            _ => Err(diag("unsupported statement in async body")),
+        }
+    }
+
+    /// Continuation after `let bind = await …`: reaction binds `%value` to `bind`, runs `rest`.
+    fn emit_async_continuation(
+        &mut self,
+        bind: LocalId,
+        rest: &[Stmt],
+    ) -> Result<(String, String), Diagnostic> {
+        // Captures: top-level number/string locals assigned in rest.
+        let mut assigned = HashSet::new();
+        collect_assigned_locals(rest, &mut assigned);
+        let mut captures: Vec<LocalId> = assigned
+            .into_iter()
+            .filter(|id| {
+                matches!(
+                    self.slot_kind(*id),
+                    Some(SlotKind::Number) | Some(SlotKind::String)
+                )
+            })
+            .collect();
+        captures.sort_by_key(|id| id.0);
+
+        let data_operand = if captures.is_empty() {
+            "null".to_string()
+        } else if captures.len() == 1 {
+            self.allocas
+                .get(&captures[0])
+                .cloned()
+                .ok_or_else(|| diag("capture missing alloca"))?
+        } else {
+            let n = captures.len();
+            let env = self.fresh();
+            writeln!(self.body, "  {env} = alloca [{n} x ptr], align 8").ok();
+            for (i, id) in captures.iter().enumerate() {
+                let ptr = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("capture missing alloca"))?;
+                let slot = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {slot} = getelementptr inbounds [{n} x ptr], ptr {env}, i64 0, i64 {i}"
+                )
+                .ok();
+                writeln!(self.body, "  store ptr {ptr}, ptr {slot}").ok();
+            }
+            env
+        };
+
+        let fn_name = self.fresh_fn("async_cont");
+
+        let saved_body = std::mem::take(&mut self.body);
+        let saved_tmp = self.tmp;
+        let saved_exec = std::mem::take(&mut self.executor_params);
+        let saved_react = std::mem::take(&mut self.reaction_params);
+        let saved_caps = std::mem::take(&mut self.reaction_captures);
+
+        self.tmp = 0;
+        self.body.clear();
+        self.executor_params.clear();
+        self.reaction_params.clear();
+        self.reaction_params.insert(bind, "%value".into());
+        self.reaction_captures = captures;
+
+        // If rest has another await, nest; else evaluate returns as reaction return value.
+        let mut ret_val = "%value".to_string();
+        let mut i = 0;
+        while i < rest.len() {
+            let stmt = &rest[i];
+            if let Some((next_bind, await_arg)) = match_await_declare(stmt) {
+                let v = self.emit_expr_in_reaction(await_arg)?;
+                let p = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {p} = call ptr @draconic_rt_promise_await(ptr {v})"
+                )
+                .ok();
+                // Nested await: build another continuation for remaining rest and return that promise.
+                // Note: reaction resolve does not assimilate thenables; nested await deferred.
+                let nested_rest = &rest[i + 1..];
+                // Re-enter via emit_async_continuation needs parent body for data — not supported.
+                let _ = (next_bind, nested_rest);
+                return Err(diag("multiple awaits in one async function not supported yet"));
+            }
+            match stmt {
+                Stmt::Return { value } => {
+                    if let Some(e) = value {
+                        ret_val = self.emit_expr_in_reaction(e)?;
+                    } else {
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
+                        ret_val = t;
+                    }
+                    i += 1;
+                }
+                Stmt::Throw { value } => {
+                    // Reject by throwing is not available in reaction; unsupported.
+                    let _ = value;
+                    return Err(diag("throw after await not supported yet"));
+                }
+                Stmt::Expr { expr } => {
+                    if let Expr::Assign {
+                        target: AssignTarget::Local(id),
+                        value,
+                        ..
+                    } = expr
+                    {
+                        let v = self.emit_expr_in_reaction(value)?;
+                        let mut buf = std::mem::take(&mut self.body);
+                        self.store_local_in(&mut buf, *id, &v)?;
+                        self.body = buf;
+                        ret_val = v;
+                    } else {
+                        ret_val = self.emit_expr_in_reaction(expr)?;
+                    }
+                    i += 1;
+                }
+                Stmt::Declare { local, init, .. } => {
+                    if let Some(e) = init {
+                        let v = self.emit_expr_in_reaction(e)?;
+                        self.reaction_params.insert(*local, v.clone());
+                        ret_val = v;
+                    }
+                    i += 1;
+                }
+                Stmt::Block { body: inner } => {
+                    for s in inner {
+                        match s {
+                            Stmt::Return { value } => {
+                                if let Some(e) = value {
+                                    ret_val = self.emit_expr_in_reaction(e)?;
+                                }
+                            }
+                            Stmt::Expr { expr } => {
+                                if let Expr::Assign {
+                                    target: AssignTarget::Local(id),
+                                    value,
+                                    ..
+                                } = expr
+                                {
+                                    let v = self.emit_expr_in_reaction(value)?;
+                                    let mut buf = std::mem::take(&mut self.body);
+                                    self.store_local_in(&mut buf, *id, &v)?;
+                                    self.body = buf;
+                                    ret_val = v;
+                                } else {
+                                    ret_val = self.emit_expr_in_reaction(expr)?;
+                                }
+                            }
+                            _ => return Err(diag("unsupported stmt in async continuation block")),
+                        }
+                    }
+                    i += 1;
+                }
+                _ => return Err(diag("unsupported stmt in async continuation")),
+            }
+        }
+
+        let mut fn_ir = String::new();
+        writeln!(
+            fn_ir,
+            "define ptr @{fn_name}(ptr %data, ptr %value) {{"
+        )
+        .ok();
+        writeln!(fn_ir, "entry:").ok();
+        fn_ir.push_str(&self.body);
+        writeln!(fn_ir, "  ret ptr {ret_val}").ok();
+        writeln!(fn_ir, "}}").ok();
+        self.helpers.push_str(&fn_ir);
+        self.helpers.push('\n');
+
+        self.body = saved_body;
+        self.tmp = saved_tmp;
+        self.executor_params = saved_exec;
+        self.reaction_params = saved_react;
+        self.reaction_captures = saved_caps;
+
+        Ok((fn_name, data_operand))
     }
 
     fn emit_executor_fn(
@@ -1533,6 +1950,65 @@ fn collect_assigned_locals(body: &[Stmt], out: &mut HashSet<LocalId>) {
             Stmt::Return { .. } => {}
             _ => {}
         }
+    }
+}
+
+fn match_await_declare(stmt: &Stmt) -> Option<(LocalId, &Expr)> {
+    match stmt {
+        Stmt::Declare {
+            local,
+            init: Some(Expr::Unary {
+                op: UnaryOp::Await,
+                arg,
+                ..
+            }),
+            ..
+        } => Some((*local, arg.as_ref())),
+        _ => None,
+    }
+}
+
+fn stmt_contains_await(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Declare { init, .. } => init.as_ref().is_some_and(expr_contains_await),
+        Stmt::Expr { expr } => expr_contains_await(expr),
+        Stmt::Return { value } => value.as_ref().is_some_and(expr_contains_await),
+        Stmt::Throw { value } => expr_contains_await(value),
+        Stmt::Block { body } => body.iter().any(stmt_contains_await),
+        _ => false,
+    }
+}
+
+fn expr_contains_await(expr: &Expr) -> bool {
+    match expr {
+        Expr::Unary {
+            op: UnaryOp::Await, ..
+        } => true,
+        Expr::Unary { arg, .. } => expr_contains_await(arg),
+        Expr::Binary { left, right, .. } => {
+            expr_contains_await(left) || expr_contains_await(right)
+        }
+        Expr::Assign { value, .. } => expr_contains_await(value),
+        Expr::Call { callee, args, .. } => {
+            expr_contains_await(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_await(e),
+                })
+        }
+        Expr::New { callee, args, .. } => {
+            expr_contains_await(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_await(e),
+                })
+        }
+        Expr::Member {
+            object, property, ..
+        } => expr_contains_await(object) || expr_contains_await(property),
+        Expr::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_await(e),
+        }),
+        Expr::Function { body, .. } => body.iter().any(stmt_contains_await),
+        _ => false,
     }
 }
 

@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.09); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.10); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -142,8 +142,10 @@ pub const OBJECT_SET_SYMBOL: &str = "draconic_rt_object_set";
 pub const PROMISE_ALL_SETTLED_SYMBOL: &str = "draconic_rt_promise_all_settled";
 /// C ABI: `Promise.any(iterable)` — first fulfillment or AggregateError (N06.09).
 pub const PROMISE_ANY_SYMBOL: &str = "draconic_rt_promise_any";
+/// C ABI: `await` operand — Promise as-is, else wrap fulfilled (N06.10).
+pub const PROMISE_AWAIT_SYMBOL: &str = "draconic_rt_promise_await";
 
-/// Promise ABI symbols (N06.02–N06.09).
+/// Promise ABI symbols (N06.02–N06.10).
 pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_NEW_SYMBOL,
     IS_PROMISE_SYMBOL,
@@ -165,6 +167,7 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     OBJECT_SET_SYMBOL,
     PROMISE_ALL_SETTLED_SYMBOL,
     PROMISE_ANY_SYMBOL,
+    PROMISE_AWAIT_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
