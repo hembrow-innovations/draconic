@@ -20,7 +20,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/draconic/graph-ts"
+repository = "https://github.com/hembrow-innovations/draconic"
 
 [workspace.dependencies]
 draconic-diagnostics = { path = "crates/draconic-diagnostics" }

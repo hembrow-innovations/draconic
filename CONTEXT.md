@@ -6,7 +6,7 @@ Draconic is a programming language: a full ECMAScript superset with TypeScript-i
 
 **Draconic**:
 The language itself — source programs, their meaning, and the surface syntax developers write.
-_Avoid_: graph-ts, the compiler, “the project”
+_Avoid_: the compiler, “the project”, the repo name
 
 **Program**:
 A unit of Draconic source that the toolchain accepts as input (file or string).
