@@ -509,6 +509,13 @@ pub enum Expr {
         private: bool,
         span: Span,
     },
+    /// Private brand check: `#name in object` (E18.40).
+    PrivateIn {
+        /// Private name without `#` (dump shows `#name`).
+        name: Ident,
+        object: Box<Expr>,
+        span: Span,
+    },
     /// Parenthesized expression — preserved for dump fidelity.
     Paren {
         expr: Box<Expr>,
@@ -1980,6 +1987,13 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level + 1, out);
             out.push_str("property:\n");
             dump_expr(property, level + 2, out);
+        }
+        Expr::PrivateIn { name, object, .. } => {
+            indent(level, out);
+            out.push_str("PrivateIn\n");
+            indent(level + 1, out);
+            out.push_str(&format!("name: #{}\n", name.name));
+            dump_expr(object, level + 1, out);
         }
         Expr::Paren { expr, .. } => {
             indent(level, out);

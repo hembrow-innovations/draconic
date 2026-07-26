@@ -2243,6 +2243,24 @@ impl Parser {
     }
 
     fn parse_relational(&mut self) -> Result<Expr, Diagnostic> {
+        // `#name in object` (E18.40) — PrivateIdentifier is only valid as LHS of `in`.
+        if self.allow_in {
+            if let TokenKind::PrivateIdent(pname) = &self.current().kind {
+                let name = pname.clone();
+                let name_span = self.bump().span;
+                self.expect(&TokenKind::In)?;
+                let object = self.parse_shift()?;
+                let span = span_merge(name_span, expr_span(&object));
+                return Ok(Expr::PrivateIn {
+                    name: Ident {
+                        name,
+                        span: name_span,
+                    },
+                    object: Box::new(object),
+                    span,
+                });
+            }
+        }
         let mut left = self.parse_shift()?;
         loop {
             let op = match &self.current().kind {
@@ -3367,6 +3385,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::ArrayPattern { span, .. }
         | Expr::ObjectPattern { span, .. }
         | Expr::MemberExpression { span, .. }
+        | Expr::PrivateIn { span, .. }
         | Expr::Paren { span, .. }
         | Expr::As { span, .. } => *span,
     }
@@ -4382,6 +4401,17 @@ Program
         assert!(dump.contains("StaticPrivateAccessor set"), "{dump}");
         assert!(dump.contains("name: #x"), "{dump}");
         assert!(dump.contains("name: #y"), "{dump}");
+    }
+
+    #[test]
+    fn parse_private_in() {
+        let dump = parse_and_dump(
+            "class C { #x = 1; m(o) { return #x in o; } }",
+        )
+        .unwrap();
+        assert!(dump.contains("PrivateIn"), "{dump}");
+        assert!(dump.contains("name: #x"), "{dump}");
+        assert!(dump.contains("Ident o"), "{dump}");
     }
 
     #[test]

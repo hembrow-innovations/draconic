@@ -1113,6 +1113,15 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             uniqueify_expr_spans(object, spans);
             uniqueify_expr_spans(property, spans);
         }
+        Expr::PrivateIn {
+            name,
+            object,
+            span,
+        } => {
+            *span = spans.next();
+            name.span = spans.next();
+            uniqueify_expr_spans(object, spans);
+        }
     }
 }
 
@@ -1710,6 +1719,7 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
             }
             // Non-computed property name is not a variable reference.
         }
+        Expr::PrivateIn { object, .. } => rename_expr(object, renames, scopes),
     }
 }
 

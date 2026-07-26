@@ -1443,6 +1443,7 @@ impl Binder {
                 // Non-computed property name is not a variable reference.
                 Ok(())
             }
+            Expr::PrivateIn { object, .. } => self.bind_expr(object),
             Expr::Paren { expr, .. } => self.bind_expr(expr),
             Expr::As { expr, .. } => self.bind_expr(expr),
             Expr::ArrayPattern { elements, .. } => {
@@ -3029,6 +3030,11 @@ impl<'a> Checker<'a> {
                 self.record(*span, ty);
                 ty
             }
+            Expr::PrivateIn { object, span, .. } => {
+                self.check_expr(object)?;
+                self.record(*span, Type::Boolean);
+                Type::Boolean
+            }
         };
         Ok(ty)
     }
@@ -4124,6 +4130,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::ArrayPattern { span, .. }
         | Expr::ObjectPattern { span, .. }
         | Expr::MemberExpression { span, .. }
+        | Expr::PrivateIn { span, .. }
         | Expr::Paren { span, .. }
         | Expr::As { span, .. } => *span,
     }
@@ -5434,6 +5441,7 @@ mod tests {
                         walk_expr(property, name, out);
                     }
                 }
+                Expr::PrivateIn { object, .. } => walk_expr(object, name, out),
                 // Function/class bodies walked via declaration paths when needed.
                 Expr::FunctionExpression { .. }
                 | Expr::ClassExpression { .. }

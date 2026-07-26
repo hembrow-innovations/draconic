@@ -1,0 +1,107 @@
+class Point {
+  #x = 1;
+  #y;
+  sum() {
+    return this.#x + (typeof this.#y === "undefined" ? 0 : this.#y);
+  }
+  hasX(obj) {
+    return #x in obj;
+  }
+  hasY(obj) {
+    return #y in obj;
+  }
+}
+let p = new Point();
+let a = p.hasX(p);
+let b = p.hasY(p);
+let c = p.hasX({});
+let d = p.hasX(null);
+let e = p.hasX(undefined);
+let f = p.hasX(1);
+let g = p.hasX("x");
+
+class Meth {
+  #m() {
+    return 1;
+  }
+  call() {
+    return this.#m();
+  }
+  has(obj) {
+    return #m in obj;
+  }
+}
+let m = new Meth();
+let h = m.has(m);
+let i = m.has({});
+let j = m.call();
+
+class Acc {
+  #n = 0;
+  get #v() {
+    return this.#n;
+  }
+  set #v(x) {
+    this.#n = x;
+  }
+  has(obj) {
+    return #v in obj;
+  }
+  read() {
+    return this.#v;
+  }
+}
+let ac = new Acc();
+let k = ac.has(ac);
+let l = ac.has({});
+let mm = ac.read();
+
+class StaticBox {
+  static #s = 10;
+  static has(obj) {
+    return #s in obj;
+  }
+  static read() {
+    return StaticBox.#s;
+  }
+}
+let n = StaticBox.has(StaticBox);
+let o = StaticBox.has({});
+let p2 = StaticBox.has(new StaticBox());
+let q = StaticBox.read();
+
+class StaticMeth {
+  static #sm() {
+    return 2;
+  }
+  static call() {
+    return StaticMeth.#sm();
+  }
+  static has(obj) {
+    return #sm in obj;
+  }
+}
+let r = StaticMeth.has(StaticMeth);
+let s = StaticMeth.has({});
+let t = StaticMeth.call();
+
+class Parent {
+  #base = 1;
+  hasBase(obj) {
+    return #base in obj;
+  }
+}
+class Child extends Parent {
+  #extra = 2;
+  constructor() {
+    super();
+  }
+  hasExtra(obj) {
+    return #extra in obj;
+  }
+}
+let ch = new Child();
+let u = ch.hasBase(ch);
+let v = ch.hasExtra(ch);
+let w = ch.hasExtra({});
+let x = new Parent().hasBase(ch);

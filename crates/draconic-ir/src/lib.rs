@@ -15,12 +15,14 @@ pub use draconic_ast::BindingKind;
 pub use draconic_check::{NativeType, ObjectShape, SymbolId as LocalId, Type as IrType};
 
 // Private field name → WeakMap local; private method name → function local;
-// private accessor name → (get fn, set fn) locals (active while lowering a class body).
+// private accessor name → (get fn, set fn) locals;
+// private method/accessor brand → WeakSet local (E18.40; fields use WeakMap as brand).
 thread_local! {
     static PRIVATE_FIELDS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
     static PRIVATE_METHODS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
     static PRIVATE_ACCESSORS: RefCell<HashMap<String, (Option<LocalId>, Option<LocalId>)>> =
         RefCell::new(HashMap::new());
+    static PRIVATE_BRANDS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
     static EXTRA_LOCALS: RefCell<Vec<Local>> = RefCell::new(Vec::new());
     static NEXT_SYNTH_ID: RefCell<u32> = RefCell::new(0);
 }
@@ -445,6 +447,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
     PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
     PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
     PRIVATE_ACCESSORS.with(|p| p.borrow_mut().clear());
+    PRIVATE_BRANDS.with(|p| p.borrow_mut().clear());
 
     let mut body = Vec::new();
     for stmt in &checked.bound.program.body {
@@ -455,6 +458,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
     PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
     PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
     PRIVATE_ACCESSORS.with(|p| p.borrow_mut().clear());
+    PRIVATE_BRANDS.with(|p| p.borrow_mut().clear());
 
     Module {
         locals,
@@ -989,7 +993,43 @@ fn lower_class_local(
         bool,
         bool,
     )> = Vec::new();
-    for (method_name, params, body, _is_static, is_async, is_generator, is_private) in &methods {
+    let mut private_brand_map: HashMap<String, LocalId> = HashMap::new();
+    let mut private_brand_decls: Vec<Stmt> = Vec::new();
+    let mut instance_brands: Vec<LocalId> = Vec::new();
+    let mut static_brands: Vec<LocalId> = Vec::new();
+    let mut add_private_brand = |name: &str, is_static: bool| {
+        if let Some(existing) = private_brand_map.get(name) {
+            if is_static {
+                if !static_brands.contains(existing) {
+                    static_brands.push(*existing);
+                }
+            } else if !instance_brands.contains(existing) {
+                instance_brands.push(*existing);
+            }
+            return;
+        }
+        let brand_name = format!("__drac_pb_{}_{}", local.0, name);
+        let brand_id = alloc_synthetic_local(brand_name, Type::Any);
+        private_brand_map.insert(name.to_string(), brand_id);
+        private_brand_decls.push(Stmt::Declare {
+            local: brand_id,
+            init: Some(Expr::New {
+                callee: Box::new(Expr::IdentName {
+                    name: "WeakSet".into(),
+                    ty: Type::Function,
+                }),
+                args: Vec::new(),
+                ty: Type::Any,
+            }),
+            kind: BindingKind::Let,
+        });
+        if is_static {
+            static_brands.push(brand_id);
+        } else {
+            instance_brands.push(brand_id);
+        }
+    };
+    for (method_name, params, body, is_static, is_async, is_generator, is_private) in &methods {
         if !*is_private {
             continue;
         }
@@ -1000,6 +1040,7 @@ fn lower_class_local(
         let fn_id = alloc_synthetic_local(fn_name, Type::Function);
         private_method_map.insert(method_name.name.clone(), fn_id);
         private_method_meta.push((fn_id, params, body, *is_async, *is_generator));
+        add_private_brand(&method_name.name, *is_static);
     }
 
     // Private accessors: synthetic get/set function locals (E18.39).
@@ -1010,7 +1051,7 @@ fn lower_class_local(
         &Vec<draconic_ast::Param>,
         &AstStmt,
     )> = Vec::new();
-    for (kind, acc_name, params, body, _is_static, is_private) in &accessors {
+    for (kind, acc_name, params, body, is_static, is_private) in &accessors {
         if !*is_private {
             continue;
         }
@@ -1028,6 +1069,7 @@ fn lower_class_local(
             AccessorKind::Set => entry.1 = Some(fn_id),
         }
         private_accessor_meta.push((fn_id, params, body));
+        add_private_brand(&acc_name.name, *is_static);
     }
 
     let prev_privates =
@@ -1036,6 +1078,8 @@ fn lower_class_local(
         PRIVATE_METHODS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_method_map));
     let prev_private_accessors = PRIVATE_ACCESSORS
         .with(|p| std::mem::replace(&mut *p.borrow_mut(), private_accessor_map));
+    let prev_private_brands =
+        PRIVATE_BRANDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_brand_map));
 
     let mut private_method_fns: Vec<Stmt> = Vec::new();
     for (fn_id, params, body, is_async, is_generator) in private_method_meta {
@@ -1135,7 +1179,44 @@ fn lower_class_local(
         ctor_body = new_body;
     }
 
+    // Brand instances for private methods/accessors (E18.40).
+    if !instance_brands.is_empty() {
+        let brand_inits: Vec<Stmt> = instance_brands
+            .iter()
+            .map(|brand| private_brand_add(*brand, Expr::This { ty: Type::Any }))
+            .collect();
+        let insert_at = if super_class.is_some() && !ctor_body.is_empty() {
+            // After super; field inits already after super when present.
+            1
+        } else {
+            0
+        };
+        // Prefer after field inits: find end of leading brand/field region is complex;
+        // append brand adds right after super (or start), then fields already shifted.
+        // Install brands at the same insert point as fields would use when fields empty,
+        // or immediately after whatever was inserted for fields.
+        let mut new_body = Vec::with_capacity(ctor_body.len() + brand_inits.len());
+        // If we already inserted fields after super, brands should also run after super.
+        // Use insert_at but if fields were inserted, brands should be after fields.
+        // Simpler: always insert brands just after super (index 1) or at 0, before fields
+        // is wrong for fields-only branding via WeakMap — methods need brand on this.
+        // Order: super, fields (wm.set), brands (ws.add), rest — fields already in place.
+        // Find first non-field-init is hard; append brands after all field inits by
+        // inserting at insert_at + field count. Track field count from instance_fields.
+        let after_fields = if !instance_fields.is_empty() {
+            let n_fields = instance_fields.len();
+            insert_at + n_fields
+        } else {
+            insert_at
+        };
+        new_body.extend(ctor_body.drain(..after_fields.min(ctor_body.len())));
+        new_body.extend(brand_inits);
+        new_body.extend(ctor_body);
+        ctor_body = new_body;
+    }
+
     let mut out = private_wm_decls;
+    out.extend(private_brand_decls);
     out.extend(private_method_fns);
     out.push(Stmt::Function {
         local,
@@ -1409,9 +1490,21 @@ fn lower_class_local(
         }
     }
 
+    // Brand the constructor for static private methods/accessors (E18.40).
+    for brand in static_brands {
+        out.push(private_brand_add(
+            brand,
+            Expr::Local {
+                id: local,
+                ty: Type::Function,
+            },
+        ));
+    }
+
     PRIVATE_FIELDS.with(|p| *p.borrow_mut() = prev_privates);
     PRIVATE_METHODS.with(|p| *p.borrow_mut() = prev_private_methods);
     PRIVATE_ACCESSORS.with(|p| *p.borrow_mut() = prev_private_accessors);
+    PRIVATE_BRANDS.with(|p| *p.borrow_mut() = prev_private_brands);
     out
 }
 
@@ -1439,6 +1532,115 @@ fn private_fn_call(fn_id: LocalId, object: Expr, args: Vec<Arg>) -> Expr {
         optional: false,
         ty: Type::Any,
     }
+}
+
+/// `brand.add(object)` statement for private method/accessor branding (E18.40).
+fn private_brand_add(brand: LocalId, object: Expr) -> Stmt {
+    Stmt::Expr {
+        expr: Expr::Call {
+            callee: Box::new(Expr::Member {
+                object: Box::new(Expr::Local {
+                    id: brand,
+                    ty: Type::Any,
+                }),
+                property: Box::new(Expr::String {
+                    value: "add".into(),
+                    ty: Type::String,
+                }),
+                computed: false,
+                optional: false,
+                ty: Type::Function,
+            }),
+            args: vec![Arg::Expr(object)],
+            optional: false,
+            ty: Type::Any,
+        },
+    }
+}
+
+/// `#name in object` → object is object-like and brand/WeakMap has it (E18.40).
+fn private_in_check(brand: LocalId, object: Expr) -> Expr {
+    // `obj != null && (typeof obj === "object" || typeof obj === "function") && brand.has(obj)`
+    let not_nullish = Expr::Binary {
+        left: Box::new(object.clone()),
+        op: BinaryOp::NotEq,
+        right: Box::new(Expr::Null { ty: Type::Null }),
+        ty: Type::Boolean,
+    };
+    let typeof_obj = Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg: Box::new(object.clone()),
+        ty: Type::String,
+    };
+    let is_object = Expr::Binary {
+        left: Box::new(typeof_obj),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::String {
+            value: "object".into(),
+            ty: Type::String,
+        }),
+        ty: Type::Boolean,
+    };
+    let typeof_fn = Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg: Box::new(object.clone()),
+        ty: Type::String,
+    };
+    let is_function = Expr::Binary {
+        left: Box::new(typeof_fn),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::String {
+            value: "function".into(),
+            ty: Type::String,
+        }),
+        ty: Type::Boolean,
+    };
+    let is_obj_like = Expr::Binary {
+        left: Box::new(is_object),
+        op: BinaryOp::Or,
+        right: Box::new(is_function),
+        ty: Type::Boolean,
+    };
+    let guard = Expr::Binary {
+        left: Box::new(not_nullish),
+        op: BinaryOp::And,
+        right: Box::new(is_obj_like),
+        ty: Type::Boolean,
+    };
+    let has_call = Expr::Call {
+        callee: Box::new(Expr::Member {
+            object: Box::new(Expr::Local {
+                id: brand,
+                ty: Type::Any,
+            }),
+            property: Box::new(Expr::String {
+                value: "has".into(),
+                ty: Type::String,
+            }),
+            computed: false,
+            optional: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(object)],
+        optional: false,
+        ty: Type::Boolean,
+    };
+    Expr::Binary {
+        left: Box::new(guard),
+        op: BinaryOp::And,
+        right: Box::new(has_call),
+        ty: Type::Boolean,
+    }
+}
+
+fn resolve_private_brand(name: &str) -> LocalId {
+    if let Some(wm) = PRIVATE_FIELDS.with(|p| p.borrow().get(name).copied()) {
+        return wm;
+    }
+    if let Some(brand) = PRIVATE_BRANDS.with(|p| p.borrow().get(name).copied()) {
+        return brand;
+    }
+    panic!("unknown private brand #{name}");
 }
 
 /// `wm.get(object)` for private field read.
@@ -1603,6 +1805,12 @@ fn lower_expr(
             right: Box::new(lower_expr(checked, right, super_class)),
             ty: expr_ty(checked, *span),
         },
+        AstExpr::PrivateIn { name, object, span } => {
+            let brand = resolve_private_brand(&name.name);
+            let obj = lower_expr(checked, object, super_class);
+            let _ = span;
+            private_in_check(brand, obj)
+        }
         AstExpr::Conditional {
             test,
             consequent,
