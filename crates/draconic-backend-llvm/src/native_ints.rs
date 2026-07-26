@@ -10,13 +10,26 @@ use draconic_ir::{
     ObjectProp, ObjectPropKey, ObjectShape, Param, Pattern, Stmt, UpdateTarget,
 };
 
+/// LLVM IR type spelling for a semantic native type (backend-owned mapping).
+fn llvm_ty(n: NativeType) -> &'static str {
+    match n {
+        NativeType::I8 | NativeType::U8 => "i8",
+        NativeType::I16 | NativeType::U16 => "i16",
+        NativeType::I32 | NativeType::U32 => "i32",
+        NativeType::I64 | NativeType::U64 => "i64",
+        NativeType::F32 => "float",
+        NativeType::F64 => "double",
+        NativeType::Bool => "i1",
+    }
+}
+
 /// Unboxed scalar lowered by this backend (native int/float/`bool`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Scalar(NativeType);
 
 impl Scalar {
     fn llvm_ty(self) -> &'static str {
-        self.0.llvm_ty()
+        llvm_ty(self.0)
     }
 
     fn align(self) -> u32 {
@@ -94,7 +107,7 @@ fn llvm_layout_ty(shape: &ObjectShape) -> String {
         let Type::Native(n) = *t else {
             unreachable!("native layout fields are Native");
         };
-        s.push_str(n.llvm_ty());
+        s.push_str(llvm_ty(n));
     }
     s.push_str(" }");
     s
@@ -796,14 +809,14 @@ impl<'a> Emitter<'a> {
                     writeln!(
                         self.body,
                         "  {ext} = sext {} {v} to i64",
-                        n.llvm_ty()
+                        llvm_ty(n)
                     )
                     .ok();
                 } else {
                     writeln!(
                         self.body,
                         "  {ext} = zext {} {v} to i64",
-                        n.llvm_ty()
+                        llvm_ty(n)
                     )
                     .ok();
                 }
@@ -830,7 +843,7 @@ impl<'a> Emitter<'a> {
                 writeln!(
                     self.body,
                     "  {t} = icmp ne {} {v}, 0",
-                    n.llvm_ty()
+                    llvm_ty(n)
                 )
                 .ok();
                 Ok(t)
@@ -841,7 +854,7 @@ impl<'a> Emitter<'a> {
                 writeln!(
                     self.body,
                     "  {t} = fcmp one {} {v}, 0.000000e+00",
-                    n.llvm_ty()
+                    llvm_ty(n)
                 )
                 .ok();
                 Ok(t)
@@ -932,7 +945,7 @@ impl<'a> Emitter<'a> {
                         writeln!(
                             self.body,
                             "  {t} = fneg {} {a}",
-                            nty.llvm_ty()
+                            llvm_ty(nty)
                         )
                         .ok();
                     }
@@ -940,7 +953,7 @@ impl<'a> Emitter<'a> {
                         writeln!(
                             self.body,
                             "  {t} = sub {} 0, {a}",
-                            nty.llvm_ty()
+                            llvm_ty(nty)
                         )
                         .ok();
                     }
@@ -948,7 +961,7 @@ impl<'a> Emitter<'a> {
                         writeln!(
                             self.body,
                             "  {t} = xor {} {a}, -1",
-                            nty.llvm_ty()
+                            llvm_ty(nty)
                         )
                         .ok();
                     }
@@ -956,12 +969,12 @@ impl<'a> Emitter<'a> {
                         writeln!(
                             self.body,
                             "  {t} = fadd {} {a}, 0.000000e+00",
-                            nty.llvm_ty()
+                            llvm_ty(nty)
                         )
                         .ok();
                     }
                     UnaryOp::Plus => {
-                        writeln!(self.body, "  {t} = add {} {a}, 0", nty.llvm_ty()).ok();
+                        writeln!(self.body, "  {t} = add {} {a}, 0", llvm_ty(nty)).ok();
                     }
                     _ => {
                         return Err(diag(&format!(
@@ -1311,7 +1324,7 @@ impl<'a> Emitter<'a> {
                 writeln!(
                     self.body,
                     "  {t} = fcmp {pred} {} {l}, {r}",
-                    nty.llvm_ty()
+                    llvm_ty(nty)
                 )
                 .ok();
             } else {
@@ -1351,7 +1364,7 @@ impl<'a> Emitter<'a> {
                 writeln!(
                     self.body,
                     "  {t} = icmp {pred} {} {l}, {r}",
-                    nty.llvm_ty()
+                    llvm_ty(nty)
                 )
                 .ok();
             }
@@ -1374,7 +1387,7 @@ impl<'a> Emitter<'a> {
         let l = self.emit_expr(left, Some(sty))?;
         let r = self.emit_expr(right, Some(sty))?;
         let t = self.fresh_tmp();
-        let ll = nty.llvm_ty();
+        let ll = llvm_ty(nty);
         if nty.is_float() {
             match op {
                 BinaryOp::Add => writeln!(self.body, "  {t} = fadd {ll} {l}, {r}").ok(),
@@ -1494,10 +1507,10 @@ impl<'a> Emitter<'a> {
             }
             let nty = sty.native();
             let cur = self.fresh_tmp();
-            writeln!(self.body, "  {cur} = load {}, ptr {ptr}", nty.llvm_ty()).ok();
+            writeln!(self.body, "  {cur} = load {}, ptr {ptr}", llvm_ty(nty)).ok();
             let rhs_v = self.emit_expr(value, Some(sty))?;
             let t = self.fresh_tmp();
-            let ll = nty.llvm_ty();
+            let ll = llvm_ty(nty);
             if nty.is_float() {
                 match op {
                     AssignOp::AddEq => {
@@ -1602,17 +1615,17 @@ impl<'a> Emitter<'a> {
             .cloned()
             .ok_or_else(|| diag("internal: update missing alloca"))?;
         let cur = self.fresh_tmp();
-        writeln!(self.body, "  {cur} = load {}, ptr {ptr}", nty.llvm_ty()).ok();
+        writeln!(self.body, "  {cur} = load {}, ptr {ptr}", llvm_ty(nty)).ok();
         let next = self.fresh_tmp();
         match op {
             UpdateOp::Inc => {
-                writeln!(self.body, "  {next} = add {} {cur}, 1", nty.llvm_ty()).ok()
+                writeln!(self.body, "  {next} = add {} {cur}, 1", llvm_ty(nty)).ok()
             }
             UpdateOp::Dec => {
-                writeln!(self.body, "  {next} = sub {} {cur}, 1", nty.llvm_ty()).ok()
+                writeln!(self.body, "  {next} = sub {} {cur}, 1", llvm_ty(nty)).ok()
             }
         };
-        writeln!(self.body, "  store {} {next}, ptr {ptr}", nty.llvm_ty()).ok();
+        writeln!(self.body, "  store {} {next}, ptr {ptr}", llvm_ty(nty)).ok();
         if prefix {
             Ok(next)
         } else {

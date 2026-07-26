@@ -102,19 +102,6 @@ impl NativeType {
             Self::I64 | Self::U64 | Self::F64 => 64,
         }
     }
-
-    /// LLVM integer/float type name for this native type.
-    pub fn llvm_ty(self) -> &'static str {
-        match self {
-            Self::I8 | Self::U8 => "i8",
-            Self::I16 | Self::U16 => "i16",
-            Self::I32 | Self::U32 => "i32",
-            Self::I64 | Self::U64 => "i64",
-            Self::F32 => "float",
-            Self::F64 => "double",
-            Self::Bool => "i1",
-        }
-    }
 }
 
 /// TypeScript-inspired types for the minimal Program surface.
