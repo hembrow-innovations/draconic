@@ -468,10 +468,10 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        // E19.02/E19.06/E19.10/E19.15 expanded curated set (expressions + statements + more).
+        // E19.02/E19.06/E19.10/E19.15/E19.20 expanded curated set (expressions + statements + more).
         assert!(
-            list.len() >= 4000,
-            "expected expanded curated allowlist (>=4000), got {}",
+            list.len() >= 6500,
+            "expected expanded curated allowlist (>=6500), got {}",
             list.len()
         );
         assert!(list.iter().all(|p| p.starts_with("test/")));
@@ -630,8 +630,8 @@ assert.throws(TypeError, function() {
                 "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
             );
             assert!(
-                pass >= 4000,
-                "expected expanded allowlist pass count >= 4000, got {pass}"
+                pass >= 6500,
+                "expected expanded allowlist pass count >= 6500, got {pass}"
             );
         }
     }
