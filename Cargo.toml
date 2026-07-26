@@ -16,6 +16,7 @@ members = [
     "crates/draconic-cli",
     "tests/integration",
     "tests/conformance",
+    "tests/test262",
 ]
 
 [workspace.package]

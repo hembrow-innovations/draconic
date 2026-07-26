@@ -143,6 +143,14 @@ name = "draconic-runtime"
 version = "0.1.0"
 
 [[package]]
+name = "draconic-test262"
+version = "0.1.0"
+dependencies = [
+ "draconic-backend-js",
+ "draconic-frontend",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"

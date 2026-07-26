@@ -1,0 +1,16 @@
+# Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
+# v1: small language/types + literals set likely to compile on the js backend.
+# Lines starting with # and blank lines are ignored.
+#
+# Expand via ROADMAP E19.02 after triage of baseline-report.md failures.
+
+test/language/types/boolean/S8.3_A1_T1.js
+test/language/types/boolean/S8.3_A1_T2.js
+test/language/types/null/S8.2_A1_T1.js
+test/language/types/null/S8.2_A1_T2.js
+test/language/types/undefined/S8.1_A1_T1.js
+test/language/literals/boolean/S7.8.2_A1_T1.js
+test/language/literals/boolean/S7.8.2_A1_T2.js
+test/language/literals/null/S7.8.1_A1_T1.js
+test/language/literals/numeric/S7.8.3_A1.1_T1.js
+test/language/literals/numeric/S7.8.3_A1.2_T1.js

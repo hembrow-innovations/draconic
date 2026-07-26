@@ -14,3 +14,5 @@
 /tmp
 .scratch/**/claim.lock
 examples/todo/server/server
+/third_party/test262/
+/tests/test262/baseline-report.md

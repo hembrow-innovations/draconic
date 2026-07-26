@@ -10,6 +10,7 @@ A item is `done` only when its tests are green on every applicable target (`js`,
 - **Targets**: `js` | `native` | `both` | `compiler` (toolchain-only, no program emit)
 - **Tests**: path(s) that must pass
 - **Native observations**: `Targets: native`/`both` means fixtures assert **program results** on native (`native.stdout` / equivalent), not the B08 LLVM hello-stub fallback (`hello\n` only)
+- **Phase tracks**: historical **B / E / T / N / U** remain the completeness spine. Phase 2 product/spec tracks are **P — Product** and **S — Spec external** (do not replace draining existing B/E/T/N/U `todo`s).
 
 ---
 
@@ -212,6 +213,17 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 
 ---
 
+## E19 — Test262 staged (external bar; ADR 0007)
+
+Curated allowlist + harness first. Full suite is not the day-one bar. Failures are **report-only** until triage promotes Roadmap rows. Target: **js** only for v1.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| E19.01 | done | js | Test262 harness + curated allowlist + `scripts/fetch-test262.mjs` (suite optional; skip when missing) | `tests/test262` |
+| E19.02 | todo | js | Expand allowlist / first failure cluster promotion after baseline triage (language/types + early gaps) | `tests/test262` (allowlist + baseline-report) |
+
+---
+
 ## T — Types (Checker; TS-inspired)
 
 | ID | Status | Targets | Item | Tests |
@@ -273,6 +285,9 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N08.15 | todo | native | Real native observations: legacy `with` (E17) | `tests/conformance` fixtures `es/legacy` |
 | N08.16 | todo | native | Real native observations: annex-b / late ES (E18 children) | `tests/conformance` fixtures `es/annex-b` |
 | N08.17 | todo | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
+| N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
+| N09.01 | todo | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
+| N09.02 | todo | native | GC mark correctness: rooted object property values stay live across collect (trace object props) | `crates/draconic-runtime` tests |
 
 ---
 
@@ -286,9 +301,34 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 
 ---
 
+## P — Product (Phase 2)
+
+Examples, DX, and polish-driven gaps. Prefer draining B/E/T/N/U `todo`s first; claim P only when product work is the intent. Seeds reference vault issues; expand only from real use — do not invent a large backlog here.
+
+Native depth (GC stress, stdlib, dual-world UX) stays under **N** when filed (e.g. sibling **N09** / [[issues-3-native-depth]]); do not duplicate here.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| P01 | done | js | Flagship example Program (fizzbuzz): in-repo `examples/fizzbuzz/`, builds via `draconic` js, clone→build→run | `examples/fizzbuzz` |
+| P02 | done | compiler | README status + onboarding path match reality (parse / build js\|native; no stale “bootstrap only”) | `README.md` |
+
+---
+
+## S — Spec external (Phase 2)
+
+External conformance bar (Test262 staged). If **E19** (or children) already tracks Test262 harness/backlog, point S rows at those IDs — do not duplicate.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| S01 | done | js | Test262 staged harness (see **E19.01**): curated allowlist on js; baseline report; suite optional | `tests/test262`, **E19.01** |
+| S02 | todo | js | Expand Test262 allowlist / promote first failure cluster (see **E19.02**) | `tests/test262` + **E19.02** |
+
+---
+
 ## How the Loop updates this file
 
 1. Set exactly one item to `in_progress` when claimed.
 2. On green tests for that item’s Tests column → `done`.
 3. Split a cluster into child rows (e.g. `E01.01`) when the cluster is too large for one Loop — never mark a cluster `done` with failing or missing coverage.
 4. Never delete ECMA-262 obligations; move only to finer rows or explicit `blocked` with reason.
+5. **Empty board = stop.** If there are **zero** `todo` rows anywhere on this Roadmap, **stop** — do not invent work, do not open ad-hoc features, do not mark speculative items `todo`. File a vault issue or wait for a human if more work is needed.

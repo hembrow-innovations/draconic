@@ -11,7 +11,8 @@ Read before work: `CONTEXT.md`, relevant `docs/adr/`, `ROADMAP.md`.
 
 ## Steps
 
-1. **Claim** — In `ROADMAP.md`, find the first `todo` item whose blockers are satisfied (lower bootstrap IDs done; do not start `E*` clusters until **B10** is `done` unless the user overrides). Set it to `in_progress`. Exactly one `in_progress` at a time.
+1. **Claim** — In `ROADMAP.md`, find the first `todo` item whose blockers are satisfied (lower bootstrap IDs done; do not start `E*` clusters until **B10** is `done` unless the user overrides). Prefer historical **B/E/T/N/U** before Phase 2 **P/S** unless the user asks for product/spec work. Set it to `in_progress`. Exactly one `in_progress` at a time.
+   - **Empty-todo guard:** if there is **no** `todo` row anywhere on the Roadmap, **stop immediately**. Do not invent work, do not add speculative Roadmap rows, do not “keep the loop busy.” Report empty board; further work needs a human or a vault issue.
 2. **Orient** — Read existing tests and code for that item’s **Tests** paths. Skim ADRs if the item touches IR, Runtime, Embed, or dual worlds.
 3. **Red** — Add or extend tests that fail for the missing behavior. Prefer crate unit tests for compiler pieces; `tests/conformance/**` for language semantics; both backends when **Targets** is `both`.
 4. **Green** — Implement the minimum to pass. No silent subsetting of ECMA-262: if the item’s scope is large, **split** the Roadmap row into child IDs (e.g. `E01.01`) and complete only the claimed child this Loop.
@@ -29,6 +30,7 @@ The Loop is complete when: claimed item is `done` or `blocked` with reason, work
 - **Tests are truth.** Do not mark progress from reading code alone.
 - **Both targets when required.** For `both`, JS and native paths must be tested or explicitly split into `js` / `native` child rows — never ship one backend and call the language feature done.
 - **Hard error > wrong code.** Native-only / JS-only features must diagnostic on the other backend.
+- **No empty-board invention.** Zero `todo` ⇒ stop (see Claim step). Completeness is Roadmap + suite, not model judgment.
 - **Vocabulary:** use terms from `CONTEXT.md` (Program, IR, Frontend, JS backend, LLVM backend, Runtime, Embed, Roadmap, Loop).
 - **Drive with `/tdd`** when implementing non-trivial behavior.
 - **Commit every work package.** Never leave a finished Loop uncommitted; never batch multiple done items into one commit unless the user asks.

@@ -1,0 +1,10 @@
+[package]
+name = "draconic-test262"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+draconic-frontend.workspace = true
+draconic-backend-js.workspace = true
