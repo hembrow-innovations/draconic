@@ -16,7 +16,10 @@ The issue tracker and triage label vocabulary should have been provided to you â
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the spec using the template below, then publish it as an issue note under
+   `docs/planning/issues/issues-<N>-<slug>.md` (`node scripts/planning-next-id.mjs`
+   for `<N>`). Frontmatter: `status: open`, tags include `ready-for-agent` (+
+   category). No extra triage unless gaps remain.
 
 <spec-template>
 

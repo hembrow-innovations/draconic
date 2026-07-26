@@ -2,21 +2,25 @@
 
 ### Issue tracker
 
-Issues live as local markdown under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Vault under `docs/planning/` (issues / plans / tasks) — **no GitHub Issues**, **no `.scratch/` tracker**. See `docs/reference/guides/issue-tracker.md` (pointer: `docs/agents/issue-tracker.md`). Next id: `node scripts/planning-next-id.mjs`.
 
 ### Triage labels
 
-Default roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+Frontmatter `status` + `tags` (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`; category `bug` | `enhancement`). See `docs/reference/guides/triage-labels.md`.
 
 ### Domain docs
 
 Single-context layout (`CONTEXT.md` + `docs/adr/`). See `docs/agents/domain.md`.
 
+### Planning workflow
+
+Load **planning-workflow** for issue → execute → review → new issues. Single-unit work = `ready-for-agent` issue + `## Agent Brief` (no task note).
+
 ### Draconic language
 
 This repo **is** the Draconic toolchain. Completeness is driven by:
 
-- [`ROADMAP.md`](./ROADMAP.md) — feature checklist
+- [`ROADMAP.md`](./ROADMAP.md) — feature checklist (Loop source of truth)
 - [`CONTEXT.md`](./CONTEXT.md) — glossary
 - [`docs/adr/`](./docs/adr/) — locked decisions
 - **draconic-loop** skill — one atomic Roadmap item per Loop (test-first)

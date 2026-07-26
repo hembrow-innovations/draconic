@@ -59,8 +59,15 @@ Iterate until the user approves the breakdown.
 
 Publish the approved tickets. **How** depends on the tracker `/setup-matt-pocock-skills` configured — the tickets are the same either way, only the shape of the blocking edges changes:
 
-- **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below — one ticket per file, never a single combined file.
-- **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking / sub-issue relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. Apply the `ready-for-agent` triage label unless instructed otherwise — the tickets are agent-grabbable by construction.
+- **Vault tracker (`docs/planning/`)** → one issue note per ticket:
+  `docs/planning/issues/issues-<N>-<slug>.md`. Allocate each `<N>` with
+  `node scripts/planning-next-id.mjs` (global sequence; never eyeball). Dependency
+  order: blockers first. Each note's `## Blocked by` lists `[[wikilinks]]` to
+  blocking issues. Frontmatter: `status: open`, tags include `ready-for-agent`
+  (unless instructed otherwise) + category. Use the issue template under
+  `.agents/skills/docs/templates/issue.md` plus the body sections below.
+- **GitHub / Linear / other** → only if `docs/agents/issue-tracker.md` says so;
+  otherwise always the vault.
 
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
 
@@ -68,16 +75,27 @@ Do NOT close or modify any parent issue.
 
 <local-ticket-template>
 
-# <NN> — <Ticket title>
+Frontmatter: `id: issues-<N>`, `status: open`, `tags: [planning, issue, enhancement|bug, ready-for-agent, …]`, title/description.
 
-**What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective — not a layer-by-layer implementation list.
+# <Ticket title>
 
-**Blocked by:** the numbers/titles of the tickets that gate this one, or "None — can start immediately".
+## Description / What to build
 
-**Status:** ready-for-agent
+End-to-end behaviour from the user's perspective — not layer-by-layer implementation.
 
-- [ ] Acceptance criterion 1
-- [ ] Acceptance criterion 2
+## Blocked by
+
+- None — can start immediately
+- or `[[issues-M-slug]]`
+
+## Acceptance criteria
+
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Agent Brief
+
+(Required when `ready-for-agent` — see triage AGENT-BRIEF.md)
 
 </local-ticket-template>
 
