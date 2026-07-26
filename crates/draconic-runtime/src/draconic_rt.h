@@ -1,4 +1,4 @@
-/* Draconic Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue). */
+/* Draconic Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue; N06.02: Promise). */
 #ifndef DRACONIC_RT_H
 #define DRACONIC_RT_H
 
@@ -38,6 +38,28 @@ typedef void (*DraconicJobFn)(void *data);
 void draconic_rt_job_enqueue(DraconicJobFn fn, void *data);
 void draconic_rt_job_drain(void);
 size_t draconic_rt_job_pending(void);
+
+/* --- Promise (N06.02): settle + then reactions via job queue --- */
+#define DRACONIC_PROMISE_PENDING 0
+#define DRACONIC_PROMISE_FULFILLED 1
+#define DRACONIC_PROMISE_REJECTED 2
+
+/* Reaction callback: return value fulfills the derived promise from `then`. */
+typedef void *(*DraconicPromiseReactionFn)(void *data, void *value_or_reason);
+
+DraconicValue *draconic_rt_promise_new(void);
+int draconic_rt_is_promise(DraconicValue *v);
+int draconic_rt_promise_state(DraconicValue *p);
+void *draconic_rt_promise_result(DraconicValue *p);
+void draconic_rt_promise_resolve(DraconicValue *p, void *value);
+void draconic_rt_promise_reject(DraconicValue *p, void *reason);
+/* Attach reactions; returns a new pending promise settled from the reaction. */
+DraconicValue *draconic_rt_promise_then(
+    DraconicValue *p,
+    DraconicPromiseReactionFn on_fulfilled,
+    void *fulfill_data,
+    DraconicPromiseReactionFn on_rejected,
+    void *reject_data);
 
 #ifdef __cplusplus
 }

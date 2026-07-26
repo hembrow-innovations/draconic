@@ -5,7 +5,8 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue). Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue; N06.02: Promise).
+   Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -34,7 +35,19 @@ void draconic_rt_print_bool(int8_t v) {
 typedef enum {
     DRACONIC_TAG_STRING = 1,
     DRACONIC_TAG_OBJECT = 2,
+    DRACONIC_TAG_PROMISE = 3,
 } DraconicTag;
+
+typedef struct DraconicPromiseReaction DraconicPromiseReaction;
+
+struct DraconicPromiseReaction {
+    DraconicPromiseReactionFn on_fulfilled;
+    void *fulfill_data;
+    DraconicPromiseReactionFn on_rejected;
+    void *reject_data;
+    struct DraconicValue *derived;
+    DraconicPromiseReaction *next;
+};
 
 struct DraconicValue {
     DraconicTag tag;
@@ -49,6 +62,12 @@ struct DraconicValue {
             /* empty object for GC hello; properties come later */
             int _pad;
         } object;
+        struct {
+            int state; /* DRACONIC_PROMISE_* */
+            void *result;
+            DraconicPromiseReaction *reactions_head;
+            DraconicPromiseReaction *reactions_tail;
+        } promise;
     } as;
 };
 
@@ -69,10 +88,22 @@ void draconic_rt_gc_init(void) {
     g_gc_inited = 1;
 }
 
+static void free_promise_reactions(DraconicPromiseReaction *head) {
+    while (head) {
+        DraconicPromiseReaction *next = head->next;
+        free(head);
+        head = next;
+    }
+}
+
 static void free_value(DraconicValue *v) {
     if (v->tag == DRACONIC_TAG_STRING && v->as.string.data) {
         free(v->as.string.data);
         v->as.string.data = NULL;
+    } else if (v->tag == DRACONIC_TAG_PROMISE) {
+        free_promise_reactions(v->as.promise.reactions_head);
+        v->as.promise.reactions_head = NULL;
+        v->as.promise.reactions_tail = NULL;
     }
     free(v);
 }
@@ -153,7 +184,13 @@ static void mark_value(DraconicValue *v) {
         return;
     }
     v->marked = 1;
-    /* B09: strings/objects have no child pointers yet */
+    if (v->tag == DRACONIC_TAG_PROMISE) {
+        DraconicPromiseReaction *r = v->as.promise.reactions_head;
+        while (r) {
+            mark_value(r->derived);
+            r = r->next;
+        }
+    }
 }
 
 void draconic_rt_gc_collect(void) {
@@ -262,4 +299,190 @@ void draconic_rt_job_drain(void) {
         fn(data);
     }
     g_job_draining = 0;
+}
+
+/* --- Promise (N06.02): pending → settle once; then reactions as jobs --- */
+
+void draconic_rt_promise_resolve(DraconicValue *p, void *value);
+void draconic_rt_promise_reject(DraconicValue *p, void *reason);
+
+typedef struct {
+    DraconicPromiseReactionFn fn;
+    void *data;
+    void *arg;
+    int reject_passthrough; /* fn == NULL on reject path → reject derived */
+    DraconicValue *derived;
+} PromiseReactionJob;
+
+static void promise_reaction_job(void *data) {
+    PromiseReactionJob *job = (PromiseReactionJob *)data;
+    DraconicValue *derived = job->derived;
+    if (!derived || derived->tag != DRACONIC_TAG_PROMISE) {
+        free(job);
+        return;
+    }
+    if (job->fn) {
+        void *out = job->fn(job->data, job->arg);
+        draconic_rt_promise_resolve(derived, out);
+    } else if (job->reject_passthrough) {
+        draconic_rt_promise_reject(derived, job->arg);
+    } else {
+        draconic_rt_promise_resolve(derived, job->arg);
+    }
+    free(job);
+}
+
+static void enqueue_promise_reaction(
+    DraconicPromiseReactionFn fn,
+    void *data,
+    void *arg,
+    int reject_passthrough,
+    DraconicValue *derived
+) {
+    PromiseReactionJob *job = (PromiseReactionJob *)calloc(1, sizeof(PromiseReactionJob));
+    if (!job) {
+        fprintf(stderr, "draconic_rt: promise reaction OOM\n");
+        abort();
+    }
+    job->fn = fn;
+    job->data = data;
+    job->arg = arg;
+    job->reject_passthrough = reject_passthrough;
+    job->derived = derived;
+    draconic_rt_job_enqueue(promise_reaction_job, job);
+}
+
+static void promise_settle(DraconicValue *p, int state, void *result) {
+    if (!p || p->tag != DRACONIC_TAG_PROMISE) {
+        return;
+    }
+    if (p->as.promise.state != DRACONIC_PROMISE_PENDING) {
+        return;
+    }
+    p->as.promise.state = state;
+    p->as.promise.result = result;
+
+    DraconicPromiseReaction *r = p->as.promise.reactions_head;
+    p->as.promise.reactions_head = NULL;
+    p->as.promise.reactions_tail = NULL;
+
+    while (r) {
+        DraconicPromiseReaction *next = r->next;
+        if (state == DRACONIC_PROMISE_FULFILLED) {
+            enqueue_promise_reaction(
+                r->on_fulfilled,
+                r->fulfill_data,
+                result,
+                0,
+                r->derived
+            );
+        } else {
+            enqueue_promise_reaction(
+                r->on_rejected,
+                r->reject_data,
+                result,
+                r->on_rejected == NULL ? 1 : 0,
+                r->derived
+            );
+        }
+        free(r);
+        r = next;
+    }
+}
+
+DraconicValue *draconic_rt_promise_new(void) {
+    DraconicValue *v = heap_alloc(DRACONIC_TAG_PROMISE);
+    if (!v) {
+        return NULL;
+    }
+    v->as.promise.state = DRACONIC_PROMISE_PENDING;
+    v->as.promise.result = NULL;
+    v->as.promise.reactions_head = NULL;
+    v->as.promise.reactions_tail = NULL;
+    return v;
+}
+
+int draconic_rt_is_promise(DraconicValue *v) {
+    return v && v->tag == DRACONIC_TAG_PROMISE;
+}
+
+int draconic_rt_promise_state(DraconicValue *p) {
+    if (!p || p->tag != DRACONIC_TAG_PROMISE) {
+        return -1;
+    }
+    return p->as.promise.state;
+}
+
+void *draconic_rt_promise_result(DraconicValue *p) {
+    if (!p || p->tag != DRACONIC_TAG_PROMISE) {
+        return NULL;
+    }
+    return p->as.promise.result;
+}
+
+void draconic_rt_promise_resolve(DraconicValue *p, void *value) {
+    promise_settle(p, DRACONIC_PROMISE_FULFILLED, value);
+}
+
+void draconic_rt_promise_reject(DraconicValue *p, void *reason) {
+    promise_settle(p, DRACONIC_PROMISE_REJECTED, reason);
+}
+
+DraconicValue *draconic_rt_promise_then(
+    DraconicValue *p,
+    DraconicPromiseReactionFn on_fulfilled,
+    void *fulfill_data,
+    DraconicPromiseReactionFn on_rejected,
+    void *reject_data
+) {
+    DraconicValue *derived = draconic_rt_promise_new();
+    if (!derived) {
+        return NULL;
+    }
+    if (!p || p->tag != DRACONIC_TAG_PROMISE) {
+        draconic_rt_promise_reject(derived, NULL);
+        return derived;
+    }
+
+    int state = p->as.promise.state;
+    if (state == DRACONIC_PROMISE_PENDING) {
+        DraconicPromiseReaction *r =
+            (DraconicPromiseReaction *)calloc(1, sizeof(DraconicPromiseReaction));
+        if (!r) {
+            fprintf(stderr, "draconic_rt: promise_then OOM\n");
+            abort();
+        }
+        r->on_fulfilled = on_fulfilled;
+        r->fulfill_data = fulfill_data;
+        r->on_rejected = on_rejected;
+        r->reject_data = reject_data;
+        r->derived = derived;
+        r->next = NULL;
+        if (p->as.promise.reactions_tail) {
+            p->as.promise.reactions_tail->next = r;
+        } else {
+            p->as.promise.reactions_head = r;
+        }
+        p->as.promise.reactions_tail = r;
+        return derived;
+    }
+
+    if (state == DRACONIC_PROMISE_FULFILLED) {
+        enqueue_promise_reaction(
+            on_fulfilled,
+            fulfill_data,
+            p->as.promise.result,
+            0,
+            derived
+        );
+    } else {
+        enqueue_promise_reaction(
+            on_rejected,
+            reject_data,
+            p->as.promise.result,
+            on_rejected == NULL ? 1 : 0,
+            derived
+        );
+    }
+    return derived;
 }

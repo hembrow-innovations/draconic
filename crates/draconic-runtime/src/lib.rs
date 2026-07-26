@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -97,6 +97,32 @@ pub const JOB_QUEUE_SYMBOLS: &[&str] = &[
     JOB_ENQUEUE_SYMBOL,
     JOB_DRAIN_SYMBOL,
     JOB_PENDING_SYMBOL,
+];
+
+/// C ABI: allocate a pending Promise (N06.02).
+pub const PROMISE_NEW_SYMBOL: &str = "draconic_rt_promise_new";
+/// C ABI: tag predicate for Promise values.
+pub const IS_PROMISE_SYMBOL: &str = "draconic_rt_is_promise";
+/// C ABI: Promise state — 0 pending, 1 fulfilled, 2 rejected.
+pub const PROMISE_STATE_SYMBOL: &str = "draconic_rt_promise_state";
+/// C ABI: Promise result (fulfillment value or rejection reason).
+pub const PROMISE_RESULT_SYMBOL: &str = "draconic_rt_promise_result";
+/// C ABI: fulfill a Promise once (second settle is a no-op).
+pub const PROMISE_RESOLVE_SYMBOL: &str = "draconic_rt_promise_resolve";
+/// C ABI: reject a Promise once (second settle is a no-op).
+pub const PROMISE_REJECT_SYMBOL: &str = "draconic_rt_promise_reject";
+/// C ABI: attach then reactions; returns a derived Promise for chaining.
+pub const PROMISE_THEN_SYMBOL: &str = "draconic_rt_promise_then";
+
+/// Promise ABI symbols (N06.02).
+pub const PROMISE_SYMBOLS: &[&str] = &[
+    PROMISE_NEW_SYMBOL,
+    IS_PROMISE_SYMBOL,
+    PROMISE_STATE_SYMBOL,
+    PROMISE_RESULT_SYMBOL,
+    PROMISE_RESOLVE_SYMBOL,
+    PROMISE_REJECT_SYMBOL,
+    PROMISE_THEN_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -564,6 +590,199 @@ mod tests {
             assert!(src.contains(sym), "C runtime source must define {sym}");
             assert!(hdr.contains(sym), "C runtime header must declare {sym}");
         }
+    }
+
+    #[test]
+    fn c_runtime_exports_promise_abi() {
+        let src = c_runtime_source();
+        let hdr = c_runtime_header_source();
+        for sym in PROMISE_SYMBOLS {
+            assert!(src.contains(sym), "C runtime source must define {sym}");
+            assert!(hdr.contains(sym), "C runtime header must declare {sym}");
+        }
+    }
+
+    #[test]
+    fn promise_resolve_reject_then_via_job_queue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_promise");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+
+            static int g_resolved;
+            static int g_rejected;
+            static int g_chained;
+            static int g_late;
+            static int g_double;
+
+            static void *on_resolve(void *data, void *value) {
+                (void)data;
+                g_resolved = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_reject(void *data, void *reason) {
+                (void)data;
+                g_rejected = (int)(intptr_t)reason;
+                return reason;
+            }
+
+            static void *on_chain(void *data, void *value) {
+                (void)data;
+                return (void *)(intptr_t)((int)(intptr_t)value + 1);
+            }
+
+            static void *on_chained(void *data, void *value) {
+                (void)data;
+                g_chained = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_late(void *data, void *value) {
+                (void)data;
+                g_late = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_double(void *data, void *value) {
+                (void)data;
+                g_double += (int)(intptr_t)value;
+                return value;
+            }
+
+            int main(void) {
+                DraconicValue *p = draconic_rt_promise_new();
+                if (!p || !draconic_rt_is_promise(p)) {
+                    fprintf(stderr, "promise_new/is_promise failed\n");
+                    return 1;
+                }
+                if (draconic_rt_promise_state(p) != 0) {
+                    fprintf(stderr, "want pending\n");
+                    return 2;
+                }
+
+                /* then before settle: reactions run after drain */
+                (void)draconic_rt_promise_then(p, on_resolve, NULL, NULL, NULL);
+                draconic_rt_promise_resolve(p, (void *)(intptr_t)42);
+                if (draconic_rt_promise_state(p) != 1) {
+                    fprintf(stderr, "want fulfilled\n");
+                    return 3;
+                }
+                if ((intptr_t)draconic_rt_promise_result(p) != 42) {
+                    fprintf(stderr, "result want 42\n");
+                    return 4;
+                }
+                if (g_resolved != 0) {
+                    fprintf(stderr, "reaction must not run before drain\n");
+                    return 5;
+                }
+                if (draconic_rt_job_pending() == 0) {
+                    fprintf(stderr, "settle should enqueue reaction job\n");
+                    return 6;
+                }
+                draconic_rt_job_drain();
+                if (g_resolved != 42) {
+                    fprintf(stderr, "resolved want 42 got %d\n", g_resolved);
+                    return 7;
+                }
+
+                /* reject path */
+                DraconicValue *q = draconic_rt_promise_new();
+                (void)draconic_rt_promise_then(q, NULL, NULL, on_reject, NULL);
+                draconic_rt_promise_reject(q, (void *)(intptr_t)7);
+                draconic_rt_job_drain();
+                if (draconic_rt_promise_state(q) != 2) {
+                    fprintf(stderr, "want rejected\n");
+                    return 8;
+                }
+                if (g_rejected != 7) {
+                    fprintf(stderr, "rejected want 7 got %d\n", g_rejected);
+                    return 9;
+                }
+
+                /* chain: then returns derived promise; callback return settles it */
+                DraconicValue *c0 = draconic_rt_promise_new();
+                DraconicValue *c1 = draconic_rt_promise_then(c0, on_chain, NULL, NULL, NULL);
+                DraconicValue *c2 = draconic_rt_promise_then(c1, on_chained, NULL, NULL, NULL);
+                if (!draconic_rt_is_promise(c1) || !draconic_rt_is_promise(c2)) {
+                    fprintf(stderr, "then must return promise\n");
+                    return 10;
+                }
+                draconic_rt_promise_resolve(c0, (void *)(intptr_t)1);
+                draconic_rt_job_drain();
+                if (g_chained != 2) {
+                    fprintf(stderr, "chained want 2 got %d\n", g_chained);
+                    return 11;
+                }
+
+                /* then after already settled still schedules a job */
+                DraconicValue *late = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(late, (void *)(intptr_t)99);
+                (void)draconic_rt_promise_then(late, on_late, NULL, NULL, NULL);
+                if (g_late != 0) {
+                    fprintf(stderr, "late then must not run sync\n");
+                    return 12;
+                }
+                draconic_rt_job_drain();
+                if (g_late != 99) {
+                    fprintf(stderr, "late want 99 got %d\n", g_late);
+                    return 13;
+                }
+
+                /* double resolve is a no-op; reaction fires once */
+                DraconicValue *d = draconic_rt_promise_new();
+                (void)draconic_rt_promise_then(d, on_double, NULL, NULL, NULL);
+                draconic_rt_promise_resolve(d, (void *)(intptr_t)5);
+                draconic_rt_promise_resolve(d, (void *)(intptr_t)100);
+                draconic_rt_job_drain();
+                if (g_double != 5) {
+                    fprintf(stderr, "double want 5 got %d\n", g_double);
+                    return 14;
+                }
+                if ((intptr_t)draconic_rt_promise_result(d) != 5) {
+                    fprintf(stderr, "double result want 5\n");
+                    return 15;
+                }
+
+                puts("promise-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link promise test");
+
+        let output = Command::new(&bin).output().expect("run rt_promise");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "promise binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "promise-ok\n", "stdout={stdout:?}");
     }
 
     #[test]
