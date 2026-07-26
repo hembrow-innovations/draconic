@@ -1,10 +1,10 @@
 #
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02–E19.21 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
+# Expanded under ROADMAP E19.02–E19.22 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
 # statements/control, call/new/delete/in/instanceof, compound/logical assignment greens,
 # object/assignment/try dstr fill-ins, for-head dstr, catch dstr, RegExp literal early errors,
 # ASI, statementList, directive-prologue, reserved words, arrow/eval/function-code/with/for-of
-# greens after E19.16–E19.19, call Arguments trailing comma E19.21).
+# greens after E19.16–E19.19, call Arguments trailing comma E19.21, class computed names E19.22).
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 # Lines starting with # and blank lines are ignored.
 test/language/arguments-object/10.5-1-s.js
@@ -272,6 +272,35 @@ test/language/comments/multi-line-asi-line-separator.js
 test/language/comments/multi-line-asi-paragraph-separator.js
 test/language/comments/multi-line-html-close-extra.js
 test/language/comments/single-line-html-close-without-lt.js
+test/language/computed-property-names/class/accessor/getter-duplicates.js
+test/language/computed-property-names/class/accessor/getter.js
+test/language/computed-property-names/class/accessor/setter-duplicates.js
+test/language/computed-property-names/class/accessor/setter.js
+test/language/computed-property-names/class/method/constructor-can-be-generator.js
+test/language/computed-property-names/class/method/constructor-can-be-getter.js
+test/language/computed-property-names/class/method/constructor-can-be-setter.js
+test/language/computed-property-names/class/method/constructor-duplicate-1.js
+test/language/computed-property-names/class/method/constructor-duplicate-2.js
+test/language/computed-property-names/class/method/constructor-duplicate-3.js
+test/language/computed-property-names/class/method/constructor.js
+test/language/computed-property-names/class/method/generator.js
+test/language/computed-property-names/class/method/number.js
+test/language/computed-property-names/class/method/string.js
+test/language/computed-property-names/class/method/symbol.js
+test/language/computed-property-names/class/static/generator-constructor.js
+test/language/computed-property-names/class/static/generator-prototype.js
+test/language/computed-property-names/class/static/getter-constructor.js
+test/language/computed-property-names/class/static/getter-prototype.js
+test/language/computed-property-names/class/static/method-constructor.js
+test/language/computed-property-names/class/static/method-number-order.js
+test/language/computed-property-names/class/static/method-number.js
+test/language/computed-property-names/class/static/method-prototype.js
+test/language/computed-property-names/class/static/method-string-order.js
+test/language/computed-property-names/class/static/method-string.js
+test/language/computed-property-names/class/static/method-symbol-order.js
+test/language/computed-property-names/class/static/method-symbol.js
+test/language/computed-property-names/class/static/setter-constructor.js
+test/language/computed-property-names/class/static/setter-prototype.js
 test/language/computed-property-names/object/accessor/getter-duplicates.js
 test/language/computed-property-names/object/accessor/getter.js
 test/language/computed-property-names/object/accessor/setter-duplicates.js

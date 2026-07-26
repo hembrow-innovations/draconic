@@ -220,6 +220,29 @@ assert.throws = function(expectedErrorConstructor, func, message) {
     $ERROR(msg + "Expected a " + expectedErrorConstructor.name + " to be thrown but no exception was thrown at all");
   }
 };
+assert.compareArray = function(actual, expected, message) {
+  if (typeof actual !== "object" || actual === null || typeof expected !== "object" || expected === null) {
+    $ERROR(message || "assert.compareArray requires array-like arguments");
+  }
+  let al = actual.length;
+  let el = expected.length;
+  if (al !== el) {
+    $ERROR(message || ("Expected array length " + el + " but got " + al + ": [" + Array.prototype.join.call(actual, ",") + "] vs [" + Array.prototype.join.call(expected, ",") + "]"));
+  }
+  let i = 0;
+  while (i < al) {
+    let a = actual[i];
+    let e = expected[i];
+    let same = a === e;
+    if (a !== a && e !== e) {
+      same = true;
+    }
+    if (same === false) {
+      $ERROR(message || ("arrays differ at " + i + ": " + String(a) + " vs " + String(e) + " (actual=[" + Array.prototype.join.call(actual, ",") + "])"));
+    }
+    i = i + 1;
+  }
+};
 "#;
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.

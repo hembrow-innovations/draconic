@@ -695,37 +695,37 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Method {
-                        name,
+                        key,
                         params,
                         body,
                         span,
                         ..
                     } => {
                         *span = spans.next();
-                        name.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         uniqueify_params_spans(params, spans);
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Accessor {
-                        name,
+                        key,
                         params,
                         body,
                         span,
                         ..
                     } => {
                         *span = spans.next();
-                        name.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         uniqueify_params_spans(params, spans);
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Field {
-                        name,
+                        key,
                         value,
                         span,
                         ..
                     } => {
                         *span = spans.next();
-                        name.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         if let Some(v) = value {
                             uniqueify_expr_spans(v, spans);
                         }
@@ -829,6 +829,14 @@ fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans)
                 }
             }
         }
+    }
+}
+
+fn uniqueify_object_key_spans(key: &mut ObjectKey, spans: &mut SyntheticSpans) {
+    match key {
+        ObjectKey::Ident(id) => id.span = spans.next(),
+        ObjectKey::String(s) => s.span = spans.next(),
+        ObjectKey::Computed(e) => uniqueify_expr_spans(e, spans),
     }
 }
 
@@ -974,37 +982,37 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Method {
-                        name,
+                        key,
                         params,
                         body,
                         span,
                         ..
                     } => {
                         *span = spans.next();
-                        name.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         uniqueify_params_spans(params, spans);
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Accessor {
-                        name,
+                        key,
                         params,
                         body,
                         span,
                         ..
                     } => {
                         *span = spans.next();
-                        name.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         uniqueify_params_spans(params, spans);
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Field {
-                        name,
+                        key,
                         value,
                         span,
                         ..
                     } => {
                         *span = spans.next();
-                        name.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         if let Some(v) = value {
                             uniqueify_expr_spans(v, spans);
                         }
@@ -1281,6 +1289,17 @@ impl ScopeStack {
     }
 }
 
+fn rename_object_key(
+    key: &mut ObjectKey,
+    renames: &HashMap<String, String>,
+    scopes: &mut ScopeStack,
+) {
+    match key {
+        ObjectKey::Computed(e) => rename_expr(e, renames, scopes),
+        ObjectKey::Ident(_) | ObjectKey::String(_) => {}
+    }
+}
+
 fn rename_ident(id: &mut Ident, renames: &HashMap<String, String>, scopes: &ScopeStack) {
     if scopes.is_shadowed(&id.name) {
         return;
@@ -1468,15 +1487,26 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
             }
             for el in body.iter_mut() {
                 match el {
-                    ClassElement::Constructor { params, body, .. }
-                    | ClassElement::Method { params, body, .. }
-                    | ClassElement::Accessor { params, body, .. } => {
+                    ClassElement::Constructor { params, body, .. } => {
                         scopes.push();
                         rename_params(params, renames, scopes);
                         rename_stmt(body, renames, scopes);
                         scopes.pop();
                     }
-                    ClassElement::Field { value, .. } => {
+                    ClassElement::Method {
+                        key, params, body, ..
+                    }
+                    | ClassElement::Accessor {
+                        key, params, body, ..
+                    } => {
+                        rename_object_key(key, renames, scopes);
+                        scopes.push();
+                        rename_params(params, renames, scopes);
+                        rename_stmt(body, renames, scopes);
+                        scopes.pop();
+                    }
+                    ClassElement::Field { key, value, .. } => {
+                        rename_object_key(key, renames, scopes);
                         if let Some(v) = value {
                             rename_expr(v, renames, scopes);
                         }
@@ -1625,15 +1655,26 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
             }
             for el in body.iter_mut() {
                 match el {
-                    ClassElement::Constructor { params, body, .. }
-                    | ClassElement::Method { params, body, .. }
-                    | ClassElement::Accessor { params, body, .. } => {
+                    ClassElement::Constructor { params, body, .. } => {
                         scopes.push();
                         rename_params(params, renames, scopes);
                         rename_stmt(body, renames, scopes);
                         scopes.pop();
                     }
-                    ClassElement::Field { value, .. } => {
+                    ClassElement::Method {
+                        key, params, body, ..
+                    }
+                    | ClassElement::Accessor {
+                        key, params, body, ..
+                    } => {
+                        rename_object_key(key, renames, scopes);
+                        scopes.push();
+                        rename_params(params, renames, scopes);
+                        rename_stmt(body, renames, scopes);
+                        scopes.pop();
+                    }
+                    ClassElement::Field { key, value, .. } => {
+                        rename_object_key(key, renames, scopes);
                         if let Some(v) = value {
                             rename_expr(v, renames, scopes);
                         }

@@ -1,0 +1,4 @@
+id: es/classes/class_computed
+targets: js
+js.exit: 0
+js.check: setTimeout(function () { if (a !== "A") process.exit(1); if (b !== "B") process.exit(1); if (c !== "C") process.exit(1); if (g !== "G") process.exit(1); if (s !== "S") process.exit(1); if (st !== "ST") process.exit(1); if (sg !== "SG") process.exit(1); if (g1 !== 1) process.exit(1); if (g2 !== 2) process.exit(1); if (asDone !== "AS") process.exit(1); }, 0);

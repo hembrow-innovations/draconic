@@ -362,9 +362,10 @@ pub enum ClassElement {
         body: Box<Stmt>,
         span: Span,
     },
-    /// `static? async? *? #? name(params) { body }` instance or static method (optional async/generator/private)
+    /// `static? async? *? #? name(params) { body }` instance or static method (optional async/generator/private/computed)
     Method {
-        name: Ident,
+        /// Ident / string / computed `[expr]`; private methods use `Ident` + `is_private`.
+        key: ObjectKey,
         params: Vec<Param>,
         body: Box<Stmt>,
         is_static: bool,
@@ -374,10 +375,11 @@ pub enum ClassElement {
         is_private: bool,
         span: Span,
     },
-    /// `static? get #? name() { body }` / `static? set #? name(v) { body }` (E18.22 public; E18.39 private)
+    /// `static? get #? name() { body }` / `static? set #? name(v) { body }` (E18.22 public; E18.39 private; computed keys)
     Accessor {
         kind: AccessorKind,
-        name: Ident,
+        /// Ident / string / computed `[expr]`; private accessors use `Ident` + `is_private`.
+        key: ObjectKey,
         params: Vec<Param>,
         body: Box<Stmt>,
         is_static: bool,
@@ -385,9 +387,10 @@ pub enum ClassElement {
         is_private: bool,
         span: Span,
     },
-    /// `static? #? name = expr;` / `static? #? name;` field (E18.26 public; E18.35 private).
+    /// `static? #? name = expr;` / `static? #? name;` / computed `[expr]` field (E18.26 public; E18.35 private).
     Field {
-        name: Ident,
+        /// Ident / string / computed `[expr]`; private fields use `Ident` + `is_private`.
+        key: ObjectKey,
         /// Absent when the field has no initializer (`name;`).
         value: Option<Expr>,
         is_static: bool,
@@ -1388,7 +1391,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         dump_stmt(body, level + 3, out);
                     }
                     ClassElement::Method {
-                        name,
+                        key,
                         params,
                         body,
                         is_static,
@@ -1404,12 +1407,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                             (false, true) => out.push_str("PrivateMethod\n"),
                             (false, false) => out.push_str("Method\n"),
                         }
-                        indent(level + 2, out);
-                        if *is_private {
-                            out.push_str(&format!("name: #{}\n", name.name));
-                        } else {
-                            out.push_str(&format!("name: {}\n", name.name));
-                        }
+                        dump_class_element_key(key, *is_private, level + 2, out);
                         if *is_async {
                             indent(level + 2, out);
                             out.push_str("async: true\n");
@@ -1425,7 +1423,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                     }
                     ClassElement::Accessor {
                         kind,
-                        name,
+                        key,
                         params,
                         body,
                         is_static,
@@ -1447,12 +1445,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                             }
                             (false, false) => out.push_str(&format!("Accessor {kind_s}\n")),
                         }
-                        indent(level + 2, out);
-                        if *is_private {
-                            out.push_str(&format!("name: #{}\n", name.name));
-                        } else {
-                            out.push_str(&format!("name: {}\n", name.name));
-                        }
+                        dump_class_element_key(key, *is_private, level + 2, out);
                         dump_params(params, level + 2, out);
                         indent(level + 2, out);
                         out.push_str("body:\n");
@@ -1466,7 +1459,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         dump_stmt(body, level + 3, out);
                     }
                     ClassElement::Field {
-                        name,
+                        key,
                         value,
                         is_static,
                         is_private,
@@ -1479,12 +1472,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                             (false, true) => out.push_str("PrivateField\n"),
                             (false, false) => out.push_str("Field\n"),
                         }
-                        indent(level + 2, out);
-                        if *is_private {
-                            out.push_str(&format!("name: #{}\n", name.name));
-                        } else {
-                            out.push_str(&format!("name: {}\n", name.name));
-                        }
+                        dump_class_element_key(key, *is_private, level + 2, out);
                         if let Some(v) = value {
                             indent(level + 2, out);
                             out.push_str("value:\n");
@@ -1882,7 +1870,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         dump_stmt(body, level + 3, out);
                     }
                     ClassElement::Method {
-                        name,
+                        key,
                         params,
                         body,
                         is_static,
@@ -1898,12 +1886,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                             (false, true) => out.push_str("PrivateMethod\n"),
                             (false, false) => out.push_str("Method\n"),
                         }
-                        indent(level + 2, out);
-                        if *is_private {
-                            out.push_str(&format!("name: #{}\n", name.name));
-                        } else {
-                            out.push_str(&format!("name: {}\n", name.name));
-                        }
+                        dump_class_element_key(key, *is_private, level + 2, out);
                         if *is_async {
                             indent(level + 2, out);
                             out.push_str("async: true\n");
@@ -1919,7 +1902,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                     }
                     ClassElement::Accessor {
                         kind,
-                        name,
+                        key,
                         params,
                         body,
                         is_static,
@@ -1941,12 +1924,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                             }
                             (false, false) => out.push_str(&format!("Accessor {kind_s}\n")),
                         }
-                        indent(level + 2, out);
-                        if *is_private {
-                            out.push_str(&format!("name: #{}\n", name.name));
-                        } else {
-                            out.push_str(&format!("name: {}\n", name.name));
-                        }
+                        dump_class_element_key(key, *is_private, level + 2, out);
                         dump_params(params, level + 2, out);
                         indent(level + 2, out);
                         out.push_str("body:\n");
@@ -1960,7 +1938,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         dump_stmt(body, level + 3, out);
                     }
                     ClassElement::Field {
-                        name,
+                        key,
                         value,
                         is_static,
                         is_private,
@@ -1973,12 +1951,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                             (false, true) => out.push_str("PrivateField\n"),
                             (false, false) => out.push_str("Field\n"),
                         }
-                        indent(level + 2, out);
-                        if *is_private {
-                            out.push_str(&format!("name: #{}\n", name.name));
-                        } else {
-                            out.push_str(&format!("name: {}\n", name.name));
-                        }
+                        dump_class_element_key(key, *is_private, level + 2, out);
                         if let Some(v) = value {
                             indent(level + 2, out);
                             out.push_str("value:\n");
@@ -2187,6 +2160,25 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str("ObjectPattern\n");
             dump_object_pattern_props(properties, level + 1, out);
+        }
+    }
+}
+
+fn dump_class_element_key(key: &ObjectKey, is_private: bool, level: usize, out: &mut String) {
+    indent(level, out);
+    match key {
+        ObjectKey::Ident(id) if is_private => {
+            out.push_str(&format!("name: #{}\n", id.name));
+        }
+        ObjectKey::Ident(id) => {
+            out.push_str(&format!("name: {}\n", id.name));
+        }
+        ObjectKey::String(s) => {
+            out.push_str(&format!("key: String {:?}\n", s.value.to_string_lossy()));
+        }
+        ObjectKey::Computed(expr) => {
+            out.push_str("key: Computed\n");
+            dump_expr(expr, level + 1, out);
         }
     }
 }

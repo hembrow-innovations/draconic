@@ -667,49 +667,43 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
-        // `get name()` / `set name(v)` / `get #name()` / `set #name(v)` (not `get()` method or `get:`)
+        // `get name()` / `set name(v)` / `get #name()` / `set #name(v)` / `get [expr]()` (not `get()` method)
         if let Some(kind) = self.peek_accessor_kind() {
             self.bump(); // consume get/set
-            let (name, is_private) = if let TokenKind::PrivateIdent(pname) = &self.current().kind {
+            let (key, is_private) = if let TokenKind::PrivateIdent(pname) = &self.current().kind {
                 let pname = pname.clone();
                 let name_tok = self.bump();
                 (
-                    Ident {
+                    ObjectKey::Ident(Ident {
                         name: pname,
                         span: name_tok.span,
-                    },
+                    }),
                     true,
                 )
             } else {
-                let name_tok = self.expect_ident()?;
-                (
-                    Ident {
-                        name: name_tok.ident_name(),
-                        span: name_tok.span,
-                    },
-                    false,
-                )
+                (self.parse_object_key()?, false)
             };
+            let key_span = object_key_span(&key);
             self.expect(&TokenKind::LParen)?;
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
             if kind == AccessorKind::Get && !params.is_empty() {
                 return Err(Diagnostic::new(
                     "getter must have zero parameters".to_string(),
-                    name.span,
+                    key_span,
                 ));
             }
             if kind == AccessorKind::Set && params.len() != 1 {
                 return Err(Diagnostic::new(
                     "setter must have exactly one parameter".to_string(),
-                    name.span,
+                    key_span,
                 ));
             }
             let body = Box::new(self.parse_block()?);
             let end = stmt_span(&body).end.0;
             return Ok(ClassElement::Accessor {
                 kind,
-                name,
+                key,
                 params,
                 body,
                 is_static,
@@ -717,7 +711,7 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
-        // `async m()` / `async *m()` / `async #m()` — not method/field named `async`.
+        // `async m()` / `async *m()` / `async #m()` / `async [e]()` — not method/field named `async`.
         let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
             self.bump();
             true
@@ -745,7 +739,7 @@ impl Parser {
                 let body = Box::new(self.parse_block()?);
                 let end = stmt_span(&body).end.0;
                 return Ok(ClassElement::Method {
-                    name,
+                    key: ObjectKey::Ident(name),
                     params,
                     body,
                     is_static,
@@ -767,19 +761,16 @@ impl Parser {
                 .unwrap_or(name.span.end.0);
             let span = Span::new(start, end);
             return Ok(ClassElement::Field {
-                name,
+                key: ObjectKey::Ident(name),
                 value,
                 is_static,
                 is_private: true,
                 span,
             });
         }
-        let name_tok = self.expect_ident()?;
-        let name = Ident {
-            name: name_tok.ident_name(),
-            span: name_tok.span,
-        };
-        // Public field: `name;` / `name = expr;` (not a method/constructor).
+        let key = self.parse_object_key()?;
+        let key_span = object_key_span(&key);
+        // Public field: `name;` / `name = expr;` / `[e];` / `[e] = expr;` (not a method/constructor).
         if !is_async && !is_generator && !self.check(&TokenKind::LParen) {
             let value = if self.check(&TokenKind::Eq) {
                 self.bump();
@@ -790,16 +781,16 @@ impl Parser {
             let end = value
                 .as_ref()
                 .map(|v| expr_span(v).end.0)
-                .unwrap_or(name.span.end.0);
+                .unwrap_or(key_span.end.0);
             let span = Span::new(start, end);
-            if name.name == "constructor" {
+            if class_key_is_literal_constructor(&key) {
                 return Err(Diagnostic::new(
                     "class field cannot be named constructor".to_string(),
                     span,
                 ));
             }
             return Ok(ClassElement::Field {
-                name,
+                key,
                 value,
                 is_static,
                 is_private: false,
@@ -812,7 +803,8 @@ impl Parser {
         let body = Box::new(self.parse_block()?);
         let end = stmt_span(&body).end.0;
         let span = Span::new(start, end);
-        if name.name == "constructor" {
+        // Only literal IdentifierName `constructor` is the constructor; computed/`"constructor"` are methods.
+        if class_key_is_literal_constructor(&key) {
             if is_static {
                 return Err(Diagnostic::new(
                     "class constructor cannot be static".to_string(),
@@ -838,7 +830,7 @@ impl Parser {
             })
         } else {
             Ok(ClassElement::Method {
-                name,
+                key,
                 params,
                 body,
                 is_static,
@@ -3518,6 +3510,19 @@ fn is_reserved_word(name: &str) -> bool {
     )
 }
 
+fn object_key_span(key: &ObjectKey) -> Span {
+    match key {
+        ObjectKey::Ident(id) => id.span,
+        ObjectKey::String(s) => s.span,
+        ObjectKey::Computed(expr) => expr_span(expr),
+    }
+}
+
+/// Literal IdentifierName `constructor` only — not `"constructor"` or `['constructor']`.
+fn class_key_is_literal_constructor(key: &ObjectKey) -> bool {
+    matches!(key, ObjectKey::Ident(id) if id.name == "constructor")
+}
+
 fn expr_span(expr: &Expr) -> Span {
     match expr {
         Expr::Ident(i) => i.span,
@@ -5410,6 +5415,38 @@ Program
             multi.matches("StaticBlock").count(),
             2,
             "two static blocks, got:\n{multi}"
+        );
+    }
+
+    #[test]
+    fn parse_class_computed_property_names() {
+        let dump = parse_and_dump(
+            "class C {\n\
+               ['m']() { return 1; }\n\
+               *[g]() { yield 2; }\n\
+               async [a]() { return 3; }\n\
+               get [x]() { return 4; }\n\
+               set [y](v) { this._ = v; }\n\
+               static ['s']() { return 5; }\n\
+               static get [sg]() { return 6; }\n\
+               static async *[sag]() { yield 7; }\n\
+             }\n",
+        )
+        .unwrap();
+        assert!(
+            dump.contains("key: Computed")
+                && dump.contains("Method")
+                && dump.contains("generator: true")
+                && dump.contains("async: true")
+                && dump.contains("Accessor get")
+                && dump.contains("Accessor set")
+                && dump.contains("StaticMethod")
+                && dump.contains("StaticAccessor get"),
+            "expected class computed methods/accessors, got:\n{dump}"
+        );
+        assert!(
+            dump.matches("key: Computed").count() >= 7,
+            "expected multiple computed keys, got:\n{dump}"
         );
     }
 }

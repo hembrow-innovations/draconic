@@ -1135,16 +1135,28 @@ impl Binder {
                 }
                 for el in body {
                     match el {
-                        ClassElement::Constructor { params, body, .. }
-                        | ClassElement::Method { params, body, .. }
-                        | ClassElement::Accessor { params, body, .. } => {
+                        ClassElement::Constructor { params, body, .. } => {
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.install_arguments_object()?;
                             self.bind_stmt(body)?;
                             self.pop_scope();
                         }
-                        ClassElement::Field { value, .. } => {
+                        ClassElement::Method {
+                            key, params, body, ..
+                        }
+                        | ClassElement::Accessor {
+                            key, params, body, ..
+                        } => {
+                            self.bind_object_key(key)?;
+                            self.push_scope_kind(true);
+                            self.bind_params(params)?;
+                            self.install_arguments_object()?;
+                            self.bind_stmt(body)?;
+                            self.pop_scope();
+                        }
+                        ClassElement::Field { key, value, .. } => {
+                            self.bind_object_key(key)?;
                             if let Some(v) = value {
                                 self.bind_expr(v)?;
                             }
@@ -1363,16 +1375,28 @@ impl Binder {
                 }
                 for el in body {
                     match el {
-                        ClassElement::Constructor { params, body, .. }
-                        | ClassElement::Method { params, body, .. }
-                        | ClassElement::Accessor { params, body, .. } => {
+                        ClassElement::Constructor { params, body, .. } => {
                             self.push_scope_kind(true);
                             self.bind_params(params)?;
                             self.install_arguments_object()?;
                             self.bind_stmt(body)?;
                             self.pop_scope();
                         }
-                        ClassElement::Field { value, .. } => {
+                        ClassElement::Method {
+                            key, params, body, ..
+                        }
+                        | ClassElement::Accessor {
+                            key, params, body, ..
+                        } => {
+                            self.bind_object_key(key)?;
+                            self.push_scope_kind(true);
+                            self.bind_params(params)?;
+                            self.install_arguments_object()?;
+                            self.bind_stmt(body)?;
+                            self.pop_scope();
+                        }
+                        ClassElement::Field { key, value, .. } => {
+                            self.bind_object_key(key)?;
                             if let Some(v) = value {
                                 self.bind_expr(v)?;
                             }
@@ -1569,6 +1593,13 @@ impl Binder {
                 }
                 Ok(())
             }
+        }
+    }
+
+    fn bind_object_key(&mut self, key: &ObjectKey) -> Result<(), Diagnostic> {
+        match key {
+            ObjectKey::Ident(_) | ObjectKey::String(_) => Ok(()),
+            ObjectKey::Computed(expr) => self.bind_expr(expr),
         }
     }
 
@@ -2309,12 +2340,14 @@ impl<'a> Checker<'a> {
                             self.in_generator = prev_generator;
                         }
                         ClassElement::Method {
+                            key,
                             params,
                             body,
                             is_async,
                             is_generator,
                             ..
                         } => {
+                            self.check_object_key(key)?;
                             self.check_params(params)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
@@ -2326,8 +2359,9 @@ impl<'a> Checker<'a> {
                             self.in_generator = prev_generator;
                         }
                         ClassElement::Accessor {
-                            params, body, ..
+                            key, params, body, ..
                         } => {
+                            self.check_object_key(key)?;
                             self.check_params(params)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
@@ -2338,7 +2372,8 @@ impl<'a> Checker<'a> {
                             self.in_async = prev_async;
                             self.in_generator = prev_generator;
                         }
-                        ClassElement::Field { value, .. } => {
+                        ClassElement::Field { key, value, .. } => {
+                            self.check_object_key(key)?;
                             if let Some(v) = value {
                                 self.check_expr(v)?;
                             }
@@ -2962,12 +2997,14 @@ impl<'a> Checker<'a> {
                             self.in_generator = prev_generator;
                         }
                         ClassElement::Method {
+                            key,
                             params,
                             body,
                             is_async,
                             is_generator,
                             ..
                         } => {
+                            self.check_object_key(key)?;
                             self.check_params(params)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
@@ -2979,8 +3016,9 @@ impl<'a> Checker<'a> {
                             self.in_generator = prev_generator;
                         }
                         ClassElement::Accessor {
-                            params, body, ..
+                            key, params, body, ..
                         } => {
+                            self.check_object_key(key)?;
                             self.check_params(params)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
@@ -2991,7 +3029,8 @@ impl<'a> Checker<'a> {
                             self.in_async = prev_async;
                             self.in_generator = prev_generator;
                         }
-                        ClassElement::Field { value, .. } => {
+                        ClassElement::Field { key, value, .. } => {
+                            self.check_object_key(key)?;
                             if let Some(v) = value {
                                 self.check_expr(v)?;
                             }
@@ -3145,6 +3184,16 @@ impl<'a> Checker<'a> {
             }
         };
         Ok(ty)
+    }
+
+    fn check_object_key(&mut self, key: &ObjectKey) -> Result<(), Diagnostic> {
+        match key {
+            ObjectKey::Ident(_) | ObjectKey::String(_) => Ok(()),
+            ObjectKey::Computed(expr) => {
+                self.check_expr(expr)?;
+                Ok(())
+            }
+        }
     }
 
     fn check_params(&mut self, params: &[Param]) -> Result<(), Diagnostic> {
@@ -5691,6 +5740,11 @@ mod tests {
 
     /// First non-declaration Ident use of `name` (expression reference).
     fn find_ident_use(program: &Program, name: &str) -> Span {
+        fn walk_object_key(key: &ObjectKey, name: &str, out: &mut Option<Span>) {
+            if let ObjectKey::Computed(expr) = key {
+                walk_expr(expr, name, out);
+            }
+        }
         fn walk_expr(expr: &Expr, name: &str, out: &mut Option<Span>) {
             if out.is_some() {
                 return;
@@ -6103,12 +6157,16 @@ mod tests {
                     for el in body {
                         match el {
                             ClassElement::Constructor { body, .. }
-                            | ClassElement::Method { body, .. }
-                            | ClassElement::Accessor { body, .. }
                             | ClassElement::StaticBlock { body, .. } => {
                                 walk_stmt(body, name, out);
                             }
-                            ClassElement::Field { value, .. } => {
+                            ClassElement::Method { key, body, .. }
+                            | ClassElement::Accessor { key, body, .. } => {
+                                walk_object_key(key, name, out);
+                                walk_stmt(body, name, out);
+                            }
+                            ClassElement::Field { key, value, .. } => {
+                                walk_object_key(key, name, out);
                                 if let Some(v) = value {
                                     walk_expr(v, name, out);
                                 }

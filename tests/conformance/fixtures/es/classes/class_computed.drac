@@ -1,0 +1,49 @@
+function ID(x) {
+  return x;
+}
+let asDone = 0;
+class C {
+  a() {
+    return "A";
+  }
+  ["b"]() {
+    return "B";
+  }
+  [ID("c")]() {
+    return "C";
+  }
+  get [ID("g")]() {
+    return "G";
+  }
+  set [ID("s")](v) {
+    this._s = v;
+  }
+  static [ID("st")]() {
+    return "ST";
+  }
+  static get [ID("sg")]() {
+    return "SG";
+  }
+  *[ID("gen")]() {
+    yield 1;
+    yield 2;
+  }
+  async [ID("as")]() {
+    return "AS";
+  }
+}
+let inst = new C();
+let a = inst.a();
+let b = inst.b();
+let c = inst.c();
+let g = inst.g;
+inst.s = "S";
+let s = inst._s;
+let st = C.st();
+let sg = C.sg;
+let gen = inst.gen();
+let g1 = gen.next().value;
+let g2 = gen.next().value;
+inst.as().then(function (v) {
+  asDone = v;
+});

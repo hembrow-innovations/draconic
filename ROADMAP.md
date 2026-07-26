@@ -246,7 +246,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.19 | done | js | Strict PutValue TypeError: compound assignment to non-writable / non-configurable data props and non-existent props on non-extensible objects | `tests/test262` (allowlist + baseline-report) |
 | E19.20 | done | js | Expand allowlist further after E19.16–E19.19 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 | E19.21 | done | js | Trailing comma in Arguments: `f(a,)` / `f(a, b,)` / spread+trailing in call (and `new`) argument lists | `crates/draconic-parser`, `tests/test262` |
-| E19.22 | todo | js | Class computed property names: `*[expr]()` / `async [expr]()` / `get`/`set [expr]()` / static variants (parser expects identifier) | `crates/draconic-parser`, `tests/test262` |
+| E19.22 | done | js | Class computed property names: `*[expr]()` / `async [expr]()` / `get`/`set [expr]()` / static variants (parser expects identifier) | `crates/draconic-parser`, `tests/test262` |
 | E19.23 | todo | js | `super` in object methods: `super.m()` / `super[expr]` in concise methods (incl. computed keys); no panic; arrow lexical `super` | `crates/draconic-check` / IR, `tests/test262` |
 | E19.24 | todo | js | Early SyntaxError enforcement: arrow `eval`/`arguments` bindings, block-scope + switch redeclaration negatives still accepted at parse | `crates/draconic-parser` / check, `tests/test262` |
 | E19.25 | todo | js | Expand allowlist further after E19.21–E19.24 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |

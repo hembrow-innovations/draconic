@@ -938,6 +938,61 @@ fn lower_class_expression(
     }
 }
 
+fn object_key_private_name(key: &draconic_ast::ObjectKey) -> Option<&str> {
+    match key {
+        draconic_ast::ObjectKey::Ident(id) => Some(id.name.as_str()),
+        _ => None,
+    }
+}
+
+/// Property key expression for `Object.defineProperty` / member name (always a value expr).
+fn lower_object_key_name_expr(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    key: &draconic_ast::ObjectKey,
+    super_class: Option<&AstExpr>,
+) -> Expr {
+    match key {
+        draconic_ast::ObjectKey::Ident(id) => Expr::String {
+            value: id.name.clone().into(),
+            ty: Type::String,
+        },
+        draconic_ast::ObjectKey::String(s) => Expr::String {
+            value: s.value.clone(),
+            ty: Type::String,
+        },
+        draconic_ast::ObjectKey::Computed(expr) => lower_expr(checked, ctx, expr, super_class),
+    }
+}
+
+/// Member property + computed flag for assignment targets.
+fn lower_object_key_prop(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    key: &draconic_ast::ObjectKey,
+    super_class: Option<&AstExpr>,
+) -> (Expr, bool) {
+    match key {
+        draconic_ast::ObjectKey::Ident(id) => (
+            Expr::String {
+                value: id.name.clone().into(),
+                ty: Type::String,
+            },
+            false,
+        ),
+        draconic_ast::ObjectKey::String(s) => (
+            Expr::String {
+                value: s.value.clone(),
+                ty: Type::String,
+            },
+            false,
+        ),
+        draconic_ast::ObjectKey::Computed(expr) => {
+            (lower_expr(checked, ctx, expr, super_class), true)
+        }
+    }
+}
+
 fn lower_class_local(
     checked: &CheckedProgram,
     ctx: &mut LowerCtx,
@@ -948,7 +1003,7 @@ fn lower_class_local(
     let mut ctor_params = Vec::new();
     let mut ctor_body_ast: Option<&AstStmt> = None;
     let mut methods: Vec<(
-        &Ident,
+        &draconic_ast::ObjectKey,
         &Vec<draconic_ast::Param>,
         &AstStmt,
         bool,
@@ -958,16 +1013,16 @@ fn lower_class_local(
     )> = Vec::new();
     let mut accessors: Vec<(
         AccessorKind,
-        &Ident,
+        &draconic_ast::ObjectKey,
         &Vec<draconic_ast::Param>,
         &AstStmt,
         bool,
         bool,
     )> = Vec::new();
-    let mut instance_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
+    let mut instance_fields: Vec<(&draconic_ast::ObjectKey, Option<&AstExpr>, bool)> = Vec::new();
     // Static fields and static blocks in source order (E18.41).
     enum StaticInit<'a> {
-        Field(&'a Ident, Option<&'a AstExpr>, bool),
+        Field(&'a draconic_ast::ObjectKey, Option<&'a AstExpr>, bool),
         Block(&'a AstStmt),
     }
     let mut static_inits: Vec<StaticInit<'_>> = Vec::new();
@@ -979,7 +1034,7 @@ fn lower_class_local(
                 ctor_body_ast = Some(body.as_ref());
             }
             ClassElement::Method {
-                name: method_name,
+                key: method_key,
                 params,
                 body,
                 is_static,
@@ -989,7 +1044,7 @@ fn lower_class_local(
                 ..
             } => {
                 methods.push((
-                    method_name,
+                    method_key,
                     params,
                     body.as_ref(),
                     *is_static,
@@ -1000,7 +1055,7 @@ fn lower_class_local(
             }
             ClassElement::Accessor {
                 kind,
-                name: acc_name,
+                key: acc_key,
                 params,
                 body,
                 is_static,
@@ -1009,7 +1064,7 @@ fn lower_class_local(
             } => {
                 accessors.push((
                     *kind,
-                    acc_name,
+                    acc_key,
                     params,
                     body.as_ref(),
                     *is_static,
@@ -1017,7 +1072,7 @@ fn lower_class_local(
                 ));
             }
             ClassElement::Field {
-                name: field_name,
+                key: field_key,
                 value,
                 is_static,
                 is_private,
@@ -1025,9 +1080,9 @@ fn lower_class_local(
             } => {
                 let v = value.as_ref();
                 if *is_static {
-                    static_inits.push(StaticInit::Field(field_name, v, *is_private));
+                    static_inits.push(StaticInit::Field(field_key, v, *is_private));
                 } else {
-                    instance_fields.push((field_name, v, *is_private));
+                    instance_fields.push((field_key, v, *is_private));
                 }
             }
             ClassElement::StaticBlock { body, .. } => {
@@ -1039,13 +1094,13 @@ fn lower_class_local(
     // WeakMap per private field (E18.35 instance; E18.36 static — class as key).
     let mut private_map: HashMap<String, LocalId> = HashMap::new();
     let mut private_wm_decls: Vec<Stmt> = Vec::new();
-    let mut add_private_wm = |fname: &Ident| {
-        if private_map.contains_key(&fname.name) {
+    let mut add_private_wm = |fname: &str| {
+        if private_map.contains_key(fname) {
             return;
         }
-        let wm_name = format!("__drac_pf_{}_{}", local.0, fname.name);
+        let wm_name = format!("__drac_pf_{}_{}", local.0, fname);
         let wm_id = ctx.alloc_synthetic_local(wm_name, Type::Any);
-        private_map.insert(fname.name.clone(), wm_id);
+        private_map.insert(fname.to_string(), wm_id);
         private_wm_decls.push(Stmt::Declare {
             local: wm_id,
             init: Some(Expr::New {
@@ -1059,15 +1114,19 @@ fn lower_class_local(
             kind: BindingKind::Let,
         });
     };
-    for (fname, _, is_private) in &instance_fields {
+    for (fkey, _, is_private) in &instance_fields {
         if *is_private {
-            add_private_wm(fname);
+            if let Some(n) = object_key_private_name(fkey) {
+                add_private_wm(n);
+            }
         }
     }
     for init in &static_inits {
-        if let StaticInit::Field(fname, _, is_private) = init {
+        if let StaticInit::Field(fkey, _, is_private) = init {
             if *is_private {
-                add_private_wm(fname);
+                if let Some(n) = object_key_private_name(fkey) {
+                    add_private_wm(n);
+                }
             }
         }
     }
@@ -1085,16 +1144,19 @@ fn lower_class_local(
     let mut private_brand_decls: Vec<Stmt> = Vec::new();
     let mut instance_brands: Vec<LocalId> = Vec::new();
     let mut static_brands: Vec<LocalId> = Vec::new();
-    for (method_name, params, body, is_static, is_async, is_generator, is_private) in &methods {
+    for (method_key, params, body, is_static, is_async, is_generator, is_private) in &methods {
         if !*is_private {
             continue;
         }
-        if private_method_map.contains_key(&method_name.name) {
+        let Some(method_name) = object_key_private_name(method_key) else {
+            continue;
+        };
+        if private_method_map.contains_key(method_name) {
             continue;
         }
-        let fn_name = format!("__drac_pm_{}_{}", local.0, method_name.name);
+        let fn_name = format!("__drac_pm_{}_{}", local.0, method_name);
         let fn_id = ctx.alloc_synthetic_local(fn_name, Type::Function);
-        private_method_map.insert(method_name.name.clone(), fn_id);
+        private_method_map.insert(method_name.to_string(), fn_id);
         private_method_meta.push((fn_id, params, body, *is_async, *is_generator));
         ensure_private_brand(
             ctx,
@@ -1103,7 +1165,7 @@ fn lower_class_local(
             &mut private_brand_decls,
             &mut instance_brands,
             &mut static_brands,
-            &method_name.name,
+            method_name,
             *is_static,
         );
     }
@@ -1116,18 +1178,21 @@ fn lower_class_local(
         &Vec<draconic_ast::Param>,
         &AstStmt,
     )> = Vec::new();
-    for (kind, acc_name, params, body, is_static, is_private) in &accessors {
+    for (kind, acc_key, params, body, is_static, is_private) in &accessors {
         if !*is_private {
             continue;
         }
+        let Some(acc_name) = object_key_private_name(acc_key) else {
+            continue;
+        };
         let entry = private_accessor_map
-            .entry(acc_name.name.clone())
+            .entry(acc_name.to_string())
             .or_insert((None, None));
         let tag = match kind {
             AccessorKind::Get => "g",
             AccessorKind::Set => "s",
         };
-        let fn_name = format!("__drac_pa{}_{}_{}", tag, local.0, acc_name.name);
+        let fn_name = format!("__drac_pa{}_{}_{}", tag, local.0, acc_name);
         let fn_id = ctx.alloc_synthetic_local(fn_name, Type::Function);
         match kind {
             AccessorKind::Get => entry.0 = Some(fn_id),
@@ -1141,7 +1206,7 @@ fn lower_class_local(
             &mut private_brand_decls,
             &mut instance_brands,
             &mut static_brands,
-            &acc_name.name,
+            acc_name,
             *is_static,
         );
     }
@@ -1180,7 +1245,7 @@ fn lower_class_local(
     if !instance_fields.is_empty() {
         let field_inits: Vec<Stmt> = instance_fields
             .iter()
-            .map(|(fname, value, is_private)| {
+            .map(|(fkey, value, is_private)| {
                 let init = match value {
                     Some(v) => lower_expr(checked, ctx, v, super_class),
                     None => Expr::IdentName {
@@ -1189,9 +1254,10 @@ fn lower_class_local(
                     },
                 };
                 if *is_private {
+                    let pname = object_key_private_name(fkey).expect("private field name");
                     let wm = *ctx
                         .private_fields
-                        .get(&fname.name)
+                        .get(pname)
                         .expect("private field WeakMap");
                     // wm.set(this, init)
                     Stmt::Expr {
@@ -1218,15 +1284,13 @@ fn lower_class_local(
                         },
                     }
                 } else {
+                    let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, super_class);
                     Stmt::Expr {
                         expr: Expr::Assign {
                             target: AssignTarget::Member {
                                 object: Box::new(Expr::This { ty: Type::Any }),
-                                property: Box::new(Expr::String {
-                                    value: fname.name.clone().into(),
-                                    ty: Type::String,
-                                }),
-                                computed: false,
+                                property: Box::new(prop),
+                                computed,
                             },
                             op: AssignOp::Eq,
                             value: Box::new(init),
@@ -1296,7 +1360,7 @@ fn lower_class_local(
         is_generator: false,
     });
 
-    for (method_name, params, body, is_static, is_async, is_generator, is_private) in methods {
+    for (method_key, params, body, is_static, is_async, is_generator, is_private) in methods {
         if is_private {
             // Already emitted as standalone function; not installed on prototype.
             continue;
@@ -1328,24 +1392,65 @@ fn lower_class_local(
                 ty: Type::Any,
             }
         };
+        let prop_name = lower_object_key_name_expr(checked, ctx, method_key, super_class);
+        // Object.defineProperty(target, name, { value: fn, writable: true, configurable: true, enumerable: false })
+        let desc = Expr::Object {
+            properties: vec![
+                ObjectProp::Property {
+                    key: ObjectPropKey::Static("value".into()),
+                    value: method_fn,
+                },
+                ObjectProp::Property {
+                    key: ObjectPropKey::Static("writable".into()),
+                    value: Expr::Boolean {
+                        value: true,
+                        ty: Type::Boolean,
+                    },
+                },
+                ObjectProp::Property {
+                    key: ObjectPropKey::Static("configurable".into()),
+                    value: Expr::Boolean {
+                        value: true,
+                        ty: Type::Boolean,
+                    },
+                },
+                ObjectProp::Property {
+                    key: ObjectPropKey::Static("enumerable".into()),
+                    value: Expr::Boolean {
+                        value: false,
+                        ty: Type::Boolean,
+                    },
+                },
+            ],
+            ty: Type::Object,
+        };
         out.push(Stmt::Expr {
-            expr: Expr::Assign {
-                target: AssignTarget::Member {
-                    object: Box::new(target_object),
+            expr: Expr::Call {
+                callee: Box::new(Expr::Member {
+                    object: Box::new(Expr::IdentName {
+                        name: "Object".into(),
+                        ty: Type::Object,
+                    }),
                     property: Box::new(Expr::String {
-                        value: method_name.name.clone().into(),
+                        value: "defineProperty".into(),
                         ty: Type::String,
                     }),
                     computed: false,
-                },
-                op: AssignOp::Eq,
-                value: Box::new(method_fn),
-                ty: Type::Function,
+                    optional: false,
+                    ty: Type::Function,
+                }),
+                args: vec![
+                    Arg::Expr(target_object),
+                    Arg::Expr(prop_name),
+                    Arg::Expr(desc),
+                ],
+                optional: false,
+                ty: Type::Any,
             },
         });
     }
 
-    for (kind, acc_name, params, body, is_static, is_private) in accessors {
+    for (kind, acc_key, params, body, is_static, is_private) in accessors {
         if is_private {
             // Already emitted as standalone function; not installed on prototype.
             continue;
@@ -1405,6 +1510,7 @@ fn lower_class_local(
             ],
             ty: Type::Object,
         };
+        let prop_name = lower_object_key_name_expr(checked, ctx, acc_key, super_class);
         out.push(Stmt::Expr {
             expr: Expr::Call {
                 callee: Box::new(Expr::Member {
@@ -1422,10 +1528,7 @@ fn lower_class_local(
                 }),
                 args: vec![
                     Arg::Expr(target_object),
-                    Arg::Expr(Expr::String {
-                        value: acc_name.name.clone().into(),
-                        ty: Type::String,
-                    }),
+                    Arg::Expr(prop_name),
                     Arg::Expr(desc),
                 ],
                 optional: false,
@@ -1511,7 +1614,7 @@ fn lower_class_local(
     // Static fields and static blocks run after the class is fully linked, in order (E18.41).
     for init in static_inits {
         match init {
-            StaticInit::Field(fname, value, is_private) => {
+            StaticInit::Field(fkey, value, is_private) => {
                 let init_expr = match value {
                     Some(v) => lower_expr(checked, ctx, v, None),
                     None => Expr::IdentName {
@@ -1520,9 +1623,10 @@ fn lower_class_local(
                     },
                 };
                 if is_private {
+                    let pname = object_key_private_name(fkey).expect("static private field name");
                     let wm = *ctx
                         .private_fields
-                        .get(&fname.name)
+                        .get(pname)
                         .expect("static private field WeakMap");
                     // wm.set(Class, init)
                     out.push(Stmt::Expr {
@@ -1552,6 +1656,7 @@ fn lower_class_local(
                         },
                     });
                 } else {
+                    let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, None);
                     out.push(Stmt::Expr {
                         expr: Expr::Assign {
                             target: AssignTarget::Member {
@@ -1559,11 +1664,8 @@ fn lower_class_local(
                                     id: local,
                                     ty: Type::Function,
                                 }),
-                                property: Box::new(Expr::String {
-                                    value: fname.name.clone().into(),
-                                    ty: Type::String,
-                                }),
-                                computed: false,
+                                property: Box::new(prop),
+                                computed,
                             },
                             op: AssignOp::Eq,
                             value: Box::new(init_expr),
