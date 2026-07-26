@@ -1,4 +1,4 @@
-/* Draconic Native Runtime C ABI (N05: GC + minimal std). */
+/* Draconic Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue). */
 #ifndef DRACONIC_RT_H
 #define DRACONIC_RT_H
 
@@ -32,6 +32,12 @@ const char *draconic_rt_string_data(DraconicValue *v);
 size_t draconic_rt_string_len(DraconicValue *v);
 int draconic_rt_is_string(DraconicValue *v);
 int draconic_rt_is_object(DraconicValue *v);
+
+/* --- Job queue (Promise Jobs / microtasks; N06.01) --- */
+typedef void (*DraconicJobFn)(void *data);
+void draconic_rt_job_enqueue(DraconicJobFn fn, void *data);
+void draconic_rt_job_drain(void);
+size_t draconic_rt_job_pending(void);
 
 #ifdef __cplusplus
 }

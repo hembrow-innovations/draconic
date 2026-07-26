@@ -234,6 +234,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N04 | done | js | JS lowering/polyfill or hard-error policy per native feature | `tests/conformance/native/js-policy` |
 | N05 | done | native | Link Runtime: GC + minimal std | `crates/draconic-runtime` |
 | N06 | todo | native | Async runtime / job queue on native | `tests/conformance/es/async` |
+| N06.01 | done | native | Job queue Runtime ABI: enqueue host jobs + drain FIFO (nested enqueue during drain runs after current job) | `crates/draconic-runtime` |
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |
 
 ---

@@ -1,9 +1,11 @@
+#include "draconic_rt.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (ROADMAP N05: GC + minimal std). Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -199,4 +201,65 @@ int draconic_rt_is_string(DraconicValue *v) {
 
 int draconic_rt_is_object(DraconicValue *v) {
     return v && v->tag == DRACONIC_TAG_OBJECT;
+}
+
+/* --- Job queue (N06.01): FIFO host jobs; drain until empty --- */
+
+typedef struct DraconicJob {
+    DraconicJobFn fn;
+    void *data;
+    struct DraconicJob *next;
+} DraconicJob;
+
+static DraconicJob *g_job_head = NULL;
+static DraconicJob *g_job_tail = NULL;
+static size_t g_job_pending = 0;
+static int g_job_draining = 0;
+
+void draconic_rt_job_enqueue(DraconicJobFn fn, void *data) {
+    if (!fn) {
+        fprintf(stderr, "draconic_rt: job_enqueue null fn\n");
+        abort();
+    }
+    DraconicJob *job = (DraconicJob *)calloc(1, sizeof(DraconicJob));
+    if (!job) {
+        fprintf(stderr, "draconic_rt: job_enqueue OOM\n");
+        abort();
+    }
+    job->fn = fn;
+    job->data = data;
+    job->next = NULL;
+    if (g_job_tail) {
+        g_job_tail->next = job;
+    } else {
+        g_job_head = job;
+    }
+    g_job_tail = job;
+    g_job_pending++;
+}
+
+size_t draconic_rt_job_pending(void) {
+    return g_job_pending;
+}
+
+void draconic_rt_job_drain(void) {
+    if (g_job_draining) {
+        /* Re-entrant drain is a no-op; nested enqueues stay on the queue
+           for the outer drain to continue processing. */
+        return;
+    }
+    g_job_draining = 1;
+    while (g_job_head) {
+        DraconicJob *job = g_job_head;
+        g_job_head = job->next;
+        if (!g_job_head) {
+            g_job_tail = NULL;
+        }
+        g_job_pending--;
+        DraconicJobFn fn = job->fn;
+        void *data = job->data;
+        free(job);
+        fn(data);
+    }
+    g_job_draining = 0;
 }

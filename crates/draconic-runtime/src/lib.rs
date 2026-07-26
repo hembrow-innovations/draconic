@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (ROADMAP N05); async/embed later (N06/N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -64,6 +64,13 @@ pub const IS_STRING_SYMBOL: &str = "draconic_rt_is_string";
 /// C ABI: tag predicate for objects.
 pub const IS_OBJECT_SYMBOL: &str = "draconic_rt_is_object";
 
+/// C ABI: enqueue a host job (Promise Jobs / microtasks; N06.01).
+pub const JOB_ENQUEUE_SYMBOL: &str = "draconic_rt_job_enqueue";
+/// C ABI: drain the job queue until empty (FIFO; nested enqueue runs after current).
+pub const JOB_DRAIN_SYMBOL: &str = "draconic_rt_job_drain";
+/// C ABI: number of pending (not yet run) jobs.
+pub const JOB_PENDING_SYMBOL: &str = "draconic_rt_job_pending";
+
 /// Minimal std I/O + GC ABI symbols that form the N05 Runtime surface.
 pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
     HELLO_SYMBOL,
@@ -83,6 +90,13 @@ pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
     STRING_LEN_SYMBOL,
     IS_STRING_SYMBOL,
     IS_OBJECT_SYMBOL,
+];
+
+/// Job queue ABI symbols (N06.01).
+pub const JOB_QUEUE_SYMBOLS: &[&str] = &[
+    JOB_ENQUEUE_SYMBOL,
+    JOB_DRAIN_SYMBOL,
+    JOB_PENDING_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -540,6 +554,140 @@ mod tests {
     #[test]
     fn print_hello_smoke() {
         print_hello();
+    }
+
+    #[test]
+    fn c_runtime_exports_job_queue_abi() {
+        let src = c_runtime_source();
+        let hdr = c_runtime_header_source();
+        for sym in JOB_QUEUE_SYMBOLS {
+            assert!(src.contains(sym), "C runtime source must define {sym}");
+            assert!(hdr.contains(sym), "C runtime header must declare {sym}");
+        }
+    }
+
+    #[test]
+    fn job_queue_fifo_drain_and_nested_enqueue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_job_queue");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+
+            static int g_order[8];
+            static size_t g_n;
+
+            static void push_order(int v) {
+                if (g_n < 8) {
+                    g_order[g_n++] = v;
+                }
+            }
+
+            static void job_a(void *data) {
+                (void)data;
+                push_order(1);
+            }
+
+            static void job_b(void *data) {
+                (void)data;
+                push_order(2);
+                /* Nested enqueue during drain: must run after the current job,
+                   after already-queued siblings (FIFO of the whole queue). */
+                draconic_rt_job_enqueue(job_a, NULL); /* will be 1 again as job 4 */
+            }
+
+            static void job_c(void *data) {
+                (void)data;
+                push_order(3);
+            }
+
+            static void job_print_i64(void *data) {
+                int64_t v = (int64_t)(intptr_t)data;
+                draconic_rt_print_i64(v);
+            }
+
+            int main(void) {
+                if (draconic_rt_job_pending() != 0) {
+                    fprintf(stderr, "pending want 0 got %zu\n",
+                            draconic_rt_job_pending());
+                    return 1;
+                }
+
+                draconic_rt_job_enqueue(job_a, NULL);
+                draconic_rt_job_enqueue(job_b, NULL);
+                draconic_rt_job_enqueue(job_c, NULL);
+
+                if (draconic_rt_job_pending() != 3) {
+                    fprintf(stderr, "pending want 3 got %zu\n",
+                            draconic_rt_job_pending());
+                    return 2;
+                }
+
+                draconic_rt_job_drain();
+
+                if (draconic_rt_job_pending() != 0) {
+                    fprintf(stderr, "after drain pending want 0 got %zu\n",
+                            draconic_rt_job_pending());
+                    return 3;
+                }
+
+                /* Expected order: A, B (enqueues another A), C, nested A → 1,2,3,1 */
+                if (g_n != 4
+                    || g_order[0] != 1
+                    || g_order[1] != 2
+                    || g_order[2] != 3
+                    || g_order[3] != 1) {
+                    fprintf(stderr, "order want 1,2,3,1 got");
+                    for (size_t i = 0; i < g_n; i++) {
+                        fprintf(stderr, " %d", g_order[i]);
+                    }
+                    fprintf(stderr, "\n");
+                    return 4;
+                }
+
+                /* Second drain is a no-op; print path observes jobs ran. */
+                draconic_rt_job_enqueue(job_print_i64, (void *)(intptr_t)42);
+                draconic_rt_job_drain();
+                draconic_rt_job_drain();
+
+                puts("job-queue-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link job queue test");
+
+        let output = Command::new(&bin).output().expect("run rt_job_queue");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "job queue binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "42\njob-queue-ok\n", "stdout={stdout:?}");
     }
 
     fn which_clang() -> Option<PathBuf> {
