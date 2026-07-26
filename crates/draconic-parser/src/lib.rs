@@ -879,6 +879,7 @@ impl Parser {
             body,
             is_async,
             is_generator,
+            is_method: false,
             span: Span::new(start, end),
         })
     }
@@ -1579,6 +1580,7 @@ impl Parser {
                         body,
                         is_async,
                         is_generator,
+                        is_method: false,
                         span: Span::new(fn_start, end),
                     }),
                     span: Span::new(fn_start, end),
@@ -3053,6 +3055,7 @@ impl Parser {
             body,
             is_async,
             is_generator,
+            is_method: true,
             span: Span::new(start, end),
         })
     }

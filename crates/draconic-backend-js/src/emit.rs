@@ -500,6 +500,9 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
         Expr::NewTarget { .. } => {
             out.push_str("new.target");
         }
+        Expr::Super { .. } => {
+            out.push_str("super");
+        }
         Expr::Unary { op, arg, .. } => {
             emit_unary(out, *op, arg, names);
         }
@@ -605,6 +608,10 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                 } => {
                     emit_member_access(out, object, property, *computed, *mem_opt, names);
                 }
+                // `super(...)` cannot be parenthesized (`(super)()` is SyntaxError).
+                Expr::Super { .. } => {
+                    out.push_str("super");
+                }
                 _ => {
                     out.push('(');
                     emit_expr(out, callee, names);
@@ -672,22 +679,64 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                 }
                 match prop {
                     draconic_ir::ObjectProp::Property { key, value } => {
-                        match key {
-                            draconic_ir::ObjectPropKey::Static(k) => {
-                                if let Some(s) = k.to_string_strict().filter(|s| is_js_ident(s)) {
-                                    out.push_str(&s);
-                                } else {
-                                    push_js_string(out, k);
+                        // Method definitions (`{ m() {} }`) must emit method form so `super` has a home object.
+                        if let Expr::Function {
+                            params,
+                            body,
+                            is_async,
+                            is_generator,
+                            is_method: true,
+                            is_arrow: false,
+                            ..
+                        } = value
+                        {
+                            if *is_async {
+                                out.push_str("async ");
+                            }
+                            if *is_generator {
+                                out.push('*');
+                            }
+                            match key {
+                                draconic_ir::ObjectPropKey::Static(k) => {
+                                    if let Some(s) = k.to_string_strict().filter(|s| is_js_ident(s))
+                                    {
+                                        out.push_str(&s);
+                                    } else {
+                                        push_js_string(out, k);
+                                    }
                                 }
-                                out.push_str(": ");
+                                draconic_ir::ObjectPropKey::Computed(k) => {
+                                    out.push('[');
+                                    emit_expr(out, k, names);
+                                    out.push(']');
+                                }
                             }
-                            draconic_ir::ObjectPropKey::Computed(k) => {
-                                out.push('[');
-                                emit_expr(out, k, names);
-                                out.push_str("]: ");
+                            out.push('(');
+                            emit_params(out, params, names);
+                            out.push_str(") {\n");
+                            for s in body {
+                                emit_stmt(out, s, names);
                             }
+                            out.push('}');
+                        } else {
+                            match key {
+                                draconic_ir::ObjectPropKey::Static(k) => {
+                                    if let Some(s) = k.to_string_strict().filter(|s| is_js_ident(s))
+                                    {
+                                        out.push_str(&s);
+                                    } else {
+                                        push_js_string(out, k);
+                                    }
+                                    out.push_str(": ");
+                                }
+                                draconic_ir::ObjectPropKey::Computed(k) => {
+                                    out.push('[');
+                                    emit_expr(out, k, names);
+                                    out.push_str("]: ");
+                                }
+                            }
+                            emit_expr(out, value, names);
                         }
-                        emit_expr(out, value, names);
                     }
                     draconic_ir::ObjectProp::Accessor { kind, key, value } => {
                         let kind_s = match kind {
@@ -776,9 +825,14 @@ fn emit_member_access(
     optional: bool,
     names: &HashMap<LocalId, &str>,
 ) {
-    out.push('(');
-    emit_expr(out, object, names);
-    out.push(')');
+    // `super.prop` / `super[expr]` — SuperProperty cannot be parenthesized (`(super).x` is SyntaxError).
+    if matches!(object, Expr::Super { .. }) {
+        out.push_str("super");
+    } else {
+        out.push('(');
+        emit_expr(out, object, names);
+        out.push(')');
+    }
     if computed {
         if optional {
             out.push_str("?.[");

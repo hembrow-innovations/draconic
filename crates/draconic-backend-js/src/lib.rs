@@ -262,7 +262,8 @@ fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
         | Expr::Boolean { .. }
         | Expr::Null { .. }
         | Expr::This { .. }
-        | Expr::NewTarget { .. } => Ok(()),
+        | Expr::NewTarget { .. }
+        | Expr::Super { .. } => Ok(()),
         Expr::Unary { arg, .. } => reject_native_only_expr(arg),
         Expr::Binary { left, right, .. } => {
             reject_native_only_expr(left)?;
@@ -616,6 +617,20 @@ mod tests {
             js,
             "let x = 0;\ndo {\n(x = (x) + (1));\n} while ((x) < (3));\n"
         );
+    }
+
+    #[test]
+    fn emit_object_method_super() {
+        // E19.23: concise methods keep home-object `super` (not parenthesized; method form).
+        let js = emit_src(
+            r#"const o = { m() { return super.x; }, n() { return (() => super.y)(); }, ["p"]() { return super["z"]; } };"#,
+        );
+        assert!(js.contains("m() {"), "{js}");
+        assert!(js.contains("return super.x;"), "{js}");
+        assert!(js.contains("return super.y;"), "{js}");
+        assert!(js.contains("super["), "{js}");
+        assert!(!js.contains("(super)"), "{js}");
+        assert!(!js.contains("m: function"), "{js}");
     }
 
     #[test]

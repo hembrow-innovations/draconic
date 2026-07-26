@@ -521,6 +521,8 @@ pub enum Expr {
         body: Box<Stmt>,
         is_async: bool,
         is_generator: bool,
+        /// True for method definitions (`{ m() {} }`, `{ [e]() {} }`), not `m: function(){}`.
+        is_method: bool,
         span: Span,
     },
     /// `class Name? extends Super? { … }` as an expression value (E18.33).
@@ -1816,6 +1818,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             body,
             is_async,
             is_generator,
+            is_method,
             ..
         } => {
             indent(level, out);
@@ -1827,6 +1830,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             if *is_generator {
                 indent(level + 1, out);
                 out.push_str("generator: true\n");
+            }
+            if *is_method {
+                indent(level + 1, out);
+                out.push_str("method: true\n");
             }
             if let Some(name) = name {
                 indent(level + 1, out);

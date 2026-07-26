@@ -1,10 +1,11 @@
 #
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02–E19.22 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
+# Expanded under ROADMAP E19.02–E19.23 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
 # statements/control, call/new/delete/in/instanceof, compound/logical assignment greens,
 # object/assignment/try dstr fill-ins, for-head dstr, catch dstr, RegExp literal early errors,
 # ASI, statementList, directive-prologue, reserved words, arrow/eval/function-code/with/for-of
-# greens after E19.16–E19.19, call Arguments trailing comma E19.21, class computed names E19.22).
+# greens after E19.16–E19.19, call Arguments trailing comma E19.21, class computed names E19.22,
+# object-method super / arrow lexical super E19.23).
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 # Lines starting with # and blank lines are ignored.
 test/language/arguments-object/10.5-1-s.js
@@ -2909,6 +2910,7 @@ test/language/expressions/object/dstr/meth-obj-ptrn-prop-obj-value-null.js
 test/language/expressions/object/dstr/meth-obj-ptrn-prop-obj-value-undef.js
 test/language/expressions/object/dstr/meth-obj-ptrn-prop-obj.js
 test/language/expressions/object/getter-param-dflt.js
+test/language/expressions/object/getter-super-prop.js
 test/language/expressions/object/ident-name-method-def-break-escaped.js
 test/language/expressions/object/ident-name-method-def-case-escaped.js
 test/language/expressions/object/ident-name-method-def-catch-escaped.js
@@ -3085,6 +3087,8 @@ test/language/expressions/object/method-definition/generator-param-id-yield.js
 test/language/expressions/object/method-definition/generator-params.js
 test/language/expressions/object/method-definition/generator-prototype.js
 test/language/expressions/object/method-definition/generator-return.js
+test/language/expressions/object/method-definition/generator-super-prop-body.js
+test/language/expressions/object/method-definition/generator-super-prop-param.js
 test/language/expressions/object/method-definition/meth-dflt-params-abrupt.js
 test/language/expressions/object/method-definition/meth-dflt-params-arg-val-not-undefined.js
 test/language/expressions/object/method-definition/meth-dflt-params-arg-val-undefined.js
@@ -3102,6 +3106,8 @@ test/language/expressions/object/method-definition/name-invoke-fn-no-strict.js
 test/language/expressions/object/method-definition/name-invoke-fn-strict.js
 test/language/expressions/object/method-definition/name-params.js
 test/language/expressions/object/method-definition/name-prototype.js
+test/language/expressions/object/method-definition/name-super-prop-body.js
+test/language/expressions/object/method-definition/name-super-prop-param.js
 test/language/expressions/object/method-definition/object-method-returns-promise.js
 test/language/expressions/object/method-definition/params-dflt-gen-meth-args-unmapped.js
 test/language/expressions/object/method-definition/params-dflt-gen-meth-ref-arguments.js
@@ -3159,6 +3165,7 @@ test/language/expressions/object/scope-meth-paramsbody-var-open.js
 test/language/expressions/object/scope-setter-body-lex-distinc.js
 test/language/expressions/object/scope-setter-paramsbody-var-close.js
 test/language/expressions/object/scope-setter-paramsbody-var-open.js
+test/language/expressions/object/setter-super-prop.js
 test/language/expressions/optional-chaining/call-expression.js
 test/language/expressions/optional-chaining/early-errors-tail-position-null-op-template-string-esi.js
 test/language/expressions/optional-chaining/early-errors-tail-position-null-op-template-string.js
@@ -3445,8 +3452,27 @@ test/language/expressions/super/call-spread-sngl-empty.js
 test/language/expressions/super/call-spread-sngl-expr.js
 test/language/expressions/super/call-spread-sngl-iter.js
 test/language/expressions/super/call-spread-sngl-literal.js
+test/language/expressions/super/prop-dot-cls-val-from-arrow.js
 test/language/expressions/super/prop-dot-cls-val.js
+test/language/expressions/super/prop-dot-obj-null-proto.js
+test/language/expressions/super/prop-dot-obj-ref-non-strict.js
+test/language/expressions/super/prop-dot-obj-ref-strict.js
+test/language/expressions/super/prop-dot-obj-ref-this.js
+test/language/expressions/super/prop-dot-obj-val-from-arrow.js
+test/language/expressions/super/prop-dot-obj-val-from-eval.js
+test/language/expressions/super/prop-dot-obj-val.js
+test/language/expressions/super/prop-expr-cls-val-from-arrow.js
 test/language/expressions/super/prop-expr-cls-val.js
+test/language/expressions/super/prop-expr-obj-err.js
+test/language/expressions/super/prop-expr-obj-key-err.js
+test/language/expressions/super/prop-expr-obj-null-proto.js
+test/language/expressions/super/prop-expr-obj-ref-non-strict.js
+test/language/expressions/super/prop-expr-obj-ref-strict.js
+test/language/expressions/super/prop-expr-obj-ref-this.js
+test/language/expressions/super/prop-expr-obj-unresolvable.js
+test/language/expressions/super/prop-expr-obj-val-from-arrow.js
+test/language/expressions/super/prop-expr-obj-val-from-eval.js
+test/language/expressions/super/prop-expr-obj-val.js
 test/language/expressions/super/super-reference-resolution.js
 test/language/expressions/tagged-template/cache-different-functions-same-site.js
 test/language/expressions/tagged-template/cache-differing-expressions-eval.js

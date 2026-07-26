@@ -2935,6 +2935,7 @@ impl<'a> Checker<'a> {
                 is_async,
                 is_generator,
                 span,
+                ..
             } => {
                 if let Some(name) = name {
                     let id = self

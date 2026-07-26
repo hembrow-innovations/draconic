@@ -24,6 +24,8 @@ struct LowerCtx {
     private_accessors: HashMap<String, (Option<LocalId>, Option<LocalId>)>,
     /// Private method/accessor brand → WeakSet local (E18.40; fields use WeakMap as brand).
     private_brands: HashMap<String, LocalId>,
+    /// Inside object method/accessor: keep `super` for JS home-object emit (E19.23).
+    object_super: bool,
     extra_locals: Vec<Local>,
     next_synth_id: u32,
 }
@@ -35,6 +37,7 @@ impl LowerCtx {
             private_methods: HashMap::new(),
             private_accessors: HashMap::new(),
             private_brands: HashMap::new(),
+            object_super: false,
             extra_locals: Vec::new(),
             next_synth_id,
         }
@@ -298,6 +301,13 @@ pub enum Expr {
         is_generator: bool,
         /// `true` for `(params) => …` — lexical `this` / `new.target`.
         is_arrow: bool,
+        /// `true` for method definitions (`{ m() {} }`) — JS emit as method form (home object / `super`).
+        is_method: bool,
+        ty: Type,
+    },
+    /// Bare `super` (only valid as `super.prop` / `super[expr]` / `super(...)` object after check).
+    /// Kept when lowering object methods so the JS backend can emit home-object `super`.
+    Super {
         ty: Type,
     },
     /// `{ key: value, … }` object literal.
@@ -463,6 +473,7 @@ impl Expr {
              | Expr::Null { ty }
              | Expr::This { ty }
              | Expr::NewTarget { ty }
+             | Expr::Super { ty }
              | Expr::Unary { ty, .. }
             | Expr::Binary { ty, .. }
             | Expr::Conditional { ty, .. }
@@ -811,8 +822,11 @@ fn lower_stmt(
                 .map(|s| s.id)
                 .expect("function binding must be declared");
             let params = lower_params(checked, ctx, params, None);
-            // Nested functions do not inherit `super`.
+            // Nested functions do not inherit `super` (class parent or object home).
+            let prev_object_super = ctx.object_super;
+            ctx.object_super = false;
             let body = lower_fn_body(checked, ctx, body, None);
+            ctx.object_super = prev_object_super;
             Some(Stmt::Function {
                 local,
                 params,
@@ -930,6 +944,7 @@ fn lower_class_expression(
             is_async: false,
             is_generator: false,
             is_arrow: false,
+            is_method: false,
             ty: Type::Function,
         }),
         args: Vec::new(),
@@ -1372,6 +1387,7 @@ fn lower_class_local(
             is_async,
             is_generator,
             is_arrow: false,
+            is_method: false,
             ty: Type::Function,
         };
         let class_ref = Expr::Local {
@@ -1462,6 +1478,7 @@ fn lower_class_local(
             is_async: false,
             is_generator: false,
             is_arrow: false,
+            is_method: false,
             ty: Type::Function,
         };
         let class_ref = Expr::Local {
@@ -1687,6 +1704,7 @@ fn lower_class_local(
                                 is_async: false,
                                 is_generator: false,
                                 is_arrow: false,
+                                is_method: false,
                                 ty: Type::Function,
                             }),
                             property: Box::new(Expr::String {
@@ -2043,8 +2061,14 @@ fn lower_expr(
         AstExpr::NewTarget { span } => Expr::NewTarget {
             ty: expr_ty(checked, *span),
         },
-        AstExpr::Super { .. } => {
-            panic!("bare `super` must appear as super(...) or super.prop after check")
+        AstExpr::Super { span } => {
+            if ctx.object_super {
+                Expr::Super {
+                    ty: expr_ty(checked, *span),
+                }
+            } else {
+                panic!("bare `super` must appear as super(...) or super.prop after check")
+            }
         }
         AstExpr::Unary { op, arg, span } => Expr::Unary {
             op: *op,
@@ -2232,8 +2256,22 @@ fn lower_expr(
             optional,
             span,
         } => {
-            // `super(args)` → `Parent.call(this, ...args)`
+            // `super(args)` → class: `Parent.call(this, ...args)`; object method: keep `super(...)`
+            // (early SyntaxError for SuperCall in object methods is deferred to check/parser).
             if matches!(callee.as_ref(), AstExpr::Super { .. }) {
+                if ctx.object_super && super_class.is_none() {
+                    return Expr::Call {
+                        callee: Box::new(Expr::Super {
+                            ty: expr_ty(checked, *span),
+                        }),
+                        args: args
+                            .iter()
+                            .map(|a| lower_arg(checked, ctx, a, super_class))
+                            .collect(),
+                        optional: false,
+                        ty: expr_ty(checked, *span),
+                    };
+                }
                 let parent_ast = super_class
                     .expect("`super(...)` requires `extends` on the enclosing class");
                 let parent = lower_expr(checked, ctx, parent_ast, None);
@@ -2269,6 +2307,36 @@ fn lower_expr(
             } = callee.as_ref()
             {
                 if matches!(object.as_ref(), AstExpr::Super { .. }) {
+                    // Object method: keep `super.m(...)` for JS home-object emit.
+                    if ctx.object_super && super_class.is_none() {
+                        let prop = if *computed {
+                            lower_expr(checked, ctx, property, super_class)
+                        } else {
+                            match property.as_ref() {
+                                AstExpr::Ident(id) => Expr::String {
+                                    value: id.name.clone().into(),
+                                    ty: Type::String,
+                                },
+                                other => lower_expr(checked, ctx, other, super_class),
+                            }
+                        };
+                        let method = Expr::Member {
+                            object: Box::new(Expr::Super { ty: Type::Any }),
+                            property: Box::new(prop),
+                            computed: *computed,
+                            optional: false,
+                            ty: Type::Function,
+                        };
+                        return Expr::Call {
+                            callee: Box::new(method),
+                            args: args
+                                .iter()
+                                .map(|a| lower_arg(checked, ctx, a, super_class))
+                                .collect(),
+                            optional: false,
+                            ty: expr_ty(checked, *span),
+                        };
+                    }
                     let parent_ast = super_class
                         .expect("`super.prop` requires `extends` on the enclosing class");
                     let parent = lower_expr(checked, ctx, parent_ast, None);
@@ -2384,6 +2452,7 @@ fn lower_expr(
             body,
             is_async,
             is_generator,
+            is_method,
             span,
             ..
         } => {
@@ -2396,8 +2465,16 @@ fn lower_expr(
                     .map(|s| s.id)
                     .expect("function expression name must be declared")
             });
+            // Methods get object-home `super`; plain function expressions do not inherit `super`.
+            let prev_object_super = ctx.object_super;
+            if *is_method {
+                ctx.object_super = true;
+            } else {
+                ctx.object_super = false;
+            }
             let params = lower_params(checked, ctx, params, None);
             let body = lower_fn_body(checked, ctx, body, None);
+            ctx.object_super = prev_object_super;
             Expr::Function {
                 name,
                 params,
@@ -2405,6 +2482,7 @@ fn lower_expr(
                 is_async: *is_async,
                 is_generator: *is_generator,
                 is_arrow: false,
+                is_method: *is_method,
                 ty: expr_ty(checked, *span),
             }
         }
@@ -2421,12 +2499,15 @@ fn lower_expr(
             span,
             ..
         } => {
-            let params = lower_params(checked, ctx, params, None);
+            // Arrows inherit lexical `super` (class parent and/or object-home flag).
+            let params = lower_params(checked, ctx, params, super_class);
             let body = match body {
-                draconic_ast::ArrowBody::Block(stmt) => lower_fn_body(checked, ctx, stmt, None),
+                draconic_ast::ArrowBody::Block(stmt) => {
+                    lower_fn_body(checked, ctx, stmt, super_class)
+                }
                 draconic_ast::ArrowBody::Expr(expr) => {
                     vec![Stmt::Return {
-                        value: Some(lower_expr(checked, ctx, expr, None)),
+                        value: Some(lower_expr(checked, ctx, expr, super_class)),
                     }]
                 }
             };
@@ -2437,6 +2518,7 @@ fn lower_expr(
                 is_async: *is_async,
                 is_generator: false,
                 is_arrow: true,
+                is_method: false,
                 ty: expr_ty(checked, *span),
             }
         }
@@ -2479,14 +2561,22 @@ fn lower_expr(
                         ObjectProp::Accessor {
                             kind: *kind,
                             key,
-                            value: Expr::Function {
-                                name: None,
-                                params: lower_params(checked, ctx, params, super_class),
-                                body: lower_fn_body(checked, ctx, body, super_class),
-                                is_async: false,
-                                is_generator: false,
-                                is_arrow: false,
-                                ty: Type::Function,
+                            value: {
+                                let prev_object_super = ctx.object_super;
+                                ctx.object_super = true;
+                                let params = lower_params(checked, ctx, params, None);
+                                let body = lower_fn_body(checked, ctx, body, None);
+                                ctx.object_super = prev_object_super;
+                                Expr::Function {
+                                    name: None,
+                                    params,
+                                    body,
+                                    is_async: false,
+                                    is_generator: false,
+                                    is_arrow: false,
+                                    is_method: true,
+                                    ty: Type::Function,
+                                }
                             },
                         }
                     }
@@ -2549,8 +2639,28 @@ fn lower_expr(
                     .unwrap_or_else(|| panic!("unknown private field #{fname}"));
                 return private_field_get(wm, obj);
             }
-            // `super.prop` → `Parent.prototype.prop`
+            // `super.prop` → class: `Parent.prototype.prop`; object method: keep `super.prop`
             if matches!(object.as_ref(), AstExpr::Super { .. }) {
+                let property = if *computed {
+                    lower_expr(checked, ctx, property, super_class)
+                } else {
+                    match property.as_ref() {
+                        AstExpr::Ident(id) => Expr::String {
+                            value: id.name.clone().into(),
+                            ty: Type::String,
+                        },
+                        other => lower_expr(checked, ctx, other, super_class),
+                    }
+                };
+                if ctx.object_super && super_class.is_none() {
+                    return Expr::Member {
+                        object: Box::new(Expr::Super { ty: Type::Any }),
+                        property: Box::new(property),
+                        computed: *computed,
+                        optional: false,
+                        ty: expr_ty(checked, *span),
+                    };
+                }
                 let parent_ast = super_class
                     .expect("`super.prop` requires `extends` on the enclosing class");
                 let parent = lower_expr(checked, ctx, parent_ast, None);
@@ -2563,17 +2673,6 @@ fn lower_expr(
                     computed: false,
                     optional: false,
                     ty: Type::Any,
-                };
-                let property = if *computed {
-                    lower_expr(checked, ctx, property, super_class)
-                } else {
-                    match property.as_ref() {
-                        AstExpr::Ident(id) => Expr::String {
-                            value: id.name.clone().into(),
-                            ty: Type::String,
-                        },
-                        other => lower_expr(checked, ctx, other, super_class),
-                    }
                 };
                 return Expr::Member {
                     object: Box::new(parent_proto),
@@ -3346,6 +3445,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str(&format!("NewTarget : {ty}\n"));
         }
+        Expr::Super { ty } => {
+            indent(level, out);
+            out.push_str(&format!("Super : {ty}\n"));
+        }
         Expr::Unary { op, arg, ty } => {
             indent(level, out);
             out.push_str(&format!("Unary {op} : {ty}\n"));
@@ -3503,6 +3606,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             is_async,
             is_generator,
             is_arrow,
+            is_method,
             ty,
         } => {
             indent(level, out);
@@ -3518,6 +3622,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             if *is_arrow {
                 indent(level + 1, out);
                 out.push_str("arrow: true\n");
+            }
+            if *is_method {
+                indent(level + 1, out);
+                out.push_str("method: true\n");
             }
             if let Some(local) = name {
                 indent(level + 1, out);
