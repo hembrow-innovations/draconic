@@ -236,7 +236,12 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.12 | done | js | Untyped compound assignment applicability: do not reject ECMA-262 `x op= y` when binding/RHS types widen via ToNumber (boolean/string/null/`any`) without annotations | `crates/draconic-check`, `tests/test262` |
 | E19.13 | done | js | Update/call on ToPrimitive objects: `++`/`--` and call sites must accept object LHS/callee with `valueOf`/`toString` (not compile “object is not callable”) | `crates/draconic-check`, `tests/test262` |
 | E19.14 | done | js | Unicode / exotic identifiers + whitespace: multi-byte ID_Start/ID_Continue, vertical tab `\u{b}` / form feed in source (lexer `unexpected character`) | `crates/draconic-lexer`, `tests/test262` |
-| E19.15 | todo | js | Expand allowlist further after E19.11–E19.14 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.15 | done | js | Expand allowlist further after E19.11–E19.14 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.16 | todo | js | `for` head destructuring: `for (const [a] of …)` / `for (let {x} of …)` / `for (var [a] in …)` binding patterns (parser currently expects identifier) | `tests/test262` (allowlist + baseline-report) |
+| E19.17 | todo | js | `catch` binding destructuring: `catch ([a])` / `catch ({x})` / nested patterns (parser expects identifier) | `tests/test262` (allowlist + baseline-report) |
+| E19.18 | todo | js | RegExp literal early errors: invalid pattern/flags/modifiers must fail at parse (negative parse currently accepted) | `crates/draconic-parser` / lexer, `tests/test262` |
+| E19.19 | todo | js | Strict PutValue TypeError: compound assignment to non-writable / non-configurable data props and non-existent props on non-extensible objects | `tests/test262` (allowlist + baseline-report) |
+| E19.20 | todo | js | Expand allowlist further after E19.16–E19.19 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 
