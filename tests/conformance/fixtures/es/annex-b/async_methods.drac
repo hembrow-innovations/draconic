@@ -1,0 +1,64 @@
+let objDone = 0;
+let objThis = 0;
+let classDone = 0;
+let classThis = 0;
+let staticDone = 0;
+let throwDone = 0;
+
+let obj = {
+  async m(x) {
+    let v = await Promise.resolve(x);
+    return v + 1;
+  },
+  async n() {
+    return this.tag;
+  },
+  tag: 10
+};
+obj.m(2).then(function (v) {
+  objDone = v;
+});
+obj.n().then(function (v) {
+  objThis = v;
+});
+
+class C {
+  constructor(n) {
+    this.n = n;
+  }
+  async getN() {
+    let v = await Promise.resolve(this.n);
+    return v;
+  }
+  async add(x) {
+    return this.n + x;
+  }
+  static async s(x) {
+    let v = await Promise.resolve(x);
+    return v * 2;
+  }
+}
+let c = new C(7);
+c.getN().then(function (v) {
+  classThis = v;
+});
+c.add(3).then(function (v) {
+  classDone = v;
+});
+C.s(4).then(function (v) {
+  staticDone = v;
+});
+
+class Boom {
+  async fail() {
+    throw 9;
+  }
+}
+new Boom().fail().then(
+  function () {
+    throwDone = -1;
+  },
+  function (e) {
+    throwDone = e;
+  }
+);

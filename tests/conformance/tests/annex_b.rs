@@ -356,3 +356,13 @@ fn class_expr_fixture_present() {
 fn class_expr_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/class_expr");
 }
+
+#[test]
+fn async_methods_fixture_present() {
+    assert_fixture_present("es/annex-b/async_methods");
+}
+
+#[test]
+fn async_methods_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/async_methods");
+}

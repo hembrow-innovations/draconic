@@ -162,6 +162,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E16.03 | done | both | Indirect eval: `(0, eval)(s)` / `globalThis.eval(s)` (global scope; not caller lexical) | `tests/conformance` fixtures `es/eval` |
 | E17 | done | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
 | E18 | todo | both | Remaining Annex B / full 262 gaps (track explicitly, do not drop) | `tests/conformance/es/annex-b` |
+| E18.34 | done | both | Async methods: object `{ async m(){…} }` / class `async m()` / `static async m()`; `await` in body; returns Promise | `tests/conformance` fixtures `es/annex-b` |
 | E18.33 | done | both | Class expressions: `let C = class {…}` / `let C = class Name {…}` (methods, `extends`, fields; `new C`) | `tests/conformance` fixtures `es/annex-b` |
 | E18.32 | done | both | `export class C` / `export default class C`: named class export and default; consumer `import { C }` / `import C from` | `tests/conformance` fixtures `es/annex-b` |
 | E18.31 | done | both | `export * as ns from`: namespace re-export from static relative module; consumer `import { ns }` / `import * as m` sees `ns` as module namespace object | `tests/conformance` fixtures `es/annex-b` |

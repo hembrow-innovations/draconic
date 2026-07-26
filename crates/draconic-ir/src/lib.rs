@@ -822,7 +822,8 @@ fn lower_class_local(
 ) -> Vec<Stmt> {
     let mut ctor_params = Vec::new();
     let mut ctor_body = Vec::new();
-    let mut methods: Vec<(&Ident, &Vec<draconic_ast::Param>, &AstStmt, bool, bool)> = Vec::new();
+    let mut methods: Vec<(&Ident, &Vec<draconic_ast::Param>, &AstStmt, bool, bool, bool)> =
+        Vec::new();
     let mut accessors: Vec<(
         AccessorKind,
         &Ident,
@@ -844,6 +845,7 @@ fn lower_class_local(
                 params,
                 body,
                 is_static,
+                is_async,
                 is_generator,
                 ..
             } => {
@@ -852,6 +854,7 @@ fn lower_class_local(
                     params,
                     body.as_ref(),
                     *is_static,
+                    *is_async,
                     *is_generator,
                 ));
             }
@@ -936,12 +939,12 @@ fn lower_class_local(
         is_generator: false,
     }];
 
-    for (method_name, params, body, is_static, is_generator) in methods {
+    for (method_name, params, body, is_static, is_async, is_generator) in methods {
         let method_fn = Expr::Function {
             name: None,
             params: lower_params(checked, params, super_class),
             body: lower_fn_body(checked, body, super_class),
-            is_async: false,
+            is_async,
             is_generator,
             is_arrow: false,
             ty: Type::Function,

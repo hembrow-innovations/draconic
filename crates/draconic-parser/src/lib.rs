@@ -629,6 +629,13 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
+        // `async m()` / `async *m()` — not method/field named `async`.
+        let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
+            self.bump();
+            true
+        } else {
+            false
+        };
         let is_generator = if self.check(&TokenKind::Star) {
             self.bump();
             true
@@ -641,7 +648,7 @@ impl Parser {
             span: name_tok.span,
         };
         // Public field: `name;` / `name = expr;` (not a method/constructor).
-        if !is_generator && !self.check(&TokenKind::LParen) {
+        if !is_async && !is_generator && !self.check(&TokenKind::LParen) {
             let value = if self.check(&TokenKind::Eq) {
                 self.bump();
                 Some(self.parse_assignment()?)
@@ -679,6 +686,12 @@ impl Parser {
                     span,
                 ));
             }
+            if is_async {
+                return Err(Diagnostic::new(
+                    "class constructor cannot be async".to_string(),
+                    span,
+                ));
+            }
             if is_generator {
                 return Err(Diagnostic::new(
                     "class constructor cannot be a generator".to_string(),
@@ -696,6 +709,7 @@ impl Parser {
                 params,
                 body,
                 is_static,
+                is_async,
                 is_generator,
                 span,
             })
@@ -2566,7 +2580,7 @@ impl Parser {
         })
     }
 
-    /// `key: value`, shorthand `{ a }`, method `{ m() {} }` / `{ *m() {} }`,
+    /// `key: value`, shorthand `{ a }`, method `{ m() {} }` / `{ *m() {} }` / `{ async m() {} }`,
     /// accessor `{ get k(){} }` / `{ set k(v){} }`,
     /// spread `{ ...e }`, or computed `{ [e]: v }` / `{ [e]() {} }` / `{ *[e]() {} }`.
     fn parse_object_prop(&mut self) -> Result<ObjectProp, Diagnostic> {
@@ -2609,6 +2623,13 @@ impl Parser {
                 span: Span::new(prop_start, end),
             });
         }
+        // `async m()` / `async *m()` — not property/method named `async`.
+        let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
+            self.bump();
+            true
+        } else {
+            false
+        };
         let is_generator = if self.check(&TokenKind::Star) {
             self.bump();
             true
@@ -2618,7 +2639,7 @@ impl Parser {
         let key_tok = self.current().clone();
         match &key_tok.kind {
             TokenKind::LBracket => {
-                let key_start = if is_generator {
+                let key_start = if is_async || is_generator {
                     prop_start
                 } else {
                     key_tok.span.start.0
@@ -2628,7 +2649,7 @@ impl Parser {
                 self.expect(&TokenKind::RBracket)?;
                 let key = ObjectKey::Computed(Box::new(key_expr));
                 if self.check(&TokenKind::LParen) {
-                    let value = self.parse_method_function(key_start, is_generator)?;
+                    let value = self.parse_method_function(key_start, is_async, is_generator)?;
                     let end = expr_span(&value).end.0;
                     return Ok(ObjectProp::Property {
                         key,
@@ -2637,9 +2658,9 @@ impl Parser {
                         span: Span::new(key_start, end),
                     });
                 }
-                if is_generator {
+                if is_async || is_generator {
                     return Err(Diagnostic::new(
-                        "generator method requires `(params) { body }`".to_string(),
+                        "async/generator method requires `(params) { body }`".to_string(),
                         self.current_span(),
                     ));
                 }
@@ -2656,7 +2677,7 @@ impl Parser {
             TokenKind::Ident(name) => {
                 let name = name.clone();
                 let key_span = key_tok.span;
-                let span_start = if is_generator {
+                let span_start = if is_async || is_generator {
                     prop_start
                 } else {
                     key_span.start.0
@@ -2666,9 +2687,9 @@ impl Parser {
                     name: name.clone(),
                     span: key_span,
                 });
-                // Method shorthand: `m(params) { body }` / `*m(params) { body }`
+                // Method shorthand: `m(params) { body }` / `*m` / `async m`
                 if self.check(&TokenKind::LParen) {
-                    let value = self.parse_method_function(span_start, is_generator)?;
+                    let value = self.parse_method_function(span_start, is_async, is_generator)?;
                     let end = expr_span(&value).end.0;
                     return Ok(ObjectProp::Property {
                         key,
@@ -2677,9 +2698,9 @@ impl Parser {
                         span: Span::new(span_start, end),
                     });
                 }
-                if is_generator {
+                if is_async || is_generator {
                     return Err(Diagnostic::new(
-                        "generator method requires `(params) { body }`".to_string(),
+                        "async/generator method requires `(params) { body }`".to_string(),
                         self.current_span(),
                     ));
                 }
@@ -2734,7 +2755,7 @@ impl Parser {
             TokenKind::String(value) => {
                 let value_s = value.clone();
                 let key_span = key_tok.span;
-                let span_start = if is_generator {
+                let span_start = if is_async || is_generator {
                     prop_start
                 } else {
                     key_span.start.0
@@ -2745,7 +2766,7 @@ impl Parser {
                     span: key_span,
                 });
                 if self.check(&TokenKind::LParen) {
-                    let method = self.parse_method_function(span_start, is_generator)?;
+                    let method = self.parse_method_function(span_start, is_async, is_generator)?;
                     let end = expr_span(&method).end.0;
                     return Ok(ObjectProp::Property {
                         key,
@@ -2754,9 +2775,9 @@ impl Parser {
                         span: Span::new(span_start, end),
                     });
                 }
-                if is_generator {
+                if is_async || is_generator {
                     return Err(Diagnostic::new(
-                        "generator method requires `(params) { body }`".to_string(),
+                        "async/generator method requires `(params) { body }`".to_string(),
                         self.current_span(),
                     ));
                 }
@@ -2781,6 +2802,7 @@ impl Parser {
     fn parse_method_function(
         &mut self,
         start: u32,
+        is_async: bool,
         is_generator: bool,
     ) -> Result<Expr, Diagnostic> {
         self.expect(&TokenKind::LParen)?;
@@ -2794,10 +2816,25 @@ impl Parser {
             params,
             return_type,
             body,
-            is_async: false,
+            is_async,
             is_generator,
             span: Span::new(start, end),
         })
+    }
+
+    /// True when the next token can start a method name after `async` (`m`, `"m"`, `[`, `*`).
+    fn peek_starts_method_name(&self) -> bool {
+        let next = match self.tokens.get(self.pos + 1) {
+            Some(t) => t,
+            None => return false,
+        };
+        matches!(
+            next.kind,
+            TokenKind::Ident(_)
+                | TokenKind::String(_)
+                | TokenKind::LBracket
+                | TokenKind::Star
+        )
     }
 
     /// True when current token is `get`/`set` and the next token starts an accessor name.
@@ -3995,6 +4032,19 @@ Program
           Ident y
 "
         );
+    }
+
+    #[test]
+    fn parse_async_methods() {
+        let dump = parse_and_dump(
+            "let o = { async m(x) { return await x; } }; class C { async n() { return 1; } static async s() { return 2; } }",
+        )
+        .unwrap();
+        assert!(dump.contains("async: true"), "got:\n{dump}");
+        assert!(dump.contains("FunctionExpression"), "got:\n{dump}");
+        assert!(dump.contains("Method\n"), "got:\n{dump}");
+        assert!(dump.contains("StaticMethod\n"), "got:\n{dump}");
+        assert!(dump.contains("Unary await"), "got:\n{dump}");
     }
 
     #[test]

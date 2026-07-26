@@ -2239,6 +2239,7 @@ impl<'a> Checker<'a> {
                         ClassElement::Method {
                             params,
                             body,
+                            is_async,
                             is_generator,
                             ..
                         } => {
@@ -2246,7 +2247,7 @@ impl<'a> Checker<'a> {
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
-                            self.in_async = false;
+                            self.in_async = *is_async;
                             self.in_generator = *is_generator;
                             self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
                             self.in_async = prev_async;
@@ -2865,6 +2866,7 @@ impl<'a> Checker<'a> {
                         ClassElement::Method {
                             params,
                             body,
+                            is_async,
                             is_generator,
                             ..
                         } => {
@@ -2872,7 +2874,7 @@ impl<'a> Checker<'a> {
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
-                            self.in_async = false;
+                            self.in_async = *is_async;
                             self.in_generator = *is_generator;
                             self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
                             self.in_async = prev_async;

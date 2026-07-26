@@ -317,12 +317,13 @@ pub enum ClassElement {
         body: Box<Stmt>,
         span: Span,
     },
-    /// `static? *? name(params) { body }` instance or static method (optional generator)
+    /// `static? async? *? name(params) { body }` instance or static method (optional async/generator)
     Method {
         name: Ident,
         params: Vec<Param>,
         body: Box<Stmt>,
         is_static: bool,
+        is_async: bool,
         is_generator: bool,
         span: Span,
     },
@@ -1245,6 +1246,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         params,
                         body,
                         is_static,
+                        is_async,
                         is_generator,
                         ..
                     } => {
@@ -1256,6 +1258,10 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         }
                         indent(level + 2, out);
                         out.push_str(&format!("name: {}\n", name.name));
+                        if *is_async {
+                            indent(level + 2, out);
+                            out.push_str("async: true\n");
+                        }
                         if *is_generator {
                             indent(level + 2, out);
                             out.push_str("generator: true\n");
@@ -1703,6 +1709,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         params,
                         body,
                         is_static,
+                        is_async,
                         is_generator,
                         ..
                     } => {
@@ -1714,6 +1721,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         }
                         indent(level + 2, out);
                         out.push_str(&format!("name: {}\n", name.name));
+                        if *is_async {
+                            indent(level + 2, out);
+                            out.push_str("async: true\n");
+                        }
                         if *is_generator {
                             indent(level + 2, out);
                             out.push_str("generator: true\n");
