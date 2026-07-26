@@ -223,7 +223,11 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | E19.01 | done | js | Test262 harness + curated allowlist + `scripts/fetch-test262.mjs` (suite optional; skip when missing) | `tests/test262` |
-| E19.02 | todo | js | Expand allowlist / first failure cluster promotion after baseline triage (language/types + early gaps) | `tests/test262` (allowlist + baseline-report) |
+| E19.02 | done | js | Expand allowlist / first failure cluster promotion after baseline triage (language/types + early gaps) | `tests/test262` (allowlist + baseline-report) |
+| E19.03 | todo | js | Lexer: multi-byte UTF-8 IdentityEscape / NonEscapeSequence in string literals (e.g. `"\А"`); no mid-code-unit panic; Test262 `language/literals/string` Cyrillic + line-continuation cluster | `crates/draconic-lexer`, `tests/test262` |
+| E19.04 | todo | compiler | Untyped JS operator applicability: do not reject ECMA-262-valid `+` `-` `*` `/` `%` `<` `>` etc. on mixed primitives/objects when no type annotations (Test262 expressions cluster; checker over-strict vs erase-only JS) | `crates/draconic-check`, `tests/test262` |
+| E19.05 | todo | js | Undeclared binding / global `this` property refs: Test262 reference cluster (`unresolved identifier`); non-strict global var-object vs compile-time reject | `crates/draconic-check`, `tests/test262` |
+| E19.06 | todo | js | Expand allowlist further after E19.03–E19.05 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 

@@ -234,7 +234,24 @@ pub fn run_js_in_node(js: &str) -> Result<(), String> {
 }
 
 /// Run one allowlisted relative path against `suite_root`.
+///
+/// Panics from the compiler (e.g. mid-UTF-8 lexer bugs) are caught and reported
+/// as `Fail` so baseline triage stays report-only (ADR 0007 / E19.02).
 pub fn run_case(suite_root: &Path, rel: &str) -> CaseResult {
+    let path = rel.to_string();
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_case_inner(suite_root, rel)
+    })) {
+        Ok(c) => c,
+        Err(_) => CaseResult {
+            path,
+            status: Status::Fail,
+            message: "panic during compile/run (see E19.03 lexer UTF-8 / related)".into(),
+        },
+    }
+}
+
+fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     let full = suite_root.join(rel);
     if !full.is_file() {
         return CaseResult {
@@ -342,7 +359,12 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        assert!(list.len() >= 3, "expected curated allowlist, got {}", list.len());
+        // E19.02 expanded curated set (language/types + early expressions).
+        assert!(
+            list.len() >= 100,
+            "expected expanded curated allowlist (>=100), got {}",
+            list.len()
+        );
         assert!(list.iter().all(|p| p.starts_with("test/")));
     }
 
@@ -399,8 +421,7 @@ mod tests {
 
     #[test]
     fn default_run_does_not_fail_ci_without_suite() {
-        // Always succeeds as a cargo test: either suite missing (all skip) or
-        // suite present (report written; failures do not panic — report-only).
+        // Suite missing → all skip (CI green). Suite present → allowlist must pass.
         let report = run_default().expect("run_default");
         let path = write_baseline_report(&report).expect("write report");
         assert!(path.is_file(), "report path {}", path.display());
@@ -414,6 +435,16 @@ mod tests {
             assert!(skip > 0);
             assert_eq!(fail, 0);
         }
-        // When suite is present, fail>0 is OK (baseline / triage); do not assert green.
+        // E19.02: expanded allowlist must stay green when suite is present.
+        if report.suite_present {
+            assert_eq!(
+                fail, 0,
+                "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
+            );
+            assert!(
+                pass >= 100,
+                "expected expanded allowlist pass count >= 100, got {pass}"
+            );
+        }
     }
 }
