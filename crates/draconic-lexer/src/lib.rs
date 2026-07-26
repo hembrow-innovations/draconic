@@ -1,5 +1,9 @@
+mod regexp;
+
 use draconic_diagnostics::{Diagnostic, Span};
 use std::fmt;
+
+pub use regexp::validate_regexp_literal;
 
 /// ECMAScript string value: a sequence of UTF-16 code units (may include unpaired surrogates).
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -1483,10 +1487,31 @@ impl<'a> Lexer<'a> {
         let pattern = self.src[pattern_start..self.pos].to_string();
         self.bump(); // closing `/`
         let flags_start = self.pos;
+        // RegularExpressionFlags: IdentifierPart source chars only (no Unicode escapes).
+        // A `\` here would begin a Unicode escape in flags → early SyntaxError.
+        if !self.is_eof() && self.peek() == b'\\' {
+            return Err(Diagnostic::new(
+                "unicode escape sequence in regular expression flags",
+                Span::new(self.pos as u32, self.pos as u32 + 1),
+            ));
+        }
         while !self.is_eof() && is_ident_continue_char(self.peek_char()) {
             self.bump_char();
         }
+        // Trailing `\` after flags (e.g. `/./i\u0067`) is also a flags unicode-escape error.
+        if !self.is_eof() && self.peek() == b'\\' {
+            return Err(Diagnostic::new(
+                "unicode escape sequence in regular expression flags",
+                Span::new(self.pos as u32, self.pos as u32 + 1),
+            ));
+        }
         let flags = self.src[flags_start..self.pos].to_string();
+        if let Err(msg) = regexp::validate_regexp_literal(&pattern, &flags) {
+            return Err(Diagnostic::new(
+                msg,
+                Span::new(start, self.pos as u32),
+            ));
+        }
         self.at_line_start = false;
         Ok(self.finish_token(
             TokenKind::RegExp { pattern, flags },
@@ -1957,6 +1982,16 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+    }
+
+    #[test]
+    fn lex_regexp_literal_early_errors() {
+        // Invalid / duplicate flags, invalid pattern, unicode escape in flags.
+        assert!(Lexer::new("/./G").tokenize().is_err());
+        assert!(Lexer::new("/./gig").tokenize().is_err());
+        assert!(Lexer::new("/?/").tokenize().is_err());
+        assert!(Lexer::new("/./\\u0067").tokenize().is_err());
+        assert!(Lexer::new("/./uv").tokenize().is_err());
     }
 
     #[test]

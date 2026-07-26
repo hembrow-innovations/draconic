@@ -242,7 +242,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.15 | done | js | Expand allowlist further after E19.11–E19.14 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 | E19.16 | done | js | `for` head destructuring: `for (const [a] of …)` / `for (let {x} of …)` / `for (var [a] in …)` binding patterns (parser currently expects identifier) | `tests/test262` (allowlist + baseline-report) |
 | E19.17 | done | js | `catch` binding destructuring: `catch ([a])` / `catch ({x})` / nested patterns (parser expects identifier) | `tests/test262` (allowlist + baseline-report) |
-| E19.18 | todo | js | RegExp literal early errors: invalid pattern/flags/modifiers must fail at parse (negative parse currently accepted) | `crates/draconic-parser` / lexer, `tests/test262` |
+| E19.18 | done | js | RegExp literal early errors: invalid pattern/flags/modifiers must fail at parse (negative parse currently accepted) | `crates/draconic-parser` / lexer, `tests/test262` |
 | E19.19 | todo | js | Strict PutValue TypeError: compound assignment to non-writable / non-configurable data props and non-existent props on non-extensible objects | `tests/test262` (allowlist + baseline-report) |
 | E19.20 | todo | js | Expand allowlist further after E19.16–E19.19 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
