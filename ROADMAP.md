@@ -5,12 +5,15 @@ Source of truth for completeness, together with the test suite.
 
 A item is `done` only when its tests are green on every applicable target (`js`, `native`, or both).
 
+**Platform capability goal.** Draconic targets systems + scripting + server **capability-class parity** with Rust, Go, and Node: host/process control, stdlib I/O and networking, concurrency, FFI, packaging, tooling, and shippable distribution—on top of full ECMAScript, TS-inspired types, and native dual-world codegen—not identical APIs, package counts, or platform monopolies. Completeness means a team can replace simple services and harden toward production without leaving the language for routine OS, net, crypto, and package work. Advanced niches (full browser engine, JVM/CLR, CUDA stack, kernel/UEFI, bit-identical Node/V8 or rustc) are **non-goals** unless explicitly filed later.
+
 ## Legend
 
 - **Targets**: `js` | `native` | `both` | `compiler` (toolchain-only, no program emit)
 - **Tests**: path(s) that must pass
 - **Native observations**: `Targets: native`/`both` means fixtures assert **program results** on native (`native.stdout` / equivalent), not the B08 LLVM hello-stub fallback (`hello\n` only)
-- **Phase tracks**: historical **B / E / T / N / U** remain the completeness spine. Phase 2 product/spec tracks are **P — Product** and **S — Spec external** (do not replace draining existing B/E/T/N/U `todo`s).
+- **Phase tracks**: historical **B / E / T / N / U** remain the language/toolchain spine. Platform tracks: **H** host I/O & networking, **K** packages, **F** FFI, **C** concurrency, **L** stdlib libs, **D** distribution, **R** reliability/security; product/spec **P** / **S**. Prefer draining open spine `todo`s when Loop intent is conformance; claim platform rows when building real programs.
+- **Locked decisions**: host sockets-first + HTTP helpers → ADR-0008; Go-style git packages → ADR-0009.
 
 ---
 
@@ -298,19 +301,265 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | U01 | done | compiler | `draconic test` runner integration | `crates/draconic-cli` |
 | U02 | done | compiler | Diagnostics: span, message, pretty print | `crates/draconic-diagnostics` |
 | U03 | done | compiler | Source maps for JS emit | `crates/draconic-backend-js` |
+| U04 | todo | compiler | `draconic check`: typecheck + bind, no emit; exit non-zero on errors | `crates/draconic-cli` |
+| U05 | todo | compiler | Formatter: `draconic fmt` idempotent on fixtures; stable style | `crates/draconic-cli`, `tests/integration` |
+| U06 | todo | compiler | LSP basics: diagnostics, hover types, go-to-definition | `crates/draconic-lsp` (or cli), `tests/integration` |
+| U07 | todo | native | Native debug info: DWARF (or LLVM equivalent) mapping Draconic source lines | `crates/draconic-backend-llvm`, `tests/integration` |
+| U08 | todo | compiler | REPL: read-eval-print (js and/or embed); multi-line; last-value print | `crates/draconic-cli`, `tests/integration` |
+| U09 | todo | compiler | Error codes + suggestions: stable codes; help text for common classes | `crates/draconic-diagnostics`, `tests/conformance` (reject fixtures) |
+| U10 | todo | compiler | Watch mode: `draconic build --watch` / `check --watch` | `crates/draconic-cli`, `tests/integration` |
+| U11 | todo | both | Coverage: line coverage for `draconic test` on js and/or native | `crates/draconic-cli`, `tests/integration` |
+| U12 | todo | compiler | Doc comments → HTML/md: `draconic doc` extract/emit | `crates/draconic-cli`, `tests/integration` |
+| U13 | todo | compiler | Verbose version: commit, host target, LLVM version (`draconic -V`) | `crates/draconic-cli` |
+| U14 | todo | compiler | `draconic run <file>`: build+execute convenience (js and/or native); shebang-friendly | `crates/draconic-cli`, `tests/integration` |
+
+---
+
+## H — Host I/O & networking
+
+Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP helpers — Node/Go/Rust **capability-class** path. Not ECMA-262 (**E**); not dual-world scalars (**N**).
+
+**Locked (ADR-0008 / issues-16):** sockets-first API, then thin HTTP/1.1 helpers; **native first**; JS hard-error or host polyfill **per row**. v1 HTTP = plaintext HTTP/1.1. TLS / HTTP/2 / WebSocket later. Success: `examples/http-echo` pure Draconic native; later cutover of `examples/todo` C host.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| H00 | todo | both | Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix | `tests/conformance/host/policy`, `crates/draconic-runtime` |
+| H00.01 | todo | compiler | Host API registry: known symbols + target availability; js unsupported → hard diagnostic | `crates/draconic-check`, `tests/conformance/host/policy` |
+| H00.02 | todo | native | Host Runtime ABI scaffold: syscall/error codes, handles, path encoding at boundary | `crates/draconic-runtime` |
+| H00.03 | todo | native | I/O bytes boundary: `Uint8Array`/`ArrayBuffer` as OS read/write buffers | `crates/draconic-runtime`, `tests/conformance/host/bytes` |
+| H01 | todo | both | Process: args, env, exit | `tests/conformance/host/process` |
+| H01.01 | todo | both | Program args as string array (native OS argv; js Node bridge) | `tests/conformance` fixtures `host/process` |
+| H01.02 | todo | both | Env get/set/delete (string values); missing → undefined | `tests/conformance` fixtures `host/process` |
+| H01.03 | todo | both | `exit(code)` / exitCode: terminate with status; default 0 | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
+| H01.04 | todo | both | `pid` + `ppid` (read-only) | `tests/conformance` fixtures `host/process` |
+| H02 | todo | both | Stdio: stdout / stderr / stdin | `tests/conformance/host/stdio` |
+| H02.01 | todo | both | stdout write: string + newline; bytes via `Uint8Array` | `tests/conformance` fixtures `host/stdio`, `crates/draconic-runtime` |
+| H02.02 | todo | both | stderr write | `tests/conformance` fixtures `host/stdio` |
+| H02.03 | todo | both | stdin read: line or bounded bytes (v1 blocking ok on native) | `tests/conformance` fixtures `host/stdio` |
+| H03 | todo | both | Path helpers (string ops; no I/O) | `tests/conformance/host/path` |
+| H03.01 | todo | both | `path.join` / `path.normalize` (POSIX + Windows-aware as designed) | `tests/conformance` fixtures `host/path` |
+| H03.02 | todo | both | `dirname` / `basename` / `extname` / `isAbsolute` | `tests/conformance` fixtures `host/path` |
+| H03.03 | todo | both | `path.resolve` relative to cwd (needs **H16.01**) | `tests/conformance` fixtures `host/path` |
+| H04 | todo | both | Filesystem: read / write / dirs | `tests/conformance/host/fs` |
+| H04.01 | todo | both | File read: whole-file bytes + UTF-8 text; missing → typed error | `tests/conformance` fixtures `host/fs` |
+| H04.02 | todo | both | File write / append; create/truncate | `tests/conformance` fixtures `host/fs` |
+| H04.03 | todo | both | `exists` / `stat` (size, isFile, isDir, mtime) | `tests/conformance` fixtures `host/fs` |
+| H04.04 | todo | both | Directory: `mkdir` (optional recursive), `readdir`, `rmdir` / remove file | `tests/conformance` fixtures `host/fs` |
+| H04.05 | todo | both | Rename / copy / delete file | `tests/conformance` fixtures `host/fs` |
+| H04.06 | todo | native | Open handle: open/read/write/seek/close (fd-like; optional shared stream traits) | `tests/conformance` fixtures `host/fs`, `crates/draconic-runtime` |
+| H05 | todo | both | Time, clock, timers (job-queue integrated) | `tests/conformance/host/time` |
+| H05.01 | todo | both | Wall clock: real OS time on native (`Date.now` / host `now_ms`) | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |
+| H05.02 | todo | both | Monotonic clock for durations | `tests/conformance` fixtures `host/time` |
+| H05.03 | todo | both | `setTimeout` / `clearTimeout` via job queue | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |
+| H05.04 | todo | both | `setInterval` / `clearInterval` | `tests/conformance` fixtures `host/time` |
+| H05.05 | todo | native | Run loop waits for due timers (not busy-spin forever) | `crates/draconic-runtime`, `tests/conformance` fixtures `host/time` |
+| H06 | todo | native | TCP sockets (sockets-first) | `tests/conformance/host/net/tcp` |
+| H06.01 | todo | native | TCP listen: bind, backlog, close; port 0 → ephemeral + query local port | `tests/conformance` fixtures `host/net/tcp`, `crates/draconic-runtime` |
+| H06.02 | todo | native | TCP accept → connection handle; peer address | `tests/conformance` fixtures `host/net/tcp` |
+| H06.03 | todo | native | TCP connect: dial host:port; refused/timeout errors | `tests/conformance` fixtures `host/net/tcp` |
+| H06.04 | todo | native | TCP read/write bytes; partial read; close/shutdown | `tests/conformance` fixtures `host/net/tcp` |
+| H06.05 | todo | native | TCP loopback e2e: listen + connect + echo + close | `tests/conformance` fixtures `host/net/tcp` |
+| H06.06 | todo | js | TCP listen/accept: hard-error on js until optional Node bridge | `tests/conformance` fixtures `host/policy` |
+| H07 | todo | native | Async socket I/O + job queue | `tests/conformance/host/net/async`, `crates/draconic-runtime` |
+| H07.01 | todo | native | Non-blocking readiness; complete via job queue | `crates/draconic-runtime` |
+| H07.02 | todo | native | Async accept/connect/read/write → Promises; cancel/close settles cleanly | `tests/conformance` fixtures `host/net/async` |
+| H07.03 | todo | native | Concurrent connections without starving job queue | `tests/conformance` fixtures `host/net/async` |
+| H08 | todo | native | UDP | `tests/conformance/host/net/udp` |
+| H08.01 | todo | native | UDP bind; sendto/recvfrom; close | `tests/conformance` fixtures `host/net/udp`, `crates/draconic-runtime` |
+| H08.02 | todo | native | UDP loopback e2e | `tests/conformance` fixtures `host/net/udp` |
+| H09 | todo | native | DNS | `tests/conformance/host/net/dns` |
+| H09.01 | todo | native | DNS lookup hostname → addresses; failure errors | `tests/conformance` fixtures `host/net/dns`, `crates/draconic-runtime` |
+| H09.02 | todo | native | Connect-by-name (H09.01 + H06.03) | `tests/conformance` fixtures `host/net/dns` |
+| H09.03 | todo | both | DNS on js: hard-error or Node polyfill (when client bridge lands) | `tests/conformance` fixtures `host/policy` |
+| H10 | todo | native | HTTP/1.1 thin helpers (plaintext) on sockets | `tests/conformance/host/http` |
+| H10.01 | todo | native | HTTP/1.1 request parse: line + headers + bounded body (Content-Length) | `tests/conformance` fixtures `host/http`, `crates/draconic-runtime` |
+| H10.02 | todo | native | HTTP/1.1 response write: status + headers + body | `tests/conformance` fixtures `host/http` |
+| H10.03 | todo | native | HTTP/1.1 server one-shot: accept → parse → handler → write → close | `tests/conformance` fixtures `host/http` |
+| H10.04 | todo | native | HTTP/1.1 keep-alive optional (two requests one connection) | `tests/conformance` fixtures `host/http` |
+| H10.05 | todo | native | HTTP/1.1 client: request + response on connected TCP | `tests/conformance` fixtures `host/http` |
+| H10.06 | todo | native | Chunked transfer encoding (after v1 bar) | `tests/conformance` fixtures `host/http` |
+| H10.07 | todo | js | HTTP listen helpers: hard-error on js until Node bridge | `tests/conformance` fixtures `host/policy` |
+| H11 | todo | native | TLS | `tests/conformance/host/net/tls` |
+| H11.01 | todo | native | TLS client wrap: trust roots / insecure-test mode | `tests/conformance` fixtures `host/net/tls`, `crates/draconic-runtime` |
+| H11.02 | todo | native | TLS server wrap: cert/key; accept TLS connection | `tests/conformance` fixtures `host/net/tls` |
+| H11.03 | todo | native | HTTPS: HTTP/1.1 over TLS loopback | `tests/conformance` fixtures `host/net/tls` |
+| H12 | todo | native | WebSocket | `tests/conformance/host/net/ws` |
+| H12.01 | todo | native | WebSocket handshake (HTTP/1.1 upgrade) server-side | `tests/conformance` fixtures `host/net/ws` |
+| H12.02 | todo | native | WebSocket frames: text/binary; close; ping/pong | `tests/conformance` fixtures `host/net/ws` |
+| H12.03 | todo | native | WebSocket client dial + echo e2e | `tests/conformance` fixtures `host/net/ws` |
+| H13 | todo | native | HTTP/2 (later; not v1 bar) | `tests/conformance/host/http2` |
+| H13.01 | todo | native | HTTP/2 preface + single stream request/response | `tests/conformance` fixtures `host/http2` |
+| H14 | todo | native | Signals | `tests/conformance/host/process/signals` |
+| H14.01 | todo | native | Signal watch: SIGINT/SIGTERM → handler/job; default terminate documented | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
+| H14.02 | todo | native | Signal ignore / restore default | `tests/conformance` fixtures `host/process` |
+| H15 | todo | both | Subprocess | `tests/conformance/host/process/subprocess` |
+| H15.01 | todo | both | spawn/run: argv, env subset, cwd; wait exit code | `tests/conformance` fixtures `host/process` |
+| H15.02 | todo | both | Capture stdout/stderr; write stdin; kill child | `tests/conformance` fixtures `host/process` |
+| H15.03 | todo | native | Async subprocess exit via job queue / Promise | `tests/conformance` fixtures `host/process` |
+| H16 | todo | both | OS misc | `tests/conformance/host/os` |
+| H16.01 | todo | both | cwd get + chdir | `tests/conformance` fixtures `host/os` |
+| H16.02 | todo | both | Hostname / OS type / arch strings | `tests/conformance` fixtures `host/os` |
+| H16.03 | todo | both | Temp dir + home dir paths | `tests/conformance` fixtures `host/os` |
+| H16.04 | todo | native | OS sleep / yield for timer tests | `crates/draconic-runtime` |
+| H17 | todo | native | Success Programs & host cutover | `examples/http-echo`, `examples/todo` |
+| H17.01 | todo | native | `examples/http-echo`: pure Draconic native HTTP/1.1 (no C host) | `examples/http-echo` |
+| H17.02 | todo | native | Integration: start echo, client request, assert status/body, shutdown | `tests/integration`, `examples/http-echo` |
+| H17.03 | todo | native | `examples/todo` C host cutover → Draconic native serve | `examples/todo` |
+| H17.04 | todo | js | Optional JS/Node bridge for subset host APIs (after native green) | `tests/conformance` fixtures `host/policy` |
+
+**H critical path to http-echo:** H00 → H00.03 → H06.01–05 → (H07 if async) → H10.01–03 → H17.01 → H17.02.
+
+---
+
+## K — Packages (Go-style git modules)
+
+Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):** hybrid identity — import uses Go-like module path (`github.com/org/pkg`); `draconic.toml` may map path → git URL; versions = semver tags; lockfile pins commit OID + tree SHA-256; files `draconic.toml` + `draconic.lock`; CLI `draconic get` / `draconic mod tidy`; build auto-fetches unless `--offline`.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| K01 | todo | compiler | Manifest (`draconic.toml`): module path, deps, optional path→git URL map | `crates/draconic-pkg` |
+| K01.01 | todo | compiler | Parse `draconic.toml`: own module path + deps map (path → version req) | `crates/draconic-pkg` |
+| K01.02 | todo | compiler | Write/round-trip `draconic.toml` (stable order) | `crates/draconic-pkg` |
+| K01.03 | todo | compiler | Manifest schema validation + diagnostics | `crates/draconic-pkg` |
+| K01.04 | todo | compiler | Optional URL map; default derive `https://{module_path}.git` | `crates/draconic-pkg` |
+| K02 | todo | compiler | Lockfile (`draconic.lock`): resolved pins | `crates/draconic-pkg` |
+| K02.01 | todo | compiler | Lock entry: path + version + git URL + commit OID + content hash SHA-256 | `crates/draconic-pkg` |
+| K02.02 | todo | compiler | Parse/write lock; reject malformed | `crates/draconic-pkg` |
+| K02.03 | todo | compiler | Stable lock serialize: sorted paths; byte-identical rewrite when unchanged | `crates/draconic-pkg` |
+| K03 | todo | compiler | Module cache: layout, git clone/fetch, checkout by OID | `crates/draconic-pkg` |
+| K03.01 | todo | compiler | Cache layout keyed by module path + commit OID | `crates/draconic-pkg` |
+| K03.02 | todo | compiler | git clone/fetch into cache (HTTPS; fixture repos in tests) | `crates/draconic-pkg` |
+| K03.03 | todo | compiler | Checkout pinned OID; cache hit skips network | `crates/draconic-pkg` |
+| K03.04 | todo | compiler | Content hash SHA-256 over canonical package tree | `crates/draconic-pkg` |
+| K04 | todo | compiler | Version resolve: semver tag → commit OID; fail closed | `crates/draconic-pkg` |
+| K04.01 | todo | compiler | Resolve version req against git tags; highest matching semver | `crates/draconic-pkg` |
+| K04.02 | todo | compiler | Fail closed: no match / non-semver-only / empty → diagnostic | `crates/draconic-pkg` |
+| K04.03 | todo | compiler | Resolve direct-deps set → lock pins (v1: direct only) | `crates/draconic-pkg` |
+| K05 | todo | compiler | CLI: `draconic get`, `draconic mod tidy` | `crates/draconic-cli`, `crates/draconic-pkg` |
+| K05.01 | todo | compiler | `draconic get <module_path>@<ver>`: fetch, update manifest+lock+cache | `crates/draconic-cli` |
+| K05.02 | todo | compiler | `draconic mod tidy`: lock matches manifest; fetch missing; prune unused | `crates/draconic-cli` |
+| K06 | todo | compiler | Import resolve: module-path imports via Linker + cache | `crates/draconic-linker`, `crates/draconic-pkg` |
+| K06.01 | todo | compiler | Resolve `from "github.com/org/pkg"` (+ subpath) → cached package root | `crates/draconic-linker`, `crates/draconic-pkg` |
+| K06.02 | todo | compiler | Package boundary: reject path escape outside package root | `crates/draconic-linker` |
+| K06.03 | todo | compiler | Coexist with E11 relative imports | `crates/draconic-linker`, `tests/packages` |
+| K07 | todo | compiler | Build integration: auto-fetch; `--offline` | `crates/draconic-cli`, `crates/draconic-pkg` |
+| K07.01 | todo | compiler | `draconic build` auto-fetches missing locked cache entries | `crates/draconic-cli` |
+| K07.02 | todo | compiler | `draconic build --offline`: cache only; fixit on miss | `crates/draconic-cli` |
+| K07.03 | todo | compiler | Build prefers lock pins; does not float versions when lock present | `crates/draconic-cli`, `crates/draconic-pkg` |
+| K08 | todo | compiler | Integrity: verify lock hashes; refuse tampered cache | `crates/draconic-pkg` |
+| K08.01 | todo | compiler | Recompute tree SHA-256; match lock or hard-fail | `crates/draconic-pkg` |
+| K08.02 | todo | compiler | Refuse mismatched OID/hash; no silent wrong tree | `crates/draconic-pkg` |
+| K09 | todo | compiler | E2E: temp git dep + consumer Program | `tests/packages` |
+| K09.01 | todo | compiler | Fixture temp git lib (tagged); consumer manifest+lock; resolve+fetch | `tests/packages` |
+| K09.02 | todo | compiler | E2E build consumer importing module path from fixture | `tests/packages`, `crates/draconic-cli` |
+| K10 | todo | compiler | Example lib + consumer in-repo | `examples/pkg-lib`, `examples/pkg-consumer` |
+| K10.01 | todo | compiler | `examples/pkg-lib` minimal exportable module | `examples/pkg-lib` |
+| K10.02 | todo | compiler | `examples/pkg-consumer` depends on lib; documented build path | `examples/pkg-consumer` |
+| K11 | todo | compiler | Post-v1 packaging (not v1 bar) | `crates/draconic-pkg` |
+| K11.01 | todo | compiler | Private git auth (HTTPS token / SSH) | `crates/draconic-pkg`, `crates/draconic-cli` |
+| K11.02 | todo | compiler | `replace` directive: fork/local override | `crates/draconic-pkg` |
+| K11.03 | todo | compiler | Multi-module monorepo (subdir module paths) | `crates/draconic-pkg` |
+| K11.04 | todo | compiler | Module proxy/mirror (git still canonical) | `crates/draconic-pkg` |
+| K11.05 | todo | compiler | Yank/retract when advisory source configured | `crates/draconic-pkg` |
+
+**K v1 done bar:** K01–K08 + K09.02. K10 demo; K11 later.
+
+---
+
+## F — FFI & systems interop
+
+C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS hard-errors native-only FFI (N04 spirit).
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| F01 | todo | native | `extern "C"` call: scalar args/returns (`i32`/`i64`/`f64`/`*T`/void) | `tests/conformance` fixtures `ffi/call` |
+| F02 | todo | native | C callbacks: Draconic fn as `extern "C"` pointer; host invokes | `tests/conformance` fixtures `ffi/callback` |
+| F03 | todo | native | C-compatible struct layout (repr(C)-style); read/write both sides | `tests/conformance` fixtures `ffi/layout` |
+| F04 | todo | native | Link external static lib (`.a`); call one symbol | `tests/integration`, `tests/conformance` fixtures `ffi/link_static` |
+| F05 | todo | native | Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol | `tests/integration`, `tests/conformance` fixtures `ffi/link_dynamic` |
+| F06 | todo | compiler | Manual `extern` decls: parse + check signatures; IR/ABI surface | `crates/draconic-parser`, `crates/draconic-check`, `tests/conformance/types` |
+| F07 | todo | compiler | Bindgen-ish: generate externs from C header subset | `tests/integration`, `crates/draconic-cli` |
+| F08 | todo | both | Unsafe/native-only FFI diagnostics; JS hard-error; clear spans | `tests/conformance` fixtures `ffi/policy` |
+| F09 | todo | native | Optional later: wasm32/wasi emit + link smoke | `tests/integration`, `crates/draconic-backend-llvm` |
+
+---
+
+## C — Concurrency & parallelism
+
+Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H05** (not duplicated). Default cross-isolate model: **message-passing channels** (safer dual-world default); shared-memory/atomics deferred.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| C01 | todo | both | Worker / OS thread: spawn isolate running module/fn; join/terminate; no shared JS heap by default | `tests/conformance` fixtures `concurrency/workers` |
+| C02 | todo | both | Message-passing channels: send/recv; structured-clone or transfer policy; bounded buffer as designed | `tests/conformance` fixtures `concurrency/channels` |
+| C03 | todo | native | `once` / thread-safe init; mutex only if Runtime internals need it | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
+| C04 | todo | compiler | Parallel `draconic test`: multi-fixture workers; deterministic aggregate exit | `crates/draconic-cli`, `tests/integration` |
+| C05 | todo | both | Structured cancellation / timeout helpers on async work (channels + timers) | `tests/conformance` fixtures `concurrency/cancel` |
+| C06 | todo | native | Optional later: shared-memory atomics (advanced; not v1 bar) | `tests/conformance` fixtures `concurrency/atomics` |
+
+---
+
+## L — Stdlib libraries
+
+Portable libraries beyond raw host syscalls and ECMA builtins already under **E15** (JSON, RegExp — do not re-file). Prefer portable API + native Runtime impl; native-only must hard-error on js.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| L01 | todo | both | Encoding: UTF-8 bytes↔string, Base64, hex | `tests/conformance` fixtures `stdlib/encoding` |
+| L02 | todo | both | Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set) | `tests/conformance` fixtures `stdlib/collections` |
+| L03 | todo | both | Crypto: SHA-256 digest + secure random bytes | `tests/conformance` fixtures `stdlib/crypto` |
+| L04 | todo | both | Compression later: gzip/deflate byte buffers | `tests/conformance` fixtures `stdlib/compression` |
+| L05 | todo | both | In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
+| L06 | todo | both | Logging: leveled logger; stderr/stdout sink | `tests/conformance` fixtures `stdlib/logging` |
+| L07 | todo | both | Flags/CLI parse: argv → typed options/positionals | `tests/conformance` fixtures `stdlib/flags` |
+| L08 | todo | both | URL / query parse + serialize | `tests/conformance` fixtures `stdlib/url` |
+| L09 | todo | both | MIME multipart later (HTTP-shaped programs) | `tests/conformance` fixtures `stdlib/mime` |
+| L10 | todo | both | Crypto later: HMAC + AEAD (after L03) | `tests/conformance` fixtures `stdlib/crypto` |
+
+---
+
+## D — Distribution & install
+
+Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi-OS/arch.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| D01 | todo | compiler | Release binaries + install script; one-line install to PATH | `tests/integration` (install smoke), CI |
+| D02 | todo | compiler | Toolchain version pin in `draconic.toml`; CLI enforces or warns | `crates/draconic-cli`, `tests/integration` |
+| D03 | todo | compiler | Reproducible builds: same source + pin → documented-equivalent artifacts | `tests/integration` |
+| D04 | todo | native | Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available) | `tests/integration`, `crates/draconic-backend-llvm` |
+| D05 | todo | native | Binary size opts: strip / LTO flags documented and testable | `tests/integration`, `crates/draconic-cli` |
+
+---
+
+## R — Reliability, security, sandbox
+
+Embed/runtime safety, optional permissions, supply-chain (with **K**), native failure policy. Does not replace **N09** GC stress or **N07** embed surface.
+
+| ID | Status | Targets | Item | Tests |
+|----|--------|---------|------|-------|
+| R01 | todo | native | Embed/eval resource limits: max source size, alloc/time budget | `crates/draconic-embed`, `crates/draconic-runtime` |
+| R02 | todo | both | Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics | `tests/conformance` fixtures `security/permissions` |
+| R03 | todo | compiler | Supply-chain policy tests once **K08** lands (lock verify refuse tamper) | `tests/integration`, **K08** |
+| R04 | todo | native | Panic/abort vs catchable exception policy; fixtures per class | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
+| R05 | todo | both | Fuzz/stress hooks: parser/embed/runtime entry points | `crates/draconic-parser` and/or `crates/draconic-runtime` fuzz |
+| R06 | todo | native | Panic backtraces with source locations (ties **U07** DWARF) | `crates/draconic-runtime`, `tests/integration` |
 
 ---
 
 ## P — Product (Phase 2)
 
-Examples, DX, and polish-driven gaps. Prefer draining B/E/T/N/U `todo`s first; claim P only when product work is the intent. Seeds reference vault issues; expand only from real use — do not invent a large backlog here.
+Examples, DX, and polish-driven gaps. Prefer draining spine `todo`s first; claim P when product work is the intent.
 
-Native depth (GC stress, stdlib, dual-world UX) stays under **N** when filed (e.g. sibling **N09** / [[issues-3-native-depth]]); do not duplicate here.
+Native depth stays under **N**; host/net under **H**; packages under **K**.
 
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | P01 | done | js | Flagship example Program (fizzbuzz): in-repo `examples/fizzbuzz/`, builds via `draconic` js, clone→build→run | `examples/fizzbuzz` |
 | P02 | done | compiler | README status + onboarding path match reality (parse / build js\|native; no stale “bootstrap only”) | `README.md` |
+| P03 | todo | compiler | Language book / docs site skeleton: modules, dual-worlds, native types, host I/O, packages | `docs/` (or site), README links |
+| P04 | todo | both | Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09) | `examples/` |
+| P05 | todo | compiler | Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**) | `crates/draconic-cli`, `examples/` |
 
 ---
 
@@ -332,3 +581,4 @@ External conformance bar (Test262 staged). If **E19** (or children) already trac
 3. Split a cluster into child rows (e.g. `E01.01`) when the cluster is too large for one Loop — never mark a cluster `done` with failing or missing coverage.
 4. Never delete ECMA-262 obligations; move only to finer rows or explicit `blocked` with reason.
 5. **Empty board = stop.** If there are **zero** `todo` rows anywhere on this Roadmap, **stop** — do not invent work, do not open ad-hoc features, do not mark speculative items `todo`. File a vault issue or wait for a human if more work is needed.
+6. Platform tracks (**H/K/F/C/L/D/R**) are real Loop work. Prefer critical paths: **H** → http-echo; **K** → temp-git e2e; spine **T07/N08/S02** when intent is language honesty.
