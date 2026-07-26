@@ -1,4 +1,11 @@
-//! JS backend: IR → ECMAScript (ROADMAP B07 + N04 native policy).
+//! JS backend: IR → ECMAScript (ROADMAP B07 + N04 native policy + U03 source maps).
+
+mod source_map;
+
+pub use source_map::{
+    decode_mappings, decode_vlq, encode_vlq, source_mapping_url_comment, Mapping, SourceMap,
+    SourceMapOptions,
+};
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -8,6 +15,14 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     ArrayPatternEl, AssignTarget, Expr, IrType, LocalId, Module, ObjectPatternEl, Pattern, Stmt,
 };
+use source_map::SourceMapBuilder;
+
+/// JS emit result with optional Source Map v3 (U03).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmittedJs {
+    pub code: String,
+    pub map: Option<SourceMap>,
+}
 
 /// Emit ECMAScript source for a shared IR module.
 ///
@@ -16,6 +31,25 @@ use draconic_ir::{
 ///   (type annotations already gone at IR; values lower as ordinary JS numbers/objects/arrays).
 /// - Native pointers (`*T`, `&x`, `*p`, `*p = v`): hard-error (native-only).
 pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
+    Ok(emit_js_full(module, None)?.code)
+}
+
+/// Emit ECMAScript plus a Source Map v3 mapping generated positions back to the Program.
+///
+/// One mapping segment is recorded at the start of each top-level IR statement, using
+/// `module.body_spans` (original AST spans preserved through lower). Nested statements
+/// share their enclosing top-level origin.
+pub fn emit_js_with_map(
+    module: &Module,
+    opts: &SourceMapOptions<'_>,
+) -> Result<EmittedJs, Diagnostic> {
+    emit_js_full(module, Some(opts))
+}
+
+fn emit_js_full(
+    module: &Module,
+    map_opts: Option<&SourceMapOptions<'_>>,
+) -> Result<EmittedJs, Diagnostic> {
     reject_native_only(module)?;
 
     let names: HashMap<LocalId, &str> = module
@@ -25,10 +59,26 @@ pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
         .collect();
 
     let mut out = String::new();
-    for stmt in &module.body {
+    let mut builder = map_opts.map(SourceMapBuilder::new);
+
+    for (i, stmt) in module.body.iter().enumerate() {
+        if let Some(b) = builder.as_mut() {
+            let span = module
+                .body_spans
+                .get(i)
+                .copied()
+                .unwrap_or_else(Span::dummy);
+            b.add_mapping_span(span);
+        }
+        let before = out.len();
         emit_stmt(&mut out, stmt, &names);
+        if let Some(b) = builder.as_mut() {
+            b.note_write(&out[before..]);
+        }
     }
-    Ok(out)
+
+    let map = builder.map(|b| b.finish());
+    Ok(EmittedJs { code: out, map })
 }
 
 fn native_only_diag(message: impl Into<String>) -> Diagnostic {
@@ -1731,5 +1781,72 @@ mod tests {
             msg.contains("native-only") || msg.contains("pointer"),
             "{msg}"
         );
+    }
+
+    fn emit_mapped(src: &str, name: &str) -> EmittedJs {
+        let program = parse(src).expect("parse");
+        let checked = check(program).expect("check");
+        let module = lower(&checked);
+        let opts = SourceMapOptions::new(name)
+            .with_content(src)
+            .with_output_file("out.js");
+        emit_js_with_map(&module, &opts).expect("emit_js_with_map")
+    }
+
+    #[test]
+    fn u03_source_map_version_and_sources() {
+        let emitted = emit_mapped("let x = 1;\n", "main.drac");
+        let map = emitted.map.expect("map");
+        assert_eq!(map.version, 3);
+        assert_eq!(map.sources, vec!["main.drac".to_string()]);
+        assert_eq!(map.file.as_deref(), Some("out.js"));
+        assert_eq!(
+            map.sources_content,
+            vec![Some("let x = 1;\n".to_string())]
+        );
+        assert!(!map.mappings.is_empty(), "mappings={}", map.mappings);
+        assert_eq!(emitted.code, "let x = 1;\n");
+    }
+
+    #[test]
+    fn u03_source_map_maps_second_statement_to_line_two() {
+        let src = "let x = 1;\nlet y = 2;\n";
+        let emitted = emit_mapped(src, "t.drac");
+        let map = emitted.map.expect("map");
+        let segs = decode_mappings(&map.mappings);
+        assert!(
+            segs.len() >= 2,
+            "expected ≥2 segments, got {:?}\nmappings={}",
+            segs,
+            map.mappings
+        );
+        // First top-level stmt → original line 0
+        assert_eq!(segs[0].original_line, 0, "{segs:?}");
+        assert_eq!(segs[0].generated_line, 0, "{segs:?}");
+        // Second top-level stmt → original line 1
+        assert_eq!(segs[1].original_line, 1, "{segs:?}");
+        assert_eq!(segs[1].generated_line, 1, "{segs:?}");
+    }
+
+    #[test]
+    fn u03_source_map_json_roundtrip_fields() {
+        let emitted = emit_mapped("let a = 1 + 2;\n", "x.drac");
+        let map = emitted.map.expect("map");
+        let json = map.to_json();
+        assert!(json.contains("\"version\": 3"), "{json}");
+        assert!(json.contains("\"sources\": [\"x.drac\"]"), "{json}");
+        assert!(json.contains("\"mappings\":"), "{json}");
+        assert!(json.contains("let a = 1 + 2;\\n"), "{json}");
+    }
+
+    #[test]
+    fn u03_source_mapping_url_comment() {
+        let c = source_mapping_url_comment("out.js.map");
+        assert_eq!(c, "\n//# sourceMappingURL=out.js.map\n");
+    }
+
+    #[test]
+    fn u03_emit_js_unchanged_without_map() {
+        assert_eq!(emit_src("let x = 1;"), "let x = 1;\n");
     }
 }

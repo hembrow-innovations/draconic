@@ -32,6 +32,9 @@ thread_local! {
 pub struct Module {
     pub locals: Vec<Local>,
     pub body: Vec<Stmt>,
+    /// Original source span for each top-level `body` entry (same length as `body`).
+    /// Expanded lowerings (e.g. class → several stmts) share the originating AST span.
+    pub body_spans: Vec<Span>,
     /// Structural object shapes referenced by `Type::Shape` (N03 native layouts).
     pub shapes: Vec<ObjectShape>,
 }
@@ -451,8 +454,14 @@ pub fn lower(checked: &CheckedProgram) -> Module {
     PRIVATE_BRANDS.with(|p| p.borrow_mut().clear());
 
     let mut body = Vec::new();
+    let mut body_spans = Vec::new();
     for stmt in &checked.bound.program.body {
-        body.extend(lower_stmt_expand(checked, stmt, None));
+        let span = ast_stmt_span(stmt);
+        let expanded = lower_stmt_expand(checked, stmt, None);
+        for s in expanded {
+            body.push(s);
+            body_spans.push(span);
+        }
     }
 
     EXTRA_LOCALS.with(|e| locals.extend(e.borrow_mut().drain(..)));
@@ -461,10 +470,42 @@ pub fn lower(checked: &CheckedProgram) -> Module {
     PRIVATE_ACCESSORS.with(|p| p.borrow_mut().clear());
     PRIVATE_BRANDS.with(|p| p.borrow_mut().clear());
 
+    debug_assert_eq!(body.len(), body_spans.len());
     Module {
         locals,
         body,
+        body_spans,
         shapes: checked.shapes().to_vec(),
+    }
+}
+
+fn ast_stmt_span(stmt: &AstStmt) -> Span {
+    match stmt {
+        AstStmt::Expression { span, .. }
+        | AstStmt::Let { span, .. }
+        | AstStmt::Empty { span }
+        | AstStmt::Block { span, .. }
+        | AstStmt::If { span, .. }
+        | AstStmt::While { span, .. }
+        | AstStmt::DoWhile { span, .. }
+        | AstStmt::For { span, .. }
+        | AstStmt::ForIn { span, .. }
+        | AstStmt::ForOf { span, .. }
+        | AstStmt::Break { span, .. }
+        | AstStmt::Continue { span, .. }
+        | AstStmt::Labeled { span, .. }
+        | AstStmt::Switch { span, .. }
+        | AstStmt::FunctionDeclaration { span, .. }
+        | AstStmt::ClassDeclaration { span, .. }
+        | AstStmt::Return { span, .. }
+        | AstStmt::Throw { span, .. }
+        | AstStmt::Try { span, .. }
+        | AstStmt::With { span, .. }
+        | AstStmt::ImportDeclaration { span, .. }
+        | AstStmt::ExportNamedDeclaration { span, .. }
+        | AstStmt::ExportDefaultDeclaration { span, .. }
+        | AstStmt::ExportAllDeclaration { span, .. }
+        | AstStmt::TypeAlias { span, .. } => *span,
     }
 }
 
