@@ -50,6 +50,7 @@ dependencies = [
  "draconic-backend-js",
  "draconic-backend-llvm",
  "draconic-check",
+ "draconic-conformance",
  "draconic-diagnostics",
  "draconic-ir",
  "draconic-parser",

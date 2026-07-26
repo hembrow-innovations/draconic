@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
 use draconic_check::check;
+use draconic_conformance::{load_path, run_fixture};
 use draconic_diagnostics::Diagnostic;
 use draconic_ir::lower;
 use draconic_parser::{link_entry, parse};
@@ -21,6 +22,7 @@ fn main() -> ExitCode {
     match cmd.as_str() {
         "parse" => cmd_parse(&args),
         "build" => cmd_build(&args),
+        "test" => cmd_test(&args),
         "help" | "-h" | "--help" => {
             print_usage();
             ExitCode::SUCCESS
@@ -229,6 +231,67 @@ fn build_program(
     Ok(())
 }
 
+fn cmd_test(args: &[String]) -> ExitCode {
+    let path = match args.first() {
+        Some(p) if p != "-h" && p != "--help" => PathBuf::from(p),
+        _ => {
+            eprintln!("usage: draconic test <path>");
+            eprintln!("  <path>  fixture directory or single .drac file (with optional .meta)");
+            return ExitCode::from(2);
+        }
+    };
+
+    if args.len() > 1 {
+        eprintln!("usage: draconic test <path>");
+        return ExitCode::from(2);
+    }
+
+    let fixtures = match load_path(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    if fixtures.is_empty() {
+        eprintln!("error: no .drac fixtures under {}", path.display());
+        return ExitCode::from(1);
+    }
+
+    let mut passed = 0u32;
+    let mut failed = 0u32;
+    for fixture in &fixtures {
+        for result in run_fixture(fixture) {
+            if result.ok {
+                passed += 1;
+                println!(
+                    "ok {} {}",
+                    result.fixture_id,
+                    result.target.as_str()
+                );
+            } else {
+                failed += 1;
+                println!(
+                    "FAIL {} {}: {}",
+                    result.fixture_id,
+                    result.target.as_str(),
+                    result.message
+                );
+            }
+        }
+    }
+
+    let total = passed + failed;
+    if failed == 0 {
+        println!("{passed} passed");
+        ExitCode::SUCCESS
+    } else {
+        println!("{passed} passed, {failed} failed, {total} total");
+        ExitCode::from(1)
+    }
+}
+
 fn print_usage() {
     println!(
         "\
@@ -238,6 +301,7 @@ Usage:
   draconic parse <file>                          Parse a Program and print the AST dump
   draconic build --target js|native <file> [-o <out>]
                                                  Compile a Program to JS or a native binary
+  draconic test <path>                           Run conformance fixtures (dir or .drac file)
   draconic version                               Print version
   draconic help                                  Show this help
 "

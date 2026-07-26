@@ -94,6 +94,23 @@ pub fn load_fixtures(root: &Path) -> Result<Vec<Fixture>, String> {
     Ok(out)
 }
 
+/// Load fixtures from a directory (recursive) or a single `.drac` entry file.
+pub fn load_path(path: &Path) -> Result<Vec<Fixture>, String> {
+    if path.is_file() {
+        if path.extension().and_then(|e| e.to_str()) != Some("drac") {
+            return Err(format!(
+                "expected a .drac fixture file, got {}",
+                path.display()
+            ));
+        }
+        return Ok(vec![load_fixture(path)?]);
+    }
+    if path.is_dir() {
+        return load_fixtures(path);
+    }
+    Err(format!("path not found: {}", path.display()))
+}
+
 fn collect_drac(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
     for entry in entries {

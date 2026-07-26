@@ -257,7 +257,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
-| U01 | todo | compiler | `draconic test` runner integration | `crates/draconic-cli` |
+| U01 | done | compiler | `draconic test` runner integration | `crates/draconic-cli` |
 | U02 | todo | compiler | Diagnostics: span, message, pretty print | `crates/draconic-diagnostics` |
 | U03 | todo | compiler | Source maps for JS emit | `crates/draconic-backend-js` |
 

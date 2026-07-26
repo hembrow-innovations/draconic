@@ -33,4 +33,5 @@ draconic-backend-js = { path = "crates/draconic-backend-js" }
 draconic-backend-llvm = { path = "crates/draconic-backend-llvm" }
 draconic-runtime = { path = "crates/draconic-runtime" }
 draconic-embed = { path = "crates/draconic-embed" }
+draconic-conformance = { path = "tests/conformance" }
 thiserror = "2"
