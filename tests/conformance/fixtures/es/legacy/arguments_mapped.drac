@@ -1,0 +1,36 @@
+// E17.02.02: mapped arguments — non-strict simple params alias args[i] ↔ formal.
+function writeArgs(a) {
+  arguments[0] = 99;
+  return a;
+}
+function writeParam(a) {
+  a = 42;
+  return arguments[0];
+}
+function multi(a, b) {
+  arguments[1] = 7;
+  a = 3;
+  return a + b + arguments[0] + arguments[1];
+}
+function extra(a) {
+  // index past formals is not mapped; length still reflects call arity
+  arguments[1] = 5;
+  return a + arguments[1] + arguments.length;
+}
+let named = function (x, y) {
+  arguments[0] = 10;
+  y = 20;
+  return x + arguments[1];
+};
+let o = {
+  m: function (p) {
+    arguments[0] = 8;
+    return p;
+  }
+};
+let a = writeArgs(1);
+let b = writeParam(1);
+let c = multi(1, 2);
+let d = extra(1, 2);
+let e = named(1, 2);
+let f = o.m(1);

@@ -58,3 +58,13 @@ fn arguments_callee_fixture_present() {
 fn arguments_callee_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_callee");
 }
+
+#[test]
+fn arguments_mapped_fixture_present() {
+    assert_fixture_present("es/legacy/arguments_mapped");
+}
+
+#[test]
+fn arguments_mapped_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/arguments_mapped");
+}

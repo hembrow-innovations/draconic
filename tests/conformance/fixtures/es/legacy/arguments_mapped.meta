@@ -1,0 +1,4 @@
+id: es/legacy/arguments_mapped
+targets: js
+js.exit: 0
+js.check: if (a !== 99) process.exit(1); if (b !== 42) process.exit(2); if (c !== 20) process.exit(3); if (d !== 8) process.exit(4); if (e !== 30) process.exit(5); if (f !== 8) process.exit(6);
