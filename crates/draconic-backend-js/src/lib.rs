@@ -552,6 +552,15 @@ mod tests {
     }
 
     #[test]
+    fn emit_compound_assignment_to_property() {
+        let js = emit_src("let o = { a: 1 }; o.a += 2; o[\"a\"] *= 3;");
+        assert_eq!(
+            js,
+            "let o = {a: 1};\n((o).a += 2);\n((o)[\"a\"] *= 3);\n"
+        );
+    }
+
+    #[test]
     fn emit_nullish() {
         let js = emit_src("let x = null ?? 1;");
         assert_eq!(js, "let x = (null) ?? (1);\n");

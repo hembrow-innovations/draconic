@@ -1,10 +1,10 @@
+
+#
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
 # Expanded under ROADMAP E19.02–E19.10 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
-# statements/control, call/new/delete/in/instanceof, compound/logical assignment greens).
-# Lines starting with # and blank lines are ignored.
-#
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
-
+# Lines starting with # and blank lines are ignored.
+# statements/control, call/new/delete/in/instanceof, compound/logical assignment greens).
 test/language/comments/mongolian-vowel-separator-multi.js
 test/language/comments/mongolian-vowel-separator-single-eval.js
 test/language/comments/mongolian-vowel-separator-single.js
@@ -568,6 +568,39 @@ test/language/expressions/compound-assignment/S11.13.2_A3.2_T6.js
 test/language/expressions/compound-assignment/S11.13.2_A3.2_T7.js
 test/language/expressions/compound-assignment/S11.13.2_A3.2_T8.js
 test/language/expressions/compound-assignment/S11.13.2_A3.2_T9.js
+test/language/expressions/compound-assignment/S11.13.2_A7.1_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.1_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.1_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.10_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.10_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.10_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.11_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.11_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.11_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.2_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.2_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.2_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.3_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.3_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.3_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.4_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.4_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.4_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.5_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.5_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.5_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.6_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.6_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.6_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.7_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.7_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.7_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.8_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.8_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.8_T3.js
+test/language/expressions/compound-assignment/S11.13.2_A7.9_T1.js
+test/language/expressions/compound-assignment/S11.13.2_A7.9_T2.js
+test/language/expressions/compound-assignment/S11.13.2_A7.9_T3.js
 test/language/expressions/compound-assignment/srshift-eval-strict.js
 test/language/expressions/compound-assignment/sub-eval-strict.js
 test/language/expressions/compound-assignment/subtract-non-simple.js

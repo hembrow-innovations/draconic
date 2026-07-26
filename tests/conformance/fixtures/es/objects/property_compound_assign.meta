@@ -1,0 +1,4 @@
+id: es/objects/property_compound_assign
+targets: js
+js.exit: 0
+js.check: if (x !== 15) process.exit(1); if (y !== 12) process.exit(2); if (z !== 5) process.exit(3); if (w !== 8) process.exit(4); if (n !== 7) process.exit(5); if (r !== 16) process.exit(6); if (s !== 16) process.exit(7); if (ai !== 10) process.exit(8);

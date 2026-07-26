@@ -2611,20 +2611,28 @@ impl<'a> Checker<'a> {
                         computed,
                         ..
                     } => {
-                        // Property write: object + key are checked; result is the assigned value.
-                        // Compound assignment on members is out of scope for E04.02 simple `=`.
-                        if op.binary_op().is_some() {
-                            return Err(Diagnostic::new(
-                                "compound assignment to property not yet supported".to_string(),
-                                *span,
-                            ));
-                        }
-                        self.check_expr(object)?;
-                        if *computed {
+                        // Property write: object + key are checked; result is the assigned value
+                        // (simple `=`) or the compound binary result (`op=`).
+                        let obj_ty = self.check_expr(object)?;
+                        let left_ty = if *computed {
                             self.check_expr(property)?;
-                        }
-                        self.record(*span, value_ty);
-                        value_ty
+                            if let Some(idx) = Self::const_index_key(property) {
+                                self.prop_type(obj_ty, &idx).unwrap_or(Type::Any)
+                            } else {
+                                Type::Any
+                            }
+                        } else if let Expr::Ident(id) = property.as_ref() {
+                            self.prop_type(obj_ty, &id.name).unwrap_or(Type::Any)
+                        } else {
+                            Type::Any
+                        };
+                        let result_ty = if let Some(bin_op) = op.binary_op() {
+                            self.check_binary(bin_op, left_ty, value_ty, *span, target, value)?
+                        } else {
+                            value_ty
+                        };
+                        self.record(*span, result_ty);
+                        result_ty
                     }
                     // N03.03: `*p = v` store through native pointer.
                     Expr::Unary {
@@ -4293,6 +4301,18 @@ mod tests {
             "unexpected message: {}",
             err.message
         );
+    }
+
+    #[test]
+    fn check_compound_assignment_to_property_ok() {
+        let program = parse("let o = { a: 1 }; o.a += 2; o[\"a\"] *= 3;").unwrap();
+        check(program).expect("compound assignment to property should typecheck");
+    }
+
+    #[test]
+    fn check_compound_assignment_to_computed_property_ok() {
+        let program = parse("let o = {}; let k = \"x\"; o[k] = 1; o[k] += 2;").unwrap();
+        check(program).expect("compound assignment to computed property should typecheck");
     }
 
     #[test]
