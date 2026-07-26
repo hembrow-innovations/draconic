@@ -1983,4 +1983,34 @@ mod tests {
         assert!(dump.contains("extra") || dump.contains("__m"), "{dump}");
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn link_export_class() {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-link-export-class-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let lib = dir.join("lib.drac");
+        let main = dir.join("main.drac");
+        fs::write(
+            &lib,
+            "export class Point { constructor(x) { this.x = x; } }\nexport default class Counter { constructor(n) { this.n = n; } }\n",
+        )
+        .unwrap();
+        fs::write(
+            &main,
+            "import Counter, { Point } from \"./lib.drac\";\nlet p = new Point(1);\nlet c = new Counter(2);\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("export class link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("ClassDeclaration") || dump.contains("Point"), "{dump}");
+        assert!(dump.contains("Counter") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

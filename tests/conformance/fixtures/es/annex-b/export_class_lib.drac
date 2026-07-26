@@ -1,0 +1,21 @@
+export class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  sum() {
+    return this.x + this.y;
+  }
+}
+export default class Counter {
+  constructor(start) {
+    this.n = start;
+  }
+  inc() {
+    this.n = this.n + 1;
+  }
+  value() {
+    return this.n;
+  }
+}
+export let tag = "cls";

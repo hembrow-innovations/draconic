@@ -1,0 +1,13 @@
+import Counter, { Point, tag } from "./export_class_lib.drac";
+import * as ns from "./export_class_lib.drac";
+let p = new Point(1, 2);
+let a = p.x;
+let b = p.y;
+let c = p.sum();
+let ctr = new Counter(5);
+ctr.inc();
+let d = ctr.value();
+let e = tag;
+let np = new ns.Point(3, 4);
+let f = np.sum();
+let g = new ns.default(10).value();

@@ -1339,14 +1339,24 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
+        if self.check(&TokenKind::Class) {
+            let decl = self.parse_class_decl()?;
+            let end = stmt_span(&decl).end.0;
+            return Ok(Stmt::ExportNamedDeclaration {
+                declaration: Some(Box::new(decl)),
+                specifiers: Vec::new(),
+                source: None,
+                span: Span::new(start, end),
+            });
+        }
         Err(Diagnostic::new(
-            "expected `default`, `*`, `let`, `const`, `function`, or `{` after `export`"
+            "expected `default`, `*`, `let`, `const`, `function`, `class`, or `{` after `export`"
                 .to_string(),
             self.current_span(),
         ))
     }
 
-    /// `export default async? function name? (…) {…}` or `export default expr;`
+    /// `export default async? function name? (…) {…}` or `export default class Name {…}` or `export default expr;`
     fn parse_export_default(&mut self, start: u32) -> Result<Stmt, Diagnostic> {
         self.expect(&TokenKind::Default)?;
         if self.check(&TokenKind::Function)
@@ -1421,6 +1431,19 @@ impl Parser {
             };
             return Ok(Stmt::ExportDefaultDeclaration {
                 declaration: Box::new(declaration),
+                local,
+                span: Span::new(start, end),
+            });
+        }
+        if self.check(&TokenKind::Class) {
+            let decl = self.parse_class_decl()?;
+            let end = stmt_span(&decl).end.0;
+            let local = match &decl {
+                Stmt::ClassDeclaration { name, .. } => name.clone(),
+                _ => unreachable!("parse_class_decl returns ClassDeclaration"),
+            };
+            return Ok(Stmt::ExportDefaultDeclaration {
+                declaration: Box::new(decl),
                 local,
                 span: Span::new(start, end),
             });
@@ -4813,6 +4836,31 @@ Program
                 && dump.contains("exported: ns")
                 && dump.contains("source: ./lib.drac"),
             "expected export * as ns from, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_export_class() {
+        let dump = parse_and_dump("export class Point { constructor(x) { this.x = x; } }\n")
+            .unwrap();
+        assert!(
+            dump.contains("ExportNamedDeclaration")
+                && dump.contains("ClassDeclaration")
+                && dump.contains("name: Point"),
+            "expected export class, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_export_default_class() {
+        let dump =
+            parse_and_dump("export default class Counter { constructor() { this.n = 0; } }\n")
+                .unwrap();
+        assert!(
+            dump.contains("ExportDefaultDeclaration")
+                && dump.contains("ClassDeclaration")
+                && dump.contains("name: Counter"),
+            "expected export default class, got:\n{dump}"
         );
     }
 }
