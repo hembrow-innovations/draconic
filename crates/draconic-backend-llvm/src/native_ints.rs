@@ -1,4 +1,4 @@
-//! N01–N03.02: lower pure native scalar/layout Programs to LLVM IR.
+//! N01–N03.03: lower pure native scalar/layout/pointer Programs to LLVM IR.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -110,9 +110,9 @@ fn layout_align(shape: &ObjectShape) -> u32 {
 }
 
 /// True when every **user-declared** local is a native scalar (`i*`/`u*`/`f*`/`bool`),
-/// a **native layout** shape (all-native fields), or a **function declaration**
-/// binding, and the module has at least one native scalar or layout local
-/// (N01–N03.02 surface: scalars, structs, fixed-array tuples).
+/// a **native layout** shape (all-native fields), a **native pointer** (`*T`),
+/// or a **function declaration** binding, and the module has at least one native
+/// scalar, layout, or pointer local (N01–N03.03 surface).
 ///
 /// Arrow / function-expression bindings are excluded so T05 erase fixtures that
 /// mix natives with callable values stay on the B08 hello stub. JS `boolean`
@@ -132,6 +132,7 @@ pub(crate) fn is_native_int_module(module: &Module) -> bool {
         };
         match local.ty {
             Type::Native(_) => has_native = true,
+            Type::Ptr(_) => has_native = true,
             Type::Shape(_) if native_layout_of(module, local.ty).is_some() => has_native = true,
             Type::Function if fn_decl_locals.contains(&id) => {}
             _ => return false,
@@ -325,7 +326,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N01–N03.02 native scalars/layouts)"
+            "; Draconic LLVM backend (N01–N03.03 native scalars/layouts/pointers)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_print_i64(i64)").ok();
@@ -377,6 +378,10 @@ impl<'a> Emitter<'a> {
                     sc.align()
                 )
                 .ok();
+            } else if matches!(local.ty, Type::Ptr(_)) {
+                let ptr = format!("%l{}", local.id.0);
+                self.allocas.insert(local.id, ptr.clone());
+                writeln!(self.out, "  {ptr} = alloca ptr, align 8").ok();
             } else if let Some(shape) = native_layout_of(self.module, local.ty) {
                 let ptr = format!("%l{}", local.id.0);
                 self.allocas.insert(local.id, ptr.clone());
@@ -504,6 +509,12 @@ impl<'a> Emitter<'a> {
                     ty.align()
                 )
                 .ok();
+            } else if self
+                .locals
+                .get(&id)
+                .is_some_and(|l| matches!(l.ty, Type::Ptr(_)))
+            {
+                writeln!(pre, "  {ptr} = alloca ptr, align 8").ok();
             } else if let Some(shape) = self.local_layout(id) {
                 writeln!(
                     pre,
@@ -580,6 +591,19 @@ impl<'a> Emitter<'a> {
                         )
                         .ok();
                     }
+                } else if self
+                    .locals
+                    .get(local)
+                    .is_some_and(|l| matches!(l.ty, Type::Ptr(_)))
+                {
+                    if let Some(init) = init {
+                        let v = self.emit_ptr_expr(init)?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    } else {
+                        writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
+                    }
+                    // Pointers are not printed at end of main.
+                    return Ok(());
                 } else if let Some(shape) = self.local_layout(*local).cloned() {
                     let layout_ty = llvm_layout_ty(&shape);
                     let fields: Vec<Scalar> = shape
@@ -613,7 +637,9 @@ impl<'a> Emitter<'a> {
                         }
                     }
                 } else {
-                    return Err(diag("native scalars: declare needs scalar or layout local"));
+                    return Err(diag(
+                        "native scalars: declare needs scalar, layout, or pointer local",
+                    ));
                 }
                 // Main tracks declares for end-of-program print; function emit uses a
                 // saved empty print_order that is discarded.
@@ -836,6 +862,9 @@ impl<'a> Emitter<'a> {
                 if let Some((pname, _)) = self.params.get(id) {
                     return Ok(pname.clone());
                 }
+                if matches!(ty, Type::Ptr(_)) {
+                    return self.emit_ptr_expr(expr);
+                }
                 if let Some(ptr) = self.allocas.get(id).cloned() {
                     let sty = scalar_of_type(*ty).unwrap_or(self.local_scalar(*id)?);
                     let t = self.fresh_tmp();
@@ -868,6 +897,26 @@ impl<'a> Emitter<'a> {
                     let a = self.emit_bool(arg)?;
                     let t = self.fresh_tmp();
                     writeln!(self.body, "  {t} = xor i1 {a}, true").ok();
+                    return Ok(t);
+                }
+                // N03.03: `&x` → pointer value (address of local).
+                if matches!(op, UnaryOp::Ref) {
+                    return self.emit_ptr_expr(expr);
+                }
+                // N03.03: `*p` → load pointee scalar.
+                if matches!(op, UnaryOp::Deref) {
+                    let ptr_v = self.emit_ptr_expr(arg)?;
+                    let sty = match ty {
+                        Type::Native(n) => Scalar(*n),
+                        Type::Boolean => Scalar(NativeType::Bool),
+                        _ => {
+                            return Err(diag(
+                                "native pointers: dereference result must be native scalar",
+                            ))
+                        }
+                    };
+                    let t = self.fresh_tmp();
+                    writeln!(self.body, "  {t} = load {}, ptr {ptr_v}", sty.llvm_ty()).ok();
                     return Ok(t);
                 }
                 let nty = match ty {
@@ -1386,9 +1435,47 @@ impl<'a> Emitter<'a> {
         value: &Expr,
         ty: &Type,
     ) -> Result<String, Diagnostic> {
+        // N03.03: `*p = v` store through pointer (simple `=` only).
+        if let AssignTarget::Deref(ptr_expr) = target {
+            if !matches!(op, AssignOp::Eq) {
+                return Err(diag(
+                    "native pointers: only simple `=` store through pointer supported",
+                ));
+            }
+            let sty = match scalar_of_type(*ty) {
+                Some(s) => s,
+                None => match ptr_expr.ty() {
+                    Type::Ptr(n) => Scalar(n),
+                    _ => {
+                        return Err(diag(
+                            "native pointers: store value must be a native scalar",
+                        ))
+                    }
+                },
+            };
+            let dest = self.emit_ptr_expr(ptr_expr)?;
+            let rhs = self.emit_expr(value, Some(sty))?;
+            writeln!(self.body, "  store {} {rhs}, ptr {dest}", sty.llvm_ty()).ok();
+            return Ok(rhs);
+        }
+
         let AssignTarget::Local(id) = target else {
             return Err(diag("native scalars: only local assignment supported"));
         };
+        // Pointer local assign: `p = &x` / `p = q`.
+        if matches!(self.locals.get(id).map(|l| l.ty), Some(Type::Ptr(_))) {
+            if !matches!(op, AssignOp::Eq) {
+                return Err(diag("native pointers: only simple `=` to pointer local"));
+            }
+            let slot = self
+                .allocas
+                .get(id)
+                .cloned()
+                .ok_or_else(|| diag("internal: pointer assign missing alloca"))?;
+            let rhs = self.emit_ptr_expr(value)?;
+            writeln!(self.body, "  store ptr {rhs}, ptr {slot}").ok();
+            return Ok(rhs);
+        }
         let sty = match scalar_of_type(*ty) {
             Some(s) => s,
             None => self.local_scalar(*id)?,
@@ -1576,6 +1663,42 @@ impl<'a> Emitter<'a> {
     fn local_layout(&self, id: LocalId) -> Option<&ObjectShape> {
         let local = self.locals.get(&id)?;
         native_layout_of(self.module, local.ty)
+    }
+
+    /// Emit a pointer-typed expression (`*T` value): local load, `&local`, or copy.
+    fn emit_ptr_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Local { id, .. } => {
+                if let Some((pname, _)) = self.params.get(id) {
+                    return Ok(pname.clone());
+                }
+                let slot = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("native pointers: local missing alloca"))?;
+                let t = self.fresh_tmp();
+                writeln!(self.body, "  {t} = load ptr, ptr {slot}").ok();
+                Ok(t)
+            }
+            Expr::Unary {
+                op: UnaryOp::Ref,
+                arg,
+                ..
+            } => match arg.as_ref() {
+                Expr::Local { id, .. } => self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("native pointers: address-of needs stack local")),
+                _ => Err(diag(
+                    "native pointers: address-of only supports direct locals",
+                )),
+            },
+            _ => Err(diag(&format!(
+                "native pointers: unsupported pointer expression {expr:?}"
+            ))),
+        }
     }
 
     fn fresh_tmp(&mut self) -> String {

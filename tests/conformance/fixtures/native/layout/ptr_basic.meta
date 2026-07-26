@@ -1,0 +1,4 @@
+id: native/layout/ptr_basic
+targets: native
+native.exit: 0
+native.stdout: 10\n10\n

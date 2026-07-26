@@ -918,8 +918,18 @@ impl Parser {
         })
     }
 
-    /// Named (`number`), generic app (`Box<T>`), object (`{ a: T }`), or tuple (`[T, U]`).
+    /// Named (`number`), generic app (`Box<T>`), object (`{ a: T }`), tuple (`[T, U]`),
+    /// or pointer (`*T`, N03.03).
     fn parse_primary_type(&mut self) -> Result<draconic_ast::TypeAnn, Diagnostic> {
+        if self.check(&TokenKind::Star) {
+            let start = self.bump().span.start.0;
+            let inner = self.parse_primary_type()?;
+            let end = inner.span().end.0;
+            return Ok(draconic_ast::TypeAnn::Pointer {
+                inner: Box::new(inner),
+                span: Span::new(start, end),
+            });
+        }
         if self.check(&TokenKind::LBrace) {
             return self.parse_object_type();
         }
@@ -2199,6 +2209,9 @@ impl Parser {
             TokenKind::Void => Some(UnaryOp::Void),
             TokenKind::Delete => Some(UnaryOp::Delete),
             TokenKind::Await => Some(UnaryOp::Await),
+            // N03.03 native pointers: `&x` address-of, `*p` dereference.
+            TokenKind::BitAnd => Some(UnaryOp::Ref),
+            TokenKind::Star => Some(UnaryOp::Deref),
             _ => None,
         };
         if let Some(op) = op {

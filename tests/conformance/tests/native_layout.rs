@@ -1,4 +1,4 @@
-//! ROADMAP N03.01–N03.02: native structs and fixed arrays (layout types).
+//! ROADMAP N03.01–N03.03: native structs, fixed arrays, and pointers (layout types).
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -67,4 +67,24 @@ fn array_mixed_fixture_present() {
 #[test]
 fn array_mixed_runs_native() {
     assert_fixture_runs_native("native/layout/array_mixed");
+}
+
+#[test]
+fn ptr_basic_fixture_present() {
+    assert_fixture_present("native/layout/ptr_basic");
+}
+
+#[test]
+fn ptr_basic_runs_native() {
+    assert_fixture_runs_native("native/layout/ptr_basic");
+}
+
+#[test]
+fn ptr_store_fixture_present() {
+    assert_fixture_present("native/layout/ptr_store");
+}
+
+#[test]
+fn ptr_store_runs_native() {
+    assert_fixture_runs_native("native/layout/ptr_store");
 }

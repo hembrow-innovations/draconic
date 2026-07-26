@@ -765,6 +765,10 @@ fn emit_assign_target(
         } => {
             emit_member_access(out, object, property, *computed, false, names);
         }
+        draconic_ir::AssignTarget::Deref(ptr) => {
+            out.push('*');
+            emit_expr(out, ptr, names);
+        }
         draconic_ir::AssignTarget::ArrayPattern { elements } => {
             emit_array_pattern(out, elements, names);
         }
@@ -935,6 +939,17 @@ fn emit_unary(out: &mut String, op: UnaryOp, arg: &Expr, names: &HashMap<LocalId
             out.push_str("(yield* (");
             emit_expr(out, arg, names);
             out.push_str("))");
+        }
+        // N03.03 native-only; emitted for IR completeness (JS hard-error is N04).
+        UnaryOp::Ref => {
+            out.push_str("&(");
+            emit_expr(out, arg, names);
+            out.push(')');
+        }
+        UnaryOp::Deref => {
+            out.push_str("*(");
+            emit_expr(out, arg, names);
+            out.push(')');
         }
     }
 }

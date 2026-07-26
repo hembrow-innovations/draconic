@@ -322,6 +322,8 @@ pub enum AssignTarget {
         property: Box<Expr>,
         computed: bool,
     },
+    /// `*ptr = …` store through native pointer (N03.03).
+    Deref(Box<Expr>),
     /// `[a, b, ...rest] = …`
     ArrayPattern {
         elements: Vec<ArrayPatternEl>,
@@ -1270,6 +1272,11 @@ fn lower_expr(
                         computed: *computed,
                     }
                 }
+                AstExpr::Unary {
+                    op: UnaryOp::Deref,
+                    arg,
+                    ..
+                } => AssignTarget::Deref(Box::new(lower_expr(checked, arg, super_class))),
                 AstExpr::ArrayPattern { elements, .. } => AssignTarget::ArrayPattern {
                     elements: lower_array_pattern_els(checked, elements),
                 },
@@ -1277,7 +1284,7 @@ fn lower_expr(
                     properties: lower_object_pattern_props(checked, properties),
                 },
                 _ => panic!(
-                    "assign target must be ident, member, array pattern, or object pattern after check"
+                    "assign target must be ident, member, deref, array pattern, or object pattern after check"
                 ),
             };
             Expr::Assign {
@@ -2236,6 +2243,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                     indent(level + 1, out);
                     out.push_str("property:\n");
                     dump_expr(property, level + 2, out);
+                }
+                AssignTarget::Deref(ptr) => {
+                    out.push_str(&format!("Assign {op} deref : {ty}\n"));
+                    dump_expr(ptr, level + 1, out);
                 }
                 AssignTarget::ArrayPattern { elements } => {
                     out.push_str(&format!("Assign {op} ArrayPattern : {ty}\n"));

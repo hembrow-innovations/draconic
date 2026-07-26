@@ -1,0 +1,4 @@
+id: native/layout/ptr_store
+targets: native
+native.exit: 0
+native.stdout: 42\n42\n42\n

@@ -572,7 +572,7 @@ pub struct Param {
 }
 
 /// Type annotation — named (T01), object (T02), union/intersection (T03), generic app (T04),
-/// tuple / fixed array (N03.02).
+/// tuple / fixed array (N03.02), pointer `*T` (N03.03).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeAnn {
     /// `number`, `string`, user alias name, etc.
@@ -591,6 +591,11 @@ pub enum TypeAnn {
     /// `[T, U, V]` fixed-length tuple / fixed array type (N03.02).
     Tuple {
         elements: Vec<TypeAnn>,
+        span: Span,
+    },
+    /// `*T` — pointer to `T` (N03.03 native).
+    Pointer {
+        inner: Box<TypeAnn>,
         span: Span,
     },
     /// `A | B | C` (flattened left-associative).
@@ -620,6 +625,7 @@ impl TypeAnn {
             | TypeAnn::GenericApp { span, .. }
             | TypeAnn::Object { span, .. }
             | TypeAnn::Tuple { span, .. }
+            | TypeAnn::Pointer { span, .. }
             | TypeAnn::Union { span, .. }
             | TypeAnn::Intersection { span, .. } => *span,
         }
@@ -674,6 +680,10 @@ pub enum UnaryOp {
     Yield,
     /// `yield* AssignmentExpression` (delegate).
     YieldStar,
+    /// `&expr` — address-of (N03.03 native pointer).
+    Ref,
+    /// `*expr` — dereference (N03.03 native pointer).
+    Deref,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -746,6 +756,8 @@ impl fmt::Display for UnaryOp {
             UnaryOp::Await => "await",
             UnaryOp::Yield => "yield",
             UnaryOp::YieldStar => "yield*",
+            UnaryOp::Ref => "&",
+            UnaryOp::Deref => "*",
         };
         write!(f, "{s}")
     }
@@ -1857,6 +1869,11 @@ fn dump_type_ann(ann: &TypeAnn, level: usize, out: &mut String) {
             for el in elements {
                 dump_type_ann(el, level + 1, out);
             }
+        }
+        TypeAnn::Pointer { inner, .. } => {
+            indent(level, out);
+            out.push_str("PointerType\n");
+            dump_type_ann(inner, level + 1, out);
         }
         TypeAnn::Union { types, .. } => {
             indent(level, out);

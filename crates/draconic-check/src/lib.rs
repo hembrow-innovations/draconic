@@ -141,6 +141,8 @@ pub enum Type {
     GenericFn(u32),
     /// Unboxed native type (`i32`, `f64`, …); T05.
     Native(NativeType),
+    /// Pointer to a native scalar (`*i32`, …); N03.03.
+    Ptr(NativeType),
     /// Flexible / unannotated (e.g. `let x;` with no initializer).
     Any,
 }
@@ -194,6 +196,9 @@ impl fmt::Display for Type {
             Type::TypeParam(_) => "type parameter",
             Type::GenericFn(_) => "function",
             Type::Native(n) => n.as_str(),
+            Type::Ptr(n) => {
+                return write!(f, "*{}", n.as_str());
+            }
             Type::Any => "any",
         };
         write!(f, "{s}")
@@ -2524,6 +2529,34 @@ impl<'a> Checker<'a> {
                         self.record(*span, value_ty);
                         value_ty
                     }
+                    // N03.03: `*p = v` store through native pointer.
+                    Expr::Unary {
+                        op: UnaryOp::Deref,
+                        arg,
+                        ..
+                    } => {
+                        if op.binary_op().is_some() {
+                            return Err(Diagnostic::new(
+                                "compound assignment through pointer not yet supported"
+                                    .to_string(),
+                                *span,
+                            ));
+                        }
+                        let ptr_ty = self.check_expr(arg)?;
+                        let Type::Ptr(n) = ptr_ty else {
+                            return Err(Diagnostic::new(
+                                format!(
+                                    "cannot assign through type `{ptr_ty}` (pointer required)"
+                                ),
+                                *span,
+                            ));
+                        };
+                        let dest = Type::Native(n);
+                        self.require_assignable_expr(value_ty, dest, value)?;
+                        // Contextual: number literal → native pointee type.
+                        self.record(*span, dest);
+                        dest
+                    }
                     Expr::ArrayPattern { elements, .. } => {
                         if op.binary_op().is_some() {
                             return Err(Diagnostic::new(
@@ -3123,6 +3156,18 @@ impl<'a> Checker<'a> {
                     shape_props.push((p.name.clone(), ty));
                 }
                 Ok(self.intern_shape(shape_props))
+            }
+            TypeAnn::Pointer { inner, span } => {
+                let pointee = self.resolve_type_ann(inner)?;
+                match pointee {
+                    Type::Native(n) => Ok(Type::Ptr(n)),
+                    other => Err(Diagnostic::new(
+                        format!(
+                            "pointer pointee must be a native scalar type, got `{other}`"
+                        ),
+                        *span,
+                    )),
+                }
             }
             TypeAnn::Tuple { elements, .. } => {
                 let mut shape_props = Vec::new();
@@ -3738,6 +3783,22 @@ impl<'a> Checker<'a> {
             // Yield expression value is the next `.next(arg)` resume value; coarse `any`.
             // `yield*` completion is the inner iterator's final value; coarse `any`.
             UnaryOp::Yield | UnaryOp::YieldStar => Ok(Type::Any),
+            // N03.03: `&x` → `*T` when x is native scalar T.
+            UnaryOp::Ref => match arg {
+                Type::Native(n) => Ok(Type::Ptr(n)),
+                other => Err(Diagnostic::new(
+                    format!("cannot take address of type `{other}` (native scalar required)"),
+                    span,
+                )),
+            },
+            // N03.03: `*p` → T when p is `*T`.
+            UnaryOp::Deref => match arg {
+                Type::Ptr(n) => Ok(Type::Native(n)),
+                other => Err(Diagnostic::new(
+                    format!("cannot dereference type `{other}` (pointer required)"),
+                    span,
+                )),
+            },
         }
     }
 
