@@ -726,6 +726,8 @@ impl<'a> Lexer<'a> {
     /// and `\u{X…}` (well-formed scalar values only).
     /// When `allow_legacy_octal` (string literals, Annex B.1.2): `\0`–`\377` octal
     /// and NonOctalDecimal `\8`/`\9`. Templates pass `false` (bare `\0` only).
+    /// LineContinuation (`\` + LineTerminatorSequence) contributes no code units.
+    /// IdentityEscape / NonEscapeSequence consume a full UTF-8 scalar (not one byte).
     fn scan_escape_into(
         &mut self,
         value: &mut JsString,
@@ -737,26 +739,60 @@ impl<'a> Lexer<'a> {
                 Span::new(self.pos.saturating_sub(1) as u32, self.pos as u32),
             ));
         }
+        // LineContinuation :: `\` LineTerminatorSequence → empty SV.
+        if self.try_consume_line_terminator_sequence() {
+            return Ok(());
+        }
         let esc_start = self.pos as u32;
-        let esc = self.bump();
+        let esc = self.peek();
         match esc {
-            b'n' => value.push_scalar('\n'),
-            b'r' => value.push_scalar('\r'),
-            b't' => value.push_scalar('\t'),
-            b'\\' => value.push_scalar('\\'),
-            b'\'' => value.push_scalar('\''),
-            b'"' => value.push_scalar('"'),
-            b'`' => value.push_scalar('`'),
-            b'$' => value.push_scalar('$'),
-            b'0'..=b'7' if allow_legacy_octal => {
-                self.scan_legacy_octal_escape_into(value, esc);
+            b'n' => {
+                self.bump();
+                value.push_scalar('\n');
             }
-            b'0' => value.push_scalar('\0'),
+            b'r' => {
+                self.bump();
+                value.push_scalar('\r');
+            }
+            b't' => {
+                self.bump();
+                value.push_scalar('\t');
+            }
+            b'\\' => {
+                self.bump();
+                value.push_scalar('\\');
+            }
+            b'\'' => {
+                self.bump();
+                value.push_scalar('\'');
+            }
+            b'"' => {
+                self.bump();
+                value.push_scalar('"');
+            }
+            b'`' => {
+                self.bump();
+                value.push_scalar('`');
+            }
+            b'$' => {
+                self.bump();
+                value.push_scalar('$');
+            }
+            b'0'..=b'7' if allow_legacy_octal => {
+                let first = self.bump();
+                self.scan_legacy_octal_escape_into(value, first);
+            }
+            b'0' => {
+                self.bump();
+                value.push_scalar('\0');
+            }
             b'x' => {
+                self.bump();
                 let cp = self.scan_hex_digits(2, esc_start)?;
                 push_code_point(value, cp, esc_start, self.pos as u32, false)?;
             }
             b'u' => {
+                self.bump();
                 if self.peek() == b'{' {
                     self.bump(); // {
                     let cp = self.scan_braced_hex(esc_start)?;
@@ -768,10 +804,38 @@ impl<'a> Lexer<'a> {
                     push_code_point(value, cp, esc_start, self.pos as u32, false)?;
                 }
             }
-            // Annex B NonOctalDecimalEscapeSequence `\8` / `\9`, and IdentityEscape.
-            other => value.push_scalar(other as char),
+            // Annex B NonOctalDecimalEscapeSequence `\8` / `\9`, and IdentityEscape /
+            // NonEscapeSequence — full UTF-8 scalar (e.g. Cyrillic `"\А"`).
+            _ => self.scan_source_char_into(value),
         }
         Ok(())
+    }
+
+    /// Consume one LineTerminatorSequence if present at `pos`. Returns true when consumed.
+    fn try_consume_line_terminator_sequence(&mut self) -> bool {
+        if self.is_eof() {
+            return false;
+        }
+        // `src` is valid UTF-8; `pos` must stay on a char boundary (callers ensure this).
+        let ch = self.src[self.pos..].chars().next().expect("eof checked");
+        match ch {
+            '\n' => {
+                self.pos += 1;
+                true
+            }
+            '\r' => {
+                self.pos += 1;
+                if !self.is_eof() && self.peek() == b'\n' {
+                    self.pos += 1;
+                }
+                true
+            }
+            '\u{2028}' | '\u{2029}' => {
+                self.pos += ch.len_utf8();
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Annex B.1.2 LegacyOctalEscapeSequence after the first OctalDigit `first` (already consumed).
@@ -2025,6 +2089,64 @@ mod tests {
                 TokenKind::TemplateTail("".into()),
                 TokenKind::TemplateTail("d".into()),
                 TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lex_string_identity_escape_multibyte_utf8() {
+        // NonEscapeSequence / IdentityEscape: `\` + multi-byte UTF-8 scalar (Cyrillic А).
+        assert_eq!(
+            kinds("\"\\А\""),
+            vec![TokenKind::String("А".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("\"\\А\\Б\""),
+            vec![TokenKind::String("АБ".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("'\\а'"),
+            vec![TokenKind::String("а".into()), TokenKind::Eof]
+        );
+        // ASCII NonEscapeSequence still works.
+        assert_eq!(
+            kinds(r#""\a\q""#),
+            vec![TokenKind::String("aq".into()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lex_string_line_continuation() {
+        assert_eq!(
+            kinds("\"\\\n\""),
+            vec![TokenKind::String("".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("\"\\\r\""),
+            vec![TokenKind::String("".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("\"\\\r\n\""),
+            vec![TokenKind::String("".into()), TokenKind::Eof]
+        );
+        // U+2028 LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR
+        assert_eq!(
+            kinds("\"\\\u{2028}\""),
+            vec![TokenKind::String("".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("\"\\\u{2029}\""),
+            vec![TokenKind::String("".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("'a\\\nb'"),
+            vec![TokenKind::String("ab".into()), TokenKind::Eof]
+        );
+        assert_eq!(
+            kinds("`a\\\nb`"),
+            vec![
+                TokenKind::TemplateNoSubstitution("ab".into()),
+                TokenKind::Eof
             ]
         );
     }

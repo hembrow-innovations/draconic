@@ -288,6 +288,12 @@ test/language/literals/string/S7.8.4_A4.2_T1.js
 test/language/literals/string/S7.8.4_A4.2_T2.js
 test/language/literals/string/S7.8.4_A4.2_T3.js
 test/language/literals/string/S7.8.4_A4.2_T4.js
+test/language/literals/string/S7.8.4_A4.2_T5.js
+test/language/literals/string/S7.8.4_A4.2_T6.js
+test/language/literals/string/S7.8.4_A4.2_T7.js
+test/language/literals/string/S7.8.4_A4.2_T8.js
+test/language/literals/string/line-continuation-double.js
+test/language/literals/string/line-continuation-single.js
 test/language/literals/string/S7.8.4_A5.1_T1.js
 test/language/literals/string/S7.8.4_A5.1_T2.js
 test/language/literals/string/S7.8.4_A5.1_T3.js
