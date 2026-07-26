@@ -336,12 +336,14 @@ pub enum ClassElement {
         is_static: bool,
         span: Span,
     },
-    /// `static? name = expr;` / `static? name;` public field (E18.26).
+    /// `static? #? name = expr;` / `static? #? name;` field (E18.26 public; E18.35 private).
     Field {
         name: Ident,
         /// Absent when the field has no initializer (`name;`).
         value: Option<Expr>,
         is_static: bool,
+        /// `true` for `#name` private fields.
+        is_private: bool,
         span: Span,
     },
 }
@@ -491,7 +493,7 @@ pub enum Expr {
         elements: Vec<ArrayElement>,
         span: Span,
     },
-    /// `obj.prop` / `obj[expr]` / optional `obj?.prop` / `obj?.[expr]` (property read).
+    /// `obj.prop` / `obj.#prop` / `obj[expr]` / optional `obj?.prop` / `obj?.[expr]` (property read).
     MemberExpression {
         object: Box<Expr>,
         /// Non-computed: `Expr::Ident`. Computed: any expression.
@@ -499,6 +501,8 @@ pub enum Expr {
         computed: bool,
         /// `true` for optional chaining (`?.` / `?.[]`).
         optional: bool,
+        /// `true` for private field access `obj.#name` (E18.35).
+        private: bool,
         span: Span,
     },
     /// Parenthesized expression — preserved for dump fidelity.
@@ -1300,16 +1304,22 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         name,
                         value,
                         is_static,
+                        is_private,
                         ..
                     } => {
                         indent(level + 1, out);
-                        if *is_static {
-                            out.push_str("StaticField\n");
-                        } else {
-                            out.push_str("Field\n");
+                        match (*is_static, *is_private) {
+                            (true, true) => out.push_str("StaticPrivateField\n"),
+                            (true, false) => out.push_str("StaticField\n"),
+                            (false, true) => out.push_str("PrivateField\n"),
+                            (false, false) => out.push_str("Field\n"),
                         }
                         indent(level + 2, out);
-                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_private {
+                            out.push_str(&format!("name: #{}\n", name.name));
+                        } else {
+                            out.push_str(&format!("name: {}\n", name.name));
+                        }
                         if let Some(v) = value {
                             indent(level + 2, out);
                             out.push_str("value:\n");
@@ -1763,16 +1773,22 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         name,
                         value,
                         is_static,
+                        is_private,
                         ..
                     } => {
                         indent(level + 1, out);
-                        if *is_static {
-                            out.push_str("StaticField\n");
-                        } else {
-                            out.push_str("Field\n");
+                        match (*is_static, *is_private) {
+                            (true, true) => out.push_str("StaticPrivateField\n"),
+                            (true, false) => out.push_str("StaticField\n"),
+                            (false, true) => out.push_str("PrivateField\n"),
+                            (false, false) => out.push_str("Field\n"),
                         }
                         indent(level + 2, out);
-                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_private {
+                            out.push_str(&format!("name: #{}\n", name.name));
+                        } else {
+                            out.push_str(&format!("name: {}\n", name.name));
+                        }
                         if let Some(v) = value {
                             indent(level + 2, out);
                             out.push_str("value:\n");
@@ -1905,14 +1921,22 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             property,
             computed,
             optional,
+            private,
             ..
         } => {
             indent(level, out);
-            match (*optional, *computed) {
-                (true, true) => out.push_str("MemberExpression optional computed\n"),
-                (true, false) => out.push_str("MemberExpression optional\n"),
-                (false, true) => out.push_str("MemberExpression computed\n"),
-                (false, false) => out.push_str("MemberExpression\n"),
+            if *private {
+                match *optional {
+                    true => out.push_str("PrivateMemberExpression optional\n"),
+                    false => out.push_str("PrivateMemberExpression\n"),
+                }
+            } else {
+                match (*optional, *computed) {
+                    (true, true) => out.push_str("MemberExpression optional computed\n"),
+                    (true, false) => out.push_str("MemberExpression optional\n"),
+                    (false, true) => out.push_str("MemberExpression computed\n"),
+                    (false, false) => out.push_str("MemberExpression\n"),
+                }
             }
             indent(level + 1, out);
             out.push_str("object:\n");

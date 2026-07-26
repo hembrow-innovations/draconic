@@ -155,6 +155,8 @@ pub enum TokenKind {
     UShrEq,
     // keywords / atoms
     Ident(String),
+    /// `#name` private identifier (name without `#`).
+    PrivateIdent(String),
     Number(String),
     /// BigInt integer literal including `n` suffix (e.g. `1n`, `0xffn`).
     BigInt(String),
@@ -519,6 +521,7 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 TokenKind::Tilde
             }
+            b'#' => self.private_ident(start)?,
             b'"' | b'\'' => self.string_literal()?,
             b'`' => self.template_literal()?,
             b if b.is_ascii_digit() => self.number_literal()?,
@@ -1151,6 +1154,23 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
+    /// `#IdentifierName` private identifier.
+    fn private_ident(&mut self, start: u32) -> Result<TokenKind, Diagnostic> {
+        self.bump(); // `#`
+        if self.is_eof() || !is_ident_start(self.peek()) {
+            return Err(Diagnostic::new(
+                "expected identifier after `#`",
+                Span::new(start, self.pos as u32),
+            ));
+        }
+        let name_start = self.pos;
+        self.bump();
+        while !self.is_eof() && is_ident_continue(self.peek()) {
+            self.bump();
+        }
+        Ok(TokenKind::PrivateIdent(self.src[name_start..self.pos].to_string()))
+    }
+
     fn ident_or_keyword(&mut self) -> Result<TokenKind, Diagnostic> {
         let start = self.pos;
         self.bump();
@@ -1303,6 +1323,7 @@ fn regexp_allowed_after(kind: &TokenKind) -> bool {
     !matches!(
         kind,
         TokenKind::Ident(_)
+            | TokenKind::PrivateIdent(_)
             | TokenKind::Number(_)
             | TokenKind::BigInt(_)
             | TokenKind::String(_)

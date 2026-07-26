@@ -1,5 +1,8 @@
 //! Shared IR lowered from checked Programs (ROADMAP B06).
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use draconic_ast::{
     AccessorKind, Arg as AstArg, ArrayElement as AstArrayElement, ArrayPatternElement, AssignOp,
     BinaryOp, BindingPattern, ClassElement, Expr as AstExpr, Ident, ObjectPatternProp,
@@ -10,6 +13,13 @@ use draconic_diagnostics::Span;
 
 pub use draconic_ast::BindingKind;
 pub use draconic_check::{NativeType, ObjectShape, SymbolId as LocalId, Type as IrType};
+
+// Private field name → WeakMap local (active while lowering a class body).
+thread_local! {
+    static PRIVATE_FIELDS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
+    static EXTRA_LOCALS: RefCell<Vec<Local>> = RefCell::new(Vec::new());
+    static NEXT_SYNTH_ID: RefCell<u32> = RefCell::new(0);
+}
 
 /// Top-level IR unit both backends consume.
 #[derive(Debug, Clone, PartialEq)]
@@ -413,7 +423,7 @@ impl Expr {
 
 /// Lower a checked Program to shared IR.
 pub fn lower(checked: &CheckedProgram) -> Module {
-    let locals: Vec<Local> = checked
+    let mut locals: Vec<Local> = checked
         .bound
         .symbols()
         .iter()
@@ -425,16 +435,41 @@ pub fn lower(checked: &CheckedProgram) -> Module {
         })
         .collect();
 
+    let max_id = locals.iter().map(|l| l.id.0).max().unwrap_or(0);
+    NEXT_SYNTH_ID.with(|n| *n.borrow_mut() = max_id.saturating_add(1));
+    EXTRA_LOCALS.with(|e| e.borrow_mut().clear());
+    PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
+
     let mut body = Vec::new();
     for stmt in &checked.bound.program.body {
         body.extend(lower_stmt_expand(checked, stmt, None));
     }
+
+    EXTRA_LOCALS.with(|e| locals.extend(e.borrow_mut().drain(..)));
+    PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
 
     Module {
         locals,
         body,
         shapes: checked.shapes().to_vec(),
     }
+}
+
+fn alloc_synthetic_local(name: String, ty: Type) -> LocalId {
+    let id = NEXT_SYNTH_ID.with(|n| {
+        let id = LocalId(*n.borrow());
+        *n.borrow_mut() += 1;
+        id
+    });
+    EXTRA_LOCALS.with(|e| {
+        e.borrow_mut().push(Local {
+            id,
+            name,
+            ty,
+            kind: BindingKind::Let,
+        });
+    });
+    id
 }
 
 /// Lower one AST statement, expanding constructs that become multiple IR stmts (e.g. class).
@@ -821,7 +856,7 @@ fn lower_class_local(
     elements: &[ClassElement],
 ) -> Vec<Stmt> {
     let mut ctor_params = Vec::new();
-    let mut ctor_body = Vec::new();
+    let mut ctor_body_ast: Option<&AstStmt> = None;
     let mut methods: Vec<(&Ident, &Vec<draconic_ast::Param>, &AstStmt, bool, bool, bool)> =
         Vec::new();
     let mut accessors: Vec<(
@@ -831,14 +866,14 @@ fn lower_class_local(
         &AstStmt,
         bool,
     )> = Vec::new();
-    let mut instance_fields: Vec<(&Ident, Option<&AstExpr>)> = Vec::new();
+    let mut instance_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
     let mut static_fields: Vec<(&Ident, Option<&AstExpr>)> = Vec::new();
 
     for el in elements {
         match el {
             ClassElement::Constructor { params, body, .. } => {
                 ctor_params = lower_params(checked, params, super_class);
-                ctor_body = lower_fn_body(checked, body, super_class);
+                ctor_body_ast = Some(body.as_ref());
             }
             ClassElement::Method {
                 name: method_name,
@@ -878,22 +913,54 @@ fn lower_class_local(
                 name: field_name,
                 value,
                 is_static,
+                is_private,
                 ..
             } => {
                 let v = value.as_ref();
                 if *is_static {
                     static_fields.push((field_name, v));
                 } else {
-                    instance_fields.push((field_name, v));
+                    instance_fields.push((field_name, v, *is_private));
                 }
             }
         }
     }
 
+    // WeakMap per private instance field (E18.35).
+    let mut private_map: HashMap<String, LocalId> = HashMap::new();
+    let mut private_wm_decls: Vec<Stmt> = Vec::new();
+    for (fname, _, is_private) in &instance_fields {
+        if !*is_private {
+            continue;
+        }
+        let wm_name = format!("__drac_pf_{}_{}", local.0, fname.name);
+        let wm_id = alloc_synthetic_local(wm_name, Type::Any);
+        private_map.insert(fname.name.clone(), wm_id);
+        private_wm_decls.push(Stmt::Declare {
+            local: wm_id,
+            init: Some(Expr::New {
+                callee: Box::new(Expr::IdentName {
+                    name: "WeakMap".into(),
+                    ty: Type::Function,
+                }),
+                args: Vec::new(),
+                ty: Type::Any,
+            }),
+            kind: BindingKind::Let,
+        });
+    }
+
+    let prev_privates = PRIVATE_FIELDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_map));
+
+    let mut ctor_body = match ctor_body_ast {
+        Some(body) => lower_fn_body(checked, body, super_class),
+        None => Vec::new(),
+    };
+
     if !instance_fields.is_empty() {
         let field_inits: Vec<Stmt> = instance_fields
             .iter()
-            .map(|(fname, value)| {
+            .map(|(fname, value, is_private)| {
                 let init = match value {
                     Some(v) => lower_expr(checked, v, super_class),
                     None => Expr::IdentName {
@@ -901,20 +968,52 @@ fn lower_class_local(
                         ty: Type::Any,
                     },
                 };
-                Stmt::Expr {
-                    expr: Expr::Assign {
-                        target: AssignTarget::Member {
-                            object: Box::new(Expr::This { ty: Type::Any }),
-                            property: Box::new(Expr::String {
-                                value: fname.name.clone().into(),
-                                ty: Type::String,
+                if *is_private {
+                    let wm = PRIVATE_FIELDS.with(|p| {
+                        *p.borrow()
+                            .get(&fname.name)
+                            .expect("private field WeakMap")
+                    });
+                    // wm.set(this, init)
+                    Stmt::Expr {
+                        expr: Expr::Call {
+                            callee: Box::new(Expr::Member {
+                                object: Box::new(Expr::Local {
+                                    id: wm,
+                                    ty: Type::Any,
+                                }),
+                                property: Box::new(Expr::String {
+                                    value: "set".into(),
+                                    ty: Type::String,
+                                }),
+                                computed: false,
+                                optional: false,
+                                ty: Type::Function,
                             }),
-                            computed: false,
+                            args: vec![
+                                Arg::Expr(Expr::This { ty: Type::Any }),
+                                Arg::Expr(init),
+                            ],
+                            optional: false,
+                            ty: Type::Any,
                         },
-                        op: AssignOp::Eq,
-                        value: Box::new(init),
-                        ty: Type::Any,
-                    },
+                    }
+                } else {
+                    Stmt::Expr {
+                        expr: Expr::Assign {
+                            target: AssignTarget::Member {
+                                object: Box::new(Expr::This { ty: Type::Any }),
+                                property: Box::new(Expr::String {
+                                    value: fname.name.clone().into(),
+                                    ty: Type::String,
+                                }),
+                                computed: false,
+                            },
+                            op: AssignOp::Eq,
+                            value: Box::new(init),
+                            ty: Type::Any,
+                        },
+                    }
                 }
             })
             .collect();
@@ -931,13 +1030,14 @@ fn lower_class_local(
         ctor_body = new_body;
     }
 
-    let mut out = vec![Stmt::Function {
+    let mut out = private_wm_decls;
+    out.push(Stmt::Function {
         local,
         params: ctor_params,
         body: ctor_body,
         is_async: false,
         is_generator: false,
-    }];
+    });
 
     for (method_name, params, body, is_static, is_async, is_generator) in methods {
         let method_fn = Expr::Function {
@@ -1160,7 +1260,58 @@ fn lower_class_local(
         });
     }
 
+    PRIVATE_FIELDS.with(|p| *p.borrow_mut() = prev_privates);
     out
+}
+
+/// `wm.get(object)` for private field read.
+fn private_field_get(wm: LocalId, object: Expr) -> Expr {
+    Expr::Call {
+        callee: Box::new(Expr::Member {
+            object: Box::new(Expr::Local {
+                id: wm,
+                ty: Type::Any,
+            }),
+            property: Box::new(Expr::String {
+                value: "get".into(),
+                ty: Type::String,
+            }),
+            computed: false,
+            optional: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(object)],
+        optional: false,
+        ty: Type::Any,
+    }
+}
+
+/// `(wm.set(object, value), value)` so assignment yields the RHS.
+fn private_field_set(wm: LocalId, object: Expr, value: Expr) -> Expr {
+    let set_call = Expr::Call {
+        callee: Box::new(Expr::Member {
+            object: Box::new(Expr::Local {
+                id: wm,
+                ty: Type::Any,
+            }),
+            property: Box::new(Expr::String {
+                value: "set".into(),
+                ty: Type::String,
+            }),
+            computed: false,
+            optional: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(object), Arg::Expr(value.clone())],
+        optional: false,
+        ty: Type::Any,
+    };
+    Expr::Binary {
+        left: Box::new(set_call),
+        op: BinaryOp::Comma,
+        right: Box::new(value),
+        ty: Type::Any,
+    }
 }
 
 fn lower_arg(checked: &CheckedProgram, arg: &AstArg, super_class: Option<&AstExpr>) -> Arg {
@@ -1292,6 +1443,34 @@ fn lower_expr(
             value,
             span,
         } => {
+            // Private field assign: `obj.#x = v` → `(wm.set(obj, v), v)` (simple `=` only).
+            if let AstExpr::MemberExpression {
+                object,
+                property,
+                private: true,
+                ..
+            } = target.as_ref()
+            {
+                let fname = match property.as_ref() {
+                    AstExpr::Ident(id) => id.name.clone(),
+                    _ => panic!("private member property must be ident"),
+                };
+                let wm = PRIVATE_FIELDS.with(|p| {
+                    p.borrow()
+                        .get(&fname)
+                        .copied()
+                        .unwrap_or_else(|| panic!("unknown private field #{fname}"))
+                });
+                assert!(
+                    matches!(op, AssignOp::Eq),
+                    "only simple `=` supported on private fields"
+                );
+                return private_field_set(
+                    wm,
+                    lower_expr(checked, object, super_class),
+                    lower_expr(checked, value, super_class),
+                );
+            }
             let target = match target.as_ref() {
                 AstExpr::Ident(id) => {
                     if let Some(local) = checked.bound.resolve(id.span) {
@@ -1304,6 +1483,7 @@ fn lower_expr(
                     object,
                     property,
                     computed,
+                    private: false,
                     ..
                 } => {
                     let property = if *computed {
@@ -1622,8 +1802,22 @@ fn lower_expr(
             property,
             computed,
             optional,
+            private,
             span,
         } => {
+            if *private {
+                let fname = match property.as_ref() {
+                    AstExpr::Ident(id) => id.name.clone(),
+                    _ => panic!("private member property must be ident"),
+                };
+                let wm = PRIVATE_FIELDS.with(|p| {
+                    p.borrow()
+                        .get(&fname)
+                        .copied()
+                        .unwrap_or_else(|| panic!("unknown private field #{fname}"))
+                });
+                return private_field_get(wm, lower_expr(checked, object, super_class));
+            }
             // `super.prop` → `Parent.prototype.prop`
             if matches!(object.as_ref(), AstExpr::Super { .. }) {
                 let parent_ast = super_class

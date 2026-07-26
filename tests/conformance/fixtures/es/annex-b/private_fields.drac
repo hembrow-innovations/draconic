@@ -1,0 +1,79 @@
+class Point {
+  #x = 1;
+  #y = 2;
+  sum() {
+    return this.#x + this.#y;
+  }
+  setX(v) {
+    this.#x = v;
+  }
+  getX() {
+    return this.#x;
+  }
+}
+let p = new Point();
+let a = p.sum();
+p.setX(10);
+let b = p.getX();
+let c = p.sum();
+let d = typeof p.x;
+let e = typeof p.y;
+
+class Counter {
+  #n = 0;
+  #tag;
+  inc() {
+    this.#n = this.#n + 1;
+  }
+  value() {
+    return this.#n;
+  }
+  tagType() {
+    return typeof this.#tag;
+  }
+}
+let ctr = new Counter();
+ctr.inc();
+ctr.inc();
+let f = ctr.value();
+let g = ctr.tagType();
+
+class WithCtor {
+  #x = 10;
+  constructor(y) {
+    this.#y = y;
+  }
+  #y;
+  both() {
+    return this.#x + this.#y;
+  }
+}
+let w = new WithCtor(5);
+let h = w.both();
+
+class Parent {
+  #base = 100;
+  base() {
+    return this.#base;
+  }
+}
+class Child extends Parent {
+  #extra = 1;
+  constructor() {
+    super();
+  }
+  total() {
+    return this.base() + this.#extra;
+  }
+}
+let ch = new Child();
+let i = ch.total();
+let j = ch.base();
+
+class Box {
+  #v = 1 + 2 * 3;
+  get() {
+    return this.#v;
+  }
+}
+let k = new Box().get();

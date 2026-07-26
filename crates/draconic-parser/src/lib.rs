@@ -629,6 +629,39 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
+        // Private field: `#name;` / `#name = expr;` (E18.35). Methods deferred.
+        if let TokenKind::PrivateIdent(pname) = &self.current().kind {
+            let pname = pname.clone();
+            let name_tok = self.bump();
+            let name = Ident {
+                name: pname,
+                span: name_tok.span,
+            };
+            let value = if self.check(&TokenKind::Eq) {
+                self.bump();
+                Some(self.parse_assignment()?)
+            } else {
+                None
+            };
+            let end = value
+                .as_ref()
+                .map(|v| expr_span(v).end.0)
+                .unwrap_or(name.span.end.0);
+            let span = Span::new(start, end);
+            if is_static {
+                return Err(Diagnostic::new(
+                    "static private fields are not supported yet".to_string(),
+                    span,
+                ));
+            }
+            return Ok(ClassElement::Field {
+                name,
+                value,
+                is_static: false,
+                is_private: true,
+                span,
+            });
+        }
         // `async m()` / `async *m()` — not method/field named `async`.
         let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
             self.bump();
@@ -670,6 +703,7 @@ impl Parser {
                 name,
                 value,
                 is_static,
+                is_private: false,
                 span,
             });
         }
@@ -2409,6 +2443,23 @@ impl Parser {
                         property: Box::new(property),
                         computed: true,
                         optional: true,
+                        private: false,
+                        span: Span::new(start, end),
+                    };
+                } else if let TokenKind::PrivateIdent(name) = &self.current().kind {
+                    let name = name.clone();
+                    let prop_span = self.bump().span;
+                    let end = prop_span.end.0;
+                    let property = Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    });
+                    expr = Expr::MemberExpression {
+                        object: Box::new(expr),
+                        property: Box::new(property),
+                        computed: false,
+                        optional: true,
+                        private: true,
                         span: Span::new(start, end),
                     };
                 } else {
@@ -2423,25 +2474,45 @@ impl Parser {
                         property: Box::new(property),
                         computed: false,
                         optional: true,
+                        private: false,
                         span: Span::new(start, end),
                     };
                 }
             } else if self.check(&TokenKind::Dot) {
                 self.bump();
-                let (name, prop_span) = self.expect_ident_name()?;
-                let end = prop_span.end.0;
                 let start = expr_span(&expr).start.0;
-                let property = Expr::Ident(Ident {
-                    name,
-                    span: prop_span,
-                });
-                expr = Expr::MemberExpression {
-                    object: Box::new(expr),
-                    property: Box::new(property),
-                    computed: false,
-                    optional: false,
-                    span: Span::new(start, end),
-                };
+                if let TokenKind::PrivateIdent(name) = &self.current().kind {
+                    let name = name.clone();
+                    let prop_span = self.bump().span;
+                    let end = prop_span.end.0;
+                    let property = Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    });
+                    expr = Expr::MemberExpression {
+                        object: Box::new(expr),
+                        property: Box::new(property),
+                        computed: false,
+                        optional: false,
+                        private: true,
+                        span: Span::new(start, end),
+                    };
+                } else {
+                    let (name, prop_span) = self.expect_ident_name()?;
+                    let end = prop_span.end.0;
+                    let property = Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    });
+                    expr = Expr::MemberExpression {
+                        object: Box::new(expr),
+                        property: Box::new(property),
+                        computed: false,
+                        optional: false,
+                        private: false,
+                        span: Span::new(start, end),
+                    };
+                }
             } else if self.check(&TokenKind::LBracket) {
                 self.bump();
                 let property = self.parse_expr()?;
@@ -2452,6 +2523,7 @@ impl Parser {
                     property: Box::new(property),
                     computed: true,
                     optional: false,
+                    private: false,
                     span: Span::new(start, end),
                 };
             } else if matches!(
@@ -2492,20 +2564,39 @@ impl Parser {
         loop {
             if self.check(&TokenKind::Dot) {
                 self.bump();
-                let (name, prop_span) = self.expect_ident_name()?;
-                let end = prop_span.end.0;
                 let cstart = expr_span(&callee).start.0;
-                let property = Expr::Ident(Ident {
-                    name,
-                    span: prop_span,
-                });
-                callee = Expr::MemberExpression {
-                    object: Box::new(callee),
-                    property: Box::new(property),
-                    computed: false,
-                    optional: false,
-                    span: Span::new(cstart, end),
-                };
+                if let TokenKind::PrivateIdent(name) = &self.current().kind {
+                    let name = name.clone();
+                    let prop_span = self.bump().span;
+                    let end = prop_span.end.0;
+                    let property = Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    });
+                    callee = Expr::MemberExpression {
+                        object: Box::new(callee),
+                        property: Box::new(property),
+                        computed: false,
+                        optional: false,
+                        private: true,
+                        span: Span::new(cstart, end),
+                    };
+                } else {
+                    let (name, prop_span) = self.expect_ident_name()?;
+                    let end = prop_span.end.0;
+                    let property = Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    });
+                    callee = Expr::MemberExpression {
+                        object: Box::new(callee),
+                        property: Box::new(property),
+                        computed: false,
+                        optional: false,
+                        private: false,
+                        span: Span::new(cstart, end),
+                    };
+                }
             } else if self.check(&TokenKind::LBracket) {
                 self.bump();
                 let property = self.parse_expr()?;
@@ -2516,6 +2607,7 @@ impl Parser {
                     property: Box::new(property),
                     computed: true,
                     optional: false,
+                    private: false,
                     span: Span::new(cstart, end),
                 };
             } else {

@@ -366,3 +366,13 @@ fn async_methods_fixture_present() {
 fn async_methods_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/async_methods");
 }
+
+#[test]
+fn private_fields_fixture_present() {
+    assert_fixture_present("es/annex-b/private_fields");
+}
+
+#[test]
+fn private_fields_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/private_fields");
+}
