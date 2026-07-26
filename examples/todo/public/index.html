@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Draconic Todo</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Todos</h1>
+      <p class="tagline">Built with Draconic</p>
+    </header>
+    <form id="todo-form">
+      <input id="todo-input" type="text" placeholder="What needs doing?" autocomplete="off" autofocus />
+      <button type="submit">Add</button>
+    </form>
+    <div id="filters" class="filters">
+      <button type="button" data-filter="all" class="filter active">All</button>
+      <button type="button" data-filter="active" class="filter">Active</button>
+      <button type="button" data-filter="completed" class="filter">Completed</button>
+    </div>
+    <ul id="todo-list"></ul>
+    <footer id="todo-footer" class="footer">
+      <span id="todo-count"></span>
+      <button type="button" id="clear-completed">Clear completed</button>
+    </footer>
+  </div>
+  <script src="/todo.js"></script>
+</body>
+</html>

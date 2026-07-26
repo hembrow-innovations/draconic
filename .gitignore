@@ -13,3 +13,4 @@
 *.exe
 /tmp
 .scratch/**/claim.lock
+examples/todo/server/server

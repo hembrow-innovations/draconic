@@ -38,6 +38,7 @@ cargo run -p draconic-cli -- parse path/to/file.dr
 | `crates/draconic-embed` | Embed (eval-at-runtime) |
 | `crates/draconic-cli` | `draconic` CLI |
 | `tests/conformance` | Conformance suite |
+| `examples/todo` | End-to-end todo app (Draconic → JS + native HTTP host) |
 | `ROADMAP.md` | Feature checklist (Loop source of truth) |
 | `CONTEXT.md` | Domain glossary |
 | `docs/adr/` | Architecture decisions |
