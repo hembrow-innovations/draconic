@@ -1215,8 +1215,8 @@ impl Binder {
         body: &Stmt,
         is_for_in: bool,
     ) -> Result<(), Diagnostic> {
-        // `for (let/const name in/of right)` — loop-scoped binding for name.
-        // `for (var name in/of right)` — function-scoped (already hoisted).
+        // `for (let/const binding in/of right)` — loop-scoped bindings.
+        // `for (var binding in/of right)` — function-scoped (already hoisted).
         // Annex B.3.5: `for (var name = init in right)` only.
         if let Stmt::Let {
             kind,
@@ -1233,15 +1233,10 @@ impl Binder {
                     ));
                 }
             }
-            let BindingPattern::Ident(name) = binding else {
-                return Err(Diagnostic::new(
-                    "for-in/of destructuring binding is not supported yet".to_string(),
-                    binding.span(),
-                ));
-            };
             if matches!(kind, BindingKind::Let | BindingKind::Const) {
                 self.push_scope();
-                self.declare(name.name.clone(), name.span, *kind)?;
+                self.declare_binding(binding, *kind)?;
+                self.bind_pattern_defaults(binding)?;
                 if let Some(e) = init {
                     self.bind_expr(e)?;
                 }
@@ -1251,6 +1246,7 @@ impl Binder {
                 Ok(())
             } else {
                 // var: already hoisted into the enclosing var environment.
+                self.bind_pattern_defaults(binding)?;
                 if let Some(e) = init {
                     self.bind_expr(e)?;
                 }
@@ -1744,7 +1740,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    /// Left side of `for-in` / `for-of`: `let`/`const`/`var` name or assignable identifier.
+    /// Left side of `for-in` / `for-of`: `let`/`const`/`var` binding or assignable LHS.
     /// Annex B.3.5 allows `var name = init` only on for-in (checked by the parser).
     fn check_for_in_of_left(&mut self, left: &Stmt) -> Result<(), Diagnostic> {
         match left {
@@ -1764,22 +1760,8 @@ impl<'a> Checker<'a> {
                 if let Some(init) = init {
                     self.check_expr(init)?;
                 }
-                let BindingPattern::Ident(name) = binding else {
-                    return Err(Diagnostic::new(
-                        "for-in/of destructuring binding is not supported yet".to_string(),
-                        binding.span(),
-                    ));
-                };
-                let id = self
-                    .bound
-                    .symbols()
-                    .iter()
-                    .find(|s| s.span == name.span)
-                    .map(|s| s.id)
-                    .expect("for-in/of binding must be declared");
-                // Iteration values are JS values; leave as Any until finer types.
-                self.symbol_types[id.0 as usize] = Type::Any;
-                Ok(())
+                // Iteration values are JS values; leave bindings as Any until finer types.
+                self.check_binding_pattern(binding, Type::Any)
             }
             Stmt::Expression {
                 expr: Expr::Ident(id),
@@ -1792,12 +1774,46 @@ impl<'a> Checker<'a> {
                 self.record(id.span, ty);
                 Ok(())
             }
+            Stmt::Expression {
+                expr: Expr::ArrayPattern { elements, span },
+                ..
+            } => {
+                let binding = BindingPattern::Array {
+                    elements: elements.clone(),
+                    span: *span,
+                };
+                self.check_assign_pattern(&binding, *span)
+            }
+            Stmt::Expression {
+                expr: Expr::ObjectPattern { properties, span },
+                ..
+            } => {
+                let binding = BindingPattern::Object {
+                    properties: properties.clone(),
+                    span: *span,
+                };
+                self.check_assign_pattern(&binding, *span)
+            }
+            Stmt::Expression {
+                expr:
+                    Expr::MemberExpression {
+                        optional: false, ..
+                    },
+                span,
+            } => {
+                // `for (obj.p of …)` / `for (obj[k] in …)` — validate member LHS.
+                if let Stmt::Expression { expr, .. } = left {
+                    self.check_expr(expr)?;
+                }
+                let _ = span;
+                Ok(())
+            }
             Stmt::Expression { span, .. } => Err(Diagnostic::new(
-                "for-in/of left-hand side must be a binding or identifier".to_string(),
+                "for-in/of left-hand side must be a binding or assignment target".to_string(),
                 *span,
             )),
             other => Err(Diagnostic::new(
-                "for-in/of left-hand side must be a binding or identifier".to_string(),
+                "for-in/of left-hand side must be a binding or assignment target".to_string(),
                 match other {
                     Stmt::Empty { span }
                     | Stmt::Block { span, .. }

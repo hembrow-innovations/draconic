@@ -1,0 +1,4 @@
+id: es/statements/for_head_destructure
+targets: js
+js.exit: 0
+js.check: if (sum !== 6) process.exit(1); if (objSum !== 30) process.exit(2); if (keyParts !== "ac") process.exit(3); if (assignSum !== 9) process.exit(4); if (classic !== 28) process.exit(5);

@@ -35,8 +35,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
                 BindingKind::Function => out.push_str("let "),
             }
             emit_array_pattern(out, elements, names);
-            out.push_str(" = ");
-            emit_expr(out, init, names);
+            if let Some(init) = init {
+                out.push_str(" = ");
+                emit_expr(out, init, names);
+            }
             out.push_str(";\n");
         }
         Stmt::DeclareObjectPattern {
@@ -51,8 +53,14 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
                 BindingKind::Function => out.push_str("let "),
             }
             emit_object_pattern(out, properties, names);
-            out.push_str(" = ");
-            emit_expr(out, init, names);
+            if let Some(init) = init {
+                out.push_str(" = ");
+                emit_expr(out, init, names);
+            }
+            out.push_str(";\n");
+        }
+        Stmt::AssignLeft { target } => {
+            emit_assign_target(out, target, names);
             out.push_str(";\n");
         }
         Stmt::Expr { expr } => {
@@ -288,6 +296,40 @@ fn emit_for_init(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) 
                 emit_expr(out, init, names);
             }
         }
+        Stmt::DeclareArrayPattern {
+            kind,
+            elements,
+            init,
+        } => {
+            match kind {
+                BindingKind::Let => out.push_str("let "),
+                BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
+                BindingKind::Function => out.push_str("let "),
+            }
+            emit_array_pattern(out, elements, names);
+            if let Some(init) = init {
+                out.push_str(" = ");
+                emit_expr(out, init, names);
+            }
+        }
+        Stmt::DeclareObjectPattern {
+            kind,
+            properties,
+            init,
+        } => {
+            match kind {
+                BindingKind::Let => out.push_str("let "),
+                BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
+                BindingKind::Function => out.push_str("let "),
+            }
+            emit_object_pattern(out, properties, names);
+            if let Some(init) = init {
+                out.push_str(" = ");
+                emit_expr(out, init, names);
+            }
+        }
         Stmt::Expr { expr } => {
             emit_expr(out, expr, names);
         }
@@ -320,6 +362,43 @@ fn emit_for_in_of_left(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &
                 out.push_str(" = ");
                 emit_expr(out, init, names);
             }
+        }
+        Stmt::DeclareArrayPattern {
+            kind,
+            elements,
+            init,
+        } => {
+            match kind {
+                BindingKind::Let => out.push_str("let "),
+                BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
+                BindingKind::Function => out.push_str("let "),
+            }
+            emit_array_pattern(out, elements, names);
+            if let Some(init) = init {
+                out.push_str(" = ");
+                emit_expr(out, init, names);
+            }
+        }
+        Stmt::DeclareObjectPattern {
+            kind,
+            properties,
+            init,
+        } => {
+            match kind {
+                BindingKind::Let => out.push_str("let "),
+                BindingKind::Const => out.push_str("const "),
+                BindingKind::Var => out.push_str("var "),
+                BindingKind::Function => out.push_str("let "),
+            }
+            emit_object_pattern(out, properties, names);
+            if let Some(init) = init {
+                out.push_str(" = ");
+                emit_expr(out, init, names);
+            }
+        }
+        Stmt::AssignLeft { target } => {
+            emit_assign_target(out, target, names);
         }
         Stmt::Expr { expr } => {
             emit_expr(out, expr, names);

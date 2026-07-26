@@ -236,8 +236,8 @@ impl Parser {
         };
         self.expect(&TokenKind::LParen)?;
 
-        // `for (let/const/var name in/of right)` and classic `for (let/const/var …; …; …)`.
-        // Annex B.3.5: `for (var name = init in right)` only.
+        // `for (let/const/var binding in/of right)` and classic `for (let/const/var …; …; …)`.
+        // Annex B.3.5: `for (var name = init in right)` only (ident binding).
         if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) || self.check(&TokenKind::Var)
         {
             let kind = if self.check(&TokenKind::Const) {
@@ -248,12 +248,8 @@ impl Parser {
                 BindingKind::Let
             };
             let let_start = self.bump().span.start.0;
-            let name_tok = self.expect_ident()?;
-            let name_end = name_tok.span.end.0;
-            let name = Ident {
-                name: name_tok.ident_name(),
-                span: name_tok.span,
-            };
+            let binding = self.parse_binding_pattern()?;
+            let binding_end = binding.span().end.0;
             if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
                 let is_in = self.check(&TokenKind::In);
                 self.bump();
@@ -263,10 +259,10 @@ impl Parser {
                 let end = stmt_span(&body).end.0;
                 let left = Box::new(Stmt::Let {
                     kind,
-                    binding: BindingPattern::Ident(name),
+                    binding,
                     type_ann: None,
                     init: None,
-                    span: Span::new(let_start, name_end),
+                    span: Span::new(let_start, binding_end),
                 });
                 return if is_in {
                     if is_await {
@@ -294,13 +290,17 @@ impl Parser {
             if is_await {
                 return Err(Diagnostic::new(
                     "for await requires `of`".to_string(),
-                    Span::new(start, name_end),
+                    Span::new(start, binding_end),
                 ));
             }
-            // Classic `for (let/const/var name: T? = init; …)` / Annex B `for (var name = init in …)`.
+            // Classic `for (let/const/var binding: T? = init; …)` / Annex B `for (var name = init in …)`.
             // Disable relational `in` while parsing the initializer so
             // `for (var k = 1 in obj)` is Annex B, not `k = (1 in obj)`.
-            let type_ann = self.parse_optional_type_ann()?;
+            let type_ann = if matches!(binding, BindingPattern::Ident(_)) {
+                self.parse_optional_type_ann()?
+            } else {
+                None
+            };
             let init_expr = if self.check(&TokenKind::Eq) {
                 self.bump();
                 let prev_allow_in = self.allow_in;
@@ -308,10 +308,18 @@ impl Parser {
                 let e = self.parse_assignment();
                 self.allow_in = prev_allow_in;
                 Some(e?)
+            } else if matches!(
+                binding,
+                BindingPattern::Array { .. } | BindingPattern::Object { .. }
+            ) {
+                return Err(Diagnostic::new(
+                    "destructuring declaration requires an initializer".to_string(),
+                    binding.span(),
+                ));
             } else if kind == BindingKind::Const {
                 return Err(Diagnostic::new(
                     "const declaration requires an initializer".to_string(),
-                    name.span,
+                    binding.span(),
                 ));
             } else {
                 None
@@ -322,13 +330,16 @@ impl Parser {
                 if !is_in {
                     return Err(Diagnostic::new(
                         "for-of binding cannot have an initializer".to_string(),
-                        name.span,
+                        binding.span(),
                     ));
                 }
-                if kind != BindingKind::Var || type_ann.is_some() {
+                if kind != BindingKind::Var
+                    || type_ann.is_some()
+                    || !matches!(binding, BindingPattern::Ident(_))
+                {
                     return Err(Diagnostic::new(
                         "for-in binding cannot have an initializer".to_string(),
-                        name.span,
+                        binding.span(),
                     ));
                 }
                 self.bump();
@@ -339,11 +350,11 @@ impl Parser {
                 let let_end = if let Some(ref e) = init_expr {
                     expr_span(e).end.0
                 } else {
-                    name_end
+                    binding_end
                 };
                 let left = Box::new(Stmt::Let {
                     kind,
-                    binding: BindingPattern::Ident(name),
+                    binding,
                     type_ann: None,
                     init: init_expr,
                     span: Span::new(let_start, let_end),
@@ -360,12 +371,12 @@ impl Parser {
             } else if let Some(ref ann) = type_ann {
                 ann.span().end.0
             } else {
-                name.span.end.0
+                binding_end
             };
             self.expect(&TokenKind::Semi)?;
             let left_init = Some(Box::new(Stmt::Let {
                 kind,
-                binding: BindingPattern::Ident(name),
+                binding,
                 type_ann,
                 init: init_expr,
                 span: Span::new(let_start, let_end),
@@ -391,7 +402,7 @@ impl Parser {
         let expr = self.parse_expr();
         self.allow_in = prev_allow_in;
         let expr = expr?;
-        let expr_span = expr_span(&expr);
+        let mut left_span = expr_span(&expr);
         if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
             let is_in = self.check(&TokenKind::In);
             self.bump();
@@ -399,9 +410,14 @@ impl Parser {
             self.expect(&TokenKind::RParen)?;
             let body = Box::new(self.parse_stmt()?);
             let end = stmt_span(&body).end.0;
+            // Reinterpret array/object literals as assignment patterns for for-in/of LHS.
+            let expr = array_expr_to_pattern(&expr)
+                .or_else(|| object_expr_to_pattern(&expr))
+                .unwrap_or(expr);
+            left_span = expr_span(&expr);
             let left = Box::new(Stmt::Expression {
                 expr,
-                span: expr_span,
+                span: left_span,
             });
             return if is_in {
                 if is_await {
@@ -430,13 +446,13 @@ impl Parser {
         if is_await {
             return Err(Diagnostic::new(
                 "for await requires `of`".to_string(),
-                Span::new(start, expr_span.end.0),
+                Span::new(start, left_span.end.0),
             ));
         }
         self.expect(&TokenKind::Semi)?;
         let init = Some(Box::new(Stmt::Expression {
             expr,
-            span: expr_span,
+            span: left_span,
         }));
         self.finish_classic_for(start, init)
     }
@@ -4105,6 +4121,59 @@ Program
           Ident c
 "
         );
+    }
+
+    #[test]
+    fn parse_for_of_const_array_pattern() {
+        let dump = parse_and_dump("for (const [a] of s) x = a;").unwrap();
+        assert_eq!(
+            dump,
+            "\
+Program
+  ForOf
+    left:
+      Const
+        ArrayPattern
+          name: a
+    right:
+      Ident s
+    body:
+      ExpressionStatement
+        Assign =
+          Ident x
+          Ident a
+"
+        );
+    }
+
+    #[test]
+    fn parse_for_of_let_object_pattern() {
+        let dump = parse_and_dump("for (let {x} of s) y = x;").unwrap();
+        assert!(dump.contains("ForOf"), "got:\n{dump}");
+        assert!(dump.contains("ObjectPattern"), "got:\n{dump}");
+        assert!(dump.contains("name: x"), "got:\n{dump}");
+    }
+
+    #[test]
+    fn parse_for_in_var_array_pattern() {
+        let dump = parse_and_dump("for (var [a] in s) x = a;").unwrap();
+        assert!(dump.contains("ForIn"), "got:\n{dump}");
+        assert!(dump.contains("ArrayPattern"), "got:\n{dump}");
+        assert!(dump.contains("Var"), "got:\n{dump}");
+    }
+
+    #[test]
+    fn parse_for_of_assign_array_pattern() {
+        let dump = parse_and_dump("for ([a] of s) {}").unwrap();
+        assert!(dump.contains("ForOf"), "got:\n{dump}");
+        assert!(dump.contains("ArrayPattern"), "got:\n{dump}");
+    }
+
+    #[test]
+    fn parse_for_classic_let_array_pattern() {
+        let dump = parse_and_dump("for (let [a] = arr; a; ) x = a;").unwrap();
+        assert!(dump.contains("For\n"), "got:\n{dump}");
+        assert!(dump.contains("ArrayPattern"), "got:\n{dump}");
     }
 
     #[test]

@@ -81,17 +81,21 @@ pub enum Stmt {
         init: Option<Expr>,
         kind: BindingKind,
     },
-    /// `let` / `const` `[a, b, ...rest] = init;`
+    /// `let` / `const` `[a, b, ...rest] = init;` — `init` is `None` for for-in/of heads.
     DeclareArrayPattern {
         kind: BindingKind,
         elements: Vec<ArrayPatternEl>,
-        init: Expr,
+        init: Option<Expr>,
     },
-    /// `let` / `const` `{ a, b: c, ...rest } = init;`
+    /// `let` / `const` `{ a, b: c, ...rest } = init;` — `init` is `None` for for-in/of heads.
     DeclareObjectPattern {
         kind: BindingKind,
         properties: Vec<ObjectPatternEl>,
-        init: Expr,
+        init: Option<Expr>,
+    },
+    /// Assignment-pattern / member LHS of `for (… in/of …)` without a declaration keyword.
+    AssignLeft {
+        target: AssignTarget,
     },
     Expr {
         expr: Expr,
@@ -588,9 +592,21 @@ fn lower_stmt(
             // Expanded via `lower_stmt_expand`.
             None
         }
-        AstStmt::Expression { expr, .. } => Some(Stmt::Expr {
-            expr: lower_expr(checked, ctx, expr, super_class),
-        }),
+        AstStmt::Expression { expr, .. } => match expr {
+            AstExpr::ArrayPattern { elements, .. } => Some(Stmt::AssignLeft {
+                target: AssignTarget::ArrayPattern {
+                    elements: lower_array_pattern_els(checked, ctx, elements),
+                },
+            }),
+            AstExpr::ObjectPattern { properties, .. } => Some(Stmt::AssignLeft {
+                target: AssignTarget::ObjectPattern {
+                    properties: lower_object_pattern_props(checked, ctx, properties),
+                },
+            }),
+            _ => Some(Stmt::Expr {
+                expr: lower_expr(checked, ctx, expr, super_class),
+            }),
+        },
         AstStmt::Let {
             kind,
             binding,
@@ -613,28 +629,20 @@ fn lower_stmt(
                     kind: *kind,
                 })
             }
-            BindingPattern::Array { elements, .. } => {
-                let init = init
+            BindingPattern::Array { elements, .. } => Some(Stmt::DeclareArrayPattern {
+                kind: *kind,
+                elements: lower_array_pattern_els(checked, ctx, elements),
+                init: init
                     .as_ref()
-                    .map(|e| lower_expr(checked, ctx, e, super_class))
-                    .expect("array pattern declaration requires initializer");
-                Some(Stmt::DeclareArrayPattern {
-                    kind: *kind,
-                    elements: lower_array_pattern_els(checked, ctx, elements),
-                    init,
-                })
-            }
-            BindingPattern::Object { properties, .. } => {
-                let init = init
+                    .map(|e| lower_expr(checked, ctx, e, super_class)),
+            }),
+            BindingPattern::Object { properties, .. } => Some(Stmt::DeclareObjectPattern {
+                kind: *kind,
+                properties: lower_object_pattern_props(checked, ctx, properties),
+                init: init
                     .as_ref()
-                    .map(|e| lower_expr(checked, ctx, e, super_class))
-                    .expect("object pattern declaration requires initializer");
-                Some(Stmt::DeclareObjectPattern {
-                    kind: *kind,
-                    properties: lower_object_pattern_props(checked, ctx, properties),
-                    init,
-                })
-            }
+                    .map(|e| lower_expr(checked, ctx, e, super_class)),
+            }),
             BindingPattern::Member(_) => {
                 panic!("member binding is assignment-only; rejected at check")
             }
@@ -2662,6 +2670,52 @@ fn indent(level: usize, out: &mut String) {
     }
 }
 
+fn dump_assign_target(target: &AssignTarget, level: usize, out: &mut String) {
+    match target {
+        AssignTarget::Local(id) => {
+            indent(level, out);
+            out.push_str(&format!("Local %{}\n", id.0));
+        }
+        AssignTarget::Name(name) => {
+            indent(level, out);
+            out.push_str(&format!("Name {name}\n"));
+        }
+        AssignTarget::Member {
+            object,
+            property,
+            computed,
+        } => {
+            indent(level, out);
+            if *computed {
+                out.push_str("Member computed\n");
+            } else {
+                out.push_str("Member\n");
+            }
+            indent(level + 1, out);
+            out.push_str("object:\n");
+            dump_expr(object, level + 2, out);
+            indent(level + 1, out);
+            out.push_str("property:\n");
+            dump_expr(property, level + 2, out);
+        }
+        AssignTarget::Deref(ptr) => {
+            indent(level, out);
+            out.push_str("Deref\n");
+            dump_expr(ptr, level + 1, out);
+        }
+        AssignTarget::ArrayPattern { elements } => {
+            indent(level, out);
+            out.push_str("ArrayPattern\n");
+            dump_array_pattern_els(elements, level + 1, out);
+        }
+        AssignTarget::ObjectPattern { properties } => {
+            indent(level, out);
+            out.push_str("ObjectPattern\n");
+            dump_object_pattern_els(properties, level + 1, out);
+        }
+    }
+}
+
 fn dump_array_pattern_els(elements: &[ArrayPatternEl], level: usize, out: &mut String) {
     for el in elements {
         match el {
@@ -2781,9 +2835,11 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             };
             out.push_str(&format!("DeclareArrayPattern {kw}\n"));
             dump_array_pattern_els(elements, level + 1, out);
-            indent(level + 1, out);
-            out.push_str("init:\n");
-            dump_expr(init, level + 2, out);
+            if let Some(init) = init {
+                indent(level + 1, out);
+                out.push_str("init:\n");
+                dump_expr(init, level + 2, out);
+            }
         }
         Stmt::DeclareObjectPattern {
             kind,
@@ -2799,9 +2855,16 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             };
             out.push_str(&format!("DeclareObjectPattern {kw}\n"));
             dump_object_pattern_els(properties, level + 1, out);
-            indent(level + 1, out);
-            out.push_str("init:\n");
-            dump_expr(init, level + 2, out);
+            if let Some(init) = init {
+                indent(level + 1, out);
+                out.push_str("init:\n");
+                dump_expr(init, level + 2, out);
+            }
+        }
+        Stmt::AssignLeft { target } => {
+            indent(level, out);
+            out.push_str("AssignLeft\n");
+            dump_assign_target(target, level + 1, out);
         }
         Stmt::Expr { expr } => {
             indent(level, out);

@@ -1,0 +1,22 @@
+let sum = 0;
+for (const [a] of [[1], [2], [3]]) {
+  sum = sum + a;
+}
+let objSum = 0;
+for (let { x } of [{ x: 10 }, { x: 20 }]) {
+  objSum = objSum + x;
+}
+// for-in yields string keys; array pattern takes first code unit of each key.
+let keyParts = "";
+for (var [k] in { ab: 1, cd: 2 }) {
+  keyParts = keyParts + k;
+}
+let assignSum = 0;
+let u;
+for ([u] of [[4], [5]]) {
+  assignSum = assignSum + u;
+}
+let classic = 0;
+for (let [c] = [7]; c > 0; c = c - 1) {
+  classic = classic + c;
+}

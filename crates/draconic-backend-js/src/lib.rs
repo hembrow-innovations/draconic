@@ -109,7 +109,9 @@ fn reject_native_only_stmt(stmt: &Stmt) -> Result<(), Diagnostic> {
             }
         }
         Stmt::DeclareArrayPattern { elements, init, .. } => {
-            reject_native_only_expr(init)?;
+            if let Some(init) = init {
+                reject_native_only_expr(init)?;
+            }
             for el in elements {
                 reject_native_only_array_pat_el(el)?;
             }
@@ -117,11 +119,14 @@ fn reject_native_only_stmt(stmt: &Stmt) -> Result<(), Diagnostic> {
         Stmt::DeclareObjectPattern {
             properties, init, ..
         } => {
-            reject_native_only_expr(init)?;
+            if let Some(init) = init {
+                reject_native_only_expr(init)?;
+            }
             for prop in properties {
                 reject_native_only_object_pat_el(prop)?;
             }
         }
+        Stmt::AssignLeft { target } => reject_native_only_assign_target(target)?,
         Stmt::Expr { expr } => reject_native_only_expr(expr)?,
         Stmt::Block { body } => {
             for s in body {
