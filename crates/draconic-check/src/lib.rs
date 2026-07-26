@@ -2718,9 +2718,10 @@ impl<'a> Checker<'a> {
                             BindingKind::Let | BindingKind::Var => {}
                         }
                         let left_ty = self.symbol_types[sym.0 as usize];
-                        let ok = left_ty == Type::Number
-                            || left_ty == Type::Any
-                            || matches!(left_ty, Type::Native(n) if n.is_int());
+                        // E19.04: ++/-- apply ToNumber; BigInt stays BigInt; native ints ok.
+                        let ok = left_ty == Type::BigInt
+                            || matches!(left_ty, Type::Native(n) if n.is_int())
+                            || self.is_js_to_number_operand(left_ty);
                         if !ok {
                             return Err(Diagnostic::new(
                                 format!("update operator cannot be applied to type `{left_ty}`"),
@@ -2732,6 +2733,8 @@ impl<'a> Checker<'a> {
                         }
                         let out = if matches!(left_ty, Type::Native(_)) {
                             left_ty
+                        } else if left_ty == Type::BigInt {
+                            Type::BigInt
                         } else {
                             Type::Number
                         };
@@ -3896,9 +3899,7 @@ impl<'a> Checker<'a> {
                 }
             }
             UnaryOp::Minus | UnaryOp::BitNot => {
-                if arg == Type::Number || arg == Type::Any {
-                    Ok(Type::Number)
-                } else if arg == Type::BigInt {
+                if arg == Type::BigInt {
                     Ok(Type::BigInt)
                 } else if let Type::Native(n) = arg {
                     if n.is_float() && matches!(op, UnaryOp::BitNot) {
@@ -3916,6 +3917,9 @@ impl<'a> Checker<'a> {
                             span,
                         ))
                     }
+                } else if self.is_js_to_number_operand(arg) {
+                    // E19.04: ToNumber / ToInt32 on JS values (string, boolean, object, …).
+                    Ok(Type::Number)
                 } else {
                     Err(Diagnostic::new(
                         format!("unary `{op}` cannot be applied to type `{arg}`"),
@@ -4020,17 +4024,19 @@ impl<'a> Checker<'a> {
             | BinaryOp::Shl
             | BinaryOp::Shr
             | BinaryOp::UShr => {
-                if left == Type::BigInt && right == Type::BigInt {
+                if left == Type::BigInt || right == Type::BigInt {
+                    // Same-type BigInt only; mixed BigInt/Number is a runtime TypeError.
                     // `>>>` is not defined on BigInt in ECMA-262.
-                    if matches!(op, BinaryOp::UShr) {
+                    if left == Type::BigInt && right == Type::BigInt && !matches!(op, BinaryOp::UShr)
+                    {
+                        Ok(Type::BigInt)
+                    } else {
                         Err(Diagnostic::new(
                             format!(
                                 "operator `{op}` cannot be applied to types `{left}` and `{right}`"
                             ),
                             span,
                         ))
-                    } else {
-                        Ok(Type::BigInt)
                     }
                 } else if let Some(n) =
                     self.native_arith_result(left, right, left_expr, right_expr)
@@ -4046,7 +4052,9 @@ impl<'a> Checker<'a> {
                     } else {
                         Ok(Type::Native(n))
                     }
-                } else if self.is_numberish(left) && self.is_numberish(right) {
+                } else if self.is_js_to_number_operand(left) && self.is_js_to_number_operand(right)
+                {
+                    // E19.04: ToNumber both sides (string/boolean/null/object/…).
                     Ok(Type::Number)
                 } else {
                     Err(Diagnostic::new(
@@ -4056,12 +4064,15 @@ impl<'a> Checker<'a> {
                 }
             }
             BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
-                if (self.is_numberish(left) && self.is_numberish(right))
-                    || (left == Type::BigInt && right == Type::BigInt)
-                    || self
-                        .native_arith_result(left, right, left_expr, right_expr)
-                        .is_some()
+                if self
+                    .native_arith_result(left, right, left_expr, right_expr)
+                    .is_some()
                 {
+                    Ok(Type::Boolean)
+                } else if self.is_js_relational_operand(left)
+                    && self.is_js_relational_operand(right)
+                {
+                    // E19.04: ToPrimitive; mixed primitives/objects/BigInt+Number ok.
                     Ok(Type::Boolean)
                 } else {
                     Err(Diagnostic::new(
@@ -4092,8 +4103,28 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn is_numberish(&self, ty: Type) -> bool {
-        matches!(ty, Type::Number | Type::Any)
+    /// JS values that numeric operators coerce via ToNumber (not BigInt, not native/ptr).
+    fn is_js_to_number_operand(&self, ty: Type) -> bool {
+        matches!(
+            ty,
+            Type::Number
+                | Type::String
+                | Type::Boolean
+                | Type::Null
+                | Type::Object
+                | Type::Shape(_)
+                | Type::Function
+                | Type::GenericFn(_)
+                | Type::Union(_)
+                | Type::Intersection(_)
+                | Type::TypeParam(_)
+                | Type::Any
+        )
+    }
+
+    /// Relational comparison operands after ToPrimitive (includes BigInt same-type path separately).
+    fn is_js_relational_operand(&self, ty: Type) -> bool {
+        self.is_js_to_number_operand(ty) || ty == Type::BigInt
     }
 
     /// Same native numeric type on both sides, or native + number-literal (contextual).
@@ -4126,7 +4157,7 @@ impl<'a> Checker<'a> {
     }
 
     fn is_add_operand(&self, ty: Type) -> bool {
-        !matches!(ty, Type::BigInt | Type::Native(_))
+        !matches!(ty, Type::BigInt | Type::Native(_) | Type::Ptr(_))
     }
 }
 
@@ -5317,23 +5348,60 @@ mod tests {
         assert_eq!(sym_type(&checked, "x"), Type::Any);
     }
 
+    // E19.04: untyped JS operator applicability — ECMA-262 ToNumber/ToPrimitive, not TS-strict.
     #[test]
-    fn check_arithmetic_on_string_errors() {
-        let program = parse(r#"let x = "a" - 1;"#).unwrap();
-        let err = check(program).unwrap_err();
-        assert!(
-            err.message.contains("operator") && err.message.contains("string"),
-            "unexpected message: {}",
-            err.message
-        );
+    fn check_arithmetic_on_string_coerces() {
+        let program = parse(r#"let x = "a" - 1; let y = "2" * 3; let z = "8" / "2";"#).unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "x"), Type::Number);
+        assert_eq!(sym_type(&checked, "y"), Type::Number);
+        assert_eq!(sym_type(&checked, "z"), Type::Number);
     }
 
     #[test]
-    fn check_unary_minus_on_string_errors() {
-        let program = parse(r#"let x = -"a";"#).unwrap();
+    fn check_unary_minus_on_string_coerces() {
+        let program = parse(r#"let x = -"a"; let y = ~"1"; let z = -true;"#).unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "x"), Type::Number);
+        assert_eq!(sym_type(&checked, "y"), Type::Number);
+        assert_eq!(sym_type(&checked, "z"), Type::Number);
+    }
+
+    #[test]
+    fn check_relational_mixed_primitives() {
+        let program =
+            parse(r#"let a = "2" < 10; let b = true > 0; let c = null <= 1; let d = "a" < "b";"#)
+                .unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::Boolean);
+        assert_eq!(sym_type(&checked, "b"), Type::Boolean);
+        assert_eq!(sym_type(&checked, "c"), Type::Boolean);
+        assert_eq!(sym_type(&checked, "d"), Type::Boolean);
+    }
+
+    #[test]
+    fn check_arithmetic_object_to_primitive() {
+        let program = parse(
+            r#"
+            let o = { valueOf: function () { return 3; } };
+            let a = o - 1;
+            let b = o * 2;
+            let c = o < 10;
+            "#,
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::Number);
+        assert_eq!(sym_type(&checked, "b"), Type::Number);
+        assert_eq!(sym_type(&checked, "c"), Type::Boolean);
+    }
+
+    #[test]
+    fn check_arithmetic_still_rejects_bigint_mixed() {
+        let program = parse("let x = 1n - 1;").unwrap();
         let err = check(program).unwrap_err();
         assert!(
-            err.message.contains("unary") && err.message.contains("string"),
+            err.message.contains("operator"),
             "unexpected message: {}",
             err.message
         );
