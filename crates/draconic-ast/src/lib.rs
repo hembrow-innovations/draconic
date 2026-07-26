@@ -265,8 +265,12 @@ pub enum Stmt {
         local: Ident,
         span: Span,
     },
-    /// `export * from "mod"` — re-export all named exports (not `default`) from `source`.
+    /// `export * from "mod"` / `export * as ns from "mod"`.
+    /// Without `exported`: re-export all named exports (not `default`) from `source`.
+    /// With `exported`: re-export the module namespace object as that name (includes `default`).
     ExportAllDeclaration {
+        /// `export * as ns` binding name, when present.
+        exported: Option<Ident>,
         source: StringLit,
         span: Span,
     },
@@ -1391,9 +1395,19 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             out.push_str("declaration:\n");
             dump_stmt(declaration, level + 2, out);
         }
-        Stmt::ExportAllDeclaration { source, .. } => {
+        Stmt::ExportAllDeclaration {
+            exported,
+            source,
+            ..
+        } => {
             indent(level, out);
             out.push_str("ExportAllDeclaration\n");
+            if let Some(exported) = exported {
+                indent(level + 1, out);
+                out.push_str("exported: ");
+                out.push_str(&exported.name);
+                out.push('\n');
+            }
             indent(level + 1, out);
             out.push_str("source: ");
             out.push_str(&source.value.to_string_lossy());

@@ -1,0 +1,2 @@
+export * as ns from "./export_ns_from_lib.drac";
+export let extra = 7;

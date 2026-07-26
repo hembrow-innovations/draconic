@@ -1,0 +1,11 @@
+import { ns, extra } from "./export_ns_from_barrel.drac";
+import * as m from "./export_ns_from_barrel.drac";
+let a = ns.value;
+let b = ns.inc(ns.value);
+let c = ns.default;
+let d = ns.label;
+let e = extra;
+let ma = m.ns.value;
+let mb = m.ns.inc(1);
+let mc = m.ns.default;
+let me = m.extra;

@@ -1242,9 +1242,19 @@ impl Parser {
         if self.check(&TokenKind::Default) {
             return self.parse_export_default(start);
         }
-        // `export * from "mod"`
+        // `export * from "mod"` / `export * as ns from "mod"`
         if self.check(&TokenKind::Star) {
             self.bump();
+            let exported = if self.check(&TokenKind::As) {
+                self.bump();
+                let tok = self.expect_ident()?;
+                Some(Ident {
+                    name: tok.ident_name(),
+                    span: tok.span,
+                })
+            } else {
+                None
+            };
             self.expect(&TokenKind::From)?;
             let source = self.expect_string_lit()?;
             let mut end = source.span.end.0;
@@ -1252,6 +1262,7 @@ impl Parser {
                 end = self.bump().span.end.0;
             }
             return Ok(Stmt::ExportAllDeclaration {
+                exported,
                 source,
                 span: Span::new(start, end),
             });
@@ -4791,6 +4802,17 @@ Program
                 && dump.contains("local: default")
                 && dump.contains("exported: d"),
             "expected export {{…}} from, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_export_star_as_ns_from() {
+        let dump = parse_and_dump("export * as ns from \"./lib.drac\";").unwrap();
+        assert!(
+            dump.contains("ExportAllDeclaration")
+                && dump.contains("exported: ns")
+                && dump.contains("source: ./lib.drac"),
+            "expected export * as ns from, got:\n{dump}"
         );
     }
 }

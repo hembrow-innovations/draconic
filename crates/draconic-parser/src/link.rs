@@ -1,11 +1,11 @@
-//! Link ESM modules into a single Program (ROADMAP E11.01–E11.04, E18.29–E18.30).
+//! Link ESM modules into a single Program (ROADMAP E11.01–E11.04, E18.29–E18.31).
 //!
 //! Loads an entry file, follows static relative `import … from "…"`, mangles
 //! per-module top-level bindings to avoid collisions, rewrites import locals to
 //! the exporter's mangled names, and concatenates dependency bodies before the
 //! entry. Supports named, default, namespace (`import * as ns`), `export * from`,
-//! and `export { … } from` re-exports, including cyclic graphs (live bindings
-//! via shared cells).
+//! `export * as ns from`, and `export { … } from` re-exports, including cyclic
+//! graphs (live bindings via shared cells).
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -42,6 +42,8 @@ struct ModuleData {
     star_reexports: Vec<PathBuf>,
     /// `export { imported as exported } from` named re-exports.
     named_reexports: Vec<NamedReexport>,
+    /// `export * as local from` — local binding is the module namespace object.
+    namespace_reexports: Vec<NamespaceBind>,
     /// import local → (resolved module path, exported name).
     imports: Vec<ImportBind>,
     /// `import * as local` → resolved module path.
@@ -106,6 +108,7 @@ impl Loader {
         let mut exports: HashMap<String, String> = HashMap::new();
         let mut star_reexports: Vec<PathBuf> = Vec::new();
         let mut named_reexports: Vec<NamedReexport> = Vec::new();
+        let mut namespace_reexports: Vec<NamespaceBind> = Vec::new();
         let mut imports: Vec<ImportBind> = Vec::new();
         let mut namespaces: Vec<NamespaceBind> = Vec::new();
         let mut dep_paths = Vec::new();
@@ -160,6 +163,7 @@ impl Loader {
                                 || named_reexports
                                     .iter()
                                     .any(|r| r.exported == s.exported.name)
+                                || namespace_reexports.iter().any(|r| r.local == s.exported.name)
                             {
                                 return Err(Diagnostic::new(
                                     format!("duplicate export `{}`", s.exported.name),
@@ -184,6 +188,7 @@ impl Loader {
                                 || named_reexports
                                     .iter()
                                     .any(|r| r.exported == s.exported.name)
+                                || namespace_reexports.iter().any(|r| r.local == s.exported.name)
                             {
                                 return Err(Diagnostic::new(
                                     format!("duplicate export `{}`", s.exported.name),
@@ -209,7 +214,11 @@ impl Loader {
                     }
                     body.push(*declaration);
                 }
-                Stmt::ExportAllDeclaration { source, .. } => {
+                Stmt::ExportAllDeclaration {
+                    exported,
+                    source,
+                    ..
+                } => {
                     let spec = source.value.to_string_strict().ok_or_else(|| {
                         Diagnostic::new(
                             "module specifier must be a well-formed string".to_string(),
@@ -218,7 +227,25 @@ impl Loader {
                     })?;
                     let dep = resolve_specifier(parent, &spec, source.span)?;
                     dep_paths.push(dep.clone());
-                    star_reexports.push(dep);
+                    if let Some(ns) = exported {
+                        if exports
+                            .insert(ns.name.clone(), ns.name.clone())
+                            .is_some()
+                            || named_reexports.iter().any(|r| r.exported == ns.name)
+                            || namespace_reexports.iter().any(|r| r.local == ns.name)
+                        {
+                            return Err(Diagnostic::new(
+                                format!("duplicate export `{}`", ns.name),
+                                ns.span,
+                            ));
+                        }
+                        namespace_reexports.push(NamespaceBind {
+                            local: ns.name,
+                            from: dep,
+                        });
+                    } else {
+                        star_reexports.push(dep);
+                    }
                 }
                 other => body.push(other),
             }
@@ -235,6 +262,7 @@ impl Loader {
             exports,
             star_reexports,
             named_reexports,
+            namespace_reexports,
             imports,
             namespaces,
         });
@@ -256,6 +284,9 @@ impl Loader {
                     map.insert(name.clone(), format!("__m{id}_{name}"));
                 }
                 for ns in &module.namespaces {
+                    map.insert(ns.local.clone(), format!("__m{id}_{}", ns.local));
+                }
+                for ns in &module.namespace_reexports {
                     map.insert(ns.local.clone(), format!("__m{id}_{}", ns.local));
                 }
             }
@@ -309,11 +340,13 @@ impl Loader {
 
         // Inject namespace object bindings before rename (object values use final remote names).
         // Unique synthetic spans: binder/IR key symbols and resolutions by Span.
+        // Covers `import * as ns` and `export * as ns from`.
         let mut span_gen = SyntheticSpans::new();
         for id in 0..self.modules.len() {
-            let namespaces = self.modules[id].namespaces.clone();
+            let mut ns_binds = self.modules[id].namespaces.clone();
+            ns_binds.extend(self.modules[id].namespace_reexports.clone());
             let mut ns_stmts = Vec::new();
-            for bind in &namespaces {
+            for bind in &ns_binds {
                 let from_id = *self.ids.get(&bind.from).ok_or_else(|| {
                     Diagnostic::new(
                         format!("module not loaded: {}", bind.from.display()),
@@ -1913,6 +1946,40 @@ mod tests {
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("a"), "{dump}");
         assert!(dump.contains("bump") || dump.contains("__m") || dump.contains("inc"), "{dump}");
+        assert!(dump.contains("extra") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_export_star_as_ns_from() {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-link-export-ns-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let lib = dir.join("lib.drac");
+        let barrel = dir.join("barrel.drac");
+        let main = dir.join("main.drac");
+        fs::write(
+            &lib,
+            "export let value = 41;\nexport function inc(x) { return x + 1; }\nexport default 99;\n",
+        )
+        .unwrap();
+        fs::write(&barrel, "export * as ns from \"./lib.drac\";\nexport let extra = 7;\n")
+            .unwrap();
+        fs::write(
+            &main,
+            "import { ns, extra } from \"./barrel.drac\";\nimport * as m from \"./barrel.drac\";\nlet a = ns.value;\nlet b = ns.inc(ns.value);\nlet c = ns.default;\nlet d = extra;\nlet e = m.ns.value;\nlet f = m.extra;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("export * as ns from link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("a"), "{dump}");
+        assert!(dump.contains("ObjectExpression"), "{dump}");
         assert!(dump.contains("extra") || dump.contains("__m"), "{dump}");
         let _ = fs::remove_dir_all(&dir);
     }
