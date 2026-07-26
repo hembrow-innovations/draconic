@@ -1,10 +1,10 @@
 #
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02–E19.20 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
+# Expanded under ROADMAP E19.02–E19.21 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
 # statements/control, call/new/delete/in/instanceof, compound/logical assignment greens,
 # object/assignment/try dstr fill-ins, for-head dstr, catch dstr, RegExp literal early errors,
 # ASI, statementList, directive-prologue, reserved words, arrow/eval/function-code/with/for-of
-# greens after E19.16–E19.19).
+# greens after E19.16–E19.19, call Arguments trailing comma E19.21).
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 # Lines starting with # and blank lines are ignored.
 test/language/arguments-object/10.5-1-s.js
@@ -1432,6 +1432,7 @@ test/language/expressions/call/spread-sngl-empty.js
 test/language/expressions/call/spread-sngl-expr.js
 test/language/expressions/call/spread-sngl-iter.js
 test/language/expressions/call/spread-sngl-literal.js
+test/language/expressions/call/trailing-comma.js
 test/language/expressions/call/with-base-obj.js
 test/language/expressions/coalesce/chainable-if-parenthesis-covered-logical-and.js
 test/language/expressions/coalesce/chainable-if-parenthesis-covered-logical-or.js

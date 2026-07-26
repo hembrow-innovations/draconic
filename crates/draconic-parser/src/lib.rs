@@ -2786,6 +2786,9 @@ impl Parser {
                 }
                 if self.check(&TokenKind::Comma) {
                     self.bump();
+                    if self.check(&TokenKind::RParen) {
+                        break;
+                    }
                     continue;
                 }
                 break;
@@ -4605,6 +4608,23 @@ Program
         assert!(dump.contains("arg[0]:\n        Number 1"));
         assert!(dump.contains("arg[1] spread:"));
         assert!(dump.contains("New\n"));
+    }
+
+    #[test]
+    fn parse_call_args_trailing_comma() {
+        // E19.21: trailing comma in Arguments (call and new).
+        let dump = parse_and_dump("f(a,); g(a, b,); h(...a,); i(1, ...b,); new C(x,); new D(...y,);")
+            .unwrap();
+        assert!(dump.contains("Call\n"), "got:\n{dump}");
+        assert!(dump.contains("New\n"), "got:\n{dump}");
+        assert!(dump.contains("arg[0]:\n        Ident a"), "got:\n{dump}");
+        assert!(dump.contains("arg[0] spread:"), "got:\n{dump}");
+        assert!(dump.contains("arg[1]:\n        Ident b"), "got:\n{dump}");
+        // Trailing comma must not invent an extra empty arg.
+        assert!(
+            !dump.contains("arg[2]"),
+            "trailing comma must not add args, got:\n{dump}"
+        );
     }
 
     #[test]
