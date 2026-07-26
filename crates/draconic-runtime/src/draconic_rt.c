@@ -5,8 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue; N06.02: Promise).
-   Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05–N06.03). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -28,6 +27,14 @@ void draconic_rt_print_f64(double v) {
 
 void draconic_rt_print_bool(int8_t v) {
     puts(v ? "true" : "false");
+}
+
+void draconic_rt_print_str(const char *s) {
+    if (!s) {
+        puts("");
+        return;
+    }
+    puts(s);
 }
 
 /* --- GC hello (B09): tracing heap for JS strings and objects --- */
@@ -485,4 +492,35 @@ DraconicValue *draconic_rt_promise_then(
         );
     }
     return derived;
+}
+
+/* --- Promise construct with executor (N06.03) --- */
+
+static void promise_settle_resolve_cap(void *capability, void *value) {
+    draconic_rt_promise_resolve((DraconicValue *)capability, value);
+}
+
+static void promise_settle_reject_cap(void *capability, void *reason) {
+    draconic_rt_promise_reject((DraconicValue *)capability, reason);
+}
+
+DraconicValue *draconic_rt_promise_construct(
+    DraconicPromiseExecutorFn executor,
+    void *data
+) {
+    DraconicValue *p = draconic_rt_promise_new();
+    if (!p) {
+        return NULL;
+    }
+    if (!executor) {
+        return p;
+    }
+    executor(
+        data,
+        promise_settle_resolve_cap,
+        (void *)p,
+        promise_settle_reject_cap,
+        (void *)p
+    );
+    return p;
 }

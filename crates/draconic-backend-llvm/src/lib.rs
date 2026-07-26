@@ -1,5 +1,6 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03.02 native scalars/layouts).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03 Promise).
 
+mod es_promise;
 mod native_ints;
 
 use std::path::{Path, PathBuf};
@@ -8,17 +9,21 @@ use std::process::{Command, Stdio};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::Module;
 
+use es_promise::{emit_es_promise, is_es_promise_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
 /// Emit LLVM IR text for a shared IR module.
 ///
 /// Programs that use only native scalar types (`i8`–`i64`, `u8`–`u64`, `f32`/
 /// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
-/// with a supported statement/expression subset are lowered for real. Everything
+/// with a supported statement/expression subset are lowered for real. Promise
+/// constructor basics (N06.03) lower via the Runtime Promise ABI. Everything
 /// else keeps the B08 hello stub so existing ES conformance fixtures stay green.
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         emit_native_ints(module)
+    } else if is_es_promise_module(module) {
+        emit_es_promise(module)
     } else {
         Ok(emit_hello_stub())
     }
@@ -340,6 +345,74 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "10\n20\n10\n20\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn es_promise_basics_prints_after_drain() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let tf = typeof Promise;
+            let resolved = 0;
+            let rejected = 0;
+            let chained = 0;
+            let p = new Promise(function (resolve) {
+              resolve(42);
+            });
+            p.then(function (v) {
+              resolved = v;
+            });
+            let q = new Promise(function (_resolve, reject) {
+              reject(7);
+            });
+            q.then(
+              function () {
+                rejected = -1;
+              },
+              function (e) {
+                rejected = e;
+              }
+            );
+            new Promise(function (resolve) {
+              resolve(1);
+            }).then(function (v) {
+              return v + 1;
+            }).then(function (v) {
+              chained = v;
+            });
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "Promise basics must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_construct"),
+            "should construct via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_then"),
+            "should then via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_job_drain"),
+            "should drain jobs before observe:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n06-promise").expect("workdir");
+        let bin = dir.join("promise");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "function\n42\n7\n2\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
     }
 
     #[test]

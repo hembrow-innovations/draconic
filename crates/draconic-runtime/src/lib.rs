@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.03); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -38,6 +38,8 @@ pub const PRINT_U64_SYMBOL: &str = "draconic_rt_print_u64";
 pub const PRINT_F64_SYMBOL: &str = "draconic_rt_print_f64";
 /// C ABI: print a bool as `true`/`false` + newline (N02).
 pub const PRINT_BOOL_SYMBOL: &str = "draconic_rt_print_bool";
+/// C ABI: print a NUL-terminated C string + newline (N06.03).
+pub const PRINT_STR_SYMBOL: &str = "draconic_rt_print_str";
 
 /// C ABI: init the GC heap.
 pub const GC_INIT_SYMBOL: &str = "draconic_rt_gc_init";
@@ -78,6 +80,7 @@ pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
     PRINT_U64_SYMBOL,
     PRINT_F64_SYMBOL,
     PRINT_BOOL_SYMBOL,
+    PRINT_STR_SYMBOL,
     GC_INIT_SYMBOL,
     GC_SHUTDOWN_SYMBOL,
     ALLOC_STRING_SYMBOL,
@@ -113,8 +116,10 @@ pub const PROMISE_RESOLVE_SYMBOL: &str = "draconic_rt_promise_resolve";
 pub const PROMISE_REJECT_SYMBOL: &str = "draconic_rt_promise_reject";
 /// C ABI: attach then reactions; returns a derived Promise for chaining.
 pub const PROMISE_THEN_SYMBOL: &str = "draconic_rt_promise_then";
+/// C ABI: `new Promise(executor)` — construct + invoke executor with settle caps (N06.03).
+pub const PROMISE_CONSTRUCT_SYMBOL: &str = "draconic_rt_promise_construct";
 
-/// Promise ABI symbols (N06.02).
+/// Promise ABI symbols (N06.02–N06.03).
 pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_NEW_SYMBOL,
     IS_PROMISE_SYMBOL,
@@ -123,6 +128,7 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_RESOLVE_SYMBOL,
     PROMISE_REJECT_SYMBOL,
     PROMISE_THEN_SYMBOL,
+    PROMISE_CONSTRUCT_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -783,6 +789,136 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "promise-ok\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn promise_construct_executor_then_via_job_queue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_promise_construct");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+
+            static int g_resolved;
+            static int g_rejected;
+            static int g_chained;
+
+            static void exec_resolve(void *data,
+                DraconicPromiseSettleFn resolve, void *resolve_cap,
+                DraconicPromiseSettleFn reject, void *reject_cap) {
+                (void)data; (void)reject; (void)reject_cap;
+                resolve(resolve_cap, (void *)(intptr_t)42);
+            }
+
+            static void exec_reject(void *data,
+                DraconicPromiseSettleFn resolve, void *resolve_cap,
+                DraconicPromiseSettleFn reject, void *reject_cap) {
+                (void)data; (void)resolve; (void)resolve_cap;
+                reject(reject_cap, (void *)(intptr_t)7);
+            }
+
+            static void exec_one(void *data,
+                DraconicPromiseSettleFn resolve, void *resolve_cap,
+                DraconicPromiseSettleFn reject, void *reject_cap) {
+                (void)data; (void)reject; (void)reject_cap;
+                resolve(resolve_cap, (void *)(intptr_t)1);
+            }
+
+            static void *on_resolve(void *data, void *value) {
+                (void)data;
+                g_resolved = (int)(intptr_t)value;
+                return value;
+            }
+
+            static void *on_reject(void *data, void *reason) {
+                (void)data;
+                g_rejected = (int)(intptr_t)reason;
+                return reason;
+            }
+
+            static void *on_chain(void *data, void *value) {
+                (void)data;
+                return (void *)(intptr_t)((int)(intptr_t)value + 1);
+            }
+
+            static void *on_chained(void *data, void *value) {
+                (void)data;
+                g_chained = (int)(intptr_t)value;
+                return value;
+            }
+
+            int main(void) {
+                DraconicValue *p = draconic_rt_promise_construct(exec_resolve, NULL);
+                if (!p || !draconic_rt_is_promise(p)) {
+                    fprintf(stderr, "construct failed\n");
+                    return 1;
+                }
+                if (draconic_rt_promise_state(p) != 1) {
+                    fprintf(stderr, "sync resolve in executor should fulfill\n");
+                    return 2;
+                }
+                (void)draconic_rt_promise_then(p, on_resolve, NULL, NULL, NULL);
+                draconic_rt_job_drain();
+                if (g_resolved != 42) {
+                    fprintf(stderr, "resolved want 42 got %d\n", g_resolved);
+                    return 3;
+                }
+
+                DraconicValue *q = draconic_rt_promise_construct(exec_reject, NULL);
+                (void)draconic_rt_promise_then(q, NULL, NULL, on_reject, NULL);
+                draconic_rt_job_drain();
+                if (g_rejected != 7) {
+                    fprintf(stderr, "rejected want 7 got %d\n", g_rejected);
+                    return 4;
+                }
+
+                DraconicValue *c0 = draconic_rt_promise_construct(exec_one, NULL);
+                DraconicValue *c1 = draconic_rt_promise_then(c0, on_chain, NULL, NULL, NULL);
+                (void)draconic_rt_promise_then(c1, on_chained, NULL, NULL, NULL);
+                draconic_rt_job_drain();
+                if (g_chained != 2) {
+                    fprintf(stderr, "chained want 2 got %d\n", g_chained);
+                    return 5;
+                }
+
+                draconic_rt_print_str("construct-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link promise construct test");
+
+        let output = Command::new(&bin).output().expect("run rt_promise_construct");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "construct binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "construct-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

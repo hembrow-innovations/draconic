@@ -1,4 +1,4 @@
-/* Draconic Native Runtime C ABI (N05: GC + minimal std; N06.01: job queue; N06.02: Promise). */
+/* Draconic Native Runtime C ABI (N05–N06.03: GC, job queue, Promise + executor). */
 #ifndef DRACONIC_RT_H
 #define DRACONIC_RT_H
 
@@ -15,6 +15,8 @@ void draconic_rt_print_i64(int64_t v);
 void draconic_rt_print_u64(uint64_t v);
 void draconic_rt_print_f64(double v);
 void draconic_rt_print_bool(int8_t v);
+/* Print a NUL-terminated C string + newline (N06.03 observations). */
+void draconic_rt_print_str(const char *s);
 
 /* --- GC heap for JS values --- */
 typedef struct DraconicValue DraconicValue;
@@ -60,6 +62,21 @@ DraconicValue *draconic_rt_promise_then(
     void *fulfill_data,
     DraconicPromiseReactionFn on_rejected,
     void *reject_data);
+
+/* --- Promise construct with executor (N06.03 / `new Promise(executor)`) --- */
+/* Settle callbacks passed into the executor (capability is the Promise*). */
+typedef void (*DraconicPromiseSettleFn)(void *capability, void *value_or_reason);
+/* Executor: may call resolve/reject synchronously (or schedule later). */
+typedef void (*DraconicPromiseExecutorFn)(
+    void *data,
+    DraconicPromiseSettleFn resolve,
+    void *resolve_cap,
+    DraconicPromiseSettleFn reject,
+    void *reject_cap);
+/* Create a pending Promise and invoke `executor` with resolve/reject caps. */
+DraconicValue *draconic_rt_promise_construct(
+    DraconicPromiseExecutorFn executor,
+    void *data);
 
 #ifdef __cplusplus
 }
