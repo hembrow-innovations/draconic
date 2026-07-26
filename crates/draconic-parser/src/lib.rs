@@ -4082,6 +4082,14 @@ Program
     }
 
     #[test]
+    fn parse_object_spread() {
+        let dump = parse_and_dump("let a = { x: 1 }; let b = { ...a, y: 2, ...a };").unwrap();
+        assert!(dump.contains("ObjectExpression"), "got:\n{dump}");
+        assert!(dump.contains("spread:"), "got:\n{dump}");
+        assert!(dump.contains("key: Ident y"), "got:\n{dump}");
+    }
+
+    #[test]
     fn parse_object_and_class_accessors() {
         let dump = parse_and_dump(
             "let o = { get x() { return 1; }, set x(v) { }, get [k]() { return 2; } }; class C { get n() { return 0; } set n(v) {} static get t() { return 1; } }",

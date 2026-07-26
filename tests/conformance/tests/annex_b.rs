@@ -296,3 +296,13 @@ fn new_target_fixture_present() {
 fn new_target_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/new_target");
 }
+
+#[test]
+fn object_spread_fixture_present() {
+    assert_fixture_present("es/annex-b/object_spread");
+}
+
+#[test]
+fn object_spread_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/object_spread");
+}

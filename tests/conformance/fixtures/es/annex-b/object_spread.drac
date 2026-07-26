@@ -1,0 +1,39 @@
+let a = { x: 1, y: 2 };
+let b = { ...a };
+let b0 = b.x;
+let b1 = b.y;
+
+let c = { ...a, z: 3 };
+let c0 = c.x;
+let c1 = c.y;
+let c2 = c.z;
+
+let d = { w: 0, ...a, y: 9, z: 4 };
+let d0 = d.w;
+let d1 = d.x;
+let d2 = d.y;
+let d3 = d.z;
+
+let e = { a: 1 };
+let f = { b: 2 };
+let g = { ...e, ...f, c: 3 };
+let g0 = g.a;
+let g1 = g.b;
+let g2 = g.c;
+
+let empty = {};
+let h = { ...empty, k: 5 };
+let h0 = h.k;
+
+let i = { ...null, ...undefined, p: 7 };
+let i0 = i.p;
+
+let src = { m: 1, n: 2 };
+let j = { ...src };
+src.m = 99;
+let j0 = j.m;
+let j1 = j.n;
+
+let k = { ["q"]: 8, ...{ q: 1, r: 2 }, r: 3 };
+let k0 = k.q;
+let k1 = k.r;
