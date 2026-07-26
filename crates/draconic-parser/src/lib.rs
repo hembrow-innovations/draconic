@@ -595,13 +595,28 @@ impl Parser {
         } else {
             false
         };
-        // `get name()` / `set name(v)` (not `get()` method or `get:`)
+        // `get name()` / `set name(v)` / `get #name()` / `set #name(v)` (not `get()` method or `get:`)
         if let Some(kind) = self.peek_accessor_kind() {
             self.bump(); // consume get/set
-            let name_tok = self.expect_ident()?;
-            let name = Ident {
-                name: name_tok.ident_name(),
-                span: name_tok.span,
+            let (name, is_private) = if let TokenKind::PrivateIdent(pname) = &self.current().kind {
+                let pname = pname.clone();
+                let name_tok = self.bump();
+                (
+                    Ident {
+                        name: pname,
+                        span: name_tok.span,
+                    },
+                    true,
+                )
+            } else {
+                let name_tok = self.expect_ident()?;
+                (
+                    Ident {
+                        name: name_tok.ident_name(),
+                        span: name_tok.span,
+                    },
+                    false,
+                )
             };
             self.expect(&TokenKind::LParen)?;
             let params = self.parse_param_list()?;
@@ -626,6 +641,7 @@ impl Parser {
                 params,
                 body,
                 is_static,
+                is_private,
                 span: Span::new(start, end),
             });
         }
@@ -2951,7 +2967,10 @@ impl Parser {
         };
         let next = self.tokens.get(self.pos + 1)?;
         match &next.kind {
-            TokenKind::Ident(_) | TokenKind::String(_) | TokenKind::LBracket => Some(kind),
+            TokenKind::Ident(_)
+            | TokenKind::PrivateIdent(_)
+            | TokenKind::String(_)
+            | TokenKind::LBracket => Some(kind),
             _ => None,
         }
     }
@@ -4349,6 +4368,20 @@ Program
         assert!(dump.contains("Accessor get"), "{dump}");
         assert!(dump.contains("Accessor set"), "{dump}");
         assert!(dump.contains("StaticAccessor get"), "{dump}");
+    }
+
+    #[test]
+    fn parse_private_accessors() {
+        let dump = parse_and_dump(
+            "class C { get #x() { return 1; } set #x(v) {} static get #y() { return 2; } static set #y(v) {} }",
+        )
+        .unwrap();
+        assert!(dump.contains("PrivateAccessor get"), "{dump}");
+        assert!(dump.contains("PrivateAccessor set"), "{dump}");
+        assert!(dump.contains("StaticPrivateAccessor get"), "{dump}");
+        assert!(dump.contains("StaticPrivateAccessor set"), "{dump}");
+        assert!(dump.contains("name: #x"), "{dump}");
+        assert!(dump.contains("name: #y"), "{dump}");
     }
 
     #[test]

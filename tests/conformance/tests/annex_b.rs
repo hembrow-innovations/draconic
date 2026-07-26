@@ -406,3 +406,13 @@ fn static_private_methods_fixture_present() {
 fn static_private_methods_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/static_private_methods");
 }
+
+#[test]
+fn private_accessors_fixture_present() {
+    assert_fixture_present("es/annex-b/private_accessors");
+}
+
+#[test]
+fn private_accessors_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/private_accessors");
+}

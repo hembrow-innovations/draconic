@@ -14,11 +14,13 @@ use draconic_diagnostics::Span;
 pub use draconic_ast::BindingKind;
 pub use draconic_check::{NativeType, ObjectShape, SymbolId as LocalId, Type as IrType};
 
-// Private field name → WeakMap local; private method name → function local
-// (active while lowering a class body).
+// Private field name → WeakMap local; private method name → function local;
+// private accessor name → (get fn, set fn) locals (active while lowering a class body).
 thread_local! {
     static PRIVATE_FIELDS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
     static PRIVATE_METHODS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
+    static PRIVATE_ACCESSORS: RefCell<HashMap<String, (Option<LocalId>, Option<LocalId>)>> =
+        RefCell::new(HashMap::new());
     static EXTRA_LOCALS: RefCell<Vec<Local>> = RefCell::new(Vec::new());
     static NEXT_SYNTH_ID: RefCell<u32> = RefCell::new(0);
 }
@@ -442,6 +444,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
     EXTRA_LOCALS.with(|e| e.borrow_mut().clear());
     PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
     PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
+    PRIVATE_ACCESSORS.with(|p| p.borrow_mut().clear());
 
     let mut body = Vec::new();
     for stmt in &checked.bound.program.body {
@@ -451,6 +454,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
     EXTRA_LOCALS.with(|e| locals.extend(e.borrow_mut().drain(..)));
     PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
     PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
+    PRIVATE_ACCESSORS.with(|p| p.borrow_mut().clear());
 
     Module {
         locals,
@@ -876,6 +880,7 @@ fn lower_class_local(
         &Vec<draconic_ast::Param>,
         &AstStmt,
         bool,
+        bool,
     )> = Vec::new();
     let mut instance_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
     let mut static_fields: Vec<(&Ident, Option<&AstExpr>, bool)> = Vec::new();
@@ -912,6 +917,7 @@ fn lower_class_local(
                 params,
                 body,
                 is_static,
+                is_private,
                 ..
             } => {
                 accessors.push((
@@ -920,6 +926,7 @@ fn lower_class_local(
                     params,
                     body.as_ref(),
                     *is_static,
+                    *is_private,
                 ));
             }
             ClassElement::Field {
@@ -995,10 +1002,40 @@ fn lower_class_local(
         private_method_meta.push((fn_id, params, body, *is_async, *is_generator));
     }
 
+    // Private accessors: synthetic get/set function locals (E18.39).
+    let mut private_accessor_map: HashMap<String, (Option<LocalId>, Option<LocalId>)> =
+        HashMap::new();
+    let mut private_accessor_meta: Vec<(
+        LocalId,
+        &Vec<draconic_ast::Param>,
+        &AstStmt,
+    )> = Vec::new();
+    for (kind, acc_name, params, body, _is_static, is_private) in &accessors {
+        if !*is_private {
+            continue;
+        }
+        let entry = private_accessor_map
+            .entry(acc_name.name.clone())
+            .or_insert((None, None));
+        let tag = match kind {
+            AccessorKind::Get => "g",
+            AccessorKind::Set => "s",
+        };
+        let fn_name = format!("__drac_pa{}_{}_{}", tag, local.0, acc_name.name);
+        let fn_id = alloc_synthetic_local(fn_name, Type::Function);
+        match kind {
+            AccessorKind::Get => entry.0 = Some(fn_id),
+            AccessorKind::Set => entry.1 = Some(fn_id),
+        }
+        private_accessor_meta.push((fn_id, params, body));
+    }
+
     let prev_privates =
         PRIVATE_FIELDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_map));
     let prev_private_methods =
         PRIVATE_METHODS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_method_map));
+    let prev_private_accessors = PRIVATE_ACCESSORS
+        .with(|p| std::mem::replace(&mut *p.borrow_mut(), private_accessor_map));
 
     let mut private_method_fns: Vec<Stmt> = Vec::new();
     for (fn_id, params, body, is_async, is_generator) in private_method_meta {
@@ -1008,6 +1045,15 @@ fn lower_class_local(
             body: lower_fn_body(checked, body, super_class),
             is_async,
             is_generator,
+        });
+    }
+    for (fn_id, params, body) in private_accessor_meta {
+        private_method_fns.push(Stmt::Function {
+            local: fn_id,
+            params: lower_params(checked, params, super_class),
+            body: lower_fn_body(checked, body, super_class),
+            is_async: false,
+            is_generator: false,
         });
     }
 
@@ -1148,7 +1194,11 @@ fn lower_class_local(
         });
     }
 
-    for (kind, acc_name, params, body, is_static) in accessors {
+    for (kind, acc_name, params, body, is_static, is_private) in accessors {
+        if is_private {
+            // Already emitted as standalone function; not installed on prototype.
+            continue;
+        }
         let accessor_fn = Expr::Function {
             name: None,
             params: lower_params(checked, params, super_class),
@@ -1361,7 +1411,34 @@ fn lower_class_local(
 
     PRIVATE_FIELDS.with(|p| *p.borrow_mut() = prev_privates);
     PRIVATE_METHODS.with(|p| *p.borrow_mut() = prev_private_methods);
+    PRIVATE_ACCESSORS.with(|p| *p.borrow_mut() = prev_private_accessors);
     out
+}
+
+/// `fn.call(object, ...args)` for private method/accessor invocation.
+fn private_fn_call(fn_id: LocalId, object: Expr, args: Vec<Arg>) -> Expr {
+    let call_member = Expr::Member {
+        object: Box::new(Expr::Local {
+            id: fn_id,
+            ty: Type::Function,
+        }),
+        property: Box::new(Expr::String {
+            value: "call".into(),
+            ty: Type::String,
+        }),
+        computed: false,
+        optional: false,
+        ty: Type::Function,
+    };
+    let mut call_args = Vec::with_capacity(args.len() + 1);
+    call_args.push(Arg::Expr(object));
+    call_args.extend(args);
+    Expr::Call {
+        callee: Box::new(call_member),
+        args: call_args,
+        optional: false,
+        ty: Type::Any,
+    }
 }
 
 /// `wm.get(object)` for private field read.
@@ -1543,7 +1620,7 @@ fn lower_expr(
             value,
             span,
         } => {
-            // Private field assign: `obj.#x = v` → `(wm.set(obj, v), v)` (simple `=` only).
+            // Private field/accessor assign: `obj.#x = v` (simple `=` only).
             if let AstExpr::MemberExpression {
                 object,
                 property,
@@ -1555,21 +1632,34 @@ fn lower_expr(
                     AstExpr::Ident(id) => id.name.clone(),
                     _ => panic!("private member property must be ident"),
                 };
+                assert!(
+                    matches!(op, AssignOp::Eq),
+                    "only simple `=` supported on private fields/accessors"
+                );
+                let obj = lower_expr(checked, object, super_class);
+                let rhs = lower_expr(checked, value, super_class);
+                if let Some(set_id) = PRIVATE_ACCESSORS.with(|p| {
+                    p.borrow()
+                        .get(&fname)
+                        .and_then(|(_, set)| *set)
+                }) {
+                    // `(setter.call(obj, v), v)`
+                    let set_call =
+                        private_fn_call(set_id, obj, vec![Arg::Expr(rhs.clone())]);
+                    return Expr::Binary {
+                        left: Box::new(set_call),
+                        op: BinaryOp::Comma,
+                        right: Box::new(rhs),
+                        ty: Type::Any,
+                    };
+                }
                 let wm = PRIVATE_FIELDS.with(|p| {
                     p.borrow()
                         .get(&fname)
                         .copied()
                         .unwrap_or_else(|| panic!("unknown private field #{fname}"))
                 });
-                assert!(
-                    matches!(op, AssignOp::Eq),
-                    "only simple `=` supported on private fields"
-                );
-                return private_field_set(
-                    wm,
-                    lower_expr(checked, object, super_class),
-                    lower_expr(checked, value, super_class),
-                );
+                return private_field_set(wm, obj, rhs);
             }
             let target = match target.as_ref() {
                 AstExpr::Ident(id) => {
@@ -1952,13 +2042,22 @@ fn lower_expr(
                         ty: Type::Function,
                     };
                 }
+                let obj = lower_expr(checked, object, super_class);
+                if let Some(get_id) = PRIVATE_ACCESSORS.with(|p| {
+                    p.borrow()
+                        .get(&fname)
+                        .and_then(|(get, _)| *get)
+                }) {
+                    // Private getter: `getter.call(obj)`
+                    return private_fn_call(get_id, obj, Vec::new());
+                }
                 let wm = PRIVATE_FIELDS.with(|p| {
                     p.borrow()
                         .get(&fname)
                         .copied()
                         .unwrap_or_else(|| panic!("unknown private field #{fname}"))
                 });
-                return private_field_get(wm, lower_expr(checked, object, super_class));
+                return private_field_get(wm, obj);
             }
             // `super.prop` → `Parent.prototype.prop`
             if matches!(object.as_ref(), AstExpr::Super { .. }) {

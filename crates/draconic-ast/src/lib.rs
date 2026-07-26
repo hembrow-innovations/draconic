@@ -329,13 +329,15 @@ pub enum ClassElement {
         is_private: bool,
         span: Span,
     },
-    /// `static? get name() { body }` / `static? set name(v) { body }`
+    /// `static? get #? name() { body }` / `static? set #? name(v) { body }` (E18.22 public; E18.39 private)
     Accessor {
         kind: AccessorKind,
         name: Ident,
         params: Vec<Param>,
         body: Box<Stmt>,
         is_static: bool,
+        /// `true` for `get #name` / `set #name` private accessors.
+        is_private: bool,
         span: Span,
     },
     /// `static? #? name = expr;` / `static? #? name;` field (E18.26 public; E18.35 private).
@@ -1289,6 +1291,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         params,
                         body,
                         is_static,
+                        is_private,
                         ..
                     } => {
                         indent(level + 1, out);
@@ -1296,13 +1299,22 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                             AccessorKind::Get => "get",
                             AccessorKind::Set => "set",
                         };
-                        if *is_static {
-                            out.push_str(&format!("StaticAccessor {kind_s}\n"));
-                        } else {
-                            out.push_str(&format!("Accessor {kind_s}\n"));
+                        match (*is_static, *is_private) {
+                            (true, true) => {
+                                out.push_str(&format!("StaticPrivateAccessor {kind_s}\n"))
+                            }
+                            (true, false) => out.push_str(&format!("StaticAccessor {kind_s}\n")),
+                            (false, true) => {
+                                out.push_str(&format!("PrivateAccessor {kind_s}\n"))
+                            }
+                            (false, false) => out.push_str(&format!("Accessor {kind_s}\n")),
                         }
                         indent(level + 2, out);
-                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_private {
+                            out.push_str(&format!("name: #{}\n", name.name));
+                        } else {
+                            out.push_str(&format!("name: {}\n", name.name));
+                        }
                         dump_params(params, level + 2, out);
                         indent(level + 2, out);
                         out.push_str("body:\n");
@@ -1764,6 +1776,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         params,
                         body,
                         is_static,
+                        is_private,
                         ..
                     } => {
                         indent(level + 1, out);
@@ -1771,13 +1784,22 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                             AccessorKind::Get => "get",
                             AccessorKind::Set => "set",
                         };
-                        if *is_static {
-                            out.push_str(&format!("StaticAccessor {kind_s}\n"));
-                        } else {
-                            out.push_str(&format!("Accessor {kind_s}\n"));
+                        match (*is_static, *is_private) {
+                            (true, true) => {
+                                out.push_str(&format!("StaticPrivateAccessor {kind_s}\n"))
+                            }
+                            (true, false) => out.push_str(&format!("StaticAccessor {kind_s}\n")),
+                            (false, true) => {
+                                out.push_str(&format!("PrivateAccessor {kind_s}\n"))
+                            }
+                            (false, false) => out.push_str(&format!("Accessor {kind_s}\n")),
                         }
                         indent(level + 2, out);
-                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_private {
+                            out.push_str(&format!("name: #{}\n", name.name));
+                        } else {
+                            out.push_str(&format!("name: {}\n", name.name));
+                        }
                         dump_params(params, level + 2, out);
                         indent(level + 2, out);
                         out.push_str("body:\n");

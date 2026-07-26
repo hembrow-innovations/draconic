@@ -1,0 +1,99 @@
+class Point {
+  #x = 1;
+  get #val() {
+    return this.#x;
+  }
+  set #val(v) {
+    this.#x = v;
+  }
+  read() {
+    return this.#val;
+  }
+  write(v) {
+    this.#val = v;
+  }
+}
+let p = new Point();
+let a = p.read();
+p.write(10);
+let b = p.read();
+let c = typeof p.val;
+
+class Doubler {
+  #n = 0;
+  get #twice() {
+    return this.#n * 2;
+  }
+  set #twice(v) {
+    this.#n = v / 2;
+  }
+  getTwice() {
+    return this.#twice;
+  }
+  setTwice(v) {
+    this.#twice = v;
+  }
+  raw() {
+    return this.#n;
+  }
+}
+let d = new Doubler();
+d.setTwice(10);
+let e = d.getTwice();
+let f = d.raw();
+
+class StaticBox {
+  static #x = 1;
+  static get #val() {
+    return StaticBox.#x;
+  }
+  static set #val(v) {
+    StaticBox.#x = v;
+  }
+  static read() {
+    return StaticBox.#val;
+  }
+  static write(v) {
+    StaticBox.#val = v;
+  }
+}
+let g = StaticBox.read();
+StaticBox.write(7);
+let h = StaticBox.read();
+let i = typeof StaticBox.val;
+let j = typeof new StaticBox().val;
+
+class WithThis {
+  static #n = 0;
+  static get #v() {
+    return this.#n;
+  }
+  static set #v(x) {
+    this.#n = x;
+  }
+  static bump() {
+    this.#v = this.#v + 1;
+    return this.#v;
+  }
+}
+let k = WithThis.bump();
+let l = WithThis.bump();
+
+class Mix {
+  #priv = 3;
+  get #g() {
+    return this.#priv;
+  }
+  static #s = 7;
+  static get #sg() {
+    return Mix.#s;
+  }
+  read() {
+    return this.#g;
+  }
+  static sread() {
+    return Mix.#sg;
+  }
+}
+let m = new Mix().read();
+let n = Mix.sread();
