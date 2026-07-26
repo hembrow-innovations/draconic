@@ -972,6 +972,12 @@ impl Binder {
     /// innermost with body (or nested deeper) become static resolutions; outer
     /// names stay unresolved so the JS backend can emit bare idents for the
     /// Object Environment chain.
+    ///
+    /// Free identifiers outside `with` also stay unresolved (E19.05): ECMA-262
+    /// global object / unresolvable references are runtime GetValue/PutValue
+    /// (ReferenceError on read; non-strict assign creates a global property;
+    /// `typeof` unresolvable → `"undefined"`). IR emits `IdentName` /
+    /// `AssignTarget::Name` for the JS backend.
     fn bind_ident_use(&mut self, id: &draconic_ast::Ident) -> Result<(), Diagnostic> {
         if let Some(sym) = self.resolve_name(&id.name) {
             let decl_depth = self.symbols[sym.0 as usize].with_depth;
@@ -980,13 +986,7 @@ impl Binder {
             }
             return Ok(());
         }
-        if self.with_depth > 0 {
-            return Ok(());
-        }
-        Err(Diagnostic::new(
-            format!("unresolved identifier `{name}`", name = id.name),
-            id.span,
-        ))
+        Ok(())
     }
 
     fn bind_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
@@ -1897,9 +1897,11 @@ impl<'a> Checker<'a> {
     ) -> Result<(), Diagnostic> {
         match binding {
             BindingPattern::Ident(id) => {
-                let sym = self.bound.resolve(id.span).ok_or_else(|| {
-                    Diagnostic::new(format!("unresolved identifier `{}`", id.name), id.span)
-                })?;
+                let Some(sym) = self.bound.resolve(id.span) else {
+                    // Free / with-chain assign target (global object property).
+                    self.record(id.span, Type::Any);
+                    return Ok(());
+                };
                 match self.bound.symbol(sym).kind {
                     BindingKind::Const => {
                         return Err(Diagnostic::new(
@@ -5141,14 +5143,26 @@ mod tests {
     }
 
     #[test]
-    fn bind_unresolved_identifier_errors() {
+    fn bind_free_identifier_ok_global_object_ref() {
+        // E19.05: free idents are runtime global/unresolvable refs, not bind errors.
         let program = parse("y;").unwrap();
-        let err = bind(program).unwrap_err();
+        let bound = bind(program).expect("free ident binds");
+        let y_span = find_ident_use(&bound.program, "y");
         assert!(
-            err.message.contains("unresolved") && err.message.contains("y"),
-            "unexpected message: {}",
-            err.message
+            bound.resolve(y_span).is_none(),
+            "free y must stay unresolved for IdentName emit"
         );
+    }
+
+    #[test]
+    fn bind_free_assign_and_typeof_ok() {
+        let src = "x = 1; typeof z;";
+        let bound = bind(parse(src).unwrap()).expect("free assign/typeof bind");
+        check(parse(src).unwrap()).expect("free assign/typeof check");
+        let x_span = find_ident_use(&bound.program, "x");
+        let z_span = find_ident_use(&bound.program, "z");
+        assert!(bound.resolve(x_span).is_none());
+        assert!(bound.resolve(z_span).is_none());
     }
 
     #[test]
@@ -5216,14 +5230,12 @@ mod tests {
     }
 
     #[test]
-    fn bind_arguments_unresolved_in_arrow_at_top_level() {
+    fn bind_arguments_free_in_arrow_at_top_level() {
+        // Top-level arrow has no `arguments` binding; name stays free (runtime
+        // ReferenceError on GetValue / typeof → "undefined").
         let program = parse("let f = () => arguments.length;").unwrap();
-        let err = bind(program).unwrap_err();
-        assert!(
-            err.message.contains("unresolved") && err.message.contains("arguments"),
-            "unexpected message: {}",
-            err.message
-        );
+        bind(program).expect("free arguments in arrow binds");
+        check(parse("let f = () => arguments.length;").unwrap()).expect("check free arguments");
     }
 
     #[test]

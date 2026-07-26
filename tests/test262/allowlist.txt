@@ -1,11 +1,13 @@
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02 / E19.04 (untyped JS operator applicability + expressions).
+# Expanded under ROADMAP E19.02 / E19.04 / E19.05 (untyped ops + free global refs).
 # Lines starting with # and blank lines are ignored.
 #
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 
 test/language/expressions/addition/S11.6.1_A1.js
 test/language/expressions/addition/S11.6.1_A2.1_T1.js
+test/language/expressions/addition/S11.6.1_A2.1_T2.js
+test/language/expressions/addition/S11.6.1_A2.1_T3.js
 test/language/expressions/addition/S11.6.1_A2.2_T1.js
 test/language/expressions/addition/S11.6.1_A2.2_T2.js
 test/language/expressions/addition/S11.6.1_A2.2_T3.js
@@ -36,6 +38,11 @@ test/language/expressions/addition/S11.6.1_A4_T7.js
 test/language/expressions/addition/S11.6.1_A4_T8.js
 test/language/expressions/addition/S11.6.1_A4_T9.js
 test/language/expressions/addition/bigint-arithmetic.js
+# E19.05: free / unresolvable identifier refs (global object PutValue / GetValue / typeof)
+test/language/expressions/assignment/S11.13.1_A2.1_T1.js
+test/language/expressions/assignment/S11.13.1_A2.1_T2.js
+test/language/expressions/assignment/S11.13.1_A3.1.js
+test/language/expressions/assignment/S11.13.1_A3.2.js
 test/language/expressions/bitwise-not/S11.4.8_A1.js
 test/language/expressions/bitwise-not/S11.4.8_A2.1_T1.js
 test/language/expressions/bitwise-not/S11.4.8_A2.2_T1.js
@@ -246,6 +253,11 @@ test/language/expressions/multiplication/S11.5.1_A4_T7.js
 test/language/expressions/multiplication/S11.5.1_A4_T8.js
 test/language/expressions/multiplication/bigint-arithmetic.js
 test/language/expressions/multiplication/line-terminator.js
+# E19.05: unresolvable update targets
+test/language/expressions/postfix-decrement/S11.3.2_A2.1_T2.js
+test/language/expressions/postfix-increment/S11.3.1_A2.1_T2.js
+test/language/expressions/prefix-decrement/S11.4.5_A2.1_T2.js
+test/language/expressions/prefix-increment/S11.4.4_A2.1_T2.js
 test/language/expressions/subtraction/S11.6.2_A1.js
 test/language/expressions/subtraction/S11.6.2_A2.1_T1.js
 test/language/expressions/subtraction/S11.6.2_A2.2_T1.js
@@ -283,6 +295,8 @@ test/language/expressions/unary-minus/S11.4.7_A3_T1.js
 test/language/expressions/unary-minus/S11.4.7_A3_T2.js
 test/language/expressions/unary-minus/S11.4.7_A3_T3.js
 test/language/expressions/unary-minus/S11.4.7_A3_T4.js
+# E19.05: typeof unresolvable → "undefined"
+test/language/expressions/typeof/unresolvable-reference.js
 test/language/expressions/unary-minus/S11.4.7_A3_T5.js
 test/language/expressions/unary-minus/S11.4.7_A4.1.js
 test/language/expressions/unary-minus/S11.4.7_A4.2.js
