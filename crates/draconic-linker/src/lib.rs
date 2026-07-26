@@ -791,17 +791,19 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
 fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans) {
     match pat {
         BindingPattern::Ident(id) => id.span = spans.next(),
+        BindingPattern::Member(expr) => uniqueify_expr_spans(expr, spans),
         BindingPattern::Array { elements, span } => {
             *span = spans.next();
             for el in elements {
                 match el {
+                    ArrayPatternElement::Elision => {}
                     ArrayPatternElement::Pattern { binding, default } => {
                         uniqueify_binding_spans(binding, spans);
                         if let Some(def) = default {
                             uniqueify_expr_spans(def, spans);
                         }
                     }
-                    ArrayPatternElement::Rest(id) => id.span = spans.next(),
+                    ArrayPatternElement::Rest(binding) => uniqueify_binding_spans(binding, spans),
                 }
             }
         }
@@ -823,7 +825,7 @@ fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans)
                             uniqueify_expr_spans(def, spans);
                         }
                     }
-                    ObjectPatternProp::Rest(id) => id.span = spans.next(),
+                    ObjectPatternProp::Rest(binding) => uniqueify_binding_spans(binding, spans),
                 }
             }
         }
@@ -1078,6 +1080,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                     ArrayElement::Expr(e) | ArrayElement::Spread(e) => {
                         uniqueify_expr_spans(e, spans)
                     }
+                    ArrayElement::Elision => {}
                 }
             }
         }
@@ -1085,13 +1088,14 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             *span = spans.next();
             for el in elements {
                 match el {
+                    ArrayPatternElement::Elision => {}
                     ArrayPatternElement::Pattern { binding, default } => {
                         uniqueify_binding_spans(binding, spans);
                         if let Some(def) = default {
                             uniqueify_expr_spans(def, spans);
                         }
                     }
-                    ArrayPatternElement::Rest(id) => id.span = spans.next(),
+                    ArrayPatternElement::Rest(binding) => uniqueify_binding_spans(binding, spans),
                 }
             }
         }
@@ -1113,7 +1117,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                             uniqueify_expr_spans(def, spans);
                         }
                     }
-                    ObjectPatternProp::Rest(id) => id.span = spans.next(),
+                    ObjectPatternProp::Rest(binding) => uniqueify_binding_spans(binding, spans),
                 }
             }
         }
@@ -1299,6 +1303,7 @@ fn rename_binding_decl(
                 scopes.declare_nested(&id.name);
             }
         }
+        BindingPattern::Member(expr) => rename_expr(expr, renames, scopes),
         BindingPattern::Object { properties, .. } => {
             for p in properties {
                 match p {
@@ -1310,12 +1315,8 @@ fn rename_binding_decl(
                             rename_expr(def, renames, scopes);
                         }
                     }
-                    ObjectPatternProp::Rest(id) => {
-                        if scopes.depth() == 1 {
-                            rename_ident(id, renames, scopes);
-                        } else {
-                            scopes.declare_nested(&id.name);
-                        }
+                    ObjectPatternProp::Rest(binding) => {
+                        rename_binding_decl(binding, renames, scopes);
                     }
                 }
             }
@@ -1323,18 +1324,15 @@ fn rename_binding_decl(
         BindingPattern::Array { elements, .. } => {
             for el in elements {
                 match el {
+                    ArrayPatternElement::Elision => {}
                     ArrayPatternElement::Pattern { binding, default } => {
                         rename_binding_decl(binding, renames, scopes);
                         if let Some(def) = default {
                             rename_expr(def, renames, scopes);
                         }
                     }
-                    ArrayPatternElement::Rest(id) => {
-                        if scopes.depth() == 1 {
-                            rename_ident(id, renames, scopes);
-                        } else {
-                            scopes.declare_nested(&id.name);
-                        }
+                    ArrayPatternElement::Rest(binding) => {
+                        rename_binding_decl(binding, renames, scopes);
                     }
                 }
             }
@@ -1696,19 +1694,23 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
                     ArrayElement::Expr(e) | ArrayElement::Spread(e) => {
                         rename_expr(e, renames, scopes)
                     }
+                    ArrayElement::Elision => {}
                 }
             }
         }
         Expr::ArrayPattern { elements, .. } => {
             for el in elements {
                 match el {
+                    ArrayPatternElement::Elision => {}
                     ArrayPatternElement::Pattern { binding, default } => {
                         rename_binding_pattern_use(binding, renames, scopes);
                         if let Some(def) = default {
                             rename_expr(def, renames, scopes);
                         }
                     }
-                    ArrayPatternElement::Rest(id) => rename_ident(id, renames, scopes),
+                    ArrayPatternElement::Rest(binding) => {
+                        rename_binding_pattern_use(binding, renames, scopes)
+                    }
                 }
             }
         }
@@ -1723,7 +1725,9 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
                             rename_expr(def, renames, scopes);
                         }
                     }
-                    ObjectPatternProp::Rest(id) => rename_ident(id, renames, scopes),
+                    ObjectPatternProp::Rest(binding) => {
+                        rename_binding_pattern_use(binding, renames, scopes)
+                    }
                 }
             }
         }
@@ -1750,16 +1754,20 @@ fn rename_binding_pattern_use(
 ) {
     match pat {
         BindingPattern::Ident(id) => rename_ident(id, renames, scopes),
+        BindingPattern::Member(expr) => rename_expr(expr, renames, scopes),
         BindingPattern::Array { elements, .. } => {
             for el in elements {
                 match el {
+                    ArrayPatternElement::Elision => {}
                     ArrayPatternElement::Pattern { binding, default } => {
                         rename_binding_pattern_use(binding, renames, scopes);
                         if let Some(def) = default {
                             rename_expr(def, renames, scopes);
                         }
                     }
-                    ArrayPatternElement::Rest(id) => rename_ident(id, renames, scopes),
+                    ArrayPatternElement::Rest(binding) => {
+                        rename_binding_pattern_use(binding, renames, scopes)
+                    }
                 }
             }
         }
@@ -1774,7 +1782,9 @@ fn rename_binding_pattern_use(
                             rename_expr(def, renames, scopes);
                         }
                     }
-                    ObjectPatternProp::Rest(id) => rename_ident(id, renames, scopes),
+                    ObjectPatternProp::Rest(binding) => {
+                        rename_binding_pattern_use(binding, renames, scopes)
+                    }
                 }
             }
         }

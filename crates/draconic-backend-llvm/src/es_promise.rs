@@ -292,6 +292,7 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                     ArrayElement::Spread(_) => {
                         return Err("spread in array not supported in Promise path".into());
                     }
+                    ArrayElement::Elision => {}
                 }
             }
             Ok(())
@@ -2028,6 +2029,7 @@ fn expr_contains_await(expr: &Expr) -> bool {
         } => expr_contains_await(object) || expr_contains_await(property),
         Expr::Array { elements, .. } => elements.iter().any(|el| match el {
             ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_await(e),
+            ArrayElement::Elision => false,
         }),
         Expr::Function { body, .. } => body.iter().any(stmt_contains_await),
         _ => false,

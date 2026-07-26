@@ -662,6 +662,7 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                         out.push_str("...");
                         emit_expr(out, expr, names);
                     }
+                    draconic_ir::ArrayElement::Elision => {}
                 }
             }
             out.push(']');
@@ -782,6 +783,7 @@ fn emit_array_pattern(
             out.push_str(", ");
         }
         match el {
+            ArrayPatternEl::Elision => {}
             ArrayPatternEl::Pattern { binding, default } => {
                 emit_pattern(out, binding, names);
                 if let Some(def) = default {
@@ -789,9 +791,9 @@ fn emit_array_pattern(
                     emit_expr(out, def, names);
                 }
             }
-            ArrayPatternEl::Rest(id) => {
+            ArrayPatternEl::Rest(pat) => {
                 out.push_str("...");
-                out.push_str(local_name(names, *id));
+                emit_pattern(out, pat, names);
             }
         }
     }
@@ -818,6 +820,8 @@ fn emit_object_pattern(
                 if *shorthand {
                     if let Pattern::Local(id) = binding {
                         out.push_str(local_name(names, *id));
+                    } else if let Pattern::Name(name) = binding {
+                        out.push_str(name);
                     } else {
                         out.push_str(key);
                         out.push_str(": ");
@@ -833,9 +837,9 @@ fn emit_object_pattern(
                     emit_expr(out, def, names);
                 }
             }
-            ObjectPatternEl::Rest(id) => {
+            ObjectPatternEl::Rest(pat) => {
                 out.push_str("...");
-                out.push_str(local_name(names, *id));
+                emit_pattern(out, pat, names);
             }
         }
     }
@@ -845,6 +849,14 @@ fn emit_object_pattern(
 fn emit_pattern(out: &mut String, pat: &Pattern, names: &HashMap<LocalId, &str>) {
     match pat {
         Pattern::Local(id) => out.push_str(local_name(names, *id)),
+        Pattern::Name(name) => out.push_str(name),
+        Pattern::Member {
+            object,
+            property,
+            computed,
+        } => {
+            emit_member_access(out, object, property, *computed, false, names);
+        }
         Pattern::Array(els) => emit_array_pattern(out, els, names),
         Pattern::Object(props) => emit_object_pattern(out, props, names),
     }

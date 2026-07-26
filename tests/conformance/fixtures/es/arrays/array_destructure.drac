@@ -20,3 +20,15 @@ let t1 = tail[1];
 let tlen = tail.length;
 const [k, m] = [5, 6];
 let km = k + m;
+// E19.08: multi-declarator, elision, defaults, member target, nested rest
+var v2, vHole, vDef;
+var vals = [2, , undefined];
+[v2 = 10, vHole = 12, vDef = 13] = vals;
+let el0, el2;
+[el0, , el2] = [1, 9, 3];
+let mem = {};
+[mem.y] = [4];
+let nestedRest;
+[...[nestedRest]] = [7, 8, 9];
+let restMem = {};
+[...restMem.arr] = [1, 2];

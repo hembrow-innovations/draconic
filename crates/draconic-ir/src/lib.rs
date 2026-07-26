@@ -323,6 +323,7 @@ pub enum Expr {
 pub enum ArrayElement {
     Expr(Expr),
     Spread(Expr),
+    Elision,
 }
 
 /// One argument of a call or `new` after lowering.
@@ -390,12 +391,14 @@ pub enum UpdateTarget {
 /// One element of an array destructuring pattern in IR.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayPatternEl {
+    /// Hole / elision (`,`).
+    Elision,
     /// Simple or nested binding, optional default (`pat = expr`).
     Pattern {
         binding: Pattern,
         default: Option<Expr>,
     },
-    Rest(LocalId),
+    Rest(Pattern),
 }
 
 /// One property of an object destructuring pattern in IR.
@@ -408,13 +411,21 @@ pub enum ObjectPatternEl {
         shorthand: bool,
         default: Option<Expr>,
     },
-    Rest(LocalId),
+    Rest(Pattern),
 }
 
-/// Binding pattern after lowering (ident, nested array, or nested object).
+/// Binding pattern after lowering (ident, nested array/object, or assignment member).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     Local(LocalId),
+    /// Free / with-chain name (assignment only).
+    Name(String),
+    /// Assignment-only property target.
+    Member {
+        object: Box<Expr>,
+        property: Box<Expr>,
+        computed: bool,
+    },
     Array(Vec<ArrayPatternEl>),
     Object(Vec<ObjectPatternEl>),
 }
@@ -617,6 +628,9 @@ fn lower_stmt(
                     properties: lower_object_pattern_props(checked, ctx, properties),
                     init,
                 })
+            }
+            BindingPattern::Member(_) => {
+                panic!("member binding is assignment-only; rejected at check")
             }
         }
         AstStmt::Block { body, .. } => {
@@ -2357,6 +2371,7 @@ fn lower_expr(
                     AstArrayElement::Spread(e) => {
                         ArrayElement::Spread(lower_expr(checked, ctx, e, super_class))
                     }
+                    AstArrayElement::Elision => ArrayElement::Elision,
                 })
                 .collect(),
             ty: expr_ty(checked, *span),
@@ -2488,22 +2503,15 @@ fn lower_array_pattern_els(
     let mut out = Vec::with_capacity(elements.len());
     for el in elements {
         out.push(match el {
+            ArrayPatternElement::Elision => ArrayPatternEl::Elision,
             ArrayPatternElement::Pattern { binding, default } => ArrayPatternEl::Pattern {
                 binding: lower_binding_pattern(checked, ctx, binding),
                 default: default
                     .as_ref()
                     .map(|d| lower_expr(checked, ctx, d, None)),
             },
-            ArrayPatternElement::Rest(id) => {
-                let local = checked
-                    .bound
-                    .symbols()
-                    .iter()
-                    .find(|s| s.span == id.span)
-                    .map(|s| s.id)
-                    .or_else(|| checked.bound.resolve(id.span))
-                    .expect("rest binding must be declared or resolved");
-                ArrayPatternEl::Rest(local)
+            ArrayPatternElement::Rest(binding) => {
+                ArrayPatternEl::Rest(lower_binding_pattern(checked, ctx, binding))
             }
         });
     }
@@ -2532,16 +2540,8 @@ fn lower_object_pattern_props(
                     .as_ref()
                     .map(|d| lower_expr(checked, ctx, d, None)),
             },
-            ObjectPatternProp::Rest(id) => {
-                let local = checked
-                    .bound
-                    .symbols()
-                    .iter()
-                    .find(|s| s.span == id.span)
-                    .map(|s| s.id)
-                    .or_else(|| checked.bound.resolve(id.span))
-                    .expect("rest binding must be declared or resolved");
-                ObjectPatternEl::Rest(local)
+            ObjectPatternProp::Rest(binding) => {
+                ObjectPatternEl::Rest(lower_binding_pattern(checked, ctx, binding))
             }
         });
     }
@@ -2555,16 +2555,46 @@ fn lower_binding_pattern(
 ) -> Pattern {
     match pat {
         BindingPattern::Ident(id) => {
-            let local = checked
+            if let Some(local) = checked
                 .bound
                 .symbols()
                 .iter()
                 .find(|s| s.span == id.span)
                 .map(|s| s.id)
                 .or_else(|| checked.bound.resolve(id.span))
-                .expect("pattern binding must be declared or resolved");
-            Pattern::Local(local)
+            {
+                Pattern::Local(local)
+            } else {
+                Pattern::Name(id.name.clone())
+            }
         }
+        BindingPattern::Member(expr) => match expr.as_ref() {
+            AstExpr::MemberExpression {
+                object,
+                property,
+                computed,
+                private: false,
+                ..
+            } => {
+                let property = if *computed {
+                    lower_expr(checked, ctx, property, None)
+                } else {
+                    match property.as_ref() {
+                        AstExpr::Ident(id) => Expr::String {
+                            value: id.name.clone().into(),
+                            ty: Type::String,
+                        },
+                        other => lower_expr(checked, ctx, other, None),
+                    }
+                };
+                Pattern::Member {
+                    object: Box::new(lower_expr(checked, ctx, object, None)),
+                    property: Box::new(property),
+                    computed: *computed,
+                }
+            }
+            _ => panic!("BindingPattern::Member must wrap MemberExpression"),
+        },
         BindingPattern::Array { elements, .. } => {
             Pattern::Array(lower_array_pattern_els(checked, ctx, elements))
         }
@@ -2603,6 +2633,10 @@ fn indent(level: usize, out: &mut String) {
 fn dump_array_pattern_els(elements: &[ArrayPatternEl], level: usize, out: &mut String) {
     for el in elements {
         match el {
+            ArrayPatternEl::Elision => {
+                indent(level, out);
+                out.push_str("elision\n");
+            }
             ArrayPatternEl::Pattern { binding, default } => {
                 dump_pattern(binding, level, out);
                 if let Some(def) = default {
@@ -2611,9 +2645,10 @@ fn dump_array_pattern_els(elements: &[ArrayPatternEl], level: usize, out: &mut S
                     dump_expr(def, level + 1, out);
                 }
             }
-            ArrayPatternEl::Rest(id) => {
+            ArrayPatternEl::Rest(pat) => {
                 indent(level, out);
-                out.push_str(&format!("rest %{}\n", id.0));
+                out.push_str("rest:\n");
+                dump_pattern(pat, level + 1, out);
             }
         }
     }
@@ -2641,9 +2676,10 @@ fn dump_object_pattern_els(properties: &[ObjectPatternEl], level: usize, out: &m
                     dump_expr(def, level + 2, out);
                 }
             }
-            ObjectPatternEl::Rest(id) => {
+            ObjectPatternEl::Rest(pat) => {
                 indent(level, out);
-                out.push_str(&format!("rest %{}\n", id.0));
+                out.push_str("rest:\n");
+                dump_pattern(pat, level + 1, out);
             }
         }
     }
@@ -2654,6 +2690,20 @@ fn dump_pattern(pat: &Pattern, level: usize, out: &mut String) {
         Pattern::Local(id) => {
             indent(level, out);
             out.push_str(&format!("local %{}\n", id.0));
+        }
+        Pattern::Name(name) => {
+            indent(level, out);
+            out.push_str(&format!("name {name}\n"));
+        }
+        Pattern::Member {
+            object,
+            property,
+            computed,
+        } => {
+            indent(level, out);
+            out.push_str(&format!("Member computed={computed}\n"));
+            dump_expr(object, level + 1, out);
+            dump_expr(property, level + 1, out);
         }
         Pattern::Array(els) => {
             indent(level, out);
@@ -3278,6 +3328,9 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                     ArrayElement::Spread(expr) => {
                         out.push_str(&format!("element[{i}] spread:\n"));
                         dump_expr(expr, level + 2, out);
+                    }
+                    ArrayElement::Elision => {
+                        out.push_str(&format!("element[{i}] elision\n"));
                     }
                 }
             }

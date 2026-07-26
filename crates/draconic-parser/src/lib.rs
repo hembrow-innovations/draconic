@@ -34,13 +34,24 @@ impl Parser {
         let start = self.current_span().start.0;
         let mut body = Vec::new();
         while !self.check(&TokenKind::Eof) {
-            body.push(self.parse_stmt()?);
+            self.parse_stmt_list_item_into(&mut body)?;
         }
         let end = self.current_span().end.0;
         Ok(Program {
             body,
             span: Span::new(start, end),
         })
+    }
+
+    /// One statement-list item; multi-declarator `let`/`const`/`var` expands to multiple Lets.
+    fn parse_stmt_list_item_into(&mut self, body: &mut Vec<Stmt>) -> Result<(), Diagnostic> {
+        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) || self.check(&TokenKind::Var)
+        {
+            body.extend(self.parse_lexical_decls()?);
+            return Ok(());
+        }
+        body.push(self.parse_stmt()?);
+        Ok(())
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
@@ -148,7 +159,7 @@ impl Parser {
         let start = self.expect(&TokenKind::LBrace)?.span.start.0;
         let mut body = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
-            body.push(self.parse_stmt()?);
+            self.parse_stmt_list_item_into(&mut body)?;
         }
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
         Ok(Stmt::Block {
@@ -1692,65 +1703,91 @@ impl Parser {
         }
     }
 
-    fn parse_lexical_decl(&mut self) -> Result<Stmt, Diagnostic> {
+    /// One or more lexical declarators (`let a, b = 1;`), each as its own `Stmt::Let`.
+    fn parse_lexical_decls(&mut self) -> Result<Vec<Stmt>, Diagnostic> {
         let kind_tok = self.bump();
         let kind = match kind_tok.kind {
             TokenKind::Const => BindingKind::Const,
             TokenKind::Var => BindingKind::Var,
             _ => BindingKind::Let,
         };
-        let start = kind_tok.span.start.0;
-        // `var` surface is simple identifier only (no destructuring in this Loop).
-        let binding = if kind == BindingKind::Var {
-            let name_tok = self.expect_ident()?;
-            BindingPattern::Ident(Ident {
-                name: name_tok.ident_name(),
-                span: name_tok.span,
-            })
-        } else {
-            self.parse_binding_pattern()?
-        };
-        // Type annotations only on simple identifier bindings (`let x: T`).
-        let type_ann = if matches!(binding, BindingPattern::Ident(_)) {
-            self.parse_optional_type_ann()?
-        } else {
-            None
-        };
-        let init = if self.check(&TokenKind::Eq) {
-            self.bump();
-            // Initializer is AssignmentExpression (not Expression), so `,` is not
-            // consumed here — multi-declarator lexical binding is a later feature.
-            Some(self.parse_assignment()?)
-        } else if matches!(
-            binding,
-            BindingPattern::Array { .. } | BindingPattern::Object { .. }
-        ) {
-            return Err(Diagnostic::new(
-                "destructuring declaration requires an initializer".to_string(),
-                binding.span(),
-            ));
-        } else if kind == BindingKind::Const {
-            return Err(Diagnostic::new(
-                "const declaration requires an initializer".to_string(),
-                binding.span(),
-            ));
-        } else {
-            None
-        };
-        let end = if self.check(&TokenKind::Semi) {
-            self.bump().span.end.0
-        } else {
-            init.as_ref()
+        let kw_start = kind_tok.span.start.0;
+        let mut decls = Vec::new();
+        loop {
+            let binding = if kind == BindingKind::Var {
+                // `var` allows simple idents and destructuring patterns.
+                self.parse_binding_pattern()?
+            } else {
+                self.parse_binding_pattern()?
+            };
+            let type_ann = if matches!(binding, BindingPattern::Ident(_)) {
+                self.parse_optional_type_ann()?
+            } else {
+                None
+            };
+            let init = if self.check(&TokenKind::Eq) {
+                self.bump();
+                Some(self.parse_assignment()?)
+            } else if matches!(
+                binding,
+                BindingPattern::Array { .. } | BindingPattern::Object { .. }
+            ) {
+                return Err(Diagnostic::new(
+                    "destructuring declaration requires an initializer".to_string(),
+                    binding.span(),
+                ));
+            } else if kind == BindingKind::Const {
+                return Err(Diagnostic::new(
+                    "const declaration requires an initializer".to_string(),
+                    binding.span(),
+                ));
+            } else {
+                None
+            };
+            let decl_end = init
+                .as_ref()
                 .map(expr_span)
                 .map(|s| s.end.0)
                 .or_else(|| type_ann.as_ref().map(|a| a.span().end.0))
-                .unwrap_or_else(|| binding.span().end.0)
-        };
-        Ok(Stmt::Let {
-            kind,
-            binding,
-            type_ann,
-            init,
+                .unwrap_or_else(|| binding.span().end.0);
+            let start = if decls.is_empty() {
+                kw_start
+            } else {
+                binding.span().start.0
+            };
+            decls.push(Stmt::Let {
+                kind,
+                binding,
+                type_ann,
+                init,
+                span: Span::new(start, decl_end),
+            });
+            if self.check(&TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        if self.check(&TokenKind::Semi) {
+            let semi_end = self.bump().span.end.0;
+            if let Some(Stmt::Let { span, .. }) = decls.last_mut() {
+                *span = Span::new(span.start.0, semi_end);
+            }
+        }
+        Ok(decls)
+    }
+
+    fn parse_lexical_decl(&mut self) -> Result<Stmt, Diagnostic> {
+        let mut decls = self.parse_lexical_decls()?;
+        if decls.len() == 1 {
+            return Ok(decls.pop().unwrap());
+        }
+        // Multi-declarator as a single statement only via stmt-list expansion.
+        // Callers that need one Stmt (for-init) take the first; remainder is rare.
+        let start = stmt_span(&decls[0]).start.0;
+        let end = stmt_span(decls.last().unwrap()).end.0;
+        Ok(Stmt::Block {
+            body: decls,
             span: Span::new(start, end),
         })
     }
@@ -1785,13 +1822,15 @@ impl Parser {
                         self.current().span,
                     ));
                 }
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                    elements.push(ArrayPatternElement::Elision);
+                    continue;
+                }
                 if self.check(&TokenKind::DotDotDot) {
                     self.bump();
-                    let name_tok = self.expect_ident()?;
-                    elements.push(ArrayPatternElement::Rest(Ident {
-                        name: name_tok.ident_name(),
-                        span: name_tok.span,
-                    }));
+                    let binding = self.parse_binding_pattern()?;
+                    elements.push(ArrayPatternElement::Rest(binding));
                     saw_rest = true;
                 } else {
                     let binding = self.parse_binding_pattern()?;
@@ -1839,12 +1878,9 @@ impl Parser {
                     ));
                 }
                 if self.check(&TokenKind::DotDotDot) {
-                    let rest_start = self.bump().span.start.0;
-                    let name_tok = self.expect_ident()?;
-                    properties.push(ObjectPatternProp::Rest(Ident {
-                        name: name_tok.ident_name(),
-                        span: Span::new(rest_start, name_tok.span.end.0),
-                    }));
+                    self.bump();
+                    let binding = self.parse_binding_pattern()?;
+                    properties.push(ObjectPatternProp::Rest(binding));
                     saw_rest = true;
                 } else {
                     let key_tok = self.expect_ident()?;
@@ -2857,8 +2893,8 @@ impl Parser {
                     span: Span::new(key_start, end),
                 })
             }
-            TokenKind::Ident(name) => {
-                let name = name.clone();
+            _ if key_tok.ident_name_opt().is_some() => {
+                let name = key_tok.ident_name();
                 let key_span = key_tok.span;
                 let span_start = if is_async || is_generator {
                     prop_start
@@ -2889,9 +2925,12 @@ impl Parser {
                 }
                 // Property shorthand: `{ a }` / CoverInitializedName `{ a = default }`
                 // (latter is only valid as assignment pattern; checker rejects as value).
-                if self.check(&TokenKind::Comma)
-                    || self.check(&TokenKind::RBrace)
-                    || self.check(&TokenKind::Eq)
+                // Keywords as IdentifierName keys require `: value` (not bare shorthand).
+                let is_keyword_key = !matches!(key_tok.kind, TokenKind::Ident(_));
+                if !is_keyword_key
+                    && (self.check(&TokenKind::Comma)
+                        || self.check(&TokenKind::RBrace)
+                        || self.check(&TokenKind::Eq))
                 {
                     if self.check(&TokenKind::Eq) {
                         self.bump();
@@ -3038,18 +3077,17 @@ impl Parser {
         }
     }
 
-    /// Object literal / accessor property key: ident, string, or `[expr]`.
+    /// Object literal / accessor property key: IdentifierName (incl. keywords), string, or `[expr]`.
     fn parse_object_key(&mut self) -> Result<ObjectKey, Diagnostic> {
         let tok = self.current().clone();
+        if let Some(name) = tok.ident_name_opt() {
+            self.bump();
+            return Ok(ObjectKey::Ident(Ident {
+                name,
+                span: tok.span,
+            }));
+        }
         match &tok.kind {
-            TokenKind::Ident(name) => {
-                let name = name.clone();
-                self.bump();
-                Ok(ObjectKey::Ident(Ident {
-                    name,
-                    span: tok.span,
-                }))
-            }
             TokenKind::String(value) => {
                 let value = value.clone();
                 self.bump();
@@ -3245,7 +3283,7 @@ impl Parser {
         }
     }
 
-    /// `[elem, …]` — trailing comma and `...spread` allowed; holes not in this surface.
+    /// `[elem, …]` — trailing comma, holes/elision, and `...spread` allowed.
     fn parse_array_expression(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::LBracket)?.span.start.0;
         let mut elements = Vec::new();
@@ -3253,6 +3291,11 @@ impl Parser {
             loop {
                 if self.check(&TokenKind::RBracket) {
                     break;
+                }
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                    elements.push(ArrayElement::Elision);
+                    continue;
                 }
                 if self.check(&TokenKind::DotDotDot) {
                     self.bump();
@@ -3453,7 +3496,7 @@ fn expr_to_pattern_element(expr: &Expr) -> Option<(BindingPattern, Option<Expr>)
 }
 
 /// Reinterpret an array literal as an assignment pattern when every element is
-/// a binding target (`ident`, `pat = default`, nested array pattern, or trailing `...ident`).
+/// a binding/LHS target (`ident`, member, `pat = default`, nested pattern, elision, or trailing rest).
 fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
     let Expr::ArrayExpression { elements, span } = expr else {
         return None;
@@ -3465,15 +3508,16 @@ fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
             return None;
         }
         match el {
+            ArrayElement::Elision => {
+                pat_els.push(ArrayPatternElement::Elision);
+            }
             ArrayElement::Expr(inner) => {
                 let (binding, default) = expr_to_pattern_element(inner)?;
                 pat_els.push(ArrayPatternElement::Pattern { binding, default });
             }
             ArrayElement::Spread(inner) => {
-                let Expr::Ident(id) = inner else {
-                    return None;
-                };
-                pat_els.push(ArrayPatternElement::Rest(id.clone()));
+                let binding = expr_to_binding_pattern(inner)?;
+                pat_els.push(ArrayPatternElement::Rest(binding));
                 saw_rest = true;
             }
         }
@@ -3541,10 +3585,8 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 });
             }
             ObjectProp::Spread { expr: inner, .. } => {
-                let Expr::Ident(id) = inner else {
-                    return None;
-                };
-                props.push(ObjectPatternProp::Rest(id.clone()));
+                let binding = expr_to_binding_pattern(inner)?;
+                props.push(ObjectPatternProp::Rest(binding));
                 saw_rest = true;
             }
             ObjectProp::Accessor { .. } => return None,
@@ -3559,6 +3601,11 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
 fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
     match expr {
         Expr::Ident(id) => Some(BindingPattern::Ident(id.clone())),
+        Expr::MemberExpression {
+            optional: false,
+            private: false,
+            ..
+        } => Some(BindingPattern::Member(Box::new(expr.clone()))),
         Expr::ArrayExpression { elements, span } => {
             let mut pat_els = Vec::with_capacity(elements.len());
             let mut saw_rest = false;
@@ -3567,15 +3614,16 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                     return None;
                 }
                 match el {
+                    ArrayElement::Elision => {
+                        pat_els.push(ArrayPatternElement::Elision);
+                    }
                     ArrayElement::Expr(inner) => {
                         let (binding, default) = expr_to_pattern_element(inner)?;
                         pat_els.push(ArrayPatternElement::Pattern { binding, default });
                     }
                     ArrayElement::Spread(inner) => {
-                        let Expr::Ident(id) = inner else {
-                            return None;
-                        };
-                        pat_els.push(ArrayPatternElement::Rest(id.clone()));
+                        let binding = expr_to_binding_pattern(inner)?;
+                        pat_els.push(ArrayPatternElement::Rest(binding));
                         saw_rest = true;
                     }
                 }
@@ -3640,10 +3688,8 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         });
                     }
                     ObjectProp::Spread { expr: inner, .. } => {
-                        let Expr::Ident(id) = inner else {
-                            return None;
-                        };
-                        props.push(ObjectPatternProp::Rest(id.clone()));
+                        let binding = expr_to_binding_pattern(inner)?;
+                        props.push(ObjectPatternProp::Rest(binding));
                         saw_rest = true;
                     }
                     ObjectProp::Accessor { .. } => return None,

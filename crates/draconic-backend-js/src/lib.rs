@@ -313,6 +313,7 @@ fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
                     draconic_ir::ArrayElement::Expr(e) | draconic_ir::ArrayElement::Spread(e) => {
                         reject_native_only_expr(e)?;
                     }
+                    draconic_ir::ArrayElement::Elision => {}
                 }
             }
             Ok(())
@@ -370,7 +371,13 @@ fn reject_native_only_assign_target(target: &AssignTarget) -> Result<(), Diagnos
 
 fn reject_native_only_pattern(pat: &Pattern) -> Result<(), Diagnostic> {
     match pat {
-        Pattern::Local(_) => Ok(()),
+        Pattern::Local(_) | Pattern::Name(_) => Ok(()),
+        Pattern::Member {
+            object, property, ..
+        } => {
+            reject_native_only_expr(object)?;
+            reject_native_only_expr(property)
+        }
         Pattern::Array(els) => {
             for el in els {
                 reject_native_only_array_pat_el(el)?;
@@ -388,6 +395,7 @@ fn reject_native_only_pattern(pat: &Pattern) -> Result<(), Diagnostic> {
 
 fn reject_native_only_array_pat_el(el: &ArrayPatternEl) -> Result<(), Diagnostic> {
     match el {
+        ArrayPatternEl::Elision => Ok(()),
         ArrayPatternEl::Pattern { binding, default } => {
             reject_native_only_pattern(binding)?;
             if let Some(d) = default {
@@ -395,7 +403,7 @@ fn reject_native_only_array_pat_el(el: &ArrayPatternEl) -> Result<(), Diagnostic
             }
             Ok(())
         }
-        ArrayPatternEl::Rest(_) => Ok(()),
+        ArrayPatternEl::Rest(pat) => reject_native_only_pattern(pat),
     }
 }
 
@@ -410,7 +418,7 @@ fn reject_native_only_object_pat_el(el: &ObjectPatternEl) -> Result<(), Diagnost
             }
             Ok(())
         }
-        ObjectPatternEl::Rest(_) => Ok(()),
+        ObjectPatternEl::Rest(pat) => reject_native_only_pattern(pat),
     }
 }
 

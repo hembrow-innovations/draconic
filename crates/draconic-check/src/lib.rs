@@ -1420,6 +1420,7 @@ impl Binder {
                         ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {
                             self.bind_expr(expr)?;
                         }
+                        ArrayElement::Elision => {}
                     }
                 }
                 Ok(())
@@ -1443,14 +1444,15 @@ impl Binder {
             Expr::ArrayPattern { elements, .. } => {
                 for el in elements {
                     match el {
+                        ArrayPatternElement::Elision => {}
                         ArrayPatternElement::Pattern { binding, default } => {
                             self.bind_assign_pattern(binding)?;
                             if let Some(def) = default {
                                 self.bind_expr(def)?;
                             }
                         }
-                        ArrayPatternElement::Rest(id) => {
-                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        ArrayPatternElement::Rest(binding) => {
+                            self.bind_assign_pattern(binding)?;
                         }
                     }
                 }
@@ -1467,8 +1469,8 @@ impl Binder {
                                 self.bind_expr(def)?;
                             }
                         }
-                        ObjectPatternProp::Rest(id) => {
-                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        ObjectPatternProp::Rest(binding) => {
+                            self.bind_assign_pattern(binding)?;
                         }
                     }
                 }
@@ -1480,17 +1482,19 @@ impl Binder {
     fn bind_assign_pattern(&mut self, pat: &BindingPattern) -> Result<(), Diagnostic> {
         match pat {
             BindingPattern::Ident(id) => self.bind_expr(&Expr::Ident(id.clone())),
+            BindingPattern::Member(expr) => self.bind_expr(expr),
             BindingPattern::Array { elements, .. } => {
                 for el in elements {
                     match el {
+                        ArrayPatternElement::Elision => {}
                         ArrayPatternElement::Pattern { binding, default } => {
                             self.bind_assign_pattern(binding)?;
                             if let Some(def) = default {
                                 self.bind_expr(def)?;
                             }
                         }
-                        ArrayPatternElement::Rest(id) => {
-                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        ArrayPatternElement::Rest(binding) => {
+                            self.bind_assign_pattern(binding)?;
                         }
                     }
                 }
@@ -1507,8 +1511,8 @@ impl Binder {
                                 self.bind_expr(def)?;
                             }
                         }
-                        ObjectPatternProp::Rest(id) => {
-                            self.bind_expr(&Expr::Ident(id.clone()))?;
+                        ObjectPatternProp::Rest(binding) => {
+                            self.bind_assign_pattern(binding)?;
                         }
                     }
                 }
@@ -1520,17 +1524,20 @@ impl Binder {
     /// Bind free references in pattern default initializers (`pat = expr`).
     fn bind_pattern_defaults(&mut self, pat: &BindingPattern) -> Result<(), Diagnostic> {
         match pat {
-            BindingPattern::Ident(_) => Ok(()),
+            BindingPattern::Ident(_) | BindingPattern::Member(_) => Ok(()),
             BindingPattern::Array { elements, .. } => {
                 for el in elements {
                     match el {
+                        ArrayPatternElement::Elision => {}
                         ArrayPatternElement::Pattern { binding, default } => {
                             self.bind_pattern_defaults(binding)?;
                             if let Some(def) = default {
                                 self.bind_expr(def)?;
                             }
                         }
-                        ArrayPatternElement::Rest(_) => {}
+                        ArrayPatternElement::Rest(binding) => {
+                            self.bind_pattern_defaults(binding)?;
+                        }
                     }
                 }
                 Ok(())
@@ -1546,7 +1553,9 @@ impl Binder {
                                 self.bind_expr(def)?;
                             }
                         }
-                        ObjectPatternProp::Rest(_) => {}
+                        ObjectPatternProp::Rest(binding) => {
+                            self.bind_pattern_defaults(binding)?;
+                        }
                     }
                 }
                 Ok(())
@@ -1837,26 +1846,26 @@ impl<'a> Checker<'a> {
                 self.symbol_types[id.0 as usize] = ty;
                 Ok(())
             }
+            BindingPattern::Member(expr) => {
+                // Declaration patterns must not use member targets.
+                Err(Diagnostic::new(
+                    "member expression is not a valid declaration binding".to_string(),
+                    expr_span_of(expr),
+                ))
+            }
             BindingPattern::Array { elements, .. } => {
                 // Element types are not refined yet; bind as Any.
                 for el in elements {
                     match el {
+                        ArrayPatternElement::Elision => {}
                         ArrayPatternElement::Pattern { binding, default } => {
                             self.check_binding_pattern(binding, Type::Any)?;
                             if let Some(def) = default {
                                 self.check_expr(def)?;
                             }
                         }
-                        ArrayPatternElement::Rest(id) => {
-                            let sym = self
-                                .bound
-                                .symbols()
-                                .iter()
-                                .find(|s| s.span == id.span)
-                                .map(|s| s.id)
-                                .expect("rest binding must be declared");
-                            // Rest always binds an array.
-                            self.symbol_types[sym.0 as usize] = Type::Any;
+                        ArrayPatternElement::Rest(binding) => {
+                            self.check_binding_pattern(binding, Type::Any)?;
                         }
                     }
                 }
@@ -1873,15 +1882,8 @@ impl<'a> Checker<'a> {
                                 self.check_expr(def)?;
                             }
                         }
-                        ObjectPatternProp::Rest(id) => {
-                            let sym = self
-                                .bound
-                                .symbols()
-                                .iter()
-                                .find(|s| s.span == id.span)
-                                .map(|s| s.id)
-                                .expect("rest binding must be declared");
-                            self.symbol_types[sym.0 as usize] = Type::Any;
+                        ObjectPatternProp::Rest(binding) => {
+                            self.check_binding_pattern(binding, Type::Any)?;
                         }
                     }
                 }
@@ -1924,20 +1926,53 @@ impl<'a> Checker<'a> {
                 self.record(id.span, self.symbol_types[sym.0 as usize]);
                 Ok(())
             }
+            BindingPattern::Member(expr) => {
+                // Validate member LHS the same way as a simple property assign.
+                match expr.as_ref() {
+                    Expr::MemberExpression {
+                        object,
+                        property,
+                        computed,
+                        optional,
+                        private,
+                        span: mspan,
+                    } => {
+                        if *optional {
+                            return Err(Diagnostic::new(
+                                "invalid assignment target".to_string(),
+                                *mspan,
+                            ));
+                        }
+                        if *private {
+                            return Err(Diagnostic::new(
+                                "invalid assignment target".to_string(),
+                                *mspan,
+                            ));
+                        }
+                        self.check_expr(object)?;
+                        if *computed {
+                            self.check_expr(property)?;
+                        }
+                        Ok(())
+                    }
+                    _ => Err(Diagnostic::new(
+                        "invalid assignment target".to_string(),
+                        span,
+                    )),
+                }
+            }
             BindingPattern::Array { elements, .. } => {
                 for el in elements {
                     match el {
+                        ArrayPatternElement::Elision => {}
                         ArrayPatternElement::Pattern { binding, default } => {
                             self.check_assign_pattern(binding, span)?;
                             if let Some(def) = default {
                                 self.check_expr(def)?;
                             }
                         }
-                        ArrayPatternElement::Rest(id) => {
-                            self.check_assign_pattern(
-                                &BindingPattern::Ident(id.clone()),
-                                span,
-                            )?;
+                        ArrayPatternElement::Rest(binding) => {
+                            self.check_assign_pattern(binding, span)?;
                         }
                     }
                 }
@@ -1954,11 +1989,8 @@ impl<'a> Checker<'a> {
                                 self.check_expr(def)?;
                             }
                         }
-                        ObjectPatternProp::Rest(id) => {
-                            self.check_assign_pattern(
-                                &BindingPattern::Ident(id.clone()),
-                                span,
-                            )?;
+                        ObjectPatternProp::Rest(binding) => {
+                            self.check_assign_pattern(binding, span)?;
                         }
                     }
                 }
@@ -2631,17 +2663,15 @@ impl<'a> Checker<'a> {
                         }
                         for el in elements {
                             match el {
+                                ArrayPatternElement::Elision => {}
                                 ArrayPatternElement::Pattern { binding, default } => {
                                     self.check_assign_pattern(binding, *span)?;
                                     if let Some(def) = default {
                                         self.check_expr(def)?;
                                     }
                                 }
-                                ArrayPatternElement::Rest(id) => {
-                                    self.check_assign_pattern(
-                                        &BindingPattern::Ident(id.clone()),
-                                        *span,
-                                    )?;
+                                ArrayPatternElement::Rest(binding) => {
+                                    self.check_assign_pattern(binding, *span)?;
                                 }
                             }
                         }
@@ -2665,11 +2695,8 @@ impl<'a> Checker<'a> {
                                         self.check_expr(def)?;
                                     }
                                 }
-                                ObjectPatternProp::Rest(id) => {
-                                    self.check_assign_pattern(
-                                        &BindingPattern::Ident(id.clone()),
-                                        *span,
-                                    )?;
+                                ObjectPatternProp::Rest(binding) => {
+                                    self.check_assign_pattern(binding, *span)?;
                                 }
                             }
                         }
@@ -3035,6 +3062,7 @@ impl<'a> Checker<'a> {
                         ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {
                             self.check_expr(expr)?;
                         }
+                        ArrayElement::Elision => {}
                     }
                 }
                 self.record(*span, Type::Object);
@@ -5591,6 +5619,7 @@ mod tests {
                             ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {
                                 walk_expr(expr, name, out);
                             }
+                            ArrayElement::Elision => {}
                         }
                     }
                 }
@@ -5665,8 +5694,45 @@ mod tests {
                                     walk_expr(def, name, out);
                                 }
                             }
-                            ArrayPatternElement::Rest(id) if id.name == name => {
+                            ArrayPatternElement::Elision => {}
+                            ArrayPatternElement::Pattern {
+                                binding: BindingPattern::Member(expr),
+                                default,
+                            } => {
+                                walk_expr(expr, name, out);
+                                if let Some(def) = default {
+                                    walk_expr(def, name, out);
+                                }
+                            }
+                            ArrayPatternElement::Rest(BindingPattern::Ident(id))
+                                if id.name == name =>
+                            {
                                 *out = Some(id.span);
+                            }
+                            ArrayPatternElement::Rest(BindingPattern::Array { elements, .. }) => {
+                                walk_expr(
+                                    &Expr::ArrayPattern {
+                                        elements: elements.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
+                            ArrayPatternElement::Rest(BindingPattern::Object {
+                                properties, ..
+                            }) => {
+                                walk_expr(
+                                    &Expr::ObjectPattern {
+                                        properties: properties.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
+                            ArrayPatternElement::Rest(BindingPattern::Member(expr)) => {
+                                walk_expr(expr, name, out);
                             }
                             ArrayPatternElement::Rest(_) => {}
                         }
@@ -5732,8 +5798,46 @@ mod tests {
                                     walk_expr(def, name, out);
                                 }
                             }
-                            ObjectPatternProp::Rest(id) if id.name == name => {
+                            ObjectPatternProp::Prop {
+                                binding: BindingPattern::Member(expr),
+                                default,
+                                ..
+                            } => {
+                                walk_expr(expr, name, out);
+                                if let Some(def) = default {
+                                    walk_expr(def, name, out);
+                                }
+                            }
+                            ObjectPatternProp::Rest(BindingPattern::Ident(id))
+                                if id.name == name =>
+                            {
                                 *out = Some(id.span);
+                            }
+                            ObjectPatternProp::Rest(BindingPattern::Array { elements, .. }) => {
+                                walk_expr(
+                                    &Expr::ArrayPattern {
+                                        elements: elements.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
+                            ObjectPatternProp::Rest(BindingPattern::Object {
+                                properties: nested,
+                                ..
+                            }) => {
+                                walk_expr(
+                                    &Expr::ObjectPattern {
+                                        properties: nested.clone(),
+                                        span: Span::dummy(),
+                                    },
+                                    name,
+                                    out,
+                                );
+                            }
+                            ObjectPatternProp::Rest(BindingPattern::Member(expr)) => {
+                                walk_expr(expr, name, out);
                             }
                             ObjectPatternProp::Rest(_) => {}
                         }

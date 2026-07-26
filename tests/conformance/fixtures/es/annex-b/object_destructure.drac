@@ -19,3 +19,11 @@ let tR = tail.r;
 let tT = tail.t;
 const { k, m } = { k: 5, m: 6 };
 let km = k + m;
+// E19.08: multi-declarator + member assignment target + keyword property name
+var oA, oB;
+var oMem = {};
+({ oA, oB } = { oA: 1, oB: 2 });
+({ xy: oMem.y } = { xy: 4 });
+let kwObj = { return: 9, default: 8 };
+let kwRet = kwObj.return;
+let kwDef = kwObj.default;

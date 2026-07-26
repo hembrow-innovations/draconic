@@ -253,14 +253,16 @@ fn collect_pattern_locals(pat: &Pattern, out: &mut HashSet<LocalId>) {
         Pattern::Local(id) => {
             out.insert(*id);
         }
+        Pattern::Name(_) | Pattern::Member { .. } => {}
         Pattern::Array(els) => {
             for el in els {
                 match el {
+                    draconic_ir::ArrayPatternEl::Elision => {}
                     draconic_ir::ArrayPatternEl::Pattern { binding, .. } => {
                         collect_pattern_locals(binding, out);
                     }
-                    draconic_ir::ArrayPatternEl::Rest(id) => {
-                        out.insert(*id);
+                    draconic_ir::ArrayPatternEl::Rest(binding) => {
+                        collect_pattern_locals(binding, out);
                     }
                 }
             }
@@ -271,8 +273,8 @@ fn collect_pattern_locals(pat: &Pattern, out: &mut HashSet<LocalId>) {
                     draconic_ir::ObjectPatternEl::Prop { binding, .. } => {
                         collect_pattern_locals(binding, out);
                     }
-                    draconic_ir::ObjectPatternEl::Rest(id) => {
-                        out.insert(*id);
+                    draconic_ir::ObjectPatternEl::Rest(binding) => {
+                        collect_pattern_locals(binding, out);
                     }
                 }
             }
