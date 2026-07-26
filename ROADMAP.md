@@ -230,7 +230,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.06 | done | js | Expand allowlist further after E19.03–E19.05 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 | E19.07 | done | js | Checker: BigInt mixed-type operators (do not reject ECMA-262 `bigint`×`number`/`object`/`any` bitwise/arithmetic at compile when untyped; TypeError is runtime) | `crates/draconic-check`, `tests/test262` |
 | E19.08 | done | js | Assignment destructuring depth (Test262 `expressions/assignment/dstr`): remaining patterns beyond E18.19/E18.25 allowlist | `tests/test262` (allowlist + baseline-report) |
-| E19.09 | todo | js | Lexer/parser: remaining numeric-separator + string-escape failures (`unexpected character '\\'`, invalid separators, hex escapes) | `crates/draconic-lexer`, `crates/draconic-parser`, `tests/test262` |
+| E19.09 | done | js | Lexer/parser: remaining numeric-separator + string-escape failures (`unexpected character '\\'`, invalid separators, hex escapes) | `crates/draconic-lexer`, `crates/draconic-parser`, `tests/test262` |
 | E19.10 | todo | js | Expand allowlist further after E19.07–E19.09 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---

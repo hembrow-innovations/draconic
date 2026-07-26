@@ -1,11 +1,9 @@
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02 / E19.04 / E19.05 / E19.06 / E19.07
-# (ops + free refs + bitwise/cmp/eq/control + BigInt mixed-type).
+# Expanded under ROADMAP E19.02–E19.09 (ops, refs, BigInt, dstr, numeric-sep, string escapes).
 # Lines starting with # and blank lines are ignored.
 #
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 
-# E19.07: BigInt mixed-type arithmetic/bitwise (TypeError at runtime; checker must not reject)
 test/language/expressions/addition/S11.6.1_A1.js
 test/language/expressions/addition/S11.6.1_A2.1_T1.js
 test/language/expressions/addition/S11.6.1_A2.1_T2.js
@@ -1187,29 +1185,61 @@ test/language/literals/numeric/S7.8.3_A5.1_T8.js
 test/language/literals/numeric/binary.js
 test/language/literals/numeric/legacy-octal-integer.js
 test/language/literals/numeric/non-octal-decimal-integer.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-bil-bd-nsl-bd-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-bil-bd-nsl-bd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-bil-bd-nsl-bds.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-bil-bds-nsl-bd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-bil-bds-nsl-bds.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-bil-nsl-bd-dunder-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-bil-nsl-bd-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dd-dot-dd-ep-sign-minus-dd-nsl-dd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dd-dot-dd-ep-sign-minus-dds-nsl-dd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dd-dot-dd-ep-sign-plus-dd-nsl-dd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dd-dot-dd-ep-sign-plus-dds-nsl-dd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dd-nsl-dd-one-of.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dd-nsl-dds-dunder-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dd-nsl-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dds-dot-dd-nsl-dd-ep-dd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dds-nsl-dd.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dds-nsl-dds-dunder-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dds-nsl-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dil-dot-dds-nsl-ep-dd-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dil-dot-nsl-dd-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dil-dot-nsl-ep-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dil-dot-nsl-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dot-dd-nsl-dd-ep.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dot-dd-nsl-dds-ep.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dot-dds-nsl-dd-ep.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-dot-dds-nsl-dds-ep.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dot-dds-nsl-ep-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dot-nsl-ep-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-dot-nsl-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-hd-nsl-hd-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-hd-nsl-hd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-hd-nsl-hds.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-hds-nsl-hd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-hds-nsl-hds.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-nsl-hd-dunder-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-nsl-hd-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-hil-od-nsl-od-one-of.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-lol-00-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-lol-01-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-lol-07-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-lol-0_0-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-lol-0_1-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-lol-0_7-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-nonoctal-08-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-nonoctal-09-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-nonoctal-0_8-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-nonoctal-0_9-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-nzd-nsl-dd-one-of.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-nzd-nsl-dd.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-nzd-nsl-dds-dunder-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-nzd-nsl-dds-leading-zero-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-nzd-nsl-dds.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-nsl-od-dunder-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-nsl-od-err.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-od-nsl-od-err.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-od-nsl-od-one-of.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-od-nsl-od.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-od-nsl-ods.js
@@ -1217,12 +1247,22 @@ test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-oil-ods-nsl-ods.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-sign-minus-dds-nsl-dd.js
 test/language/literals/numeric/numeric-separators/numeric-separator-literal-sign-plus-dds-nsl-dd.js
+test/language/literals/numeric/numeric-separators/numeric-separator-literal-unicode-err.js
 test/language/literals/numeric/octal.js
+test/language/literals/string/S7.8.4_A1.1_T1.js
+test/language/literals/string/S7.8.4_A1.1_T2.js
+test/language/literals/string/S7.8.4_A1.2_T1.js
+test/language/literals/string/S7.8.4_A1.2_T2.js
 test/language/literals/string/S7.8.4_A2.1_T1.js
 test/language/literals/string/S7.8.4_A2.1_T2.js
 test/language/literals/string/S7.8.4_A2.2_T1.js
 test/language/literals/string/S7.8.4_A2.2_T2.js
 test/language/literals/string/S7.8.4_A2.3_T1.js
+test/language/literals/string/S7.8.4_A3.1_T1.js
+test/language/literals/string/S7.8.4_A3.1_T2.js
+test/language/literals/string/S7.8.4_A3.2_T1.js
+test/language/literals/string/S7.8.4_A3.2_T2.js
+test/language/literals/string/S7.8.4_A4.1_T1.js
 test/language/literals/string/S7.8.4_A4.1_T2.js
 test/language/literals/string/S7.8.4_A4.2_T1.js
 test/language/literals/string/S7.8.4_A4.2_T2.js
@@ -1232,6 +1272,7 @@ test/language/literals/string/S7.8.4_A4.2_T5.js
 test/language/literals/string/S7.8.4_A4.2_T6.js
 test/language/literals/string/S7.8.4_A4.2_T7.js
 test/language/literals/string/S7.8.4_A4.2_T8.js
+test/language/literals/string/S7.8.4_A4.3_T7.js
 test/language/literals/string/S7.8.4_A5.1_T1.js
 test/language/literals/string/S7.8.4_A5.1_T2.js
 test/language/literals/string/S7.8.4_A5.1_T3.js
@@ -1242,6 +1283,13 @@ test/language/literals/string/S7.8.4_A6.3_T1.js
 test/language/literals/string/S7.8.4_A7.1_T1.js
 test/language/literals/string/S7.8.4_A7.1_T2.js
 test/language/literals/string/S7.8.4_A7.1_T3.js
+test/language/literals/string/S7.8.4_A7.1_T4.js
+test/language/literals/string/S7.8.4_A7.2_T1.js
+test/language/literals/string/S7.8.4_A7.2_T2.js
+test/language/literals/string/S7.8.4_A7.2_T3.js
+test/language/literals/string/S7.8.4_A7.2_T4.js
+test/language/literals/string/S7.8.4_A7.2_T5.js
+test/language/literals/string/S7.8.4_A7.2_T6.js
 test/language/literals/string/S7.8.4_A7.3_T1.js
 test/language/literals/string/legacy-non-octal-escape-sequence-8-non-strict.js
 test/language/literals/string/legacy-non-octal-escape-sequence-9-non-strict.js
@@ -1254,6 +1302,10 @@ test/language/literals/string/mongolian-vowel-separator-eval.js
 test/language/literals/string/mongolian-vowel-separator.js
 test/language/literals/string/paragraph-separator-eval.js
 test/language/literals/string/paragraph-separator.js
+test/language/literals/string/unicode-escape-nls-err-double.js
+test/language/literals/string/unicode-escape-nls-err-single.js
+test/language/literals/string/unicode-escape-no-hex-err-double.js
+test/language/literals/string/unicode-escape-no-hex-err-single.js
 test/language/statements/block/S12.1_A5.js
 test/language/statements/block/scope-lex-close.js
 test/language/statements/block/scope-lex-open.js
@@ -1389,3 +1441,4 @@ test/language/types/undefined/S8.1_A3_T1.js
 test/language/types/undefined/S8.1_A3_T2.js
 test/language/types/undefined/S8.1_A4.js
 test/language/types/undefined/S8.1_A5.js
+

@@ -219,15 +219,37 @@ let assert = {
 };
 "#;
 
+/// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
+///
+/// Frontmatter may follow a copyright line-comment prologue.
+fn frontmatter_meta(source: &str) -> Option<&str> {
+    let start = source.find("/*---")?;
+    let after = &source[start + 5..];
+    let end = after.find("---*/")?;
+    Some(&after[..end])
+}
+
 /// Strip Test262 YAML frontmatter comment block if present.
 pub fn strip_frontmatter(source: &str) -> &str {
-    let trimmed = source.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("/*---") {
-        if let Some(end) = rest.find("---*/") {
-            return rest[end + 5..].trim_start();
-        }
+    let Some(start) = source.find("/*---") else {
+        return source;
+    };
+    let after = &source[start + 5..];
+    let Some(end) = after.find("---*/") else {
+        return source;
+    };
+    after[end + 5..].trim_start()
+}
+
+/// True when frontmatter declares a negative parse/early SyntaxError expectation.
+pub fn is_negative_parse(source: &str) -> bool {
+    let Some(meta) = frontmatter_meta(source) else {
+        return false;
+    };
+    if !meta.contains("negative:") {
+        return false;
     }
-    source
+    meta.contains("phase: parse") || meta.contains("phase: early")
 }
 
 /// Compile Test262 test body (+ shim) through frontend → JS emit.
@@ -296,6 +318,21 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             };
         }
     };
+    if is_negative_parse(&source) {
+        // Negative parse/early: pass iff frontend rejects the body.
+        return match compile_test_to_js(&source) {
+            Err(_) => CaseResult {
+                path: rel.to_string(),
+                status: Status::Pass,
+                message: "ok (negative parse)".to_string(),
+            },
+            Ok(_) => CaseResult {
+                path: rel.to_string(),
+                status: Status::Fail,
+                message: "expected compile failure for negative parse test".to_string(),
+            },
+        };
+    }
     let js = match compile_test_to_js(&source) {
         Ok(j) => j,
         Err(e) => {
@@ -462,6 +499,13 @@ mod tests {
         assert!(md.contains("pass=0"));
         assert!(md.contains("skip=1"));
         assert!(md.contains("test/x.js"));
+    }
+
+    #[test]
+    fn negative_parse_meta_detected() {
+        let src = "/*---\nnegative:\n  phase: parse\n  type: SyntaxError\n---*/\n1_\n";
+        assert!(is_negative_parse(src));
+        assert!(!is_negative_parse("/*---\ndescription: x\n---*/\n1\n"));
     }
 
     #[test]

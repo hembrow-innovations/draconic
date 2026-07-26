@@ -746,6 +746,14 @@ impl<'a> Lexer<'a> {
         let esc_start = self.pos as u32;
         let esc = self.peek();
         match esc {
+            b'b' => {
+                self.bump();
+                value.push_scalar('\u{0008}');
+            }
+            b'f' => {
+                self.bump();
+                value.push_scalar('\u{000C}');
+            }
             b'n' => {
                 self.bump();
                 value.push_scalar('\n');
@@ -757,6 +765,10 @@ impl<'a> Lexer<'a> {
             b't' => {
                 self.bump();
                 value.push_scalar('\t');
+            }
+            b'v' => {
+                self.bump();
+                value.push_scalar('\u{000B}');
             }
             b'\\' => {
                 self.bump();
@@ -977,17 +989,23 @@ impl<'a> Lexer<'a> {
         // DecimalIntegerLiteral (with optional numeric separators).
         self.scan_decimal_integer_digits(start)?;
 
-        // Optional fractional part: `.` DecimalDigits
+        // Optional fractional part: `.` DecimalDigits_opt (then ExponentPart_opt).
+        // Consume `.` when it continues the DecimalLiteral: digit, invalid `_…`, or
+        // exponent. Leave `.` for member access (`1.toString`) and `...`.
         let mut is_integer = true;
         if !self.is_eof() && self.peek() == b'.' {
-            // Only consume `.` when it begins a fraction (digit or separator+digit),
-            // not when it is member access (`1.toString`) or `...`.
             let next = self.peek_at(1);
-            if next.is_some_and(|b| b.is_ascii_digit())
-                || (next == Some(b'_') && self.peek_at(2).is_some_and(|b| b.is_ascii_digit()))
+            if next != Some(b'.')
+                && (next.is_some_and(|b| b.is_ascii_digit())
+                    || next == Some(b'_')
+                    || next == Some(b'e')
+                    || next == Some(b'E'))
             {
                 self.bump(); // .
-                self.scan_decimal_digits_required(start)?;
+                // DecimalDigits_opt — empty ok before exponent; `_` alone / leading `_` invalid.
+                if !self.is_eof() && (self.peek().is_ascii_digit() || self.peek() == b'_') {
+                    self.scan_decimal_digits_required(start)?;
+                }
                 is_integer = false;
             }
         }
@@ -1042,11 +1060,16 @@ impl<'a> Lexer<'a> {
             // NonOctalDecimalIntegerLiteral: optional fraction + exponent (decimal MV).
             if !self.is_eof() && self.peek() == b'.' {
                 let next = self.peek_at(1);
-                if next.is_some_and(|b| b.is_ascii_digit())
-                    || (next == Some(b'_') && self.peek_at(2).is_some_and(|b| b.is_ascii_digit()))
+                if next != Some(b'.')
+                    && (next.is_some_and(|b| b.is_ascii_digit())
+                        || next == Some(b'_')
+                        || next == Some(b'e')
+                        || next == Some(b'E'))
                 {
                     self.bump(); // .
-                    self.scan_decimal_digits_required(start)?;
+                    if !self.is_eof() && (self.peek().is_ascii_digit() || self.peek() == b'_') {
+                        self.scan_decimal_digits_required(start)?;
+                    }
                 }
             }
             self.scan_exponent_opt(start)?;
@@ -1824,6 +1847,7 @@ mod tests {
 
     #[test]
     fn lex_number_dot_still_member() {
+        // Identifier after `.` is member access (not a fraction / exponent).
         assert_eq!(
             kinds("1.toString"),
             vec![
@@ -1831,6 +1855,50 @@ mod tests {
                 TokenKind::Dot,
                 TokenKind::Ident("toString".into()),
                 TokenKind::Eof,
+            ]
+        );
+        // `10.e1` is a DecimalLiteral with empty fraction + exponent.
+        assert_eq!(
+            kinds("10.e1"),
+            vec![TokenKind::Number("10.e1".into()), TokenKind::Eof]
+        );
+    }
+
+    #[test]
+    fn lex_number_rejects_separator_after_dot() {
+        // `10._` / `10._e1` / `10._1`: `_` cannot start DecimalDigits after `.`.
+        for src in ["10._", "10._e1", "10._1"] {
+            let err = Lexer::new(src).tokenize().unwrap_err();
+            assert!(
+                err.message.contains("invalid number")
+                    || err.message.contains("numeric separator"),
+                "src={src:?} unexpected: {}",
+                err.message
+            );
+        }
+    }
+
+    #[test]
+    fn lex_string_single_escape_bfnv() {
+        assert_eq!(
+            kinds(r#""\b\f\v\n\r\t""#),
+            vec![
+                TokenKind::String("\u{0008}\u{000C}\u{000B}\n\r\t".into()),
+                TokenKind::Eof
+            ]
+        );
+        assert_eq!(
+            kinds(r#"'\b\f\v'"#),
+            vec![
+                TokenKind::String("\u{0008}\u{000C}\u{000B}".into()),
+                TokenKind::Eof
+            ]
+        );
+        assert_eq!(
+            kinds(r#"`\b\t`"#),
+            vec![
+                TokenKind::TemplateNoSubstitution("\u{0008}\t".into()),
+                TokenKind::Eof
             ]
         );
     }
