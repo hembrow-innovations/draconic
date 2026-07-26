@@ -233,7 +233,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N03.03 | done | native | Native pointers: type `*T` (T native scalar); address-of `&x`; deref `*p`; store `*p = v` | `tests/conformance` fixtures `native/layout` |
 | N04 | done | js | JS lowering/polyfill or hard-error policy per native feature | `tests/conformance/native/js-policy` |
 | N05 | done | native | Link Runtime: GC + minimal std | `crates/draconic-runtime` |
-| N06 | todo | native | Async runtime / job queue on native | `tests/conformance/es/async` |
+| N06 | done | native | Async runtime / job queue on native | `tests/conformance/es/async` |
 | N06.01 | done | native | Job queue Runtime ABI: enqueue host jobs + drain FIFO (nested enqueue during drain runs after current job) | `crates/draconic-runtime` |
 | N06.02 | done | native | Runtime Promise ABI: construct, sync resolve/reject, one-hop `then` reactions via job queue (FIFO drain) | `crates/draconic-runtime` |
 | N06.03 | done | native | LLVM Promise basics via Runtime ABI: `new Promise(executor)`, one-hop `.then`, end-of-main `job_drain`; real native observations for `es/async/promise_basics` | `tests/conformance` fixtures `es/async/promise_basics`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
