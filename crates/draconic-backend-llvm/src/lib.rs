@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.05 Promise).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.06 Promise).
 
 mod es_promise;
 mod native_ints;
@@ -539,6 +539,74 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "function\n1\n1\n42\n7\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_promise_all_prints_after_drain() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let tAll = typeof Promise.all;
+            let emptyLen = -1;
+            let allLen = -1;
+            let a0 = -1;
+            let a1 = -1;
+            let mixed0 = -1;
+            let mixed1 = -1;
+            let rejected = 0;
+            Promise.all([]).then(function (v) {
+              emptyLen = v.length;
+            });
+            Promise.all([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+              allLen = v.length;
+              a0 = v[0];
+              a1 = v[1];
+            });
+            Promise.all([1, Promise.resolve(2)]).then(function (v) {
+              mixed0 = v[0];
+              mixed1 = v[1];
+            });
+            Promise.all([Promise.resolve(1), Promise.reject(7)]).then(
+              function () {
+                rejected = -1;
+              },
+              function (e) {
+                rejected = e;
+              }
+            );
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "Promise.all must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_promise_all"),
+            "should Promise.all via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_array_new"),
+            "should allocate arrays via Runtime ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_job_drain"),
+            "should drain jobs before observe:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n06-promise-all").expect("workdir");
+        let bin = dir.join("promise_all");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "function\n0\n2\n10\n20\n1\n2\n7\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

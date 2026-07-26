@@ -1,4 +1,4 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.05); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.06); embed later (N07).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -120,8 +120,20 @@ pub const PROMISE_THEN_SYMBOL: &str = "draconic_rt_promise_then";
 pub const PROMISE_CONSTRUCT_SYMBOL: &str = "draconic_rt_promise_construct";
 /// C ABI: `Promise.prototype.finally` — pass-through settle after side-effect callback (N06.05).
 pub const PROMISE_FINALLY_SYMBOL: &str = "draconic_rt_promise_finally";
+/// C ABI: allocate a JS array of `len` slots (N06.06).
+pub const ARRAY_NEW_SYMBOL: &str = "draconic_rt_array_new";
+/// C ABI: tag predicate for array values.
+pub const IS_ARRAY_SYMBOL: &str = "draconic_rt_is_array";
+/// C ABI: array `.length`.
+pub const ARRAY_LEN_SYMBOL: &str = "draconic_rt_array_len";
+/// C ABI: array index get.
+pub const ARRAY_GET_SYMBOL: &str = "draconic_rt_array_get";
+/// C ABI: array index set.
+pub const ARRAY_SET_SYMBOL: &str = "draconic_rt_array_set";
+/// C ABI: `Promise.all(iterable)` — array of promises/values (N06.06).
+pub const PROMISE_ALL_SYMBOL: &str = "draconic_rt_promise_all";
 
-/// Promise ABI symbols (N06.02–N06.05).
+/// Promise ABI symbols (N06.02–N06.06).
 pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_NEW_SYMBOL,
     IS_PROMISE_SYMBOL,
@@ -132,6 +144,12 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_THEN_SYMBOL,
     PROMISE_CONSTRUCT_SYMBOL,
     PROMISE_FINALLY_SYMBOL,
+    ARRAY_NEW_SYMBOL,
+    IS_ARRAY_SYMBOL,
+    ARRAY_LEN_SYMBOL,
+    ARRAY_GET_SYMBOL,
+    ARRAY_SET_SYMBOL,
+    PROMISE_ALL_SYMBOL,
 ];
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
@@ -922,6 +940,149 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "construct-ok\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn promise_all_array_via_job_queue() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_promise_all");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+
+            static int g_empty_len = -1;
+            static int g_all_len = -1;
+            static int g_a0 = -1;
+            static int g_a1 = -1;
+            static int g_mixed0 = -1;
+            static int g_mixed1 = -1;
+            static int g_rejected = 0;
+
+            static void *on_empty(void *data, void *value) {
+                (void)data;
+                g_empty_len = (int)draconic_rt_array_len((DraconicValue *)value);
+                return value;
+            }
+
+            static void *on_all(void *data, void *value) {
+                (void)data;
+                DraconicValue *arr = (DraconicValue *)value;
+                g_all_len = (int)draconic_rt_array_len(arr);
+                g_a0 = (int)(intptr_t)draconic_rt_array_get(arr, 0);
+                g_a1 = (int)(intptr_t)draconic_rt_array_get(arr, 1);
+                return value;
+            }
+
+            static void *on_mixed(void *data, void *value) {
+                (void)data;
+                DraconicValue *arr = (DraconicValue *)value;
+                g_mixed0 = (int)(intptr_t)draconic_rt_array_get(arr, 0);
+                g_mixed1 = (int)(intptr_t)draconic_rt_array_get(arr, 1);
+                return value;
+            }
+
+            static void *on_reject_ok(void *data, void *value) {
+                (void)data; (void)value;
+                g_rejected = -1;
+                return value;
+            }
+
+            static void *on_reject_err(void *data, void *reason) {
+                (void)data;
+                g_rejected = (int)(intptr_t)reason;
+                return reason;
+            }
+
+            int main(void) {
+                DraconicValue *empty = draconic_rt_array_new(0);
+                DraconicValue *p_empty = draconic_rt_promise_all(empty);
+                (void)draconic_rt_promise_then(p_empty, on_empty, NULL, NULL, NULL);
+
+                DraconicValue *a = draconic_rt_array_new(2);
+                DraconicValue *p0 = draconic_rt_promise_new();
+                DraconicValue *p1 = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(p0, (void *)(intptr_t)10);
+                draconic_rt_promise_resolve(p1, (void *)(intptr_t)20);
+                draconic_rt_array_set(a, 0, p0);
+                draconic_rt_array_set(a, 1, p1);
+                DraconicValue *p_all = draconic_rt_promise_all(a);
+                (void)draconic_rt_promise_then(p_all, on_all, NULL, NULL, NULL);
+
+                DraconicValue *m = draconic_rt_array_new(2);
+                draconic_rt_array_set(m, 0, (void *)(intptr_t)1);
+                DraconicValue *pm = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(pm, (void *)(intptr_t)2);
+                draconic_rt_array_set(m, 1, pm);
+                DraconicValue *p_mixed = draconic_rt_promise_all(m);
+                (void)draconic_rt_promise_then(p_mixed, on_mixed, NULL, NULL, NULL);
+
+                DraconicValue *r = draconic_rt_array_new(2);
+                DraconicValue *ok = draconic_rt_promise_new();
+                DraconicValue *bad = draconic_rt_promise_new();
+                draconic_rt_promise_resolve(ok, (void *)(intptr_t)1);
+                draconic_rt_promise_reject(bad, (void *)(intptr_t)7);
+                draconic_rt_array_set(r, 0, ok);
+                draconic_rt_array_set(r, 1, bad);
+                DraconicValue *p_rej = draconic_rt_promise_all(r);
+                (void)draconic_rt_promise_then(p_rej, on_reject_ok, NULL, on_reject_err, NULL);
+
+                draconic_rt_job_drain();
+
+                if (g_empty_len != 0) {
+                    fprintf(stderr, "emptyLen want 0 got %d\n", g_empty_len);
+                    return 1;
+                }
+                if (g_all_len != 2 || g_a0 != 10 || g_a1 != 20) {
+                    fprintf(stderr, "all want 2,10,20 got %d,%d,%d\n", g_all_len, g_a0, g_a1);
+                    return 2;
+                }
+                if (g_mixed0 != 1 || g_mixed1 != 2) {
+                    fprintf(stderr, "mixed want 1,2 got %d,%d\n", g_mixed0, g_mixed1);
+                    return 3;
+                }
+                if (g_rejected != 7) {
+                    fprintf(stderr, "rejected want 7 got %d\n", g_rejected);
+                    return 4;
+                }
+
+                draconic_rt_print_str("promise-all-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link promise all test");
+
+        let output = Command::new(&bin).output().expect("run rt_promise_all");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "promise all binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "promise-all-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

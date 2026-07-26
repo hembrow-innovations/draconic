@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (N05–N06.05). Linked into LLVM native binaries. */
+/* Native Runtime C ABI (N05–N06.06). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -43,6 +43,7 @@ typedef enum {
     DRACONIC_TAG_STRING = 1,
     DRACONIC_TAG_OBJECT = 2,
     DRACONIC_TAG_PROMISE = 3,
+    DRACONIC_TAG_ARRAY = 4,
 } DraconicTag;
 
 typedef struct DraconicPromiseReaction DraconicPromiseReaction;
@@ -76,6 +77,10 @@ struct DraconicValue {
             DraconicPromiseReaction *reactions_head;
             DraconicPromiseReaction *reactions_tail;
         } promise;
+        struct {
+            size_t len;
+            void **elems; /* heap-owned; opaque values (GC ptr or inttoptr) */
+        } array;
     } as;
 };
 
@@ -112,6 +117,10 @@ static void free_value(DraconicValue *v) {
         free_promise_reactions(v->as.promise.reactions_head);
         v->as.promise.reactions_head = NULL;
         v->as.promise.reactions_tail = NULL;
+    } else if (v->tag == DRACONIC_TAG_ARRAY) {
+        free(v->as.array.elems);
+        v->as.array.elems = NULL;
+        v->as.array.len = 0;
     }
     free(v);
 }
@@ -187,8 +196,20 @@ void draconic_rt_gc_root_pop(void) {
     g_roots[g_root_sp] = NULL;
 }
 
+static int is_heap_value(DraconicValue *v) {
+    if (!v) {
+        return 0;
+    }
+    for (DraconicValue *cur = g_heap_head; cur; cur = cur->next) {
+        if (cur == v) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void mark_value(DraconicValue *v) {
-    if (!v || v->marked) {
+    if (!v || !is_heap_value(v) || v->marked) {
         return;
     }
     v->marked = 1;
@@ -197,6 +218,11 @@ static void mark_value(DraconicValue *v) {
         while (r) {
             mark_value(r->derived);
             r = r->next;
+        }
+        mark_value((DraconicValue *)v->as.promise.result);
+    } else if (v->tag == DRACONIC_TAG_ARRAY && v->as.array.elems) {
+        for (size_t i = 0; i < v->as.array.len; i++) {
+            mark_value((DraconicValue *)v->as.array.elems[i]);
         }
     }
 }
@@ -241,11 +267,11 @@ size_t draconic_rt_string_len(DraconicValue *v) {
 }
 
 int draconic_rt_is_string(DraconicValue *v) {
-    return v && v->tag == DRACONIC_TAG_STRING;
+    return is_heap_value(v) && v->tag == DRACONIC_TAG_STRING;
 }
 
 int draconic_rt_is_object(DraconicValue *v) {
-    return v && v->tag == DRACONIC_TAG_OBJECT;
+    return is_heap_value(v) && v->tag == DRACONIC_TAG_OBJECT;
 }
 
 /* --- Job queue (N06.01): FIFO host jobs; drain until empty --- */
@@ -451,7 +477,7 @@ DraconicValue *draconic_rt_promise_new(void) {
 }
 
 int draconic_rt_is_promise(DraconicValue *v) {
-    return v && v->tag == DRACONIC_TAG_PROMISE;
+    return is_heap_value(v) && v->tag == DRACONIC_TAG_PROMISE;
 }
 
 int draconic_rt_promise_state(DraconicValue *p) {
@@ -615,4 +641,159 @@ DraconicValue *draconic_rt_promise_finally(
         derived
     );
     return derived;
+}
+
+/* --- JS arrays (N06.06) --- */
+
+DraconicValue *draconic_rt_array_new(size_t len) {
+    DraconicValue *v = heap_alloc(DRACONIC_TAG_ARRAY);
+    if (!v) {
+        return NULL;
+    }
+    v->as.array.len = len;
+    v->as.array.elems = NULL;
+    if (len > 0) {
+        v->as.array.elems = (void **)calloc(len, sizeof(void *));
+        if (!v->as.array.elems) {
+            g_heap_head = v->next;
+            g_live_count--;
+            free(v);
+            return NULL;
+        }
+    }
+    return v;
+}
+
+int draconic_rt_is_array(DraconicValue *v) {
+    return is_heap_value(v) && v->tag == DRACONIC_TAG_ARRAY;
+}
+
+size_t draconic_rt_array_len(DraconicValue *a) {
+    if (!a || a->tag != DRACONIC_TAG_ARRAY) {
+        return 0;
+    }
+    return a->as.array.len;
+}
+
+void *draconic_rt_array_get(DraconicValue *a, size_t index) {
+    if (!a || a->tag != DRACONIC_TAG_ARRAY || index >= a->as.array.len) {
+        return NULL;
+    }
+    return a->as.array.elems[index];
+}
+
+void draconic_rt_array_set(DraconicValue *a, size_t index, void *value) {
+    if (!a || a->tag != DRACONIC_TAG_ARRAY || index >= a->as.array.len) {
+        return;
+    }
+    a->as.array.elems[index] = value;
+}
+
+/* --- Promise.all (N06.06) --- */
+
+typedef struct {
+    DraconicValue *all_promise;
+    DraconicValue *results;
+    size_t *remaining;
+    int *rejected_flag;
+    size_t index;
+} PromiseAllSlot;
+
+static void *promise_all_on_fulfill(void *data, void *value) {
+    PromiseAllSlot *slot = (PromiseAllSlot *)data;
+    if (!slot || !slot->remaining || !slot->rejected_flag) {
+        return value;
+    }
+    if (*slot->rejected_flag) {
+        return value;
+    }
+    draconic_rt_array_set(slot->results, slot->index, value);
+    if (*slot->remaining > 0) {
+        (*slot->remaining)--;
+    }
+    if (*slot->remaining == 0) {
+        draconic_rt_promise_resolve(slot->all_promise, slot->results);
+    }
+    return value;
+}
+
+static void *promise_all_on_reject(void *data, void *reason) {
+    PromiseAllSlot *slot = (PromiseAllSlot *)data;
+    if (!slot || !slot->rejected_flag) {
+        return reason;
+    }
+    if (!*slot->rejected_flag) {
+        *slot->rejected_flag = 1;
+        draconic_rt_promise_reject(slot->all_promise, reason);
+    }
+    return reason;
+}
+
+DraconicValue *draconic_rt_promise_all(DraconicValue *arr) {
+    DraconicValue *out = draconic_rt_promise_new();
+    if (!out) {
+        return NULL;
+    }
+    size_t n = 0;
+    if (arr && arr->tag == DRACONIC_TAG_ARRAY) {
+        n = arr->as.array.len;
+    }
+    if (n == 0) {
+        DraconicValue *empty = draconic_rt_array_new(0);
+        draconic_rt_promise_resolve(out, empty);
+        return out;
+    }
+
+    DraconicValue *results = draconic_rt_array_new(n);
+    if (!results) {
+        draconic_rt_promise_reject(out, NULL);
+        return out;
+    }
+
+    size_t *remaining = (size_t *)malloc(sizeof(size_t));
+    int *rejected_flag = (int *)malloc(sizeof(int));
+    if (!remaining || !rejected_flag) {
+        free(remaining);
+        free(rejected_flag);
+        draconic_rt_promise_reject(out, NULL);
+        return out;
+    }
+    *remaining = n;
+    *rejected_flag = 0;
+
+    for (size_t i = 0; i < n; i++) {
+        void *elem = draconic_rt_array_get(arr, i);
+        PromiseAllSlot *slot = (PromiseAllSlot *)calloc(1, sizeof(PromiseAllSlot));
+        if (!slot) {
+            fprintf(stderr, "draconic_rt: promise_all OOM\n");
+            abort();
+        }
+        slot->all_promise = out;
+        slot->results = results;
+        slot->remaining = remaining;
+        slot->rejected_flag = rejected_flag;
+        slot->index = i;
+
+        if (draconic_rt_is_promise((DraconicValue *)elem)) {
+            (void)draconic_rt_promise_then(
+                (DraconicValue *)elem,
+                promise_all_on_fulfill,
+                slot,
+                promise_all_on_reject,
+                slot
+            );
+        } else {
+            /* Non-thenable: Promise.resolve(elem) then wait (async via job). */
+            DraconicValue *wrapped = draconic_rt_promise_new();
+            draconic_rt_promise_resolve(wrapped, elem);
+            (void)draconic_rt_promise_then(
+                wrapped,
+                promise_all_on_fulfill,
+                slot,
+                promise_all_on_reject,
+                slot
+            );
+        }
+    }
+    return out;
 }

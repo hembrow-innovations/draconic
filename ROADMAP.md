@@ -239,6 +239,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N06.03 | done | native | LLVM Promise basics via Runtime ABI: `new Promise(executor)`, one-hop `.then`, end-of-main `job_drain`; real native observations for `es/async/promise_basics` | `tests/conformance` fixtures `es/async/promise_basics`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N06.04 | done | native | LLVM Promise statics + catch via Runtime ABI: `Promise.resolve` / `Promise.reject`, `.catch`; real native observations for `es/async/promise_resolve_reject` | `tests/conformance` fixtures `es/async/promise_resolve_reject`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N06.05 | done | native | LLVM `Promise.prototype.finally` via Runtime ABI: fulfill + reject paths; value/reason pass-through; real native observations for `es/async/promise_finally` | `tests/conformance` fixtures `es/async/promise_finally`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
+| N06.06 | done | native | LLVM `Promise.all` via Runtime ABI: iterable of promises/values; fulfill with array; reject on first rejection; empty → `[]`; real native observations for `es/async/promise_all` | `tests/conformance` fixtures `es/async/promise_all`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |
 
 ---

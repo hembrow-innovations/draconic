@@ -3,4 +3,4 @@ targets: js,native
 js.exit: 0
 js.check: setTimeout(function () { if (tAll !== "function") process.exit(1); if (emptyLen !== 0) process.exit(2); if (allLen !== 2) process.exit(3); if (a0 !== 10) process.exit(4); if (a1 !== 20) process.exit(5); if (mixed0 !== 1) process.exit(6); if (mixed1 !== 2) process.exit(7); if (rejected !== 7) process.exit(8); }, 0);
 native.exit: 0
-native.stdout: hello\n
+native.stdout: function\n0\n2\n10\n20\n1\n2\n7\n

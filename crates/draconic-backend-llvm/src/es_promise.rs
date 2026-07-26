@@ -1,4 +1,4 @@
-//! N06.03–N06.05: lower Promise constructor/statics/catch/finally to Runtime ABI.
+//! N06.03–N06.06: lower Promise constructor/statics/catch/finally/all to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -6,10 +6,11 @@ use std::fmt::Write as _;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt,
+    Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern,
+    Stmt,
 };
 
-/// True when this module is the supported Promise subset (E12.01–E12.03 / N06.03–N06.05).
+/// True when this module is the supported Promise subset (E12.01–E12.04 / N06.03–N06.06).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -202,10 +203,14 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             optional,
             ..
         } => {
-            if *optional || *computed {
-                return Err("only plain member access supported in Promise path".into());
+            if *optional {
+                return Err("optional member not supported in Promise path".into());
             }
             check_expr(object, promise_id, uses)?;
+            if *computed {
+                check_expr(property, promise_id, uses)?;
+                return Ok(());
+            }
             let Expr::String { value, .. } = property.as_ref() else {
                 return Err("only string property keys supported".into());
             };
@@ -215,17 +220,29 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                     *uses = true;
                     Ok(())
                 }
-                "resolve" | "reject" => {
+                "length" => Ok(()),
+                "resolve" | "reject" | "all" => {
                     if let Expr::Local { id, .. } = object.as_ref() {
                         if Some(*id) == promise_id {
                             *uses = true;
                             return Ok(());
                         }
                     }
-                    Err("only Promise.resolve / Promise.reject supported".into())
+                    Err("only Promise.resolve / Promise.reject / Promise.all supported".into())
                 }
                 _ => Err(format!("unsupported property `{}` in Promise path", prop)),
             }
+        }
+        Expr::Array { elements, .. } => {
+            for el in elements {
+                match el {
+                    ArrayElement::Expr(e) => check_expr(e, promise_id, uses)?,
+                    ArrayElement::Spread(_) => {
+                        return Err("spread in array not supported in Promise path".into());
+                    }
+                }
+            }
+            Ok(())
         }
         Expr::Function {
             name,
@@ -275,8 +292,8 @@ struct Emitter<'a> {
     executor_params: HashMap<LocalId, (String, String)>,
     /// While lowering a reaction: param local → value ssa (ptr)
     reaction_params: HashMap<LocalId, String>,
-    /// Capture slot passed as reaction `data` (single number local alloca)
-    reaction_data_local: Option<LocalId>,
+    /// Capture slots passed as reaction `data` (env of alloca ptrs, or single).
+    reaction_captures: Vec<LocalId>,
 }
 
 impl<'a> Emitter<'a> {
@@ -293,7 +310,7 @@ impl<'a> Emitter<'a> {
             helpers: String::new(),
             executor_params: HashMap::new(),
             reaction_params: HashMap::new(),
-            reaction_data_local: None,
+            reaction_captures: Vec::new(),
         }
     }
 
@@ -316,7 +333,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03–N06.05 Promise via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.06 Promise via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
@@ -349,6 +366,15 @@ impl<'a> Emitter<'a> {
             "declare ptr @draconic_rt_promise_finally(ptr, ptr, ptr)"
         )
         .ok();
+        writeln!(self.out, "declare ptr @draconic_rt_array_new(i64)").ok();
+        writeln!(
+            self.out,
+            "declare void @draconic_rt_array_set(ptr, i64, ptr)"
+        )
+        .ok();
+        writeln!(self.out, "declare ptr @draconic_rt_array_get(ptr, i64)").ok();
+        writeln!(self.out, "declare i64 @draconic_rt_array_len(ptr)").ok();
+        writeln!(self.out, "declare ptr @draconic_rt_promise_all(ptr)").ok();
         writeln!(self.out).ok();
 
         // Pre-scan string constants from typeof etc. by emitting body into buffer first.
@@ -497,33 +523,46 @@ impl<'a> Emitter<'a> {
         let Some(kind) = self.slot_kind(id) else {
             return Ok(());
         };
-        let ptr = self
-            .allocas
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| diag("missing alloca for capture"))?;
-        // Capture allocas are main's locals — reactions receive data pointing at the slot.
+        // Capture allocas live in main; reaction env (`%data`) holds pointers to them.
+        let slot = self.reaction_capture_slot(id, buf)?;
         match kind {
             SlotKind::Number => {
                 let n = format!("%n{}", self.tmp);
                 self.tmp += 1;
                 writeln!(buf, "  {n} = ptrtoint ptr {value_ptr} to i64").ok();
-                // data is the alloca ptr when single-capture
-                if self.reaction_data_local == Some(id) {
-                    writeln!(buf, "  store i64 {n}, ptr %data").ok();
-                } else {
-                    writeln!(buf, "  store i64 {n}, ptr {ptr}").ok();
-                }
+                writeln!(buf, "  store i64 {n}, ptr {slot}").ok();
             }
             SlotKind::String | SlotKind::Object => {
-                if self.reaction_data_local == Some(id) {
-                    writeln!(buf, "  store ptr {value_ptr}, ptr %data").ok();
-                } else {
-                    writeln!(buf, "  store ptr {value_ptr}, ptr {ptr}").ok();
-                }
+                writeln!(buf, "  store ptr {value_ptr}, ptr {slot}").ok();
             }
         }
         Ok(())
+    }
+
+    /// Resolve the alloca ptr for a captured local inside a reaction (`%data` env).
+    fn reaction_capture_slot(
+        &mut self,
+        id: LocalId,
+        buf: &mut String,
+    ) -> Result<String, Diagnostic> {
+        let Some(pos) = self.reaction_captures.iter().position(|c| *c == id) else {
+            return Err(diag("capture not in reaction env"));
+        };
+        if self.reaction_captures.len() == 1 {
+            return Ok("%data".into());
+        }
+        let gep = format!("%envp{}", self.tmp);
+        self.tmp += 1;
+        let slot = format!("%slot{}", self.tmp);
+        self.tmp += 1;
+        let n = self.reaction_captures.len();
+        writeln!(
+            buf,
+            "  {gep} = getelementptr inbounds [{n} x ptr], ptr %data, i64 0, i64 {pos}"
+        )
+        .ok();
+        writeln!(buf, "  {slot} = load ptr, ptr {gep}").ok();
+        Ok(slot)
     }
 
     fn slot_kind(&self, id: LocalId) -> Option<SlotKind> {
@@ -591,13 +630,78 @@ impl<'a> Emitter<'a> {
             }
             Expr::New { callee, args, .. } => self.emit_new_promise(callee, args),
             Expr::Call { callee, args, .. } => self.emit_call(callee, args),
-            Expr::Member { .. } => {
-                // Bare member is only used as call callee; handled in emit_call.
-                Err(diag("bare member not supported"))
+            Expr::Array { elements, .. } => self.emit_array(elements),
+            Expr::Member {
+                object,
+                property,
+                computed,
+                optional,
+                ..
+            } => {
+                if *optional {
+                    return Err(diag("optional member not supported"));
+                }
+                self.emit_member(object, property, *computed)
             }
             Expr::Function { .. } => Err(diag("bare function expr not supported at value position")),
             _ => Err(diag("unsupported expression")),
         }
+    }
+
+    fn emit_array(&mut self, elements: &[ArrayElement]) -> Result<String, Diagnostic> {
+        let n = elements.len();
+        let arr = self.fresh();
+        writeln!(
+            self.body,
+            "  {arr} = call ptr @draconic_rt_array_new(i64 {n})"
+        )
+        .ok();
+        for (i, el) in elements.iter().enumerate() {
+            let ArrayElement::Expr(e) = el else {
+                return Err(diag("spread array elements not supported"));
+            };
+            let v = self.emit_expr(e)?;
+            writeln!(
+                self.body,
+                "  call void @draconic_rt_array_set(ptr {arr}, i64 {i}, ptr {v})"
+            )
+            .ok();
+        }
+        Ok(arr)
+    }
+
+    fn emit_member(
+        &mut self,
+        object: &Expr,
+        property: &Expr,
+        computed: bool,
+    ) -> Result<String, Diagnostic> {
+        if computed {
+            let obj = self.emit_expr(object)?;
+            let idx_ptr = self.emit_expr(property)?;
+            let idx = self.fresh();
+            let t = self.fresh();
+            writeln!(self.body, "  {idx} = ptrtoint ptr {idx_ptr} to i64").ok();
+            writeln!(
+                self.body,
+                "  {t} = call ptr @draconic_rt_array_get(ptr {obj}, i64 {idx})"
+            )
+            .ok();
+            return Ok(t);
+        }
+        let Expr::String { value, .. } = property else {
+            return Err(diag("only string property keys supported"));
+        };
+        let prop = value.to_string_lossy();
+        if prop == "length" {
+            let obj = self.emit_expr(object)?;
+            let n = self.fresh();
+            let t = self.fresh();
+            writeln!(self.body, "  {n} = call i64 @draconic_rt_array_len(ptr {obj})").ok();
+            writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
+            return Ok(t);
+        }
+        Err(diag(format!("unsupported member `{}`", prop)))
     }
 
     fn load_local(&mut self, id: LocalId) -> Result<String, Diagnostic> {
@@ -656,7 +760,7 @@ impl<'a> Emitter<'a> {
                 if let Expr::String { value, .. } = property.as_ref() {
                     let prop = value.to_string_lossy();
                     match prop.as_ref() {
-                        "resolve" | "reject" => {
+                        "resolve" | "reject" | "all" => {
                             if let Expr::Local { id, .. } = object.as_ref() {
                                 if Some(*id) == self.info.promise_id {
                                     return self.string_const("function");
@@ -766,6 +870,9 @@ impl<'a> Emitter<'a> {
             match prop.as_ref() {
                 "resolve" | "reject" => {
                     return self.emit_promise_static(object, prop.as_ref(), args);
+                }
+                "all" => {
+                    return self.emit_promise_all(object, args);
                 }
                 "then" => {
                     let p = self.emit_expr(object)?;
@@ -888,6 +995,33 @@ impl<'a> Emitter<'a> {
         Ok(p)
     }
 
+    fn emit_promise_all(
+        &mut self,
+        object: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        let Expr::Local { id, .. } = object else {
+            return Err(diag("Promise.all requires Promise receiver"));
+        };
+        if Some(*id) != self.info.promise_id {
+            return Err(diag("only Promise.all supported"));
+        }
+        if args.len() != 1 {
+            return Err(diag("Promise.all expects 1 argument"));
+        }
+        let Arg::Expr(vexpr) = &args[0] else {
+            return Err(diag("spread not supported"));
+        };
+        let arr = self.emit_expr(vexpr)?;
+        let t = self.fresh();
+        writeln!(
+            self.body,
+            "  {t} = call ptr @draconic_rt_promise_all(ptr {arr})"
+        )
+        .ok();
+        Ok(t)
+    }
+
     fn emit_executor_fn(
         &mut self,
         params: &[Param],
@@ -912,7 +1046,7 @@ impl<'a> Emitter<'a> {
         let saved_tmp = self.tmp;
         let saved_exec = std::mem::take(&mut self.executor_params);
         let saved_react = std::mem::take(&mut self.reaction_params);
-        let saved_data = self.reaction_data_local.take();
+        let saved_caps = std::mem::take(&mut self.reaction_captures);
 
         self.tmp = 0;
         self.body.clear();
@@ -971,7 +1105,7 @@ impl<'a> Emitter<'a> {
         self.tmp = saved_tmp;
         self.executor_params = saved_exec;
         self.reaction_params = saved_react;
-        self.reaction_data_local = saved_data;
+        self.reaction_captures = saved_caps;
         Ok(fn_name)
     }
 
@@ -989,35 +1123,49 @@ impl<'a> Emitter<'a> {
             param_id = Some(*id);
         }
 
-        // Find assigned top-level number locals (captures).
+        // Find assigned top-level number locals (captures), stable order by id.
         let mut assigned = HashSet::new();
         collect_assigned_locals(body, &mut assigned);
-        let captures: Vec<LocalId> = assigned
+        let mut captures: Vec<LocalId> = assigned
             .into_iter()
             .filter(|id| self.slot_kind(*id) == Some(SlotKind::Number))
             .collect();
+        captures.sort_by_key(|id| id.0);
 
-        let data_operand = if captures.len() == 1 {
-            let id = captures[0];
-            let ptr = self
-                .allocas
-                .get(&id)
-                .cloned()
-                .ok_or_else(|| diag("capture missing alloca"))?;
-            ptr
-        } else if captures.is_empty() {
+        let data_operand = if captures.is_empty() {
             "null".to_string()
+        } else if captures.len() == 1 {
+            self.allocas
+                .get(&captures[0])
+                .cloned()
+                .ok_or_else(|| diag("capture missing alloca"))?
         } else {
-            return Err(diag(
-                "multiple captures in then callback not supported yet",
-            ));
+            // Env: [N x ptr] of capture allocas, allocated in main.
+            let n = captures.len();
+            let env = self.fresh();
+            writeln!(self.body, "  {env} = alloca [{n} x ptr], align 8").ok();
+            for (i, id) in captures.iter().enumerate() {
+                let ptr = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("capture missing alloca"))?;
+                let slot = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {slot} = getelementptr inbounds [{n} x ptr], ptr {env}, i64 0, i64 {i}"
+                )
+                .ok();
+                writeln!(self.body, "  store ptr {ptr}, ptr {slot}").ok();
+            }
+            env
         };
 
         let saved_body = std::mem::take(&mut self.body);
         let saved_tmp = self.tmp;
         let saved_exec = std::mem::take(&mut self.executor_params);
         let saved_react = std::mem::take(&mut self.reaction_params);
-        let saved_data = self.reaction_data_local.take();
+        let saved_caps = std::mem::take(&mut self.reaction_captures);
 
         self.tmp = 0;
         self.body.clear();
@@ -1026,11 +1174,7 @@ impl<'a> Emitter<'a> {
         if let Some(id) = param_id {
             self.reaction_params.insert(id, "%value".into());
         }
-        self.reaction_data_local = if captures.len() == 1 {
-            Some(captures[0])
-        } else {
-            None
-        };
+        self.reaction_captures = captures;
 
         let mut ret_val = "%value".to_string();
         for stmt in body {
@@ -1111,7 +1255,7 @@ impl<'a> Emitter<'a> {
         self.tmp = saved_tmp;
         self.executor_params = saved_exec;
         self.reaction_params = saved_react;
-        self.reaction_data_local = saved_data;
+        self.reaction_captures = saved_caps;
 
         Ok((fn_name, data_operand))
     }
@@ -1129,11 +1273,13 @@ impl<'a> Emitter<'a> {
                 if let Some(v) = self.reaction_params.get(id).cloned() {
                     return Ok(v);
                 }
-                // Load from main alloca by name — only valid if we had multi-env; single capture uses %data
-                if self.reaction_data_local == Some(*id) {
+                if self.reaction_captures.contains(id) {
+                    let mut buf = String::new();
+                    let slot = self.reaction_capture_slot(*id, &mut buf)?;
+                    self.body.push_str(&buf);
                     let n = self.fresh();
                     let t = self.fresh();
-                    writeln!(self.body, "  {n} = load i64, ptr %data").ok();
+                    writeln!(self.body, "  {n} = load i64, ptr {slot}").ok();
                     writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
                     return Ok(t);
                 }
@@ -1175,6 +1321,47 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {out} = {inst} i64 {ln}, {rn}").ok();
                 writeln!(self.body, "  {res} = inttoptr i64 {out} to ptr").ok();
                 Ok(res)
+            }
+            Expr::Member {
+                object,
+                property,
+                computed,
+                optional,
+                ..
+            } => {
+                if *optional {
+                    return Err(diag("optional member not supported in reaction"));
+                }
+                if *computed {
+                    let obj = self.emit_expr_in_reaction(object)?;
+                    let idx_ptr = self.emit_expr_in_reaction(property)?;
+                    let idx = self.fresh();
+                    let t = self.fresh();
+                    writeln!(self.body, "  {idx} = ptrtoint ptr {idx_ptr} to i64").ok();
+                    writeln!(
+                        self.body,
+                        "  {t} = call ptr @draconic_rt_array_get(ptr {obj}, i64 {idx})"
+                    )
+                    .ok();
+                    return Ok(t);
+                }
+                let Expr::String { value, .. } = property.as_ref() else {
+                    return Err(diag("only string property keys supported in reaction"));
+                };
+                let prop = value.to_string_lossy();
+                if prop == "length" {
+                    let obj = self.emit_expr_in_reaction(object)?;
+                    let n = self.fresh();
+                    let t = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {n} = call i64 @draconic_rt_array_len(ptr {obj})"
+                    )
+                    .ok();
+                    writeln!(self.body, "  {t} = inttoptr i64 {n} to ptr").ok();
+                    return Ok(t);
+                }
+                Err(diag(format!("unsupported member `{}` in reaction", prop)))
             }
             _ => Err(diag("unsupported expr in reaction")),
         }

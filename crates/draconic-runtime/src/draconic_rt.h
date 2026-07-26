@@ -1,4 +1,4 @@
-/* Draconic Native Runtime C ABI (N05–N06.05: GC, job queue, Promise + finally). */
+/* Draconic Native Runtime C ABI (N05–N06.06: GC, job queue, Promise + all). */
 #ifndef DRACONIC_RT_H
 #define DRACONIC_RT_H
 
@@ -85,6 +85,16 @@ DraconicValue *draconic_rt_promise_finally(
     DraconicValue *p,
     DraconicPromiseReactionFn on_finally,
     void *data);
+
+/* --- JS arrays (N06.06; elements are opaque void* — numbers as inttoptr) --- */
+DraconicValue *draconic_rt_array_new(size_t len);
+int draconic_rt_is_array(DraconicValue *v);
+size_t draconic_rt_array_len(DraconicValue *a);
+void *draconic_rt_array_get(DraconicValue *a, size_t index);
+void draconic_rt_array_set(DraconicValue *a, size_t index, void *value);
+
+/* --- Promise.all (N06.06): array of promises/values → promise of results array --- */
+DraconicValue *draconic_rt_promise_all(DraconicValue *arr);
 
 #ifdef __cplusplus
 }
