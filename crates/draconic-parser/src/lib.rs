@@ -629,7 +629,20 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
-        // Private field: `#name;` / `#name = expr;` (E18.35). Methods deferred.
+        // `async m()` / `async *m()` / `async #m()` — not method/field named `async`.
+        let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
+            self.bump();
+            true
+        } else {
+            false
+        };
+        let is_generator = if self.check(&TokenKind::Star) {
+            self.bump();
+            true
+        } else {
+            false
+        };
+        // Private field/method: `#name;` / `#name = expr;` / `#name(…){…}` (E18.35 / E18.37).
         if let TokenKind::PrivateIdent(pname) = &self.current().kind {
             let pname = pname.clone();
             let name_tok = self.bump();
@@ -637,6 +650,23 @@ impl Parser {
                 name: pname,
                 span: name_tok.span,
             };
+            if is_async || is_generator || self.check(&TokenKind::LParen) {
+                self.expect(&TokenKind::LParen)?;
+                let params = self.parse_param_list()?;
+                self.expect(&TokenKind::RParen)?;
+                let body = Box::new(self.parse_block()?);
+                let end = stmt_span(&body).end.0;
+                return Ok(ClassElement::Method {
+                    name,
+                    params,
+                    body,
+                    is_static,
+                    is_async,
+                    is_generator,
+                    is_private: true,
+                    span: Span::new(start, end),
+                });
+            }
             let value = if self.check(&TokenKind::Eq) {
                 self.bump();
                 Some(self.parse_assignment()?)
@@ -656,19 +686,6 @@ impl Parser {
                 span,
             });
         }
-        // `async m()` / `async *m()` — not method/field named `async`.
-        let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
-            self.bump();
-            true
-        } else {
-            false
-        };
-        let is_generator = if self.check(&TokenKind::Star) {
-            self.bump();
-            true
-        } else {
-            false
-        };
         let name_tok = self.expect_ident()?;
         let name = Ident {
             name: name_tok.ident_name(),
@@ -739,6 +756,7 @@ impl Parser {
                 is_static,
                 is_async,
                 is_generator,
+                is_private: false,
                 span,
             })
         }
@@ -2917,6 +2935,7 @@ impl Parser {
         matches!(
             next.kind,
             TokenKind::Ident(_)
+                | TokenKind::PrivateIdent(_)
                 | TokenKind::String(_)
                 | TokenKind::LBracket
                 | TokenKind::Star

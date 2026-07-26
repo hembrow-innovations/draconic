@@ -14,9 +14,11 @@ use draconic_diagnostics::Span;
 pub use draconic_ast::BindingKind;
 pub use draconic_check::{NativeType, ObjectShape, SymbolId as LocalId, Type as IrType};
 
-// Private field name → WeakMap local (active while lowering a class body).
+// Private field name → WeakMap local; private method name → function local
+// (active while lowering a class body).
 thread_local! {
     static PRIVATE_FIELDS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
+    static PRIVATE_METHODS: RefCell<HashMap<String, LocalId>> = RefCell::new(HashMap::new());
     static EXTRA_LOCALS: RefCell<Vec<Local>> = RefCell::new(Vec::new());
     static NEXT_SYNTH_ID: RefCell<u32> = RefCell::new(0);
 }
@@ -439,6 +441,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
     NEXT_SYNTH_ID.with(|n| *n.borrow_mut() = max_id.saturating_add(1));
     EXTRA_LOCALS.with(|e| e.borrow_mut().clear());
     PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
+    PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
 
     let mut body = Vec::new();
     for stmt in &checked.bound.program.body {
@@ -447,6 +450,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
 
     EXTRA_LOCALS.with(|e| locals.extend(e.borrow_mut().drain(..)));
     PRIVATE_FIELDS.with(|p| p.borrow_mut().clear());
+    PRIVATE_METHODS.with(|p| p.borrow_mut().clear());
 
     Module {
         locals,
@@ -857,8 +861,15 @@ fn lower_class_local(
 ) -> Vec<Stmt> {
     let mut ctor_params = Vec::new();
     let mut ctor_body_ast: Option<&AstStmt> = None;
-    let mut methods: Vec<(&Ident, &Vec<draconic_ast::Param>, &AstStmt, bool, bool, bool)> =
-        Vec::new();
+    let mut methods: Vec<(
+        &Ident,
+        &Vec<draconic_ast::Param>,
+        &AstStmt,
+        bool,
+        bool,
+        bool,
+        bool,
+    )> = Vec::new();
     let mut accessors: Vec<(
         AccessorKind,
         &Ident,
@@ -882,6 +893,7 @@ fn lower_class_local(
                 is_static,
                 is_async,
                 is_generator,
+                is_private,
                 ..
             } => {
                 methods.push((
@@ -891,6 +903,7 @@ fn lower_class_local(
                     *is_static,
                     *is_async,
                     *is_generator,
+                    *is_private,
                 ));
             }
             ClassElement::Accessor {
@@ -960,7 +973,43 @@ fn lower_class_local(
         }
     }
 
-    let prev_privates = PRIVATE_FIELDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_map));
+    // Private methods: synthetic function locals (E18.37). Bodies lowered after maps are live.
+    let mut private_method_map: HashMap<String, LocalId> = HashMap::new();
+    let mut private_method_meta: Vec<(
+        LocalId,
+        &Vec<draconic_ast::Param>,
+        &AstStmt,
+        bool,
+        bool,
+    )> = Vec::new();
+    for (method_name, params, body, _is_static, is_async, is_generator, is_private) in &methods {
+        if !*is_private {
+            continue;
+        }
+        if private_method_map.contains_key(&method_name.name) {
+            continue;
+        }
+        let fn_name = format!("__drac_pm_{}_{}", local.0, method_name.name);
+        let fn_id = alloc_synthetic_local(fn_name, Type::Function);
+        private_method_map.insert(method_name.name.clone(), fn_id);
+        private_method_meta.push((fn_id, params, body, *is_async, *is_generator));
+    }
+
+    let prev_privates =
+        PRIVATE_FIELDS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_map));
+    let prev_private_methods =
+        PRIVATE_METHODS.with(|p| std::mem::replace(&mut *p.borrow_mut(), private_method_map));
+
+    let mut private_method_fns: Vec<Stmt> = Vec::new();
+    for (fn_id, params, body, is_async, is_generator) in private_method_meta {
+        private_method_fns.push(Stmt::Function {
+            local: fn_id,
+            params: lower_params(checked, params, super_class),
+            body: lower_fn_body(checked, body, super_class),
+            is_async,
+            is_generator,
+        });
+    }
 
     let mut ctor_body = match ctor_body_ast {
         Some(body) => lower_fn_body(checked, body, super_class),
@@ -1041,6 +1090,7 @@ fn lower_class_local(
     }
 
     let mut out = private_wm_decls;
+    out.extend(private_method_fns);
     out.push(Stmt::Function {
         local,
         params: ctor_params,
@@ -1049,7 +1099,11 @@ fn lower_class_local(
         is_generator: false,
     });
 
-    for (method_name, params, body, is_static, is_async, is_generator) in methods {
+    for (method_name, params, body, is_static, is_async, is_generator, is_private) in methods {
+        if is_private {
+            // Already emitted as standalone function; not installed on prototype.
+            continue;
+        }
         let method_fn = Expr::Function {
             name: None,
             params: lower_params(checked, params, super_class),
@@ -1306,6 +1360,7 @@ fn lower_class_local(
     }
 
     PRIVATE_FIELDS.with(|p| *p.borrow_mut() = prev_privates);
+    PRIVATE_METHODS.with(|p| *p.borrow_mut() = prev_private_methods);
     out
 }
 
@@ -1629,6 +1684,7 @@ fn lower_expr(
                 object,
                 property,
                 computed,
+                private,
                 ..
             } = callee.as_ref()
             {
@@ -1685,6 +1741,39 @@ fn lower_expr(
                         optional: false,
                         ty: expr_ty(checked, *span),
                     };
+                }
+                // `obj.#m(args)` → `__drac_pm_m.call(obj, ...args)` (E18.37)
+                if *private {
+                    let fname = match property.as_ref() {
+                        AstExpr::Ident(id) => id.name.clone(),
+                        _ => panic!("private member property must be ident"),
+                    };
+                    if let Some(fn_id) = PRIVATE_METHODS.with(|p| p.borrow().get(&fname).copied()) {
+                        let call_member = Expr::Member {
+                            object: Box::new(Expr::Local {
+                                id: fn_id,
+                                ty: Type::Function,
+                            }),
+                            property: Box::new(Expr::String {
+                                value: "call".into(),
+                                ty: Type::String,
+                            }),
+                            computed: false,
+                            optional: false,
+                            ty: Type::Function,
+                        };
+                        let mut call_args = Vec::with_capacity(args.len() + 1);
+                        call_args.push(Arg::Expr(lower_expr(checked, object, super_class)));
+                        for a in args {
+                            call_args.push(lower_arg(checked, a, super_class));
+                        }
+                        return Expr::Call {
+                            callee: Box::new(call_member),
+                            args: call_args,
+                            optional: false,
+                            ty: expr_ty(checked, *span),
+                        };
+                    }
                 }
             }
             Expr::Call {
@@ -1855,6 +1944,14 @@ fn lower_expr(
                     AstExpr::Ident(id) => id.name.clone(),
                     _ => panic!("private member property must be ident"),
                 };
+                if let Some(fn_id) = PRIVATE_METHODS.with(|p| p.borrow().get(&fname).copied()) {
+                    // Private method as value (unbound function).
+                    let _ = object;
+                    return Expr::Local {
+                        id: fn_id,
+                        ty: Type::Function,
+                    };
+                }
                 let wm = PRIVATE_FIELDS.with(|p| {
                     p.borrow()
                         .get(&fname)

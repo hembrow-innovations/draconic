@@ -1,0 +1,82 @@
+class Point {
+  #x = 1;
+  #y = 2;
+  #sum() {
+    return this.#x + this.#y;
+  }
+  total() {
+    return this.#sum();
+  }
+  #setX(v) {
+    this.#x = v;
+  }
+  bump(v) {
+    this.#setX(v);
+  }
+  getX() {
+    return this.#x;
+  }
+}
+let p = new Point();
+let a = p.total();
+p.bump(10);
+let b = p.getX();
+let c = p.total();
+let d = typeof p.sum;
+let e = typeof p.setX;
+
+class Greeter {
+  #hi(name) {
+    return "hi " + name;
+  }
+  greet(name) {
+    return this.#hi(name);
+  }
+}
+let f = new Greeter().greet("world");
+
+class Nested {
+  #inner(n) {
+    return n + 1;
+  }
+  #outer(n) {
+    return this.#inner(n) + this.#inner(n);
+  }
+  run(n) {
+    return this.#outer(n);
+  }
+}
+let g = new Nested().run(3);
+
+class Parent {
+  #base() {
+    return 100;
+  }
+  base() {
+    return this.#base();
+  }
+}
+class Child extends Parent {
+  #extra() {
+    return 1;
+  }
+  total() {
+    return this.base() + this.#extra();
+  }
+}
+let ch = new Child();
+let h = ch.total();
+let i = ch.base();
+
+class WithThis {
+  #n = 0;
+  #inc() {
+    this.#n = this.#n + 1;
+    return this.#n;
+  }
+  twice() {
+    this.#inc();
+    return this.#inc();
+  }
+}
+let j = new WithThis().twice();

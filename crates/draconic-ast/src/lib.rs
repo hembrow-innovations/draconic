@@ -317,7 +317,7 @@ pub enum ClassElement {
         body: Box<Stmt>,
         span: Span,
     },
-    /// `static? async? *? name(params) { body }` instance or static method (optional async/generator)
+    /// `static? async? *? #? name(params) { body }` instance or static method (optional async/generator/private)
     Method {
         name: Ident,
         params: Vec<Param>,
@@ -325,6 +325,8 @@ pub enum ClassElement {
         is_static: bool,
         is_async: bool,
         is_generator: bool,
+        /// `true` for `#name(...)` private methods (E18.37).
+        is_private: bool,
         span: Span,
     },
     /// `static? get name() { body }` / `static? set name(v) { body }`
@@ -1252,16 +1254,22 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                         is_static,
                         is_async,
                         is_generator,
+                        is_private,
                         ..
                     } => {
                         indent(level + 1, out);
-                        if *is_static {
-                            out.push_str("StaticMethod\n");
-                        } else {
-                            out.push_str("Method\n");
+                        match (*is_static, *is_private) {
+                            (true, true) => out.push_str("StaticPrivateMethod\n"),
+                            (true, false) => out.push_str("StaticMethod\n"),
+                            (false, true) => out.push_str("PrivateMethod\n"),
+                            (false, false) => out.push_str("Method\n"),
                         }
                         indent(level + 2, out);
-                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_private {
+                            out.push_str(&format!("name: #{}\n", name.name));
+                        } else {
+                            out.push_str(&format!("name: {}\n", name.name));
+                        }
                         if *is_async {
                             indent(level + 2, out);
                             out.push_str("async: true\n");
@@ -1721,16 +1729,22 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                         is_static,
                         is_async,
                         is_generator,
+                        is_private,
                         ..
                     } => {
                         indent(level + 1, out);
-                        if *is_static {
-                            out.push_str("StaticMethod\n");
-                        } else {
-                            out.push_str("Method\n");
+                        match (*is_static, *is_private) {
+                            (true, true) => out.push_str("StaticPrivateMethod\n"),
+                            (true, false) => out.push_str("StaticMethod\n"),
+                            (false, true) => out.push_str("PrivateMethod\n"),
+                            (false, false) => out.push_str("Method\n"),
                         }
                         indent(level + 2, out);
-                        out.push_str(&format!("name: {}\n", name.name));
+                        if *is_private {
+                            out.push_str(&format!("name: #{}\n", name.name));
+                        } else {
+                            out.push_str(&format!("name: {}\n", name.name));
+                        }
                         if *is_async {
                             indent(level + 2, out);
                             out.push_str("async: true\n");
