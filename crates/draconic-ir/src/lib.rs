@@ -190,6 +190,10 @@ pub enum Expr {
     This {
         ty: Type,
     },
+    /// `new.target` meta-property.
+    NewTarget {
+        ty: Type,
+    },
     Unary {
         op: UnaryOp,
         arg: Box<Expr>,
@@ -234,7 +238,7 @@ pub enum Expr {
         args: Vec<Arg>,
         ty: Type,
     },
-    /// `async? function *? name? (params) { body }` expression value.
+    /// `async? function *? name? (params) { body }` or arrow expression value.
     Function {
         /// Named function expression binding (local to the body), if any.
         name: Option<LocalId>,
@@ -242,6 +246,8 @@ pub enum Expr {
         body: Vec<Stmt>,
         is_async: bool,
         is_generator: bool,
+        /// `true` for `(params) => …` — lexical `this` / `new.target`.
+        is_arrow: bool,
         ty: Type,
     },
     /// `{ key: value, … }` object literal.
@@ -384,10 +390,11 @@ impl Expr {
             | Expr::RegExp { ty, .. }
             | Expr::Template { ty, .. }
             | Expr::TaggedTemplate { ty, .. }
-            | Expr::Boolean { ty, .. }
-            | Expr::Null { ty }
-            | Expr::This { ty }
-            | Expr::Unary { ty, .. }
+             | Expr::Boolean { ty, .. }
+             | Expr::Null { ty }
+             | Expr::This { ty }
+             | Expr::NewTarget { ty }
+             | Expr::Unary { ty, .. }
             | Expr::Binary { ty, .. }
             | Expr::Conditional { ty, .. }
             | Expr::Assign { ty, .. }
@@ -886,6 +893,7 @@ fn lower_class(
             body: lower_fn_body(checked, body, super_class),
             is_async: false,
             is_generator,
+            is_arrow: false,
             ty: Type::Function,
         };
         let class_ref = Expr::Local {
@@ -930,6 +938,7 @@ fn lower_class(
             body: lower_fn_body(checked, body, super_class),
             is_async: false,
             is_generator: false,
+            is_arrow: false,
             ty: Type::Function,
         };
         let class_ref = Expr::Local {
@@ -1191,6 +1200,9 @@ fn lower_expr(
         AstExpr::This { span } => Expr::This {
             ty: expr_ty(checked, *span),
         },
+        AstExpr::NewTarget { span } => Expr::NewTarget {
+            ty: expr_ty(checked, *span),
+        },
         AstExpr::Super { .. } => {
             panic!("bare `super` must appear as super(...) or super.prop after check")
         }
@@ -1440,6 +1452,7 @@ fn lower_expr(
                 body,
                 is_async: *is_async,
                 is_generator: *is_generator,
+                is_arrow: false,
                 ty: expr_ty(checked, *span),
             }
         }
@@ -1465,6 +1478,7 @@ fn lower_expr(
                 body,
                 is_async: *is_async,
                 is_generator: false,
+                is_arrow: true,
                 ty: expr_ty(checked, *span),
             }
         }
@@ -1513,6 +1527,7 @@ fn lower_expr(
                                 body: lower_fn_body(checked, body, super_class),
                                 is_async: false,
                                 is_generator: false,
+                                is_arrow: false,
                                 ty: Type::Function,
                             },
                         }
@@ -2162,6 +2177,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str(&format!("This : {ty}\n"));
         }
+        Expr::NewTarget { ty } => {
+            indent(level, out);
+            out.push_str(&format!("NewTarget : {ty}\n"));
+        }
         Expr::Unary { op, arg, ty } => {
             indent(level, out);
             out.push_str(&format!("Unary {op} : {ty}\n"));
@@ -2301,6 +2320,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             body,
             is_async,
             is_generator,
+            is_arrow,
             ty,
         } => {
             indent(level, out);
@@ -2312,6 +2332,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             if *is_generator {
                 indent(level + 1, out);
                 out.push_str("generator: true\n");
+            }
+            if *is_arrow {
+                indent(level + 1, out);
+                out.push_str("arrow: true\n");
             }
             if let Some(local) = name {
                 indent(level + 1, out);

@@ -1,0 +1,58 @@
+function Ctor() {
+  this.t = new.target;
+  this.same = new.target === Ctor;
+}
+let c = new Ctor();
+let a = c.same;
+let b = typeof c.t;
+let d = c.t === Ctor;
+
+function plain() {
+  return new.target;
+}
+let e = plain();
+let f = typeof plain();
+
+function Nested() {
+  function inner() {
+    return new.target;
+  }
+  this.outer = new.target === Nested;
+  this.innerCall = inner();
+  this.innerNew = new inner();
+}
+let n = new Nested();
+let g = n.outer;
+let h = typeof n.innerCall;
+let i = typeof n.innerNew;
+
+class Base {
+  constructor() {
+    this.nt = new.target;
+    this.isBase = new.target === Base;
+  }
+}
+let base = new Base();
+let j = base.isBase;
+let k = base.nt === Base;
+
+class Sub extends Base {
+  constructor() {
+    super();
+    this.sub = new.target === Sub;
+  }
+}
+let s = new Sub();
+let p = s.sub;
+
+function ArrowWrap() {
+  let get = () => new.target;
+  this.fromArrow = get() === ArrowWrap;
+}
+let w = new ArrowWrap();
+let l = w.fromArrow;
+
+function RetTarget() {
+  return new.target;
+}
+let m = new RetTarget() === RetTarget;

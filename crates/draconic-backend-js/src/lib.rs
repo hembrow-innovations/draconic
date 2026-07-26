@@ -425,6 +425,9 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
         Expr::This { .. } => {
             out.push_str("this");
         }
+        Expr::NewTarget { .. } => {
+            out.push_str("new.target");
+        }
         Expr::Unary { op, arg, .. } => {
             emit_unary(out, *op, arg, names);
         }
@@ -547,26 +550,37 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
             body,
             is_async,
             is_generator,
+            is_arrow,
             ..
         } => {
             if *is_async {
                 out.push_str("async ");
             }
-            out.push_str("function");
-            if *is_generator {
-                out.push('*');
+            if *is_arrow {
+                out.push('(');
+                emit_params(out, params, names);
+                out.push_str(") => {\n");
+                for s in body {
+                    emit_stmt(out, s, names);
+                }
+                out.push('}');
+            } else {
+                out.push_str("function");
+                if *is_generator {
+                    out.push('*');
+                }
+                if let Some(local) = name {
+                    out.push(' ');
+                    out.push_str(local_name(names, *local));
+                }
+                out.push('(');
+                emit_params(out, params, names);
+                out.push_str(") {\n");
+                for s in body {
+                    emit_stmt(out, s, names);
+                }
+                out.push('}');
             }
-            if let Some(local) = name {
-                out.push(' ');
-                out.push_str(local_name(names, *local));
-            }
-            out.push('(');
-            emit_params(out, params, names);
-            out.push_str(") {\n");
-            for s in body {
-                emit_stmt(out, s, names);
-            }
-            out.push('}');
         }
         Expr::Object { properties, .. } => {
             out.push('{');

@@ -2349,9 +2349,23 @@ impl Parser {
         Ok(expr)
     }
 
-    /// `new callee` or `new callee(args)` — callee may include nested `new` and members.
+    /// `new.target` meta-property, or `new callee` / `new callee(args)`.
     fn parse_new(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::New)?.span.start.0;
+        // `new.target` — meta-property, not a construct expression.
+        if self.check(&TokenKind::Dot) {
+            self.bump();
+            let (name, prop_span) = self.expect_ident_name()?;
+            if name != "target" {
+                return Err(Diagnostic::new(
+                    format!("expected `target` after `new.`, found `{name}`"),
+                    prop_span,
+                ));
+            }
+            return Ok(Expr::NewTarget {
+                span: Span::new(start, prop_span.end.0),
+            });
+        }
         let mut callee = if self.check(&TokenKind::New) {
             self.parse_new()?
         } else {
@@ -3070,6 +3084,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::Null { span }
         | Expr::This { span }
         | Expr::Super { span }
+        | Expr::NewTarget { span }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
         | Expr::Unary { span, .. }
@@ -4091,6 +4106,13 @@ Program
         assert!(dump.contains("New\n"));
         assert!(dump.contains("arg[0]:"));
         assert!(dump.contains("MemberExpression"));
+    }
+
+    #[test]
+    fn parse_new_target() {
+        let dump = parse_and_dump("function f() { return new.target; }").unwrap();
+        assert!(dump.contains("NewTarget\n"), "{dump}");
+        assert!(!dump.contains("MemberExpression"), "{dump}");
     }
 
     #[test]

@@ -1277,7 +1277,8 @@ impl Binder {
             | Expr::Boolean { .. }
             | Expr::Null { .. }
             | Expr::This { .. }
-            | Expr::Super { .. } => Ok(()),
+            | Expr::Super { .. }
+            | Expr::NewTarget { .. } => Ok(()),
             Expr::TemplateLiteral { expressions, .. } => {
                 for e in expressions {
                     self.bind_expr(e)?;
@@ -2354,6 +2355,10 @@ impl<'a> Checker<'a> {
                 Type::Any
             }
             Expr::Super { span } => {
+                self.record(*span, Type::Any);
+                Type::Any
+            }
+            Expr::NewTarget { span } => {
                 self.record(*span, Type::Any);
                 Type::Any
             }
@@ -3926,6 +3931,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::Null { span }
         | Expr::This { span }
         | Expr::Super { span }
+        | Expr::NewTarget { span }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
         | Expr::Unary { span, .. }
@@ -5166,7 +5172,8 @@ mod tests {
                 | Expr::Boolean { .. }
                 | Expr::Null { .. }
                 | Expr::This { .. }
-                | Expr::Super { .. } => {}
+                | Expr::Super { .. }
+                | Expr::NewTarget { .. } => {}
                 Expr::TemplateLiteral { expressions, .. } => {
                     for e in expressions {
                         walk_expr(e, name, out);

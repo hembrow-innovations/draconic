@@ -392,6 +392,10 @@ pub enum Expr {
     Super {
         span: Span,
     },
+    /// `new.target` meta-property (active construct target; `undefined` if not `new`).
+    NewTarget {
+        span: Span,
+    },
     Unary {
         op: UnaryOp,
         arg: Box<Expr>,
@@ -1474,6 +1478,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::Super { .. } => {
             indent(level, out);
             out.push_str("Super\n");
+        }
+        Expr::NewTarget { .. } => {
+            indent(level, out);
+            out.push_str("NewTarget\n");
         }
         Expr::Unary { op, arg, .. } => {
             indent(level, out);

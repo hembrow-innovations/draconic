@@ -644,7 +644,8 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
         Expr::Boolean { span, .. }
         | Expr::Null { span }
         | Expr::This { span }
-        | Expr::Super { span } => *span = spans.next(),
+        | Expr::Super { span }
+        | Expr::NewTarget { span } => *span = spans.next(),
         Expr::TemplateLiteral {
             quasis,
             expressions,
@@ -1274,7 +1275,8 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         | Expr::Boolean { .. }
         | Expr::Null { .. }
         | Expr::This { .. }
-        | Expr::Super { .. } => {}
+        | Expr::Super { .. }
+        | Expr::NewTarget { .. } => {}
         Expr::TemplateLiteral { expressions, .. } => {
             for e in expressions {
                 rename_expr(e, renames, scopes);

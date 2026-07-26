@@ -286,3 +286,13 @@ fn class_fields_fixture_present() {
 fn class_fields_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/class_fields");
 }
+
+#[test]
+fn new_target_fixture_present() {
+    assert_fixture_present("es/annex-b/new_target");
+}
+
+#[test]
+fn new_target_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/new_target");
+}
