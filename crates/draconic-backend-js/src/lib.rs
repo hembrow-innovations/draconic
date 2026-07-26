@@ -1,14 +1,23 @@
-//! JS backend: IR → ECMAScript (ROADMAP B07).
+//! JS backend: IR → ECMAScript (ROADMAP B07 + N04 native policy).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, BindingKind, UnaryOp, UpdateOp};
-use draconic_diagnostics::Diagnostic;
-use draconic_ir::{ArrayPatternEl, Expr, LocalId, Module, ObjectPatternEl, Pattern, Stmt};
+use draconic_diagnostics::{Diagnostic, Span};
+use draconic_ir::{
+    ArrayPatternEl, AssignTarget, Expr, IrType, LocalId, Module, ObjectPatternEl, Pattern, Stmt,
+};
 
 /// Emit ECMAScript source for a shared IR module.
+///
+/// **N04 native policy (JS target):**
+/// - Native scalars (`i32`, …), layout structs, and fixed arrays: polyfill/erase
+///   (type annotations already gone at IR; values lower as ordinary JS numbers/objects/arrays).
+/// - Native pointers (`*T`, `&x`, `*p`, `*p = v`): hard-error (native-only).
 pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
+    reject_native_only(module)?;
+
     let names: HashMap<LocalId, &str> = module
         .locals
         .iter()
@@ -21,6 +30,347 @@ pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
     }
     Ok(out)
 }
+
+fn native_only_diag(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new(message, Span::dummy())
+}
+
+/// Reject IR that is native-only on the JS backend (N04).
+fn reject_native_only(module: &Module) -> Result<(), Diagnostic> {
+    for local in &module.locals {
+        if matches!(local.ty, IrType::Ptr(_)) {
+            return Err(native_only_diag(format!(
+                "native pointer type `*T` is native-only (cannot emit JS for `{}`)",
+                local.name
+            )));
+        }
+    }
+    for stmt in &module.body {
+        reject_native_only_stmt(stmt)?;
+    }
+    Ok(())
+}
+
+fn reject_native_only_stmt(stmt: &Stmt) -> Result<(), Diagnostic> {
+    match stmt {
+        Stmt::Declare { init, .. } => {
+            if let Some(init) = init {
+                reject_native_only_expr(init)?;
+            }
+        }
+        Stmt::DeclareArrayPattern { elements, init, .. } => {
+            reject_native_only_expr(init)?;
+            for el in elements {
+                reject_native_only_array_pat_el(el)?;
+            }
+        }
+        Stmt::DeclareObjectPattern {
+            properties, init, ..
+        } => {
+            reject_native_only_expr(init)?;
+            for prop in properties {
+                reject_native_only_object_pat_el(prop)?;
+            }
+        }
+        Stmt::Expr { expr } => reject_native_only_expr(expr)?,
+        Stmt::Block { body } => {
+            for s in body {
+                reject_native_only_stmt(s)?;
+            }
+        }
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            reject_native_only_expr(test)?;
+            reject_native_only_stmt(consequent)?;
+            if let Some(alt) = alternate {
+                reject_native_only_stmt(alt)?;
+            }
+        }
+        Stmt::While { test, body } | Stmt::DoWhile { test, body } => {
+            reject_native_only_expr(test)?;
+            reject_native_only_stmt(body)?;
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+        } => {
+            if let Some(init) = init {
+                reject_native_only_stmt(init)?;
+            }
+            if let Some(test) = test {
+                reject_native_only_expr(test)?;
+            }
+            if let Some(update) = update {
+                reject_native_only_expr(update)?;
+            }
+            reject_native_only_stmt(body)?;
+        }
+        Stmt::ForIn { left, right, body } | Stmt::ForOf { left, right, body } => {
+            reject_native_only_stmt(left)?;
+            reject_native_only_expr(right)?;
+            reject_native_only_stmt(body)?;
+        }
+        Stmt::Break { .. } | Stmt::Continue { .. } => {}
+        Stmt::Labeled { body, .. } => reject_native_only_stmt(body)?,
+        Stmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            reject_native_only_expr(discriminant)?;
+            for case in cases {
+                if let Some(test) = &case.test {
+                    reject_native_only_expr(test)?;
+                }
+                for s in &case.body {
+                    reject_native_only_stmt(s)?;
+                }
+            }
+        }
+        Stmt::Function { params, body, .. } => {
+            for p in params {
+                reject_native_only_pattern(&p.pattern)?;
+                if let Some(default) = &p.default {
+                    reject_native_only_expr(default)?;
+                }
+            }
+            for s in body {
+                reject_native_only_stmt(s)?;
+            }
+        }
+        Stmt::Return { value } => {
+            if let Some(value) = value {
+                reject_native_only_expr(value)?;
+            }
+        }
+        Stmt::Throw { value } => reject_native_only_expr(value)?,
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            for s in block {
+                reject_native_only_stmt(s)?;
+            }
+            if let Some(handler) = handler {
+                for s in handler {
+                    reject_native_only_stmt(s)?;
+                }
+            }
+            if let Some(finalizer) = finalizer {
+                for s in finalizer {
+                    reject_native_only_stmt(s)?;
+                }
+            }
+        }
+        Stmt::With { object, body } => {
+            reject_native_only_expr(object)?;
+            for s in body {
+                reject_native_only_stmt(s)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
+    match expr {
+        Expr::Unary {
+            op: UnaryOp::Ref | UnaryOp::Deref,
+            ..
+        } => Err(native_only_diag(
+            "native pointer operators `&` / `*` are native-only (cannot emit JS)",
+        )),
+        Expr::Assign {
+            target: AssignTarget::Deref(_),
+            ..
+        } => Err(native_only_diag(
+            "native pointer store `*p = …` is native-only (cannot emit JS)",
+        )),
+        Expr::Local { .. }
+        | Expr::IdentName { .. }
+        | Expr::Number { .. }
+        | Expr::BigInt { .. }
+        | Expr::String { .. }
+        | Expr::RegExp { .. }
+        | Expr::Boolean { .. }
+        | Expr::Null { .. }
+        | Expr::This { .. }
+        | Expr::NewTarget { .. } => Ok(()),
+        Expr::Unary { arg, .. } => reject_native_only_expr(arg),
+        Expr::Binary { left, right, .. } => {
+            reject_native_only_expr(left)?;
+            reject_native_only_expr(right)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            reject_native_only_expr(test)?;
+            reject_native_only_expr(consequent)?;
+            reject_native_only_expr(alternate)
+        }
+        Expr::Assign { target, value, .. } => {
+            reject_native_only_assign_target(target)?;
+            reject_native_only_expr(value)
+        }
+        Expr::Update { .. } => Ok(()),
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            reject_native_only_expr(callee)?;
+            for a in args {
+                match a {
+                    draconic_ir::Arg::Expr(e) | draconic_ir::Arg::Spread(e) => {
+                        reject_native_only_expr(e)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        Expr::Function { params, body, .. } => {
+            for p in params {
+                reject_native_only_pattern(&p.pattern)?;
+                if let Some(default) = &p.default {
+                    reject_native_only_expr(default)?;
+                }
+            }
+            for s in body {
+                reject_native_only_stmt(s)?;
+            }
+            Ok(())
+        }
+        Expr::Object { properties, .. } => {
+            for p in properties {
+                reject_native_only_object_prop(p)?;
+            }
+            Ok(())
+        }
+        Expr::Array { elements, .. } => {
+            for el in elements {
+                match el {
+                    draconic_ir::ArrayElement::Expr(e) | draconic_ir::ArrayElement::Spread(e) => {
+                        reject_native_only_expr(e)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        Expr::Member {
+            object, property, ..
+        } => {
+            reject_native_only_expr(object)?;
+            reject_native_only_expr(property)
+        }
+        Expr::Template { expressions, .. } => {
+            for e in expressions {
+                reject_native_only_expr(e)?;
+            }
+            Ok(())
+        }
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => {
+            reject_native_only_expr(tag)?;
+            for e in expressions {
+                reject_native_only_expr(e)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn reject_native_only_assign_target(target: &AssignTarget) -> Result<(), Diagnostic> {
+    match target {
+        AssignTarget::Local(_) | AssignTarget::Name(_) => Ok(()),
+        AssignTarget::Deref(_) => Err(native_only_diag(
+            "native pointer store `*p = …` is native-only (cannot emit JS)",
+        )),
+        AssignTarget::Member {
+            object, property, ..
+        } => {
+            reject_native_only_expr(object)?;
+            reject_native_only_expr(property)
+        }
+        AssignTarget::ArrayPattern { elements } => {
+            for el in elements {
+                reject_native_only_array_pat_el(el)?;
+            }
+            Ok(())
+        }
+        AssignTarget::ObjectPattern { properties } => {
+            for p in properties {
+                reject_native_only_object_pat_el(p)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn reject_native_only_pattern(pat: &Pattern) -> Result<(), Diagnostic> {
+    match pat {
+        Pattern::Local(_) => Ok(()),
+        Pattern::Array(els) => {
+            for el in els {
+                reject_native_only_array_pat_el(el)?;
+            }
+            Ok(())
+        }
+        Pattern::Object(props) => {
+            for p in props {
+                reject_native_only_object_pat_el(p)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn reject_native_only_array_pat_el(el: &ArrayPatternEl) -> Result<(), Diagnostic> {
+    match el {
+        ArrayPatternEl::Pattern { binding, default } => {
+            reject_native_only_pattern(binding)?;
+            if let Some(d) = default {
+                reject_native_only_expr(d)?;
+            }
+            Ok(())
+        }
+        ArrayPatternEl::Rest(_) => Ok(()),
+    }
+}
+
+fn reject_native_only_object_pat_el(el: &ObjectPatternEl) -> Result<(), Diagnostic> {
+    match el {
+        ObjectPatternEl::Prop {
+            binding, default, ..
+        } => {
+            reject_native_only_pattern(binding)?;
+            if let Some(d) = default {
+                reject_native_only_expr(d)?;
+            }
+            Ok(())
+        }
+        ObjectPatternEl::Rest(_) => Ok(()),
+    }
+}
+
+fn reject_native_only_object_prop(prop: &draconic_ir::ObjectProp) -> Result<(), Diagnostic> {
+    use draconic_ir::{ObjectProp, ObjectPropKey};
+    match prop {
+        ObjectProp::Spread(e) => reject_native_only_expr(e),
+        ObjectProp::Property { key, value } | ObjectProp::Accessor { key, value, .. } => {
+            if let ObjectPropKey::Computed(e) = key {
+                reject_native_only_expr(e)?;
+            }
+            reject_native_only_expr(value)
+        }
+    }
+}
+
 
 fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) {
     match stmt {
@@ -940,16 +1290,9 @@ fn emit_unary(out: &mut String, op: UnaryOp, arg: &Expr, names: &HashMap<LocalId
             emit_expr(out, arg, names);
             out.push_str("))");
         }
-        // N03.03 native-only; emitted for IR completeness (JS hard-error is N04).
-        UnaryOp::Ref => {
-            out.push_str("&(");
-            emit_expr(out, arg, names);
-            out.push(')');
-        }
-        UnaryOp::Deref => {
-            out.push_str("*(");
-            emit_expr(out, arg, names);
-            out.push(')');
+        // N04: rejected in `reject_native_only` before emit.
+        UnaryOp::Ref | UnaryOp::Deref => {
+            unreachable!("native pointer ops rejected before JS emit");
         }
     }
 }
@@ -1322,5 +1665,56 @@ mod tests {
     fn emit_comma() {
         let js = emit_src("let x = (1, 2);");
         assert_eq!(js, "let x = ((1) , (2));\n");
+    }
+
+    fn emit_result(src: &str) -> Result<String, Diagnostic> {
+        let program = parse(src).expect("parse");
+        let checked = check(program).expect("check");
+        let module = lower(&checked);
+        emit_js(&module)
+    }
+
+    #[test]
+    fn n04_native_scalar_polyfill() {
+        let js = emit_src("let a: i32 = 1; let b: i64 = 2; let c: f64 = 3.5;");
+        assert!(js.contains("let a = 1;"), "{js}");
+        assert!(js.contains("let b = 2;"), "{js}");
+        assert!(js.contains("let c = 3.5;"), "{js}");
+    }
+
+    #[test]
+    fn n04_native_struct_polyfill() {
+        let js = emit_src("type Point = { x: i32; y: i32 }; let p: Point = { x: 10, y: 20 }; let a: i32 = p.x;");
+        assert!(js.contains("let p = {x: 10, y: 20};"), "{js}");
+        assert!(js.contains("let a = (p).x;"), "{js}");
+    }
+
+    #[test]
+    fn n04_native_array_polyfill() {
+        let js = emit_src("type V = [i32, i32, i32]; let v: V = [10, 20, 30]; let a: i32 = v[0];");
+        assert!(js.contains("let v = [10, 20, 30];"), "{js}");
+        assert!(js.contains("let a = (v)[0];"), "{js}");
+    }
+
+    #[test]
+    fn n04_pointer_hard_error() {
+        let err = emit_result("let x: i32 = 10; let p: *i32 = &x; let y: i32 = *p;")
+            .expect_err("pointers must hard-error on JS");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("native-only") || msg.contains("pointer"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn n04_pointer_store_hard_error() {
+        let err = emit_result("let x: i32 = 10; let p: *i32 = &x; *p = 42;")
+            .expect_err("pointer store must hard-error on JS");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("native-only") || msg.contains("pointer"),
+            "{msg}"
+        );
     }
 }

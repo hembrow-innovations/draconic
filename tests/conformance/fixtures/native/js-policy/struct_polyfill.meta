@@ -1,0 +1,4 @@
+id: native/js-policy/struct_polyfill
+targets: js
+js.exit: 0
+js.check: if (a !== 10) process.exit(1); if (b !== 20) process.exit(2);

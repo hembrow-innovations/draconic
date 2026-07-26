@@ -1,0 +1,7 @@
+let a: i32 = 1;
+let b: i64 = 2;
+let c: f64 = 3.5;
+function add(x: i32, y: i32): i32 {
+  return x + y;
+}
+let sum: i32 = add(a, 10);

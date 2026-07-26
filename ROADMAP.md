@@ -219,7 +219,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N03.01 | done | native | Native structs: type alias `{ x: i32; … }` of native scalar fields; object literal init; field read `p.x` | `tests/conformance` fixtures `native/layout` |
 | N03.02 | done | native | Fixed arrays: tuple type `[T, …]` of native scalars; array literal init; index read `a[i]` (const index) | `tests/conformance` fixtures `native/layout` |
 | N03.03 | done | native | Native pointers: type `*T` (T native scalar); address-of `&x`; deref `*p`; store `*p = v` | `tests/conformance` fixtures `native/layout` |
-| N04 | todo | js | JS lowering/polyfill or hard-error policy per native feature | `tests/conformance/native/js-policy` |
+| N04 | done | js | JS lowering/polyfill or hard-error policy per native feature | `tests/conformance/native/js-policy` |
 | N05 | todo | native | Link Runtime: GC + minimal std | `crates/draconic-runtime` |
 | N06 | todo | native | Async runtime / job queue on native | `tests/conformance/es/async` |
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |

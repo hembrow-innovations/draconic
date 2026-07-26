@@ -44,6 +44,9 @@ pub struct TargetExpect {
     pub check: Option<String>,
     /// Exact stdout (native; optional for js).
     pub stdout: Option<String>,
+    /// When set, compile/emit must fail and the diagnostic message must contain this substring.
+    /// Used for native-only features on the JS target (N04).
+    pub error_contains: Option<String>,
 }
 
 /// One conformance fixture loaded from disk.
@@ -208,10 +211,12 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             }
             "js.check" => meta.expect_js.check = Some(unescape(value)),
             "js.stdout" => meta.expect_js.stdout = Some(unescape(value)),
+            "js.error" => meta.expect_js.error_contains = Some(unescape(value)),
             "native.exit" => {
                 meta.expect_native.exit = parse_exit(value, lineno + 1)?;
             }
             "native.stdout" => meta.expect_native.stdout = Some(unescape(value)),
+            "native.error" => meta.expect_native.error_contains = Some(unescape(value)),
             "native.check" => {
                 return Err(format!(
                     "meta line {}: native.check is not supported",
@@ -319,9 +324,13 @@ pub fn run_all(root: &Path) -> Result<Vec<RunResult>, String> {
 }
 
 fn run_js(fixture: &Fixture) -> Result<(), String> {
+    let expect = &fixture.expect_js;
+    if let Some(needle) = &expect.error_contains {
+        return expect_compile_or_emit_error(fixture, Target::Js, needle);
+    }
+
     let module = compile_module(&fixture.source_path, &fixture.source)?;
     let js = emit_js(&module).map_err(|d| format!("emit_js: {d}"))?;
-    let expect = &fixture.expect_js;
 
     let script = if let Some(check) = &expect.check {
         format!("{js}\n{check}")
@@ -360,6 +369,11 @@ fn run_js(fixture: &Fixture) -> Result<(), String> {
 }
 
 fn run_native(fixture: &Fixture) -> Result<(), String> {
+    let expect = &fixture.expect_native;
+    if let Some(needle) = &expect.error_contains {
+        return expect_compile_or_emit_error(fixture, Target::Native, needle);
+    }
+
     let module = compile_module(&fixture.source_path, &fixture.source)?;
     let ll = emit_llvm_ir(&module).map_err(|d| format!("emit_llvm_ir: {d}"))?;
     let out = temp_bin_path(&fixture.id);
@@ -377,7 +391,6 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
     let code = output.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let expect = &fixture.expect_native;
 
     if code != expect.exit {
         return Err(format!(
@@ -394,6 +407,43 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Expect frontend or backend emit to fail with a message containing `needle`.
+fn expect_compile_or_emit_error(
+    fixture: &Fixture,
+    target: Target,
+    needle: &str,
+) -> Result<(), String> {
+    let module = match compile_module(&fixture.source_path, &fixture.source) {
+        Ok(m) => m,
+        Err(msg) => {
+            if msg.contains(needle) {
+                return Ok(());
+            }
+            return Err(format!(
+                "{} compile error did not contain {needle:?}\ngot: {msg}",
+                target.as_str()
+            ));
+        }
+    };
+    let err = match target {
+        Target::Js => emit_js(&module).err().map(|d| format!("emit_js: {d}")),
+        Target::Native => emit_llvm_ir(&module)
+            .err()
+            .map(|d| format!("emit_llvm_ir: {d}")),
+    };
+    match err {
+        Some(msg) if msg.contains(needle) => Ok(()),
+        Some(msg) => Err(format!(
+            "{} emit error did not contain {needle:?}\ngot: {msg}",
+            target.as_str()
+        )),
+        None => Err(format!(
+            "{} expected emit/compile error containing {needle:?}, but succeeded",
+            target.as_str()
+        )),
+    }
 }
 
 fn temp_bin_path(id: &str) -> PathBuf {

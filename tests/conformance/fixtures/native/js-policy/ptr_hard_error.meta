@@ -1,0 +1,3 @@
+id: native/js-policy/ptr_hard_error
+targets: js
+js.error: native-only
