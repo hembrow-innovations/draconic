@@ -1,0 +1,19 @@
+function f() {
+  return arguments.callee === f;
+}
+function g() {
+  return typeof arguments.callee;
+}
+function outer() {
+  function inner() {
+    return arguments.callee === inner;
+  }
+  return inner();
+}
+let named = function h() {
+  return arguments.callee === h;
+};
+let a = f();
+let b = g();
+let c = outer();
+let d = named();

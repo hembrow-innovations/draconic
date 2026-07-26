@@ -1,0 +1,4 @@
+id: es/legacy/arguments_callee
+targets: js
+js.exit: 0
+js.check: if (a !== true) process.exit(1); if (b !== "function") process.exit(2); if (c !== true) process.exit(3); if (d !== true) process.exit(4);
