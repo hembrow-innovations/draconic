@@ -28,6 +28,7 @@ dependencies = [
  "draconic-ast",
  "draconic-check",
  "draconic-diagnostics",
+ "draconic-embed",
  "draconic-ir",
  "draconic-parser",
  "draconic-runtime",

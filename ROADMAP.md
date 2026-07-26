@@ -247,6 +247,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N06.11 | done | native | LLVM async arrows via Runtime ABI: `async (params) => expr` / `async (params) => { … }` (simple ident params; `await` in body; returns Promise); real native observations for `es/async/async_arrow` | `tests/conformance` fixtures `es/async/async_arrow`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |
 | N07.01 | done | native | Embed: compile + eval simple expression strings (number/string literals, arithmetic `+` `-` `*` `/` `%`, unary `+/-`, grouping, `typeof` on primitives/`undefined`) via Frontend→IR interpreter | `crates/draconic-embed` |
+| N07.02 | done | native | LLVM direct `eval` via Embed: constant-string `eval(...)` folded through Embed at emit; `typeof eval`; `globalThis.eval === eval`; real native observations for `es/eval/direct_eval` | `tests/conformance` fixtures `es/eval/direct_eval`, `crates/draconic-backend-llvm`, `crates/draconic-embed` |
 
 ---
 

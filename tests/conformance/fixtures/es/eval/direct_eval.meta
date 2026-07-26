@@ -3,4 +3,4 @@ targets: js,native
 js.exit: 0
 js.check: if (t !== "function") process.exit(1); if (g !== true) process.exit(2); if (a !== 3) process.exit(3); if (b !== "undefined") process.exit(4); if (c !== 12) process.exit(5); if (d !== "hi") process.exit(6); if (typeof t !== "string") process.exit(7);
 native.exit: 0
-native.stdout: hello\n
+native.stdout: function\ntrue\n3\nundefined\n12\nhi\n

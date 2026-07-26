@@ -1,5 +1,6 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async + N07.02 eval).
 
+mod es_eval;
 mod es_promise;
 mod native_ints;
 
@@ -9,6 +10,7 @@ use std::process::{Command, Stdio};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::Module;
 
+use es_eval::{emit_es_eval, is_es_eval_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
@@ -18,13 +20,16 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
 /// with a supported statement/expression subset are lowered for real. Promise
 /// constructor basics through async/await and async arrows (N06.03–N06.11) lower
-/// via the Runtime Promise ABI. Everything else keeps the B08 hello stub so
+/// via the Runtime Promise ABI. Direct `eval` of constant strings (N07.02) folds
+/// through Embed at emit time. Everything else keeps the B08 hello stub so
 /// existing ES conformance fixtures stay green.
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         emit_native_ints(module)
     } else if is_es_promise_module(module) {
         emit_es_promise(module)
+    } else if is_es_eval_module(module) {
+        emit_es_eval(module)
     } else {
         Ok(emit_hello_stub())
     }
@@ -910,6 +915,44 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "10\n20\n30\n10\n20\n30\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_direct_eval_prints_via_embed() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let t = typeof eval;
+            let g = globalThis.eval === eval;
+            let a = eval("1 + 2");
+            let b = eval("typeof undefined");
+            let c = eval("3 * 4");
+            let d = eval("'hi'");
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "direct eval must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("N07.02") || ir.contains("direct eval"),
+            "should use eval emit path:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n07-direct-eval").expect("workdir");
+        let bin = dir.join("direct_eval");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "function\ntrue\n3\nundefined\n12\nhi\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
