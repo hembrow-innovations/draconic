@@ -1,8 +1,65 @@
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02 / E19.04 / E19.05 / E19.06 (ops + free refs + bitwise/cmp/eq/control).
+# Expanded under ROADMAP E19.02 / E19.04 / E19.05 / E19.06 / E19.07
+# (ops + free refs + bitwise/cmp/eq/control + BigInt mixed-type).
 # Lines starting with # and blank lines are ignored.
 #
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
+
+# E19.07: BigInt mixed-type arithmetic/bitwise (TypeError at runtime; checker must not reject)
+test/language/expressions/addition/bigint-and-number.js
+test/language/expressions/addition/bigint-errors.js
+test/language/expressions/addition/bigint-toprimitive.js
+test/language/expressions/addition/bigint-wrapped-values.js
+test/language/expressions/addition/coerce-bigint-to-string.js
+test/language/expressions/subtraction/bigint-and-number.js
+test/language/expressions/subtraction/bigint-errors.js
+test/language/expressions/subtraction/bigint-toprimitive.js
+test/language/expressions/subtraction/bigint-wrapped-values.js
+test/language/expressions/multiplication/bigint-and-number.js
+test/language/expressions/multiplication/bigint-errors.js
+test/language/expressions/multiplication/bigint-toprimitive.js
+test/language/expressions/multiplication/bigint-wrapped-values.js
+test/language/expressions/division/bigint-and-number.js
+test/language/expressions/division/bigint-errors.js
+test/language/expressions/modulus/bigint-and-number.js
+test/language/expressions/modulus/bigint-errors.js
+test/language/expressions/modulus/bigint-toprimitive.js
+test/language/expressions/modulus/bigint-wrapped-values.js
+test/language/expressions/exponentiation/bigint-and-number.js
+test/language/expressions/exponentiation/bigint-errors.js
+test/language/expressions/exponentiation/bigint-toprimitive.js
+test/language/expressions/exponentiation/bigint-wrapped-values.js
+test/language/expressions/bitwise-and/bigint-and-number.js
+test/language/expressions/bitwise-and/bigint-errors.js
+test/language/expressions/bitwise-and/bigint-non-primitive.js
+test/language/expressions/bitwise-and/bigint-toprimitive.js
+test/language/expressions/bitwise-and/bigint-wrapped-values.js
+test/language/expressions/bitwise-or/bigint-and-number.js
+test/language/expressions/bitwise-or/bigint-errors.js
+test/language/expressions/bitwise-or/bigint-non-primitive.js
+test/language/expressions/bitwise-or/bigint-toprimitive.js
+test/language/expressions/bitwise-or/bigint-wrapped-values.js
+test/language/expressions/bitwise-xor/bigint-and-number.js
+test/language/expressions/bitwise-xor/bigint-errors.js
+test/language/expressions/bitwise-xor/bigint-non-primitive.js
+test/language/expressions/bitwise-xor/bigint-toprimitive.js
+test/language/expressions/bitwise-xor/bigint-wrapped-values.js
+test/language/expressions/left-shift/bigint-and-number.js
+test/language/expressions/left-shift/bigint-errors.js
+test/language/expressions/left-shift/bigint-non-primitive.js
+test/language/expressions/left-shift/bigint-toprimitive.js
+test/language/expressions/left-shift/bigint-wrapped-values.js
+test/language/expressions/right-shift/bigint-and-number.js
+test/language/expressions/right-shift/bigint-errors.js
+test/language/expressions/right-shift/bigint-non-primitive.js
+test/language/expressions/right-shift/bigint-toprimitive.js
+test/language/expressions/right-shift/bigint-wrapped-values.js
+test/language/expressions/unsigned-right-shift/bigint-and-number.js
+test/language/expressions/unsigned-right-shift/bigint-errors.js
+test/language/expressions/unsigned-right-shift/bigint-non-primitive.js
+test/language/expressions/unsigned-right-shift/bigint-toprimitive.js
+test/language/expressions/unsigned-right-shift/bigint-wrapped-values.js
+test/language/expressions/unsigned-right-shift/bigint.js
 
 test/language/expressions/addition/S11.6.1_A1.js
 test/language/expressions/addition/S11.6.1_A2.1_T1.js

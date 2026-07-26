@@ -163,7 +163,8 @@ pub fn load_allowlist(path: &Path) -> Result<Vec<String>, String> {
 ///
 /// Real `harness/assert.js` is not compiled through the frontend (it uses
 /// patterns outside the current surface). This shim covers `$ERROR` and
-/// `assert.sameValue` / `assert.notSameValue` used by early language tests.
+/// `assert.sameValue` / `assert.notSameValue` / `assert.throws` used by
+/// early language tests (incl. E19.07 BigInt mixed-type TypeError paths).
 pub const HARNESS_SHIM: &str = r#"
 function $ERROR(message) {
   throw new Error(String(message));
@@ -188,6 +189,31 @@ let assert = {
     }
     if (same === true) {
       $ERROR(message || "Unexpected SameValue match");
+    }
+  },
+  throws: function(expectedErrorConstructor, func, message) {
+    if (typeof func !== "function") {
+      $ERROR("assert.throws requires two arguments: the error constructor and a function to run");
+    }
+    let msg = "";
+    if (message !== undefined) {
+      msg = message + " ";
+    }
+    let threw = false;
+    try {
+      func();
+    } catch (thrown) {
+      threw = true;
+      if (typeof thrown !== "object" || thrown === null) {
+        $ERROR(msg + "Thrown value was not an object!");
+      } else if (thrown.constructor !== expectedErrorConstructor) {
+        let expectedName = expectedErrorConstructor.name;
+        let actualName = thrown.constructor.name;
+        $ERROR(msg + "Expected a " + expectedName + " but got a " + actualName);
+      }
+    }
+    if (threw === false) {
+      $ERROR(msg + "Expected a " + expectedErrorConstructor.name + " to be thrown but no exception was thrown at all");
     }
   }
 };
@@ -384,6 +410,25 @@ mod tests {
     #[test]
     fn harness_shim_catches_failure() {
         let js = compile_test_to_js("assert.sameValue(1, 2, \"nope\");\n").expect("compile");
+        assert!(run_js_in_node(&js).is_err());
+    }
+
+    #[test]
+    fn harness_shim_throws_typeerror() {
+        let js = compile_test_to_js(
+            r#"
+            assert.throws(TypeError, function() { 1n + 1; });
+            assert.throws(TypeError, function() { 1 + 1n; });
+            "#,
+        )
+        .expect("compile");
+        run_js_in_node(&js).expect("node");
+    }
+
+    #[test]
+    fn harness_shim_throws_fails_when_no_throw() {
+        let js = compile_test_to_js("assert.throws(TypeError, function() { 1 + 1; });\n")
+            .expect("compile");
         assert!(run_js_in_node(&js).is_err());
     }
 

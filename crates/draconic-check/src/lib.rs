@@ -3970,9 +3970,12 @@ impl<'a> Checker<'a> {
             // Binary `+`: string preference (ToString) else numeric (ToNumber), per ECMA-262.
             // Object/Function sides use runtime ToPrimitive (valueOf/toString); static type is Any.
             BinaryOp::Add => {
-                if left == Type::BigInt || right == Type::BigInt {
-                    if left == Type::BigInt && right == Type::BigInt {
-                        Ok(Type::BigInt)
+                if left == Type::BigInt && right == Type::BigInt {
+                    Ok(Type::BigInt)
+                } else if left == Type::String || right == Type::String {
+                    // Including BigInt + string → ToString concat (ECMA-262).
+                    if self.is_js_add_side(left) && self.is_js_add_side(right) {
+                        Ok(Type::String)
                     } else {
                         Err(Diagnostic::new(
                             format!(
@@ -3981,8 +3984,20 @@ impl<'a> Checker<'a> {
                             span,
                         ))
                     }
-                } else if left == Type::String || right == Type::String {
-                    Ok(Type::String)
+                } else if left == Type::BigInt || right == Type::BigInt {
+                    // E19.07: mixed bigint×number/object/any — TypeError (or ToPrimitive) at runtime.
+                    if self.is_js_bigint_mixed_operand(left)
+                        && self.is_js_bigint_mixed_operand(right)
+                    {
+                        Ok(Type::Any)
+                    } else {
+                        Err(Diagnostic::new(
+                            format!(
+                                "operator `+` cannot be applied to types `{left}` and `{right}`"
+                            ),
+                            span,
+                        ))
+                    }
                 } else if let Some(n) =
                     self.native_arith_result(left, right, left_expr, right_expr)
                 {
@@ -4027,11 +4042,15 @@ impl<'a> Checker<'a> {
             | BinaryOp::Shr
             | BinaryOp::UShr => {
                 if left == Type::BigInt || right == Type::BigInt {
-                    // Same-type BigInt only; mixed BigInt/Number is a runtime TypeError.
-                    // `>>>` is not defined on BigInt in ECMA-262.
+                    // Same-type BigInt (except `>>>`, which always TypeErrors on BigInt).
+                    // E19.07: mixed bigint×number/object/any — TypeError is runtime, not compile.
                     if left == Type::BigInt && right == Type::BigInt && !matches!(op, BinaryOp::UShr)
                     {
                         Ok(Type::BigInt)
+                    } else if self.is_js_bigint_mixed_operand(left)
+                        && self.is_js_bigint_mixed_operand(right)
+                    {
+                        Ok(Type::Any)
                     } else {
                         Err(Diagnostic::new(
                             format!(
@@ -4124,6 +4143,16 @@ impl<'a> Checker<'a> {
         )
     }
 
+    /// E19.07: BigInt or JS value that may mix with BigInt at runtime (TypeError / ToPrimitive).
+    fn is_js_bigint_mixed_operand(&self, ty: Type) -> bool {
+        ty == Type::BigInt || self.is_js_to_number_operand(ty)
+    }
+
+    /// Sides legal for binary `+` string/numeric paths (JS values + BigInt; not native/ptr).
+    fn is_js_add_side(&self, ty: Type) -> bool {
+        self.is_js_bigint_mixed_operand(ty)
+    }
+
     /// Relational comparison operands after ToPrimitive (includes BigInt same-type path separately).
     fn is_js_relational_operand(&self, ty: Type) -> bool {
         self.is_js_to_number_operand(ty) || ty == Type::BigInt
@@ -4159,7 +4188,7 @@ impl<'a> Checker<'a> {
     }
 
     fn is_add_operand(&self, ty: Type) -> bool {
-        !matches!(ty, Type::BigInt | Type::Native(_) | Type::Ptr(_))
+        !matches!(ty, Type::Native(_) | Type::Ptr(_))
     }
 }
 
@@ -5408,15 +5437,41 @@ mod tests {
         assert_eq!(sym_type(&checked, "c"), Type::Boolean);
     }
 
+    // E19.07: mixed BigInt×Number/object/any is ECMA-262-valid; TypeError is runtime.
     #[test]
-    fn check_arithmetic_still_rejects_bigint_mixed() {
-        let program = parse("let x = 1n - 1;").unwrap();
-        let err = check(program).unwrap_err();
-        assert!(
-            err.message.contains("operator"),
-            "unexpected message: {}",
-            err.message
-        );
+    fn check_arithmetic_allows_bigint_mixed() {
+        let program = parse(
+            r#"
+            let a = 1n - 1;
+            let b = 1 + 1n;
+            let c = 1n * true;
+            let d = null / 1n;
+            let e = 1n + "x";
+            let o = { valueOf: function () { return 1n; } };
+            let f = o + 1n;
+            let g = 1n & 1;
+            let h = 1n >>> 1;
+            "#,
+        )
+        .unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::Any);
+        assert_eq!(sym_type(&checked, "b"), Type::Any);
+        assert_eq!(sym_type(&checked, "c"), Type::Any);
+        assert_eq!(sym_type(&checked, "d"), Type::Any);
+        assert_eq!(sym_type(&checked, "e"), Type::String);
+        assert_eq!(sym_type(&checked, "f"), Type::Any);
+        assert_eq!(sym_type(&checked, "g"), Type::Any);
+        assert_eq!(sym_type(&checked, "h"), Type::Any);
+    }
+
+    #[test]
+    fn check_arithmetic_same_type_bigint_still_bigint() {
+        let program = parse("let a = 1n + 2n; let b = 3n * 4n; let c = 5n << 1n;").unwrap();
+        let checked = check(program).unwrap();
+        assert_eq!(sym_type(&checked, "a"), Type::BigInt);
+        assert_eq!(sym_type(&checked, "b"), Type::BigInt);
+        assert_eq!(sym_type(&checked, "c"), Type::BigInt);
     }
 
     #[test]
