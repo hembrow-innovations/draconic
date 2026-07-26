@@ -973,7 +973,7 @@ fn lower_class_local(
         }
     }
 
-    // Private methods: synthetic function locals (E18.37). Bodies lowered after maps are live.
+    // Private methods: synthetic function locals (E18.37 instance; E18.38 static). Bodies lowered after maps are live.
     let mut private_method_map: HashMap<String, LocalId> = HashMap::new();
     let mut private_method_meta: Vec<(
         LocalId,

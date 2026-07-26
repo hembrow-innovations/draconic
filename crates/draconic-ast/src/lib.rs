@@ -325,7 +325,7 @@ pub enum ClassElement {
         is_static: bool,
         is_async: bool,
         is_generator: bool,
-        /// `true` for `#name(...)` private methods (E18.37).
+        /// `true` for `#name(...)` / `static #name(...)` private methods (E18.37 / E18.38).
         is_private: bool,
         span: Span,
     },

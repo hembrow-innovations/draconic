@@ -642,7 +642,7 @@ impl Parser {
         } else {
             false
         };
-        // Private field/method: `#name;` / `#name = expr;` / `#name(…){…}` (E18.35 / E18.37).
+        // Private field/method: `#name;` / `#name = expr;` / `static? #name(…){…}` (E18.35 / E18.37 / E18.38).
         if let TokenKind::PrivateIdent(pname) = &self.current().kind {
             let pname = pname.clone();
             let name_tok = self.bump();

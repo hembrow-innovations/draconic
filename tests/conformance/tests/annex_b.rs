@@ -396,3 +396,13 @@ fn private_methods_fixture_present() {
 fn private_methods_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/private_methods");
 }
+
+#[test]
+fn static_private_methods_fixture_present() {
+    assert_fixture_present("es/annex-b/static_private_methods");
+}
+
+#[test]
+fn static_private_methods_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/static_private_methods");
+}

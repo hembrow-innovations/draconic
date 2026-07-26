@@ -1,0 +1,91 @@
+class Counter {
+  static #n = 0;
+  static #inc() {
+    Counter.#n = Counter.#n + 1;
+    return Counter.#n;
+  }
+  static bump() {
+    return Counter.#inc();
+  }
+  static value() {
+    return Counter.#n;
+  }
+}
+let a = Counter.bump();
+let b = Counter.bump();
+let c = Counter.value();
+let d = typeof Counter.inc;
+let e = typeof new Counter().inc;
+
+class WithThis {
+  static #x = 1;
+  static #add(v) {
+    this.#x = this.#x + v;
+    return this.#x;
+  }
+  static run() {
+    return this.#add(2);
+  }
+}
+let f = WithThis.run();
+let g = WithThis.run();
+
+class Greeter {
+  static #hi(name) {
+    return "hi " + name;
+  }
+  static greet(name) {
+    return Greeter.#hi(name);
+  }
+}
+let h = Greeter.greet("world");
+
+class Nested {
+  static #inner(n) {
+    return n + 1;
+  }
+  static #outer(n) {
+    return Nested.#inner(n) + Nested.#inner(n);
+  }
+  static run(n) {
+    return Nested.#outer(n);
+  }
+}
+let i = Nested.run(3);
+
+class Parent {
+  static #base() {
+    return 100;
+  }
+  static base() {
+    return Parent.#base();
+  }
+}
+class Child extends Parent {
+  static #extra() {
+    return 1;
+  }
+  static total() {
+    return Parent.base() + Child.#extra();
+  }
+}
+let j = Child.total();
+let k = Parent.base();
+
+class Mix {
+  static #priv() {
+    return 7;
+  }
+  #inst() {
+    return 3;
+  }
+  static s() {
+    return Mix.#priv();
+  }
+  i() {
+    return this.#inst();
+  }
+}
+let m = new Mix();
+let l = Mix.s();
+let n = m.i();
