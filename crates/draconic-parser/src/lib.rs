@@ -4261,6 +4261,20 @@ Program
     }
 
     #[test]
+    fn parse_async_generators() {
+        let dump = parse_and_dump(
+            "async function* g() { yield 1; yield await p; } let f = async function* (x) { yield x; }; let o = { async *m() { yield 2; } }; class C { async *n() { yield 3; } static async *s() { yield 4; } }",
+        )
+        .unwrap();
+        assert!(dump.contains("async: true"), "got:\n{dump}");
+        assert!(dump.contains("generator: true"), "got:\n{dump}");
+        assert!(dump.contains("Unary yield"), "got:\n{dump}");
+        assert!(dump.contains("Unary await"), "got:\n{dump}");
+        assert!(dump.contains("Method\n"), "got:\n{dump}");
+        assert!(dump.contains("StaticMethod\n"), "got:\n{dump}");
+    }
+
+    #[test]
     fn parse_arrow_block_body_and_bare_param() {
         let dump = parse_and_dump("let f = x => { return x; }; let g = () => 1;").unwrap();
         assert_eq!(

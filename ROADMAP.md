@@ -162,6 +162,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E16.03 | done | both | Indirect eval: `(0, eval)(s)` / `globalThis.eval(s)` (global scope; not caller lexical) | `tests/conformance` fixtures `es/eval` |
 | E17 | done | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
 | E18 | todo | both | Remaining Annex B / full 262 gaps (track explicitly, do not drop) | `tests/conformance/es/annex-b` |
+| E18.43 | done | both | Async generators: `async function* g(){ yield expr; }` / `async function* (params){…}` / `{ async *m(){…} }` / class `async *m()`; call returns async iterator; `.next()` → Promise of `{value,done}`; `for await` over async gen | `tests/conformance` fixtures `es/annex-b` |
 | E18.42 | done | both | `for await…of`: `for await (let x of asyncIterable)` / assign binding; async iter protocol; only in async functions | `tests/conformance` fixtures `es/annex-b` |
 | E18.41 | done | both | Class static initialization blocks: `static { … }` (runs at class eval; access private statics; multiple blocks in order) | `tests/conformance` fixtures `es/annex-b` |
 | E18.40 | done | both | Private brand check: `#x in obj` (true iff obj has the private field/method/accessor; false for null/undefined/unrelated) | `tests/conformance` fixtures `es/annex-b` |

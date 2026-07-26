@@ -1,0 +1,100 @@
+let declV1 = 0;
+let declD1 = true;
+let declV2 = 0;
+let declD2 = false;
+let declV3 = 0;
+let declD3 = false;
+let awaitV = 0;
+let exprV = 0;
+let objV1 = 0;
+let objV2 = 0;
+let classV = 0;
+let staticV = 0;
+let forSum = 0;
+
+async function* decl() {
+  yield 10;
+  yield 20;
+  return 30;
+}
+let it = decl();
+it.next().then(function (r) {
+  declV1 = r.value;
+  declD1 = r.done;
+  return it.next();
+}).then(function (r) {
+  declV2 = r.value;
+  declD2 = r.done;
+  return it.next();
+}).then(function (r) {
+  declV3 = r.value;
+  declD3 = r.done;
+});
+
+async function* withAwait(x) {
+  let v = await Promise.resolve(x);
+  yield v + 1;
+  return v + 2;
+}
+let itA = withAwait(5);
+itA.next().then(function (r) {
+  awaitV = r.value;
+});
+
+let expr = async function* (n) {
+  yield n;
+  yield n * 2;
+};
+let itE = expr(3);
+itE.next().then(function (r) {
+  exprV = r.value;
+});
+
+let obj = {
+  async *m(a) {
+    yield a;
+    yield a + 1;
+  }
+};
+let itO = obj.m(7);
+itO.next().then(function (r) {
+  objV1 = r.value;
+  return itO.next();
+}).then(function (r) {
+  objV2 = r.value;
+});
+
+class C {
+  constructor(n) {
+    this.n = n;
+  }
+  async *gen() {
+    yield this.n;
+  }
+  static async *sgen(x) {
+    yield x;
+  }
+}
+let c = new C(11);
+c.gen().next().then(function (r) {
+  classV = r.value;
+});
+C.sgen(13).next().then(function (r) {
+  staticV = r.value;
+});
+
+async function sumGen() {
+  async function* nums() {
+    yield 1;
+    yield 2;
+    yield 3;
+  }
+  let s = 0;
+  for await (let x of nums()) {
+    s = s + x;
+  }
+  return s;
+}
+sumGen().then(function (v) {
+  forSum = v;
+});

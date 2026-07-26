@@ -446,3 +446,13 @@ fn for_await_of_fixture_present() {
 fn for_await_of_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/for_await_of");
 }
+
+#[test]
+fn async_generators_fixture_present() {
+    assert_fixture_present("es/annex-b/async_generators");
+}
+
+#[test]
+fn async_generators_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/async_generators");
+}
