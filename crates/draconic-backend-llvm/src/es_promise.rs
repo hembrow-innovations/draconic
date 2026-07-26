@@ -1,4 +1,4 @@
-//! N06.03–N06.10: lower Promise + async/await to Runtime ABI.
+//! N06.03–N06.11: lower Promise + async/await (incl. async arrows) to Runtime ABI.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -10,7 +10,7 @@ use draconic_ir::{
     Stmt,
 };
 
-/// True when this module is the supported Promise/async subset (E12.01–E12.08 / N06.03–N06.10).
+/// True when this module is the supported Promise/async subset (E12.01–E12.09 / N06.03–N06.11).
 pub(crate) fn is_es_promise_module(module: &Module) -> bool {
     match try_classify(module) {
         Ok(info) => info.uses_promise,
@@ -104,6 +104,18 @@ fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
     })
 }
 
+fn check_simple_params(params: &[Param]) -> Result<(), String> {
+    for p in params {
+        if p.rest || p.default.is_some() {
+            return Err("rest/default params not supported".into());
+        }
+        if !matches!(p.pattern, Pattern::Local(_)) {
+            return Err("only simple params supported".into());
+        }
+    }
+    Ok(())
+}
+
 fn collect_top_level_decl_ids(body: &[Stmt], out: &mut HashSet<LocalId>) {
     for stmt in body {
         match stmt {
@@ -149,9 +161,7 @@ fn check_stmt(stmt: &Stmt, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             if !*is_async || *is_generator {
                 return Err("only async function declarations supported in Promise path".into());
             }
-            if !params.is_empty() {
-                return Err("async function params not supported yet (N06.10)".into());
-            }
+            check_simple_params(params)?;
             *uses = true;
             for s in body {
                 check_stmt(s, promise_id, uses)?;
@@ -292,22 +302,12 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
                 return Err("generator functions not supported in Promise path".into());
             }
             if *is_async {
-                if !params.is_empty() {
-                    return Err("async function params not supported yet (N06.10)".into());
-                }
                 *uses = true;
             }
             if name.is_some() {
                 return Err("named function expressions not supported".into());
             }
-            for p in params {
-                if p.rest || p.default.is_some() {
-                    return Err("rest/default params not supported".into());
-                }
-                if !matches!(p.pattern, Pattern::Local(_)) {
-                    return Err("only simple params supported".into());
-                }
-            }
+            check_simple_params(params)?;
             for s in body {
                 check_stmt(s, promise_id, uses)?;
             }
@@ -378,7 +378,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N06.03–N06.10 Promise/async via Runtime ABI)"
+            "; Draconic LLVM backend (N06.03–N06.11 Promise/async via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "declare void @draconic_rt_gc_init()").ok();
@@ -959,19 +959,25 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
                 return Ok(t);
             }
-            // User async function call (0-arg subset for N06.10).
-            if args.is_empty() {
-                if let Some(name) = self.async_fns.get(id).cloned() {
-                    let t = self.fresh();
-                    writeln!(self.body, "  {t} = call ptr @{name}()").ok();
-                    return Ok(t);
-                }
-                if matches!(self.slot_kind(*id), Some(SlotKind::Object)) {
-                    let fp = self.load_local(*id)?;
-                    let t = self.fresh();
-                    writeln!(self.body, "  {t} = call ptr {fp}()").ok();
-                    return Ok(t);
-                }
+            // User async function call (0+ simple args; N06.10–N06.11).
+            let mut arg_ssas = Vec::with_capacity(args.len());
+            for a in args {
+                let Arg::Expr(e) = a else {
+                    return Err(diag("spread args not supported"));
+                };
+                arg_ssas.push(self.emit_expr(e)?);
+            }
+            let arg_list = format_ptr_args(&arg_ssas);
+            if let Some(name) = self.async_fns.get(id).cloned() {
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = call ptr @{name}({arg_list})").ok();
+                return Ok(t);
+            }
+            if matches!(self.slot_kind(*id), Some(SlotKind::Object)) {
+                let fp = self.load_local(*id)?;
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = call ptr {fp}({arg_list})").ok();
+                return Ok(t);
             }
         }
 
@@ -1236,10 +1242,18 @@ impl<'a> Emitter<'a> {
         Ok(t)
     }
 
-    /// Emit a 0-arg async function: returns a Promise (N06.10).
+    /// Emit an async function/arrow: returns a Promise (N06.10–N06.11).
+    /// Supports simple ident params (no rest/default); body may use `await` / `return` / `throw`.
     fn emit_async_fn(&mut self, params: &[Param], body: &[Stmt]) -> Result<String, Diagnostic> {
-        if !params.is_empty() {
-            return Err(diag("async function params not supported yet (N06.10)"));
+        let mut param_ids = Vec::with_capacity(params.len());
+        for p in params {
+            if p.rest || p.default.is_some() {
+                return Err(diag("rest/default params not supported on async"));
+            }
+            let Pattern::Local(id) = &p.pattern else {
+                return Err(diag("only simple async params supported"));
+            };
+            param_ids.push(*id);
         }
         let fn_name = self.fresh_fn("async");
 
@@ -1254,11 +1268,21 @@ impl<'a> Emitter<'a> {
         self.executor_params.clear();
         self.reaction_params.clear();
         self.reaction_captures.clear();
+        for (i, id) in param_ids.iter().enumerate() {
+            self.reaction_params.insert(*id, format!("%arg{i}"));
+        }
 
         let ret_promise = self.emit_async_body(body)?;
 
+        let mut sig_params = String::new();
+        for i in 0..param_ids.len() {
+            if i > 0 {
+                sig_params.push_str(", ");
+            }
+            write!(sig_params, "ptr %arg{i}").ok();
+        }
         let mut fn_ir = String::new();
-        writeln!(fn_ir, "define ptr @{fn_name}() {{").ok();
+        writeln!(fn_ir, "define ptr @{fn_name}({sig_params}) {{").ok();
         writeln!(fn_ir, "entry:").ok();
         fn_ir.push_str(&self.body);
         writeln!(fn_ir, "  ret ptr {ret_promise}").ok();
@@ -2010,6 +2034,17 @@ fn expr_contains_await(expr: &Expr) -> bool {
         Expr::Function { body, .. } => body.iter().any(stmt_contains_await),
         _ => false,
     }
+}
+
+fn format_ptr_args(args: &[String]) -> String {
+    let mut out = String::new();
+    for (i, a) in args.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        write!(out, "ptr {a}").ok();
+    }
+    out
 }
 
 fn parse_number(raw: &str) -> Result<i64, Diagnostic> {

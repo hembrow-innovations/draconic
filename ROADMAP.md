@@ -244,6 +244,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | N06.08 | done | native | LLVM `Promise.allSettled` via Runtime ABI: iterable of promises/values; fulfill with `{status,value\|reason}[]`; empty → `[]`; real native observations for `es/async/promise_allSettled` | `tests/conformance` fixtures `es/async/promise_allSettled`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N06.09 | done | native | LLVM `Promise.any` via Runtime ABI: iterable of promises/values; fulfill with first fulfillment; reject `AggregateError` if all reject; empty → reject; real native observations for `es/async/promise_any` | `tests/conformance` fixtures `es/async/promise_any`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N06.10 | done | native | LLVM `async function` + `await` via Runtime ABI: declaration/expression, `await` expr; returns Promise; sync throw → reject; real native observations for `es/async/async_await` | `tests/conformance` fixtures `es/async/async_await`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
+| N06.11 | done | native | LLVM async arrows via Runtime ABI: `async (params) => expr` / `async (params) => { … }` (simple ident params; `await` in body; returns Promise); real native observations for `es/async/async_arrow` | `tests/conformance` fixtures `es/async/async_arrow`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
 | N07 | todo | native | Embed: compile `eval` strings inside Runtime | `tests/conformance/es/eval` |
 
 ---

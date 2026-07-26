@@ -1,4 +1,4 @@
-//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.10 Promise/async).
+//! LLVM backend: IR → native (ROADMAP B08 stub + N01–N03 native + N06.03–N06.11 Promise/async).
 
 mod es_promise;
 mod native_ints;
@@ -17,9 +17,9 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// Programs that use only native scalar types (`i8`–`i64`, `u8`–`u64`, `f32`/
 /// `f64`, `bool`) and/or native layout structs (shapes of native scalar fields)
 /// with a supported statement/expression subset are lowered for real. Promise
-/// constructor basics through async/await (N06.03–N06.10) lower via the Runtime
-/// Promise ABI. Everything else keeps the B08 hello stub so existing ES
-/// conformance fixtures stay green.
+/// constructor basics through async/await and async arrows (N06.03–N06.11) lower
+/// via the Runtime Promise ABI. Everything else keeps the B08 hello stub so
+/// existing ES conformance fixtures stay green.
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         emit_native_ints(module)
