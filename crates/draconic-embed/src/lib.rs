@@ -4,6 +4,11 @@
 //! evaluate them with a minimal IR interpreter (completion value of the script).
 //! N07.03: evaluate `Function` bodies (`return expr`) with bound parameter values.
 //! N07.04: evaluate with injected name bindings (direct lexical / indirect global).
+//! Outer Program fold (N07.02–N07.04 native): [`fold_eval_program`].
+
+mod fold;
+
+pub use fold::{fold_eval_program, is_eval_fold_module, Observation};
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
