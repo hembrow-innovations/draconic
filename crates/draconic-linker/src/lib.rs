@@ -17,7 +17,7 @@ use draconic_ast::{
 };
 use draconic_diagnostics::{Diagnostic, Span};
 
-use crate::parse;
+use draconic_parser::parse;
 
 /// Parse `entry` and all static relative imports into one linked Program.
 pub fn link_entry(entry: &Path) -> Result<Program, Diagnostic> {

@@ -26,7 +26,9 @@ cargo run -p draconic-cli -- parse path/to/file.dr
 | Path | Role |
 |------|------|
 | `crates/draconic-lexer` | Lexer |
-| `crates/draconic-parser` | Parser |
+| `crates/draconic-parser` | Parser (source → AST) |
+| `crates/draconic-linker` | ESM module linker |
+| `crates/draconic-frontend` | Frontend (parse/link → check → IR) |
 | `crates/draconic-ast` | AST + dump |
 | `crates/draconic-check` | Binder + Checker |
 | `crates/draconic-ir` | Shared IR |

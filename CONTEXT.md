@@ -38,6 +38,10 @@ _Avoid_: tsc, transpiler (when the native path is in view)
 The compile path from source (or a filesystem entry) through parse, bind, typecheck, and lower into IR. Script vs Module (link) policy lives here; callers do not wire stage crates.
 _Avoid_: parser (when meaning the whole front half)
 
+**Linker**:
+Loads an entry path’s ESM import graph, mangles bindings, and flattens to one Program. Owned by `draconic-linker`; Frontend chooses parse vs link. Not part of the Parser product.
+_Avoid_: bundler (when meaning our static link step), parser
+
 **IR**:
 The shared intermediate representation both backends lower from after the Frontend.
 _Avoid_: AST (post-check), bytecode (unless a concrete IR form is bytecode)

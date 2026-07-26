@@ -14,9 +14,6 @@ pub fn parse(source: &str) -> Result<Program, Diagnostic> {
     Parser::new(tokens).parse_program()
 }
 
-mod link;
-pub use link::link_entry;
-
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,

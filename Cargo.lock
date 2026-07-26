@@ -89,6 +89,7 @@ dependencies = [
  "draconic-check",
  "draconic-diagnostics",
  "draconic-ir",
+ "draconic-linker",
  "draconic-parser",
 ]
 
@@ -117,6 +118,15 @@ name = "draconic-lexer"
 version = "0.1.0"
 dependencies = [
  "draconic-diagnostics",
+]
+
+[[package]]
+name = "draconic-linker"
+version = "0.1.0"
+dependencies = [
+ "draconic-ast",
+ "draconic-diagnostics",
+ "draconic-parser",
 ]
 
 [[package]]

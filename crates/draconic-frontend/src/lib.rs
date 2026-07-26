@@ -9,7 +9,8 @@ use draconic_ast::{Program, Stmt};
 use draconic_check::check;
 use draconic_diagnostics::Diagnostic;
 use draconic_ir::lower;
-use draconic_parser::{link_entry, parse};
+use draconic_linker::link_entry;
+use draconic_parser::parse;
 
 pub use draconic_check::CheckedProgram;
 pub use draconic_ir::Module;

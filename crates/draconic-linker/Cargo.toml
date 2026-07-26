@@ -1,5 +1,5 @@
 [package]
-name = "draconic-frontend"
+name = "draconic-linker"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,6 +8,3 @@ license.workspace = true
 draconic-ast.workspace = true
 draconic-diagnostics.workspace = true
 draconic-parser.workspace = true
-draconic-linker.workspace = true
-draconic-check.workspace = true
-draconic-ir.workspace = true
