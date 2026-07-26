@@ -1,8 +1,8 @@
 #
 # Curated Test262 paths (relative to TEST262_ROOT / third_party/test262).
-# Expanded under ROADMAP E19.02–E19.16 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
+# Expanded under ROADMAP E19.02–E19.17 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
 # statements/control, call/new/delete/in/instanceof, compound/logical assignment greens,
-# object/assignment/try dstr fill-ins, for-head dstr, ASI, statementList, directive-prologue, reserved words).
+# object/assignment/try dstr fill-ins, for-head dstr, catch dstr, ASI, statementList, directive-prologue, reserved words).
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 # Lines starting with # and blank lines are ignored.
 test/language/asi/S7.9.2_A1_T2.js
@@ -5136,3 +5136,79 @@ test/language/white-space/string-horizontal-tab.js
 test/language/white-space/string-nbsp.js
 test/language/white-space/string-space.js
 test/language/white-space/string-vertical-tab.js
+test/language/statements/try/dstr/ary-init-iter-close.js
+test/language/statements/try/dstr/ary-init-iter-get-err-array-prototype.js
+test/language/statements/try/dstr/ary-init-iter-get-err.js
+test/language/statements/try/dstr/ary-init-iter-no-close.js
+test/language/statements/try/dstr/ary-name-iter-val.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-elem-init.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-elem-iter.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-elision-iter.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-empty-init.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-empty-iter.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-rest-init.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-rest-iter.js
+test/language/statements/try/dstr/ary-ptrn-elem-ary-val-null.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-exhausted.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-fn-name-arrow.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-fn-name-cover.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-fn-name-fn.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-fn-name-gen.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-hole.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-skipped.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-throws.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-undef.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-init-unresolvable.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-iter-complete.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-iter-done.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-iter-step-err.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-iter-val-array-prototype.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-iter-val-err.js
+test/language/statements/try/dstr/ary-ptrn-elem-id-iter-val.js
+test/language/statements/try/dstr/ary-ptrn-elem-obj-id-init.js
+test/language/statements/try/dstr/ary-ptrn-elem-obj-id.js
+test/language/statements/try/dstr/ary-ptrn-elem-obj-prop-id-init.js
+test/language/statements/try/dstr/ary-ptrn-elem-obj-prop-id.js
+test/language/statements/try/dstr/ary-ptrn-elem-obj-val-null.js
+test/language/statements/try/dstr/ary-ptrn-elem-obj-val-undef.js
+test/language/statements/try/dstr/ary-ptrn-elision-exhausted.js
+test/language/statements/try/dstr/ary-ptrn-empty.js
+test/language/statements/try/dstr/ary-ptrn-rest-ary-elem.js
+test/language/statements/try/dstr/ary-ptrn-rest-ary-elision.js
+test/language/statements/try/dstr/ary-ptrn-rest-ary-empty.js
+test/language/statements/try/dstr/ary-ptrn-rest-ary-rest.js
+test/language/statements/try/dstr/ary-ptrn-rest-id-elision-next-err.js
+test/language/statements/try/dstr/ary-ptrn-rest-id-elision.js
+test/language/statements/try/dstr/ary-ptrn-rest-id-exhausted.js
+test/language/statements/try/dstr/ary-ptrn-rest-id-iter-step-err.js
+test/language/statements/try/dstr/ary-ptrn-rest-id-iter-val-err.js
+test/language/statements/try/dstr/ary-ptrn-rest-id.js
+test/language/statements/try/dstr/ary-ptrn-rest-obj-id.js
+test/language/statements/try/dstr/obj-init-null.js
+test/language/statements/try/dstr/obj-init-undefined.js
+test/language/statements/try/dstr/obj-ptrn-empty.js
+test/language/statements/try/dstr/obj-ptrn-id-get-value-err.js
+test/language/statements/try/dstr/obj-ptrn-id-init-fn-name-arrow.js
+test/language/statements/try/dstr/obj-ptrn-id-init-fn-name-cover.js
+test/language/statements/try/dstr/obj-ptrn-id-init-fn-name-fn.js
+test/language/statements/try/dstr/obj-ptrn-id-init-fn-name-gen.js
+test/language/statements/try/dstr/obj-ptrn-id-init-skipped.js
+test/language/statements/try/dstr/obj-ptrn-id-init-throws.js
+test/language/statements/try/dstr/obj-ptrn-id-init-unresolvable.js
+test/language/statements/try/dstr/obj-ptrn-id-trailing-comma.js
+test/language/statements/try/dstr/obj-ptrn-list-err.js
+test/language/statements/try/dstr/obj-ptrn-prop-ary-init.js
+test/language/statements/try/dstr/obj-ptrn-prop-ary-trailing-comma.js
+test/language/statements/try/dstr/obj-ptrn-prop-ary-value-null.js
+test/language/statements/try/dstr/obj-ptrn-prop-ary.js
+test/language/statements/try/dstr/obj-ptrn-prop-id-get-value-err.js
+test/language/statements/try/dstr/obj-ptrn-prop-id-init-skipped.js
+test/language/statements/try/dstr/obj-ptrn-prop-id-init-throws.js
+test/language/statements/try/dstr/obj-ptrn-prop-id-init-unresolvable.js
+test/language/statements/try/dstr/obj-ptrn-prop-id-init.js
+test/language/statements/try/dstr/obj-ptrn-prop-id-trailing-comma.js
+test/language/statements/try/dstr/obj-ptrn-prop-id.js
+test/language/statements/try/dstr/obj-ptrn-prop-obj-init.js
+test/language/statements/try/dstr/obj-ptrn-prop-obj-value-null.js
+test/language/statements/try/dstr/obj-ptrn-prop-obj-value-undef.js
+test/language/statements/try/dstr/obj-ptrn-prop-obj.js

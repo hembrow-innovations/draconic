@@ -1,0 +1,4 @@
+id: es/exceptions/catch_destructure
+targets: js
+js.exit: 0
+js.check: if (a !== 6) process.exit(1); if (b !== 30) process.exit(2); if (c !== 7) process.exit(3); if (d !== 4) process.exit(4); if (e !== 9) process.exit(5);

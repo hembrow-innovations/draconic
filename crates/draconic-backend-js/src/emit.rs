@@ -248,7 +248,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
             if let Some(handler) = handler {
                 if let Some(param) = handler_param {
                     out.push_str(" catch (");
-                    out.push_str(local_name(names, *param));
+                    emit_pattern(out, param, names);
                     out.push_str(") {\n");
                 } else {
                     out.push_str(" catch {\n");

@@ -166,8 +166,8 @@ pub enum Stmt {
     /// `try { … } catch (param?) { … }? finally { … }?`
     Try {
         block: Vec<Stmt>,
-        /// Catch parameter local when present.
-        handler_param: Option<LocalId>,
+        /// Catch parameter pattern when present (`e` / `[a]` / `{x}`).
+        handler_param: Option<Pattern>,
         /// Catch body when a `catch` clause is present.
         handler: Option<Vec<Stmt>>,
         /// `finally` body when present.
@@ -837,15 +837,9 @@ fn lower_stmt(
             ..
         } => {
             let block = lower_fn_body(checked, ctx, block, super_class);
-            let handler_param = handler_param.as_ref().map(|param| {
-                checked
-                    .bound
-                    .symbols()
-                    .iter()
-                    .find(|s| s.span == param.span)
-                    .map(|s| s.id)
-                    .expect("catch binding must be declared")
-            });
+            let handler_param = handler_param
+                .as_ref()
+                .map(|param| lower_binding_pattern(checked, ctx, param));
             let handler = handler
                 .as_ref()
                 .map(|h| lower_fn_body(checked, ctx, h, super_class));
@@ -2771,6 +2765,68 @@ fn dump_object_pattern_els(properties: &[ObjectPatternEl], level: usize, out: &m
     }
 }
 
+fn dump_pattern_inline(pat: &Pattern, out: &mut String) {
+    match pat {
+        Pattern::Local(id) => out.push_str(&format!("%{}", id.0)),
+        Pattern::Name(name) => out.push_str(name),
+        Pattern::Member { .. } => out.push_str("<member>"),
+        Pattern::Array(els) => {
+            out.push('[');
+            for (i, el) in els.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                match el {
+                    ArrayPatternEl::Elision => {}
+                    ArrayPatternEl::Pattern { binding, default } => {
+                        dump_pattern_inline(binding, out);
+                        if default.is_some() {
+                            out.push_str(" = …");
+                        }
+                    }
+                    ArrayPatternEl::Rest(p) => {
+                        out.push_str("...");
+                        dump_pattern_inline(p, out);
+                    }
+                }
+            }
+            out.push(']');
+        }
+        Pattern::Object(props) => {
+            out.push('{');
+            for (i, p) in props.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                match p {
+                    ObjectPatternEl::Prop {
+                        key,
+                        binding,
+                        shorthand,
+                        default,
+                    } => {
+                        if *shorthand {
+                            out.push_str(key);
+                        } else {
+                            out.push_str(key);
+                            out.push_str(": ");
+                            dump_pattern_inline(binding, out);
+                        }
+                        if default.is_some() {
+                            out.push_str(" = …");
+                        }
+                    }
+                    ObjectPatternEl::Rest(p) => {
+                        out.push_str("...");
+                        dump_pattern_inline(p, out);
+                    }
+                }
+            }
+            out.push('}');
+        }
+    }
+}
+
 fn dump_pattern(pat: &Pattern, level: usize, out: &mut String) {
     match pat {
         Pattern::Local(id) => {
@@ -3077,7 +3133,8 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 indent(level + 1, out);
                 out.push_str("catch");
                 if let Some(param) = handler_param {
-                    out.push_str(&format!(" %{}", param.0));
+                    out.push(' ');
+                    dump_pattern_inline(param, out);
                 }
                 out.push_str(":\n");
                 for s in handler {

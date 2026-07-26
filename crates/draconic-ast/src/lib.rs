@@ -267,8 +267,8 @@ pub enum Stmt {
     /// `try { … } catch (param)? { … }? finally { … }?` (at least one of catch/finally)
     Try {
         block: Box<Stmt>,
-        /// Catch parameter name when present (`catch (e)`).
-        handler_param: Option<Ident>,
+        /// Catch parameter when present (`catch (e)` / `catch ([a])` / `catch ({x})`).
+        handler_param: Option<BindingPattern>,
         /// Catch body when a `catch` clause is present.
         handler: Option<Box<Stmt>>,
         /// `finally` block when present.
@@ -958,6 +958,69 @@ fn indent(level: usize, out: &mut String) {
     }
 }
 
+/// Compact single-line-ish dump for catch param headers (`catch (e)` / `catch ([a, b])`).
+fn dump_binding_pattern_inline(pat: &BindingPattern, out: &mut String) {
+    match pat {
+        BindingPattern::Ident(name) => out.push_str(&name.name),
+        BindingPattern::Member(_) => out.push_str("<member>"),
+        BindingPattern::Array { elements, .. } => {
+            out.push('[');
+            for (i, el) in elements.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                match el {
+                    ArrayPatternElement::Elision => {}
+                    ArrayPatternElement::Pattern { binding, default } => {
+                        dump_binding_pattern_inline(binding, out);
+                        if default.is_some() {
+                            out.push_str(" = …");
+                        }
+                    }
+                    ArrayPatternElement::Rest(binding) => {
+                        out.push_str("...");
+                        dump_binding_pattern_inline(binding, out);
+                    }
+                }
+            }
+            out.push(']');
+        }
+        BindingPattern::Object { properties, .. } => {
+            out.push('{');
+            for (i, p) in properties.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                match p {
+                    ObjectPatternProp::Prop {
+                        key,
+                        binding,
+                        shorthand,
+                        default,
+                        ..
+                    } => {
+                        if *shorthand {
+                            out.push_str(&key.name);
+                        } else {
+                            out.push_str(&key.name);
+                            out.push_str(": ");
+                            dump_binding_pattern_inline(binding, out);
+                        }
+                        if default.is_some() {
+                            out.push_str(" = …");
+                        }
+                    }
+                    ObjectPatternProp::Rest(binding) => {
+                        out.push_str("...");
+                        dump_binding_pattern_inline(binding, out);
+                    }
+                }
+            }
+            out.push('}');
+        }
+    }
+}
+
 fn dump_binding_pattern(pat: &BindingPattern, level: usize, out: &mut String) {
     match pat {
         BindingPattern::Ident(name) => {
@@ -1555,7 +1618,9 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 indent(level + 1, out);
                 out.push_str("catch");
                 if let Some(param) = handler_param {
-                    out.push_str(&format!(" ({})", param.name));
+                    out.push_str(" (");
+                    dump_binding_pattern_inline(param, out);
+                    out.push(')');
                 }
                 out.push_str(":\n");
                 dump_stmt(handler, level + 2, out);

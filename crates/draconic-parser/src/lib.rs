@@ -1239,14 +1239,11 @@ impl Parser {
         let mut handler = None;
         if self.check(&TokenKind::Catch) {
             self.bump(); // catch
-            // Optional catch binding (ES2019): `catch { … }` or `catch (e) { … }`.
+            // Optional catch binding (ES2019): `catch { … }` or `catch (CatchParameter) { … }`.
+            // CatchParameter is BindingIdentifier | BindingPattern (array/object).
             if self.check(&TokenKind::LParen) {
                 self.bump();
-                let param_tok = self.expect_ident()?;
-                handler_param = Some(Ident {
-                    name: param_tok.ident_name(),
-                    span: param_tok.span,
-                });
+                handler_param = Some(self.parse_binding_pattern()?);
                 self.expect(&TokenKind::RParen)?;
             }
             if !self.check(&TokenKind::LBrace) {
@@ -5208,6 +5205,19 @@ Program
             parse_and_dump("try { throw 1; } catch { x = 1; } finally { y = 2; }").unwrap();
         assert!(with_finally.contains("catch:"), "got:\n{with_finally}");
         assert!(with_finally.contains("finally:"), "got:\n{with_finally}");
+    }
+
+    #[test]
+    fn parse_catch_binding_destructure() {
+        let ary = parse_and_dump("try { throw [1]; } catch ([a]) { x = a; }").unwrap();
+        assert!(ary.contains("catch ([a]):"), "got:\n{ary}");
+        let obj = parse_and_dump("try { throw {x: 1}; } catch ({x}) { y = x; }").unwrap();
+        assert!(obj.contains("catch ({x}):"), "got:\n{obj}");
+        let nested =
+            parse_and_dump("try { throw [[1]]; } catch ([[a]]) { z = a; }").unwrap();
+        assert!(nested.contains("catch ([[a]]):"), "got:\n{nested}");
+        let rest = parse_and_dump("try { throw [1, 2]; } catch ([a, ...r]) { z = r; }").unwrap();
+        assert!(rest.contains("catch ([a, ...r]):"), "got:\n{rest}");
     }
 
     #[test]

@@ -172,49 +172,52 @@ function $ERROR(message) {
 function Test262Error(message) {
   this.message = message;
 }
-let assert = {
-  sameValue: function(actual, expected, message) {
-    let same = actual === expected;
-    if (actual !== actual && expected !== expected) {
-      same = true;
+function assert(mustBeTrue, message) {
+  if (mustBeTrue !== true) {
+    $ERROR(message || ("Expected true but got " + String(mustBeTrue)));
+  }
+}
+assert.sameValue = function(actual, expected, message) {
+  let same = actual === expected;
+  if (actual !== actual && expected !== expected) {
+    same = true;
+  }
+  if (same === false) {
+    $ERROR(message || ("Expected SameValue, got " + String(actual) + " vs " + String(expected)));
+  }
+};
+assert.notSameValue = function(actual, unexpected, message) {
+  let same = actual === unexpected;
+  if (actual !== actual && unexpected !== unexpected) {
+    same = true;
+  }
+  if (same === true) {
+    $ERROR(message || "Unexpected SameValue match");
+  }
+};
+assert.throws = function(expectedErrorConstructor, func, message) {
+  if (typeof func !== "function") {
+    $ERROR("assert.throws requires two arguments: the error constructor and a function to run");
+  }
+  let msg = "";
+  if (message !== undefined) {
+    msg = message + " ";
+  }
+  let threw = false;
+  try {
+    func();
+  } catch (thrown) {
+    threw = true;
+    if (typeof thrown !== "object" || thrown === null) {
+      $ERROR(msg + "Thrown value was not an object!");
+    } else if (thrown.constructor !== expectedErrorConstructor) {
+      let expectedName = expectedErrorConstructor.name;
+      let actualName = thrown.constructor.name;
+      $ERROR(msg + "Expected a " + expectedName + " but got a " + actualName);
     }
-    if (same === false) {
-      $ERROR(message || ("Expected SameValue, got " + String(actual) + " vs " + String(expected)));
-    }
-  },
-  notSameValue: function(actual, unexpected, message) {
-    let same = actual === unexpected;
-    if (actual !== actual && unexpected !== unexpected) {
-      same = true;
-    }
-    if (same === true) {
-      $ERROR(message || "Unexpected SameValue match");
-    }
-  },
-  throws: function(expectedErrorConstructor, func, message) {
-    if (typeof func !== "function") {
-      $ERROR("assert.throws requires two arguments: the error constructor and a function to run");
-    }
-    let msg = "";
-    if (message !== undefined) {
-      msg = message + " ";
-    }
-    let threw = false;
-    try {
-      func();
-    } catch (thrown) {
-      threw = true;
-      if (typeof thrown !== "object" || thrown === null) {
-        $ERROR(msg + "Thrown value was not an object!");
-      } else if (thrown.constructor !== expectedErrorConstructor) {
-        let expectedName = expectedErrorConstructor.name;
-        let actualName = thrown.constructor.name;
-        $ERROR(msg + "Expected a " + expectedName + " but got a " + actualName);
-      }
-    }
-    if (threw === false) {
-      $ERROR(msg + "Expected a " + expectedErrorConstructor.name + " to be thrown but no exception was thrown at all");
-    }
+  }
+  if (threw === false) {
+    $ERROR(msg + "Expected a " + expectedErrorConstructor.name + " to be thrown but no exception was thrown at all");
   }
 };
 "#;

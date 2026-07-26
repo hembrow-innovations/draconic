@@ -88,3 +88,22 @@ fn optional_catch_runs() {
         );
     }
 }
+
+#[test]
+fn catch_destructure_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "es/exceptions/catch_destructure")
+        .expect("es/exceptions/catch_destructure");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}

@@ -757,7 +757,7 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
             *span = spans.next();
             uniqueify_stmt_spans(block, spans);
             if let Some(param) = handler_param {
-                param.span = spans.next();
+                uniqueify_binding_spans(param, spans);
             }
             if let Some(handler) = handler {
                 uniqueify_stmt_spans(handler, spans);
@@ -1504,7 +1504,7 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
             if let Some(handler) = handler {
                 scopes.push();
                 if let Some(param) = handler_param {
-                    scopes.declare_nested(&param.name);
+                    rename_binding_decl(param, renames, scopes);
                 }
                 rename_stmt(handler, renames, scopes);
                 scopes.pop();

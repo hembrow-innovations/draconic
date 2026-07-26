@@ -1,0 +1,30 @@
+let a = 0;
+let b = 0;
+let c = 0;
+let d = 0;
+let e = 0;
+try {
+  throw [1, 2, 3];
+} catch ([x, y, z]) {
+  a = x + y + z;
+}
+try {
+  throw { p: 10, q: 20 };
+} catch ({ p, q }) {
+  b = p + q;
+}
+try {
+  throw [[7]];
+} catch ([[n]]) {
+  c = n;
+}
+try {
+  throw [1, 2, 3, 4];
+} catch ([h, ...rest]) {
+  d = h + rest.length;
+}
+try {
+  throw { m: undefined };
+} catch ({ m = 9 }) {
+  e = m;
+}

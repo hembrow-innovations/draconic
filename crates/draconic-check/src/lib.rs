@@ -352,21 +352,28 @@ fn is_iteration_labelled_item(stmt: &Stmt) -> bool {
     }
 }
 
-/// If `param` appears in LexicallyDeclaredNames of the catch Block, return the
-/// conflicting name and its declaration span. Annex B.3.4 allows the same name
-/// in VarDeclaredNames (`var`); only lexical `let`/`const`/`class`/`function`
-/// at the top level of the catch block are rejected.
-fn catch_lexical_conflict(param: &str, handler: &Stmt) -> Option<(String, Span)> {
+/// If any catch-parameter bound name appears in LexicallyDeclaredNames of the
+/// catch Block, return the conflicting name and its declaration span. Annex
+/// B.3.4 allows the same name in VarDeclaredNames (`var`); only lexical
+/// `let`/`const`/`class`/`function` at the top level of the catch block are rejected.
+fn catch_lexical_conflict(param: &BindingPattern, handler: &Stmt) -> Option<(String, Span)> {
     let body: &[Stmt] = match handler {
         Stmt::Block { body, .. } => body.as_slice(),
         other => std::slice::from_ref(other),
     };
-    for stmt in body {
-        if let Some(span) = catch_stmt_lexical_name(stmt, param) {
-            return Some((param.to_string(), span));
+    let mut conflict = None;
+    param.for_each_ident(&mut |id| {
+        if conflict.is_some() {
+            return;
         }
-    }
-    None
+        for stmt in body {
+            if let Some(span) = catch_stmt_lexical_name(stmt, &id.name) {
+                conflict = Some((id.name.clone(), span));
+                return;
+            }
+        }
+    });
+    conflict
 }
 
 fn catch_stmt_lexical_name(stmt: &Stmt, param: &str) -> Option<Span> {
@@ -1170,9 +1177,7 @@ impl Binder {
                     // Early error: CatchParameter ∩ LexicallyDeclaredNames(Block).
                     // Annex B.3.4: CatchParameter ∩ VarDeclaredNames(Block) is allowed.
                     if let Some(param) = handler_param {
-                        if let Some((name, span)) =
-                            catch_lexical_conflict(&param.name, handler)
-                        {
+                        if let Some((name, span)) = catch_lexical_conflict(param, handler) {
                             return Err(Diagnostic::new(
                                 format!("duplicate declaration of `{name}`"),
                                 span,
@@ -1181,7 +1186,15 @@ impl Binder {
                     }
                     self.push_scope();
                     if let Some(param) = handler_param {
-                        self.declare(param.name.clone(), param.span, BindingKind::Let)?;
+                        // CatchParameter is a lexical binding (like `let`).
+                        if matches!(param, BindingPattern::Member(_)) {
+                            return Err(Diagnostic::new(
+                                "member expression is not a valid catch binding".to_string(),
+                                param.span(),
+                            ));
+                        }
+                        self.declare_binding(param, BindingKind::Let)?;
+                        self.bind_pattern_defaults(param)?;
                     }
                     self.bind_stmt(handler)?;
                     self.pop_scope();
@@ -2386,14 +2399,7 @@ impl<'a> Checker<'a> {
                 self.check_stmt(block, loop_depth, switch_depth, fn_depth, labels)?;
                 if let Some(handler) = handler {
                     if let Some(param) = handler_param {
-                        let id = self
-                            .bound
-                            .symbols()
-                            .iter()
-                            .find(|s| s.span == param.span)
-                            .map(|s| s.id)
-                            .expect("catch binding must be declared");
-                        self.symbol_types[id.0 as usize] = Type::Any;
+                        self.check_binding_pattern(param, Type::Any)?;
                     }
                     self.check_stmt(handler, loop_depth, switch_depth, fn_depth, labels)?;
                 }
