@@ -1,12 +1,11 @@
-let document = (globalThis).document;
-let localStorage = (globalThis).localStorage;
-let JSON = (globalThis).JSON;
+let doc = (globalThis).document;
+let storage = (globalThis).localStorage;
 const STORAGE_KEY = "draconic-todo";
 let todos = [];
 let nextId = 1;
 let filter = "all";
 function loadTodos() {
-let raw = (localStorage).getItem(STORAGE_KEY);
+let raw = (storage).getItem(STORAGE_KEY);
 if (((raw) === (null)) || ((raw) === (""))) {
 (todos = []);
 (nextId = 1);
@@ -32,7 +31,7 @@ if (((t).id) > (maxId)) {
 (nextId = (maxId) + (1));
 }
 function saveTodos() {
-(localStorage).setItem(STORAGE_KEY, (JSON).stringify(todos));
+(storage).setItem(STORAGE_KEY, (JSON).stringify(todos));
 }
 function remainingCount() {
 let n = 0;
@@ -111,23 +110,23 @@ function setFilter(value) {
 (render)();
 }
 function renderTodoItem(t) {
-let li = (document).createElement("li");
+let li = (doc).createElement("li");
 ((li).className = ((t).done) ? ("todo completed") : ("todo"));
 (li).setAttribute("data-id", (String)((t).id));
-let label = (document).createElement("label");
+let label = (doc).createElement("label");
 ((label).className = "todo-label");
-let checkbox = (document).createElement("input");
+let checkbox = (doc).createElement("input");
 ((checkbox).type = "checkbox");
 ((checkbox).checked = (t).done);
 (checkbox).addEventListener("change", () => {
 (toggleTodo)((t).id);
 });
-let span = (document).createElement("span");
+let span = (doc).createElement("span");
 ((span).className = "todo-text");
 ((span).textContent = (t).text);
 (label).appendChild(checkbox);
 (label).appendChild(span);
-let del = (document).createElement("button");
+let del = (doc).createElement("button");
 ((del).type = "button");
 ((del).className = "todo-delete");
 ((del).textContent = "Delete");
@@ -139,10 +138,10 @@ let del = (document).createElement("button");
 return li;
 }
 function render() {
-let list = (document).getElementById("todo-list");
-let countEl = (document).getElementById("todo-count");
-let footer = (document).getElementById("todo-footer");
-let filters = (document).getElementById("filters");
+let list = (doc).getElementById("todo-list");
+let countEl = (doc).getElementById("todo-count");
+let footer = (doc).getElementById("todo-footer");
+let filters = (doc).getElementById("filters");
 ((list).innerHTML = "");
 let visible = (visibleTodos)();
 for (let i = 0; (i) < ((visible).length); (i = (i) + (1))) {
@@ -169,10 +168,10 @@ if ((f) === (filter)) {
 }
 }
 function wireEvents() {
-let form = (document).getElementById("todo-form");
-let input = (document).getElementById("todo-input");
-let filters = (document).getElementById("filters");
-let clearBtn = (document).getElementById("clear-completed");
+let form = (doc).getElementById("todo-form");
+let input = (doc).getElementById("todo-input");
+let filters = (doc).getElementById("filters");
+let clearBtn = (doc).getElementById("clear-completed");
 (form).addEventListener("submit", (e) => {
 (e).preventDefault();
 (addTodo)((input).value);
@@ -199,8 +198,8 @@ function boot() {
 (wireEvents)();
 (render)();
 }
-if (((document).readyState) === ("loading")) {
-(document).addEventListener("DOMContentLoaded", () => {
+if (((doc).readyState) === ("loading")) {
+(doc).addEventListener("DOMContentLoaded", () => {
 (boot)();
 });
 }
