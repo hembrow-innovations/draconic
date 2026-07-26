@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Native Runtime C ABI (ROADMAP B08/B09). Linked into binaries from the LLVM backend. */
+/* Native Runtime C ABI (ROADMAP N05: GC + minimal std). Linked into LLVM native binaries. */
 
 void draconic_rt_hello(void) {
     puts("hello");

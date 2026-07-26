@@ -53,13 +53,9 @@ pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnost
         Diagnostic::new(format!("write LLVM IR failed: {e}"), Span::dummy())
     })?;
 
-    let rt_c = draconic_runtime::c_runtime_path();
-    if !rt_c.is_file() {
-        return Err(Diagnostic::new(
-            format!("runtime C source missing: {}", rt_c.display()),
-            Span::dummy(),
-        ));
-    }
+    let rt_lib = draconic_runtime::build_runtime_static_lib(&work).map_err(|e| {
+        Diagnostic::new(format!("build runtime static lib failed: {e}"), Span::dummy())
+    })?;
 
     if let Some(parent) = out_bin.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -69,7 +65,7 @@ pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnost
 
     let output = Command::new(&clang)
         .arg(&ll_path)
-        .arg(&rt_c)
+        .arg(&rt_lib)
         .arg("-o")
         .arg(out_bin)
         .arg("-Wno-override-module")

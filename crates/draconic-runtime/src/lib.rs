@@ -1,15 +1,26 @@
-//! Native Runtime: GC, async job queue, std hooks (ROADMAP B08+).
+//! Native Runtime: GC + minimal std (ROADMAP N05); async/embed later (N06/N07).
 
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
-/// Path to the minimal Runtime C translation unit (`draconic_rt.c`).
+/// Path to the Runtime C translation unit (`draconic_rt.c`).
 pub fn c_runtime_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/draconic_rt.c")
 }
 
-/// C source for the Runtime hello entry (embedded for tests and tooling).
+/// Path to the public Runtime C header (`draconic_rt.h`).
+pub fn c_runtime_header_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("src/draconic_rt.h")
+}
+
+/// C source for the Runtime (embedded for tests and tooling).
 pub fn c_runtime_source() -> &'static str {
     include_str!("draconic_rt.c")
+}
+
+/// C header for the Runtime ABI (embedded for tests and tooling).
+pub fn c_runtime_header_source() -> &'static str {
+    include_str!("draconic_rt.h")
 }
 
 /// Print the Runtime hello line (`hello` + newline) to stdout.
@@ -44,11 +55,161 @@ pub const GC_ROOT_POP_SYMBOL: &str = "draconic_rt_gc_root_pop";
 pub const GC_COLLECT_SYMBOL: &str = "draconic_rt_gc_collect";
 /// C ABI: live object count on the GC heap (for tests / diagnostics).
 pub const GC_LIVE_COUNT_SYMBOL: &str = "draconic_rt_gc_live_count";
+/// C ABI: string payload pointer.
+pub const STRING_DATA_SYMBOL: &str = "draconic_rt_string_data";
+/// C ABI: string length in bytes.
+pub const STRING_LEN_SYMBOL: &str = "draconic_rt_string_len";
+/// C ABI: tag predicate for strings.
+pub const IS_STRING_SYMBOL: &str = "draconic_rt_is_string";
+/// C ABI: tag predicate for objects.
+pub const IS_OBJECT_SYMBOL: &str = "draconic_rt_is_object";
+
+/// Minimal std I/O + GC ABI symbols that form the N05 Runtime surface.
+pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
+    HELLO_SYMBOL,
+    PRINT_I64_SYMBOL,
+    PRINT_U64_SYMBOL,
+    PRINT_F64_SYMBOL,
+    PRINT_BOOL_SYMBOL,
+    GC_INIT_SYMBOL,
+    GC_SHUTDOWN_SYMBOL,
+    ALLOC_STRING_SYMBOL,
+    ALLOC_OBJECT_SYMBOL,
+    GC_ROOT_PUSH_SYMBOL,
+    GC_ROOT_POP_SYMBOL,
+    GC_COLLECT_SYMBOL,
+    GC_LIVE_COUNT_SYMBOL,
+    STRING_DATA_SYMBOL,
+    STRING_LEN_SYMBOL,
+    IS_STRING_SYMBOL,
+    IS_OBJECT_SYMBOL,
+];
+
+/// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
+///
+/// Returns the path to the static archive. Callers link with the archive path
+/// (or `-L`/`-ldraconic_rt`) instead of recompiling `draconic_rt.c` each time.
+pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
+    let clang = find_clang().ok_or_else(|| {
+        "clang not found (set CLANG or install a C toolchain)".to_string()
+    })?;
+    let ar = find_ar().ok_or_else(|| "ar not found (set AR or install binutils)".to_string())?;
+
+    let rt_c = c_runtime_path();
+    if !rt_c.is_file() {
+        return Err(format!("runtime C source missing: {}", rt_c.display()));
+    }
+
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("create out_dir failed: {e}"))?;
+
+    let obj = out_dir.join("draconic_rt.o");
+    let archive = out_dir.join("libdraconic_rt.a");
+
+    let compile = Command::new(&clang)
+        .arg("-c")
+        .arg(&rt_c)
+        .arg("-o")
+        .arg(&obj)
+        .arg("-I")
+        .arg(c_runtime_header_path().parent().unwrap_or_else(|| Path::new(".")))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("spawn clang failed: {e}"))?;
+    if !compile.status.success() {
+        let stderr = String::from_utf8_lossy(&compile.stderr);
+        return Err(format!("clang -c failed: {stderr}"));
+    }
+
+    let archive_out = Command::new(&ar)
+        .arg("rcs")
+        .arg(&archive)
+        .arg(&obj)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("spawn ar failed: {e}"))?;
+    if !archive_out.status.success() {
+        let stderr = String::from_utf8_lossy(&archive_out.stderr);
+        return Err(format!("ar rcs failed: {stderr}"));
+    }
+
+    if !archive.is_file() {
+        return Err(format!("static lib missing after ar: {}", archive.display()));
+    }
+    Ok(archive)
+}
+
+fn find_clang() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("CLANG") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    for candidate in [
+        "clang",
+        "/usr/bin/clang",
+        "/opt/homebrew/opt/llvm@22/bin/clang",
+        "/opt/homebrew/opt/llvm/bin/clang",
+    ] {
+        let ok = Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return Some(PathBuf::from(candidate));
+        }
+    }
+    None
+}
+
+fn find_ar() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("AR") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    for candidate in ["ar", "/usr/bin/ar", "llvm-ar", "/opt/homebrew/opt/llvm/bin/llvm-ar"] {
+        let ok = Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or_else(|_| {
+                // GNU ar often has no --version; try -V or bare existence via `ar`.
+                Command::new(candidate)
+                    .arg("-V")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            });
+        if ok {
+            return Some(PathBuf::from(candidate));
+        }
+        // macOS ar accepts `rcs` without a version flag; probe with `which`-style run.
+        let probe = Command::new(candidate)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if probe.is_ok() {
+            return Some(PathBuf::from(candidate));
+        }
+    }
+    None
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
 
     #[test]
     fn c_runtime_exports_hello() {
@@ -105,6 +266,140 @@ mod tests {
         ] {
             assert!(src.contains(sym), "C runtime must export {sym}");
         }
+    }
+
+    #[test]
+    fn minimal_std_and_gc_symbols_present_in_source_and_header() {
+        let src = c_runtime_source();
+        let hdr = c_runtime_header_source();
+        assert!(
+            c_runtime_header_path().is_file(),
+            "draconic_rt.h must exist on disk"
+        );
+        for sym in MINIMAL_STD_AND_GC_SYMBOLS {
+            assert!(src.contains(sym), "C runtime source must define {sym}");
+            assert!(hdr.contains(sym), "C runtime header must declare {sym}");
+        }
+    }
+
+    #[test]
+    fn builds_runtime_static_library() {
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        assert!(
+            archive.is_file(),
+            "expected archive at {}",
+            archive.display()
+        );
+        assert!(
+            archive
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n == "libdraconic_rt.a"),
+            "archive name: {}",
+            archive.display()
+        );
+        let meta = std::fs::metadata(&archive).expect("stat archive");
+        assert!(meta.len() > 0, "archive must be non-empty");
+    }
+
+    #[test]
+    fn links_static_lib_gc_and_minimal_std() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_link_n05");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <string.h>
+
+            int main(void) {
+                draconic_rt_gc_init();
+
+                DraconicValue *s = draconic_rt_alloc_string("n05", 3);
+                if (!s || !draconic_rt_is_string(s)) {
+                    fprintf(stderr, "string alloc failed\n");
+                    return 1;
+                }
+                if (draconic_rt_string_len(s) != 3
+                    || memcmp(draconic_rt_string_data(s), "n05", 3) != 0) {
+                    fprintf(stderr, "string contents wrong\n");
+                    return 2;
+                }
+
+                DraconicValue *o = draconic_rt_alloc_object();
+                if (!o || !draconic_rt_is_object(o)) {
+                    fprintf(stderr, "object alloc failed\n");
+                    return 3;
+                }
+                if (draconic_rt_gc_live_count() != 2) {
+                    fprintf(stderr, "live want 2 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 4;
+                }
+
+                draconic_rt_gc_root_push(s);
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 1) {
+                    fprintf(stderr, "after collect live want 1 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 5;
+                }
+
+                /* Minimal std: print hooks + hello */
+                draconic_rt_print_i64(42);
+                draconic_rt_print_bool(1);
+                draconic_rt_hello();
+
+                draconic_rt_gc_root_pop();
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 0) {
+                    fprintf(stderr, "after unroot live want 0 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 6;
+                }
+
+                draconic_rt_gc_shutdown();
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        /* Link consumer against the archive only — not draconic_rt.c. */
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(
+            status.success(),
+            "clang failed to link against libdraconic_rt.a"
+        );
+
+        let output = Command::new(&bin).output().expect("run rt_link_n05");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "n05 link binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "42\ntrue\nhello\n", "stdout={stdout:?}");
     }
 
     #[test]
@@ -248,25 +543,7 @@ mod tests {
     }
 
     fn which_clang() -> Option<PathBuf> {
-        if let Ok(p) = std::env::var("CLANG") {
-            let p = PathBuf::from(p);
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-        for candidate in ["clang", "/usr/bin/clang", "/opt/homebrew/opt/llvm@22/bin/clang"] {
-            let ok = Command::new(candidate)
-                .arg("--version")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if ok {
-                return Some(PathBuf::from(candidate));
-            }
-        }
-        None
+        find_clang()
     }
 
     fn tempfile_dir() -> PathBuf {
