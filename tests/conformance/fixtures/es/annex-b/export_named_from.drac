@@ -1,0 +1,10 @@
+import { value, bump, d, extra } from "./export_named_from_barrel.drac";
+import * as ns from "./export_named_from_barrel.drac";
+let a = value;
+let b = bump(value);
+let c = d;
+let e = extra;
+let na = ns.value;
+let nb = ns.bump(1);
+let nc = ns.d;
+let ne = ns.extra;

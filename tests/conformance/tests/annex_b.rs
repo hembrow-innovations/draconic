@@ -316,3 +316,13 @@ fn export_star_fixture_present() {
 fn export_star_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/export_star");
 }
+
+#[test]
+fn export_named_from_fixture_present() {
+    assert_fixture_present("es/annex-b/export_named_from");
+}
+
+#[test]
+fn export_named_from_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/export_named_from");
+}

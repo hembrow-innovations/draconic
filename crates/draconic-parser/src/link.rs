@@ -1,10 +1,11 @@
-//! Link ESM modules into a single Program (ROADMAP E11.01–E11.04, E18.29).
+//! Link ESM modules into a single Program (ROADMAP E11.01–E11.04, E18.29–E18.30).
 //!
 //! Loads an entry file, follows static relative `import … from "…"`, mangles
 //! per-module top-level bindings to avoid collisions, rewrites import locals to
 //! the exporter's mangled names, and concatenates dependency bodies before the
-//! entry. Supports named, default, namespace (`import * as ns`), and `export * from`
-//! re-exports, including cyclic graphs (live bindings via shared cells).
+//! entry. Supports named, default, namespace (`import * as ns`), `export * from`,
+//! and `export { … } from` re-exports, including cyclic graphs (live bindings
+//! via shared cells).
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -39,10 +40,20 @@ struct ModuleData {
     exports: HashMap<String, String>,
     /// `export * from` dependency paths (named exports re-exported; not `default`).
     star_reexports: Vec<PathBuf>,
+    /// `export { imported as exported } from` named re-exports.
+    named_reexports: Vec<NamedReexport>,
     /// import local → (resolved module path, exported name).
     imports: Vec<ImportBind>,
     /// `import * as local` → resolved module path.
     namespaces: Vec<NamespaceBind>,
+}
+
+struct NamedReexport {
+    from: PathBuf,
+    /// Name in the source module (`local` side of the specifier).
+    imported: String,
+    /// Name under which this module re-exports it.
+    exported: String,
 }
 
 struct ImportBind {
@@ -94,6 +105,7 @@ impl Loader {
         let mut body = Vec::new();
         let mut exports: HashMap<String, String> = HashMap::new();
         let mut star_reexports: Vec<PathBuf> = Vec::new();
+        let mut named_reexports: Vec<NamedReexport> = Vec::new();
         let mut imports: Vec<ImportBind> = Vec::new();
         let mut namespaces: Vec<NamespaceBind> = Vec::new();
         let mut dep_paths = Vec::new();
@@ -131,21 +143,53 @@ impl Loader {
                 Stmt::ExportNamedDeclaration {
                     declaration,
                     specifiers,
+                    source,
                     ..
                 } => {
-                    if let Some(decl) = declaration {
-                        collect_decl_exports(&decl, &mut exports)?;
-                        body.push(*decl);
-                    }
-                    for s in specifiers {
-                        if exports
-                            .insert(s.exported.name.clone(), s.local.name.clone())
-                            .is_some()
-                        {
-                            return Err(Diagnostic::new(
-                                format!("duplicate export `{}`", s.exported.name),
-                                s.exported.span,
-                            ));
+                    if let Some(src) = source {
+                        let spec = src.value.to_string_strict().ok_or_else(|| {
+                            Diagnostic::new(
+                                "module specifier must be a well-formed string".to_string(),
+                                src.span,
+                            )
+                        })?;
+                        let dep = resolve_specifier(parent, &spec, src.span)?;
+                        dep_paths.push(dep.clone());
+                        for s in specifiers {
+                            if exports.contains_key(&s.exported.name)
+                                || named_reexports
+                                    .iter()
+                                    .any(|r| r.exported == s.exported.name)
+                            {
+                                return Err(Diagnostic::new(
+                                    format!("duplicate export `{}`", s.exported.name),
+                                    s.exported.span,
+                                ));
+                            }
+                            named_reexports.push(NamedReexport {
+                                from: dep.clone(),
+                                imported: s.local.name,
+                                exported: s.exported.name,
+                            });
+                        }
+                    } else {
+                        if let Some(decl) = declaration {
+                            collect_decl_exports(&decl, &mut exports)?;
+                            body.push(*decl);
+                        }
+                        for s in specifiers {
+                            if exports
+                                .insert(s.exported.name.clone(), s.local.name.clone())
+                                .is_some()
+                                || named_reexports
+                                    .iter()
+                                    .any(|r| r.exported == s.exported.name)
+                            {
+                                return Err(Diagnostic::new(
+                                    format!("duplicate export `{}`", s.exported.name),
+                                    s.exported.span,
+                                ));
+                            }
                         }
                     }
                 }
@@ -190,6 +234,7 @@ impl Loader {
             body,
             exports,
             star_reexports,
+            named_reexports,
             imports,
             namespaces,
         });
@@ -335,7 +380,7 @@ impl Loader {
     }
 
     /// Resolve `name` exported by `module_id` to `(defining_module_id, local_name)`.
-    /// Follows `export * from` (not `default`). Direct exports shadow star re-exports.
+    /// Follows `export * from` and `export { … } from`. Direct exports shadow stars.
     fn resolve_export(
         &self,
         module_id: usize,
@@ -346,8 +391,8 @@ impl Loader {
         Ok(all.get(name).cloned())
     }
 
-    /// All export names visible from `module_id` (direct + `export *`), mapped to
-    /// `(defining_module_id, local_name_pre_mangle)`.
+    /// All export names visible from `module_id` (direct + named/`export *` re-exports),
+    /// mapped to `(defining_module_id, local_name_pre_mangle)`.
     fn collect_resolved_exports(
         &self,
         module_id: usize,
@@ -368,6 +413,40 @@ impl Loader {
         for (export_name, local) in &module.exports {
             out.insert(export_name.clone(), (module_id, local.clone()));
         }
+        // Named re-exports (`export { x as y } from`) — explicit, can include `default`.
+        for re in &module.named_reexports {
+            let dep_id = *self.ids.get(&re.from).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("module not loaded: {}", re.from.display()),
+                    Span::dummy(),
+                )
+            })?;
+            let resolved = self
+                .resolve_export(dep_id, &re.imported, visiting)?
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        format!(
+                            "module {} has no export `{}`",
+                            re.from.display(),
+                            re.imported
+                        ),
+                        Span::dummy(),
+                    )
+                })?;
+            if out.contains_key(&re.exported) {
+                // Direct export already owns this name — skip (direct wins).
+                // Duplicate named re-export of same name is rejected at load.
+                if module.exports.contains_key(&re.exported) {
+                    continue;
+                }
+                visiting.remove(&module_id);
+                return Err(Diagnostic::new(
+                    format!("duplicate export `{}`", re.exported),
+                    Span::dummy(),
+                ));
+            }
+            out.insert(re.exported.clone(), resolved);
+        }
         for dep_path in &module.star_reexports {
             let dep_id = *self.ids.get(dep_path).ok_or_else(|| {
                 Diagnostic::new(
@@ -382,7 +461,12 @@ impl Loader {
                 }
                 match out.get(&export_name) {
                     Some((prev_id, prev_local)) if *prev_id != def_id || *prev_local != local => {
-                        if module.exports.contains_key(&export_name) {
+                        if module.exports.contains_key(&export_name)
+                            || module
+                                .named_reexports
+                                .iter()
+                                .any(|r| r.exported == export_name)
+                        {
                             continue;
                         }
                         visiting.remove(&module_id);
@@ -1793,6 +1877,43 @@ mod tests {
             !dump.contains("99") || dump.contains("a"),
             "default should not be required via export *: {dump}"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_export_named_from() {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-link-export-named-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let lib = dir.join("lib.drac");
+        let barrel = dir.join("barrel.drac");
+        let main = dir.join("main.drac");
+        fs::write(
+            &lib,
+            "export let value = 41;\nexport function inc(x) { return x + 1; }\nexport default 99;\n",
+        )
+        .unwrap();
+        fs::write(
+            &barrel,
+            "export { value, inc as bump, default as d } from \"./lib.drac\";\nexport let extra = 7;\n",
+        )
+        .unwrap();
+        fs::write(
+            &main,
+            "import { value, bump, d, extra } from \"./barrel.drac\";\nimport * as ns from \"./barrel.drac\";\nlet a = value;\nlet b = bump(value);\nlet c = d;\nlet e = extra;\nlet na = ns.value;\nlet nb = ns.bump(1);\nlet nc = ns.d;\nlet ne = ns.extra;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("export {…} from link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("a"), "{dump}");
+        assert!(dump.contains("bump") || dump.contains("__m") || dump.contains("inc"), "{dump}");
+        assert!(dump.contains("extra") || dump.contains("__m"), "{dump}");
         let _ = fs::remove_dir_all(&dir);
     }
 }

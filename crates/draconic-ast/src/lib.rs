@@ -247,12 +247,14 @@ pub enum Stmt {
         source: StringLit,
         span: Span,
     },
-    /// `export let/const/function …` or `export { a, b as c }`
+    /// `export let/const/function …` or `export { a, b as c }` or `export { a } from "mod"`
     ExportNamedDeclaration {
         /// Present for `export let` / `export const` / `export function`.
         declaration: Option<Box<Stmt>>,
         /// Present for `export { … }` (and empty when declaration carries the names).
         specifiers: Vec<ExportSpecifier>,
+        /// Present for `export { … } from "mod"` (named re-export; no local bindings).
+        source: Option<StringLit>,
         span: Span,
     },
     /// `export default function …` / `export default expr`
@@ -1345,6 +1347,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
         Stmt::ExportNamedDeclaration {
             declaration,
             specifiers,
+            source,
             ..
         } => {
             indent(level, out);
@@ -1364,6 +1367,12 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 indent(level + 2, out);
                 out.push_str("exported: ");
                 out.push_str(&spec.exported.name);
+                out.push('\n');
+            }
+            if let Some(source) = source {
+                indent(level + 1, out);
+                out.push_str("source: ");
+                out.push_str(&source.value.to_string_lossy());
                 out.push('\n');
             }
         }

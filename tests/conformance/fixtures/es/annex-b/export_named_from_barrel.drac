@@ -1,0 +1,2 @@
+export { value, inc as bump, default as d } from "./export_named_from_lib.drac";
+export let extra = 7;

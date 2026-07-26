@@ -1261,14 +1261,14 @@ impl Parser {
             let mut specifiers = Vec::new();
             if !self.check(&TokenKind::RBrace) {
                 loop {
-                    let local_tok = self.expect_ident()?;
+                    // IdentifierName: `default` is valid in `{ default as x }` / `{ x as default }`.
+                    let (local_name, local_span) = self.expect_ident_name()?;
                     let local = Ident {
-                        name: local_tok.ident_name(),
-                        span: local_tok.span,
+                        name: local_name,
+                        span: local_span,
                     };
                     let exported = if self.check(&TokenKind::As) {
                         self.bump();
-                        // `default` is valid as ExportedBinding: `{ x as default }`.
                         let (name, span) = self.expect_ident_name()?;
                         Ident { name, span }
                     } else {
@@ -1287,12 +1287,22 @@ impl Parser {
             }
             let end_brace = self.expect(&TokenKind::RBrace)?.span.end.0;
             let mut end = end_brace;
+            // `export { a, b as c } from "mod"`
+            let source = if self.check(&TokenKind::From) {
+                self.bump();
+                let src = self.expect_string_lit()?;
+                end = src.span.end.0;
+                Some(src)
+            } else {
+                None
+            };
             if self.check(&TokenKind::Semi) {
                 end = self.bump().span.end.0;
             }
             return Ok(Stmt::ExportNamedDeclaration {
                 declaration: None,
                 specifiers,
+                source,
                 span: Span::new(start, end),
             });
         }
@@ -1302,6 +1312,7 @@ impl Parser {
             return Ok(Stmt::ExportNamedDeclaration {
                 declaration: Some(Box::new(decl)),
                 specifiers: Vec::new(),
+                source: None,
                 span: Span::new(start, end),
             });
         }
@@ -1313,6 +1324,7 @@ impl Parser {
             return Ok(Stmt::ExportNamedDeclaration {
                 declaration: Some(Box::new(decl)),
                 specifiers: Vec::new(),
+                source: None,
                 span: Span::new(start, end),
             });
         }
@@ -4763,6 +4775,22 @@ Program
         assert!(
             dump.contains("ExportAllDeclaration") && dump.contains("source: ./lib.drac"),
             "expected export * from, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_export_named_from() {
+        let dump =
+            parse_and_dump("export { value, inc as bump, default as d } from \"./lib.drac\";")
+                .unwrap();
+        assert!(
+            dump.contains("ExportNamedDeclaration")
+                && dump.contains("source: ./lib.drac")
+                && dump.contains("local: value")
+                && dump.contains("exported: bump")
+                && dump.contains("local: default")
+                && dump.contains("exported: d"),
+            "expected export {{…}} from, got:\n{dump}"
         );
     }
 }
