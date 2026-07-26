@@ -491,10 +491,10 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        // E19.02/E19.06/E19.10/E19.15/E19.20 expanded curated set (expressions + statements + more).
+        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25 expanded curated set.
         assert!(
-            list.len() >= 6500,
-            "expected expanded curated allowlist (>=6500), got {}",
+            list.len() >= 13000,
+            "expected expanded curated allowlist (>=13000), got {}",
             list.len()
         );
         assert!(list.iter().all(|p| p.starts_with("test/")));
@@ -632,30 +632,38 @@ assert.throws(TypeError, function() {
 
     #[test]
     fn default_run_does_not_fail_ci_without_suite() {
-        // Suite missing → all skip (CI green). Suite present → allowlist must pass.
-        let report = run_default().expect("run_default");
-        let path = write_baseline_report(&report).expect("write report");
-        assert!(path.is_file(), "report path {}", path.display());
-        let (pass, fail, skip) = report.counts();
-        eprintln!(
-            "test262 default: present={} pass={pass} fail={fail} skip={skip} report={}",
-            report.suite_present,
-            path.display()
-        );
-        if !report.suite_present {
-            assert!(skip > 0);
-            assert_eq!(fail, 0);
-        }
-        // E19.02: expanded allowlist must stay green when suite is present.
-        if report.suite_present {
-            assert_eq!(
-                fail, 0,
-                "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
-            );
-            assert!(
-                pass >= 6500,
-                "expected expanded allowlist pass count >= 6500, got {pass}"
-            );
-        }
+        // E19.25: expanded allowlist needs a larger stack in debug (deep class/dstr etc.).
+        let handle = std::thread::Builder::new()
+            .name("test262-default-run".into())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                // Suite missing → all skip (CI green). Suite present → allowlist must pass.
+                let report = run_default().expect("run_default");
+                let path = write_baseline_report(&report).expect("write report");
+                assert!(path.is_file(), "report path {}", path.display());
+                let (pass, fail, skip) = report.counts();
+                eprintln!(
+                    "test262 default: present={} pass={pass} fail={fail} skip={skip} report={}",
+                    report.suite_present,
+                    path.display()
+                );
+                if !report.suite_present {
+                    assert!(skip > 0);
+                    assert_eq!(fail, 0);
+                }
+                // E19.02: expanded allowlist must stay green when suite is present.
+                if report.suite_present {
+                    assert_eq!(
+                        fail, 0,
+                        "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
+                    );
+                    assert!(
+                        pass >= 13000,
+                        "expected expanded allowlist pass count >= 13000, got {pass}"
+                    );
+                }
+            })
+            .expect("spawn test262-default-run");
+        handle.join().expect("test262-default-run thread");
     }
 }

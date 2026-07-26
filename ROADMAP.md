@@ -249,7 +249,12 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.22 | done | js | Class computed property names: `*[expr]()` / `async [expr]()` / `get`/`set [expr]()` / static variants (parser expects identifier) | `crates/draconic-parser`, `tests/test262` |
 | E19.23 | done | js | `super` in object methods: `super.m()` / `super[expr]` in concise methods (incl. computed keys); no panic; arrow lexical `super` | `crates/draconic-check` / IR, `tests/test262` |
 | E19.24 | done | js | Early SyntaxError enforcement: arrow `eval`/`arguments` bindings, block-scope + switch redeclaration negatives still accepted at parse | `crates/draconic-parser` / check, `tests/test262` |
-| E19.25 | todo | js | Expand allowlist further after E19.21–E19.24 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.25 | done | js | Expand allowlist further after E19.21–E19.24 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.26 | todo | js | Test262 async harness `$DONE`: settle async tests (for-await-of, async methods/generators) via done callback instead of ReferenceError | `tests/test262` (allowlist + baseline-report) |
+| E19.27 | todo | js | Dynamic `import()` expression: parse/lower/emit `import(specifier)` (and related syntax); unlock expressions/dynamic-import beyond invalid-syntax negatives | `crates/draconic-parser`, `tests/test262` |
+| E19.28 | todo | js | Top-level `await` in modules: allow `await` in module top-level; module-code/top-level-await cluster | `crates/draconic-parser` / check, `tests/test262` |
+| E19.29 | todo | js | Class elements same-line ASI / private name grammar: field after method on same line; `expected property name, found Semi` cluster | `crates/draconic-parser`, `tests/test262` |
+| E19.30 | todo | js | Expand allowlist further after E19.26–E19.29 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 
