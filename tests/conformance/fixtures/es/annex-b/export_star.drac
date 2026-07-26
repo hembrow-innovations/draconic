@@ -1,0 +1,11 @@
+import { value, inc, label, extra } from "./export_star_barrel.drac";
+import * as ns from "./export_star_barrel.drac";
+let a = value;
+let b = inc(value);
+let c = label;
+let d = extra;
+let na = ns.value;
+let nb = ns.inc(1);
+let nc = ns.label;
+let nd = ns.extra;
+let ndef = typeof ns.default;

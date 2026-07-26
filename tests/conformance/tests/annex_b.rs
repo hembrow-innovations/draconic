@@ -306,3 +306,13 @@ fn object_spread_fixture_present() {
 fn object_spread_runs_js_and_native() {
     assert_fixture_runs_js_and_native("es/annex-b/object_spread");
 }
+
+#[test]
+fn export_star_fixture_present() {
+    assert_fixture_present("es/annex-b/export_star");
+}
+
+#[test]
+fn export_star_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("es/annex-b/export_star");
+}

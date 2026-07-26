@@ -738,7 +738,8 @@ fn lower_stmt(
         }),
         AstStmt::ImportDeclaration { .. }
         | AstStmt::ExportNamedDeclaration { .. }
-        | AstStmt::ExportDefaultDeclaration { .. } => {
+        | AstStmt::ExportDefaultDeclaration { .. }
+        | AstStmt::ExportAllDeclaration { .. } => {
             panic!("import/export must be linked before lower")
         }
         // Type aliases are erased (T02); no runtime value.

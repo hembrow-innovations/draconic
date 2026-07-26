@@ -1,10 +1,10 @@
-//! Link ESM modules into a single Program (ROADMAP E11.01–E11.04).
+//! Link ESM modules into a single Program (ROADMAP E11.01–E11.04, E18.29).
 //!
 //! Loads an entry file, follows static relative `import … from "…"`, mangles
 //! per-module top-level bindings to avoid collisions, rewrites import locals to
 //! the exporter's mangled names, and concatenates dependency bodies before the
-//! entry. Supports named, default, and namespace (`import * as ns`) export/import,
-//! including cyclic graphs (live bindings via shared cells).
+//! entry. Supports named, default, namespace (`import * as ns`), and `export * from`
+//! re-exports, including cyclic graphs (live bindings via shared cells).
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -35,8 +35,10 @@ struct Loader {
 struct ModuleData {
     /// Body statements after peeling import/export wrappers.
     body: Vec<Stmt>,
-    /// export_name → local name (pre-mangle) in this module.
+    /// export_name → local name (pre-mangle) in this module (direct exports only).
     exports: HashMap<String, String>,
+    /// `export * from` dependency paths (named exports re-exported; not `default`).
+    star_reexports: Vec<PathBuf>,
     /// import local → (resolved module path, exported name).
     imports: Vec<ImportBind>,
     /// `import * as local` → resolved module path.
@@ -91,6 +93,7 @@ impl Loader {
 
         let mut body = Vec::new();
         let mut exports: HashMap<String, String> = HashMap::new();
+        let mut star_reexports: Vec<PathBuf> = Vec::new();
         let mut imports: Vec<ImportBind> = Vec::new();
         let mut namespaces: Vec<NamespaceBind> = Vec::new();
         let mut dep_paths = Vec::new();
@@ -162,6 +165,17 @@ impl Loader {
                     }
                     body.push(*declaration);
                 }
+                Stmt::ExportAllDeclaration { source, .. } => {
+                    let spec = source.value.to_string_strict().ok_or_else(|| {
+                        Diagnostic::new(
+                            "module specifier must be a well-formed string".to_string(),
+                            source.span,
+                        )
+                    })?;
+                    let dep = resolve_specifier(parent, &spec, source.span)?;
+                    dep_paths.push(dep.clone());
+                    star_reexports.push(dep);
+                }
                 other => body.push(other),
             }
         }
@@ -175,6 +189,7 @@ impl Loader {
         self.modules.push(ModuleData {
             body,
             exports,
+            star_reexports,
             imports,
             namespaces,
         });
@@ -212,9 +227,8 @@ impl Loader {
                         Span::dummy(),
                     )
                 })?;
-                let local_in_exporter = self.modules[from_id]
-                    .exports
-                    .get(&bind.imported)
+                let (def_id, local_in_exporter) = self
+                    .resolve_export(from_id, &bind.imported, &mut HashSet::new())?
                     .ok_or_else(|| {
                         Diagnostic::new(
                             format!(
@@ -225,14 +239,12 @@ impl Loader {
                             Span::dummy(),
                         )
                     })?;
-                let remote = final_local_name(&mangled[from_id], local_in_exporter).ok_or_else(
+                let remote = final_local_name(&mangled[def_id], &local_in_exporter).ok_or_else(
                     || {
                         Diagnostic::new(
                             format!(
-                                "export `{}` local `{}` missing in {}",
-                                bind.imported,
-                                local_in_exporter,
-                                bind.from.display()
+                                "export `{}` local `{}` missing in defining module",
+                                bind.imported, local_in_exporter,
                             ),
                             Span::dummy(),
                         )
@@ -263,11 +275,8 @@ impl Loader {
                         Span::dummy(),
                     )
                 })?;
-                let props = namespace_object_props(
-                    &self.modules[from_id].exports,
-                    &mangled[from_id],
-                    &mut span_gen,
-                )?;
+                let resolved = self.collect_resolved_exports(from_id)?;
+                let props = namespace_object_props_resolved(&resolved, &mangled, &mut span_gen)?;
                 let bind_span = span_gen.next();
                 let obj_span = span_gen.next();
                 ns_stmts.push(Stmt::Let {
@@ -323,6 +332,74 @@ impl Loader {
             body: linked_body,
             span: Span::new(start, end),
         })
+    }
+
+    /// Resolve `name` exported by `module_id` to `(defining_module_id, local_name)`.
+    /// Follows `export * from` (not `default`). Direct exports shadow star re-exports.
+    fn resolve_export(
+        &self,
+        module_id: usize,
+        name: &str,
+        visiting: &mut HashSet<usize>,
+    ) -> Result<Option<(usize, String)>, Diagnostic> {
+        let all = self.collect_resolved_exports_rec(module_id, visiting)?;
+        Ok(all.get(name).cloned())
+    }
+
+    /// All export names visible from `module_id` (direct + `export *`), mapped to
+    /// `(defining_module_id, local_name_pre_mangle)`.
+    fn collect_resolved_exports(
+        &self,
+        module_id: usize,
+    ) -> Result<HashMap<String, (usize, String)>, Diagnostic> {
+        self.collect_resolved_exports_rec(module_id, &mut HashSet::new())
+    }
+
+    fn collect_resolved_exports_rec(
+        &self,
+        module_id: usize,
+        visiting: &mut HashSet<usize>,
+    ) -> Result<HashMap<String, (usize, String)>, Diagnostic> {
+        if !visiting.insert(module_id) {
+            return Ok(HashMap::new());
+        }
+        let module = &self.modules[module_id];
+        let mut out: HashMap<String, (usize, String)> = HashMap::new();
+        for (export_name, local) in &module.exports {
+            out.insert(export_name.clone(), (module_id, local.clone()));
+        }
+        for dep_path in &module.star_reexports {
+            let dep_id = *self.ids.get(dep_path).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("module not loaded: {}", dep_path.display()),
+                    Span::dummy(),
+                )
+            })?;
+            let dep_exports = self.collect_resolved_exports_rec(dep_id, visiting)?;
+            for (export_name, (def_id, local)) in dep_exports {
+                if export_name == "default" {
+                    continue;
+                }
+                match out.get(&export_name) {
+                    Some((prev_id, prev_local)) if *prev_id != def_id || *prev_local != local => {
+                        if module.exports.contains_key(&export_name) {
+                            continue;
+                        }
+                        visiting.remove(&module_id);
+                        return Err(Diagnostic::new(
+                            format!("ambiguous re-export of `{export_name}`"),
+                            Span::dummy(),
+                        ));
+                    }
+                    Some(_) => {}
+                    None => {
+                        out.insert(export_name, (def_id, local));
+                    }
+                }
+            }
+        }
+        visiting.remove(&module_id);
+        Ok(out)
     }
 }
 
@@ -573,7 +650,8 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
         }
         Stmt::ImportDeclaration { span, .. }
         | Stmt::ExportNamedDeclaration { span, .. }
-        | Stmt::ExportDefaultDeclaration { span, .. } => {
+        | Stmt::ExportDefaultDeclaration { span, .. }
+        | Stmt::ExportAllDeclaration { span, .. } => {
             *span = spans.next();
         }
         Stmt::TypeAlias { name, span, .. } => {
@@ -862,17 +940,17 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
     }
 }
 
-fn namespace_object_props(
-    exports: &HashMap<String, String>,
-    mangled: &HashMap<String, String>,
+fn namespace_object_props_resolved(
+    resolved: &HashMap<String, (usize, String)>,
+    mangled: &[HashMap<String, String>],
     spans: &mut SyntheticSpans,
 ) -> Result<Vec<ObjectProp>, Diagnostic> {
-    let mut names: Vec<_> = exports.keys().cloned().collect();
+    let mut names: Vec<_> = resolved.keys().cloned().collect();
     names.sort();
     let mut props = Vec::with_capacity(names.len());
     for export_name in names {
-        let local_in_exporter = exports.get(&export_name).expect("key from map");
-        let remote = final_local_name(mangled, local_in_exporter).ok_or_else(|| {
+        let (def_id, local_in_exporter) = resolved.get(&export_name).expect("key from map");
+        let remote = final_local_name(&mangled[*def_id], local_in_exporter).ok_or_else(|| {
             Diagnostic::new(
                 format!("namespace export `{export_name}` local missing"),
                 Span::dummy(),
@@ -1080,6 +1158,7 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
         | Stmt::ImportDeclaration { .. }
         | Stmt::ExportNamedDeclaration { .. }
         | Stmt::ExportDefaultDeclaration { .. }
+        | Stmt::ExportAllDeclaration { .. }
         | Stmt::TypeAlias { .. } => {}
         Stmt::Block { body, .. } => {
             scopes.push();
@@ -1489,6 +1568,7 @@ fn stmt_span_approx(stmt: &Stmt) -> Span {
         | Stmt::ImportDeclaration { span, .. }
         | Stmt::ExportNamedDeclaration { span, .. }
         | Stmt::ExportDefaultDeclaration { span, .. }
+        | Stmt::ExportAllDeclaration { span, .. }
         | Stmt::TypeAlias { span, .. } => *span,
     }
 }
@@ -1676,6 +1756,43 @@ mod tests {
         assert!(dump.contains("fromA") || dump.contains("__m"), "{dump}");
         assert!(dump.contains("fromB") || dump.contains("__m"), "{dump}");
         assert!(dump.contains("a"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_export_star_from() {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-link-export-star-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let lib = dir.join("lib.drac");
+        let barrel = dir.join("barrel.drac");
+        let main = dir.join("main.drac");
+        fs::write(
+            &lib,
+            "export let value = 41;\nexport function inc(x) { return x + 1; }\nexport default 99;\n",
+        )
+        .unwrap();
+        fs::write(&barrel, "export * from \"./lib.drac\";\n").unwrap();
+        fs::write(
+            &main,
+            "import { value, inc } from \"./barrel.drac\";\nlet a = value;\nlet b = inc(value);\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("export * link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("a"), "{dump}");
+        assert!(dump.contains("inc") || dump.contains("__m"), "{dump}");
+        // default must not come through export *
+        assert!(
+            !dump.contains("99") || dump.contains("a"),
+            "default should not be required via export *: {dump}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

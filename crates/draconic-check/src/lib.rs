@@ -1209,7 +1209,8 @@ impl Binder {
             }
             Stmt::ImportDeclaration { span, .. }
             | Stmt::ExportNamedDeclaration { span, .. }
-            | Stmt::ExportDefaultDeclaration { span, .. } => Err(Diagnostic::new(
+            | Stmt::ExportDefaultDeclaration { span, .. }
+            | Stmt::ExportAllDeclaration { span, .. } => Err(Diagnostic::new(
                 "import/export must be linked before bind/check".to_string(),
                 *span,
             )),
@@ -1778,6 +1779,7 @@ impl<'a> Checker<'a> {
                     | Stmt::ImportDeclaration { span, .. }
                     | Stmt::ExportNamedDeclaration { span, .. }
                     | Stmt::ExportDefaultDeclaration { span, .. }
+                    | Stmt::ExportAllDeclaration { span, .. }
                     | Stmt::TypeAlias { span, .. } => *span,
                 },
             )),
@@ -2296,7 +2298,8 @@ impl<'a> Checker<'a> {
             }
             Stmt::ImportDeclaration { span, .. }
             | Stmt::ExportNamedDeclaration { span, .. }
-            | Stmt::ExportDefaultDeclaration { span, .. } => Err(Diagnostic::new(
+            | Stmt::ExportDefaultDeclaration { span, .. }
+            | Stmt::ExportAllDeclaration { span, .. } => Err(Diagnostic::new(
                 "import/export must be linked before bind/check".to_string(),
                 *span,
             )),
@@ -5592,7 +5595,8 @@ mod tests {
                 }
                 Stmt::ImportDeclaration { .. }
                 | Stmt::ExportNamedDeclaration { .. }
-                | Stmt::ExportDefaultDeclaration { .. } => {}
+                | Stmt::ExportDefaultDeclaration { .. }
+                | Stmt::ExportAllDeclaration { .. } => {}
             }
         }
 

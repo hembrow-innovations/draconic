@@ -1,0 +1,6 @@
+export let value = 41;
+export function inc(x) {
+  return x + 1;
+}
+export const label = "ok";
+export default 99;

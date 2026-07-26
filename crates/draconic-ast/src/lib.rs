@@ -263,6 +263,11 @@ pub enum Stmt {
         local: Ident,
         span: Span,
     },
+    /// `export * from "mod"` — re-export all named exports (not `default`) from `source`.
+    ExportAllDeclaration {
+        source: StringLit,
+        span: Span,
+    },
     /// `type Name <T…>? = Type;` — TS-inspired type alias (erased at emit; T02/T04).
     TypeAlias {
         name: Ident,
@@ -1376,6 +1381,14 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             indent(level + 1, out);
             out.push_str("declaration:\n");
             dump_stmt(declaration, level + 2, out);
+        }
+        Stmt::ExportAllDeclaration { source, .. } => {
+            indent(level, out);
+            out.push_str("ExportAllDeclaration\n");
+            indent(level + 1, out);
+            out.push_str("source: ");
+            out.push_str(&source.value.to_string_lossy());
+            out.push('\n');
         }
         Stmt::Try {
             block,

@@ -162,6 +162,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E16.03 | done | both | Indirect eval: `(0, eval)(s)` / `globalThis.eval(s)` (global scope; not caller lexical) | `tests/conformance` fixtures `es/eval` |
 | E17 | done | both | `with`, non-strict legacy where required by 262 | `tests/conformance/es/legacy` |
 | E18 | todo | both | Remaining Annex B / full 262 gaps (track explicitly, do not drop) | `tests/conformance/es/annex-b` |
+| E18.29 | done | both | `export * from`: re-export all named exports from a static relative module; `import { x } from` consumer sees re-exported names | `tests/conformance` fixtures `es/annex-b` |
 | E18.28 | done | both | Object spread in literals: `{...a}` / `{...a, b}` / `{a, ...b, c}` (copy enumerable own string keys; later props overwrite) | `tests/conformance` fixtures `es/annex-b` |
 | E18.27 | done | both | `new.target`: meta-property in `function`/`constructor`; `undefined` in non-`new` call; subclass points at active construct | `tests/conformance` fixtures `es/annex-b` |
 | E18.26 | done | both | Class public fields: `class C { x = expr; static y = expr; }` (simple ident; instance after `super`; optional init → undefined) | `tests/conformance` fixtures `es/annex-b` |

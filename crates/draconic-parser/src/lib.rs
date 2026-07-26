@@ -1236,11 +1236,25 @@ impl Parser {
         Ok(())
     }
 
-    /// `export let/const/function …` or `export { a, b as c };` or `export default …`
+    /// `export let/const/function …` or `export { a, b as c };` or `export * from` or `export default …`
     fn parse_export(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::Export)?.span.start.0;
         if self.check(&TokenKind::Default) {
             return self.parse_export_default(start);
+        }
+        // `export * from "mod"`
+        if self.check(&TokenKind::Star) {
+            self.bump();
+            self.expect(&TokenKind::From)?;
+            let source = self.expect_string_lit()?;
+            let mut end = source.span.end.0;
+            if self.check(&TokenKind::Semi) {
+                end = self.bump().span.end.0;
+            }
+            return Ok(Stmt::ExportAllDeclaration {
+                source,
+                span: Span::new(start, end),
+            });
         }
         if self.check(&TokenKind::LBrace) {
             self.bump();
@@ -1303,7 +1317,8 @@ impl Parser {
             });
         }
         Err(Diagnostic::new(
-            "expected `default`, `let`, `const`, `function`, or `{` after `export`".to_string(),
+            "expected `default`, `*`, `let`, `const`, `function`, or `{` after `export`"
+                .to_string(),
             self.current_span(),
         ))
     }
@@ -3370,6 +3385,7 @@ fn stmt_span(stmt: &Stmt) -> Span {
         | Stmt::ImportDeclaration { span, .. }
         | Stmt::ExportNamedDeclaration { span, .. }
         | Stmt::ExportDefaultDeclaration { span, .. }
+        | Stmt::ExportAllDeclaration { span, .. }
         | Stmt::TypeAlias { span, .. } => *span,
     }
 }
@@ -4738,6 +4754,15 @@ Program
         assert!(
             chain.matches("As\n").count() >= 2,
             "chained as, got:\n{chain}"
+        );
+    }
+
+    #[test]
+    fn parse_export_all_from() {
+        let dump = parse_and_dump("export * from \"./lib.drac\";").unwrap();
+        assert!(
+            dump.contains("ExportAllDeclaration") && dump.contains("source: ./lib.drac"),
+            "expected export * from, got:\n{dump}"
         );
     }
 }
