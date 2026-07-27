@@ -558,6 +558,9 @@ pub enum Expr {
     /// `[elem, …]` array literal (spread elements and holes/elisions allowed).
     ArrayExpression {
         elements: Vec<ArrayElement>,
+        /// True when a comma followed the last element before `]` (e.g. `[a,]` / `[...x,]`).
+        /// Distinguishes trailing comma after rest (invalid assignment pattern) from bare rest.
+        trailing_comma: bool,
         span: Span,
     },
     /// `obj.prop` / `obj.#prop` / `obj[expr]` / optional `obj?.prop` / `obj?.[expr]` (property read).

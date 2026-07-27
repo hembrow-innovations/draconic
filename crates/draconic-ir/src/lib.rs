@@ -2738,7 +2738,7 @@ fn lower_expr_hint(
                 .collect(),
             ty: expr_ty(checked, *span),
         },
-        AstExpr::ArrayExpression { elements, span } => Expr::Array {
+        AstExpr::ArrayExpression { elements, span, .. } => Expr::Array {
             elements: elements
                 .iter()
                 .map(|el| match el {

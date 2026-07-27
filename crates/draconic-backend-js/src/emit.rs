@@ -811,8 +811,15 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                         out.push_str("...");
                         emit_expr(out, expr, names);
                     }
+                    // Trailing/only hole needs an extra comma: `[,]` not `[]`.
                     draconic_ir::ArrayElement::Elision => {}
                 }
+            }
+            if matches!(
+                elements.last(),
+                Some(draconic_ir::ArrayElement::Elision)
+            ) {
+                out.push(',');
             }
             out.push(']');
         }
@@ -937,6 +944,8 @@ fn emit_array_pattern(
             out.push_str(", ");
         }
         match el {
+            // Hole: separator commas create the elision. A trailing (or only)
+            // elision needs an extra comma so `[,]` / `[a,,]` are not `[]` / `[a,]`.
             ArrayPatternEl::Elision => {}
             ArrayPatternEl::Pattern { binding, default } => {
                 emit_pattern(out, binding, names);
@@ -950,6 +959,9 @@ fn emit_array_pattern(
                 emit_pattern(out, pat, names);
             }
         }
+    }
+    if matches!(elements.last(), Some(ArrayPatternEl::Elision)) {
+        out.push(',');
     }
     out.push(']');
 }

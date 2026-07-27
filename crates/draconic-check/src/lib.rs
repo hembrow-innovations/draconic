@@ -3520,7 +3520,7 @@ impl<'a> Checker<'a> {
                 self.record(*span, ty);
                 ty
             }
-            Expr::ArrayExpression { elements, span } => {
+            Expr::ArrayExpression { elements, span, .. } => {
                 for el in elements {
                     match el {
                         ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {

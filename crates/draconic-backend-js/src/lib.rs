@@ -813,4 +813,45 @@ mod tests {
     fn u03_emit_js_unchanged_without_map() {
         assert_eq!(emit_src("let x = 1;"), "let x = 1;\n");
     }
+
+    /// E19.32: array pattern elision must emit holes so IteratorStep/IteratorClose run.
+    #[test]
+    fn emit_array_pattern_elision_holes() {
+        let only = emit_src("let [,] = vals;");
+        assert!(only.contains("let [,] = vals;") || only.contains("let [, ] = vals;"), "{only}");
+        assert!(!only.contains("let [] ="), "{only}");
+
+        let trail = emit_src("let [a,,] = vals;");
+        assert!(
+            trail.contains("[a,,]") || trail.contains("[a, ,]") || trail.contains("[a, , ]"),
+            "{trail}"
+        );
+
+        let mid = emit_src("let [a, , b] = vals;");
+        assert!(mid.contains("[a, , b]") || mid.contains("[a,, b]"), "{mid}");
+
+        let lead = emit_src("let [, x] = vals;");
+        assert!(lead.contains("[, x]") || lead.contains("[,x]"), "{lead}");
+
+        let assign = emit_src("let x; [, ] = vals;");
+        assert!(
+            assign.contains("[,]") || assign.contains("[, ]") || assign.contains("([,])"),
+            "{assign}"
+        );
+        assert!(!assign.contains("([] ="), "{assign}");
+    }
+
+    /// E19.32: array literal trailing/only holes keep length semantics.
+    #[test]
+    fn emit_array_literal_elision_holes() {
+        let only = emit_src("let a = [,];");
+        assert!(only.contains("[,]") || only.contains("[, ]"), "{only}");
+        assert!(!only.contains("let a = [];"), "{only}");
+
+        let two = emit_src("let a = [,,];");
+        assert!(
+            two.contains("[,,]") || two.contains("[, ,]") || two.contains("[, , ]"),
+            "{two}"
+        );
+    }
 }

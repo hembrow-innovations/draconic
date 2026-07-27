@@ -1092,7 +1092,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                 }
             }
         }
-        Expr::ArrayExpression { elements, span } => {
+        Expr::ArrayExpression { elements, span, .. } => {
             *span = spans.next();
             for el in elements {
                 match el {

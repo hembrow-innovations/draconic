@@ -3365,11 +3365,13 @@ impl Parser {
     fn parse_array_expression(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::LBracket)?.span.start.0;
         let mut elements = Vec::new();
+        let mut trailing_comma = false;
         if !self.check(&TokenKind::RBracket) {
             loop {
                 if self.check(&TokenKind::RBracket) {
                     break;
                 }
+                trailing_comma = false;
                 if self.check(&TokenKind::Comma) {
                     self.bump();
                     elements.push(ArrayElement::Elision);
@@ -3383,6 +3385,7 @@ impl Parser {
                 }
                 if self.check(&TokenKind::Comma) {
                     self.bump();
+                    trailing_comma = true;
                     continue;
                 }
                 break;
@@ -3391,6 +3394,7 @@ impl Parser {
         let end = self.expect(&TokenKind::RBracket)?.span.end.0;
         Ok(Expr::ArrayExpression {
             elements,
+            trailing_comma,
             span: Span::new(start, end),
         })
     }
@@ -3639,7 +3643,12 @@ fn expr_to_pattern_element(expr: &Expr) -> Option<(BindingPattern, Option<Expr>)
 /// Reinterpret an array literal as an assignment pattern when every element is
 /// a binding/LHS target (`ident`, member, `pat = default`, nested pattern, elision, or trailing rest).
 fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
-    let Expr::ArrayExpression { elements, span } = expr else {
+    let Expr::ArrayExpression {
+        elements,
+        trailing_comma,
+        span,
+    } = expr
+    else {
         return None;
     };
     let mut pat_els = Vec::with_capacity(elements.len());
@@ -3662,6 +3671,10 @@ fn array_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 saw_rest = true;
             }
         }
+    }
+    // `[...x,]` — trailing comma after rest is a SyntaxError in assignment patterns.
+    if *trailing_comma && saw_rest {
+        return None;
     }
     Some(Expr::ArrayPattern {
         elements: pat_els,
@@ -3747,7 +3760,11 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
             private: false,
             ..
         } => Some(BindingPattern::Member(Box::new(expr.clone()))),
-        Expr::ArrayExpression { elements, span } => {
+        Expr::ArrayExpression {
+            elements,
+            trailing_comma,
+            span,
+        } => {
             let mut pat_els = Vec::with_capacity(elements.len());
             let mut saw_rest = false;
             for el in elements {
@@ -3768,6 +3785,9 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         saw_rest = true;
                     }
                 }
+            }
+            if *trailing_comma && saw_rest {
+                return None;
             }
             Some(BindingPattern::Array {
                 elements: pat_els,
@@ -5532,6 +5552,37 @@ Program
         assert!(
             dump.matches("key: Computed").count() >= 7,
             "expected multiple computed keys, got:\n{dump}"
+        );
+    }
+
+    /// E19.32: binding elision is preserved; rest+trailing comma is a SyntaxError.
+    #[test]
+    fn parse_array_pattern_elision_and_rest_trailing_comma() {
+        let elision = parse_and_dump("let [,] = x;\n").unwrap();
+        assert!(
+            elision.contains("elision"),
+            "expected elision in binding pattern, got:\n{elision}"
+        );
+        let trail = parse_and_dump("let [a,,] = x;\n").unwrap();
+        assert!(
+            trail.contains("elision") && trail.contains("name: a"),
+            "expected trailing elision after a, got:\n{trail}"
+        );
+        assert!(
+            parse_and_dump("let [...x,] = [];\n").is_err(),
+            "binding rest+trailing comma must fail"
+        );
+        // Assignment `[...x,]` stays an array literal (trailing_comma+rest → not a pattern);
+        // checker rejects invalid LHS. Bare rest still becomes ArrayPattern.
+        let bad_assign = parse_and_dump("[...x,] = [];\n").unwrap();
+        assert!(
+            bad_assign.contains("ArrayExpression") && !bad_assign.contains("ArrayPattern"),
+            "rest+trailing comma must not become assignment pattern, got:\n{bad_assign}"
+        );
+        let ok_rest = parse_and_dump("[...x] = [];\n").unwrap();
+        assert!(
+            ok_rest.contains("ArrayPattern") && ok_rest.contains("rest:"),
+            "bare rest assignment ok, got:\n{ok_rest}"
         );
     }
 
