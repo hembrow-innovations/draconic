@@ -1,0 +1,59 @@
+class Outer {
+  #outer = "test262";
+  B_without = class {
+    method(o) {
+      return o.#outer;
+    }
+  };
+  B_with = class {
+    #inner = 42;
+    method(o) {
+      return o.#outer;
+    }
+    own() {
+      return this.#inner;
+    }
+  };
+  read() {
+    return this.#outer;
+  }
+}
+let c = new Outer();
+let a = new c.B_without().method(c);
+let b = new c.B_with().method(c);
+let d = new c.B_with().own();
+let e = c.read();
+
+class Counter {
+  #n = 1;
+  #flag = 0;
+  #opt;
+  add() {
+    this.#n += 2;
+    return this.#n;
+  }
+  or() {
+    this.#flag ||= 7;
+    return this.#flag;
+  }
+  nullish() {
+    this.#opt ??= 9;
+    return this.#opt;
+  }
+  pre() {
+    return ++this.#n;
+  }
+  post() {
+    return this.#n++;
+  }
+  value() {
+    return this.#n;
+  }
+}
+let ctr = new Counter();
+let f = ctr.add();
+let g = ctr.or();
+let h = ctr.nullish();
+let i = ctr.pre();
+let j = ctr.post();
+let k = ctr.value();

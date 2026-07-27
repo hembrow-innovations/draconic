@@ -440,6 +440,26 @@ fn private_in_runs() {
 }
 
 #[test]
+fn private_residual_fixture_present() {
+    assert_fixture_present("es/annex-b/private_residual");
+}
+
+#[test]
+fn private_residual_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/private_residual");
+}
+
+#[test]
+fn private_delete_err_fixture_present() {
+    assert_fixture_present("es/annex-b/private_delete_err");
+}
+
+#[test]
+fn private_delete_err_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/private_delete_err");
+}
+
+#[test]
 fn static_blocks_fixture_present() {
     assert_fixture_present("es/annex-b/static_blocks");
 }

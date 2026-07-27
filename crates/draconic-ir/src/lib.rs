@@ -1315,11 +1315,23 @@ fn lower_class_local(
         );
     }
 
-    let prev_privates = std::mem::replace(&mut ctx.private_fields, private_map);
-    let prev_private_methods = std::mem::replace(&mut ctx.private_methods, private_method_map);
-    let prev_private_accessors =
-        std::mem::replace(&mut ctx.private_accessors, private_accessor_map);
-    let prev_private_brands = std::mem::replace(&mut ctx.private_brands, private_brand_map);
+    // Nested classes inherit outer private names; inner same-name bindings shadow (E19.36).
+    let prev_privates = ctx.private_fields.clone();
+    let prev_private_methods = ctx.private_methods.clone();
+    let prev_private_accessors = ctx.private_accessors.clone();
+    let prev_private_brands = ctx.private_brands.clone();
+    for (k, v) in private_map {
+        ctx.private_fields.insert(k, v);
+    }
+    for (k, v) in private_method_map {
+        ctx.private_methods.insert(k, v);
+    }
+    for (k, v) in private_accessor_map {
+        ctx.private_accessors.insert(k, v);
+    }
+    for (k, v) in private_brand_map {
+        ctx.private_brands.insert(k, v);
+    }
 
     let mut private_method_fns: Vec<Stmt> = Vec::new();
     for (fn_id, params, body, is_async, is_generator) in private_method_meta {
@@ -2055,6 +2067,316 @@ fn private_field_set(wm: LocalId, object: Expr, value: Expr) -> Expr {
     }
 }
 
+/// Read private field / accessor / method value for `object.#name`.
+fn private_member_get(ctx: &LowerCtx, fname: &str, object: Expr) -> Expr {
+    if let Some(fn_id) = ctx.private_methods.get(fname).copied() {
+        let _ = object;
+        return Expr::Local {
+            id: fn_id,
+            ty: Type::Function,
+        };
+    }
+    if let Some((get, set)) = ctx.private_accessors.get(fname).copied() {
+        let _ = set;
+        if let Some(get_id) = get {
+            return private_fn_call(get_id, object, Vec::new());
+        }
+        return throw_type_error_expr(&format!(
+            "Private accessor #{fname} has no getter"
+        ));
+    }
+    if let Some(wm) = ctx.private_fields.get(fname).copied() {
+        return private_field_get(wm, object);
+    }
+    throw_type_error_expr(&format!("unknown private field #{fname}"))
+}
+
+/// `(() => { throw new TypeError(msg); })()` — expression-position TypeError (E19.36).
+fn throw_type_error_expr(message: &str) -> Expr {
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: Vec::new(),
+            body: vec![Stmt::Throw {
+                value: Expr::New {
+                    callee: Box::new(Expr::IdentName {
+                        name: "TypeError".into(),
+                        ty: Type::Function,
+                    }),
+                    args: vec![Arg::Expr(Expr::String {
+                        value: message.into(),
+                        ty: Type::String,
+                    })],
+                    ty: Type::Any,
+                },
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: Vec::new(),
+        optional: false,
+        ty: Type::Any,
+    }
+}
+
+/// Write private field / accessor: yields `value`.
+fn private_member_set(ctx: &LowerCtx, fname: &str, object: Expr, value: Expr) -> Expr {
+    // Private methods are not writable (TypeError, not IR panic).
+    if ctx.private_methods.contains_key(fname) {
+        return throw_type_error_expr(&format!(
+            "Private method #{fname} is not writable"
+        ));
+    }
+    if let Some((get, set)) = ctx.private_accessors.get(fname).copied() {
+        let _ = get;
+        if let Some(set_id) = set {
+            let set_call = private_fn_call(set_id, object, vec![Arg::Expr(value.clone())]);
+            return Expr::Binary {
+                left: Box::new(set_call),
+                op: BinaryOp::Comma,
+                right: Box::new(value),
+                ty: Type::Any,
+            };
+        }
+        return throw_type_error_expr(&format!(
+            "Private accessor #{fname} has no setter"
+        ));
+    }
+    if let Some(wm) = ctx.private_fields.get(fname).copied() {
+        return private_field_set(wm, object, value);
+    }
+    throw_type_error_expr(&format!("unknown private field #{fname}"))
+}
+
+/// `obj.#f = v` / compound / logical assign; object evaluated once (E19.36).
+fn lower_private_assign(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    fname: &str,
+    object: &AstExpr,
+    op: AssignOp,
+    value: &AstExpr,
+    super_class: Option<&AstExpr>,
+) -> Expr {
+    let obj_expr = lower_expr(checked, ctx, object, super_class);
+    let rhs = lower_expr(checked, ctx, value, super_class);
+    let tmp = ctx.alloc_synthetic_local(format!("__drac_pobj_{fname}"), Type::Any);
+    let bind_obj = Expr::Assign {
+        target: AssignTarget::Local(tmp),
+        op: AssignOp::Eq,
+        value: Box::new(obj_expr),
+        ty: Type::Any,
+    };
+    let obj_local = || Expr::Local {
+        id: tmp,
+        ty: Type::Any,
+    };
+    // Bind computed RHS to a temp so `private_field_set`'s `(set, value)` does not
+    // re-evaluate get+binop (would double-increment).
+    let val_id = ctx.alloc_synthetic_local(format!("__drac_pval_{fname}"), Type::Any);
+    let bind_val = |v: Expr| Expr::Assign {
+        target: AssignTarget::Local(val_id),
+        op: AssignOp::Eq,
+        value: Box::new(v),
+        ty: Type::Any,
+    };
+    let val_local = || Expr::Local {
+        id: val_id,
+        ty: Type::Any,
+    };
+    let set_val = || private_member_set(ctx, fname, obj_local(), val_local());
+    let assigned = match op {
+        AssignOp::Eq => Expr::Binary {
+            left: Box::new(bind_val(rhs)),
+            op: BinaryOp::Comma,
+            right: Box::new(set_val()),
+            ty: Type::Any,
+        },
+        AssignOp::AndAndEq => {
+            let cur = private_member_get(ctx, fname, obj_local());
+            let then_set = Expr::Binary {
+                left: Box::new(bind_val(rhs)),
+                op: BinaryOp::Comma,
+                right: Box::new(set_val()),
+                ty: Type::Any,
+            };
+            Expr::Binary {
+                left: Box::new(cur),
+                op: BinaryOp::And,
+                right: Box::new(then_set),
+                ty: Type::Any,
+            }
+        }
+        AssignOp::OrOrEq => {
+            let cur = private_member_get(ctx, fname, obj_local());
+            let then_set = Expr::Binary {
+                left: Box::new(bind_val(rhs)),
+                op: BinaryOp::Comma,
+                right: Box::new(set_val()),
+                ty: Type::Any,
+            };
+            Expr::Binary {
+                left: Box::new(cur),
+                op: BinaryOp::Or,
+                right: Box::new(then_set),
+                ty: Type::Any,
+            }
+        }
+        AssignOp::NullishEq => {
+            let cur = private_member_get(ctx, fname, obj_local());
+            let then_set = Expr::Binary {
+                left: Box::new(bind_val(rhs)),
+                op: BinaryOp::Comma,
+                right: Box::new(set_val()),
+                ty: Type::Any,
+            };
+            Expr::Binary {
+                left: Box::new(cur),
+                op: BinaryOp::Nullish,
+                right: Box::new(then_set),
+                ty: Type::Any,
+            }
+        }
+        other => {
+            let binop = other
+                .binary_op()
+                .expect("compound assign op has binary_op");
+            let cur = private_member_get(ctx, fname, obj_local());
+            let combined = Expr::Binary {
+                left: Box::new(cur),
+                op: binop,
+                right: Box::new(rhs),
+                ty: Type::Any,
+            };
+            Expr::Binary {
+                left: Box::new(bind_val(combined)),
+                op: BinaryOp::Comma,
+                right: Box::new(set_val()),
+                ty: Type::Any,
+            }
+        }
+    };
+    Expr::Binary {
+        left: Box::new(bind_obj),
+        op: BinaryOp::Comma,
+        right: Box::new(assigned),
+        ty: Type::Any,
+    }
+}
+
+/// `++obj.#f` / `obj.#f++` (and `--`); object evaluated once (E19.36).
+fn lower_private_update(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    fname: &str,
+    object: &AstExpr,
+    op: UpdateOp,
+    prefix: bool,
+    super_class: Option<&AstExpr>,
+) -> Expr {
+    let obj_expr = lower_expr(checked, ctx, object, super_class);
+    let tmp = ctx.alloc_synthetic_local(format!("__drac_pobj_{fname}"), Type::Any);
+    let bind_obj = Expr::Assign {
+        target: AssignTarget::Local(tmp),
+        op: AssignOp::Eq,
+        value: Box::new(obj_expr),
+        ty: Type::Any,
+    };
+    let obj_local = || Expr::Local {
+        id: tmp,
+        ty: Type::Any,
+    };
+    let one = Expr::Number {
+        raw: "1".into(),
+        ty: Type::Number,
+    };
+    let binop = match op {
+        UpdateOp::Inc => BinaryOp::Add,
+        UpdateOp::Dec => BinaryOp::Sub,
+    };
+    let next_id = ctx.alloc_synthetic_local(format!("__drac_pnext_{fname}"), Type::Any);
+    let next_local = || Expr::Local {
+        id: next_id,
+        ty: Type::Any,
+    };
+    if prefix {
+        let cur = private_member_get(ctx, fname, obj_local());
+        let bind_next = Expr::Assign {
+            target: AssignTarget::Local(next_id),
+            op: AssignOp::Eq,
+            value: Box::new(Expr::Binary {
+                left: Box::new(cur),
+                op: binop,
+                right: Box::new(one),
+                ty: Type::Any,
+            }),
+            ty: Type::Any,
+        };
+        let set = private_member_set(ctx, fname, obj_local(), next_local());
+        return Expr::Binary {
+            left: Box::new(bind_obj),
+            op: BinaryOp::Comma,
+            right: Box::new(Expr::Binary {
+                left: Box::new(bind_next),
+                op: BinaryOp::Comma,
+                right: Box::new(set),
+                ty: Type::Any,
+            }),
+            ty: Type::Any,
+        };
+    }
+    let cur_id = ctx.alloc_synthetic_local(format!("__drac_pcur_{fname}"), Type::Any);
+    let bind_cur = Expr::Assign {
+        target: AssignTarget::Local(cur_id),
+        op: AssignOp::Eq,
+        value: Box::new(private_member_get(ctx, fname, obj_local())),
+        ty: Type::Any,
+    };
+    let bind_next = Expr::Assign {
+        target: AssignTarget::Local(next_id),
+        op: AssignOp::Eq,
+        value: Box::new(Expr::Binary {
+            left: Box::new(Expr::Local {
+                id: cur_id,
+                ty: Type::Any,
+            }),
+            op: binop,
+            right: Box::new(one),
+            ty: Type::Any,
+        }),
+        ty: Type::Any,
+    };
+    let set = private_member_set(ctx, fname, obj_local(), next_local());
+    let set_then_old = Expr::Binary {
+        left: Box::new(set),
+        op: BinaryOp::Comma,
+        right: Box::new(Expr::Local {
+            id: cur_id,
+            ty: Type::Any,
+        }),
+        ty: Type::Any,
+    };
+    Expr::Binary {
+        left: Box::new(bind_obj),
+        op: BinaryOp::Comma,
+        right: Box::new(Expr::Binary {
+            left: Box::new(bind_cur),
+            op: BinaryOp::Comma,
+            right: Box::new(Expr::Binary {
+                left: Box::new(bind_next),
+                op: BinaryOp::Comma,
+                right: Box::new(set_then_old),
+                ty: Type::Any,
+            }),
+            ty: Type::Any,
+        }),
+        ty: Type::Any,
+    }
+}
+
 fn lower_arg(
     checked: &CheckedProgram,
     ctx: &mut LowerCtx,
@@ -2229,7 +2551,7 @@ fn lower_expr_hint(
             value,
             span,
         } => {
-            // Private field/accessor assign: `obj.#x = v` (simple `=` only).
+            // Private field/accessor assign: `obj.#x = v` / compound / logical (E19.36).
             if let AstExpr::MemberExpression {
                 object,
                 property,
@@ -2238,36 +2560,18 @@ fn lower_expr_hint(
             } = target.as_ref()
             {
                 let fname = match property.as_ref() {
-                    AstExpr::Ident(id) => id.name.clone(),
+                    AstExpr::Ident(id) => id.name.as_str(),
                     _ => panic!("private member property must be ident"),
                 };
-                assert!(
-                    matches!(op, AssignOp::Eq),
-                    "only simple `=` supported on private fields/accessors"
+                return lower_private_assign(
+                    checked,
+                    ctx,
+                    fname,
+                    object,
+                    *op,
+                    value,
+                    super_class,
                 );
-                let obj = lower_expr(checked, ctx, object, super_class);
-                let rhs = lower_expr(checked, ctx, value, super_class);
-                if let Some(set_id) = ctx
-                    .private_accessors
-                    .get(&fname)
-                    .and_then(|(_, set)| *set)
-                {
-                    // `(setter.call(obj, v), v)`
-                    let set_call =
-                        private_fn_call(set_id, obj, vec![Arg::Expr(rhs.clone())]);
-                    return Expr::Binary {
-                        left: Box::new(set_call),
-                        op: BinaryOp::Comma,
-                        right: Box::new(rhs),
-                        ty: Type::Any,
-                    };
-                }
-                let wm = ctx
-                    .private_fields
-                    .get(&fname)
-                    .copied()
-                    .unwrap_or_else(|| panic!("unknown private field #{fname}"));
-                return private_field_set(wm, obj, rhs);
             }
             let assign_name_hint = match target.as_ref() {
                 AstExpr::Ident(id) if matches!(op, AssignOp::Eq) => Some(id.name.as_str()),
@@ -2339,6 +2643,27 @@ fn lower_expr_hint(
             prefix,
             span,
         } => {
+            if let AstExpr::MemberExpression {
+                object,
+                property,
+                private: true,
+                ..
+            } = arg.as_ref()
+            {
+                let fname = match property.as_ref() {
+                    AstExpr::Ident(id) => id.name.as_str(),
+                    _ => panic!("private member property must be ident"),
+                };
+                return lower_private_update(
+                    checked,
+                    ctx,
+                    fname,
+                    object,
+                    *op,
+                    *prefix,
+                    super_class,
+                );
+            }
             let target = match arg.as_ref() {
                 AstExpr::Ident(id) => {
                     if let Some(local) = checked.bound.resolve(id.span) {
@@ -2763,32 +3088,11 @@ fn lower_expr_hint(
         } => {
             if *private {
                 let fname = match property.as_ref() {
-                    AstExpr::Ident(id) => id.name.clone(),
+                    AstExpr::Ident(id) => id.name.as_str(),
                     _ => panic!("private member property must be ident"),
                 };
-                if let Some(fn_id) = ctx.private_methods.get(&fname).copied() {
-                    // Private method as value (unbound function).
-                    let _ = object;
-                    return Expr::Local {
-                        id: fn_id,
-                        ty: Type::Function,
-                    };
-                }
                 let obj = lower_expr(checked, ctx, object, super_class);
-                if let Some(get_id) = ctx
-                    .private_accessors
-                    .get(&fname)
-                    .and_then(|(get, _)| *get)
-                {
-                    // Private getter: `getter.call(obj)`
-                    return private_fn_call(get_id, obj, Vec::new());
-                }
-                let wm = ctx
-                    .private_fields
-                    .get(&fname)
-                    .copied()
-                    .unwrap_or_else(|| panic!("unknown private field #{fname}"));
-                return private_field_get(wm, obj);
+                return private_member_get(ctx, fname, obj);
             }
             // `super.prop` → class with extends: `Parent.prototype.prop`; else keep `super.prop` (E19.34)
             if matches!(object.as_ref(), AstExpr::Super { .. }) {
@@ -4356,5 +4660,61 @@ Module
         assert_eq!(pfs.len(), 2, "outer and inner each need a WeakMap: {pfs:?}");
         assert!(pfs.iter().any(|n| n.contains("o")), "{pfs:?}");
         assert!(pfs.iter().any(|n| n.contains("i")), "{pfs:?}");
+    }
+
+    /// E19.36: nested class body may read outer private names (no IR panic).
+    #[test]
+    fn lower_nested_class_accesses_outer_private() {
+        let module = lower_src(
+            r#"
+            class C {
+                #outer = 1;
+                m() {
+                    class D {
+                        n(o) { return o.#outer; }
+                    }
+                    return new D().n(this);
+                }
+            }
+        "#,
+        );
+        let dump = dump_module(&module);
+        assert!(
+            dump.contains("__drac_pf_") || dump.contains("WeakMap"),
+            "expected private field WeakMap in dump"
+        );
+        assert!(
+            !dump.contains("unknown private"),
+            "nested access must resolve outer private"
+        );
+    }
+
+    /// E19.36: compound / logical assign on private fields lower without panic.
+    #[test]
+    fn lower_private_compound_and_logical_assign() {
+        let _ = lower_src(
+            r#"
+            class C {
+                #x = 1;
+                #y = 0;
+                #z;
+                step() {
+                    this.#x += 2;
+                    this.#y ||= 5;
+                    this.#z ??= 9;
+                    return this.#x + this.#y + this.#z;
+                }
+            }
+        "#,
+        );
+        let _ = lower_src(
+            r#"
+            class C {
+                #n = 0;
+                inc() { return ++this.#n; }
+                post() { return this.#n++; }
+            }
+        "#,
+        );
     }
 }

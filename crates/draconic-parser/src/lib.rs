@@ -2562,6 +2562,14 @@ impl Parser {
             let start = self.bump().span.start.0;
             let arg = self.parse_unary()?;
             let end = expr_span(&arg).end.0;
+            // E19.36: `delete` of MemberExpression/CallExpression.PrivateName is early SyntaxError
+            // (class bodies are strict; also covered parenthesized forms).
+            if matches!(op, UnaryOp::Delete) && expr_is_private_member_reference(&arg) {
+                return Err(Diagnostic::new(
+                    "cannot delete private field or method".to_string(),
+                    Span::new(start, end),
+                ));
+            }
             return Ok(Expr::Unary {
                 op,
                 arg: Box::new(arg),
@@ -3826,6 +3834,15 @@ fn js_number_to_property_key(n: f64) -> String {
         s = stripped.to_string();
     }
     s
+}
+
+/// True when `expr` is (possibly parenthesized) `….#private` (E19.36 delete early error).
+fn expr_is_private_member_reference(expr: &Expr) -> bool {
+    match expr {
+        Expr::Paren { expr: inner, .. } => expr_is_private_member_reference(inner),
+        Expr::MemberExpression { private: true, .. } => true,
+        _ => false,
+    }
 }
 
 /// ClassBody early errors: duplicate privates, field PropName, SuperCall/arguments in field init.
@@ -6377,6 +6394,28 @@ Program
                 && privates.contains("name: #x")
                 && privates.contains("name: #y"),
             "private fields after same-line generator, got:\n{privates}"
+        );
+    }
+
+    /// E19.36: `delete` of private member reference is early SyntaxError.
+    #[test]
+    fn parse_delete_private_member_early_error() {
+        assert!(
+            parse_and_dump("class C { #x; m() { delete this.#x; } }\n").is_err(),
+            "delete this.#x must fail"
+        );
+        assert!(
+            parse_and_dump("class C { #x; m() { delete (this.#x); } }\n").is_err(),
+            "delete (this.#x) must fail"
+        );
+        assert!(
+            parse_and_dump("class C { #x; m() { delete ((this.#x)); } }\n").is_err(),
+            "delete ((this.#x)) must fail"
+        );
+        // Public delete still parses.
+        assert!(
+            parse_and_dump("class C { m() { delete this.x; } }\n").is_ok(),
+            "delete this.x must still parse"
         );
     }
 }
