@@ -648,13 +648,32 @@ impl Parser {
                 self.bump();
                 continue;
             }
-            body.push(self.parse_class_element()?);
-            // Optional semicolon after method / field terminator (ASI / explicit)
-            if self.check(&TokenKind::Semi) {
+            let el = self.parse_class_element()?;
+            let needs_field_semi = matches!(
+                &el,
+                ClassElement::Field { .. }
+            );
+            body.push(el);
+            // FieldDefinition requires `;` (explicit or ASI). Methods end at `}`.
+            if needs_field_semi {
+                if self.check(&TokenKind::Semi) {
+                    self.bump();
+                } else if self.check(&TokenKind::RBrace) || self.check(&TokenKind::Eof) {
+                    // ASI before `}` / EOF
+                } else if self.current().preceded_by_line_terminator {
+                    // ASI across LineTerminator
+                } else {
+                    return Err(Diagnostic::new(
+                        "expected ';' after class field".to_string(),
+                        self.current_span(),
+                    ));
+                }
+            } else if self.check(&TokenKind::Semi) {
                 self.bump();
             }
         }
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
+        validate_class_body(&body)?;
         Ok((super_class, body, end))
     }
 
@@ -673,6 +692,51 @@ impl Parser {
             return Ok(ClassElement::StaticBlock {
                 body,
                 span: Span::new(start, end),
+            });
+        }
+        // Auto-accessor field: `accessor name;` / `accessor name = expr;` (no LineTerminator after `accessor`).
+        if matches!(self.current().kind, TokenKind::Ident(ref n) if n == "accessor")
+            && self.peek_starts_accessor_field_name()
+        {
+            self.bump(); // consume `accessor`
+            let (key, is_private) = if let TokenKind::PrivateIdent(pname) = &self.current().kind {
+                let pname = pname.clone();
+                let name_tok = self.bump();
+                (
+                    ObjectKey::Ident(Ident {
+                        name: pname,
+                        span: name_tok.span,
+                    }),
+                    true,
+                )
+            } else {
+                (self.parse_object_key()?, false)
+            };
+            let key_span = object_key_span(&key);
+            let value = if self.check(&TokenKind::Eq) {
+                self.bump();
+                Some(self.parse_assignment()?)
+            } else {
+                None
+            };
+            let end = value
+                .as_ref()
+                .map(|v| expr_span(v).end.0)
+                .unwrap_or(key_span.end.0);
+            let span = Span::new(start, end);
+            if !is_private && class_key_is_literal_constructor(&key) {
+                return Err(Diagnostic::new(
+                    "class field cannot be named constructor".to_string(),
+                    span,
+                ));
+            }
+            // Lower as a public/private field for now (auto-accessor semantics deferred).
+            return Ok(ClassElement::Field {
+                key,
+                value,
+                is_static,
+                is_private,
+                span,
             });
         }
         // `get name()` / `set name(v)` / `get #name()` / `set #name(v)` / `get [expr]()` (not `get()` method)
@@ -3136,6 +3200,45 @@ impl Parser {
                     span: Span::new(key_span.start.0, end),
                 })
             }
+            TokenKind::Number(raw) => {
+                let name = numeric_literal_property_name(raw);
+                let key_span = key_tok.span;
+                let span_start = if is_async || is_generator {
+                    prop_start
+                } else {
+                    key_span.start.0
+                };
+                self.bump();
+                let key = ObjectKey::String(StringLit {
+                    value: name.into(),
+                    span: key_span,
+                });
+                if self.check(&TokenKind::LParen) {
+                    let method = self.parse_method_function(span_start, is_async, is_generator)?;
+                    let end = expr_span(&method).end.0;
+                    return Ok(ObjectProp::Property {
+                        key,
+                        value: method,
+                        shorthand: false,
+                        span: Span::new(span_start, end),
+                    });
+                }
+                if is_async || is_generator {
+                    return Err(Diagnostic::new(
+                        "async/generator method requires `(params) { body }`".to_string(),
+                        self.current_span(),
+                    ));
+                }
+                self.expect(&TokenKind::Colon)?;
+                let value = self.parse_assignment()?;
+                let end = expr_span(&value).end.0;
+                Ok(ObjectProp::Property {
+                    key,
+                    value,
+                    shorthand: false,
+                    span: Span::new(key_span.start.0, end),
+                })
+            }
             _ => Err(Diagnostic::new(
                 format!("expected property name, found {:?}", key_tok.kind),
                 key_tok.span,
@@ -3168,7 +3271,7 @@ impl Parser {
         })
     }
 
-    /// True when the next token can start a method name after `async` (`m`, `"m"`, `[`, `*`).
+    /// True when the next token can start a method name after `async` (`m`, `"m"`, `0`, `[`, `*`).
     fn peek_starts_method_name(&self) -> bool {
         let next = match self.tokens.get(self.pos + 1) {
             Some(t) => t,
@@ -3179,9 +3282,29 @@ impl Parser {
             TokenKind::Ident(_)
                 | TokenKind::PrivateIdent(_)
                 | TokenKind::String(_)
+                | TokenKind::Number(_)
                 | TokenKind::LBracket
                 | TokenKind::Star
         )
+    }
+
+    /// True when next token starts an auto-accessor field name after `accessor` (no LineTerminator).
+    fn peek_starts_accessor_field_name(&self) -> bool {
+        let next = match self.tokens.get(self.pos + 1) {
+            Some(t) => t,
+            None => return false,
+        };
+        if next.preceded_by_line_terminator {
+            return false;
+        }
+        matches!(
+            next.kind,
+            TokenKind::Ident(_)
+                | TokenKind::PrivateIdent(_)
+                | TokenKind::String(_)
+                | TokenKind::Number(_)
+                | TokenKind::LBracket
+        ) || next.ident_name_opt().is_some()
     }
 
     /// True when current token is `get`/`set` and the next token starts an accessor name.
@@ -3196,12 +3319,13 @@ impl Parser {
             TokenKind::Ident(_)
             | TokenKind::PrivateIdent(_)
             | TokenKind::String(_)
+            | TokenKind::Number(_)
             | TokenKind::LBracket => Some(kind),
             _ => None,
         }
     }
 
-    /// Object literal / accessor property key: IdentifierName (incl. keywords), string, or `[expr]`.
+    /// Object literal / accessor property key: IdentifierName (incl. keywords), string, number, or `[expr]`.
     fn parse_object_key(&mut self) -> Result<ObjectKey, Diagnostic> {
         let tok = self.current().clone();
         if let Some(name) = tok.ident_name_opt() {
@@ -3217,6 +3341,14 @@ impl Parser {
                 self.bump();
                 Ok(ObjectKey::String(StringLit {
                     value,
+                    span: tok.span,
+                }))
+            }
+            TokenKind::Number(raw) => {
+                let name = numeric_literal_property_name(raw);
+                self.bump();
+                Ok(ObjectKey::String(StringLit {
+                    value: name.into(),
                     span: tok.span,
                 }))
             }
@@ -3636,6 +3768,448 @@ fn object_key_span(key: &ObjectKey) -> Span {
 /// Literal IdentifierName `constructor` only — not `"constructor"` or `['constructor']`.
 fn class_key_is_literal_constructor(key: &ObjectKey) -> bool {
     matches!(key, ObjectKey::Ident(id) if id.name == "constructor")
+}
+
+/// PropName of a non-computed class element key (Ident / String / numeric→String).
+fn class_element_prop_name(key: &ObjectKey) -> Option<String> {
+    match key {
+        ObjectKey::Ident(id) => Some(id.name.clone()),
+        ObjectKey::String(s) => Some(s.value.to_string_lossy()),
+        ObjectKey::Computed(_) => None,
+    }
+}
+
+/// NumericLiteral property name → ToString(MV) string key (ECMA-262 LiteralPropertyName).
+fn numeric_literal_property_name(raw: &str) -> String {
+    let s: String = raw.chars().filter(|&c| c != '_').collect();
+    let lower = s.to_ascii_lowercase();
+    if let Some(hex) = lower.strip_prefix("0x") {
+        if let Ok(n) = u64::from_str_radix(hex, 16) {
+            return n.to_string();
+        }
+    } else if let Some(bin) = lower.strip_prefix("0b") {
+        if let Ok(n) = u64::from_str_radix(bin, 2) {
+            return n.to_string();
+        }
+    } else if let Some(oct) = lower.strip_prefix("0o") {
+        if let Ok(n) = u64::from_str_radix(oct, 8) {
+            return n.to_string();
+        }
+    } else if let Ok(n) = s.parse::<f64>() {
+        return js_number_to_property_key(n);
+    }
+    s
+}
+
+fn js_number_to_property_key(n: f64) -> String {
+    if n.is_nan() {
+        return "NaN".into();
+    }
+    if n.is_infinite() {
+        return if n.is_sign_positive() {
+            "Infinity".into()
+        } else {
+            "-Infinity".into()
+        };
+    }
+    if n == 0.0 {
+        return "0".into();
+    }
+    if n.fract() == 0.0 && n.abs() <= 9007199254740991.0 {
+        if n < 0.0 {
+            return format!("-{}", (-n) as u64);
+        }
+        return format!("{}", n as u64);
+    }
+    let mut s = format!("{n}");
+    if let Some(stripped) = s.strip_suffix(".0") {
+        s = stripped.to_string();
+    }
+    s
+}
+
+/// ClassBody early errors: duplicate privates, field PropName, SuperCall/arguments in field init.
+fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
+    let mut private_names: Vec<String> = Vec::new();
+    for el in body {
+        match el {
+            ClassElement::Field {
+                key,
+                value,
+                is_static,
+                is_private,
+                span,
+            } => {
+                if *is_private {
+                    if let ObjectKey::Ident(id) = key {
+                        if private_names.iter().any(|n| n == &id.name) {
+                            return Err(Diagnostic::new(
+                                format!("duplicate private name #{}", id.name),
+                                *span,
+                            ));
+                        }
+                        private_names.push(id.name.clone());
+                    }
+                } else if let Some(name) = class_element_prop_name(key) {
+                    if name == "constructor" {
+                        return Err(Diagnostic::new(
+                            "class field cannot be named constructor".to_string(),
+                            *span,
+                        ));
+                    }
+                    if *is_static && name == "prototype" {
+                        return Err(Diagnostic::new(
+                            "static class field cannot be named prototype".to_string(),
+                            *span,
+                        ));
+                    }
+                }
+                if let Some(v) = value {
+                    if expr_contains_super_call(v) {
+                        return Err(Diagnostic::new(
+                            "class field initializer cannot contain super call".to_string(),
+                            *span,
+                        ));
+                    }
+                    if expr_contains_arguments_ref(v) {
+                        return Err(Diagnostic::new(
+                            "class field initializer cannot contain arguments".to_string(),
+                            *span,
+                        ));
+                    }
+                }
+            }
+            ClassElement::Method {
+                key,
+                is_static,
+                is_private,
+                span,
+                ..
+            } => {
+                if *is_private {
+                    if let ObjectKey::Ident(id) = key {
+                        if private_names.iter().any(|n| n == &id.name) {
+                            return Err(Diagnostic::new(
+                                format!("duplicate private name #{}", id.name),
+                                *span,
+                            ));
+                        }
+                        private_names.push(id.name.clone());
+                    }
+                } else if *is_static {
+                    if let Some(name) = class_element_prop_name(key) {
+                        if name == "prototype" {
+                            return Err(Diagnostic::new(
+                                "static class method cannot be named prototype".to_string(),
+                                *span,
+                            ));
+                        }
+                    }
+                }
+            }
+            ClassElement::Accessor {
+                key,
+                is_static,
+                is_private,
+                span,
+                ..
+            } => {
+                if *is_private {
+                    if let ObjectKey::Ident(id) = key {
+                        // get/set pair may share one PrivateBoundName (allow up to 2).
+                        if private_names.iter().filter(|n| *n == &id.name).count() >= 2 {
+                            return Err(Diagnostic::new(
+                                format!("duplicate private name #{}", id.name),
+                                *span,
+                            ));
+                        }
+                        private_names.push(id.name.clone());
+                    }
+                } else if *is_static {
+                    if let Some(name) = class_element_prop_name(key) {
+                        if name == "prototype" {
+                            return Err(Diagnostic::new(
+                                "static class accessor cannot be named prototype".to_string(),
+                                *span,
+                            ));
+                        }
+                    }
+                }
+            }
+            ClassElement::Constructor { .. } | ClassElement::StaticBlock { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+/// `Contains SuperCall` for field initializers: recurse into arrows; skip nested functions/classes.
+fn expr_contains_super_call(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { callee, args, .. } => {
+            matches!(callee.as_ref(), Expr::Super { .. })
+                || expr_contains_super_call(callee)
+                || args.iter().any(arg_contains_super_call)
+        }
+        Expr::ArrowFunction { body, params, .. } => {
+            params
+                .iter()
+                .any(|p| p.default.as_ref().is_some_and(expr_contains_super_call))
+                || match body {
+                    ArrowBody::Expr(e) => expr_contains_super_call(e),
+                    ArrowBody::Block(s) => stmt_contains_super_call(s),
+                }
+        }
+        Expr::FunctionExpression { .. } | Expr::ClassExpression { .. } => false,
+        Expr::Paren { expr: inner, .. }
+        | Expr::Unary { arg: inner, .. }
+        | Expr::Update { arg: inner, .. }
+        | Expr::As { expr: inner, .. } => expr_contains_super_call(inner),
+        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+            expr_contains_super_call(left) || expr_contains_super_call(right)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_super_call(test)
+                || expr_contains_super_call(consequent)
+                || expr_contains_super_call(alternate)
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => expr_contains_super_call(object) || expr_contains_super_call(property),
+        Expr::New { callee, args, .. } => {
+            expr_contains_super_call(callee) || args.iter().any(arg_contains_super_call)
+        }
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_super_call(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { key, value, .. } => {
+                object_key_contains_super_call(key) || expr_contains_super_call(value)
+            }
+            ObjectProp::Spread { expr, .. } => expr_contains_super_call(expr),
+            ObjectProp::Accessor { key, .. } => object_key_contains_super_call(key),
+        }),
+        Expr::TemplateLiteral { expressions, .. } => {
+            expressions.iter().any(expr_contains_super_call)
+        }
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => expr_contains_super_call(tag) || expressions.iter().any(expr_contains_super_call),
+        Expr::ImportCall {
+            source, options, ..
+        } => {
+            expr_contains_super_call(source)
+                || options.as_ref().is_some_and(|o| expr_contains_super_call(o))
+        }
+        Expr::PrivateIn { object, .. } => expr_contains_super_call(object),
+        Expr::ArrayPattern { elements, .. } => elements.iter().any(|el| match el {
+            ArrayPatternElement::Pattern { default, .. } => {
+                default.as_ref().is_some_and(expr_contains_super_call)
+            }
+            _ => false,
+        }),
+        Expr::ObjectPattern { properties, .. } => properties.iter().any(|p| match p {
+            ObjectPatternProp::Prop { default, .. } => {
+                default.as_ref().is_some_and(expr_contains_super_call)
+            }
+            _ => false,
+        }),
+        _ => false,
+    }
+}
+
+fn arg_contains_super_call(a: &Arg) -> bool {
+    match a {
+        Arg::Expr(e) | Arg::Spread(e) => expr_contains_super_call(e),
+    }
+}
+
+fn object_key_contains_super_call(key: &ObjectKey) -> bool {
+    match key {
+        ObjectKey::Computed(e) => expr_contains_super_call(e),
+        ObjectKey::Ident(_) | ObjectKey::String(_) => false,
+    }
+}
+
+fn stmt_contains_super_call(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_super_call),
+        Stmt::Expression { expr, .. } => expr_contains_super_call(expr),
+        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_super_call),
+        Stmt::Throw { argument, .. } => expr_contains_super_call(argument),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_super_call(test)
+                || stmt_contains_super_call(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_contains_super_call(a))
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            expr_contains_super_call(test) || stmt_contains_super_call(body)
+        }
+        Stmt::Let { init, .. } => init.as_ref().is_some_and(expr_contains_super_call),
+        _ => false,
+    }
+}
+
+/// `ContainsArguments` for field initializers: recurse into arrows; skip nested functions/classes.
+fn expr_contains_arguments_ref(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(id) if id.name == "arguments" => true,
+        Expr::ArrowFunction { body, params, .. } => {
+            params.iter().any(|p| {
+                p.default.as_ref().is_some_and(expr_contains_arguments_ref)
+                    || binding_contains_arguments(&p.binding)
+            }) || match body {
+                ArrowBody::Expr(e) => expr_contains_arguments_ref(e),
+                ArrowBody::Block(s) => stmt_contains_arguments_ref(s),
+            }
+        }
+        Expr::FunctionExpression { .. } | Expr::ClassExpression { .. } => false,
+        Expr::Paren { expr: inner, .. }
+        | Expr::Unary { arg: inner, .. }
+        | Expr::Update { arg: inner, .. }
+        | Expr::As { expr: inner, .. } => expr_contains_arguments_ref(inner),
+        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+            expr_contains_arguments_ref(left) || expr_contains_arguments_ref(right)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_arguments_ref(test)
+                || expr_contains_arguments_ref(consequent)
+                || expr_contains_arguments_ref(alternate)
+        }
+        Expr::MemberExpression {
+            object,
+            property,
+            computed,
+            ..
+        } => {
+            expr_contains_arguments_ref(object)
+                || (*computed && expr_contains_arguments_ref(property))
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_contains_arguments_ref(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_arguments_ref(e),
+                })
+        }
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_arguments_ref(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { key, value, .. } => {
+                object_key_contains_arguments(key) || expr_contains_arguments_ref(value)
+            }
+            ObjectProp::Spread { expr, .. } => expr_contains_arguments_ref(expr),
+            ObjectProp::Accessor { key, .. } => object_key_contains_arguments(key),
+        }),
+        Expr::TemplateLiteral { expressions, .. } => {
+            expressions.iter().any(expr_contains_arguments_ref)
+        }
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => {
+            expr_contains_arguments_ref(tag) || expressions.iter().any(expr_contains_arguments_ref)
+        }
+        Expr::ImportCall {
+            source, options, ..
+        } => {
+            expr_contains_arguments_ref(source)
+                || options
+                    .as_ref()
+                    .is_some_and(|o| expr_contains_arguments_ref(o))
+        }
+        Expr::PrivateIn { object, .. } => expr_contains_arguments_ref(object),
+        Expr::ArrayPattern { elements, .. } => elements.iter().any(|el| match el {
+            ArrayPatternElement::Pattern { binding, default } => {
+                binding_contains_arguments(binding)
+                    || default.as_ref().is_some_and(expr_contains_arguments_ref)
+            }
+            ArrayPatternElement::Rest(b) => binding_contains_arguments(b),
+            ArrayPatternElement::Elision => false,
+        }),
+        Expr::ObjectPattern { properties, .. } => properties.iter().any(|p| match p {
+            ObjectPatternProp::Prop {
+                binding, default, ..
+            } => {
+                binding_contains_arguments(binding)
+                    || default.as_ref().is_some_and(expr_contains_arguments_ref)
+            }
+            ObjectPatternProp::Rest(b) => binding_contains_arguments(b),
+        }),
+        _ => false,
+    }
+}
+
+fn object_key_contains_arguments(key: &ObjectKey) -> bool {
+    match key {
+        ObjectKey::Computed(e) => expr_contains_arguments_ref(e),
+        ObjectKey::Ident(_) | ObjectKey::String(_) => false,
+    }
+}
+
+fn binding_contains_arguments(b: &BindingPattern) -> bool {
+    match b {
+        BindingPattern::Ident(id) => id.name == "arguments",
+        BindingPattern::Member(e) => expr_contains_arguments_ref(e),
+        BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectPatternProp::Prop {
+                binding, default, ..
+            } => {
+                binding_contains_arguments(binding)
+                    || default.as_ref().is_some_and(expr_contains_arguments_ref)
+            }
+            ObjectPatternProp::Rest(inner) => binding_contains_arguments(inner),
+        }),
+        BindingPattern::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayPatternElement::Pattern { binding, default } => {
+                binding_contains_arguments(binding)
+                    || default.as_ref().is_some_and(expr_contains_arguments_ref)
+            }
+            ArrayPatternElement::Rest(inner) => binding_contains_arguments(inner),
+            ArrayPatternElement::Elision => false,
+        }),
+    }
+}
+
+fn stmt_contains_arguments_ref(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_arguments_ref),
+        Stmt::Expression { expr, .. } => expr_contains_arguments_ref(expr),
+        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_arguments_ref),
+        Stmt::Throw { argument, .. } => expr_contains_arguments_ref(argument),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_arguments_ref(test)
+                || stmt_contains_arguments_ref(consequent)
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_contains_arguments_ref(a))
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            expr_contains_arguments_ref(test) || stmt_contains_arguments_ref(body)
+        }
+        Stmt::Let { init, .. } => init.as_ref().is_some_and(expr_contains_arguments_ref),
+        _ => false,
+    }
 }
 
 fn expr_span(expr: &Expr) -> Span {
@@ -5689,6 +6263,68 @@ Program
         assert!(
             ok_rest.contains("ArrayPattern") && ok_rest.contains("rest:"),
             "bare rest assignment ok, got:\n{ok_rest}"
+        );
+    }
+
+    /// E19.34: numeric LiteralPropertyName on class methods/fields/accessors.
+    #[test]
+    fn parse_class_numeric_property_names() {
+        let dump = parse_and_dump(
+            "class C {\n\
+               0 = 'bar';\n\
+               1() { return 1; }\n\
+               get 2() { return 2; }\n\
+               set 3(_) {}\n\
+               static 0x10() { return 16; }\n\
+             }\n",
+        )
+        .unwrap();
+        assert!(
+            dump.contains("key: String \"0\"")
+                && dump.contains("key: String \"1\"")
+                && dump.contains("key: String \"2\"")
+                && dump.contains("key: String \"3\"")
+                && dump.contains("key: String \"16\""),
+            "expected numeric PropNames as strings, got:\n{dump}"
+        );
+    }
+
+    /// E19.34: field ASI required; SuperCall/arguments/dups/constructor/prototype early errors.
+    #[test]
+    fn parse_class_element_early_errors() {
+        assert!(
+            parse_and_dump("class C { field method(){} }\n").is_err(),
+            "same-line field then method without ';' must fail"
+        );
+        assert!(
+            parse_and_dump("class C { x = super(); }\n").is_err(),
+            "SuperCall in field init must fail"
+        );
+        assert!(
+            parse_and_dump("class C { x = () => super(); }\n").is_err(),
+            "SuperCall in arrow field init must fail"
+        );
+        assert!(
+            parse_and_dump("class C { x = () => arguments; }\n").is_err(),
+            "arguments in arrow field init must fail"
+        );
+        assert!(
+            parse_and_dump("class C { #x; #x; }\n").is_err(),
+            "duplicate private field must fail"
+        );
+        assert!(
+            parse_and_dump("class C { 'constructor'; }\n").is_err(),
+            "string field named constructor must fail"
+        );
+        assert!(
+            parse_and_dump("class C { static prototype; }\n").is_err(),
+            "static field named prototype must fail"
+        );
+        // ASI with newline is OK
+        let ok = parse_and_dump("class C { field\nmethod(){} }\n").unwrap();
+        assert!(
+            ok.contains("name: field") && ok.contains("name: method"),
+            "newline ASI field then method ok, got:\n{ok}"
         );
     }
 

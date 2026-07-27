@@ -2184,12 +2184,10 @@ fn lower_expr_hint(
             ty: expr_ty(checked, *span),
         },
         AstExpr::Super { span } => {
-            if ctx.object_super {
-                Expr::Super {
-                    ty: expr_ty(checked, *span),
-                }
-            } else {
-                panic!("bare `super` must appear as super(...) or super.prop after check")
+            // Keep bare `super` for JS home-object emit; never panic (E19.34).
+            // Invalid SuperCall/SuperProperty sites are early errors in parser/check.
+            Expr::Super {
+                ty: expr_ty(checked, *span),
             }
         }
         AstExpr::Unary { op, arg, span } => Expr::Unary {
@@ -2391,7 +2389,8 @@ fn lower_expr_hint(
             // `super(args)` → class: `Parent.call(this, ...args)`; object method: keep `super(...)`
             // (early SyntaxError for SuperCall in object methods is deferred to check/parser).
             if matches!(callee.as_ref(), AstExpr::Super { .. }) {
-                if ctx.object_super && super_class.is_none() {
+                // Object methods and missing-extends: keep `super(...)` for JS emit (E19.34).
+                if super_class.is_none() {
                     return Expr::Call {
                         callee: Box::new(Expr::Super {
                             ty: expr_ty(checked, *span),
@@ -2404,8 +2403,7 @@ fn lower_expr_hint(
                         ty: expr_ty(checked, *span),
                     };
                 }
-                let parent_ast = super_class
-                    .expect("`super(...)` requires `extends` on the enclosing class");
+                let parent_ast = super_class.expect("super_class present");
                 let parent = lower_expr(checked, ctx, parent_ast, None);
                 let call_member = Expr::Member {
                     object: Box::new(parent),
@@ -2439,8 +2437,8 @@ fn lower_expr_hint(
             } = callee.as_ref()
             {
                 if matches!(object.as_ref(), AstExpr::Super { .. }) {
-                    // Object method: keep `super.m(...)` for JS home-object emit.
-                    if ctx.object_super && super_class.is_none() {
+                    // Object method / base class: keep `super.m(...)` for JS home-object emit (E19.34).
+                    if super_class.is_none() {
                         let prop = if *computed {
                             lower_expr(checked, ctx, property, super_class)
                         } else {
@@ -2469,8 +2467,7 @@ fn lower_expr_hint(
                             ty: expr_ty(checked, *span),
                         };
                     }
-                    let parent_ast = super_class
-                        .expect("`super.prop` requires `extends` on the enclosing class");
+                    let parent_ast = super_class.expect("super_class present");
                     let parent = lower_expr(checked, ctx, parent_ast, None);
                     let parent_proto = Expr::Member {
                         object: Box::new(parent),
@@ -2793,7 +2790,7 @@ fn lower_expr_hint(
                     .unwrap_or_else(|| panic!("unknown private field #{fname}"));
                 return private_field_get(wm, obj);
             }
-            // `super.prop` → class: `Parent.prototype.prop`; object method: keep `super.prop`
+            // `super.prop` → class with extends: `Parent.prototype.prop`; else keep `super.prop` (E19.34)
             if matches!(object.as_ref(), AstExpr::Super { .. }) {
                 let property = if *computed {
                     lower_expr(checked, ctx, property, super_class)
@@ -2806,7 +2803,7 @@ fn lower_expr_hint(
                         other => lower_expr(checked, ctx, other, super_class),
                     }
                 };
-                if ctx.object_super && super_class.is_none() {
+                if super_class.is_none() {
                     return Expr::Member {
                         object: Box::new(Expr::Super { ty: Type::Any }),
                         property: Box::new(property),
@@ -2815,8 +2812,7 @@ fn lower_expr_hint(
                         ty: expr_ty(checked, *span),
                     };
                 }
-                let parent_ast = super_class
-                    .expect("`super.prop` requires `extends` on the enclosing class");
+                let parent_ast = super_class.expect("super_class present");
                 let parent = lower_expr(checked, ctx, parent_ast, None);
                 let parent_proto = Expr::Member {
                     object: Box::new(parent),
