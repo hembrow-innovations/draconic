@@ -10,7 +10,7 @@ use draconic_check::{check, check_module};
 use draconic_diagnostics::Diagnostic;
 use draconic_ir::lower;
 use draconic_linker::link_entry;
-use draconic_parser::parse;
+use draconic_parser::{parse, parse_module};
 
 pub use draconic_check::CheckedProgram;
 pub use draconic_ir::Module;
@@ -48,7 +48,7 @@ pub fn check_source(source: &str) -> Result<CheckedProgram, Diagnostic> {
 
 /// Parse + check `source` as a Module without lowering (E19.28).
 pub fn check_source_module(source: &str) -> Result<CheckedProgram, Diagnostic> {
-    let program = parse(source)?;
+    let program = parse_module(source)?;
     check_module(program)
 }
 

@@ -14,11 +14,24 @@ pub fn parse(source: &str) -> Result<Program, Diagnostic> {
     Parser::new(tokens).parse_program()
 }
 
+/// Parse as Module goal (always strict; `yield` reserved at top level).
+pub fn parse_module(source: &str) -> Result<Program, Diagnostic> {
+    let tokens = Lexer::new(source).tokenize()?;
+    let mut parser = Parser::new(tokens);
+    parser.in_strict = true;
+    parser.parse_program()
+}
+
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     /// When false, relational `in` is not parsed (for-header left-hand side).
     allow_in: bool,
+    /// YieldExpression context (`function*`, generator methods). When false and
+    /// non-strict, `yield` is an IdentifierReference / BindingIdentifier (E19.37).
+    in_generator: bool,
+    /// Strict mode (directive prologue, class bodies). `yield` is reserved.
+    in_strict: bool,
 }
 
 impl Parser {
@@ -27,14 +40,43 @@ impl Parser {
             tokens,
             pos: 0,
             allow_in: true,
+            in_generator: false,
+            in_strict: false,
         }
+    }
+
+    /// `yield` as IdentifierReference / BindingIdentifier (non-strict, non-generator).
+    fn yield_is_ident(&self) -> bool {
+        !self.in_generator && !self.in_strict
+    }
+
+    /// True when `name` cannot be a BindingIdentifier / IdentifierReference here.
+    fn is_invalid_ident_name(&self, name: &str) -> bool {
+        is_reserved_word(name) || (name == "yield" && !self.yield_is_ident())
+    }
+
+    /// ASI allowed before current token (LineTerminator, `}`, or EOF).
+    fn can_asi_before_current(&self) -> bool {
+        matches!(self.current().kind, TokenKind::RBrace | TokenKind::Eof)
+            || self.current().preceded_by_line_terminator
     }
 
     fn parse_program(&mut self) -> Result<Program, Diagnostic> {
         let start = self.current_span().start.0;
         let mut body = Vec::new();
+        let mut directive_prologue = true;
         while !self.check(&TokenKind::Eof) {
             self.parse_stmt_list_item_into(&mut body)?;
+            if directive_prologue {
+                match body.last() {
+                    Some(stmt) if stmt_is_directive(stmt) => {
+                        if stmt_is_use_strict_directive(stmt) {
+                            self.in_strict = true;
+                        }
+                    }
+                    _ => directive_prologue = false,
+                }
+            }
         }
         let end = self.current_span().end.0;
         Ok(Program {
@@ -120,24 +162,26 @@ impl Parser {
         if self.is_type_alias_start() {
             return self.parse_type_alias();
         }
-        // `label: statement`
-        if matches!(self.current().kind, TokenKind::Ident(_)) && self.peek_is(&TokenKind::Colon) {
+        // `label: statement` (incl. non-strict `yield:` when yield_is_ident)
+        if self.at_binding_ident() && self.peek_is(&TokenKind::Colon) {
             return self.parse_labeled();
         }
         // expression statement
         let expr = self.parse_expr()?;
-        let expr_span = expr_span(&expr);
+        let expr_span_v = expr_span(&expr);
         let end = if self.check(&TokenKind::Semi) {
             self.bump().span.end.0
-        } else if self.check(&TokenKind::Eof) {
-            expr_span.end.0
+        } else if self.can_asi_before_current() {
+            expr_span_v.end.0
         } else {
-            // ASI: allow newline-terminated; for bootstrap require ; or eof/next stmt boundary
-            expr_span.end.0
+            return Err(Diagnostic::new(
+                "expected ';' after expression".to_string(),
+                self.current().span,
+            ));
         };
         Ok(Stmt::Expression {
             expr,
-            span: Span::new(expr_span.start.0, end),
+            span: Span::new(expr_span_v.start.0, end),
         })
     }
 
@@ -159,12 +203,34 @@ impl Parser {
     }
 
     fn parse_block(&mut self) -> Result<Stmt, Diagnostic> {
+        self.parse_block_inner(false)
+    }
+
+    /// FunctionBody block: may contain a Directive Prologue (`"use strict"`).
+    fn parse_function_body_block(&mut self) -> Result<Stmt, Diagnostic> {
+        self.parse_block_inner(true)
+    }
+
+    fn parse_block_inner(&mut self, allow_directives: bool) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::LBrace)?.span.start.0;
         let mut body = Vec::new();
+        let prev_strict = self.in_strict;
+        let mut directive_prologue = allow_directives;
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
             self.parse_stmt_list_item_into(&mut body)?;
+            if directive_prologue {
+                match body.last() {
+                    Some(stmt) if stmt_is_directive(stmt) => {
+                        if stmt_is_use_strict_directive(stmt) {
+                            self.in_strict = true;
+                        }
+                    }
+                    _ => directive_prologue = false,
+                }
+            }
         }
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
+        self.in_strict = prev_strict;
         Ok(Stmt::Block {
             body,
             span: Span::new(start, end),
@@ -494,7 +560,7 @@ impl Parser {
         let tok = self.expect(&TokenKind::Break)?;
         let start = tok.span.start.0;
         let mut end = tok.span.end.0;
-        let label = if matches!(self.current().kind, TokenKind::Ident(_)) {
+        let label = if self.at_binding_ident() {
             let name_tok = self.expect_ident()?;
             end = name_tok.span.end.0;
             Some(Ident {
@@ -517,7 +583,7 @@ impl Parser {
         let tok = self.expect(&TokenKind::Continue)?;
         let start = tok.span.start.0;
         let mut end = tok.span.end.0;
-        let label = if matches!(self.current().kind, TokenKind::Ident(_)) {
+        let label = if self.at_binding_ident() {
             let name_tok = self.expect_ident()?;
             end = name_tok.span.end.0;
             Some(Ident {
@@ -568,6 +634,9 @@ impl Parser {
         } else {
             false
         };
+        // Generator BindingIdentifier has [+Yield]: name cannot be `yield`.
+        let prev_gen = self.in_generator;
+        self.in_generator = is_generator;
         let name_tok = self.expect_ident()?;
         let name = Ident {
             name: name_tok.ident_name(),
@@ -578,7 +647,8 @@ impl Parser {
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
         let return_type = self.parse_optional_type_ann()?;
-        let body = Box::new(self.parse_block()?);
+        let body = Box::new(self.parse_function_body_block()?);
+        self.in_generator = prev_gen;
         let end = stmt_span(&body).end.0;
         Ok(Stmt::FunctionDeclaration {
             name,
@@ -595,12 +665,16 @@ impl Parser {
     /// `class Name extends Super? { constructor?(…) {…} method(…) {…} … }`
     fn parse_class_decl(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::Class)?.span.start.0;
+        // Entire class is strict mode code (incl. BindingIdentifier name).
+        let prev_strict = self.in_strict;
+        self.in_strict = true;
         let name_tok = self.expect_ident()?;
         let name = Ident {
             name: name_tok.ident_name(),
             span: name_tok.span,
         };
         let (super_class, body, end) = self.parse_class_tail()?;
+        self.in_strict = prev_strict;
         Ok(Stmt::ClassDeclaration {
             name,
             super_class,
@@ -612,16 +686,19 @@ impl Parser {
     /// `class Name? extends Super? { … }` in expression position (E18.33).
     fn parse_class_expression(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::Class)?.span.start.0;
-        let name = if matches!(self.current().kind, TokenKind::Ident(_)) {
+        let prev_strict = self.in_strict;
+        self.in_strict = true;
+        let name = if self.check(&TokenKind::Extends) || self.check(&TokenKind::LBrace) {
+            None
+        } else {
             let name_tok = self.expect_ident()?;
             Some(Ident {
                 name: name_tok.ident_name(),
                 span: name_tok.span,
             })
-        } else {
-            None
         };
         let (super_class, body, end) = self.parse_class_tail()?;
+        self.in_strict = prev_strict;
         Ok(Expr::ClassExpression {
             name,
             super_class,
@@ -641,6 +718,9 @@ impl Parser {
             None
         };
         self.expect(&TokenKind::LBrace)?;
+        // Class bodies are always strict (ECMA-262).
+        let prev_strict = self.in_strict;
+        self.in_strict = true;
         let mut body = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
             // Empty ClassElement: lone `;` (ECMA-262 ClassElement → `;`).
@@ -673,6 +753,7 @@ impl Parser {
             }
         }
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
+        self.in_strict = prev_strict;
         validate_class_body(&body)?;
         Ok((super_class, body, end))
     }
@@ -771,7 +852,7 @@ impl Parser {
                     key_span,
                 ));
             }
-            let body = Box::new(self.parse_block()?);
+            let body = Box::new(self.parse_function_body_block()?);
             let end = stmt_span(&body).end.0;
             return Ok(ClassElement::Accessor {
                 kind,
@@ -806,9 +887,12 @@ impl Parser {
             };
             if is_async || is_generator || self.check(&TokenKind::LParen) {
                 self.expect(&TokenKind::LParen)?;
+                let prev_gen = self.in_generator;
+                self.in_generator = is_generator;
                 let params = self.parse_param_list()?;
                 self.expect(&TokenKind::RParen)?;
-                let body = Box::new(self.parse_block()?);
+                let body = Box::new(self.parse_function_body_block()?);
+                self.in_generator = prev_gen;
                 let end = stmt_span(&body).end.0;
                 return Ok(ClassElement::Method {
                     key: ObjectKey::Ident(name),
@@ -870,9 +954,12 @@ impl Parser {
             });
         }
         self.expect(&TokenKind::LParen)?;
+        let prev_gen = self.in_generator;
+        self.in_generator = is_generator;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
-        let body = Box::new(self.parse_block()?);
+        let body = Box::new(self.parse_function_body_block()?);
+        self.in_generator = prev_gen;
         let end = stmt_span(&body).end.0;
         let span = Span::new(start, end);
         // Only literal IdentifierName `constructor` is the constructor; computed/`"constructor"` are methods.
@@ -929,7 +1016,10 @@ impl Parser {
         } else {
             false
         };
-        let name = if matches!(self.current().kind, TokenKind::Ident(_)) {
+        // Generator BindingIdentifier has [+Yield]: optional name cannot be `yield`.
+        let prev_gen = self.in_generator;
+        self.in_generator = is_generator;
+        let name = if self.at_binding_ident() {
             let name_tok = self.expect_ident()?;
             Some(Ident {
                 name: name_tok.ident_name(),
@@ -942,7 +1032,8 @@ impl Parser {
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
         let return_type = self.parse_optional_type_ann()?;
-        let body = Box::new(self.parse_block()?);
+        let body = Box::new(self.parse_function_body_block()?);
+        self.in_generator = prev_gen;
         let end = stmt_span(&body).end.0;
         Ok(Expr::FunctionExpression {
             name,
@@ -1614,7 +1705,9 @@ impl Parser {
             } else {
                 false
             };
-            let (name, is_synthetic) = if matches!(self.current().kind, TokenKind::Ident(_)) {
+            let prev_gen = self.in_generator;
+            self.in_generator = is_generator;
+            let (name, is_synthetic) = if self.at_binding_ident() {
                 let name_tok = self.expect_ident()?;
                 (
                     Ident {
@@ -1636,7 +1729,8 @@ impl Parser {
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
             let return_type = self.parse_optional_type_ann()?;
-            let body = Box::new(self.parse_block()?);
+            let body = Box::new(self.parse_function_body_block()?);
+            self.in_generator = prev_gen;
             let end = stmt_span(&body).end.0;
             let local = name.clone();
             let declaration = if is_synthetic {
@@ -1852,6 +1946,12 @@ impl Parser {
             if let Some(Stmt::Let { span, .. }) = decls.last_mut() {
                 *span = Span::new(span.start.0, semi_end);
             }
+        } else if !self.can_asi_before_current() {
+            // `let yield 0` — no ASI between BindingIdentifier and `0` (E19.37).
+            return Err(Diagnostic::new(
+                "expected ';' after declaration".to_string(),
+                self.current().span,
+            ));
         }
         Ok(decls)
     }
@@ -1962,10 +2062,11 @@ impl Parser {
                     properties.push(ObjectPatternProp::Rest(binding));
                     saw_rest = true;
                 } else {
-                    let key_tok = self.expect_ident()?;
+                    // PropertyName allows reserved words; shorthand uses BindingIdentifier.
+                    let (key_name, key_span) = self.expect_ident_name()?;
                     let key = Ident {
-                        name: key_tok.ident_name(),
-                        span: key_tok.span,
+                        name: key_name,
+                        span: key_span,
                     };
                     if self.check(&TokenKind::Colon) {
                         self.bump();
@@ -1985,10 +2086,19 @@ impl Parser {
                             binding,
                             shorthand: false,
                             default,
-                            span: Span::new(key_tok.span.start.0, end),
+                            span: Span::new(key_span.start.0, end),
                         });
                     } else {
-                        // Shorthand `{ a }` or CoverInitializedName `{ a = default }`
+                        // Shorthand `{ a }` — BindingIdentifier (yield only when yield_is_ident).
+                        if self.is_invalid_ident_name(&key.name) {
+                            return Err(Diagnostic::new(
+                                format!(
+                                    "'{}' is a reserved word and cannot be used as an identifier",
+                                    key.name
+                                ),
+                                key_span,
+                            ));
+                        }
                         let default = if self.check(&TokenKind::Eq) {
                             self.bump();
                             Some(self.parse_assignment()?)
@@ -2052,7 +2162,8 @@ impl Parser {
         if self.is_arrow_start() {
             return self.parse_arrow_function();
         }
-        if self.check(&TokenKind::Yield) {
+        // YieldExpression only in generator bodies/params; else IdentifierReference (E19.37).
+        if self.check(&TokenKind::Yield) && self.in_generator {
             return self.parse_yield();
         }
         let left = self.parse_conditional()?;
@@ -2130,8 +2241,9 @@ impl Parser {
         if self.check(&TokenKind::Async) && !self.peek_is(&TokenKind::Function) {
             let next = self.tokens.get(self.pos + 1).map(|t| &t.kind);
             let after = self.tokens.get(self.pos + 2).map(|t| &t.kind);
-            if matches!(next, Some(TokenKind::Ident(_))) && matches!(after, Some(TokenKind::Arrow))
-            {
+            let next_is_ident = matches!(next, Some(TokenKind::Ident(_)))
+                || (matches!(next, Some(TokenKind::Yield)) && self.yield_is_ident());
+            if next_is_ident && matches!(after, Some(TokenKind::Arrow)) {
                 return true;
             }
             if self.peek_is(&TokenKind::LParen) {
@@ -2139,7 +2251,7 @@ impl Parser {
             }
             return false;
         }
-        if matches!(self.current().kind, TokenKind::Ident(_)) && self.peek_is(&TokenKind::Arrow) {
+        if self.at_binding_ident() && self.peek_is(&TokenKind::Arrow) {
             return true;
         }
         if self.check(&TokenKind::LParen) {
@@ -2194,7 +2306,8 @@ impl Parser {
         } else {
             (false, self.current().span.start.0)
         };
-        let (params, return_type) = if matches!(self.current().kind, TokenKind::Ident(_)) {
+        // Arrows inherit [Yield] from the surrounding context (not a new generator).
+        let (params, return_type) = if self.at_binding_ident() {
             let p = self.expect_ident()?;
             (
                 vec![Param {
@@ -2217,7 +2330,7 @@ impl Parser {
         };
         self.expect(&TokenKind::Arrow)?;
         let body = if self.check(&TokenKind::LBrace) {
-            ArrowBody::Block(Box::new(self.parse_block()?))
+            ArrowBody::Block(Box::new(self.parse_function_body_block()?))
         } else {
             ArrowBody::Expr(Box::new(self.parse_assignment()?))
         };
@@ -3027,7 +3140,7 @@ impl Parser {
                     self.current_span(),
                 ));
             }
-            let body = Box::new(self.parse_block()?);
+            let body = Box::new(self.parse_function_body_block()?);
             let end = stmt_span(&body).end.0;
             return Ok(ObjectProp::Accessor {
                 kind,
@@ -3120,8 +3233,10 @@ impl Parser {
                 }
                 // Property shorthand: `{ a }` / CoverInitializedName `{ a = default }`
                 // (latter is only valid as assignment pattern; checker rejects as value).
-                // Keywords as IdentifierName keys require `: value` (not bare shorthand).
-                let is_keyword_key = !matches!(key_tok.kind, TokenKind::Ident(_));
+                // Keywords as IdentifierName keys require `: value` (not bare shorthand),
+                // except non-strict non-generator `yield` (IdentifierReference, E19.37).
+                let is_keyword_key = !matches!(key_tok.kind, TokenKind::Ident(_))
+                    && !(matches!(key_tok.kind, TokenKind::Yield) && self.yield_is_ident());
                 if !is_keyword_key
                     && (self.check(&TokenKind::Comma)
                         || self.check(&TokenKind::RBrace)
@@ -3262,10 +3377,13 @@ impl Parser {
         is_generator: bool,
     ) -> Result<Expr, Diagnostic> {
         self.expect(&TokenKind::LParen)?;
+        let prev_gen = self.in_generator;
+        self.in_generator = is_generator;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
         let return_type = self.parse_optional_type_ann()?;
-        let body = Box::new(self.parse_block()?);
+        let body = Box::new(self.parse_function_body_block()?);
+        self.in_generator = prev_gen;
         let end = stmt_span(&body).end.0;
         Ok(Expr::FunctionExpression {
             name: None,
@@ -3433,7 +3551,18 @@ impl Parser {
                 self.bump();
                 Ok(Expr::Super { span: tok.span })
             }
-            TokenKind::Ident(name) if is_reserved_word(name) => Err(Diagnostic::new(
+            TokenKind::Yield if self.yield_is_ident() => {
+                self.bump();
+                Ok(Expr::Ident(Ident {
+                    name: "yield".into(),
+                    span: tok.span,
+                }))
+            }
+            TokenKind::Yield => Err(Diagnostic::new(
+                "'yield' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
+            TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
                 format!("'{name}' is a reserved word and cannot be used as an identifier"),
                 tok.span,
             )),
@@ -3627,10 +3756,26 @@ impl Parser {
         }
     }
 
+    fn at_binding_ident(&self) -> bool {
+        match &self.current().kind {
+            TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
+            TokenKind::Yield if self.yield_is_ident() => true,
+            _ => false,
+        }
+    }
+
     fn expect_ident(&mut self) -> Result<Token, Diagnostic> {
         let tok = self.current().clone();
         match &tok.kind {
-            TokenKind::Ident(name) if is_reserved_word(name) => Err(Diagnostic::new(
+            TokenKind::Yield if self.yield_is_ident() => {
+                self.bump();
+                Ok(tok)
+            }
+            TokenKind::Yield => Err(Diagnostic::new(
+                "'yield' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
+            TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
                 format!("'{name}' is a reserved word and cannot be used as an identifier"),
                 tok.span,
             )),
@@ -3721,6 +3866,7 @@ impl IdentName for Token {
 }
 
 /// ECMA-262 ReservedWord (always reserved; not strict-only FutureReservedWord).
+/// `yield` is handled via `TokenKind::Yield` + `yield_is_ident` (E19.37), not here.
 fn is_reserved_word(name: &str) -> bool {
     matches!(
         name,
@@ -3761,8 +3907,32 @@ fn is_reserved_word(name: &str) -> bool {
             | "void"
             | "while"
             | "with"
-            | "yield"
     )
+}
+
+/// ExpressionStatement whose expression is a string literal (Directive Prologue candidate).
+fn stmt_is_directive(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Expression { expr, .. } => match expr {
+            Expr::String(_) => true,
+            Expr::Paren { expr, .. } => matches!(expr.as_ref(), Expr::String(_)),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn stmt_is_use_strict_directive(stmt: &Stmt) -> bool {
+    let Expr::String(s) = (match stmt {
+        Stmt::Expression { expr, .. } => match expr {
+            Expr::Paren { expr, .. } => expr.as_ref(),
+            other => other,
+        },
+        _ => return false,
+    }) else {
+        return false;
+    };
+    matches!(s.value.to_string_lossy().as_str(), "use strict")
 }
 
 fn object_key_span(key: &ObjectKey) -> Span {
@@ -6106,6 +6276,55 @@ Program
         assert!(
             yield_idx < cond_idx,
             "expected yield to wrap conditional, got:\n{cond}"
+        );
+    }
+
+    #[test]
+    fn parse_yield_as_identifier_non_strict() {
+        // E19.37: outside generators, non-strict `yield` is IdentifierReference.
+        let dump = parse_and_dump("var yield = 4; let x = yield;").unwrap();
+        assert!(
+            dump.contains("name: yield") && dump.contains("Ident yield"),
+            "yield as binding/ident, got:\n{dump}"
+        );
+        assert!(
+            !dump.contains("Unary yield"),
+            "must not parse as YieldExpression, got:\n{dump}"
+        );
+
+        let dstr = parse_and_dump("var yield = 4; var x; [ x = yield ] = [];").unwrap();
+        assert!(
+            dstr.contains("Ident yield") && !dstr.contains("Unary yield"),
+            "dstr default yield-ident, got:\n{dstr}"
+        );
+
+        let obj = parse_and_dump("var yield; ({ yield } = { yield: 3 });").unwrap();
+        assert!(
+            obj.contains("Ident yield"),
+            "object shorthand yield-ident, got:\n{obj}"
+        );
+
+        let arrow = parse_and_dump("var yield = 23; (x = yield) => x;").unwrap();
+        assert!(
+            arrow.contains("Ident yield") && !arrow.contains("Unary yield"),
+            "arrow param default yield-ident, got:\n{arrow}"
+        );
+
+        // Strict: yield is reserved.
+        assert!(
+            parse_and_dump("\"use strict\"; var yield = 1;").is_err(),
+            "strict BindingIdentifier yield must fail"
+        );
+        assert!(
+            parse_and_dump("\"use strict\"; 0, [ x = yield ] = [];").is_err(),
+            "strict IdentifierReference yield must fail"
+        );
+
+        // Inside generator still YieldExpression.
+        let gen = parse_and_dump("function* g() { yield 1; }").unwrap();
+        assert!(
+            gen.contains("Unary yield"),
+            "generator yield expr, got:\n{gen}"
         );
     }
 
