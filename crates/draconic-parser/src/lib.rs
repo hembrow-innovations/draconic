@@ -1591,9 +1591,19 @@ impl Parser {
         let start = self.expect(&TokenKind::Import)?.span.start.0;
         let mut specifiers = Vec::new();
         let mut namespace = None;
+        let mut phase = ImportPhase::Evaluation;
 
         // Side-effect import: `import "mod"` (optional WithClause).
         let source = if matches!(self.current().kind, TokenKind::String(_)) {
+            self.expect_string_lit()?
+        } else if matches!(&self.current().kind, TokenKind::Ident(n) if n == "defer")
+            && self.peek_is(&TokenKind::Star)
+        {
+            // E19.42: `import defer * as ns from "mod"` (only NameSpaceImport).
+            self.bump();
+            phase = ImportPhase::Defer;
+            namespace = Some(self.parse_namespace_import()?);
+            self.expect(&TokenKind::From)?;
             self.expect_string_lit()?
         } else {
             if self.check(&TokenKind::Star) {
@@ -1642,6 +1652,7 @@ impl Parser {
             namespace,
             source,
             attributes,
+            phase,
             span: Span::new(start, end),
         })
     }
@@ -6689,6 +6700,54 @@ Program
         assert!(dump.contains("String \"./m.js\""), "{dump}");
         assert!(!dump.contains("ImportCall defer"), "{dump}");
         assert!(!dump.contains("ImportCall source"), "{dump}");
+    }
+
+    #[test]
+    fn parse_import_defer_namespace() {
+        // E19.42: static deferred namespace import.
+        let dump = parse_and_dump("import defer * as ns from './m.js';").unwrap();
+        assert!(
+            dump.contains("ImportDeclaration")
+                && dump.contains("phase: defer")
+                && dump.contains("namespace: ns")
+                && dump.contains("source: ./m.js"),
+            "expected import defer namespace, got:\n{dump}"
+        );
+        assert!(!dump.contains("ImportSpecifier"), "{dump}");
+    }
+
+    #[test]
+    fn parse_import_defer_namespace_with_attributes() {
+        let dump =
+            parse_and_dump("import defer * as ns from './m.js' with { type: \"json\" };").unwrap();
+        assert!(
+            dump.contains("phase: defer")
+                && dump.contains("namespace: ns")
+                && dump.contains("ImportAttribute"),
+            "expected import defer + attributes, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_import_default_binding_named_defer() {
+        // `defer` remains a valid default import binding name.
+        let dump = parse_and_dump("import defer from './m.js';").unwrap();
+        assert!(
+            dump.contains("ImportDeclaration")
+                && dump.contains("local: defer")
+                && !dump.contains("phase: defer"),
+            "expected default import named defer, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_import_defer_named_fails() {
+        assert!(parse("import defer { x } from './m.js';").is_err());
+    }
+
+    #[test]
+    fn parse_import_defer_default_fails() {
+        assert!(parse("import defer x from './m.js';").is_err());
     }
 
     #[test]

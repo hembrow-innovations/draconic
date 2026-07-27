@@ -283,7 +283,8 @@ pub enum Stmt {
         span: Span,
     },
     /// `import { a, b as c } from "mod"` / `import d from "mod"` / `import d, { a } from "mod"`
-    /// / `import * as ns from "mod"` / `import d, * as ns from "mod"` / `import "mod"`.
+    /// / `import * as ns from "mod"` / `import d, * as ns from "mod"` / `import "mod"`
+    /// / `import defer * as ns from "mod"` (E19.42).
     /// Default import is a specifier with `imported.name == "default"`.
     /// Namespace import binds `namespace` to a module namespace object.
     /// Optional `with {…}` / `assert {…}` import attributes (E19.38).
@@ -293,6 +294,8 @@ pub enum Stmt {
         namespace: Option<Ident>,
         source: StringLit,
         attributes: Vec<ImportAttribute>,
+        /// Evaluation (default) or `import defer * as ns` deferred namespace (E19.42).
+        phase: ImportPhase,
         span: Span,
     },
     /// `export let/const/function …` or `export { a, b as c }` or `export { a } from "mod"`
@@ -818,13 +821,14 @@ pub enum UpdateOp {
 }
 
 /// Simple `=` or compound assignment operator (`+=`, `-=`, …).
-/// Phase of a dynamic `import` call (`import()` / `import.defer()` / `import.source()`).
+/// Phase of a dynamic `import` call (`import()` / `import.defer()` / `import.source()`)
+/// or static deferred namespace import (`import defer * as ns from`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ImportPhase {
-    /// `import(specifier)` — load and evaluate.
+    /// `import(specifier)` / normal static import — load and evaluate.
     #[default]
     Evaluation,
-    /// `import.defer(specifier)` — deferred evaluation namespace.
+    /// `import.defer(specifier)` / `import defer * as ns from` — deferred evaluation namespace.
     Defer,
     /// `import.source(specifier)` — source-phase module source.
     Source,
@@ -1566,10 +1570,15 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             namespace,
             source,
             attributes,
+            phase,
             ..
         } => {
             indent(level, out);
             out.push_str("ImportDeclaration\n");
+            if *phase == ImportPhase::Defer {
+                indent(level + 1, out);
+                out.push_str("phase: defer\n");
+            }
             for spec in specifiers {
                 indent(level + 1, out);
                 out.push_str("ImportSpecifier\n");

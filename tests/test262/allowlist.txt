@@ -11647,6 +11647,8 @@ test/language/import/import-defer/syntax/invalid-defer-default.js
 test/language/import/import-defer/syntax/invalid-defer-named.js
 test/language/import/import-defer/syntax/invalid-export-defer-namespace.js
 test/language/import/import-defer/syntax/valid-default-binding-named-defer.js
+test/language/import/import-defer/syntax/valid-defer-namespace.js
+test/language/import/import-defer/syntax/import-attributes.js
 test/language/keywords/ident-ref-break.js
 test/language/keywords/ident-ref-case.js
 test/language/keywords/ident-ref-catch.js
