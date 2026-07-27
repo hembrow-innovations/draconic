@@ -15,6 +15,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             out.push_str(name);
             if let Some(init) = init {
@@ -33,6 +35,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             emit_array_pattern(out, elements, names);
             if let Some(init) = init {
@@ -51,6 +55,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             emit_object_pattern(out, properties, names);
             if let Some(init) = init {
@@ -289,6 +295,8 @@ fn emit_for_init(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) 
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             out.push_str(name);
             if let Some(init) = init {
@@ -306,6 +314,8 @@ fn emit_for_init(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) 
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             emit_array_pattern(out, elements, names);
             if let Some(init) = init {
@@ -323,6 +333,8 @@ fn emit_for_init(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &str>) 
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             emit_object_pattern(out, properties, names);
             if let Some(init) = init {
@@ -356,6 +368,8 @@ fn emit_for_in_of_left(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             out.push_str(name);
             if let Some(init) = init {
@@ -373,6 +387,8 @@ fn emit_for_in_of_left(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             emit_array_pattern(out, elements, names);
             if let Some(init) = init {
@@ -390,6 +406,8 @@ fn emit_for_in_of_left(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, &
                 BindingKind::Const => out.push_str("const "),
                 BindingKind::Var => out.push_str("var "),
                 BindingKind::Function => out.push_str("let "),
+                BindingKind::Using => out.push_str("using "),
+                BindingKind::AwaitUsing => out.push_str("await using "),
             }
             emit_object_pattern(out, properties, names);
             if let Some(init) = init {

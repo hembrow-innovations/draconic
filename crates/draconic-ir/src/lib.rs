@@ -3539,6 +3539,8 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 BindingKind::Const => "const",
                 BindingKind::Var => "var",
                 BindingKind::Function => "function",
+                BindingKind::Using => "using",
+                BindingKind::AwaitUsing => "await using",
             };
             out.push_str(&format!("Declare {kw} %{}\n", local.0));
             if let Some(init) = init {
@@ -3558,6 +3560,8 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 BindingKind::Const => "const",
                 BindingKind::Var => "var",
                 BindingKind::Function => "function",
+                BindingKind::Using => "using",
+                BindingKind::AwaitUsing => "await using",
             };
             out.push_str(&format!("DeclareArrayPattern {kw}\n"));
             dump_array_pattern_els(elements, level + 1, out);
@@ -3578,6 +3582,8 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 BindingKind::Const => "const",
                 BindingKind::Var => "var",
                 BindingKind::Function => "function",
+                BindingKind::Using => "using",
+                BindingKind::AwaitUsing => "await using",
             };
             out.push_str(&format!("DeclareObjectPattern {kw}\n"));
             dump_object_pattern_els(properties, level + 1, out);

@@ -12,13 +12,13 @@ pub use draconic_ast::dump_program as dump_ast;
 
 pub fn parse(source: &str) -> Result<Program, Diagnostic> {
     let tokens = Lexer::new(source).tokenize()?;
-    Parser::new(tokens).parse_program()
+    Parser::new(tokens, false).parse_program()
 }
 
 /// Parse as Module goal (always strict; `yield` reserved at top level).
 pub fn parse_module(source: &str) -> Result<Program, Diagnostic> {
     let tokens = Lexer::new(source).tokenize()?;
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, true);
     parser.in_strict = true;
     parser.parse_program()
 }
@@ -33,21 +33,38 @@ struct Parser {
     in_generator: bool,
     /// Strict mode (directive prologue, class bodies). `yield` is reserved.
     in_strict: bool,
+    /// Module goal (top-level `using` / `await using` allowed).
+    is_module: bool,
+    /// Nesting depth of Block / function body (Script `using` early error).
+    using_container_depth: u32,
+    /// True while parsing a CaseClause/DefaultClause StatementList directly
+    /// (nested blocks clear this; using is forbidden in the case list itself).
+    forbid_direct_using: bool,
     /// Stack of private names for nested classes (E19.36 / E19.39 inheritance).
     /// Outer class names are visible inside nested class bodies.
     class_private_stack: Vec<Vec<String>>,
 }
 
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
+    fn new(tokens: Vec<Token>, is_module: bool) -> Self {
         Self {
             tokens,
             pos: 0,
             allow_in: true,
             in_generator: false,
             in_strict: false,
+            is_module,
+            using_container_depth: 0,
+            forbid_direct_using: false,
             class_private_stack: Vec::new(),
         }
+    }
+
+    fn using_allowed_here(&self) -> bool {
+        if self.forbid_direct_using {
+            return false;
+        }
+        self.is_module || self.using_container_depth > 0
     }
 
     fn all_class_private_names(&self) -> Vec<String> {
@@ -125,12 +142,71 @@ impl Parser {
             body.extend(self.parse_lexical_decls()?);
             return Ok(());
         }
+        // E19.44: `await using` / `using` declarations (contextual).
+        if self.await_using_starts_declaration() {
+            body.extend(self.parse_using_decls(true)?);
+            return Ok(());
+        }
+        if self.using_starts_declaration() {
+            body.extend(self.parse_using_decls(false)?);
+            return Ok(());
+        }
         if self.check(&TokenKind::Class) {
             body.push(self.parse_class_decl()?);
             return Ok(());
         }
         body.push(self.parse_stmt()?);
         Ok(())
+    }
+
+    /// `using` starts UsingDeclaration when followed (no LineTerminator) by a binding.
+    fn using_starts_declaration(&self) -> bool {
+        match &self.current().kind {
+            TokenKind::Ident(name) if name == "using" => {}
+            _ => return false,
+        }
+        let Some(next) = self.tokens.get(self.pos + 1) else {
+            return false;
+        };
+        if next.preceded_by_line_terminator {
+            return false;
+        }
+        self.token_starts_using_binding(&next.kind)
+    }
+
+    /// `await using` starts AwaitUsingDeclaration (no LineTerminator between tokens).
+    fn await_using_starts_declaration(&self) -> bool {
+        if !self.check(&TokenKind::Await) {
+            return false;
+        }
+        let Some(using_tok) = self.tokens.get(self.pos + 1) else {
+            return false;
+        };
+        if using_tok.preceded_by_line_terminator {
+            return false;
+        }
+        match &using_tok.kind {
+            TokenKind::Ident(name) if name == "using" => {}
+            _ => return false,
+        }
+        let Some(next) = self.tokens.get(self.pos + 2) else {
+            return false;
+        };
+        if next.preceded_by_line_terminator {
+            return false;
+        }
+        self.token_starts_using_binding(&next.kind)
+    }
+
+    fn token_starts_using_binding(&self, kind: &TokenKind) -> bool {
+        match kind {
+            // Not `[`/`{`: `using[x] = …` is element access, not a declaration.
+            // Invalid `using x = a, [] = b` is rejected after the comma in parse_using_decls.
+            TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
+            // BindingIdentifier may be yield/await/let/const tokens in some contexts.
+            TokenKind::Yield | TokenKind::Await | TokenKind::Let | TokenKind::Const => true,
+            _ => false,
+        }
     }
 
     /// `let` starts LexicalDeclaration when followed by BindingPattern / BindingIdentifier.
@@ -227,6 +303,13 @@ impl Parser {
                 self.current().span,
             ));
         }
+        // UsingDeclaration / AwaitUsingDeclaration are Declaration only (E19.44).
+        if self.await_using_starts_declaration() || self.using_starts_declaration() {
+            return Err(Diagnostic::new(
+                "using declaration not allowed in statement position".to_string(),
+                self.current().span,
+            ));
+        }
         if self.check(&TokenKind::Let) {
             // ExpressionStatement lookahead ∉ { let [ } — reject here (also not LexicalDeclaration).
             if self.peek_is(&TokenKind::LBracket) {
@@ -297,7 +380,10 @@ impl Parser {
         let start = self.expect(&TokenKind::LBrace)?.span.start.0;
         let mut body = Vec::new();
         let prev_strict = self.in_strict;
+        let prev_forbid_using = self.forbid_direct_using;
         let mut directive_prologue = allow_directives;
+        self.using_container_depth += 1;
+        self.forbid_direct_using = false;
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
             self.parse_stmt_list_item_into(&mut body)?;
             if directive_prologue {
@@ -311,12 +397,119 @@ impl Parser {
                 }
             }
         }
+        self.using_container_depth -= 1;
+        self.forbid_direct_using = prev_forbid_using;
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
         self.in_strict = prev_strict;
         Ok(Stmt::Block {
             body,
             span: Span::new(start, end),
         })
+    }
+
+    /// `using` / `await using` BindingList (ident only; required initializer).
+    fn parse_using_decls(&mut self, is_await: bool) -> Result<Vec<Stmt>, Diagnostic> {
+        if !self.using_allowed_here() {
+            return Err(Diagnostic::new(
+                if is_await {
+                    "await using declaration not allowed at top level of script".to_string()
+                } else {
+                    "using declaration not allowed at top level of script".to_string()
+                },
+                self.current().span,
+            ));
+        }
+        let kw_start = self.current().span.start.0;
+        let kind = if is_await {
+            self.expect(&TokenKind::Await)?;
+            let using_tok = self.bump(); // Ident("using")
+            if using_tok.preceded_by_line_terminator {
+                return Err(Diagnostic::new(
+                    "LineTerminator not allowed between await and using".to_string(),
+                    using_tok.span,
+                ));
+            }
+            match &using_tok.kind {
+                TokenKind::Ident(n) if n == "using" => {}
+                _ => {
+                    return Err(Diagnostic::new(
+                        "expected using after await".to_string(),
+                        using_tok.span,
+                    ));
+                }
+            }
+            BindingKind::AwaitUsing
+        } else {
+            let using_tok = self.bump();
+            match &using_tok.kind {
+                TokenKind::Ident(n) if n == "using" => {}
+                _ => {
+                    return Err(Diagnostic::new(
+                        "expected using".to_string(),
+                        using_tok.span,
+                    ));
+                }
+            }
+            BindingKind::Using
+        };
+        let mut decls = Vec::new();
+        loop {
+            // Using bindings: BindingIdentifier only (no patterns).
+            if self.check(&TokenKind::LBracket) || self.check(&TokenKind::LBrace) {
+                return Err(Diagnostic::new(
+                    "using declaration does not allow binding patterns".to_string(),
+                    self.current().span,
+                ));
+            }
+            let name_tok = self.expect_ident()?;
+            let binding = BindingPattern::Ident(Ident {
+                name: name_tok.ident_name(),
+                span: name_tok.span,
+            });
+            let type_ann = self.parse_optional_type_ann()?;
+            if !self.check(&TokenKind::Eq) {
+                return Err(Diagnostic::new(
+                    "using declaration requires an initializer".to_string(),
+                    binding.span(),
+                ));
+            }
+            self.bump();
+            let init = Some(self.parse_assignment()?);
+            let decl_end = init
+                .as_ref()
+                .map(expr_span)
+                .map(|s| s.end.0)
+                .unwrap_or(binding.span().end.0);
+            let start = if decls.is_empty() {
+                kw_start
+            } else {
+                binding.span().start.0
+            };
+            decls.push(Stmt::Let {
+                kind,
+                binding,
+                type_ann,
+                init,
+                span: Span::new(start, decl_end),
+            });
+            if self.check(&TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        if self.check(&TokenKind::Semi) {
+            let semi_end = self.bump().span.end.0;
+            if let Some(Stmt::Let { span, .. }) = decls.last_mut() {
+                *span = Span::new(span.start.0, semi_end);
+            }
+        } else if !self.can_asi_before_current() {
+            return Err(Diagnostic::new(
+                "expected ';' after declaration".to_string(),
+                self.current().span,
+            ));
+        }
+        Ok(decls)
     }
 
     fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
@@ -386,6 +579,99 @@ impl Parser {
             false
         };
         self.expect(&TokenKind::LParen)?;
+
+        // E19.44: `for (using x of …)` / `for (await using x of …)` / classic `for (using x = …; …)`.
+        // ForStatement / ForInOfStatement heads are always allowed (even at script top level).
+        if self.await_using_starts_declaration() || self.using_starts_declaration() {
+            let using_await = self.await_using_starts_declaration();
+            let kind = if using_await {
+                BindingKind::AwaitUsing
+            } else {
+                BindingKind::Using
+            };
+            let let_start = self.current().span.start.0;
+            if using_await {
+                self.expect(&TokenKind::Await)?;
+                let using_tok = self.bump();
+                if !matches!(&using_tok.kind, TokenKind::Ident(n) if n == "using") {
+                    return Err(Diagnostic::new(
+                        "expected using after await".to_string(),
+                        using_tok.span,
+                    ));
+                }
+            } else {
+                self.bump(); // using
+            }
+            if self.check(&TokenKind::LBracket) || self.check(&TokenKind::LBrace) {
+                return Err(Diagnostic::new(
+                    "using declaration does not allow binding patterns".to_string(),
+                    self.current().span,
+                ));
+            }
+            let name_tok = self.expect_ident()?;
+            let binding = BindingPattern::Ident(Ident {
+                name: name_tok.ident_name(),
+                span: name_tok.span,
+            });
+            let binding_end = binding.span().end.0;
+            if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
+                let is_in = self.check(&TokenKind::In);
+                self.bump();
+                if is_in {
+                    return Err(Diagnostic::new(
+                        "using declaration is not allowed in for-in".to_string(),
+                        Span::new(let_start, binding_end),
+                    ));
+                }
+                let right = self.parse_expr()?;
+                self.expect(&TokenKind::RParen)?;
+                let body = Box::new(self.parse_stmt()?);
+                let end = stmt_span(&body).end.0;
+                let left = Box::new(Stmt::Let {
+                    kind,
+                    binding,
+                    type_ann: None,
+                    init: None,
+                    span: Span::new(let_start, binding_end),
+                });
+                return Ok(Stmt::ForOf {
+                    left,
+                    right,
+                    body,
+                    is_await,
+                    span: Span::new(start, end),
+                });
+            }
+            // Classic `for (using x = init; …)` — initializer required.
+            if !self.check(&TokenKind::Eq) {
+                return Err(Diagnostic::new(
+                    "using declaration requires an initializer".to_string(),
+                    binding.span(),
+                ));
+            }
+            self.bump();
+            let prev_allow_in = self.allow_in;
+            self.allow_in = false;
+            let init_expr = self.parse_assignment();
+            self.allow_in = prev_allow_in;
+            let init_expr = init_expr?;
+            if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
+                return Err(Diagnostic::new(
+                    "for-of binding cannot have an initializer".to_string(),
+                    binding.span(),
+                ));
+            }
+            let let_end = expr_span(&init_expr).end.0;
+            self.expect(&TokenKind::Semi)?;
+            let left_init = Some(Box::new(Stmt::Let {
+                kind,
+                binding,
+                type_ann: None,
+                init: Some(init_expr),
+                span: Span::new(let_start, let_end),
+            }));
+            return self.finish_classic_for(start, left_init);
+        }
 
         // `for (let/const/var binding in/of right)` and classic `for (let/const/var …; …; …)`.
         // Annex B.3.5: `for (var name = init in right)` only (ident binding).
@@ -2009,6 +2295,8 @@ impl Parser {
         // LexicalDeclaration is not a valid export default (E19.41 / Test262 parse-err-export-dflt-let).
         if self.check(&TokenKind::Const)
             || (self.check(&TokenKind::Let) && self.let_starts_lexical_declaration())
+            || self.await_using_starts_declaration()
+            || self.using_starts_declaration()
         {
             return Err(Diagnostic::new(
                 "lexical declaration not allowed in export default".to_string(),
@@ -2062,14 +2350,18 @@ impl Parser {
             let test = self.parse_expr()?;
             let colon_end = self.expect(&TokenKind::Colon)?.span.end.0;
             let mut body = Vec::new();
+            let prev_forbid = self.forbid_direct_using;
+            self.forbid_direct_using = true;
             while !self.check(&TokenKind::Case)
                 && !self.check(&TokenKind::Default)
                 && !self.check(&TokenKind::RBrace)
                 && !self.check(&TokenKind::Eof)
             {
                 // Case clause body is StatementList (allows LexicalDeclaration / class).
+                // Direct `using` in the clause list is a SyntaxError (E19.44).
                 self.parse_stmt_list_item_into(&mut body)?;
             }
+            self.forbid_direct_using = prev_forbid;
             let end = body
                 .last()
                 .map(|s| stmt_span(s).end.0)
@@ -2083,6 +2375,8 @@ impl Parser {
             let start = self.bump().span.start.0;
             let colon_end = self.expect(&TokenKind::Colon)?.span.end.0;
             let mut body = Vec::new();
+            let prev_forbid = self.forbid_direct_using;
+            self.forbid_direct_using = true;
             while !self.check(&TokenKind::Case)
                 && !self.check(&TokenKind::Default)
                 && !self.check(&TokenKind::RBrace)
@@ -2090,6 +2384,7 @@ impl Parser {
             {
                 self.parse_stmt_list_item_into(&mut body)?;
             }
+            self.forbid_direct_using = prev_forbid;
             let end = body
                 .last()
                 .map(|s| stmt_span(s).end.0)
@@ -8086,6 +8381,88 @@ Program
         assert!(
             parse_and_dump("class C extends (function(){ with({}){} }) {}\n").is_err(),
             "with in class extends (strict) must fail"
+        );
+    }
+
+    /// E19.44: `using` / `await using` declarations.
+    #[test]
+    fn parse_e19_44_using_declarations() {
+        let dump = parse_and_dump("{ using x = null; }\n").unwrap();
+        assert!(
+            dump.contains("Using") && dump.contains("name: x"),
+            "block using decl: {dump}"
+        );
+        let multi = parse_and_dump("{ using a = null, b = null; }\n").unwrap();
+        assert!(
+            multi.matches("Using").count() >= 2,
+            "multi using: {multi}"
+        );
+        let aw = parse_and_dump("async function f() { await using x = null; }\n").unwrap();
+        assert!(
+            aw.contains("AwaitUsing") && aw.contains("name: x"),
+            "await using: {aw}"
+        );
+        let for_of = parse_and_dump("{ for (using x of ys) {} }\n").unwrap();
+        assert!(
+            for_of.contains("ForOf") && for_of.contains("Using"),
+            "for-of using: {for_of}"
+        );
+        let classic = parse_and_dump("{ for (using x = null; false; ) {} }\n").unwrap();
+        assert!(
+            classic.contains("For") && classic.contains("Using"),
+            "classic for using: {classic}"
+        );
+        // Script top-level using is a SyntaxError.
+        assert!(
+            parse_and_dump("using x = null;\n").is_err(),
+            "script top-level using must fail"
+        );
+        // Patterns forbidden.
+        assert!(
+            parse_and_dump("{ using [] = null; }\n").is_err(),
+            "using array pattern must fail"
+        );
+        assert!(
+            parse_and_dump("{ using {} = null; }\n").is_err(),
+            "using object pattern must fail"
+        );
+        // Missing initializer.
+        assert!(
+            parse_and_dump("{ using x; }\n").is_err(),
+            "using without init must fail"
+        );
+        // Statement position (if bare).
+        assert!(
+            parse_and_dump("{ if (true) using x = null; }\n").is_err(),
+            "using in statement position must fail"
+        );
+        // for-in forbidden.
+        assert!(
+            parse_and_dump("{ for (using x in ys) {} }\n").is_err(),
+            "using for-in must fail"
+        );
+        // Case clause direct list forbidden.
+        assert!(
+            parse_and_dump("switch (0) { case 0: using x = null; }\n").is_err(),
+            "using in case clause must fail"
+        );
+        // Nested block in case is OK.
+        assert!(
+            parse_and_dump("switch (0) { case 0: { using x = null; } }\n").is_ok(),
+            "using in block inside case must parse"
+        );
+        // `using` remains a valid identifier when not a declaration.
+        let id = parse_and_dump("let using = 1; using + 2;\n").unwrap();
+        assert!(
+            id.contains("name: using"),
+            "using as ident: {id}"
+        );
+        // Module top-level using OK.
+        let mod_prog = parse_module("using x = null;\n").unwrap();
+        let mod_dump = dump_program(&mod_prog);
+        assert!(
+            mod_dump.contains("Using"),
+            "module top-level using: {mod_dump}"
         );
     }
 }

@@ -8,7 +8,7 @@ pub struct Program {
     pub span: Span,
 }
 
-/// Binding kind for `let` / `const` / `var` / function declarations.
+/// Binding kind for `let` / `const` / `var` / function / `using` declarations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BindingKind {
     Let,
@@ -17,6 +17,31 @@ pub enum BindingKind {
     Var,
     /// Function declaration binding (hoisted, not reassignable in the minimal surface).
     Function,
+    /// `using x = expr` (explicit resource management; const-like + dispose).
+    Using,
+    /// `await using x = expr` (async dispose).
+    AwaitUsing,
+}
+
+impl BindingKind {
+    /// Lexical (block-scoped) binding — not `var` / function.
+    pub fn is_lexical(self) -> bool {
+        matches!(
+            self,
+            BindingKind::Let
+                | BindingKind::Const
+                | BindingKind::Using
+                | BindingKind::AwaitUsing
+        )
+    }
+
+    /// Immutable binding (`const` / `using` / `await using`).
+    pub fn is_const_like(self) -> bool {
+        matches!(
+            self,
+            BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing
+        )
+    }
 }
 
 /// Binding target for `let` / `const`: simple name or destructuring pattern.
@@ -1195,6 +1220,8 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 BindingKind::Const => out.push_str("Const\n"),
                 BindingKind::Var => out.push_str("Var\n"),
                 BindingKind::Function => out.push_str("FunctionBinding\n"),
+                BindingKind::Using => out.push_str("Using\n"),
+                BindingKind::AwaitUsing => out.push_str("AwaitUsing\n"),
             }
             dump_binding_pattern(binding, level + 1, out);
             if let Some(ann) = type_ann {

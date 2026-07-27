@@ -400,7 +400,7 @@ fn catch_stmt_lexical_name(stmt: &Stmt, param: &str) -> Option<Span> {
     }
     match s {
         Stmt::Let {
-            kind: BindingKind::Let | BindingKind::Const,
+            kind: BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing,
             binding,
             ..
         } => {
@@ -575,7 +575,7 @@ where
         let s = peel_labels(stmt);
         match s {
             Stmt::Let {
-                kind: BindingKind::Let | BindingKind::Const,
+                kind: BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing,
                 binding,
                 ..
             } => {
@@ -1147,7 +1147,7 @@ impl Binder {
                     self.declare_var_span(&name, span);
                     return Ok(existing);
                 }
-                BindingKind::Let | BindingKind::Const => {
+                BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing => {
                     return Err(Diagnostic::new(
                         format!("duplicate declaration of `{name}`"),
                         span,
@@ -1351,7 +1351,7 @@ impl Binder {
             // `var` then `let`/`const` in the same var environment is a conflict.
             let existing_kind = self.symbols[existing.0 as usize].kind;
             if existing_kind == BindingKind::Var
-                && matches!(kind, BindingKind::Let | BindingKind::Const)
+                && matches!(kind, BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing)
             {
                 return Err(Diagnostic::new(
                     format!("duplicate declaration of `{name}`"),
@@ -1460,7 +1460,7 @@ impl Binder {
                     ..
                 }) = init.as_deref()
                 {
-                    if matches!(kind, BindingKind::Let | BindingKind::Const) {
+                    if matches!(kind, BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing) {
                         self.push_scope();
                         self.declare_binding(binding, *kind)?;
                         // Pattern defaults (`[cls = class {}]`) bind free refs + class expr locals.
@@ -1718,7 +1718,24 @@ impl Binder {
                     ));
                 }
             }
-            if matches!(kind, BindingKind::Let | BindingKind::Const) {
+            // ForDeclaration BoundNames ∩ VarDeclaredNames(Statement) must be empty.
+            if kind.is_lexical() {
+                let mut bound = Vec::new();
+                binding.for_each_ident(&mut |id| {
+                    bound.push((id.name.clone(), id.span));
+                });
+                let mut body_vars = Vec::new();
+                collect_var_declared_names_stmt(body, &mut body_vars);
+                for (name, span) in &bound {
+                    if body_vars.iter().any(|(n, _)| n == name) {
+                        return Err(Diagnostic::new(
+                            format!("duplicate declaration of `{name}`"),
+                            *span,
+                        ));
+                    }
+                }
+            }
+            if matches!(kind, BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing) {
                 self.push_scope();
                 self.declare_binding(binding, *kind)?;
                 self.bind_pattern_defaults(binding)?;
@@ -2653,7 +2670,7 @@ impl<'a> Checker<'a> {
                     return Ok(());
                 };
                 match self.bound.symbol(sym).kind {
-                    BindingKind::Const => {
+                    BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing => {
                         return Err(Diagnostic::new(
                             format!("cannot assign to const binding `{}`", id.name),
                             span,
@@ -2762,13 +2779,21 @@ impl<'a> Checker<'a> {
             }
             Stmt::TypeAlias { .. } => Ok(()),
             Stmt::Let {
+                kind,
                 binding,
                 type_ann,
                 init,
+                span,
                 ..
             } => {
                 // Bare `const` without init is rejected in the parser; for-in/of
                 // left may be `const name` with no initializer.
+                if *kind == BindingKind::AwaitUsing && !self.in_async {
+                    return Err(Diagnostic::new(
+                        "await using is only valid in async functions and modules".to_string(),
+                        *span,
+                    ));
+                }
                 let ann_ty = match type_ann {
                     Some(ann) => Some(self.resolve_type_ann(ann)?),
                     None => None,
@@ -3336,7 +3361,9 @@ impl<'a> Checker<'a> {
                             return Ok(value_ty);
                         };
                         match self.bound.symbol(sym).kind {
-                            BindingKind::Const => {
+                            BindingKind::Const
+                            | BindingKind::Using
+                            | BindingKind::AwaitUsing => {
                                 return Err(Diagnostic::new(
                                     format!("cannot assign to const binding `{}`", id.name),
                                     *span,
@@ -3516,7 +3543,9 @@ impl<'a> Checker<'a> {
                             return Ok(Type::Number);
                         };
                         match self.bound.symbol(sym).kind {
-                            BindingKind::Const => {
+                            BindingKind::Const
+                            | BindingKind::Using
+                            | BindingKind::AwaitUsing => {
                                 return Err(Diagnostic::new(
                                     format!("cannot assign to const binding `{}`", id.name),
                                     *span,
