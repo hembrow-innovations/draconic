@@ -247,8 +247,9 @@ pub enum Expr {
     NewTarget {
         ty: Type,
     },
-    /// Dynamic `import(specifier)` / `import(specifier, options)`.
+    /// Dynamic `import(specifier)` / `import.defer(…)` / `import.source(…)`.
     ImportCall {
+        phase: draconic_ast::ImportPhase,
         source: Box<Expr>,
         options: Option<Box<Expr>>,
         ty: Type,
@@ -2170,10 +2171,12 @@ fn lower_expr_hint(
             ty: expr_ty(checked, *span),
         },
         AstExpr::ImportCall {
+            phase,
             source,
             options,
             span,
         } => Expr::ImportCall {
+            phase: *phase,
             source: Box::new(lower_expr(checked, ctx, source, super_class)),
             options: options
                 .as_ref()
@@ -3612,12 +3615,23 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             out.push_str(&format!("NewTarget : {ty}\n"));
         }
         Expr::ImportCall {
+            phase,
             source,
             options,
             ty,
         } => {
             indent(level, out);
-            out.push_str(&format!("ImportCall : {ty}\n"));
+            match phase {
+                draconic_ast::ImportPhase::Evaluation => {
+                    out.push_str(&format!("ImportCall : {ty}\n"))
+                }
+                draconic_ast::ImportPhase::Defer => {
+                    out.push_str(&format!("ImportCall defer : {ty}\n"))
+                }
+                draconic_ast::ImportPhase::Source => {
+                    out.push_str(&format!("ImportCall source : {ty}\n"))
+                }
+            }
             dump_expr(source, level + 1, out);
             if let Some(opts) = options {
                 dump_expr(opts, level + 1, out);

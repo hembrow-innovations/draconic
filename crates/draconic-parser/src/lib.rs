@@ -1,8 +1,8 @@
 use draconic_ast::{
     dump_program, AccessorKind, Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp,
     BinaryOp, BigIntLit, BindingKind, BindingPattern, ClassElement, ExportSpecifier, Expr, Ident,
-    ImportSpecifier, NumberLit, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt,
-    StringLit, SwitchCase, TemplateElement, UnaryOp, UpdateOp,
+    ImportPhase, ImportSpecifier, NumberLit, ObjectKey, ObjectPatternProp, ObjectProp, Param,
+    Program, Stmt, StringLit, SwitchCase, TemplateElement, UnaryOp, UpdateOp,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_lexer::{Lexer, Token, TokenKind};
@@ -104,8 +104,8 @@ impl Parser {
             return self.parse_with();
         }
         if self.check(&TokenKind::Import) {
-            // `import(…)` is ImportCall (expression), not a static ImportDeclaration.
-            if !self.peek_is(&TokenKind::LParen) {
+            // `import(…)`, `import.defer(…)`, `import.source(…)` are ImportCall expressions.
+            if !self.is_import_call_start() {
                 return self.parse_import();
             }
         }
@@ -2553,7 +2553,7 @@ impl Parser {
     fn parse_lhs(&mut self) -> Result<Expr, Diagnostic> {
         let mut expr = if self.check(&TokenKind::New) {
             self.parse_new()?
-        } else if self.check(&TokenKind::Import) && self.peek_is(&TokenKind::LParen) {
+        } else if self.check(&TokenKind::Import) && self.is_import_call_start() {
             self.parse_import_call()?
         } else {
             self.parse_primary()?
@@ -2687,10 +2687,53 @@ impl Parser {
         Ok(expr)
     }
 
-    /// `import(AssignmentExpression)` / `import(AssignmentExpression, options)`.
+    /// `import(…)`, `import.defer(…)`, or `import.source(…)` lookahead from `import`.
+    fn is_import_call_start(&self) -> bool {
+        if self.peek_is(&TokenKind::LParen) {
+            return true;
+        }
+        // `import . (defer|source) (`
+        if !self.peek_is(&TokenKind::Dot) {
+            return false;
+        }
+        let Some(phase_tok) = self.tokens.get(self.pos + 2) else {
+            return false;
+        };
+        let phase_ok = match &phase_tok.kind {
+            TokenKind::Ident(name) => name == "defer" || name == "source",
+            _ => false,
+        };
+        if !phase_ok {
+            return false;
+        }
+        matches!(
+            self.tokens.get(self.pos + 3).map(|t| &t.kind),
+            Some(TokenKind::LParen)
+        )
+    }
+
+    /// `import(AssignmentExpression)` / `import(AssignmentExpression, options)` /
+    /// `import.defer(AssignmentExpression)` / `import.source(AssignmentExpression)`.
     /// Rest args and empty argument lists are early SyntaxErrors.
+    /// Phase forms (`defer` / `source`) accept only one argument (no options).
     fn parse_import_call(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::Import)?.span.start.0;
+        let phase = if self.check(&TokenKind::Dot) {
+            self.bump();
+            let (name, prop_span) = self.expect_ident_name()?;
+            match name.as_str() {
+                "defer" => ImportPhase::Defer,
+                "source" => ImportPhase::Source,
+                _ => {
+                    return Err(Diagnostic::new(
+                        format!("expected `defer` or `source` after `import.`, found `{name}`"),
+                        prop_span,
+                    ));
+                }
+            }
+        } else {
+            ImportPhase::Evaluation
+        };
         self.expect(&TokenKind::LParen)?;
         if self.check(&TokenKind::RParen) {
             return Err(Diagnostic::new(
@@ -2709,6 +2752,12 @@ impl Parser {
         if self.check(&TokenKind::Comma) {
             self.bump();
             if !self.check(&TokenKind::RParen) {
+                if phase != ImportPhase::Evaluation {
+                    return Err(Diagnostic::new(
+                        "ImportCall with defer/source accepts at most one argument",
+                        self.current_span(),
+                    ));
+                }
                 if self.check(&TokenKind::DotDotDot) {
                     return Err(Diagnostic::new(
                         "ImportCall does not allow rest arguments",
@@ -2729,6 +2778,7 @@ impl Parser {
         }
         let end = self.expect(&TokenKind::RParen)?.span.end.0;
         Ok(Expr::ImportCall {
+            phase,
             source: Box::new(source),
             options,
             span: Span::new(start, end),
@@ -4810,6 +4860,8 @@ Program
         let dump = parse_and_dump("let p = import('./m.js');").unwrap();
         assert!(dump.contains("ImportCall\n"), "{dump}");
         assert!(dump.contains("String \"./m.js\""), "{dump}");
+        assert!(!dump.contains("ImportCall defer"), "{dump}");
+        assert!(!dump.contains("ImportCall source"), "{dump}");
     }
 
     #[test]
@@ -4826,6 +4878,60 @@ Program
     #[test]
     fn parse_import_call_rest_fails() {
         assert!(parse("import(...a);").is_err());
+    }
+
+    #[test]
+    fn parse_import_defer_call() {
+        let dump = parse_and_dump("let p = import.defer('./m.js');").unwrap();
+        assert!(dump.contains("ImportCall defer\n"), "{dump}");
+        assert!(dump.contains("String \"./m.js\""), "{dump}");
+        // Expression-statement form (not static ImportDeclaration).
+        let dump2 = parse_and_dump("import.defer('./m.js');").unwrap();
+        assert!(dump2.contains("ImportCall defer\n"), "{dump2}");
+    }
+
+    #[test]
+    fn parse_import_source_call() {
+        let dump = parse_and_dump("let p = import.source('./m.js');").unwrap();
+        assert!(dump.contains("ImportCall source\n"), "{dump}");
+        assert!(dump.contains("String \"./m.js\""), "{dump}");
+        let dump2 = parse_and_dump("import.source('./m.js');").unwrap();
+        assert!(dump2.contains("ImportCall source\n"), "{dump2}");
+    }
+
+    #[test]
+    fn parse_import_defer_empty_args_fails() {
+        assert!(parse("import.defer();").is_err());
+    }
+
+    #[test]
+    fn parse_import_source_empty_args_fails() {
+        assert!(parse("import.source();").is_err());
+    }
+
+    #[test]
+    fn parse_import_defer_rest_fails() {
+        assert!(parse("import.defer(...a);").is_err());
+    }
+
+    #[test]
+    fn parse_import_defer_options_fails() {
+        assert!(parse("import.defer('./m.js', opts);").is_err());
+    }
+
+    #[test]
+    fn parse_import_source_options_fails() {
+        assert!(parse("import.source('./m.js', opts);").is_err());
+    }
+
+    #[test]
+    fn parse_new_import_defer_fails() {
+        assert!(parse("new import.defer('./m.js');").is_err());
+    }
+
+    #[test]
+    fn parse_typeof_import_source_without_call_fails() {
+        assert!(parse("typeof import.source;").is_err());
     }
 
     #[test]

@@ -468,10 +468,12 @@ pub enum Expr {
     NewTarget {
         span: Span,
     },
-    /// Dynamic `import(specifier)` / `import(specifier, options)` (ImportCall).
+    /// Dynamic `import(specifier)` / `import.defer(…)` / `import.source(…)` (ImportCall).
     ImportCall {
+        /// Evaluation phase (`import()`), deferred (`import.defer()`), or source (`import.source()`).
+        phase: ImportPhase,
         source: Box<Expr>,
-        /// Optional second argument (import attributes / options).
+        /// Optional second argument (import attributes / options). Only for [`ImportPhase::Evaluation`].
         options: Option<Box<Expr>>,
         span: Span,
     },
@@ -796,6 +798,18 @@ pub enum UpdateOp {
 }
 
 /// Simple `=` or compound assignment operator (`+=`, `-=`, …).
+/// Phase of a dynamic `import` call (`import()` / `import.defer()` / `import.source()`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImportPhase {
+    /// `import(specifier)` — load and evaluate.
+    #[default]
+    Evaluation,
+    /// `import.defer(specifier)` — deferred evaluation namespace.
+    Defer,
+    /// `import.source(specifier)` — source-phase module source.
+    Source,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssignOp {
     Eq,
@@ -1724,12 +1738,17 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             out.push_str("NewTarget\n");
         }
         Expr::ImportCall {
+            phase,
             source,
             options,
             ..
         } => {
             indent(level, out);
-            out.push_str("ImportCall\n");
+            match phase {
+                ImportPhase::Evaluation => out.push_str("ImportCall\n"),
+                ImportPhase::Defer => out.push_str("ImportCall defer\n"),
+                ImportPhase::Source => out.push_str("ImportCall source\n"),
+            }
             dump_expr(source, level + 1, out);
             if let Some(opts) = options {
                 dump_expr(opts, level + 1, out);

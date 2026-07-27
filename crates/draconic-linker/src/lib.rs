@@ -865,6 +865,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             source,
             options,
             span,
+            ..
         } => {
             *span = spans.next();
             uniqueify_expr_spans(source, spans);

@@ -501,9 +501,16 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
             out.push_str("new.target");
         }
         Expr::ImportCall {
-            source, options, ..
+            phase,
+            source,
+            options,
+            ..
         } => {
-            out.push_str("import(");
+            match phase {
+                draconic_ast::ImportPhase::Evaluation => out.push_str("import("),
+                draconic_ast::ImportPhase::Defer => out.push_str("import.defer("),
+                draconic_ast::ImportPhase::Source => out.push_str("import.source("),
+            }
             emit_expr(out, source, names);
             if let Some(opts) = options {
                 out.push_str(", ");

@@ -2968,6 +2968,7 @@ impl<'a> Checker<'a> {
                 source,
                 options,
                 span,
+                ..
             } => {
                 self.check_expr(source)?;
                 if let Some(opts) = options {
