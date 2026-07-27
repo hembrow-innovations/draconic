@@ -283,14 +283,16 @@ pub enum Stmt {
         span: Span,
     },
     /// `import { a, b as c } from "mod"` / `import d from "mod"` / `import d, { a } from "mod"`
-    /// / `import * as ns from "mod"` / `import d, * as ns from "mod"`.
+    /// / `import * as ns from "mod"` / `import d, * as ns from "mod"` / `import "mod"`.
     /// Default import is a specifier with `imported.name == "default"`.
     /// Namespace import binds `namespace` to a module namespace object.
+    /// Optional `with {…}` / `assert {…}` import attributes (E19.38).
     ImportDeclaration {
         specifiers: Vec<ImportSpecifier>,
         /// `import * as name` binding, when present.
         namespace: Option<Ident>,
         source: StringLit,
+        attributes: Vec<ImportAttribute>,
         span: Span,
     },
     /// `export let/const/function …` or `export { a, b as c }` or `export { a } from "mod"`
@@ -301,6 +303,7 @@ pub enum Stmt {
         specifiers: Vec<ExportSpecifier>,
         /// Present for `export { … } from "mod"` (named re-export; no local bindings).
         source: Option<StringLit>,
+        attributes: Vec<ImportAttribute>,
         span: Span,
     },
     /// `export default function …` / `export default expr`
@@ -314,10 +317,12 @@ pub enum Stmt {
     /// `export * from "mod"` / `export * as ns from "mod"`.
     /// Without `exported`: re-export all named exports (not `default`) from `source`.
     /// With `exported`: re-export the module namespace object as that name (includes `default`).
+    /// Optional `with {…}` / `assert {…}` after the module specifier (E19.38).
     ExportAllDeclaration {
         /// `export * as ns` binding name, when present.
         exported: Option<Ident>,
         source: StringLit,
+        attributes: Vec<ImportAttribute>,
         span: Span,
     },
     /// `type Name <T…>? = Type;` — TS-inspired type alias (erased at emit; T02/T04).
@@ -343,6 +348,21 @@ pub struct ImportSpecifier {
     pub imported: Ident,
     /// Local binding name in this module.
     pub local: Ident,
+}
+
+/// One entry of `with { key: "value" }` / `assert { key: "value" }` (import attributes).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportAttribute {
+    pub key: ImportAttributeKey,
+    pub value: StringLit,
+    pub span: Span,
+}
+
+/// Attribute key: IdentifierName or StringLiteral (StringValue identity for dup checks).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportAttributeKey {
+    Ident(Ident),
+    String(StringLit),
 }
 
 /// One binding of `export { local as exported }`.
@@ -1131,6 +1151,26 @@ fn dump_object_pattern_props(properties: &[ObjectPatternProp], level: usize, out
     }
 }
 
+fn dump_import_attributes(attributes: &[ImportAttribute], level: usize, out: &mut String) {
+    for attr in attributes {
+        indent(level, out);
+        out.push_str("ImportAttribute\n");
+        indent(level + 1, out);
+        match &attr.key {
+            ImportAttributeKey::Ident(id) => {
+                out.push_str("key: ");
+                out.push_str(&id.name);
+                out.push('\n');
+            }
+            ImportAttributeKey::String(s) => {
+                out.push_str(&format!("key: String {:?}\n", s.value.to_string_lossy()));
+            }
+        }
+        indent(level + 1, out);
+        out.push_str(&format!("value: {:?}\n", attr.value.value.to_string_lossy()));
+    }
+}
+
 fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
     match stmt {
         Stmt::Expression { expr, .. } => {
@@ -1525,6 +1565,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             specifiers,
             namespace,
             source,
+            attributes,
             ..
         } => {
             indent(level, out);
@@ -1551,11 +1592,13 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             out.push_str("source: ");
             out.push_str(&source.value.to_string_lossy());
             out.push('\n');
+            dump_import_attributes(attributes, level + 1, out);
         }
         Stmt::ExportNamedDeclaration {
             declaration,
             specifiers,
             source,
+            attributes,
             ..
         } => {
             indent(level, out);
@@ -1583,6 +1626,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 out.push_str(&source.value.to_string_lossy());
                 out.push('\n');
             }
+            dump_import_attributes(attributes, level + 1, out);
         }
         Stmt::ExportDefaultDeclaration {
             declaration,
@@ -1602,6 +1646,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
         Stmt::ExportAllDeclaration {
             exported,
             source,
+            attributes,
             ..
         } => {
             indent(level, out);
@@ -1616,6 +1661,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             out.push_str("source: ");
             out.push_str(&source.value.to_string_lossy());
             out.push('\n');
+            dump_import_attributes(attributes, level + 1, out);
         }
         Stmt::Try {
             block,

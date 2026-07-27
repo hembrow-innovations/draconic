@@ -1,11 +1,12 @@
 use draconic_ast::{
     dump_program, AccessorKind, Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp,
     BinaryOp, BigIntLit, BindingKind, BindingPattern, ClassElement, ExportSpecifier, Expr, Ident,
-    ImportPhase, ImportSpecifier, NumberLit, ObjectKey, ObjectPatternProp, ObjectProp, Param,
-    Program, Stmt, StringLit, SwitchCase, TemplateElement, UnaryOp, UpdateOp,
+    ImportAttribute, ImportAttributeKey, ImportPhase, ImportSpecifier, NumberLit, ObjectKey,
+    ObjectPatternProp, ObjectProp, Param, Program, Stmt, StringLit, SwitchCase, TemplateElement,
+    UnaryOp, UpdateOp,
 };
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_lexer::{Lexer, Token, TokenKind};
+use draconic_lexer::{JsString, Lexer, Token, TokenKind};
 
 pub use draconic_ast::dump_program as dump_ast;
 
@@ -1462,46 +1463,54 @@ impl Parser {
     /// `import d, { a } from "mod";`
     /// `import * as ns from "mod";`
     /// `import d, * as ns from "mod";`
+    /// `import "mod";` / `import "mod" with {…};`
     fn parse_import(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::Import)?.span.start.0;
         let mut specifiers = Vec::new();
         let mut namespace = None;
 
-        if self.check(&TokenKind::Star) {
-            namespace = Some(self.parse_namespace_import()?);
-        } else if matches!(self.current().kind, TokenKind::Ident(_)) {
-            let local_tok = self.expect_ident()?;
-            let local = Ident {
-                name: local_tok.ident_name(),
-                span: local_tok.span,
-            };
-            let def_span = local.span;
-            specifiers.push(ImportSpecifier {
-                imported: Ident {
-                    name: "default".into(),
-                    span: def_span,
-                },
-                local,
-            });
-            if self.check(&TokenKind::Comma) {
-                self.bump();
-                if self.check(&TokenKind::Star) {
-                    namespace = Some(self.parse_namespace_import()?);
-                } else {
-                    self.expect(&TokenKind::LBrace)?;
-                    self.parse_named_import_specifiers(&mut specifiers)?;
-                    self.expect(&TokenKind::RBrace)?;
-                }
-            }
+        // Side-effect import: `import "mod"` (optional WithClause).
+        let source = if matches!(self.current().kind, TokenKind::String(_)) {
+            self.expect_string_lit()?
         } else {
-            self.expect(&TokenKind::LBrace)?;
-            self.parse_named_import_specifiers(&mut specifiers)?;
-            self.expect(&TokenKind::RBrace)?;
-        }
+            if self.check(&TokenKind::Star) {
+                namespace = Some(self.parse_namespace_import()?);
+            } else if matches!(self.current().kind, TokenKind::Ident(_)) {
+                let local_tok = self.expect_ident()?;
+                let local = Ident {
+                    name: local_tok.ident_name(),
+                    span: local_tok.span,
+                };
+                let def_span = local.span;
+                specifiers.push(ImportSpecifier {
+                    imported: Ident {
+                        name: "default".into(),
+                        span: def_span,
+                    },
+                    local,
+                });
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                    if self.check(&TokenKind::Star) {
+                        namespace = Some(self.parse_namespace_import()?);
+                    } else {
+                        self.expect(&TokenKind::LBrace)?;
+                        self.parse_named_import_specifiers(&mut specifiers)?;
+                        self.expect(&TokenKind::RBrace)?;
+                    }
+                }
+            } else {
+                self.expect(&TokenKind::LBrace)?;
+                self.parse_named_import_specifiers(&mut specifiers)?;
+                self.expect(&TokenKind::RBrace)?;
+            }
 
-        self.expect(&TokenKind::From)?;
-        let source = self.expect_string_lit()?;
-        let mut end = source.span.end.0;
+            self.expect(&TokenKind::From)?;
+            self.expect_string_lit()?
+        };
+
+        let (attributes, clause_end) = self.parse_with_clause_opt()?;
+        let mut end = clause_end.unwrap_or(source.span.end.0);
         if self.check(&TokenKind::Semi) {
             end = self.bump().span.end.0;
         }
@@ -1509,8 +1518,79 @@ impl Parser {
             specifiers,
             namespace,
             source,
+            attributes,
             span: Span::new(start, end),
         })
+    }
+
+    /// Optional `with {…}` or legacy `assert {…}` (no LineTerminator before `assert`).
+    /// Returns attributes and the end offset of the clause when present.
+    fn parse_with_clause_opt(&mut self) -> Result<(Vec<ImportAttribute>, Option<u32>), Diagnostic> {
+        let keyword_start = self.current_span().start.0;
+        if self.check(&TokenKind::With) {
+            self.bump();
+        } else if matches!(&self.current().kind, TokenKind::Ident(n) if n == "assert") {
+            if self.current().preceded_by_line_terminator {
+                return Ok((Vec::new(), None));
+            }
+            self.bump();
+        } else {
+            return Ok((Vec::new(), None));
+        }
+
+        self.expect(&TokenKind::LBrace)?;
+        let mut attributes = Vec::new();
+        let mut seen_keys: Vec<JsString> = Vec::new();
+        if !self.check(&TokenKind::RBrace) {
+            loop {
+                let key_start = self.current_span().start.0;
+                let (key, key_units, key_span) =
+                    if matches!(self.current().kind, TokenKind::String(_)) {
+                        let s = self.expect_string_lit()?;
+                        let units = s.value.clone();
+                        let span = s.span;
+                        (ImportAttributeKey::String(s), units, span)
+                    } else {
+                        let (name, span) = self.expect_ident_name()?;
+                        let units = JsString::from(name.as_str());
+                        (
+                            ImportAttributeKey::Ident(Ident {
+                                name,
+                                span,
+                            }),
+                            units,
+                            span,
+                        )
+                    };
+                if seen_keys.iter().any(|k| k == &key_units) {
+                    return Err(Diagnostic::new(
+                        "duplicate import attribute key".to_string(),
+                        key_span,
+                    ));
+                }
+                seen_keys.push(key_units);
+                self.expect(&TokenKind::Colon)?;
+                let value = self.expect_string_lit()?;
+                let end = value.span.end.0;
+                attributes.push(ImportAttribute {
+                    key,
+                    value,
+                    span: Span::new(key_start, end),
+                });
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                    if self.check(&TokenKind::RBrace) {
+                        break;
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        let rbrace = self.expect(&TokenKind::RBrace)?;
+        let end = rbrace.span.end.0;
+        let _ = keyword_start;
+        Ok((attributes, Some(end)))
     }
 
     /// `* as ImportedBinding`
@@ -1587,13 +1667,15 @@ impl Parser {
             };
             self.expect(&TokenKind::From)?;
             let source = self.expect_string_lit()?;
-            let mut end = source.span.end.0;
+            let (attributes, clause_end) = self.parse_with_clause_opt()?;
+            let mut end = clause_end.unwrap_or(source.span.end.0);
             if self.check(&TokenKind::Semi) {
                 end = self.bump().span.end.0;
             }
             return Ok(Stmt::ExportAllDeclaration {
                 exported,
                 source,
+                attributes,
                 span: Span::new(start, end),
             });
         }
@@ -1629,13 +1711,17 @@ impl Parser {
             let end_brace = self.expect(&TokenKind::RBrace)?.span.end.0;
             let mut end = end_brace;
             // `export { a, b as c } from "mod"`
-            let source = if self.check(&TokenKind::From) {
+            let (source, attributes) = if self.check(&TokenKind::From) {
                 self.bump();
                 let src = self.expect_string_lit()?;
                 end = src.span.end.0;
-                Some(src)
+                let (attributes, clause_end) = self.parse_with_clause_opt()?;
+                if let Some(e) = clause_end {
+                    end = e;
+                }
+                (Some(src), attributes)
             } else {
-                None
+                (None, Vec::new())
             };
             if self.check(&TokenKind::Semi) {
                 end = self.bump().span.end.0;
@@ -1644,6 +1730,7 @@ impl Parser {
                 declaration: None,
                 specifiers,
                 source,
+                attributes,
                 span: Span::new(start, end),
             });
         }
@@ -1654,6 +1741,7 @@ impl Parser {
                 declaration: Some(Box::new(decl)),
                 specifiers: Vec::new(),
                 source: None,
+                attributes: Vec::new(),
                 span: Span::new(start, end),
             });
         }
@@ -1666,6 +1754,7 @@ impl Parser {
                 declaration: Some(Box::new(decl)),
                 specifiers: Vec::new(),
                 source: None,
+                attributes: Vec::new(),
                 span: Span::new(start, end),
             });
         }
@@ -1676,6 +1765,7 @@ impl Parser {
                 declaration: Some(Box::new(decl)),
                 specifiers: Vec::new(),
                 source: None,
+                attributes: Vec::new(),
                 span: Span::new(start, end),
             });
         }
@@ -5623,6 +5713,99 @@ Program
         assert!(dump.contains("String \"./m.js\""), "{dump}");
         assert!(!dump.contains("ImportCall defer"), "{dump}");
         assert!(!dump.contains("ImportCall source"), "{dump}");
+    }
+
+    #[test]
+    fn parse_import_with_attributes() {
+        let dump = parse_and_dump("import x from \"./m.js\" with { type: \"json\" };").unwrap();
+        assert!(
+            dump.contains("ImportDeclaration")
+                && dump.contains("source: ./m.js")
+                && dump.contains("ImportAttribute")
+                && dump.contains("key: type")
+                && dump.contains("value: \"json\""),
+            "expected import with attributes, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_side_effect_import_with_empty_attributes() {
+        let dump = parse_and_dump("import \"./m.js\" with {};").unwrap();
+        assert!(
+            dump.contains("ImportDeclaration") && dump.contains("source: ./m.js"),
+            "expected side-effect import, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_import_assert_attributes() {
+        let dump =
+            parse_and_dump("import x from \"./m.js\" assert { type: \"json\" };").unwrap();
+        assert!(
+            dump.contains("ImportAttribute") && dump.contains("key: type"),
+            "expected assert attributes, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_import_with_attributes_allows_nlt_before_with() {
+        let dump = parse_and_dump("import x from \"./m.js\"\nwith { type: \"json\" };").unwrap();
+        assert!(
+            dump.contains("ImportAttribute") && dump.contains("key: type"),
+            "expected with after newline, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_import_assert_rejects_nlt_before_assert() {
+        // LineTerminator before `assert` ends the import; `assert` is not a WithClause.
+        let dump = parse_and_dump("import x from \"./m.js\"\nassert { type: \"json\" };");
+        match dump {
+            Ok(d) => assert!(
+                !d.contains("ImportAttribute"),
+                "assert after newline must not be WithClause, got:\n{d}"
+            ),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn parse_export_all_with_attributes() {
+        let dump =
+            parse_and_dump("export * from \"./m.js\" with { type: \"json\" };").unwrap();
+        assert!(
+            dump.contains("ExportAllDeclaration")
+                && dump.contains("ImportAttribute")
+                && dump.contains("key: type"),
+            "expected export * with attributes, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_import_attribute_keyword_key() {
+        let dump = parse_and_dump("import \"./m.js\" with { if: \"\" };").unwrap();
+        assert!(
+            dump.contains("key: if"),
+            "expected IdentifierName key, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_import_attribute_duplicate_key_fails() {
+        assert!(parse(
+            "import x from \"./m.js\" with { type: \"json\", \"typ\\u0065\": \"\" };"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn parse_import_attribute_trailing_comma() {
+        let dump =
+            parse_and_dump("import \"./m.js\" with { type: \"json\", };").unwrap();
+        assert!(
+            dump.contains("ImportAttribute") && dump.contains("key: type"),
+            "expected trailing comma with clause, got:\n{dump}"
+        );
     }
 
     #[test]

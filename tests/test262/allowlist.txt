@@ -11939,6 +11939,7 @@ test/language/module-code/export-expname-unpaired-surrogate.js
 test/language/module-code/import-attributes/early-dup-attribute-key-export.js
 test/language/module-code/import-attributes/early-dup-attribute-key-import-nobinding.js
 test/language/module-code/import-attributes/early-dup-attribute-key-import-withbinding.js
+test/language/module-code/import-attributes/import-attribute-empty.js
 test/language/module-code/instn-iee-err-not-found-empty_FIXTURE.js
 test/language/module-code/instn-local-bndng-for-dup.js
 test/language/module-code/instn-local-bndng-var-dup.js
