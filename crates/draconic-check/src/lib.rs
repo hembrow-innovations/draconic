@@ -2585,7 +2585,12 @@ impl<'a> Checker<'a> {
                     .iter()
                     .find(|s| s.span == name.span)
                     .map(|s| s.id)
-                    .expect("let binding must be declared");
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            format!("undeclared binding `{}`", name.name),
+                            name.span,
+                        )
+                    })?;
                 self.symbol_types[id.0 as usize] = ty;
                 Ok(())
             }
@@ -3005,7 +3010,12 @@ impl<'a> Checker<'a> {
                     .iter()
                     .find(|s| s.span == name.span)
                     .map(|s| s.id)
-                    .expect("class binding must be declared");
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            format!("undeclared class binding `{}`", name.name),
+                            name.span,
+                        )
+                    })?;
                 self.symbol_types[id.0 as usize] = Type::Function;
                 if let Some(sc) = super_class {
                     self.check_expr(sc)?;

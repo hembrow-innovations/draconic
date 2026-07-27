@@ -266,7 +266,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.38 | done | js | Import attributes: `import … with { k: v }` / `assert { k: v }` and dynamic `import(x, { with: … })` (parse/lower; currently expected LBrace found String / LParen found LBrace) | `crates/draconic-parser`, `tests/test262` |
 | E19.39 | done | js | Early SyntaxError residual: negative parse still accepted (assignment dstr, method-definition, class delete-private, `using`/`await using` syntax, hashbang escapes) | `crates/draconic-parser` / check, `tests/test262` |
 | E19.40 | done | js | Expand allowlist further after E19.36–E19.39 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
-| E19.41 | todo | js | Statement-position `let`/`const`/`class` (if/while/for/do/with): no checker panic (`let binding must be declared`); SyntaxError or valid Annex B only | `crates/draconic-check` / parser, `tests/test262` |
+| E19.41 | done | js | Statement-position `let`/`const`/`class` (if/while/for/do/with): no checker panic (`let binding must be declared`); SyntaxError or valid Annex B only | `crates/draconic-check` / parser, `tests/test262` |
 | E19.42 | todo | js | `import defer * as ns from`: parse/lower deferred namespace form (currently expected From, found Star) | `crates/draconic-parser`, `tests/test262` |
 | E19.43 | todo | js | Object binding pattern numeric keys: `{ 0: v }` / rest `{...{ 0: v }}` in params/dstr (expected identifier, found Number) | `crates/draconic-parser`, `tests/test262` |
 | E19.44 | todo | js | `using` / `await using` declarations: parse (and basic semantics); currently expected `;` after expression | `crates/draconic-parser`, `tests/test262` |

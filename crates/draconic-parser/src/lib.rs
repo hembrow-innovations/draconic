@@ -116,13 +116,43 @@ impl Parser {
 
     /// One statement-list item; multi-declarator `let`/`const`/`var` expands to multiple Lets.
     fn parse_stmt_list_item_into(&mut self, body: &mut Vec<Stmt>) -> Result<(), Diagnostic> {
-        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) || self.check(&TokenKind::Var)
-        {
+        // Declaration forms are StatementListItem only (not bare Statement).
+        if self.check(&TokenKind::Const) || self.check(&TokenKind::Var) {
             body.extend(self.parse_lexical_decls()?);
+            return Ok(());
+        }
+        if self.check(&TokenKind::Let) && self.let_starts_lexical_declaration() {
+            body.extend(self.parse_lexical_decls()?);
+            return Ok(());
+        }
+        if self.check(&TokenKind::Class) {
+            body.push(self.parse_class_decl()?);
             return Ok(());
         }
         body.push(self.parse_stmt()?);
         Ok(())
+    }
+
+    /// `let` starts LexicalDeclaration when followed by BindingPattern / BindingIdentifier.
+    /// Otherwise (e.g. `let;`, `let = 1`, `let.x`) it is IdentifierReference.
+    ///
+    /// `yield` / `await` are BindingIdentifier in the grammar even when static semantics
+    /// later reject them (e.g. `let\\nyield 0` in a generator — no ASI).
+    fn let_starts_lexical_declaration(&self) -> bool {
+        if !self.check(&TokenKind::Let) {
+            return false;
+        }
+        match self.tokens.get(self.pos + 1).map(|t| &t.kind) {
+            Some(TokenKind::LBracket | TokenKind::LBrace) => true,
+            Some(TokenKind::Ident(name)) if !self.is_invalid_ident_name(name) => true,
+            Some(
+                TokenKind::Yield
+                | TokenKind::Await
+                | TokenKind::Let
+                | TokenKind::Const,
+            ) => true,
+            _ => false,
+        }
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, Diagnostic> {
@@ -159,8 +189,12 @@ impl Parser {
         {
             return self.parse_function_decl();
         }
+        // ClassDeclaration is StatementListItem only (E19.41).
         if self.check(&TokenKind::Class) {
-            return self.parse_class_decl();
+            return Err(Diagnostic::new(
+                "class declaration not allowed in statement position".to_string(),
+                self.current().span,
+            ));
         }
         if self.check(&TokenKind::Return) {
             return self.parse_return();
@@ -183,9 +217,28 @@ impl Parser {
         if self.check(&TokenKind::Export) {
             return self.parse_export();
         }
-        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) || self.check(&TokenKind::Var)
-        {
+        // VariableStatement (`var`) is a Statement; LexicalDeclaration is not (E19.41).
+        if self.check(&TokenKind::Var) {
             return self.parse_lexical_decl();
+        }
+        if self.check(&TokenKind::Const) {
+            return Err(Diagnostic::new(
+                "const declaration not allowed in statement position".to_string(),
+                self.current().span,
+            ));
+        }
+        if self.check(&TokenKind::Let) {
+            // ExpressionStatement lookahead ∉ { let [ } — reject here (also not LexicalDeclaration).
+            if self.peek_is(&TokenKind::LBracket) {
+                return Err(Diagnostic::new(
+                    "lexical declaration not allowed in statement position".to_string(),
+                    self.current().span,
+                ));
+            }
+            // `let` + BindingIdentifier / `{` same line → cannot be ExpressionStatement either
+            // (no ASI); fall through and fail with expected ';' — SyntaxError either way.
+            // `let` + LineTerminator → ASI IdentifierReference `let`.
+            // Do not parse as LexicalDeclaration in Statement position.
         }
         // `type Name = Type;` (contextual keyword; T02)
         if self.is_type_alias_start() {
@@ -1942,6 +1995,15 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
+        // LexicalDeclaration is not a valid export default (E19.41 / Test262 parse-err-export-dflt-let).
+        if self.check(&TokenKind::Const)
+            || (self.check(&TokenKind::Let) && self.let_starts_lexical_declaration())
+        {
+            return Err(Diagnostic::new(
+                "lexical declaration not allowed in export default".to_string(),
+                self.current().span,
+            ));
+        }
 
         let expr = self.parse_expr()?;
         let mut end = expr_span(&expr).end.0;
@@ -1994,7 +2056,8 @@ impl Parser {
                 && !self.check(&TokenKind::RBrace)
                 && !self.check(&TokenKind::Eof)
             {
-                body.push(self.parse_stmt()?);
+                // Case clause body is StatementList (allows LexicalDeclaration / class).
+                self.parse_stmt_list_item_into(&mut body)?;
             }
             let end = body
                 .last()
@@ -2014,7 +2077,7 @@ impl Parser {
                 && !self.check(&TokenKind::RBrace)
                 && !self.check(&TokenKind::Eof)
             {
-                body.push(self.parse_stmt()?);
+                self.parse_stmt_list_item_into(&mut body)?;
             }
             let end = body
                 .last()
@@ -3760,6 +3823,18 @@ impl Parser {
             }
             TokenKind::Yield => Err(Diagnostic::new(
                 "'yield' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
+            // Non-strict IdentifierReference `let` (E19.41 statement-position ASI / bare `let`).
+            TokenKind::Let if !self.in_strict => {
+                self.bump();
+                Ok(Expr::Ident(Ident {
+                    name: "let".into(),
+                    span: tok.span,
+                }))
+            }
+            TokenKind::Let => Err(Diagnostic::new(
+                "'let' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
             TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
@@ -7719,6 +7794,74 @@ Program
         assert!(
             parse_and_dump("class C { m() { delete this.x; } }\n").is_ok(),
             "delete this.x must still parse"
+        );
+    }
+
+    /// E19.41: lexical `let`/`const`/`class` are StatementListItem only, not Statement.
+    #[test]
+    fn parse_e19_41_statement_position_lexical_decls() {
+        assert!(
+            parse("if (true) let x = 1;").is_err(),
+            "let decl in if consequent must fail"
+        );
+        assert!(
+            parse("if (true) const x = 1;").is_err(),
+            "const decl in if consequent must fail"
+        );
+        assert!(
+            parse("if (true) class C {}").is_err(),
+            "class decl in if consequent must fail"
+        );
+        assert!(
+            parse("while (false) let x;").is_err(),
+            "let decl in while body must fail"
+        );
+        assert!(
+            parse("do let x; while (false);").is_err(),
+            "let decl in do body must fail"
+        );
+        assert!(
+            parse("for (;;) let x = 1;").is_err(),
+            "let decl in for body must fail"
+        );
+        assert!(
+            parse("label: let x = 1;").is_err(),
+            "let decl after label must fail"
+        );
+        assert!(
+            parse("with ({}) let x = 1;").is_err(),
+            "let decl in with body must fail"
+        );
+        assert!(
+            parse("if (true) let [x] = [];").is_err(),
+            "let [ pattern in statement position must fail"
+        );
+        // Non-strict: `let` as IdentifierReference is a valid Statement.
+        let dump = parse_and_dump("if (false) let\nx = 1;\n").unwrap();
+        assert!(
+            dump.contains("ExpressionStatement") && dump.contains("Ident let"),
+            "let + ASI in if body must be expression; got:\n{dump}"
+        );
+        assert!(
+            parse_and_dump("if (true) let;\n").unwrap().contains("Ident let"),
+            "bare let; in if body must parse as identifier"
+        );
+        // StatementListItem still allows lexical decls (incl. case/default lists).
+        assert!(
+            parse_and_dump("switch (true) { case true: let x = 1; }\n").is_ok(),
+            "let in case StatementList must remain valid"
+        );
+        assert!(
+            parse_and_dump("class C {}\n").is_ok(),
+            "top-level class declaration must remain valid"
+        );
+        assert!(
+            parse_and_dump("if (true) { let x = 1; }\n").is_ok(),
+            "let inside block StatementList must remain valid"
+        );
+        assert!(
+            parse_and_dump("if (true) var x = 1;\n").is_ok(),
+            "var VariableStatement is allowed in Statement position"
         );
     }
 
