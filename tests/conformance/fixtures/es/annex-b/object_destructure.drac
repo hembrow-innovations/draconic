@@ -27,3 +27,13 @@ var oMem = {};
 let kwObj = { return: 9, default: 8 };
 let kwRet = kwObj.return;
 let kwDef = kwObj.default;
+// E19.43: numeric PropertyName keys in object binding / assignment patterns
+let arrSrc = [7, 8, 9];
+let { 0: nv, 1: nw, 2: nx, length: nlen } = arrSrc;
+let nSum = nv + nw + nx + nlen;
+let asgV;
+({ 0: asgV } = [42]);
+let strKey;
+({ "0": strKey } = { "0": 99 });
+let hexKey;
+({ 0x10: hexKey } = { 16: 16 });

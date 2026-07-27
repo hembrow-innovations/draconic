@@ -27,6 +27,13 @@ let arrowArr = ([m, n]) => m * n;
 function mixed(id, { a }, [b]) {
   return id + a + b;
 }
+// E19.43: rest array param with nested object pattern numeric keys
+function numRest([...{ 0: v, 1: w, 2: x, length: z }]) {
+  return v + w + x + z;
+}
+function numObj({ 0: a, 1: b }) {
+  return a + b;
+}
 let o = { a: 1, b: 2, c: 3 };
 let r1 = f(o);
 let r2 = g([10, 20]);
@@ -41,3 +48,5 @@ let r10 = arrDef([7]);
 let r11 = arrow({ x: 8, y: 9 });
 let r12 = arrowArr([3, 4]);
 let r13 = mixed(100, { a: 10 }, [1]);
+let r14 = numRest([7, 8, 9]);
+let r15 = numObj([10, 20]);

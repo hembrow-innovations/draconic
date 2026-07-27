@@ -2296,12 +2296,10 @@ impl Parser {
                     properties.push(ObjectPatternProp::Rest(binding));
                     saw_rest = true;
                 } else {
-                    // PropertyName allows reserved words; shorthand uses BindingIdentifier.
-                    let (key_name, key_span) = self.expect_ident_name()?;
-                    let key = Ident {
-                        name: key_name,
-                        span: key_span,
-                    };
+                    // PropertyName: IdentifierName | StringLiteral | NumericLiteral | [AssignmentExpression]
+                    // Shorthand only for BindingIdentifier (not string/number/computed).
+                    let (key, can_shorthand) = self.parse_binding_property_name()?;
+                    let key_span = key.span;
                     if self.check(&TokenKind::Colon) {
                         self.bump();
                         let binding = self.parse_binding_pattern()?;
@@ -2323,6 +2321,12 @@ impl Parser {
                             span: Span::new(key_span.start.0, end),
                         });
                     } else {
+                        if !can_shorthand {
+                            return Err(Diagnostic::new(
+                                "expected ':' after property name in object pattern".to_string(),
+                                self.current().span,
+                            ));
+                        }
                         // Shorthand `{ a }` — BindingIdentifier (yield only when yield_is_ident).
                         if self.is_invalid_ident_name(&key.name) {
                             return Err(Diagnostic::new(
@@ -4089,6 +4093,61 @@ impl Parser {
             ))
         }
     }
+
+    /// Object-pattern PropertyName → key Ident (string form) + whether shorthand is allowed.
+    /// Numeric/string keys become Ident with the ToPropertyKey string; computed → Ident of
+    /// a synthetic form is not used — computed returns via ObjectKey path only for assignment.
+    fn parse_binding_property_name(&mut self) -> Result<(Ident, bool), Diagnostic> {
+        let tok = self.current().clone();
+        if let Some(name) = tok.ident_name_opt() {
+            self.bump();
+            return Ok((
+                Ident {
+                    name,
+                    span: tok.span,
+                },
+                true,
+            ));
+        }
+        match &tok.kind {
+            TokenKind::String(value) => {
+                let name = value.to_string_lossy();
+                self.bump();
+                Ok((
+                    Ident {
+                        name,
+                        span: tok.span,
+                    },
+                    false,
+                ))
+            }
+            TokenKind::Number(raw) => {
+                let name = numeric_literal_property_name(raw);
+                self.bump();
+                Ok((
+                    Ident {
+                        name,
+                        span: tok.span,
+                    },
+                    false,
+                ))
+            }
+            TokenKind::LBracket => {
+                // Computed property names in binding patterns: store key as empty +
+                // not supported as Ident — reject until AST gains ObjectKey on patterns.
+                // For E19.43 scope is numeric/string only; computed still fails here.
+                Err(Diagnostic::new(
+                    "computed property names in object binding patterns are not yet supported"
+                        .to_string(),
+                    tok.span,
+                ))
+            }
+            _ => Err(Diagnostic::new(
+                format!("expected property name, found {:?}", tok.kind),
+                tok.span,
+            )),
+        }
+    }
 }
 
 trait IdentName {
@@ -5589,9 +5648,7 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 shorthand,
                 span: prop_span,
             } => {
-                let ObjectKey::Ident(key_id) = key else {
-                    return None;
-                };
+                let key_id = object_key_to_pattern_ident(key)?;
                 // CoverInitializedName: `{ a = default }` encoded as shorthand Assign.
                 if *shorthand {
                     if let Expr::Assign {
@@ -5619,7 +5676,7 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 }
                 let (binding, default) = expr_to_pattern_element(value)?;
                 props.push(ObjectPatternProp::Prop {
-                    key: key_id.clone(),
+                    key: key_id,
                     binding,
                     shorthand: *shorthand,
                     default,
@@ -5638,6 +5695,18 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
         properties: props,
         span: *span,
     })
+}
+
+/// Static PropertyName → pattern key Ident (numeric/string keys use ToPropertyKey string).
+fn object_key_to_pattern_ident(key: &ObjectKey) -> Option<Ident> {
+    match key {
+        ObjectKey::Ident(id) => Some(id.clone()),
+        ObjectKey::String(s) => Some(Ident {
+            name: s.value.to_string_lossy(),
+            span: s.span,
+        }),
+        ObjectKey::Computed(_) => None,
+    }
 }
 
 fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
@@ -5700,9 +5769,7 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         shorthand,
                         span: prop_span,
                     } => {
-                        let ObjectKey::Ident(key_id) = key else {
-                            return None;
-                        };
+                        let key_id = object_key_to_pattern_ident(key)?;
                         if *shorthand {
                             if let Expr::Assign {
                                 target,
@@ -5729,7 +5796,7 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         }
                         let (binding, default) = expr_to_pattern_element(value)?;
                         props.push(ObjectPatternProp::Prop {
-                            key: key_id.clone(),
+                            key: key_id,
                             binding,
                             shorthand: *shorthand,
                             default,
@@ -7921,6 +7988,40 @@ Program
         assert!(
             parse_and_dump("if (true) var x = 1;\n").is_ok(),
             "var VariableStatement is allowed in Statement position"
+        );
+    }
+
+    /// E19.43: object binding pattern numeric (and string) PropertyName keys.
+    #[test]
+    fn parse_e19_43_object_binding_numeric_keys() {
+        let dump = parse_and_dump("let { 0: v, 1: w } = a;\n").unwrap();
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: 0") && dump.contains("key: 1"),
+            "numeric keys in let object pattern; got:\n{dump}"
+        );
+        let dump = parse_and_dump("function f([...{ 0: v, 1: w, length: z }]) {}\n").unwrap();
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: 0") && dump.contains("name: v"),
+            "array rest nested object numeric keys in params; got:\n{dump}"
+        );
+        let dump = parse_and_dump("({ 0: x } = a);\n").unwrap();
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: 0"),
+            "assignment object pattern numeric key; got:\n{dump}"
+        );
+        let dump = parse_and_dump("let { \"0\": v } = a;\n").unwrap();
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: 0"),
+            "string key \"0\" in object pattern; got:\n{dump}"
+        );
+        let dump = parse_and_dump("const { 0x10: n } = a;\n").unwrap();
+        assert!(
+            dump.contains("key: 16"),
+            "hex numeric property name → ToString key; got:\n{dump}"
+        );
+        assert!(
+            parse("let { 0 } = a;\n").is_err(),
+            "numeric key without ':' must fail (no shorthand)"
         );
     }
 

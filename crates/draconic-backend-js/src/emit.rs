@@ -908,6 +908,37 @@ fn is_js_ident(s: &str) -> bool {
     chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
 }
 
+/// Object-pattern property key: bare IdentifierName, bare decimal integer, or quoted string.
+fn emit_pattern_prop_key(out: &mut String, key: &str) {
+    if is_js_ident(key) {
+        out.push_str(key);
+        return;
+    }
+    // Decimal integer property names may appear bare (`0: v`).
+    if !key.is_empty()
+        && key.bytes().all(|b| b.is_ascii_digit())
+        && !(key.len() > 1 && key.starts_with('0'))
+    {
+        out.push_str(key);
+        return;
+    }
+    out.push('"');
+    for c in key.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
 fn emit_assign_target(
     out: &mut String,
     target: &draconic_ir::AssignTarget,
@@ -996,12 +1027,12 @@ fn emit_object_pattern(
                     } else if let Pattern::Name(name) = binding {
                         out.push_str(name);
                     } else {
-                        out.push_str(key);
+                        emit_pattern_prop_key(out, key);
                         out.push_str(": ");
                         emit_pattern(out, binding, names);
                     }
                 } else {
-                    out.push_str(key);
+                    emit_pattern_prop_key(out, key);
                     out.push_str(": ");
                     emit_pattern(out, binding, names);
                 }
