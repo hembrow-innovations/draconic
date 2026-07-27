@@ -1335,6 +1335,8 @@ impl Binder {
                     if matches!(kind, BindingKind::Let | BindingKind::Const) {
                         self.push_scope();
                         self.declare_binding(binding, *kind)?;
+                        // Pattern defaults (`[cls = class {}]`) bind free refs + class expr locals.
+                        self.bind_pattern_defaults(binding)?;
                         if let Some(e) = let_init {
                             self.bind_expr(e)?;
                         }

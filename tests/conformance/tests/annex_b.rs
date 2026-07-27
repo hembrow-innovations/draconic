@@ -360,6 +360,16 @@ fn class_expr_runs() {
 }
 
 #[test]
+fn class_expr_name_fixture_present() {
+    assert_fixture_present("es/annex-b/class_expr_name");
+}
+
+#[test]
+fn class_expr_name_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/class_expr_name");
+}
+
+#[test]
 fn async_methods_fixture_present() {
     assert_fixture_present("es/annex-b/async_methods");
 }

@@ -641,9 +641,9 @@ fn lower_stmt(
                     .expect("let binding must be declared");
                 Some(Stmt::Declare {
                     local,
-                    init: init
-                        .as_ref()
-                        .map(|e| lower_expr(checked, ctx, e, super_class)),
+                    init: init.as_ref().map(|e| {
+                        lower_expr_hint(checked, ctx, e, super_class, Some(name.name.as_str()))
+                    }),
                     kind: *kind,
                 })
             }
@@ -916,10 +916,13 @@ fn lower_class(
         .find(|s| s.span == name.span)
         .map(|s| s.id)
         .expect("class binding must be declared");
-    lower_class_local(checked, ctx, local, super_class, elements)
+    lower_class_local(checked, ctx, local, super_class, elements, None)
 }
 
 /// Class expression → IIFE that builds the constructor and returns it (E18.33).
+///
+/// `name_hint` is the NamedEvaluation binding id for anonymous classes
+/// (`var cls = class {}` → constructor `.name === "cls"`) (E19.31).
 fn lower_class_expression(
     checked: &CheckedProgram,
     ctx: &mut LowerCtx,
@@ -927,6 +930,7 @@ fn lower_class_expression(
     super_class: Option<&AstExpr>,
     elements: &[ClassElement],
     span: Span,
+    name_hint: Option<&str>,
 ) -> Expr {
     let class_span = name.map(|n| n.span).unwrap_or(span);
     let local = checked
@@ -936,7 +940,14 @@ fn lower_class_expression(
         .find(|s| s.span == class_span)
         .map(|s| s.id)
         .expect("class expression binding must be declared");
-    let mut body = lower_class_local(checked, ctx, local, super_class, elements);
+    // Named classes keep their BindingIdentifier. Anonymous classes always get
+    // SetFunctionName: binding hint when present, else "" (ECMA-262 default).
+    let named_eval = if name.is_none() {
+        Some(name_hint.unwrap_or(""))
+    } else {
+        None
+    };
+    let mut body = lower_class_local(checked, ctx, local, super_class, elements, named_eval);
     body.push(Stmt::Return {
         value: Some(Expr::Local {
             id: local,
@@ -957,6 +968,74 @@ fn lower_class_expression(
         args: Vec::new(),
         optional: false,
         ty: Type::Function,
+    }
+}
+
+/// `Object.defineProperty(fn, "name", { value, writable: false, enumerable: false, configurable: true })`
+/// — ECMA-262 SetFunctionName (used for class NamedEvaluation, E19.31).
+fn set_function_name_stmt(local: LocalId, name: &str) -> Stmt {
+    let desc = Expr::Object {
+        properties: vec![
+            ObjectProp::Property {
+                key: ObjectPropKey::Static("value".into()),
+                value: Expr::String {
+                    value: name.into(),
+                    ty: Type::String,
+                },
+            },
+            ObjectProp::Property {
+                key: ObjectPropKey::Static("writable".into()),
+                value: Expr::Boolean {
+                    value: false,
+                    ty: Type::Boolean,
+                },
+            },
+            ObjectProp::Property {
+                key: ObjectPropKey::Static("enumerable".into()),
+                value: Expr::Boolean {
+                    value: false,
+                    ty: Type::Boolean,
+                },
+            },
+            ObjectProp::Property {
+                key: ObjectPropKey::Static("configurable".into()),
+                value: Expr::Boolean {
+                    value: true,
+                    ty: Type::Boolean,
+                },
+            },
+        ],
+        ty: Type::Object,
+    };
+    Stmt::Expr {
+        expr: Expr::Call {
+            callee: Box::new(Expr::Member {
+                object: Box::new(Expr::IdentName {
+                    name: "Object".into(),
+                    ty: Type::Object,
+                }),
+                property: Box::new(Expr::String {
+                    value: "defineProperty".into(),
+                    ty: Type::String,
+                }),
+                computed: false,
+                optional: false,
+                ty: Type::Function,
+            }),
+            args: vec![
+                Arg::Expr(Expr::Local {
+                    id: local,
+                    ty: Type::Function,
+                }),
+                Arg::Expr(Expr::String {
+                    value: "name".into(),
+                    ty: Type::String,
+                }),
+                Arg::Expr(desc),
+            ],
+            optional: false,
+            ty: Type::Any,
+        },
     }
 }
 
@@ -1021,6 +1100,8 @@ fn lower_class_local(
     local: LocalId,
     super_class: Option<&AstExpr>,
     elements: &[ClassElement],
+    // NamedEvaluation name for anonymous class expressions (E19.31).
+    name_hint: Option<&str>,
 ) -> Vec<Stmt> {
     let mut ctor_params = Vec::new();
     let mut ctor_body_ast: Option<&AstStmt> = None;
@@ -1381,6 +1462,10 @@ fn lower_class_local(
         is_async: false,
         is_generator: false,
     });
+    // NamedEvaluation / SetFunctionName before class elements (static `name` may overwrite).
+    if let Some(hint) = name_hint {
+        out.push(set_function_name_stmt(local, hint));
+    }
 
     for (method_key, params, body, is_static, is_async, is_generator, is_private) in methods {
         if is_private {
@@ -1987,10 +2072,26 @@ fn lower_expr(
     expr: &AstExpr,
     super_class: Option<&AstExpr>,
 ) -> Expr {
+    lower_expr_hint(checked, ctx, expr, super_class, None)
+}
+
+/// Like `lower_expr`, but `name_hint` drives NamedEvaluation for anonymous
+/// class expressions (`let cls = class {}` → `.name === "cls"`) (E19.31).
+fn lower_expr_hint(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    expr: &AstExpr,
+    super_class: Option<&AstExpr>,
+    name_hint: Option<&str>,
+) -> Expr {
     match expr {
-        AstExpr::Paren { expr: inner, .. } => lower_expr(checked, ctx, inner, super_class),
+        AstExpr::Paren { expr: inner, .. } => {
+            lower_expr_hint(checked, ctx, inner, super_class, name_hint)
+        }
         // Dual-worlds `as` is a type-level boundary only (T06); erase at IR.
-        AstExpr::As { expr: inner, .. } => lower_expr(checked, ctx, inner, super_class),
+        AstExpr::As { expr: inner, .. } => {
+            lower_expr_hint(checked, ctx, inner, super_class, name_hint)
+        }
         AstExpr::ArrayPattern { .. } => {
             panic!("array pattern must only appear as assignment target")
         }
@@ -2167,6 +2268,10 @@ fn lower_expr(
                     .unwrap_or_else(|| panic!("unknown private field #{fname}"));
                 return private_field_set(wm, obj, rhs);
             }
+            let assign_name_hint = match target.as_ref() {
+                AstExpr::Ident(id) if matches!(op, AssignOp::Eq) => Some(id.name.as_str()),
+                _ => None,
+            };
             let target = match target.as_ref() {
                 AstExpr::Ident(id) => {
                     if let Some(local) = checked.bound.resolve(id.span) {
@@ -2217,7 +2322,13 @@ fn lower_expr(
             Expr::Assign {
                 target,
                 op: *op,
-                value: Box::new(lower_expr(checked, ctx, value, super_class)),
+                value: Box::new(lower_expr_hint(
+                    checked,
+                    ctx,
+                    value,
+                    super_class,
+                    assign_name_hint,
+                )),
                 ty: expr_ty(checked, *span),
             }
         }
@@ -2509,7 +2620,15 @@ fn lower_expr(
             super_class: sc,
             body,
             span,
-        } => lower_class_expression(checked, ctx, name.as_ref(), sc.as_deref(), body, *span),
+        } => lower_class_expression(
+            checked,
+            ctx,
+            name.as_ref(),
+            sc.as_deref(),
+            body,
+            *span,
+            name_hint,
+        ),
         AstExpr::ArrowFunction {
             params,
             body,
@@ -2544,19 +2663,33 @@ fn lower_expr(
             properties: properties
                 .iter()
                 .map(|p| match p {
-                    AstObjectProp::Property { key, value, .. } => ObjectProp::Property {
-                        key: match key {
-                            draconic_ast::ObjectKey::Ident(id) => {
-                                ObjectPropKey::Static(id.name.clone().into())
-                            }
-                            draconic_ast::ObjectKey::String(s) => {
-                                ObjectPropKey::Static(s.value.clone())
-                            }
-                            draconic_ast::ObjectKey::Computed(expr) => {
-                                ObjectPropKey::Computed(lower_expr(checked, ctx, expr, super_class))
-                            }
-                        },
-                        value: lower_expr(checked, ctx, value, super_class),
+                    AstObjectProp::Property { key, value, .. } => {
+                        // NamedEvaluation: `{ id: class {} }` → constructor `.name === "id"` (E19.31).
+                        let prop_name_hint: Option<String> = match key {
+                            draconic_ast::ObjectKey::Ident(id) => Some(id.name.clone()),
+                            draconic_ast::ObjectKey::String(s) => Some(s.value.to_string_lossy()),
+                            draconic_ast::ObjectKey::Computed(_) => None,
+                        };
+                        ObjectProp::Property {
+                            key: match key {
+                                draconic_ast::ObjectKey::Ident(id) => {
+                                    ObjectPropKey::Static(id.name.clone().into())
+                                }
+                                draconic_ast::ObjectKey::String(s) => {
+                                    ObjectPropKey::Static(s.value.clone())
+                                }
+                                draconic_ast::ObjectKey::Computed(expr) => ObjectPropKey::Computed(
+                                    lower_expr(checked, ctx, expr, super_class),
+                                ),
+                            },
+                            value: lower_expr_hint(
+                                checked,
+                                ctx,
+                                value,
+                                super_class,
+                                prop_name_hint.as_deref(),
+                            ),
+                        }
                     },
                     AstObjectProp::Accessor {
                         kind,
@@ -2730,16 +2863,25 @@ fn lower_params(
 ) -> Vec<Param> {
     let mut out = Vec::with_capacity(params.len());
     for p in params {
+        let hint = single_name_binding_hint(&p.binding);
         out.push(Param {
             pattern: lower_binding_pattern(checked, ctx, &p.binding),
             default: p
                 .default
                 .as_ref()
-                .map(|e| lower_expr(checked, ctx, e, super_class)),
+                .map(|e| lower_expr_hint(checked, ctx, e, super_class, hint)),
             rest: p.rest,
         });
     }
     out
+}
+
+/// BindingIdentifier name for NamedEvaluation (SingleNameBinding only).
+fn single_name_binding_hint(pat: &BindingPattern) -> Option<&str> {
+    match pat {
+        BindingPattern::Ident(id) => Some(id.name.as_str()),
+        _ => None,
+    }
 }
 
 fn expr_ty(checked: &CheckedProgram, span: Span) -> Type {
@@ -2757,12 +2899,15 @@ fn lower_array_pattern_els(
     for el in elements {
         out.push(match el {
             ArrayPatternElement::Elision => ArrayPatternEl::Elision,
-            ArrayPatternElement::Pattern { binding, default } => ArrayPatternEl::Pattern {
-                binding: lower_binding_pattern(checked, ctx, binding),
-                default: default
-                    .as_ref()
-                    .map(|d| lower_expr(checked, ctx, d, None)),
-            },
+            ArrayPatternElement::Pattern { binding, default } => {
+                let hint = single_name_binding_hint(binding);
+                ArrayPatternEl::Pattern {
+                    binding: lower_binding_pattern(checked, ctx, binding),
+                    default: default
+                        .as_ref()
+                        .map(|d| lower_expr_hint(checked, ctx, d, None, hint)),
+                }
+            }
             ArrayPatternElement::Rest(binding) => {
                 ArrayPatternEl::Rest(lower_binding_pattern(checked, ctx, binding))
             }
@@ -2785,14 +2930,17 @@ fn lower_object_pattern_props(
                 shorthand,
                 default,
                 ..
-            } => ObjectPatternEl::Prop {
-                key: key.name.clone(),
-                binding: lower_binding_pattern(checked, ctx, binding),
-                shorthand: *shorthand,
-                default: default
-                    .as_ref()
-                    .map(|d| lower_expr(checked, ctx, d, None)),
-            },
+            } => {
+                let hint = single_name_binding_hint(binding);
+                ObjectPatternEl::Prop {
+                    key: key.name.clone(),
+                    binding: lower_binding_pattern(checked, ctx, binding),
+                    shorthand: *shorthand,
+                    default: default
+                        .as_ref()
+                        .map(|d| lower_expr_hint(checked, ctx, d, None, hint)),
+                }
+            }
             ObjectPatternProp::Rest(binding) => {
                 ObjectPatternEl::Rest(lower_binding_pattern(checked, ctx, binding))
             }

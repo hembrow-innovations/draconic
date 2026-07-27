@@ -1,0 +1,33 @@
+// E19.31: NamedEvaluation / SetFunctionName for anonymous class in binding init.
+var cls = class {};
+var xCls = class X {};
+var xCls2 = class {
+  static name() {}
+};
+var [dCls = class {}, dX = class Y {}, dN = class { static name() {} }] = [];
+var { oCls = class {}, oX = class Z {}, oN = class { static name() {} } } = {};
+
+function f(pCls = class {}, pX = class W {}, pN = class { static name() {} }) {
+  return [pCls, pX, pN];
+}
+var params = f();
+
+var aCls;
+aCls = class {};
+var aX;
+aX = class Q {};
+
+let a = cls.name;
+let b = xCls.name;
+let c = typeof xCls2.name;
+let d = dCls.name;
+let e = dX.name;
+let f1 = typeof dN.name;
+let g = oCls.name;
+let h = oX.name;
+let i = typeof oN.name;
+let j = params[0].name;
+let k = params[1].name;
+let l = typeof params[2].name;
+let m = aCls.name;
+let n = aX.name;
