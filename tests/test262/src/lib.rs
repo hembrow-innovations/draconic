@@ -374,6 +374,14 @@ pub fn is_module_flag(source: &str) -> bool {
     flag_token(source, "module")
 }
 
+/// True when frontmatter has the `raw` **flag** (hashbang / full-file source).
+///
+/// E19.39: hashbang and other early-byte tests must compile the full file so
+/// content before the YAML frontmatter is not stripped away.
+pub fn is_raw_flag(source: &str) -> bool {
+    flag_token(source, "raw")
+}
+
 /// Match a single comma/bracket-separated token on a `flags:` frontmatter line.
 fn flag_token(source: &str, token: &str) -> bool {
     let Some(meta) = frontmatter_meta(source) else {
@@ -445,15 +453,30 @@ pub fn compile_test_to_js(test_body: &str) -> Result<String, String> {
 
 /// Like [`compile_test_to_js`], with optional suite file path for Module link.
 pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Result<String, String> {
-    let body = strip_frontmatter(test_body);
     let module_goal = is_module_flag(test_body);
-    // `"use strict"` must be the first statement so the whole script (incl. body) is strict.
-    let source = if is_only_strict(test_body) {
-        format!("\"use strict\";\n{HARNESS_SHIM}\n{body}")
+    // E19.39 raw: keep full file (hashbang + copyright + frontmatter-as-comment).
+    // Hashbang must remain the first two bytes — append shim after the source.
+    let source = if is_raw_flag(test_body) {
+        if is_only_strict(test_body) {
+            format!("{test_body}\n\"use strict\";\n{HARNESS_SHIM}")
+        } else {
+            format!("{test_body}\n{HARNESS_SHIM}")
+        }
     } else {
-        format!("{HARNESS_SHIM}\n{body}")
+        let body = strip_frontmatter(test_body);
+        // `"use strict"` must be the first statement so the whole script (incl. body) is strict.
+        if is_only_strict(test_body) {
+            format!("\"use strict\";\n{HARNESS_SHIM}\n{body}")
+        } else {
+            format!("{HARNESS_SHIM}\n{body}")
+        }
     };
-    let needs_link = module_goal && source_has_static_module_syntax(body);
+    let scan_body = if is_raw_flag(test_body) {
+        test_body
+    } else {
+        strip_frontmatter(test_body)
+    };
+    let needs_link = module_goal && source_has_static_module_syntax(scan_body);
     let module = if needs_link {
         let Some(path) = test_path else {
             return Err("compile: module test with import/export needs suite path".into());

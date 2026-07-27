@@ -444,6 +444,96 @@ fn is_simple_parameter_list(params: &[Param]) -> bool {
     })
 }
 
+/// SuperCall in parameter defaults (E19.39 method early error).
+fn params_contain_super_call(params: &[Param]) -> bool {
+    params
+        .iter()
+        .any(|p| p.default.as_ref().is_some_and(expr_contains_super_call))
+}
+
+fn expr_contains_super_call(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { callee, args, .. } => {
+            matches!(callee.as_ref(), Expr::Super { .. })
+                || expr_contains_super_call(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_super_call(e),
+                })
+        }
+        Expr::ArrowFunction { body, params, .. } => {
+            params_contain_super_call(params)
+                || match body {
+                    ArrowBody::Expr(e) => expr_contains_super_call(e),
+                    ArrowBody::Block(s) => stmt_contains_super_call(s),
+                }
+        }
+        Expr::FunctionExpression { .. } | Expr::ClassExpression { .. } => false,
+        Expr::Paren { expr: inner, .. }
+        | Expr::Unary { arg: inner, .. }
+        | Expr::Update { arg: inner, .. }
+        | Expr::As { expr: inner, .. } => expr_contains_super_call(inner),
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_contains_super_call(left) || expr_contains_super_call(right),
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_super_call(test)
+                || expr_contains_super_call(consequent)
+                || expr_contains_super_call(alternate)
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => expr_contains_super_call(object) || expr_contains_super_call(property),
+        Expr::New { callee, args, .. } => {
+            expr_contains_super_call(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_super_call(e),
+                })
+        }
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_super_call(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { value, .. } => expr_contains_super_call(value),
+            ObjectProp::Spread { expr, .. } => expr_contains_super_call(expr),
+            ObjectProp::Accessor { .. } => false,
+        }),
+        _ => false,
+    }
+}
+
+fn stmt_contains_super_call(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_super_call),
+        Stmt::Expression { expr, .. } => expr_contains_super_call(expr),
+        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_super_call),
+        Stmt::Throw { argument, .. } => expr_contains_super_call(argument),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_super_call(test)
+                || stmt_contains_super_call(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_contains_super_call(a))
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            expr_contains_super_call(test) || stmt_contains_super_call(body)
+        }
+        Stmt::Let { init, .. } => init.as_ref().is_some_and(expr_contains_super_call),
+        _ => false,
+    }
+}
+
 /// `true` when `stmts` begins with a `"use strict"` directive prologue.
 fn stmt_list_has_use_strict(stmts: &[Stmt]) -> bool {
     for stmt in stmts {
@@ -796,6 +886,8 @@ impl Binder {
 
     /// Bind a function/method/arrow block body with FunctionBody (top-level) early errors.
     fn bind_function_body(&mut self, body: &Stmt) -> Result<(), Diagnostic> {
+        // Body gets its own block scope (named FE / `let arguments` / nested `function`
+        // can shadow). Param∩body-lexical conflicts are checked separately.
         match body {
             Stmt::Block { body, .. } => {
                 self.push_scope();
@@ -805,6 +897,35 @@ impl Binder {
             }
             other => self.bind_stmt(other),
         }
+    }
+
+    /// E19.39: LexicallyDeclaredNames of FunctionBody must not intersect BoundNames of formals.
+    fn check_params_body_lexical_conflict(
+        &self,
+        params: &[Param],
+        body: &Stmt,
+    ) -> Result<(), Diagnostic> {
+        let mut param_names = std::collections::HashSet::new();
+        for p in params {
+            p.binding.for_each_ident(&mut |id| {
+                param_names.insert(id.name.clone());
+            });
+        }
+        let stmts: &[Stmt] = match body {
+            Stmt::Block { body, .. } => body.as_slice(),
+            _ => return Ok(()),
+        };
+        // FunctionBody uses TopLevelLexicallyDeclaredNames (not hoistable functions).
+        let lexical = collect_lexically_declared_names(stmts.iter(), true);
+        for (name, span, _) in lexical {
+            if param_names.contains(&name) {
+                return Err(Diagnostic::new(
+                    format!("duplicate declaration of `{name}`"),
+                    span,
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Hoistable declarations for one statement-list item (Annex B.3.2 peels labels).
@@ -1409,12 +1530,20 @@ impl Binder {
                 body,
                 is_async,
                 is_generator,
+                span,
                 ..
             } => {
                 // Name already declared in the enclosing list's first pass.
                 // Function scope is a var environment.
                 let prev_strict = self.strict;
                 if body_has_use_strict(body) {
+                    // E19.39: ContainsUseStrict && !IsSimpleParameterList → SyntaxError.
+                    if !is_simple_parameter_list(params) {
+                        return Err(Diagnostic::new(
+                            "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                            *span,
+                        ));
+                    }
                     self.strict = true;
                 }
                 self.push_scope_kind(true);
@@ -1423,6 +1552,7 @@ impl Binder {
                 self.bind_params(params, allow_sloppy_dups)?;
                 self.install_arguments_object()?;
                 // FunctionBody uses TopLevel*DeclaredNames early errors (E19.24).
+                self.check_params_body_lexical_conflict(params, body)?;
                 self.bind_function_body(body)?;
                 self.pop_scope();
                 self.strict = prev_strict;
@@ -1446,22 +1576,38 @@ impl Binder {
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
+                            self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
                             self.strict = prev_strict;
                         }
                         ClassElement::Method {
-                            key, params, body, ..
+                            key,
+                            params,
+                            body,
+                            span,
+                            ..
                         }
                         | ClassElement::Accessor {
-                            key, params, body, ..
+                            key,
+                            params,
+                            body,
+                            span,
+                            ..
                         } => {
                             self.bind_object_key(key)?;
+                            if body_has_use_strict(body) && !is_simple_parameter_list(params) {
+                                return Err(Diagnostic::new(
+                                    "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                                    *span,
+                                ));
+                            }
                             let prev_strict = self.strict;
                             self.strict = true;
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
+                            self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
                             self.strict = prev_strict;
@@ -1635,7 +1781,23 @@ impl Binder {
                 }
                 Ok(())
             }
-            Expr::Unary { arg, .. } => self.bind_expr(arg),
+            Expr::Unary { op, arg, span } => {
+                // E19.39: `delete IdentifierReference` is early SyntaxError in strict mode
+                // (including parenthesized forms: `delete ((id))`).
+                if matches!(op, UnaryOp::Delete) && self.strict {
+                    let mut inner = arg.as_ref();
+                    while let Expr::Paren { expr, .. } = inner {
+                        inner = expr.as_ref();
+                    }
+                    if matches!(inner, Expr::Ident(_)) {
+                        return Err(Diagnostic::new(
+                            "cannot delete unqualified identifier in strict mode".to_string(),
+                            *span,
+                        ));
+                    }
+                }
+                self.bind_expr(arg)
+            }
             Expr::Binary { left, right, .. } => {
                 self.bind_expr(left)?;
                 self.bind_expr(right)
@@ -1671,12 +1833,28 @@ impl Binder {
                 is_async,
                 is_generator,
                 is_method,
+                span,
                 ..
             } => {
                 // Name (if any) is local to the function body only (ES named FE).
                 let prev_strict = self.strict;
                 if body_has_use_strict(body) {
+                    // E19.39: ContainsUseStrict && !IsSimpleParameterList → SyntaxError.
+                    if !is_simple_parameter_list(params) {
+                        return Err(Diagnostic::new(
+                            "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                            *span,
+                        ));
+                    }
                     self.strict = true;
+                }
+                // E19.39: object/class methods (is_method) cannot contain SuperCall.
+                if *is_method && (params_contain_super_call(params) || stmt_contains_super_call(body))
+                {
+                    return Err(Diagnostic::new(
+                        "method cannot contain super call".to_string(),
+                        *span,
+                    ));
                 }
                 self.push_scope_kind(true);
                 if let Some(name) = name {
@@ -1686,6 +1864,7 @@ impl Binder {
                 let allow_sloppy_dups = !*is_async && !*is_generator && !*is_method;
                 self.bind_params(params, allow_sloppy_dups)?;
                 self.install_arguments_object()?;
+                self.check_params_body_lexical_conflict(params, body)?;
                 self.bind_function_body(body)?;
                 self.pop_scope();
                 self.strict = prev_strict;
@@ -1717,22 +1896,38 @@ impl Binder {
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
+                            self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
                             self.strict = prev_strict;
                         }
                         ClassElement::Method {
-                            key, params, body, ..
+                            key,
+                            params,
+                            body,
+                            span,
+                            ..
                         }
                         | ClassElement::Accessor {
-                            key, params, body, ..
+                            key,
+                            params,
+                            body,
+                            span,
+                            ..
                         } => {
                             self.bind_object_key(key)?;
+                            if body_has_use_strict(body) && !is_simple_parameter_list(params) {
+                                return Err(Diagnostic::new(
+                                    "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                                    *span,
+                                ));
+                            }
                             let prev_strict = self.strict;
                             self.strict = true;
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
+                            self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
                             self.strict = prev_strict;
@@ -1754,20 +1949,34 @@ impl Binder {
                 self.pop_scope();
                 Ok(())
             }
-            Expr::ArrowFunction { params, body, .. } => {
+            Expr::ArrowFunction {
+                params,
+                body,
+                span,
+                ..
+            } => {
                 let prev_strict = self.strict;
                 let body_strict = match body {
                     ArrowBody::Block(stmt) => body_has_use_strict(stmt),
                     ArrowBody::Expr(_) => false,
                 };
                 if body_strict {
+                    if !is_simple_parameter_list(params) {
+                        return Err(Diagnostic::new(
+                            "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                            *span,
+                        ));
+                    }
                     self.strict = true;
                 }
                 self.push_scope_kind(true);
                 self.bind_params(params, false)?;
                 match body {
                     ArrowBody::Expr(expr) => self.bind_expr(expr)?,
-                    ArrowBody::Block(stmt) => self.bind_function_body(stmt)?,
+                    ArrowBody::Block(stmt) => {
+                        self.check_params_body_lexical_conflict(params, stmt)?;
+                        self.bind_function_body(stmt)?;
+                    }
                 }
                 self.pop_scope();
                 self.strict = prev_strict;
@@ -1784,17 +1993,41 @@ impl Binder {
                             self.bind_expr(value)?;
                         }
                         ObjectProp::Accessor {
-                            key, params, body, ..
+                            key,
+                            params,
+                            body,
+                            span,
+                            ..
                         } => {
                             match key {
                                 ObjectKey::Ident(_) | ObjectKey::String(_) => {}
                                 ObjectKey::Computed(expr) => self.bind_expr(expr)?,
                             }
+                            let prev_strict = self.strict;
+                            if body_has_use_strict(body) {
+                                if !is_simple_parameter_list(params) {
+                                    return Err(Diagnostic::new(
+                                        "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                                        *span,
+                                    ));
+                                }
+                                self.strict = true;
+                            }
+                            if params_contain_super_call(params)
+                                || stmt_contains_super_call(body)
+                            {
+                                return Err(Diagnostic::new(
+                                    "method cannot contain super call".to_string(),
+                                    *span,
+                                ));
+                            }
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
+                            self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.strict = prev_strict;
                         }
                         ObjectProp::Spread { expr, .. } => self.bind_expr(expr)?,
                     }
@@ -1868,7 +2101,19 @@ impl Binder {
 
     fn bind_assign_pattern(&mut self, pat: &BindingPattern) -> Result<(), Diagnostic> {
         match pat {
-            BindingPattern::Ident(id) => self.bind_expr(&Expr::Ident(id.clone())),
+            BindingPattern::Ident(id) => {
+                // E19.39: strict mode — `eval`/`arguments` are not valid simple assignment targets.
+                if self.strict && (id.name == "eval" || id.name == "arguments") {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "cannot assign to `{}` in strict mode",
+                            id.name
+                        ),
+                        id.span,
+                    ));
+                }
+                self.bind_expr(&Expr::Ident(id.clone()))
+            }
             BindingPattern::Member(expr) => self.bind_expr(expr),
             BindingPattern::Array { elements, .. } => {
                 for el in elements {
@@ -5906,6 +6151,65 @@ mod tests {
     fn bind_sloppy_arrow_eval_param_ok() {
         let program = parse("let af = eval => eval;").unwrap();
         bind(program).expect("sloppy arrow may bind eval");
+    }
+
+    // E19.39: early SyntaxError residuals.
+    #[test]
+    fn bind_use_strict_non_simple_params_errors() {
+        let program = parse("function f(a = 0) { \"use strict\"; }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("use strict") || err.message.contains("non-simple"),
+            "unexpected: {}",
+            err.message
+        );
+        let program = parse("({ m(a = 0) { \"use strict\"; } });").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("use strict") || err.message.contains("non-simple"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_strict_delete_identifier_errors() {
+        let program = parse("\"use strict\"; delete x;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("delete"),
+            "unexpected: {}",
+            err.message
+        );
+        let program = parse("\"use strict\"; delete ((x));").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("delete"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_method_param_redecl_errors() {
+        let program = parse("({ method(param) { let param; } });").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") || err.message.contains("param"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_object_method_super_call_errors() {
+        let program = parse("({ m() { super(); } });").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("super"),
+            "unexpected: {}",
+            err.message
+        );
     }
 
     // E17.02.04: duplicate formals allowed only for non-strict simple plain `function`.

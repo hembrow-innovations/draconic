@@ -94,6 +94,9 @@ pub struct Token {
     /// True when a LineTerminator was skipped immediately before this token
     /// (restricted productions: postfix `++`/`--`, `continue`/`break`/`return`/`throw`).
     pub preceded_by_line_terminator: bool,
+    /// True when the identifier/keyword token contained a Unicode escape (`\u…`).
+    /// Contextual keywords (`get`/`set`/`async`) must not be escaped (E19.39).
+    pub escaped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,16 +264,23 @@ impl<'a> Lexer<'a> {
     }
 
     fn finish_token(&mut self, kind: TokenKind, span: Span) -> Token {
+        self.finish_token_escaped(kind, span, false)
+    }
+
+    fn finish_token_escaped(&mut self, kind: TokenKind, span: Span, escaped: bool) -> Token {
         let preceded_by_line_terminator = self.had_line_terminator;
         self.had_line_terminator = false;
         Token {
             kind,
             span,
             preceded_by_line_terminator,
+            escaped,
         }
     }
 
     pub fn tokenize(mut self) -> Result<Vec<Token>, Diagnostic> {
+        // E19.39: HashbangComment only at the absolute start of source (`#!…`).
+        self.skip_hashbang_comment();
         let mut tokens = Vec::new();
         loop {
             let tok = self.next_token()?;
@@ -284,6 +294,34 @@ impl<'a> Lexer<'a> {
             }
         }
         Ok(tokens)
+    }
+
+    /// `# ! SingleLineCommentChars_opt` — only when source begins with those two bytes.
+    fn skip_hashbang_comment(&mut self) {
+        if self.pos != 0 {
+            return;
+        }
+        if self.bytes.len() >= 2 && self.bytes[0] == b'#' && self.bytes[1] == b'!' {
+            self.pos = 2;
+            while self.pos < self.bytes.len() {
+                let b = self.bytes[self.pos];
+                // LineTerminator: LF, CR, LS (U+2028), PS (U+2029)
+                if b == b'\n' || b == b'\r' {
+                    break;
+                }
+                if b >= 0x80 {
+                    let ch = self.peek_char();
+                    if ch == '\u{2028}' || ch == '\u{2029}' {
+                        break;
+                    }
+                    self.bump_char();
+                } else {
+                    self.pos += 1;
+                }
+            }
+            self.at_line_start = true;
+            self.had_line_terminator = true;
+        }
     }
 
     fn next_token(&mut self) -> Result<Token, Diagnostic> {
@@ -542,7 +580,15 @@ impl<'a> Lexer<'a> {
             b'"' | b'\'' => self.string_literal()?,
             b'`' => self.template_literal()?,
             b if b.is_ascii_digit() => self.number_literal()?,
-            _ if self.can_start_ident() => self.ident_or_keyword()?,
+            _ if self.can_start_ident() => {
+                let (kind, escaped) = self.ident_or_keyword()?;
+                self.at_line_start = false;
+                return Ok(self.finish_token_escaped(
+                    kind,
+                    Span::new(start, self.pos as u32),
+                    escaped,
+                ));
+            }
             _ => {
                 let ch = self.src[self.pos..].chars().next().expect("eof checked");
                 return Err(Diagnostic::new(
@@ -1284,12 +1330,12 @@ impl<'a> Lexer<'a> {
         Ok(TokenKind::PrivateIdent(name))
     }
 
-    fn ident_or_keyword(&mut self) -> Result<TokenKind, Diagnostic> {
+    fn ident_or_keyword(&mut self) -> Result<(TokenKind, bool), Diagnostic> {
         let (name, had_escape) = self.scan_identifier_name()?;
         if had_escape {
-            return Ok(TokenKind::Ident(name));
+            return Ok((TokenKind::Ident(name), true));
         }
-        Ok(match name.as_str() {
+        let kind = match name.as_str() {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "null" => TokenKind::Null,
@@ -1333,7 +1379,8 @@ impl<'a> Lexer<'a> {
             "from" => TokenKind::From,
             "as" => TokenKind::As,
             _ => TokenKind::Ident(name),
-        })
+        };
+        Ok((kind, false))
     }
 
     /// Scan IdentifierName (start + continues). Returns (decoded name, had Unicode escape).
@@ -2035,6 +2082,16 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+    }
+
+    #[test]
+    fn lex_hashbang_at_start() {
+        assert_eq!(
+            kinds("#! anything\n1"),
+            vec![TokenKind::Number("1".into()), TokenKind::Eof]
+        );
+        // Escaped bang is not a hashbang — `#` starts a private ident.
+        assert!(Lexer::new("#\\u{21}\n1").tokenize().is_err());
     }
 
     #[test]

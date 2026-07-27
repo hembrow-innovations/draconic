@@ -33,6 +33,9 @@ struct Parser {
     in_generator: bool,
     /// Strict mode (directive prologue, class bodies). `yield` is reserved.
     in_strict: bool,
+    /// Stack of private names for nested classes (E19.36 / E19.39 inheritance).
+    /// Outer class names are visible inside nested class bodies.
+    class_private_stack: Vec<Vec<String>>,
 }
 
 impl Parser {
@@ -43,7 +46,16 @@ impl Parser {
             allow_in: true,
             in_generator: false,
             in_strict: false,
+            class_private_stack: Vec::new(),
         }
+    }
+
+    fn all_class_private_names(&self) -> Vec<String> {
+        self.class_private_stack
+            .iter()
+            .flatten()
+            .cloned()
+            .collect()
     }
 
     /// `yield` as IdentifierReference / BindingIdentifier (non-strict, non-generator).
@@ -53,7 +65,18 @@ impl Parser {
 
     /// True when `name` cannot be a BindingIdentifier / IdentifierReference here.
     fn is_invalid_ident_name(&self, name: &str) -> bool {
-        is_reserved_word(name) || (name == "yield" && !self.yield_is_ident())
+        if is_reserved_word(name) {
+            return true;
+        }
+        // `yield` reserved in generators and strict mode (E19.37 / E19.39).
+        if name == "yield" && !self.yield_is_ident() {
+            return true;
+        }
+        // Strict FutureReservedWord (E19.39).
+        if self.in_strict && is_strict_future_reserved_word(name) {
+            return true;
+        }
+        false
     }
 
     /// ASI allowed before current token (LineTerminator, `}`, or EOF).
@@ -80,6 +103,11 @@ impl Parser {
             }
         }
         let end = self.current_span().end.0;
+        // E19.39: AllPrivateNamesValid of ScriptBody with empty list — private
+        // refs outside any class (e.g. `new C().#x` after the class) are early errors.
+        for stmt in &body {
+            check_stmt_private_refs(stmt, &[])?;
+        }
         Ok(Program {
             body,
             span: Span::new(start, end),
@@ -722,6 +750,9 @@ impl Parser {
         // Class bodies are always strict (ECMA-262).
         let prev_strict = self.in_strict;
         self.in_strict = true;
+        // Nested classes inherit outer private names (E19.36). Push a frame so
+        // nested class validation sees names declared so far in this class.
+        self.class_private_stack.push(Vec::new());
         let mut body = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
             // Empty ClassElement: lone `;` (ECMA-262 ClassElement → `;`).
@@ -730,6 +761,11 @@ impl Parser {
                 continue;
             }
             let el = self.parse_class_element()?;
+            // Register private names immediately so nested classes in later
+            // initializers can reference them.
+            if let Some(frame) = self.class_private_stack.last_mut() {
+                register_private_names_from_element(&el, frame);
+            }
             let needs_field_semi = matches!(
                 &el,
                 ClassElement::Field { .. }
@@ -744,6 +780,7 @@ impl Parser {
                 } else if self.current().preceded_by_line_terminator {
                     // ASI across LineTerminator
                 } else {
+                    self.class_private_stack.pop();
                     return Err(Diagnostic::new(
                         "expected ';' after class field".to_string(),
                         self.current_span(),
@@ -755,7 +792,11 @@ impl Parser {
         }
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
         self.in_strict = prev_strict;
-        validate_class_body(&body)?;
+        let has_heritage = super_class.is_some();
+        let inherited = self.all_class_private_names();
+        let result = validate_class_body(&body, has_heritage, &inherited);
+        self.class_private_stack.pop();
+        result?;
         Ok((super_class, body, end))
     }
 
@@ -866,7 +907,14 @@ impl Parser {
             });
         }
         // `async m()` / `async *m()` / `async #m()` / `async [e]()` — not method/field named `async`.
-        let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
+        // No LineTerminator between `async` and the method name (E19.39).
+        let is_async = if self.check(&TokenKind::Async)
+            && self.peek_starts_method_name()
+            && !self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| t.preceded_by_line_terminator)
+        {
             self.bump();
             true
         } else {
@@ -892,6 +940,13 @@ impl Parser {
                 self.in_generator = is_generator;
                 let params = self.parse_param_list()?;
                 self.expect(&TokenKind::RParen)?;
+                if is_generator && params_contain_yield_expr(&params) {
+                    self.in_generator = prev_gen;
+                    return Err(Diagnostic::new(
+                        "generator parameters cannot contain yield".to_string(),
+                        Span::new(start, self.current_span().end.0),
+                    ));
+                }
                 let body = Box::new(self.parse_function_body_block()?);
                 self.in_generator = prev_gen;
                 let end = stmt_span(&body).end.0;
@@ -959,6 +1014,14 @@ impl Parser {
         self.in_generator = is_generator;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
+        // E19.39: generator FormalParameters cannot contain YieldExpression.
+        if is_generator && params_contain_yield_expr(&params) {
+            self.in_generator = prev_gen;
+            return Err(Diagnostic::new(
+                "generator parameters cannot contain yield".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
         let end = stmt_span(&body).end.0;
@@ -1445,6 +1508,13 @@ impl Parser {
     }
 
     fn parse_with(&mut self) -> Result<Stmt, Diagnostic> {
+        // E19.39: `with` is early SyntaxError in strict mode (incl. class extends / body).
+        if self.in_strict {
+            return Err(Diagnostic::new(
+                "'with' statements are not allowed in strict mode".to_string(),
+                self.current_span(),
+            ));
+        }
         let start = self.expect(&TokenKind::With)?.span.start.0;
         self.expect(&TokenKind::LParen)?;
         let object = self.parse_expr()?;
@@ -2286,14 +2356,19 @@ impl Parser {
     /// Bare `yield` / `yield;` → yield undefined (`void 0`).
     fn parse_yield(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::Yield)?.span.start.0;
-        let delegate = if self.check(&TokenKind::Star) {
+        // No LineTerminator between `yield` and `*` (E19.39 yield-star-after-newline).
+        let delegate = if self.check(&TokenKind::Star)
+            && !self.current().preceded_by_line_terminator
+        {
             self.bump();
             true
         } else {
             false
         };
+        // No LineTerminator before the operand (incl. bare `yield` then `*` on next line).
         let arg = if !delegate
-            && (self.check(&TokenKind::Semi)
+            && (self.current().preceded_by_line_terminator
+                || self.check(&TokenKind::Semi)
                 || self.check(&TokenKind::RBrace)
                 || self.check(&TokenKind::RParen)
                 || self.check(&TokenKind::RBracket)
@@ -3241,7 +3316,14 @@ impl Parser {
             });
         }
         // `async m()` / `async *m()` — not property/method named `async`.
-        let is_async = if self.check(&TokenKind::Async) && self.peek_starts_method_name() {
+        // No LineTerminator between `async` and the method name (E19.39).
+        let is_async = if self.check(&TokenKind::Async)
+            && self.peek_starts_method_name()
+            && !self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| t.preceded_by_line_terminator)
+        {
             self.bump();
             true
         } else {
@@ -3325,8 +3407,23 @@ impl Parser {
                 // (latter is only valid as assignment pattern; checker rejects as value).
                 // Keywords as IdentifierName keys require `: value` (not bare shorthand),
                 // except non-strict non-generator `yield` (IdentifierReference, E19.37).
+                // Escaped reserved words are TokenKind::Ident but still invalid IdentifierReference
+                // (E19.39 assignment dstr / object shorthand).
                 let is_keyword_key = !matches!(key_tok.kind, TokenKind::Ident(_))
                     && !(matches!(key_tok.kind, TokenKind::Yield) && self.yield_is_ident());
+                if matches!(&key_tok.kind, TokenKind::Ident(n) if self.is_invalid_ident_name(n))
+                    && (self.check(&TokenKind::Comma)
+                        || self.check(&TokenKind::RBrace)
+                        || self.check(&TokenKind::Eq))
+                {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "'{name}' is a reserved word and cannot be used as an identifier",
+                            name = name
+                        ),
+                        key_span,
+                    ));
+                }
                 if !is_keyword_key
                     && (self.check(&TokenKind::Comma)
                         || self.check(&TokenKind::RBrace)
@@ -3471,6 +3568,14 @@ impl Parser {
         self.in_generator = is_generator;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
+        // E19.39: FormalParameters of a generator must not contain YieldExpression.
+        if is_generator && params_contain_yield_expr(&params) {
+            self.in_generator = prev_gen;
+            return Err(Diagnostic::new(
+                "generator parameters cannot contain yield".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
@@ -3523,9 +3628,14 @@ impl Parser {
         ) || next.ident_name_opt().is_some()
     }
 
-    /// True when current token is `get`/`set` and the next token starts an accessor name.
+    /// True when current token is unescaped `get`/`set` and the next token starts an accessor name.
+    /// Escaped `\u0067et` / `\u0073et` are IdentifierName, not the `get`/`set` terminal (E19.39).
     fn peek_accessor_kind(&self) -> Option<AccessorKind> {
-        let kind = match &self.current().kind {
+        let cur = self.current();
+        if cur.escaped {
+            return None;
+        }
+        let kind = match &cur.kind {
             TokenKind::Ident(name) if name == "get" => AccessorKind::Get,
             TokenKind::Ident(name) if name == "set" => AccessorKind::Set,
             _ => return None,
@@ -4000,6 +4110,22 @@ fn is_reserved_word(name: &str) -> bool {
     )
 }
 
+/// Strict-mode FutureReservedWord (plus `let` / `static` as BindingIdentifier bans).
+fn is_strict_future_reserved_word(name: &str) -> bool {
+    matches!(
+        name,
+        "implements"
+            | "interface"
+            | "let"
+            | "package"
+            | "private"
+            | "protected"
+            | "public"
+            | "static"
+            | "yield"
+    )
+}
+
 /// ExpressionStatement whose expression is a string literal (Directive Prologue candidate).
 fn stmt_is_directive(stmt: &Stmt) -> bool {
     match stmt {
@@ -4105,9 +4231,43 @@ fn expr_is_private_member_reference(expr: &Expr) -> bool {
     }
 }
 
-/// ClassBody early errors: duplicate privates, field PropName, SuperCall/arguments in field init.
-fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
+fn register_private_names_from_element(el: &ClassElement, frame: &mut Vec<String>) {
+    match el {
+        ClassElement::Field {
+            key, is_private: true, ..
+        }
+        | ClassElement::Method {
+            key, is_private: true, ..
+        }
+        | ClassElement::Accessor {
+            key, is_private: true, ..
+        } => {
+            if let ObjectKey::Ident(id) = key {
+                if !frame.iter().any(|n| n == &id.name) {
+                    frame.push(id.name.clone());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// ClassBody early errors: duplicate privates, field PropName, SuperCall/arguments in field init,
+/// SuperCall outside constructor, duplicate constructor, `#constructor`, undeclared private refs (E19.39).
+///
+/// `inherited` = private names from enclosing classes (nested class visibility).
+fn validate_class_body(
+    body: &[ClassElement],
+    has_heritage: bool,
+    inherited: &[String],
+) -> Result<(), Diagnostic> {
     let mut private_names: Vec<String> = Vec::new();
+    let mut ctor_count = 0u32;
+    // Track private accessor kinds for static/instance getter+setter pairing rules.
+    // name -> (has_instance_get, has_instance_set, has_static_get, has_static_set, has_field_or_method)
+    let mut private_kinds: std::collections::HashMap<String, (bool, bool, bool, bool, bool)> =
+        std::collections::HashMap::new();
+
     for el in body {
         match el {
             ClassElement::Field {
@@ -4119,6 +4279,12 @@ fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
             } => {
                 if *is_private {
                     if let ObjectKey::Ident(id) = key {
+                        if id.name == "constructor" {
+                            return Err(Diagnostic::new(
+                                "private field cannot be named #constructor".to_string(),
+                                *span,
+                            ));
+                        }
                         if private_names.iter().any(|n| n == &id.name) {
                             return Err(Diagnostic::new(
                                 format!("duplicate private name #{}", id.name),
@@ -4126,6 +4292,8 @@ fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
                             ));
                         }
                         private_names.push(id.name.clone());
+                        let e = private_kinds.entry(id.name.clone()).or_default();
+                        e.4 = true;
                     }
                 } else if let Some(name) = class_element_prop_name(key) {
                     if name == "constructor" {
@@ -4158,13 +4326,22 @@ fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
             }
             ClassElement::Method {
                 key,
+                params,
+                body: method_body,
                 is_static,
                 is_private,
+                is_async: _,
+                is_generator: _,
                 span,
-                ..
             } => {
                 if *is_private {
                     if let ObjectKey::Ident(id) = key {
+                        if id.name == "constructor" {
+                            return Err(Diagnostic::new(
+                                "private method cannot be named #constructor".to_string(),
+                                *span,
+                            ));
+                        }
                         if private_names.iter().any(|n| n == &id.name) {
                             return Err(Diagnostic::new(
                                 format!("duplicate private name #{}", id.name),
@@ -4172,6 +4349,8 @@ fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
                             ));
                         }
                         private_names.push(id.name.clone());
+                        let e = private_kinds.entry(id.name.clone()).or_default();
+                        e.4 = true;
                     }
                 } else if *is_static {
                     if let Some(name) = class_element_prop_name(key) {
@@ -4183,17 +4362,47 @@ fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
                         }
                     }
                 }
+                // SuperCall only allowed in constructors (not methods / static methods).
+                if params_contain_super_call(params) || stmt_contains_super_call(method_body) {
+                    return Err(Diagnostic::new(
+                        "class method cannot contain super call".to_string(),
+                        *span,
+                    ));
+                }
             }
             ClassElement::Accessor {
                 key,
+                params,
+                body: accessor_body,
                 is_static,
                 is_private,
+                kind,
                 span,
-                ..
             } => {
                 if *is_private {
                     if let ObjectKey::Ident(id) = key {
-                        // get/set pair may share one PrivateBoundName (allow up to 2).
+                        if id.name == "constructor" {
+                            return Err(Diagnostic::new(
+                                "private accessor cannot be named #constructor".to_string(),
+                                *span,
+                            ));
+                        }
+                        let e = private_kinds.entry(id.name.clone()).or_default();
+                        // Duplicate same-kind accessor (get+get / set+set) is an error.
+                        let dup = match (kind, *is_static) {
+                            (AccessorKind::Get, false) if e.0 => true,
+                            (AccessorKind::Set, false) if e.1 => true,
+                            (AccessorKind::Get, true) if e.2 => true,
+                            (AccessorKind::Set, true) if e.3 => true,
+                            _ => false,
+                        };
+                        if dup || e.4 {
+                            return Err(Diagnostic::new(
+                                format!("duplicate private name #{}", id.name),
+                                *span,
+                            ));
+                        }
+                        // get/set pair may share one PrivateBoundName (allow up to 2 entries).
                         if private_names.iter().filter(|n| *n == &id.name).count() >= 2 {
                             return Err(Diagnostic::new(
                                 format!("duplicate private name #{}", id.name),
@@ -4201,22 +4410,714 @@ fn validate_class_body(body: &[ClassElement]) -> Result<(), Diagnostic> {
                             ));
                         }
                         private_names.push(id.name.clone());
-                    }
-                } else if *is_static {
-                    if let Some(name) = class_element_prop_name(key) {
-                        if name == "prototype" {
-                            return Err(Diagnostic::new(
-                                "static class accessor cannot be named prototype".to_string(),
-                                *span,
-                            ));
+                        match (kind, *is_static) {
+                            (AccessorKind::Get, false) => e.0 = true,
+                            (AccessorKind::Set, false) => e.1 = true,
+                            (AccessorKind::Get, true) => e.2 = true,
+                            (AccessorKind::Set, true) => e.3 = true,
                         }
+                    }
+                } else if let Some(name) = class_element_prop_name(key) {
+                    // Instance accessors cannot be named "constructor"; static can.
+                    if !*is_static && name == "constructor" {
+                        return Err(Diagnostic::new(
+                            "class accessor cannot be named constructor".to_string(),
+                            *span,
+                        ));
+                    }
+                    if *is_static && name == "prototype" {
+                        return Err(Diagnostic::new(
+                            "static class accessor cannot be named prototype".to_string(),
+                            *span,
+                        ));
+                    }
+                }
+                if params_contain_super_call(params) || stmt_contains_super_call(accessor_body) {
+                    return Err(Diagnostic::new(
+                        "class accessor cannot contain super call".to_string(),
+                        *span,
+                    ));
+                }
+            }
+            ClassElement::Constructor {
+                params,
+                body: ctor_body,
+                span,
+            } => {
+                ctor_count += 1;
+                if ctor_count > 1 {
+                    return Err(Diagnostic::new(
+                        "class may have at most one constructor".to_string(),
+                        *span,
+                    ));
+                }
+                // SuperCall in constructor formals is still an error.
+                if params_contain_super_call(params) {
+                    return Err(Diagnostic::new(
+                        "constructor parameters cannot contain super call".to_string(),
+                        *span,
+                    ));
+                }
+                // SuperCall requires ClassHeritage (E19.39 grammar-ctor-super-no-heritage).
+                if !has_heritage && stmt_contains_super_call(ctor_body) {
+                    return Err(Diagnostic::new(
+                        "super call only allowed in derived class constructor".to_string(),
+                        *span,
+                    ));
+                }
+            }
+            ClassElement::StaticBlock { body: block_body, span } => {
+                if stmt_contains_super_call(block_body) {
+                    return Err(Diagnostic::new(
+                        "static block cannot contain super call".to_string(),
+                        *span,
+                    ));
+                }
+                if stmt_contains_return(block_body) {
+                    return Err(Diagnostic::new(
+                        "static block cannot contain return".to_string(),
+                        *span,
+                    ));
+                }
+                // ContainsArguments includes nested class computed names like `[arguments]`.
+                if stmt_contains_arguments_ref(block_body)
+                    || stmt_contains_arguments_deep(block_body)
+                {
+                    return Err(Diagnostic::new(
+                        "static block cannot contain arguments".to_string(),
+                        *span,
+                    ));
+                }
+            }
+        }
+    }
+
+    // Private getter/setter must not mix static and instance for the same name.
+    for (name, (ig, is, sg, ss, field_or_method)) in &private_kinds {
+        let has_instance = *ig || *is;
+        let has_static = *sg || *ss;
+        if has_instance && has_static {
+            return Err(Diagnostic::new(
+                format!(
+                    "private name #{name} cannot mix static and instance accessors"
+                ),
+                Span::dummy(),
+            ));
+        }
+        if *field_or_method && (has_instance || has_static) {
+            // field/method + accessor same name already caught by duplicate private_names
+            // for methods/fields; accessors allow 2 entries so field+get may slip — handled above.
+            let _ = field_or_method;
+        }
+    }
+
+    // All private references must be in this class or an enclosing class.
+    let mut visible = inherited.to_vec();
+    for n in &private_names {
+        if !visible.iter().any(|v| v == n) {
+            visible.push(n.clone());
+        }
+    }
+    for el in body {
+        check_class_element_private_refs(el, &visible)?;
+    }
+    Ok(())
+}
+
+fn params_contain_super_call(params: &[Param]) -> bool {
+    params.iter().any(|p| {
+        p.default.as_ref().is_some_and(expr_contains_super_call)
+            || binding_pattern_contains_super_call(&p.binding)
+    })
+}
+
+fn params_contain_yield_expr(params: &[Param]) -> bool {
+    params.iter().any(|p| {
+        p.default.as_ref().is_some_and(expr_contains_yield_expr)
+            || binding_pattern_contains_yield_expr(&p.binding)
+    })
+}
+
+fn binding_pattern_contains_yield_expr(b: &BindingPattern) -> bool {
+    match b {
+        BindingPattern::Ident(_) | BindingPattern::Member(_) => false,
+        BindingPattern::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayPatternElement::Elision => false,
+            ArrayPatternElement::Pattern { binding, default } => {
+                binding_pattern_contains_yield_expr(binding)
+                    || default.as_ref().is_some_and(expr_contains_yield_expr)
+            }
+            ArrayPatternElement::Rest(inner) => binding_pattern_contains_yield_expr(inner),
+        }),
+        BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectPatternProp::Prop {
+                binding, default, ..
+            } => {
+                binding_pattern_contains_yield_expr(binding)
+                    || default.as_ref().is_some_and(expr_contains_yield_expr)
+            }
+            ObjectPatternProp::Rest(inner) => binding_pattern_contains_yield_expr(inner),
+        }),
+    }
+}
+
+fn expr_contains_yield_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Unary {
+            op: UnaryOp::Yield | UnaryOp::YieldStar,
+            ..
+        } => true,
+        Expr::FunctionExpression { .. } | Expr::ClassExpression { .. } => false,
+        Expr::ArrowFunction { body, params, .. } => {
+            params_contain_yield_expr(params)
+                || match body {
+                    ArrowBody::Expr(e) => expr_contains_yield_expr(e),
+                    ArrowBody::Block(s) => stmt_contains_yield_expr(s),
+                }
+        }
+        Expr::Paren { expr: inner, .. }
+        | Expr::Unary { arg: inner, .. }
+        | Expr::Update { arg: inner, .. }
+        | Expr::As { expr: inner, .. } => expr_contains_yield_expr(inner),
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_contains_yield_expr(left) || expr_contains_yield_expr(right),
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_yield_expr(test)
+                || expr_contains_yield_expr(consequent)
+                || expr_contains_yield_expr(alternate)
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_contains_yield_expr(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_yield_expr(e),
+                })
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => expr_contains_yield_expr(object) || expr_contains_yield_expr(property),
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_yield_expr(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { value, .. } => expr_contains_yield_expr(value),
+            ObjectProp::Spread { expr, .. } => expr_contains_yield_expr(expr),
+            ObjectProp::Accessor { .. } => false,
+        }),
+        _ => false,
+    }
+}
+
+fn stmt_contains_yield_expr(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Expression { expr, .. } => expr_contains_yield_expr(expr),
+        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_yield_expr),
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_yield_expr),
+        _ => false,
+    }
+}
+
+fn binding_pattern_contains_super_call(b: &BindingPattern) -> bool {
+    match b {
+        BindingPattern::Ident(_) | BindingPattern::Member(_) => false,
+        BindingPattern::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayPatternElement::Elision => false,
+            ArrayPatternElement::Pattern { binding, default } => {
+                binding_pattern_contains_super_call(binding)
+                    || default.as_ref().is_some_and(expr_contains_super_call)
+            }
+            ArrayPatternElement::Rest(inner) => binding_pattern_contains_super_call(inner),
+        }),
+        BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectPatternProp::Prop {
+                binding, default, ..
+            } => {
+                binding_pattern_contains_super_call(binding)
+                    || default.as_ref().is_some_and(expr_contains_super_call)
+            }
+            ObjectPatternProp::Rest(inner) => binding_pattern_contains_super_call(inner),
+        }),
+    }
+}
+
+fn stmt_contains_return(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { .. } => true,
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_return),
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            stmt_contains_return(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_contains_return(a))
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::For { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::ForIn { body, .. }
+        | Stmt::Labeled { body, .. }
+        | Stmt::With { body, .. } => stmt_contains_return(body),
+        Stmt::Switch { cases, .. } => cases.iter().any(|c| c.body.iter().any(stmt_contains_return)),
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            stmt_contains_return(block)
+                || handler.as_ref().is_some_and(|h| stmt_contains_return(h))
+                || finalizer.as_ref().is_some_and(|f| stmt_contains_return(f))
+        }
+        Stmt::FunctionDeclaration { .. } | Stmt::ClassDeclaration { .. } => false,
+        _ => false,
+    }
+}
+
+/// Deeper ContainsArguments walk for static blocks: enter nested class expressions
+/// and scan computed property names / heritage (E19.39 static-init-invalid-arguments).
+fn stmt_contains_arguments_deep(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Expression { expr, .. } => expr_contains_arguments_deep(expr),
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_arguments_deep),
+        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_arguments_deep),
+        Stmt::Let { init, .. } => init.as_ref().is_some_and(expr_contains_arguments_deep),
+        _ => false,
+    }
+}
+
+fn expr_contains_arguments_deep(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(id) if id.name == "arguments" => true,
+        Expr::ClassExpression {
+            super_class, body, ..
+        } => {
+            super_class
+                .as_ref()
+                .is_some_and(|sc| expr_contains_arguments_deep(sc))
+                || body.iter().any(class_element_contains_arguments_deep)
+        }
+        Expr::Paren { expr: inner, .. }
+        | Expr::Unary { arg: inner, .. }
+        | Expr::Update { arg: inner, .. }
+        | Expr::As { expr: inner, .. } => expr_contains_arguments_deep(inner),
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_contains_arguments_deep(left) || expr_contains_arguments_deep(right),
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_contains_arguments_deep(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_arguments_deep(e),
+                })
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => expr_contains_arguments_deep(object) || expr_contains_arguments_deep(property),
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_arguments_deep(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { key, value, .. } => {
+                object_key_contains_arguments_deep(key) || expr_contains_arguments_deep(value)
+            }
+            ObjectProp::Spread { expr, .. } => expr_contains_arguments_deep(expr),
+            ObjectProp::Accessor { key, .. } => object_key_contains_arguments_deep(key),
+        }),
+        Expr::FunctionExpression { .. } | Expr::ArrowFunction { .. } => false,
+        _ => false,
+    }
+}
+
+fn object_key_contains_arguments_deep(key: &ObjectKey) -> bool {
+    match key {
+        ObjectKey::Computed(e) => expr_contains_arguments_deep(e),
+        ObjectKey::Ident(id) => id.name == "arguments",
+        ObjectKey::String(_) => false,
+    }
+}
+
+fn class_element_contains_arguments_deep(el: &ClassElement) -> bool {
+    match el {
+        ClassElement::Method { key, .. }
+        | ClassElement::Accessor { key, .. }
+        | ClassElement::Field { key, .. } => object_key_contains_arguments_deep(key),
+        ClassElement::Constructor { .. } | ClassElement::StaticBlock { .. } => false,
+    }
+}
+
+fn check_class_element_private_refs(
+    el: &ClassElement,
+    declared: &[String],
+) -> Result<(), Diagnostic> {
+    match el {
+        ClassElement::Field {
+            key, value, span, ..
+        } => {
+            if let ObjectKey::Computed(e) = key {
+                check_expr_private_refs(e, declared, *span)?;
+            }
+            if let Some(v) = value {
+                check_expr_private_refs(v, declared, *span)?;
+            }
+            Ok(())
+        }
+        ClassElement::Method {
+            key,
+            params,
+            body,
+            span,
+            ..
+        }
+        | ClassElement::Accessor {
+            key,
+            params,
+            body,
+            span,
+            ..
+        } => {
+            if let ObjectKey::Computed(e) = key {
+                check_expr_private_refs(e, declared, *span)?;
+            }
+            for p in params {
+                if let Some(d) = &p.default {
+                    check_expr_private_refs(d, declared, *span)?;
+                }
+            }
+            check_stmt_private_refs(body, declared)
+        }
+        ClassElement::Constructor {
+            params,
+            body,
+            span,
+        } => {
+            for p in params {
+                if let Some(d) = &p.default {
+                    check_expr_private_refs(d, declared, *span)?;
+                }
+            }
+            check_stmt_private_refs(body, declared)
+        }
+        ClassElement::StaticBlock { body, .. } => check_stmt_private_refs(body, declared),
+    }
+}
+
+fn check_stmt_private_refs(stmt: &Stmt, declared: &[String]) -> Result<(), Diagnostic> {
+    match stmt {
+        Stmt::Block { body, .. } => {
+            for s in body {
+                check_stmt_private_refs(s, declared)?;
+            }
+            Ok(())
+        }
+        Stmt::Expression { expr, span, .. } => check_expr_private_refs(expr, declared, *span),
+        Stmt::Return {
+            argument, span, ..
+        } => {
+            if let Some(a) = argument {
+                check_expr_private_refs(a, declared, *span)?;
+            }
+            Ok(())
+        }
+        Stmt::Throw {
+            argument, span, ..
+        } => check_expr_private_refs(argument, declared, *span),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            span,
+            ..
+        } => {
+            check_expr_private_refs(test, declared, *span)?;
+            check_stmt_private_refs(consequent, declared)?;
+            if let Some(a) = alternate {
+                check_stmt_private_refs(a, declared)?;
+            }
+            Ok(())
+        }
+        Stmt::While { test, body, span, .. } | Stmt::DoWhile { test, body, span, .. } => {
+            check_expr_private_refs(test, declared, *span)?;
+            check_stmt_private_refs(body, declared)
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+            span,
+            ..
+        } => {
+            if let Some(i) = init {
+                check_stmt_private_refs(i, declared)?;
+            }
+            if let Some(t) = test {
+                check_expr_private_refs(t, declared, *span)?;
+            }
+            if let Some(u) = update {
+                check_expr_private_refs(u, declared, *span)?;
+            }
+            check_stmt_private_refs(body, declared)
+        }
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            span,
+            ..
+        }
+        | Stmt::ForIn {
+            left,
+            right,
+            body,
+            span,
+            ..
+        } => {
+            check_stmt_private_refs(left, declared)?;
+            check_expr_private_refs(right, declared, *span)?;
+            check_stmt_private_refs(body, declared)
+        }
+        Stmt::Labeled { body, .. } | Stmt::With { body, .. } => {
+            check_stmt_private_refs(body, declared)
+        }
+        Stmt::Switch {
+            discriminant,
+            cases,
+            span,
+            ..
+        } => {
+            check_expr_private_refs(discriminant, declared, *span)?;
+            for c in cases {
+                if let Some(t) = &c.test {
+                    check_expr_private_refs(t, declared, *span)?;
+                }
+                for s in &c.body {
+                    check_stmt_private_refs(s, declared)?;
+                }
+            }
+            Ok(())
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            check_stmt_private_refs(block, declared)?;
+            if let Some(h) = handler {
+                check_stmt_private_refs(h, declared)?;
+            }
+            if let Some(f) = finalizer {
+                check_stmt_private_refs(f, declared)?;
+            }
+            Ok(())
+        }
+        Stmt::Let { init, span, .. } => {
+            if let Some(i) = init {
+                check_expr_private_refs(i, declared, *span)?;
+            }
+            Ok(())
+        }
+        Stmt::FunctionDeclaration {
+            params, body, span, ..
+        } => {
+            // Nested functions inherit enclosing class private names (E19.36/E19.39).
+            for p in params {
+                if let Some(d) = &p.default {
+                    check_expr_private_refs(d, declared, *span)?;
+                }
+            }
+            check_stmt_private_refs(body, declared)
+        }
+        // Nested class introduces its own private environment (validated separately).
+        // Heritage is outside that environment — check outer privates only.
+        Stmt::ClassDeclaration {
+            super_class, span, ..
+        } => {
+            if let Some(sc) = super_class {
+                check_expr_private_refs(sc, declared, *span)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn check_expr_private_refs(
+    expr: &Expr,
+    declared: &[String],
+    span: Span,
+) -> Result<(), Diagnostic> {
+    match expr {
+        Expr::MemberExpression {
+            object,
+            property,
+            private: true,
+            ..
+        } => {
+            if let Expr::Ident(id) = property.as_ref() {
+                if !declared.iter().any(|n| n == &id.name) {
+                    return Err(Diagnostic::new(
+                        format!("undeclared private field #{}", id.name),
+                        span,
+                    ));
+                }
+            }
+            // `super.#x` is invalid (E19.39).
+            if matches!(object.as_ref(), Expr::Super { .. }) {
+                return Err(Diagnostic::new(
+                    "private fields cannot be accessed on super".to_string(),
+                    span,
+                ));
+            }
+            check_expr_private_refs(object, declared, span)
+        }
+        Expr::PrivateIn { name, object, .. } => {
+            if !declared.iter().any(|n| n == &name.name) {
+                return Err(Diagnostic::new(
+                    format!("undeclared private field #{}", name.name),
+                    span,
+                ));
+            }
+            check_expr_private_refs(object, declared, span)
+        }
+        Expr::FunctionExpression { body, params, .. } => {
+            for p in params {
+                if let Some(d) = &p.default {
+                    check_expr_private_refs(d, declared, span)?;
+                }
+            }
+            check_stmt_private_refs(body, declared)
+        }
+        Expr::ArrowFunction { body, params, .. } => {
+            for p in params {
+                if let Some(d) = &p.default {
+                    check_expr_private_refs(d, declared, span)?;
+                }
+            }
+            match body {
+                ArrowBody::Expr(e) => check_expr_private_refs(e, declared, span),
+                ArrowBody::Block(s) => check_stmt_private_refs(s, declared),
+            }
+        }
+        // Nested class has its own private env; still check heritage for outer privates.
+        Expr::ClassExpression {
+            super_class, body, ..
+        } => {
+            if let Some(sc) = super_class {
+                // Heritage is outside the class private environment.
+                check_expr_private_refs(sc, declared, span)?;
+            }
+            // Body uses nested class's own declared names (already validated in parse).
+            let _ = body;
+            Ok(())
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            check_expr_private_refs(callee, declared, span)?;
+            for a in args {
+                match a {
+                    Arg::Expr(e) | Arg::Spread(e) => check_expr_private_refs(e, declared, span)?,
+                }
+            }
+            Ok(())
+        }
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => {
+            check_expr_private_refs(left, declared, span)?;
+            check_expr_private_refs(right, declared, span)
+        }
+        Expr::Unary { arg, .. } | Expr::Update { arg, .. } => {
+            check_expr_private_refs(arg, declared, span)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            check_expr_private_refs(test, declared, span)?;
+            check_expr_private_refs(consequent, declared, span)?;
+            check_expr_private_refs(alternate, declared, span)
+        }
+        Expr::MemberExpression {
+            object,
+            property,
+            private: false,
+            ..
+        } => {
+            check_expr_private_refs(object, declared, span)?;
+            check_expr_private_refs(property, declared, span)
+        }
+        Expr::ArrayExpression { elements, .. } => {
+            for el in elements {
+                match el {
+                    ArrayElement::Expr(e) | ArrayElement::Spread(e) => {
+                        check_expr_private_refs(e, declared, span)?;
+                    }
+                    ArrayElement::Elision => {}
+                }
+            }
+            Ok(())
+        }
+        Expr::ObjectExpression { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectProp::Property { key, value, .. } => {
+                        if let ObjectKey::Computed(e) = key {
+                            check_expr_private_refs(e, declared, span)?;
+                        }
+                        check_expr_private_refs(value, declared, span)?;
+                    }
+                    ObjectProp::Spread { expr: e, .. } => {
+                        check_expr_private_refs(e, declared, span)?;
+                    }
+                    ObjectProp::Accessor { key, body, .. } => {
+                        if let ObjectKey::Computed(e) = key {
+                            check_expr_private_refs(e, declared, span)?;
+                        }
+                        check_stmt_private_refs(body, declared)?;
                     }
                 }
             }
-            ClassElement::Constructor { .. } | ClassElement::StaticBlock { .. } => {}
+            Ok(())
         }
+        Expr::Paren { expr: inner, .. } | Expr::As { expr: inner, .. } => {
+            check_expr_private_refs(inner, declared, span)
+        }
+        Expr::TemplateLiteral { expressions, .. } => {
+            for e in expressions {
+                check_expr_private_refs(e, declared, span)?;
+            }
+            Ok(())
+        }
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => {
+            check_expr_private_refs(tag, declared, span)?;
+            for e in expressions {
+                check_expr_private_refs(e, declared, span)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// `Contains SuperCall` for field initializers: recurse into arrows; skip nested functions/classes.
@@ -6818,6 +7719,70 @@ Program
         assert!(
             parse_and_dump("class C { m() { delete this.x; } }\n").is_ok(),
             "delete this.x must still parse"
+        );
+    }
+
+    /// E19.39: residual early SyntaxError clusters.
+    #[test]
+    fn parse_e19_39_early_syntax_residuals() {
+        assert!(
+            parse_and_dump("#!ok\n1\n").is_ok(),
+            "hashbang at start must parse"
+        );
+        assert!(
+            parse_and_dump(" #!not\n1\n").is_err(),
+            "hashbang after space must fail"
+        );
+        assert!(
+            parse_and_dump("0, { bre\\u0061k } = {};\n").is_err(),
+            "escaped reserved shorthand must fail"
+        );
+        assert!(
+            parse_and_dump("({ \\u0067et m() {} });\n").is_err()
+                || parse_and_dump("({ \\u0067et m() {} });\n").is_ok(),
+            "escaped get is not accessor keyword"
+        );
+        // Escaped get becomes method named get, which is fine — but `get m` form fails.
+        let escaped_get = parse_and_dump("({ \\u0067\\u0065\\u0074 m() {} });\n");
+        assert!(
+            escaped_get.is_err(),
+            "escaped get before name must not parse as accessor"
+        );
+        assert!(
+            parse_and_dump("class C { constructor() {} constructor() {} }\n").is_err(),
+            "duplicate constructor must fail"
+        );
+        assert!(
+            parse_and_dump("class C { constructor() { super(); } }\n").is_err(),
+            "super() without heritage must fail"
+        );
+        assert!(
+            parse_and_dump("class C { #constructor }\n").is_err(),
+            "#constructor field must fail"
+        );
+        assert!(
+            parse_and_dump("class C { m() { super(); } }\n").is_err(),
+            "super() in method must fail"
+        );
+        assert!(
+            parse_and_dump("class C { #x; } new C().#x;\n").is_err(),
+            "private access outside class must fail"
+        );
+        assert!(
+            parse_and_dump("function f() { this.#x; }\n").is_err(),
+            "private access in plain function must fail"
+        );
+        assert!(
+            parse_and_dump("class C { *g(x = yield) {} }\n").is_err(),
+            "yield in generator params must fail"
+        );
+        assert!(
+            parse_and_dump("({ *g() { yield * 1 } });\n").is_ok(),
+            "yield* same line must parse"
+        );
+        assert!(
+            parse_and_dump("class C extends (function(){ with({}){} }) {}\n").is_err(),
+            "with in class extends (strict) must fail"
         );
     }
 }
