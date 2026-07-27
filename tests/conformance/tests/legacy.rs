@@ -78,3 +78,13 @@ fn delete_identifier_fixture_present() {
 fn delete_identifier_runs() {
     assert_fixture_runs_declared_targets("es/legacy/delete_identifier");
 }
+
+#[test]
+fn duplicate_params_fixture_present() {
+    assert_fixture_present("es/legacy/duplicate_params");
+}
+
+#[test]
+fn duplicate_params_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/duplicate_params");
+}

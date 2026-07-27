@@ -437,6 +437,13 @@ fn peel_labels(stmt: &Stmt) -> &Stmt {
     s
 }
 
+/// ECMA-262 IsSimpleParameterList: only BindingIdentifiers, no rest/defaults.
+fn is_simple_parameter_list(params: &[Param]) -> bool {
+    params.iter().all(|p| {
+        !p.rest && p.default.is_none() && matches!(p.binding, BindingPattern::Ident(_))
+    })
+}
+
 /// `true` when `stmts` begins with a `"use strict"` directive prologue.
 fn stmt_list_has_use_strict(stmts: &[Stmt]) -> bool {
     for stmt in stmts {
@@ -1397,7 +1404,13 @@ impl Binder {
                 self.pop_scope();
                 Ok(())
             }
-            Stmt::FunctionDeclaration { params, body, .. } => {
+            Stmt::FunctionDeclaration {
+                params,
+                body,
+                is_async,
+                is_generator,
+                ..
+            } => {
                 // Name already declared in the enclosing list's first pass.
                 // Function scope is a var environment.
                 let prev_strict = self.strict;
@@ -1405,7 +1418,9 @@ impl Binder {
                     self.strict = true;
                 }
                 self.push_scope_kind(true);
-                self.bind_params(params)?;
+                // E17.02.04: only plain (non-async/generator) functions allow sloppy dups.
+                let allow_sloppy_dups = !*is_async && !*is_generator;
+                self.bind_params(params, allow_sloppy_dups)?;
                 self.install_arguments_object()?;
                 // FunctionBody uses TopLevel*DeclaredNames early errors (E19.24).
                 self.bind_function_body(body)?;
@@ -1429,7 +1444,7 @@ impl Binder {
                             let prev_strict = self.strict;
                             self.strict = true;
                             self.push_scope_kind(true);
-                            self.bind_params(params)?;
+                            self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
@@ -1445,7 +1460,7 @@ impl Binder {
                             let prev_strict = self.strict;
                             self.strict = true;
                             self.push_scope_kind(true);
-                            self.bind_params(params)?;
+                            self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
@@ -1650,7 +1665,13 @@ impl Binder {
                 Ok(())
             }
             Expr::FunctionExpression {
-                name, params, body, ..
+                name,
+                params,
+                body,
+                is_async,
+                is_generator,
+                is_method,
+                ..
             } => {
                 // Name (if any) is local to the function body only (ES named FE).
                 let prev_strict = self.strict;
@@ -1661,7 +1682,9 @@ impl Binder {
                 if let Some(name) = name {
                     self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 }
-                self.bind_params(params)?;
+                // E17.02.04: methods / async / generators use UniqueFormalParameters.
+                let allow_sloppy_dups = !*is_async && !*is_generator && !*is_method;
+                self.bind_params(params, allow_sloppy_dups)?;
                 self.install_arguments_object()?;
                 self.bind_function_body(body)?;
                 self.pop_scope();
@@ -1692,7 +1715,7 @@ impl Binder {
                             let prev_strict = self.strict;
                             self.strict = true;
                             self.push_scope_kind(true);
-                            self.bind_params(params)?;
+                            self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
@@ -1708,7 +1731,7 @@ impl Binder {
                             let prev_strict = self.strict;
                             self.strict = true;
                             self.push_scope_kind(true);
-                            self.bind_params(params)?;
+                            self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
@@ -1741,7 +1764,7 @@ impl Binder {
                     self.strict = true;
                 }
                 self.push_scope_kind(true);
-                self.bind_params(params)?;
+                self.bind_params(params, false)?;
                 match body {
                     ArrowBody::Expr(expr) => self.bind_expr(expr)?,
                     ArrowBody::Block(stmt) => self.bind_function_body(stmt)?,
@@ -1768,7 +1791,7 @@ impl Binder {
                                 ObjectKey::Computed(expr) => self.bind_expr(expr)?,
                             }
                             self.push_scope_kind(true);
-                            self.bind_params(params)?;
+                            self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
@@ -1934,7 +1957,11 @@ impl Binder {
         }
     }
 
-    fn bind_params(&mut self, params: &[Param]) -> Result<(), Diagnostic> {
+    fn bind_params(
+        &mut self,
+        params: &[Param],
+        allow_sloppy_dups: bool,
+    ) -> Result<(), Diagnostic> {
         // E19.24: strict FormalParameters / ArrowParameters cannot bind `eval` or `arguments`.
         if self.strict {
             for p in params {
@@ -1958,8 +1985,44 @@ impl Binder {
                 }
             }
         }
+        // E17.02.04: non-strict simple FormalParameters on plain `function` may
+        // repeat BoundNames (last wins). Strict, non-simple, arrows, methods,
+        // async, and generators require unique names.
+        let simple = is_simple_parameter_list(params);
+        let allow_dups = allow_sloppy_dups && !self.strict && simple;
+        if !allow_dups {
+            let mut seen: HashMap<String, Span> = HashMap::new();
+            for p in params {
+                let mut err = None;
+                p.binding.for_each_ident(&mut |id| {
+                    if err.is_some() {
+                        return;
+                    }
+                    if seen.contains_key(&id.name) {
+                        err = Some(Diagnostic::new(
+                            format!("duplicate declaration of `{}`", id.name),
+                            id.span,
+                        ));
+                    } else {
+                        seen.insert(id.name.clone(), id.span);
+                    }
+                });
+                if let Some(e) = err {
+                    return Err(e);
+                }
+            }
+        }
         for p in params {
-            self.declare_binding(&p.binding, BindingKind::Let)?;
+            if allow_dups {
+                // Simple list: each param is a single Ident.
+                if let BindingPattern::Ident(id) = &p.binding {
+                    self.declare_param_allow_dup(id.name.clone(), id.span)?;
+                } else {
+                    self.declare_binding(&p.binding, BindingKind::Let)?;
+                }
+            } else {
+                self.declare_binding(&p.binding, BindingKind::Let)?;
+            }
         }
         for p in params {
             self.bind_pattern_defaults(&p.binding)?;
@@ -1968,6 +2031,27 @@ impl Binder {
             }
         }
         Ok(())
+    }
+
+    /// Declare a formal binding, allowing a later same-name formal to replace
+    /// the scope entry (E17.02.04). Each declaration span keeps its own symbol
+    /// so IR can lower every parameter pattern.
+    fn declare_param_allow_dup(
+        &mut self,
+        name: String,
+        span: Span,
+    ) -> Result<SymbolId, Diagnostic> {
+        let scope = self.scopes.last_mut().expect("scope stack non-empty");
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbols.push(Symbol {
+            id,
+            name: name.clone(),
+            span,
+            kind: BindingKind::Let,
+            with_depth: self.with_depth,
+        });
+        scope.insert(name, id);
+        Ok(id)
     }
 
     /// Implicit `arguments` binding for non-arrow functions (E18.24).
@@ -5821,6 +5905,85 @@ mod tests {
     fn bind_sloppy_arrow_eval_param_ok() {
         let program = parse("let af = eval => eval;").unwrap();
         bind(program).expect("sloppy arrow may bind eval");
+    }
+
+    // E17.02.04: duplicate formals allowed only for non-strict simple plain `function`.
+    #[test]
+    fn bind_sloppy_duplicate_params_ok() {
+        let program = parse("function f(a, a) { return a; }").unwrap();
+        bind(program).expect("sloppy simple duplicate formals");
+    }
+
+    #[test]
+    fn bind_sloppy_duplicate_params_function_expr_ok() {
+        let program = parse("let f = function (a, b, a) { return a; };").unwrap();
+        bind(program).expect("sloppy FE simple duplicate formals");
+    }
+
+    #[test]
+    fn bind_strict_duplicate_params_errors() {
+        let program = parse("function f(a, a) { \"use strict\"; return a; }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("a"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_duplicate_params_with_default_errors() {
+        let program = parse("function f(a, a = 1) { return a; }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("a"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_duplicate_params_arrow_errors() {
+        let program = parse("let f = (a, a) => a;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("a"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_duplicate_params_method_errors() {
+        let program = parse("let o = { m(a, a) { return a; } };").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("a"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_duplicate_params_async_errors() {
+        let program = parse("async function f(a, a) { return a; }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("a"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_duplicate_params_generator_errors() {
+        let program = parse("function* f(a, a) { yield a; }").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("duplicate") && err.message.contains("a"),
+            "unexpected message: {}",
+            err.message
+        );
     }
 
     #[test]

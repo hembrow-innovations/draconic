@@ -1,0 +1,29 @@
+// E17.02.04: duplicate formal parameters — non-strict simple params; last wins.
+function f(a, a) {
+  return a;
+}
+function g(a, b, a) {
+  return a + b;
+}
+function multi(x, y, x, y) {
+  return x * 10 + y;
+}
+let named = function (a, a) {
+  return a;
+};
+let a = f(1, 2);
+let b = g(1, 3, 5);
+let c = multi(1, 2, 3, 4);
+let d = named(7, 8);
+// Mapped arguments still alias the shared binding (last formal).
+function mapped(a, a) {
+  arguments[1] = 99;
+  return a;
+}
+let e = mapped(1, 2);
+// Only the last formal is mapped to arguments[i]; earlier same-name slots are not.
+function mappedWrite(a, a) {
+  a = 42;
+  return arguments[0] + arguments[1];
+}
+let f2 = mappedWrite(1, 2); // 1 + 42
