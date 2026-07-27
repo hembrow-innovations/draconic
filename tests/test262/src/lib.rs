@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use draconic_backend_js::emit_js;
-use draconic_frontend::compile_source;
+use draconic_frontend::{compile_path, compile_source, compile_source_module};
 
 /// Outcome bucket for one allowlisted path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,6 +243,65 @@ assert.compareArray = function(actual, expected, message) {
     i = i + 1;
   }
 };
+// E19.29: minimal propertyHelper.js `verifyProperty` (descriptor checks via
+// getOwnPropertyDescriptor; no destructive writable/configurable probes).
+function verifyProperty(obj, name, desc, options) {
+  let label = (options && options.label) || String(name);
+  let originalDesc = Object.getOwnPropertyDescriptor(obj, name);
+  if (desc === undefined) {
+    assert.sameValue(originalDesc, undefined, label + " descriptor should be undefined");
+    return true;
+  }
+  if (!Object.prototype.hasOwnProperty.call(obj, name)) {
+    $ERROR(label + " should be an own property");
+  }
+  if (desc === null || typeof desc !== "object") {
+    $ERROR("The desc argument should be an object or undefined");
+  }
+  if (Object.prototype.hasOwnProperty.call(desc, "value")) {
+    let sameV = originalDesc.value === desc.value;
+    if (originalDesc.value !== originalDesc.value && desc.value !== desc.value) {
+      sameV = true;
+    }
+    if (sameV === false) {
+      $ERROR(label + " descriptor value should be " + String(desc.value));
+    }
+    let cur = obj[name];
+    let sameCur = cur === desc.value;
+    if (cur !== cur && desc.value !== desc.value) {
+      sameCur = true;
+    }
+    if (sameCur === false) {
+      $ERROR(label + " value should be " + String(desc.value));
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(desc, "enumerable") && desc.enumerable !== undefined) {
+    if (desc.enumerable !== originalDesc.enumerable) {
+      $ERROR(label + " descriptor should " + (desc.enumerable ? "" : "not ") + "be enumerable");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(desc, "writable") && desc.writable !== undefined) {
+    if (desc.writable !== originalDesc.writable) {
+      $ERROR(label + " descriptor should " + (desc.writable ? "" : "not ") + "be writable");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(desc, "configurable") && desc.configurable !== undefined) {
+    if (desc.configurable !== originalDesc.configurable) {
+      $ERROR(label + " descriptor should " + (desc.configurable ? "" : "not ") + "be configurable");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(desc, "get")) {
+    if (originalDesc.get !== desc.get) {
+      $ERROR(label + " getter mismatch");
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(desc, "set")) {
+    if (originalDesc.set !== desc.set) {
+      $ERROR(label + " setter mismatch");
+    }
+  }
+  return true;
+}
 "#;
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -301,29 +360,164 @@ pub fn is_only_strict(source: &str) -> bool {
     }) || meta.contains("onlyStrict")
 }
 
+/// True when frontmatter has the `async` **flag** (not `features: [async-…]`).
+///
+/// E19.26: async tests settle via `$DONE` rather than sync script completion.
+pub fn is_async_flag(source: &str) -> bool {
+    flag_token(source, "async")
+}
+
+/// True when frontmatter has the `module` **flag** (Module goal / top-level await).
+///
+/// E19.28: top-level `await` is valid only under Module goal.
+pub fn is_module_flag(source: &str) -> bool {
+    flag_token(source, "module")
+}
+
+/// Match a single comma/bracket-separated token on a `flags:` frontmatter line.
+fn flag_token(source: &str, token: &str) -> bool {
+    let Some(meta) = frontmatter_meta(source) else {
+        return false;
+    };
+    for line in meta.lines() {
+        let t = line.trim();
+        if !t.starts_with("flags:") {
+            continue;
+        }
+        for part in t.trim_start_matches("flags:").split([',', '[', ']']) {
+            if part.trim() == token {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Node-only host wrapper for Test262 `flags: [async]` (E19.26 / doneprintHandle).
+///
+/// Injected **after** frontend emit so `process` / `setTimeout` are not compiled.
+/// Defines `$DONE` as a free global the emitted body looks up.
+pub fn wrap_async_host(compiled_js: &str) -> String {
+    format!(
+        r#"
+var __test262AsyncSettled = false;
+var __test262AsyncTimer = setTimeout(function () {{
+  if (!__test262AsyncSettled) {{
+    console.error("Test262:AsyncTestFailure:Test262Error: timeout (no $DONE)");
+    process.exit(1);
+  }}
+}}, 10000);
+function $DONE(error) {{
+  if (__test262AsyncSettled) {{
+    return;
+  }}
+  __test262AsyncSettled = true;
+  clearTimeout(__test262AsyncTimer);
+  if (error) {{
+    if (typeof error === "object" && error !== null && "name" in error) {{
+      console.error(
+        "Test262:AsyncTestFailure:" + error.name + ": " + String(error.message || "")
+      );
+    }} else {{
+      console.error("Test262:AsyncTestFailure:Test262Error: " + String(error));
+    }}
+    process.exit(1);
+  }}
+  console.log("Test262:AsyncTestComplete");
+  process.exit(0);
+}}
+process.on("unhandledRejection", function (reason) {{
+  $DONE(reason);
+}});
+{compiled_js}
+"#
+    )
+}
+
 /// Compile Test262 test body (+ shim) through frontend → JS emit.
+///
+/// Script goal by default. When `flags: [module]` (E19.28), uses Module goal so
+/// top-level `await` is accepted. When `test_path` is set and the body has
+/// static import/export, links via a temp entry next to the test file.
 pub fn compile_test_to_js(test_body: &str) -> Result<String, String> {
+    compile_test_to_js_at(test_body, None)
+}
+
+/// Like [`compile_test_to_js`], with optional suite file path for Module link.
+pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Result<String, String> {
     let body = strip_frontmatter(test_body);
+    let module_goal = is_module_flag(test_body);
     // `"use strict"` must be the first statement so the whole script (incl. body) is strict.
     let source = if is_only_strict(test_body) {
         format!("\"use strict\";\n{HARNESS_SHIM}\n{body}")
     } else {
         format!("{HARNESS_SHIM}\n{body}")
     };
-    let module = compile_source(&source).map_err(|d| format!("compile: {d}"))?;
+    let needs_link = module_goal && source_has_static_module_syntax(body);
+    let module = if needs_link {
+        let Some(path) = test_path else {
+            return Err("compile: module test with import/export needs suite path".into());
+        };
+        let dir = path.parent().ok_or_else(|| "compile: test path has no parent".to_string())?;
+        let tmp = dir.join(format!(
+            ".draconic-test262-entry-{}.js",
+            std::process::id()
+        ));
+        fs::write(&tmp, &source).map_err(|e| format!("compile: write temp entry: {e}"))?;
+        let result = compile_path(&tmp).map_err(|d| format!("compile: {d}"));
+        let _ = fs::remove_file(&tmp);
+        result?
+    } else if module_goal {
+        compile_source_module(&source).map_err(|d| format!("compile: {d}"))?
+    } else {
+        compile_source(&source).map_err(|d| format!("compile: {d}"))?
+    };
     emit_js(&module).map_err(|d| format!("emit_js: {d}"))
 }
 
+/// Rough scan: static `import`/`export` declarations (not dynamic `import()`).
+fn source_has_static_module_syntax(body: &str) -> bool {
+    for line in body.lines() {
+        let t = line.trim_start();
+        if t.starts_with("//") || t.starts_with("/*") {
+            continue;
+        }
+        if t.starts_with("export ") || t.starts_with("export{") || t.starts_with("export*") {
+            return true;
+        }
+        // `import … from` / `import "` / `import '` — not `import(`.
+        if let Some(rest) = t.strip_prefix("import") {
+            let rest = rest.trim_start();
+            if rest.starts_with('(') {
+                continue;
+            }
+            return true;
+        }
+    }
+    false
+}
+
 /// Run emitted JS under Node. Exit 0 = pass.
+///
+/// When `cwd` is set (typically the test file's directory), relative
+/// `import('./fixture.js')` resolves like Test262's host (E19.27).
 pub fn run_js_in_node(js: &str) -> Result<(), String> {
-    let output = Command::new("node")
-        .arg("-e")
-        .arg(js)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("spawn node: {e}"))?;
+    run_js_in_node_cwd(js, None, false)
+}
+
+/// Like [`run_js_in_node`], optionally with a working directory and ESM mode.
+///
+/// E19.28: `as_module` uses `--input-type=module` so top-level `await` is valid.
+pub fn run_js_in_node_cwd(js: &str, cwd: Option<&Path>, as_module: bool) -> Result<(), String> {
+    let mut cmd = Command::new("node");
+    if as_module {
+        cmd.arg("--input-type=module");
+    }
+    cmd.arg("-e").arg(js).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let output = cmd.output().map_err(|e| format!("spawn node: {e}"))?;
     let code = output.status.code().unwrap_or(1);
     if code == 0 {
         return Ok(());
@@ -372,9 +566,10 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             };
         }
     };
+    let test_path = Some(full.as_path());
     if is_negative_parse(&source) {
         // Negative parse/early: pass iff frontend rejects the body.
-        return match compile_test_to_js(&source) {
+        return match compile_test_to_js_at(&source, test_path) {
             Err(_) => CaseResult {
                 path: rel.to_string(),
                 status: Status::Pass,
@@ -387,7 +582,7 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             },
         };
     }
-    let js = match compile_test_to_js(&source) {
+    let js = match compile_test_to_js_at(&source, test_path) {
         Ok(j) => j,
         Err(e) => {
             return CaseResult {
@@ -397,9 +592,19 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             };
         }
     };
+    // E19.26: async-flag tests need `$DONE` host (Node wrapper around emitted JS).
+    let js = if is_async_flag(&source) {
+        wrap_async_host(&js)
+    } else {
+        js
+    };
+    // E19.27: resolve relative dynamic `import()` against the test file directory.
+    // E19.28: Module-flag tests run as ESM (`--input-type=module`) for top-level await.
+    let cwd = full.parent();
+    let as_module = is_module_flag(&source);
     if is_negative_runtime(&source) {
         // Negative runtime: pass iff Node throws (exit ≠ 0).
-        return match run_js_in_node(&js) {
+        return match run_js_in_node_cwd(&js, cwd, as_module) {
             Err(_) => CaseResult {
                 path: rel.to_string(),
                 status: Status::Pass,
@@ -412,11 +617,19 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             },
         };
     }
-    match run_js_in_node(&js) {
+    match run_js_in_node_cwd(&js, cwd, as_module) {
         Ok(()) => CaseResult {
             path: rel.to_string(),
             status: Status::Pass,
-            message: "ok".to_string(),
+            message: if is_async_flag(&source) && as_module {
+                "ok (module async $DONE)".to_string()
+            } else if is_async_flag(&source) {
+                "ok (async $DONE)".to_string()
+            } else if as_module {
+                "ok (module)".to_string()
+            } else {
+                "ok".to_string()
+            },
         },
         Err(e) => CaseResult {
             path: rel.to_string(),
@@ -491,10 +704,10 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25 expanded curated set.
+        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.29 expanded curated set.
         assert!(
-            list.len() >= 13000,
-            "expected expanded curated allowlist (>=13000), got {}",
+            list.len() >= 18600,
+            "expected expanded curated allowlist (>=18600), got {}",
             list.len()
         );
         assert!(list.iter().all(|p| p.starts_with("test/")));
@@ -586,6 +799,125 @@ mod tests {
     }
 
     #[test]
+    fn async_flag_meta_detected() {
+        // E19.26: flags token `async`, not features like `async-functions`.
+        assert!(is_async_flag(
+            "/*---\nflags: [generated, async]\nfeatures: [async-functions]\n---*/\n1\n"
+        ));
+        assert!(is_async_flag("/*---\nflags: [async]\n---*/\n1\n"));
+        assert!(!is_async_flag(
+            "/*---\nfeatures: [async-functions, async-iteration]\n---*/\n1\n"
+        ));
+        assert!(!is_async_flag("/*---\nflags: [generated]\n---*/\n1\n"));
+    }
+
+    #[test]
+    fn module_flag_meta_detected() {
+        // E19.28: flags token `module`.
+        assert!(is_module_flag(
+            "/*---\nflags: [generated, module]\nfeatures: [top-level-await]\n---*/\n1\n"
+        ));
+        assert!(is_module_flag("/*---\nflags: [module, async]\n---*/\n1\n"));
+        assert!(!is_module_flag(
+            "/*---\nfeatures: [top-level-await]\n---*/\n1\n"
+        ));
+        assert!(!is_module_flag("/*---\nflags: [async]\n---*/\n1\n"));
+    }
+
+    #[test]
+    fn top_level_await_module_compiles_and_runs() {
+        // E19.28: Module goal + ESM host accepts top-level await.
+        let src = r#"
+/*---
+description: top-level await basics
+flags: [module, async]
+features: [top-level-await]
+---*/
+var x = await 42;
+assert.sameValue(x, 42);
+$DONE();
+"#;
+        let js = compile_test_to_js(src).expect("compile module TLA");
+        assert!(js.contains("await"), "{js}");
+        let js = wrap_async_host(&js);
+        run_js_in_node_cwd(&js, None, true).expect("node ESM TLA");
+    }
+
+    #[test]
+    fn top_level_await_script_rejected() {
+        // E19.28: Script goal still rejects top-level await.
+        let src = "var x = await 1;\n";
+        let err = compile_test_to_js(src).expect_err("script TLA must fail");
+        assert!(
+            err.contains("await") || err.contains("async"),
+            "unexpected err: {err}"
+        );
+    }
+
+    #[test]
+    fn async_done_success_settles() {
+        // E19.26: promise chain + $DONE() → pass (no ReferenceError).
+        let src = r#"
+/*---
+description: async $DONE success
+flags: [async]
+---*/
+Promise.resolve(1).then(function (v) {
+  assert.sameValue(v, 1);
+}).then($DONE, $DONE);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        let js = wrap_async_host(&js);
+        run_js_in_node(&js).expect("async $DONE success");
+    }
+
+    #[test]
+    fn async_done_failure_rejects() {
+        // E19.26: $DONE(error) → node non-zero.
+        let src = r#"
+/*---
+flags: [async]
+---*/
+Promise.resolve().then(function () {
+  $DONE(new Error("boom"));
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        let js = wrap_async_host(&js);
+        assert!(run_js_in_node(&js).is_err());
+    }
+
+    #[test]
+    fn async_done_missing_is_reference_error_without_host() {
+        // Without wrap_async_host, $DONE is unresolved at runtime.
+        let src = r#"
+/*---
+flags: [async]
+---*/
+Promise.resolve().then($DONE, $DONE);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        assert!(
+            run_js_in_node(&js).is_err(),
+            "bare $DONE without host must fail"
+        );
+    }
+
+    #[test]
+    fn dynamic_import_call_compiles_and_emits() {
+        // E19.27: ImportCall round-trip through frontend → JS.
+        let src = r#"
+/*---
+features: [dynamic-import]
+---*/
+let p = import('./m.js');
+assert.sameValue(typeof p.then, "function");
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        assert!(js.contains("import(\"./m.js\")"), "{js}");
+    }
+
+    #[test]
     fn only_strict_compound_assign_putvalue_typeerror() {
         // E19.19: non-writable data prop + compound `*=` must TypeError under onlyStrict.
         let src = r#"
@@ -632,7 +964,7 @@ assert.throws(TypeError, function() {
 
     #[test]
     fn default_run_does_not_fail_ci_without_suite() {
-        // E19.25: expanded allowlist needs a larger stack in debug (deep class/dstr etc.).
+        // E19.25–E19.29: expanded allowlist needs a larger stack in debug.
         let handle = std::thread::Builder::new()
             .name("test262-default-run".into())
             .stack_size(32 * 1024 * 1024)
@@ -658,8 +990,8 @@ assert.throws(TypeError, function() {
                         "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
                     );
                     assert!(
-                        pass >= 13000,
-                        "expected expanded allowlist pass count >= 13000, got {pass}"
+                        pass >= 18600,
+                        "expected expanded allowlist pass count >= 18600, got {pass}"
                     );
                 }
             })

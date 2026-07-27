@@ -104,7 +104,10 @@ impl Parser {
             return self.parse_with();
         }
         if self.check(&TokenKind::Import) {
-            return self.parse_import();
+            // `import(…)` is ImportCall (expression), not a static ImportDeclaration.
+            if !self.peek_is(&TokenKind::LParen) {
+                return self.parse_import();
+            }
         }
         if self.check(&TokenKind::Export) {
             return self.parse_export();
@@ -640,8 +643,13 @@ impl Parser {
         self.expect(&TokenKind::LBrace)?;
         let mut body = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
+            // Empty ClassElement: lone `;` (ECMA-262 ClassElement → `;`).
+            if self.check(&TokenKind::Semi) {
+                self.bump();
+                continue;
+            }
             body.push(self.parse_class_element()?);
-            // Optional semicolon after method (ASI / explicit)
+            // Optional semicolon after method / field terminator (ASI / explicit)
             if self.check(&TokenKind::Semi) {
                 self.bump();
             }
@@ -2545,6 +2553,8 @@ impl Parser {
     fn parse_lhs(&mut self) -> Result<Expr, Diagnostic> {
         let mut expr = if self.check(&TokenKind::New) {
             self.parse_new()?
+        } else if self.check(&TokenKind::Import) && self.peek_is(&TokenKind::LParen) {
+            self.parse_import_call()?
         } else {
             self.parse_primary()?
         };
@@ -2675,6 +2685,54 @@ impl Parser {
             }
         }
         Ok(expr)
+    }
+
+    /// `import(AssignmentExpression)` / `import(AssignmentExpression, options)`.
+    /// Rest args and empty argument lists are early SyntaxErrors.
+    fn parse_import_call(&mut self) -> Result<Expr, Diagnostic> {
+        let start = self.expect(&TokenKind::Import)?.span.start.0;
+        self.expect(&TokenKind::LParen)?;
+        if self.check(&TokenKind::RParen) {
+            return Err(Diagnostic::new(
+                "ImportCall requires a module specifier argument",
+                self.current_span(),
+            ));
+        }
+        if self.check(&TokenKind::DotDotDot) {
+            return Err(Diagnostic::new(
+                "ImportCall does not allow rest arguments",
+                self.current_span(),
+            ));
+        }
+        let source = self.parse_assignment()?;
+        let mut options = None;
+        if self.check(&TokenKind::Comma) {
+            self.bump();
+            if !self.check(&TokenKind::RParen) {
+                if self.check(&TokenKind::DotDotDot) {
+                    return Err(Diagnostic::new(
+                        "ImportCall does not allow rest arguments",
+                        self.current_span(),
+                    ));
+                }
+                options = Some(Box::new(self.parse_assignment()?));
+                if self.check(&TokenKind::Comma) {
+                    self.bump();
+                    if !self.check(&TokenKind::RParen) {
+                        return Err(Diagnostic::new(
+                            "ImportCall accepts at most two arguments",
+                            self.current_span(),
+                        ));
+                    }
+                }
+            }
+        }
+        let end = self.expect(&TokenKind::RParen)?.span.end.0;
+        Ok(Expr::ImportCall {
+            source: Box::new(source),
+            options,
+            span: Span::new(start, end),
+        })
     }
 
     /// `new.target` meta-property, or `new callee` / `new callee(args)`.
@@ -3538,6 +3596,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::This { span }
         | Expr::Super { span }
         | Expr::NewTarget { span }
+        | Expr::ImportCall { span, .. }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
         | Expr::Unary { span, .. }
@@ -4727,6 +4786,29 @@ Program
     }
 
     #[test]
+    fn parse_import_call() {
+        let dump = parse_and_dump("let p = import('./m.js');").unwrap();
+        assert!(dump.contains("ImportCall\n"), "{dump}");
+        assert!(dump.contains("String \"./m.js\""), "{dump}");
+    }
+
+    #[test]
+    fn parse_import_call_options_and_trailing_comma() {
+        let dump = parse_and_dump("import('./m.js',); import('./m.js', opts);").unwrap();
+        assert!(dump.contains("ImportCall\n"), "{dump}");
+    }
+
+    #[test]
+    fn parse_import_call_empty_args_fails() {
+        assert!(parse("import();").is_err());
+    }
+
+    #[test]
+    fn parse_import_call_rest_fails() {
+        assert!(parse("import(...a);").is_err());
+    }
+
+    #[test]
     fn parse_unary_and_bool() {
         let dump = parse_and_dump("let ok = !false;").unwrap();
         assert_eq!(
@@ -5450,6 +5532,58 @@ Program
         assert!(
             dump.matches("key: Computed").count() >= 7,
             "expected multiple computed keys, got:\n{dump}"
+        );
+    }
+
+    /// E19.29: empty ClassElement `;` and same-line fields after methods (ASI / explicit).
+    #[test]
+    fn parse_class_empty_element_and_same_line_fields() {
+        let empty = parse_and_dump("class C { ; }\n").unwrap();
+        assert!(
+            empty.contains("ClassDeclaration") && !empty.contains("Field"),
+            "lone `;` is empty ClassElement, got:\n{empty}"
+        );
+        let double = parse_and_dump("class C { a;; }\n").unwrap();
+        assert!(
+            double.contains("Field") && double.contains("name: a"),
+            "field then empty `;`, got:\n{double}"
+        );
+        let same_line = parse_and_dump(
+            "class C {\n\
+               *m() { return 42; } a; b = 42;\n\
+               c = 1;\n\
+             }\n",
+        )
+        .unwrap();
+        assert!(
+            same_line.contains("generator: true")
+                && same_line.contains("name: a")
+                && same_line.contains("name: b")
+                && same_line.contains("name: c"),
+            "fields after same-line generator, got:\n{same_line}"
+        );
+        let asi = parse_and_dump(
+            "class C {\n\
+               *m() { return 42; } a\n\
+               b = 42;;\n\
+             }\n",
+        )
+        .unwrap();
+        assert!(
+            asi.contains("name: a") && asi.contains("name: b") && asi.contains("Number 42"),
+            "ASI field after method + trailing empty `;`, got:\n{asi}"
+        );
+        let privates = parse_and_dump(
+            "class C {\n\
+               *m() { return 42; } #x; #y;\n\
+             }\n",
+        )
+        .unwrap();
+        assert!(
+            privates.contains("PrivateField")
+                && privates.contains("name: #x")
+                && privates.contains("name: #y"),
+            "private fields after same-line generator, got:\n{privates}"
         );
     }
 }

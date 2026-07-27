@@ -264,6 +264,15 @@ fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
         | Expr::This { .. }
         | Expr::NewTarget { .. }
         | Expr::Super { .. } => Ok(()),
+        Expr::ImportCall {
+            source, options, ..
+        } => {
+            reject_native_only_expr(source)?;
+            if let Some(opts) = options {
+                reject_native_only_expr(opts)?;
+            }
+            Ok(())
+        }
         Expr::Unary { arg, .. } => reject_native_only_expr(arg),
         Expr::Binary { left, right, .. } => {
             reject_native_only_expr(left)?;
@@ -499,6 +508,14 @@ mod tests {
     fn emit_call() {
         let js = emit_src("let f; f(1, 2);");
         assert_eq!(js, "let f;\n(f)(1, 2);\n");
+    }
+
+    #[test]
+    fn emit_import_call() {
+        // E19.27: dynamic `import(specifier)` / options.
+        let js = emit_src("let p = import('./m.js'); let q = import(p, opts);");
+        assert!(js.contains("import(\"./m.js\")"), "{js}");
+        assert!(js.contains("import(p, opts)"), "{js}");
     }
 
     #[test]

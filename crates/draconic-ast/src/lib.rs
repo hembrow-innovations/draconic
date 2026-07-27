@@ -121,6 +121,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::This { span }
         | Expr::Super { span }
         | Expr::NewTarget { span }
+        | Expr::ImportCall { span, .. }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
         | Expr::Unary { span, .. }
@@ -465,6 +466,13 @@ pub enum Expr {
     },
     /// `new.target` meta-property (active construct target; `undefined` if not `new`).
     NewTarget {
+        span: Span,
+    },
+    /// Dynamic `import(specifier)` / `import(specifier, options)` (ImportCall).
+    ImportCall {
+        source: Box<Expr>,
+        /// Optional second argument (import attributes / options).
+        options: Option<Box<Expr>>,
         span: Span,
     },
     Unary {
@@ -1711,6 +1719,18 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::NewTarget { .. } => {
             indent(level, out);
             out.push_str("NewTarget\n");
+        }
+        Expr::ImportCall {
+            source,
+            options,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ImportCall\n");
+            dump_expr(source, level + 1, out);
+            if let Some(opts) = options {
+                dump_expr(opts, level + 1, out);
+            }
         }
         Expr::Unary { op, arg, .. } => {
             indent(level, out);

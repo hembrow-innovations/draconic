@@ -247,6 +247,12 @@ pub enum Expr {
     NewTarget {
         ty: Type,
     },
+    /// Dynamic `import(specifier)` / `import(specifier, options)`.
+    ImportCall {
+        source: Box<Expr>,
+        options: Option<Box<Expr>>,
+        ty: Type,
+    },
     Unary {
         op: UnaryOp,
         arg: Box<Expr>,
@@ -473,6 +479,7 @@ impl Expr {
              | Expr::Null { ty }
              | Expr::This { ty }
              | Expr::NewTarget { ty }
+             | Expr::ImportCall { ty, .. }
              | Expr::Super { ty }
              | Expr::Unary { ty, .. }
             | Expr::Binary { ty, .. }
@@ -2061,6 +2068,17 @@ fn lower_expr(
         AstExpr::NewTarget { span } => Expr::NewTarget {
             ty: expr_ty(checked, *span),
         },
+        AstExpr::ImportCall {
+            source,
+            options,
+            span,
+        } => Expr::ImportCall {
+            source: Box::new(lower_expr(checked, ctx, source, super_class)),
+            options: options
+                .as_ref()
+                .map(|o| Box::new(lower_expr(checked, ctx, o, super_class))),
+            ty: expr_ty(checked, *span),
+        },
         AstExpr::Super { span } => {
             if ctx.object_super {
                 Expr::Super {
@@ -3444,6 +3462,18 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::NewTarget { ty } => {
             indent(level, out);
             out.push_str(&format!("NewTarget : {ty}\n"));
+        }
+        Expr::ImportCall {
+            source,
+            options,
+            ty,
+        } => {
+            indent(level, out);
+            out.push_str(&format!("ImportCall : {ty}\n"));
+            dump_expr(source, level + 1, out);
+            if let Some(opts) = options {
+                dump_expr(opts, level + 1, out);
+            }
         }
         Expr::Super { ty } => {
             indent(level, out);

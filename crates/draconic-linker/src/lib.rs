@@ -861,6 +861,17 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
         | Expr::This { span }
         | Expr::Super { span }
         | Expr::NewTarget { span } => *span = spans.next(),
+        Expr::ImportCall {
+            source,
+            options,
+            span,
+        } => {
+            *span = spans.next();
+            uniqueify_expr_spans(source, spans);
+            if let Some(opts) = options {
+                uniqueify_expr_spans(opts, spans);
+            }
+        }
         Expr::TemplateLiteral {
             quasis,
             expressions,
@@ -1586,6 +1597,14 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         | Expr::This { .. }
         | Expr::Super { .. }
         | Expr::NewTarget { .. } => {}
+        Expr::ImportCall {
+            source, options, ..
+        } => {
+            rename_expr(source, renames, scopes);
+            if let Some(opts) = options {
+                rename_expr(opts, renames, scopes);
+            }
+        }
         Expr::TemplateLiteral { expressions, .. } => {
             for e in expressions {
                 rename_expr(e, renames, scopes);

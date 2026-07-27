@@ -318,8 +318,25 @@ pub fn bind(program: Program) -> Result<BoundProgram, Diagnostic> {
 }
 
 pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
+    // Script goal: top-level `await` / `for await` rejected.
+    check_with_module_goal(program, false)
+}
+
+/// Check a Program under the Module goal (E19.28): top-level `await` and
+/// `for await` are allowed (async module). Nested non-async functions still
+/// reject `await`.
+pub fn check_module(program: Program) -> Result<CheckedProgram, Diagnostic> {
+    check_with_module_goal(program, true)
+}
+
+fn check_with_module_goal(
+    program: Program,
+    module_goal: bool,
+) -> Result<CheckedProgram, Diagnostic> {
     let bound = bind(program)?;
     let mut checker = Checker::new(&bound);
+    // Module evaluation may be async when the body uses top-level await.
+    checker.in_async = module_goal;
     checker.check_program()?;
     let symbol_types = checker.symbol_types;
     let expr_types = checker.expr_types;
@@ -1577,6 +1594,15 @@ impl Binder {
             | Expr::This { .. }
             | Expr::Super { .. }
             | Expr::NewTarget { .. } => Ok(()),
+            Expr::ImportCall {
+                source, options, ..
+            } => {
+                self.bind_expr(source)?;
+                if let Some(opts) = options {
+                    self.bind_expr(opts)?;
+                }
+                Ok(())
+            }
             Expr::TemplateLiteral { expressions, .. } => {
                 for e in expressions {
                     self.bind_expr(e)?;
@@ -2495,7 +2521,7 @@ impl<'a> Checker<'a> {
             } => {
                 if *is_await && !self.in_async {
                     return Err(Diagnostic::new(
-                        "for await is only valid in async functions".to_string(),
+                        "for await is only valid in async functions and modules".to_string(),
                         *span,
                     ));
                 }
@@ -2616,7 +2642,8 @@ impl<'a> Checker<'a> {
                     self.type_param_env
                         .insert(tp.name.name.clone(), Type::TypeParam(pid));
                 }
-                self.check_params(params)?;
+                // FunctionDeclaration formals: +Await only for async generators.
+                self.check_params_await_yield(params, *is_async && *is_generator, *is_generator)?;
                 // Fresh label set inside functions (labels do not cross function boundaries).
                 let mut inner_labels = Vec::new();
                 let prev_async = self.in_async;
@@ -2655,7 +2682,7 @@ impl<'a> Checker<'a> {
                 for el in body {
                     match el {
                         ClassElement::Constructor { params, body, .. } => {
-                            self.check_params(params)?;
+                            self.check_params_await_yield(params, false, false)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
@@ -2674,7 +2701,11 @@ impl<'a> Checker<'a> {
                             ..
                         } => {
                             self.check_object_key(key)?;
-                            self.check_params(params)?;
+                            self.check_params_await_yield(
+                                params,
+                                *is_async && *is_generator,
+                                *is_generator,
+                            )?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
@@ -2688,7 +2719,7 @@ impl<'a> Checker<'a> {
                             key, params, body, ..
                         } => {
                             self.check_object_key(key)?;
-                            self.check_params(params)?;
+                            self.check_params_await_yield(params, false, false)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
@@ -2847,6 +2878,19 @@ impl<'a> Checker<'a> {
                 self.record(*span, Type::Any);
                 Type::Any
             }
+            Expr::ImportCall {
+                source,
+                options,
+                span,
+            } => {
+                self.check_expr(source)?;
+                if let Some(opts) = options {
+                    self.check_expr(opts)?;
+                }
+                // Returns a Promise; untyped JS surface uses Any.
+                self.record(*span, Type::Any);
+                Type::Any
+            }
             Expr::Ident(id) => {
                 if let Some(sym) = self.bound.resolve(id.span) {
                     let ty = self.symbol_types[sym.0 as usize];
@@ -2888,7 +2932,7 @@ impl<'a> Checker<'a> {
             Expr::Unary { op, arg, span } => {
                 if *op == UnaryOp::Await && !self.in_async {
                     return Err(Diagnostic::new(
-                        "await is only valid in async functions".to_string(),
+                        "await is only valid in async functions and modules".to_string(),
                         *span,
                     ));
                 }
@@ -3273,7 +3317,8 @@ impl<'a> Checker<'a> {
                         .expect("function expression name must be declared");
                     self.symbol_types[id.0 as usize] = Type::Function;
                 }
-                self.check_params(params)?;
+                // FunctionExpression formals: +Await only for async generators.
+                self.check_params_await_yield(params, *is_async && *is_generator, *is_generator)?;
                 // New function boundary (return allowed; labels do not escape).
                 let mut inner_labels = Vec::new();
                 let prev_async = self.in_async;
@@ -3313,7 +3358,7 @@ impl<'a> Checker<'a> {
                 for el in body {
                     match el {
                         ClassElement::Constructor { params, body, .. } => {
-                            self.check_params(params)?;
+                            self.check_params_await_yield(params, false, false)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
@@ -3332,7 +3377,11 @@ impl<'a> Checker<'a> {
                             ..
                         } => {
                             self.check_object_key(key)?;
-                            self.check_params(params)?;
+                            self.check_params_await_yield(
+                                params,
+                                *is_async && *is_generator,
+                                *is_generator,
+                            )?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
@@ -3346,7 +3395,7 @@ impl<'a> Checker<'a> {
                             key, params, body, ..
                         } => {
                             self.check_object_key(key)?;
-                            self.check_params(params)?;
+                            self.check_params_await_yield(params, false, false)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
@@ -3384,7 +3433,8 @@ impl<'a> Checker<'a> {
                 is_async,
                 span,
             } => {
-                self.check_params(params)?;
+                // Async arrows: UniqueFormalParameters[~Yield, +Await].
+                self.check_params_await_yield(params, *is_async, false)?;
                 let mut inner_labels = Vec::new();
                 let prev_async = self.in_async;
                 let prev_generator = self.in_generator;
@@ -3442,7 +3492,7 @@ impl<'a> Checker<'a> {
                             if let ObjectKey::Computed(expr) = key {
                                 self.check_expr(expr)?;
                             }
-                            self.check_params(params)?;
+                            self.check_params_await_yield(params, false, false)?;
                             let mut inner_labels = Vec::new();
                             let prev_async = self.in_async;
                             let prev_generator = self.in_generator;
@@ -3552,6 +3602,27 @@ impl<'a> Checker<'a> {
             self.check_binding_pattern(&p.binding, ann_ty.unwrap_or(Type::Any))?;
         }
         Ok(())
+    }
+
+    /// Check formals under the correct Await/Yield grammar flags (E19.28).
+    ///
+    /// Module top-level `+Await` must not leak into `FormalParameters[~Await]`
+    /// (ordinary / async function / method params). Async generators and async
+    /// arrows use `+Await` in parameter lists.
+    fn check_params_await_yield(
+        &mut self,
+        params: &[Param],
+        await_ok: bool,
+        yield_ok: bool,
+    ) -> Result<(), Diagnostic> {
+        let prev_async = self.in_async;
+        let prev_generator = self.in_generator;
+        self.in_async = await_ok;
+        self.in_generator = yield_ok;
+        let result = self.check_params(params);
+        self.in_async = prev_async;
+        self.in_generator = prev_generator;
+        result
     }
 
     fn intern_shape(&mut self, props: Vec<(String, Type)>) -> Type {
@@ -4674,6 +4745,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::This { span }
         | Expr::Super { span }
         | Expr::NewTarget { span }
+        | Expr::ImportCall { span, .. }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
         | Expr::Unary { span, .. }
@@ -6178,6 +6250,14 @@ mod tests {
                 | Expr::This { .. }
                 | Expr::Super { .. }
                 | Expr::NewTarget { .. } => {}
+                Expr::ImportCall {
+                    source, options, ..
+                } => {
+                    walk_expr(source, name, out);
+                    if let Some(opts) = options {
+                        walk_expr(opts, name, out);
+                    }
+                }
                 Expr::TemplateLiteral { expressions, .. } => {
                     for e in expressions {
                         walk_expr(e, name, out);

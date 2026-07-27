@@ -500,6 +500,17 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
         Expr::NewTarget { .. } => {
             out.push_str("new.target");
         }
+        Expr::ImportCall {
+            source, options, ..
+        } => {
+            out.push_str("import(");
+            emit_expr(out, source, names);
+            if let Some(opts) = options {
+                out.push_str(", ");
+                emit_expr(out, opts, names);
+            }
+            out.push(')');
+        }
         Expr::Super { .. } => {
             out.push_str("super");
         }
