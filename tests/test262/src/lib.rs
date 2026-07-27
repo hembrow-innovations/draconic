@@ -704,10 +704,10 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.29 expanded curated set.
+        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.30 expanded curated set.
         assert!(
-            list.len() >= 18600,
-            "expected expanded curated allowlist (>=18600), got {}",
+            list.len() >= 19600,
+            "expected expanded curated allowlist (>=19600), got {}",
             list.len()
         );
         assert!(list.iter().all(|p| p.starts_with("test/")));
@@ -964,7 +964,7 @@ assert.throws(TypeError, function() {
 
     #[test]
     fn default_run_does_not_fail_ci_without_suite() {
-        // E19.25–E19.29: expanded allowlist needs a larger stack in debug.
+        // E19.25–E19.30: expanded allowlist needs a larger stack in debug.
         let handle = std::thread::Builder::new()
             .name("test262-default-run".into())
             .stack_size(32 * 1024 * 1024)
@@ -990,8 +990,8 @@ assert.throws(TypeError, function() {
                         "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
                     );
                     assert!(
-                        pass >= 18600,
-                        "expected expanded allowlist pass count >= 18600, got {pass}"
+                        pass >= 19600,
+                        "expected expanded allowlist pass count >= 19600, got {pass}"
                     );
                 }
             })

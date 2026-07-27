@@ -254,7 +254,12 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.27 | done | js | Dynamic `import()` expression: parse/lower/emit `import(specifier)` (and related syntax); unlock expressions/dynamic-import beyond invalid-syntax negatives | `crates/draconic-parser`, `tests/test262` |
 | E19.28 | done | js | Top-level `await` in modules: allow `await` in module top-level; module-code/top-level-await cluster | `crates/draconic-parser` / check, `tests/test262` |
 | E19.29 | done | js | Class elements same-line ASI / private name grammar: field after method on same line; `expected property name, found Semi` cluster | `crates/draconic-parser`, `tests/test262` |
-| E19.30 | todo | js | Expand allowlist further after E19.26–E19.29 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.30 | done | js | Expand allowlist further after E19.26–E19.29 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.31 | todo | js | SetFunctionName for class in binding init: destructuring/assignment `fn-name-class` expects `.name ===` binding id (not `__class`) | `tests/test262` (allowlist + baseline-report) |
+| E19.32 | todo | js | Array destructuring elision + IteratorClose: elision advances iterator; close on abrupt/exhaust; Test262 next-count asserts | `tests/test262` (allowlist + baseline-report) |
+| E19.33 | todo | js | `import.defer` / `import.source`: parse/lower dynamic-import variants (currently expected LBrace found Dot / expected expression found Import) | `crates/draconic-parser`, `tests/test262` |
+| E19.34 | todo | js | Class element residual: bare `super` must not panic; numeric method names; negative parse still accepted in class/elements | `crates/draconic-parser` / IR, `tests/test262` |
+| E19.35 | todo | js | Expand allowlist further after E19.31–E19.34 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 
