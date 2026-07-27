@@ -12,7 +12,10 @@
 # E19.31 SetFunctionName for class in binding init (fn-name-class cluster).
 # E19.32 array destructuring elision + IteratorClose (next-count / return-count).
 # E19.33 import.defer / import.source dynamic ImportCall phases: parse/lower/emit
-# Expanded under ROADMAP E19.02–E19.27 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
+# E19.34 class element residual: numeric names, bare super no-panic, early errors
+# E19.35 expand after E19.31–E19.34: dynamic-import/import.source catch, class early-errors,
+# for-head dstr, array/object/function-code greens unlocked by prior fixes.
+# Expanded under ROADMAP E19.02–E19.35 (ops, refs, BigInt, dstr, numeric-sep, string escapes,
 # Failures are not listed here; promoted clusters live as E19.03+ Roadmap rows.
 # function/generator/method/arrow, class async methods — settle via done callback,
 # greens after E19.16–E19.19, call Arguments trailing comma E19.21, class computed names E19.22,
@@ -973,9 +976,13 @@ test/language/expressions/addition/S11.6.1_A4_T9.js
 test/language/expressions/addition/symbol-to-string.js
 test/language/expressions/array/11.1.4_4-5-1.js
 test/language/expressions/array/11.1.4_5-6-1.js
+test/language/expressions/array/11.1.4-0.js
 test/language/expressions/array/S11.1.4_A1.1.js
+test/language/expressions/array/S11.1.4_A1.2.js
 test/language/expressions/array/S11.1.4_A1.3.js
 test/language/expressions/array/S11.1.4_A1.4.js
+test/language/expressions/array/S11.1.4_A1.5.js
+test/language/expressions/array/S11.1.4_A1.6.js
 test/language/expressions/array/S11.1.4_A1.7.js
 test/language/expressions/array/S11.1.4_A2.js
 test/language/expressions/array/spread-err-mult-err-expr-throws.js
@@ -1459,6 +1466,7 @@ test/language/expressions/assignment/dstr/array-empty-val-num.js
 test/language/expressions/assignment/dstr/array-empty-val-string.js
 test/language/expressions/assignment/dstr/array-empty-val-symbol.js
 test/language/expressions/assignment/dstr/array-empty-val-undef.js
+test/language/expressions/assignment/dstr/array-iteration.js
 test/language/expressions/assignment/dstr/array-rest-after-element.js
 test/language/expressions/assignment/dstr/array-rest-after-elision.js
 test/language/expressions/assignment/dstr/array-rest-before-element.js
@@ -1710,6 +1718,7 @@ test/language/expressions/assignment/S11.13.1_A4_T2.js
 test/language/expressions/assignment/S11.13.1_A7_T4.js
 test/language/expressions/assignment/S8.12.4_A1.js
 test/language/expressions/assignment/S8.12.5_A1.js
+test/language/expressions/assignment/S8.12.5_A2.js
 test/language/expressions/assignment/target-assignment-inside-function.js
 test/language/expressions/assignment/target-assignment.js
 test/language/expressions/assignment/target-boolean.js
@@ -6228,6 +6237,7 @@ test/language/expressions/class/elements/static-as-valid-static-field.js
 test/language/expressions/class/elements/static-comp-name-init-err-contains-arguments.js
 test/language/expressions/class/elements/static-comp-name-init-err-contains-super.js
 test/language/expressions/class/elements/static-field-anonymous-function-length.js
+test/language/expressions/class/elements/static-field-declaration.js
 test/language/expressions/class/elements/static-literal-init-err-contains-arguments.js
 test/language/expressions/class/elements/static-literal-init-err-contains-super.js
 test/language/expressions/class/elements/static-private-init-err-contains-arguments.js
@@ -6241,9 +6251,19 @@ test/language/expressions/class/elements/syntax/early-errors/class-heritage-arra
 test/language/expressions/class/elements/syntax/early-errors/grammar-field-identifier-invalid-ues-error.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-field-identifier-invalid-zwj-error.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-field-identifier-invalid-zwnj-error.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-fields-same-line-error.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-private-environment-on-class-heritage-array-literal.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-private-environment-on-class-heritage-obj-literal.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-private-field-on-object-destructuring.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-async-gen.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-async.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-gen.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-field.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-get.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-meth.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-set.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-staticfield.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-staticmeth.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-privatename-error.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-privatename-identifier-invalid-ues.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-privatename-identifier-invalid-zwj-error.js
@@ -6266,9 +6286,16 @@ test/language/expressions/class/elements/syntax/early-errors/grammar-privatename
 test/language/expressions/class/elements/syntax/early-errors/grammar-privatename-whitespace-error-static-field.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-privatename-whitespace-error-static-gen-meth.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-privatename-whitespace-error-static-meth.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-privatenames-same-line-error.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-special-meth-ctor-async-gen.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-special-meth-ctor-async-meth.js
 test/language/expressions/class/elements/syntax/early-errors/grammar-special-meth-ctor-gen.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-static-async-gen-meth-prototype.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-static-async-meth-prototype.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-static-gen-meth-prototype.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-static-get-meth-prototype.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-static-meth-prototype.js
+test/language/expressions/class/elements/syntax/early-errors/grammar-static-set-meth-prototype.js
 test/language/expressions/class/elements/syntax/early-errors/private-async-generator-cannot-escape-token.js
 test/language/expressions/class/elements/syntax/early-errors/private-async-method-cannot-escape-token.js
 test/language/expressions/class/elements/syntax/early-errors/private-call-exp-cannot-escape-token.js
@@ -6483,6 +6510,7 @@ test/language/expressions/class/method/forbidden-ext/b2/cls-expr-meth-forbidden-
 test/language/expressions/class/method/params-trailing-comma-multiple.js
 test/language/expressions/class/method/params-trailing-comma-single.js
 test/language/expressions/class/method/rest-params-trailing-comma-early-error.js
+test/language/expressions/class/name.js
 test/language/expressions/class/params-dflt-gen-meth-args-unmapped.js
 test/language/expressions/class/params-dflt-gen-meth-ref-arguments.js
 test/language/expressions/class/params-dflt-gen-meth-static-args-unmapped.js
@@ -6962,6 +6990,9 @@ test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-eval-rq
 test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-arrow-import-catch-specifier-tostring-abrupt-rejects.js
@@ -6969,6 +7000,9 @@ test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-await-specifier-tostring-abrupt-rejects.js
@@ -6976,6 +7010,9 @@ test/language/expressions/dynamic-import/catch/nested-async-arrow-function-retur
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-async-arrow-function-return-await-specifier-tostring-abrupt-rejects.js
@@ -6983,6 +7020,9 @@ test/language/expressions/dynamic-import/catch/nested-async-function-await-eval-
 test/language/expressions/dynamic-import/catch/nested-async-function-await-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-async-function-await-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-async-function-await-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-async-function-await-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-async-function-await-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-async-function-await-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-async-function-await-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-async-function-await-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-async-function-await-specifier-tostring-abrupt-rejects.js
@@ -6990,12 +7030,18 @@ test/language/expressions/dynamic-import/catch/nested-async-function-eval-rqstd-
 test/language/expressions/dynamic-import/catch/nested-async-function-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-async-function-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-async-function-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-async-function-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-async-function-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-async-function-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-async-function-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-async-function-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-async-function-return-await-eval-rqstd-abrupt-typeerror.js
 test/language/expressions/dynamic-import/catch/nested-async-function-return-await-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-async-function-return-await-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-async-function-return-await-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-async-function-return-await-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-async-function-return-await-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-async-function-return-await-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-async-function-return-await-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-async-function-return-await-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-async-function-return-await-specifier-tostring-abrupt-rejects.js
@@ -7003,12 +7049,18 @@ test/language/expressions/dynamic-import/catch/nested-async-function-specifier-t
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-eval-rqstd-abrupt-typeerror.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-await-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-await-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-await-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-specifier-tostring-abrupt-rejects.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-eval-rqstd-abrupt-typeerror.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-specifier-tostring-abrupt-rejects.js
@@ -7016,6 +7068,9 @@ test/language/expressions/dynamic-import/catch/nested-block-import-catch-eval-rq
 test/language/expressions/dynamic-import/catch/nested-block-import-catch-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-block-import-catch-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-block-import-catch-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-block-import-catch-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-block-import-catch-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-block-import-catch-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-block-import-catch-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-block-import-catch-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-block-import-catch-specifier-tostring-abrupt-rejects.js
@@ -7023,6 +7078,9 @@ test/language/expressions/dynamic-import/catch/nested-block-labeled-eval-rqstd-a
 test/language/expressions/dynamic-import/catch/nested-block-labeled-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-block-labeled-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-block-labeled-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-block-labeled-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-block-labeled-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-block-labeled-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-block-labeled-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-block-labeled-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-block-labeled-specifier-tostring-abrupt-rejects.js
@@ -7030,6 +7088,9 @@ test/language/expressions/dynamic-import/catch/nested-do-while-eval-rqstd-abrupt
 test/language/expressions/dynamic-import/catch/nested-do-while-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-do-while-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-do-while-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-do-while-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-do-while-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-do-while-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-do-while-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-do-while-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-do-while-specifier-tostring-abrupt-rejects.js
@@ -7037,6 +7098,9 @@ test/language/expressions/dynamic-import/catch/nested-else-import-catch-eval-rqs
 test/language/expressions/dynamic-import/catch/nested-else-import-catch-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-else-import-catch-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-else-import-catch-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-else-import-catch-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-else-import-catch-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-else-import-catch-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-else-import-catch-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-else-import-catch-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-else-import-catch-specifier-tostring-abrupt-rejects.js
@@ -7044,6 +7108,9 @@ test/language/expressions/dynamic-import/catch/nested-function-import-catch-eval
 test/language/expressions/dynamic-import/catch/nested-function-import-catch-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-function-import-catch-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-function-import-catch-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-function-import-catch-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-function-import-catch-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-function-import-catch-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-function-import-catch-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-function-import-catch-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-function-import-catch-specifier-tostring-abrupt-rejects.js
@@ -7051,6 +7118,9 @@ test/language/expressions/dynamic-import/catch/nested-if-import-catch-eval-rqstd
 test/language/expressions/dynamic-import/catch/nested-if-import-catch-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-if-import-catch-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-if-import-catch-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-if-import-catch-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-if-import-catch-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-if-import-catch-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-if-import-catch-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-if-import-catch-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-if-import-catch-specifier-tostring-abrupt-rejects.js
@@ -7058,6 +7128,9 @@ test/language/expressions/dynamic-import/catch/nested-while-import-catch-eval-rq
 test/language/expressions/dynamic-import/catch/nested-while-import-catch-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/nested-while-import-catch-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-while-import-catch-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/nested-while-import-catch-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/nested-while-import-catch-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/nested-while-import-catch-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/nested-while-import-catch-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/nested-while-import-catch-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/nested-while-import-catch-specifier-tostring-abrupt-rejects.js
@@ -7066,6 +7139,9 @@ test/language/expressions/dynamic-import/catch/top-level-import-catch-eval-rqstd
 test/language/expressions/dynamic-import/catch/top-level-import-catch-eval-rqstd-abrupt-urierror.js
 test/language/expressions/dynamic-import/catch/top-level-import-catch-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/top-level-import-catch-file-does-not-exist.js
+test/language/expressions/dynamic-import/catch/top-level-import-catch-import-source-source-text-module.js
+test/language/expressions/dynamic-import/catch/top-level-import-catch-import-source-specifier-tostring-abrupt-rejects.js
+test/language/expressions/dynamic-import/catch/top-level-import-catch-import-source-specifier-tostring.js
 test/language/expressions/dynamic-import/catch/top-level-import-catch-instn-iee-err-ambiguous-import.js
 test/language/expressions/dynamic-import/catch/top-level-import-catch-instn-iee-err-circular.js
 test/language/expressions/dynamic-import/catch/top-level-import-catch-specifier-tostring-abrupt-rejects.js
@@ -8015,6 +8091,7 @@ test/language/expressions/function/named-no-strict-reassign-fn-name-in-body-in-e
 test/language/expressions/function/named-strict-error-reassign-fn-name-in-body-in-eval.js
 test/language/expressions/function/param-arguments-non-strict.js
 test/language/expressions/function/param-dflt-yield-strict.js
+test/language/expressions/function/param-duplicated-non-strict.js
 test/language/expressions/function/param-duplicated-strict-1.js
 test/language/expressions/function/param-duplicated-strict-2.js
 test/language/expressions/function/param-duplicated-strict-3.js
@@ -9897,9 +9974,11 @@ test/language/expressions/object/prop-dup-set-set.js
 test/language/expressions/object/properties-names-eval-arguments.js
 test/language/expressions/object/property-name-yield.js
 test/language/expressions/object/S11.1.5_A1.1.js
+test/language/expressions/object/S11.1.5_A1.2.js
 test/language/expressions/object/S11.1.5_A1.3.js
 test/language/expressions/object/S11.1.5_A1.4.js
 test/language/expressions/object/S11.1.5_A2.js
+test/language/expressions/object/S11.1.5_A3.js
 test/language/expressions/object/S11.1.5_A4.1.js
 test/language/expressions/object/S11.1.5_A4.2.js
 test/language/expressions/object/S11.1.5_A4.3.js
@@ -10076,6 +10155,7 @@ test/language/expressions/property-accessors/S11.2.1_A4_T8.js
 test/language/expressions/property-accessors/S11.2.1_A4_T9.js
 test/language/expressions/property-accessors/S8.12.3_A1.js
 test/language/expressions/property-accessors/S8.12.3_A2.js
+test/language/expressions/property-accessors/S8.12.3_A3.js
 test/language/expressions/relational/S9.1_A1_T4.js
 test/language/expressions/right-shift/bigint-and-number.js
 test/language/expressions/right-shift/bigint-errors.js
@@ -10722,6 +10802,8 @@ test/language/function-code/block-decl-onlystrict.js
 test/language/function-code/eval-param-env-with-prop-initializer.js
 test/language/function-code/S10.1.6_A1_T1.js
 test/language/function-code/S10.2.1_A1.js
+test/language/function-code/S10.2.1_A2.js
+test/language/function-code/S10.2.1_A3.js
 test/language/function-code/S10.2.1_A4_T1.js
 test/language/function-code/S10.2.1_A4_T2.js
 test/language/function-code/S10.2.1_A5.1_T1.js
@@ -12575,6 +12657,7 @@ test/language/statements/class/accessor-name-static/literal-string-line-continua
 test/language/statements/class/accessor-name-static/literal-string-single-quote.js
 test/language/statements/class/accessor-name-static/literal-string-unicode-escape.js
 test/language/statements/class/arguments/access.js
+test/language/statements/class/async-gen-meth-escaped-async.js
 test/language/statements/class/async-gen-method-static/await-as-binding-identifier-escaped.js
 test/language/statements/class/async-gen-method-static/await-as-binding-identifier.js
 test/language/statements/class/async-gen-method-static/await-as-identifier-reference-escaped.js
@@ -12759,6 +12842,7 @@ test/language/statements/class/async-gen-method/yield-star-next-then-non-callabl
 test/language/statements/class/async-gen-method/yield-star-next-then-non-callable-undefined-fulfillpromise.js
 test/language/statements/class/async-gen-method/yield-star-next-then-returns-abrupt.js
 test/language/statements/class/async-gen-method/yield-star-sync-next.js
+test/language/statements/class/async-meth-escaped-async.js
 test/language/statements/class/async-method-static/await-as-binding-identifier-escaped.js
 test/language/statements/class/async-method-static/await-as-binding-identifier.js
 test/language/statements/class/async-method-static/await-as-identifier-reference-escaped.js
@@ -12944,6 +13028,7 @@ test/language/statements/class/cpn-class-decl-fields-methods-computed-property-n
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-numeric-literal.js
 test/language/statements/class/cpn-class-decl-fields-methods-computed-property-name-from-string-literal.js
 test/language/statements/class/cptn-decl.js
+test/language/statements/class/definition/basics.js
 test/language/statements/class/definition/class-method-returns-promise.js
 test/language/statements/class/definition/constructor-property.js
 test/language/statements/class/definition/constructor.js
@@ -12953,6 +13038,7 @@ test/language/statements/class/definition/early-errors-class-method-await-in-for
 test/language/statements/class/definition/early-errors-class-method-await-in-formals.js
 test/language/statements/class/definition/early-errors-class-method-duplicate-parameters.js
 test/language/statements/class/definition/early-errors-class-method-eval-in-formal-parameters.js
+test/language/statements/class/definition/early-errors-class-method-formals-body-duplicate.js
 test/language/statements/class/definition/fn-length-static-precedence-order.js
 test/language/statements/class/definition/fn-length-static-precedence.js
 test/language/statements/class/definition/fn-name-static-precedence-order.js
@@ -15891,6 +15977,7 @@ test/language/statements/class/elements/static-as-valid-static-field.js
 test/language/statements/class/elements/static-comp-name-init-err-contains-arguments.js
 test/language/statements/class/elements/static-comp-name-init-err-contains-super.js
 test/language/statements/class/elements/static-field-anonymous-function-length.js
+test/language/statements/class/elements/static-field-declaration.js
 test/language/statements/class/elements/static-field-initializer-error.js
 test/language/statements/class/elements/static-fielddefinition-initializer-abrupt-completion.js
 test/language/statements/class/elements/static-literal-init-err-contains-arguments.js
@@ -15910,9 +15997,19 @@ test/language/statements/class/elements/syntax/early-errors/class-heritage-array
 test/language/statements/class/elements/syntax/early-errors/grammar-field-identifier-invalid-ues-error.js
 test/language/statements/class/elements/syntax/early-errors/grammar-field-identifier-invalid-zwj-error.js
 test/language/statements/class/elements/syntax/early-errors/grammar-field-identifier-invalid-zwnj-error.js
+test/language/statements/class/elements/syntax/early-errors/grammar-fields-same-line-error.js
 test/language/statements/class/elements/syntax/early-errors/grammar-private-environment-on-class-heritage-array-literal.js
 test/language/statements/class/elements/syntax/early-errors/grammar-private-environment-on-class-heritage-obj-literal.js
 test/language/statements/class/elements/syntax/early-errors/grammar-private-field-on-object-destructuring.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-async-gen.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-async.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-gen.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-field.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-get.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-meth.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-set.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-staticfield.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatemeth-duplicate-meth-staticmeth.js
 test/language/statements/class/elements/syntax/early-errors/grammar-privatename-error.js
 test/language/statements/class/elements/syntax/early-errors/grammar-privatename-identifier-invalid-ues.js
 test/language/statements/class/elements/syntax/early-errors/grammar-privatename-identifier-invalid-zwj-error.js
@@ -15935,9 +16032,16 @@ test/language/statements/class/elements/syntax/early-errors/grammar-privatename-
 test/language/statements/class/elements/syntax/early-errors/grammar-privatename-whitespace-error-static-field.js
 test/language/statements/class/elements/syntax/early-errors/grammar-privatename-whitespace-error-static-gen-meth.js
 test/language/statements/class/elements/syntax/early-errors/grammar-privatename-whitespace-error-static-meth.js
+test/language/statements/class/elements/syntax/early-errors/grammar-privatenames-same-line-error.js
 test/language/statements/class/elements/syntax/early-errors/grammar-special-meth-ctor-async-gen.js
 test/language/statements/class/elements/syntax/early-errors/grammar-special-meth-ctor-async-meth.js
 test/language/statements/class/elements/syntax/early-errors/grammar-special-meth-ctor-gen.js
+test/language/statements/class/elements/syntax/early-errors/grammar-static-async-gen-meth-prototype.js
+test/language/statements/class/elements/syntax/early-errors/grammar-static-async-meth-prototype.js
+test/language/statements/class/elements/syntax/early-errors/grammar-static-gen-meth-prototype.js
+test/language/statements/class/elements/syntax/early-errors/grammar-static-get-meth-prototype.js
+test/language/statements/class/elements/syntax/early-errors/grammar-static-meth-prototype.js
+test/language/statements/class/elements/syntax/early-errors/grammar-static-set-meth-prototype.js
 test/language/statements/class/elements/syntax/early-errors/private-async-generator-cannot-escape-token.js
 test/language/statements/class/elements/syntax/early-errors/private-async-method-cannot-escape-token.js
 test/language/statements/class/elements/syntax/early-errors/private-call-exp-cannot-escape-token.js
@@ -16278,6 +16382,7 @@ test/language/statements/class/syntax/class-expression.js
 test/language/statements/class/syntax/class-method-propname-constructor.js
 test/language/statements/class/syntax/early-errors/class-definition-evaluation-block-duplicate-binding.js
 test/language/statements/class/syntax/early-errors/class-definition-evaluation-scriptbody-duplicate-binding.js
+test/language/statements/class/syntax/escaped-static.js
 test/language/statements/const/block-local-closure-get-before-initialization.js
 test/language/statements/const/block-local-use-before-initialization-in-declaration-statement.js
 test/language/statements/const/block-local-use-before-initialization-in-prior-statement.js
@@ -17856,6 +17961,7 @@ test/language/statements/for-of/dstr/array-empty-val-num.js
 test/language/statements/for-of/dstr/array-empty-val-string.js
 test/language/statements/for-of/dstr/array-empty-val-symbol.js
 test/language/statements/for-of/dstr/array-empty-val-undef.js
+test/language/statements/for-of/dstr/array-iteration.js
 test/language/statements/for-of/dstr/array-rest-after-element.js
 test/language/statements/for-of/dstr/array-rest-after-elision.js
 test/language/statements/for-of/dstr/array-rest-before-element.js
@@ -18398,6 +18504,8 @@ test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-exhausted.js
 test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-fn-name-arrow.js
 test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-fn-name-class.js
 test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-fn-name-cover.js
+test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-fn-name-fn.js
+test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-fn-name-gen.js
 test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-hole.js
 test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-skipped.js
 test/language/statements/for/dstr/const-ary-ptrn-elem-id-init-throws.js
@@ -18446,6 +18554,8 @@ test/language/statements/for/dstr/const-obj-ptrn-id-get-value-err.js
 test/language/statements/for/dstr/const-obj-ptrn-id-init-fn-name-arrow.js
 test/language/statements/for/dstr/const-obj-ptrn-id-init-fn-name-class.js
 test/language/statements/for/dstr/const-obj-ptrn-id-init-fn-name-cover.js
+test/language/statements/for/dstr/const-obj-ptrn-id-init-fn-name-fn.js
+test/language/statements/for/dstr/const-obj-ptrn-id-init-fn-name-gen.js
 test/language/statements/for/dstr/const-obj-ptrn-id-init-skipped.js
 test/language/statements/for/dstr/const-obj-ptrn-id-init-throws.js
 test/language/statements/for/dstr/const-obj-ptrn-id-init-unresolvable.js
@@ -18487,6 +18597,8 @@ test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-exhausted.js
 test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-fn-name-arrow.js
 test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-fn-name-class.js
 test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-fn-name-cover.js
+test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-fn-name-fn.js
+test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-fn-name-gen.js
 test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-hole.js
 test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-skipped.js
 test/language/statements/for/dstr/let-ary-ptrn-elem-id-init-throws.js
@@ -18535,6 +18647,8 @@ test/language/statements/for/dstr/let-obj-ptrn-id-get-value-err.js
 test/language/statements/for/dstr/let-obj-ptrn-id-init-fn-name-arrow.js
 test/language/statements/for/dstr/let-obj-ptrn-id-init-fn-name-class.js
 test/language/statements/for/dstr/let-obj-ptrn-id-init-fn-name-cover.js
+test/language/statements/for/dstr/let-obj-ptrn-id-init-fn-name-fn.js
+test/language/statements/for/dstr/let-obj-ptrn-id-init-fn-name-gen.js
 test/language/statements/for/dstr/let-obj-ptrn-id-init-skipped.js
 test/language/statements/for/dstr/let-obj-ptrn-id-init-throws.js
 test/language/statements/for/dstr/let-obj-ptrn-id-init-unresolvable.js
@@ -18982,6 +19096,7 @@ test/language/statements/function/param-arguments-non-strict.js
 test/language/statements/function/param-arguments-strict-body.js
 test/language/statements/function/param-arguments-strict.js
 test/language/statements/function/param-dflt-yield-strict.js
+test/language/statements/function/param-duplicated-non-strict.js
 test/language/statements/function/param-duplicated-strict-1.js
 test/language/statements/function/param-duplicated-strict-2.js
 test/language/statements/function/param-duplicated-strict-3.js

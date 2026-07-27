@@ -260,7 +260,12 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.32 | done | js | Array destructuring elision + IteratorClose: elision advances iterator; close on abrupt/exhaust; Test262 next-count asserts | `tests/test262` (allowlist + baseline-report) |
 | E19.33 | done | js | `import.defer` / `import.source`: parse/lower dynamic-import variants (currently expected LBrace found Dot / expected expression found Import) | `crates/draconic-parser`, `tests/test262` |
 | E19.34 | done | js | Class element residual: bare `super` must not panic; numeric method names; negative parse still accepted in class/elements | `crates/draconic-parser` / IR, `tests/test262` |
-| E19.35 | todo | js | Expand allowlist further after E19.31–E19.34 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.35 | done | js | Expand allowlist further after E19.31–E19.34 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.36 | todo | js | Private residual: nested-class private access; compound/logical assign to private refs; delete-private early path — no IR panic (`unknown private field` / `only simple =`) | `crates/draconic-ir` / check, `tests/test262` |
+| E19.37 | todo | js | `yield` as IdentifierReference in non-strict (not keyword outside generators); dstr/arrow/param defaults `yield-ident-valid` cluster | `crates/draconic-parser` / check, `tests/test262` |
+| E19.38 | todo | js | Import attributes: `import … with { k: v }` / `assert { k: v }` and dynamic `import(x, { with: … })` (parse/lower; currently expected LBrace found String / LParen found LBrace) | `crates/draconic-parser`, `tests/test262` |
+| E19.39 | todo | js | Early SyntaxError residual: negative parse still accepted (assignment dstr, method-definition, class delete-private, `using`/`await using` syntax, hashbang escapes) | `crates/draconic-parser` / check, `tests/test262` |
+| E19.40 | todo | js | Expand allowlist further after E19.36–E19.39 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 
