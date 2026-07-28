@@ -2348,6 +2348,9 @@ impl Binder {
 struct Checker<'a> {
     bound: &'a BoundProgram,
     symbol_types: Vec<Type>,
+    /// True when the binding's type came from a type annotation (not inference).
+    /// Untyped JS assignment may widen inferred bindings (E19.12 / E19.48).
+    symbol_annotated: Vec<bool>,
     expr_types: HashMap<Span, Type>,
     /// Structural object shapes (`Type::Shape` indices).
     shapes: Vec<ObjectShape>,
@@ -2398,9 +2401,11 @@ impl<'a> Checker<'a> {
                 };
             }
         }
+        let n = bound.symbols().len();
         Self {
             bound,
             symbol_types,
+            symbol_annotated: vec![false; n],
             expr_types: HashMap::new(),
             shapes: Vec::new(),
             unions: Vec::new(),
@@ -2607,6 +2612,15 @@ impl<'a> Checker<'a> {
         binding: &BindingPattern,
         ty: Type,
     ) -> Result<(), Diagnostic> {
+        self.check_binding_pattern_annotated(binding, ty, false)
+    }
+
+    fn check_binding_pattern_annotated(
+        &mut self,
+        binding: &BindingPattern,
+        ty: Type,
+        annotated: bool,
+    ) -> Result<(), Diagnostic> {
         match binding {
             BindingPattern::Ident(name) => {
                 let id = self
@@ -2622,6 +2636,9 @@ impl<'a> Checker<'a> {
                         )
                     })?;
                 self.symbol_types[id.0 as usize] = ty;
+                if annotated {
+                    self.symbol_annotated[id.0 as usize] = true;
+                }
                 Ok(())
             }
             BindingPattern::Member(expr) => {
@@ -2824,15 +2841,15 @@ impl<'a> Checker<'a> {
                 } else {
                     Type::Any
                 };
-                let ty = if let Some(ann_ty) = ann_ty {
+                let (ty, annotated) = if let Some(ann_ty) = ann_ty {
                     if let Some(init) = init {
                         self.require_assignable_expr(init_ty, ann_ty, init)?;
                     }
-                    ann_ty
+                    (ann_ty, true)
                 } else {
-                    init_ty
+                    (init_ty, false)
                 };
-                self.check_binding_pattern(binding, ty)?;
+                self.check_binding_pattern_annotated(binding, ty, annotated)?;
                 Ok(())
             }
             Stmt::Empty { .. } => Ok(()),
@@ -3406,24 +3423,19 @@ impl<'a> Checker<'a> {
                         };
                         if left_ty == Type::Any {
                             self.symbol_types[sym.0 as usize] = result_ty;
-                        } else if op.binary_op().is_some() {
-                            if !self.is_assignable(result_ty, left_ty) {
-                                // E19.12: untyped JS compound assign applies ToNumber/ToString;
-                                // widen inferred binding rather than reject (native stays strict).
-                                if matches!(left_ty, Type::Native(_) | Type::Ptr(_))
-                                    || matches!(result_ty, Type::Native(_) | Type::Ptr(_))
-                                {
-                                    return Err(Diagnostic::new(
-                                        format!(
-                                            "cannot assign type `{result_ty}` to binding of type `{left_ty}`"
-                                        ),
-                                        *span,
-                                    ));
-                                }
+                        } else if !self.is_assignable(result_ty, left_ty) {
+                            // E19.12 / E19.48: untyped JS assign (simple + compound) may
+                            // replace an inferred binding type (ToNumber/ToString at runtime
+                            // for compound; plain store for simple). Annotated + native stay
+                            // strict (with number-literal contextual typing for natives).
+                            let annotated = self.symbol_annotated[sym.0 as usize];
+                            let native = matches!(left_ty, Type::Native(_) | Type::Ptr(_))
+                                || matches!(result_ty, Type::Native(_) | Type::Ptr(_));
+                            if annotated || native {
+                                self.require_assignable_expr(result_ty, left_ty, value)?;
+                            } else {
                                 self.symbol_types[sym.0 as usize] = result_ty;
                             }
-                        } else {
-                            self.require_assignable_expr(result_ty, left_ty, value)?;
                         }
                         self.record(id.span, self.symbol_types[sym.0 as usize]);
                         self.record(*span, result_ty);
@@ -3995,7 +4007,12 @@ impl<'a> Checker<'a> {
                     self.require_assignable_expr(def_ty, ann_ty, default)?;
                 }
             }
-            self.check_binding_pattern(&p.binding, ann_ty.unwrap_or(Type::Any))?;
+            let annotated = ann_ty.is_some();
+            self.check_binding_pattern_annotated(
+                &p.binding,
+                ann_ty.unwrap_or(Type::Any),
+                annotated,
+            )?;
         }
         Ok(())
     }
@@ -5252,6 +5269,64 @@ mod tests {
     fn check_untyped_compound_assignment_property_coerced() {
         let program = parse(r#"let o = { a: true }; o.a += 1; o["a"] *= "2";"#).unwrap();
         check(program).expect("property compound assign with coercion should typecheck");
+    }
+
+    // E19.48: untyped simple assign residual — after compound widens to number,
+    // re-assign null/object/string/boolean must not reject (ECMA-262).
+    #[test]
+    fn check_untyped_simple_assign_after_number_null() {
+        let program = parse(
+            r#"
+            var x;
+            x = null;
+            x ^= undefined;
+            x = undefined;
+            x ^= null;
+            x = null;
+            x ^= null;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("null/undefined simple assign after number should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_simple_assign_object_string_boolean() {
+        let program = parse(
+            r#"
+            var x;
+            x = true;
+            x ^= "1";
+            x = "1";
+            x ^= true;
+            x = new Boolean(true);
+            x ^= "1";
+            x = new String("1");
+            x ^= true;
+            x = {};
+            x = null;
+            x = 1;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("object/string/boolean simple assign residual should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_simple_assign_let_number_to_string() {
+        let program = parse(r#"let x = 1; x = "a"; x = null; x = {}; x = true;"#).unwrap();
+        check(program).expect("inferred number binding accepts JS values without annotation");
+    }
+
+    #[test]
+    fn check_annotated_number_rejects_string_assign() {
+        let program = parse(r#"let x: number = 1; x = "a";"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("cannot assign") || err.message.contains("not assignable"),
+            "unexpected message: {}",
+            err.message
+        );
     }
 
     #[test]

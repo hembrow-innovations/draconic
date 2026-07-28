@@ -1013,8 +1013,8 @@ assert.throws(TypeError, function() {
                         "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
                     );
                     assert!(
-                        pass >= 23000,
-                        "expected expanded allowlist pass count >= 23000, got {pass}"
+                        pass >= 23150,
+                        "expected expanded allowlist pass count >= 23150, got {pass}"
                     );
                 }
             })
