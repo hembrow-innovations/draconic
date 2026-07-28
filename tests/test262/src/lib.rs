@@ -382,19 +382,36 @@ pub fn is_raw_flag(source: &str) -> bool {
     flag_token(source, "raw")
 }
 
-/// Match a single comma/bracket-separated token on a `flags:` frontmatter line.
+/// Match a single comma/bracket-separated token on a `flags:` frontmatter line,
+/// or a YAML list item under `flags:` (`flags:\n  - module`).
 fn flag_token(source: &str, token: &str) -> bool {
     let Some(meta) = frontmatter_meta(source) else {
         return false;
     };
+    let mut in_flags_list = false;
     for line in meta.lines() {
         let t = line.trim();
-        if !t.starts_with("flags:") {
+        if t.starts_with("flags:") {
+            for part in t.trim_start_matches("flags:").split([',', '[', ']']) {
+                if part.trim() == token {
+                    return true;
+                }
+            }
+            // Multi-line YAML list: `flags:` alone or with nothing else on the line.
+            let rest = t.trim_start_matches("flags:").trim();
+            in_flags_list = rest.is_empty() || rest == "[]" || rest == "[";
             continue;
         }
-        for part in t.trim_start_matches("flags:").split([',', '[', ']']) {
-            if part.trim() == token {
-                return true;
+        if in_flags_list {
+            // Next top-level key ends the list.
+            if !t.is_empty() && !t.starts_with('-') && t.contains(':') {
+                in_flags_list = false;
+                continue;
+            }
+            if let Some(item) = t.strip_prefix('-') {
+                if item.trim() == token {
+                    return true;
+                }
             }
         }
     }
@@ -845,6 +862,9 @@ mod tests {
             "/*---\nfeatures: [top-level-await]\n---*/\n1\n"
         ));
         assert!(!is_module_flag("/*---\nflags: [async]\n---*/\n1\n"));
+        assert!(is_module_flag(
+            "/*---\nflags:\n  - module\nnegative:\n  phase: parse\n---*/\n1\n"
+        ));
     }
 
     #[test]
@@ -868,13 +888,11 @@ $DONE();
 
     #[test]
     fn top_level_await_script_rejected() {
-        // E19.28: Script goal still rejects top-level await.
+        // E19.28 / E19.52: Script [~Await] — `await` is IdentifierReference, so
+        // `await 1` is a syntax error (not AwaitExpression).
         let src = "var x = await 1;\n";
         let err = compile_test_to_js(src).expect_err("script TLA must fail");
-        assert!(
-            err.contains("await") || err.contains("async"),
-            "unexpected err: {err}"
-        );
+        assert!(!err.is_empty(), "unexpected empty err");
     }
 
     #[test]

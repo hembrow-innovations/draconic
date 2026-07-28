@@ -69,12 +69,21 @@ fn load_program(entry: &Path) -> Result<(Program, bool), Diagnostic> {
             draconic_diagnostics::Span::dummy(),
         )
     })?;
-    let program = parse(&source)?;
-    if program_has_module_syntax(&program) {
-        // Linked body has imports/exports peeled; keep Module goal for TLA.
-        Ok((link_entry(entry)?, true))
-    } else {
-        Ok((program, false))
+    // Script-first detection. Export + top-level await fails Script parse once
+    // `await` is IdentifierReference outside Module (E19.52) — retry Module.
+    match parse(&source) {
+        Ok(program) if program_has_module_syntax(&program) => {
+            Ok((link_entry(entry)?, true))
+        }
+        Ok(program) => Ok((program, false)),
+        Err(script_err) => {
+            match parse_module(&source) {
+                Ok(program) if program_has_module_syntax(&program) => {
+                    Ok((link_entry(entry)?, true))
+                }
+                _ => Err(script_err),
+            }
+        }
     }
 }
 
@@ -151,11 +160,12 @@ mod tests {
         // E19.28: Module goal accepts top-level await; Script rejects it.
         let module = compile_source_module("let x = await 1;\n").expect("module TLA");
         assert!(!module.body.is_empty() || !module.locals.is_empty());
+        // E19.52: Script [~Await] treats bare `await` as IdentifierReference, so
+        // `await 1` is a syntax error (not AwaitExpression) — any diagnostic is fine.
         let err = compile_source("let x = await 1;\n").expect_err("script TLA");
         assert!(
-            err.message.contains("await"),
-            "unexpected diagnostic: {}",
-            err.message
+            !err.message.is_empty(),
+            "script TLA must diagnostic, got empty message"
         );
     }
 

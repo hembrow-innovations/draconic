@@ -451,6 +451,13 @@ fn params_contain_super_call(params: &[Param]) -> bool {
         .any(|p| p.default.as_ref().is_some_and(expr_contains_super_call))
 }
 
+/// SuperCall or SuperProperty in formals (plain / async / generator functions).
+fn params_contain_super(params: &[Param]) -> bool {
+    params
+        .iter()
+        .any(|p| p.default.as_ref().is_some_and(expr_contains_super))
+}
+
 fn expr_contains_super_call(expr: &Expr) -> bool {
     match expr {
         Expr::Call { callee, args, .. } => {
@@ -506,6 +513,87 @@ fn expr_contains_super_call(expr: &Expr) -> bool {
             ObjectProp::Spread { expr, .. } => expr_contains_super_call(expr),
             ObjectProp::Accessor { .. } => false,
         }),
+        _ => false,
+    }
+}
+
+/// SuperCall or SuperProperty (not nested in inner functions/classes).
+fn expr_contains_super(expr: &Expr) -> bool {
+    match expr {
+        Expr::Super { .. } => true,
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_contains_super(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_super(e),
+                })
+        }
+        Expr::ArrowFunction { body, params, .. } => {
+            params_contain_super(params)
+                || match body {
+                    ArrowBody::Expr(e) => expr_contains_super(e),
+                    ArrowBody::Block(s) => stmt_contains_super(s),
+                }
+        }
+        // Nested function/class bodies are their own ContainsSuper roots.
+        Expr::FunctionExpression { .. } | Expr::ClassExpression { .. } => false,
+        Expr::Paren { expr: inner, .. }
+        | Expr::Unary { arg: inner, .. }
+        | Expr::Update { arg: inner, .. }
+        | Expr::As { expr: inner, .. } => expr_contains_super(inner),
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_contains_super(left) || expr_contains_super(right),
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_super(test)
+                || expr_contains_super(consequent)
+                || expr_contains_super(alternate)
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => expr_contains_super(object) || expr_contains_super(property),
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_super(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { value, .. } => expr_contains_super(value),
+            ObjectProp::Spread { expr, .. } => expr_contains_super(expr),
+            ObjectProp::Accessor { .. } => false,
+        }),
+        _ => false,
+    }
+}
+
+fn stmt_contains_super(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_super),
+        Stmt::Expression { expr, .. } => expr_contains_super(expr),
+        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_super),
+        Stmt::Throw { argument, .. } => expr_contains_super(argument),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_super(test)
+                || stmt_contains_super(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_contains_super(a))
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            expr_contains_super(test) || stmt_contains_super(body)
+        }
+        Stmt::Let { init, .. } => init.as_ref().is_some_and(expr_contains_super),
+        // Nested function/class declarations are separate ContainsSuper roots.
+        Stmt::FunctionDeclaration { .. } | Stmt::ClassDeclaration { .. } => false,
         _ => false,
     }
 }
@@ -1582,6 +1670,13 @@ impl Binder {
                         name.span,
                     ));
                 }
+                // Plain/async/generator functions cannot contain SuperCall/SuperProperty.
+                if params_contain_super(params) || stmt_contains_super(body) {
+                    return Err(Diagnostic::new(
+                        "function cannot contain super".to_string(),
+                        *span,
+                    ));
+                }
                 self.push_scope_kind(true);
                 // E17.02.04: only plain (non-async/generator) functions allow sloppy dups.
                 let allow_sloppy_dups = !*is_async && !*is_generator;
@@ -1929,10 +2024,23 @@ impl Binder {
                         *span,
                     ));
                 }
-                self.push_scope_kind(true);
-                if let Some(name) = name {
-                    self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+                // Non-method functions cannot contain SuperCall/SuperProperty at all.
+                if !*is_method && (params_contain_super(params) || stmt_contains_super(body)) {
+                    return Err(Diagnostic::new(
+                        "function cannot contain super".to_string(),
+                        *span,
+                    ));
                 }
+                // Named FE: name lives in an outer env so params may shadow it
+                // (e.g. `function await(await) {}` — E19.52).
+                let named = name.is_some();
+                if named {
+                    self.push_scope_kind(true);
+                    if let Some(name) = name {
+                        self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+                    }
+                }
+                self.push_scope_kind(true);
                 // E17.02.04: methods / async / generators use UniqueFormalParameters.
                 let allow_sloppy_dups = !*is_async && !*is_generator && !*is_method;
                 self.bind_params(params, allow_sloppy_dups)?;
@@ -1940,6 +2048,9 @@ impl Binder {
                 self.check_params_body_lexical_conflict(params, body)?;
                 self.bind_function_body(body)?;
                 self.pop_scope();
+                if named {
+                    self.pop_scope();
+                }
                 self.strict = prev_strict;
                 Ok(())
             }

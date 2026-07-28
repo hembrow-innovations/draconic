@@ -31,6 +31,9 @@ struct Parser {
     /// YieldExpression context (`function*`, generator methods). When false and
     /// non-strict, `yield` is an IdentifierReference / BindingIdentifier (E19.37).
     in_generator: bool,
+    /// `[+Await]` grammar parameter: modules, async functions, class static blocks.
+    /// When false, `await` is IdentifierReference / BindingIdentifier (E19.52).
+    in_await_context: bool,
     /// Strict mode (directive prologue, class bodies). `yield` is reserved.
     in_strict: bool,
     /// Module goal (top-level `using` / `await using` allowed).
@@ -52,6 +55,8 @@ impl Parser {
             pos: 0,
             allow_in: true,
             in_generator: false,
+            // Module goal is [+Await] (top-level await); scripts start [~Await].
+            in_await_context: is_module,
             in_strict: false,
             is_module,
             using_container_depth: 0,
@@ -80,6 +85,12 @@ impl Parser {
         !self.in_generator && !self.in_strict
     }
 
+    /// `await` as IdentifierReference / BindingIdentifier when [~Await] and not Module
+    /// (E19.52). Modules always reserve `await` regardless of nesting (goal-symbol early error).
+    fn await_is_ident(&self) -> bool {
+        !self.is_module && !self.in_await_context
+    }
+
     /// True when `name` cannot be a BindingIdentifier / IdentifierReference here.
     fn is_invalid_ident_name(&self, name: &str) -> bool {
         if is_reserved_word(name) {
@@ -87,6 +98,10 @@ impl Parser {
         }
         // `yield` reserved in generators and strict mode (E19.37 / E19.39).
         if name == "yield" && !self.yield_is_ident() {
+            return true;
+        }
+        // `await` reserved in modules, async functions, class static blocks (E19.52).
+        if name == "await" && !self.await_is_ident() {
             return true;
         }
         // Strict FutureReservedWord (E19.39).
@@ -183,7 +198,8 @@ impl Parser {
 
     /// `await using` starts AwaitUsingDeclaration (no LineTerminator between tokens).
     fn await_using_starts_declaration(&self) -> bool {
-        if !self.check(&TokenKind::Await) {
+        // Only when `await` is the keyword ([+Await]), not IdentifierReference.
+        if !self.in_await_context || !self.check(&TokenKind::Await) {
             return false;
         }
         let Some(using_tok) = self.tokens.get(self.pos + 1) else {
@@ -597,8 +613,8 @@ impl Parser {
 
     fn parse_for(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::For)?.span.start.0;
-        // `for await (… of …)` — async iteration (E18.42).
-        let is_await = if self.check(&TokenKind::Await) {
+        // `for await (… of …)` — async iteration (E18.42); only when [+Await].
+        let is_await = if self.in_await_context && self.check(&TokenKind::Await) {
             self.bump();
             true
         } else {
@@ -1029,6 +1045,7 @@ impl Parser {
             false
         };
         // Generator BindingIdentifier has [+Yield]: name cannot be `yield`.
+        // FunctionDeclaration name inherits outer [Await]; params/body use function's [Await].
         let prev_gen = self.in_generator;
         self.in_generator = is_generator;
         let name_tok = self.expect_ident()?;
@@ -1044,11 +1061,14 @@ impl Parser {
             ));
         }
         let type_params = self.parse_optional_type_params()?;
+        let prev_await = self.in_await_context;
+        self.in_await_context = is_async;
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
+        self.in_await_context = prev_await;
         self.in_generator = prev_gen;
         // Name is also invalid when FunctionBody ContainsUseStrict (even if outer is sloppy).
         if is_strict_forbidden_binding_name(&name.name) && block_has_use_strict_directive(&body) {
@@ -1196,6 +1216,19 @@ impl Parser {
         Ok((super_class, body, end))
     }
 
+    /// Class field Initializer is always [~Await] (E19.52 / FieldDefinition).
+    fn parse_optional_class_field_init(&mut self) -> Result<Option<Expr>, Diagnostic> {
+        if !self.check(&TokenKind::Eq) {
+            return Ok(None);
+        }
+        self.bump();
+        let prev_await = self.in_await_context;
+        self.in_await_context = false;
+        let value = self.parse_assignment()?;
+        self.in_await_context = prev_await;
+        Ok(Some(value))
+    }
+
     fn parse_class_element(&mut self) -> Result<ClassElement, Diagnostic> {
         let start = self.current_span().start.0;
         let is_static = if self.check(&TokenKind::Static) {
@@ -1204,9 +1237,12 @@ impl Parser {
         } else {
             false
         };
-        // `static { … }` static initialization block (E18.41).
+        // `static { … }` static initialization block (E18.41). Body is [+Await] (E19.52).
         if is_static && self.check(&TokenKind::LBrace) {
+            let prev_await = self.in_await_context;
+            self.in_await_context = true;
             let body = Box::new(self.parse_block()?);
+            self.in_await_context = prev_await;
             let end = stmt_span(&body).end.0;
             return Ok(ClassElement::StaticBlock {
                 body,
@@ -1232,12 +1268,7 @@ impl Parser {
                 (self.parse_object_key()?, false)
             };
             let key_span = object_key_span(&key);
-            let value = if self.check(&TokenKind::Eq) {
-                self.bump();
-                Some(self.parse_assignment()?)
-            } else {
-                None
-            };
+            let value = self.parse_optional_class_field_init()?;
             let end = value
                 .as_ref()
                 .map(|v| expr_span(v).end.0)
@@ -1276,21 +1307,27 @@ impl Parser {
             };
             let key_span = object_key_span(&key);
             self.expect(&TokenKind::LParen)?;
+            // Accessors are ordinary methods: [~Await] params/body (E19.52).
+            let prev_await = self.in_await_context;
+            self.in_await_context = false;
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
             if kind == AccessorKind::Get && !params.is_empty() {
+                self.in_await_context = prev_await;
                 return Err(Diagnostic::new(
                     "getter must have zero parameters".to_string(),
                     key_span,
                 ));
             }
             if kind == AccessorKind::Set && params.len() != 1 {
+                self.in_await_context = prev_await;
                 return Err(Diagnostic::new(
                     "setter must have exactly one parameter".to_string(),
                     key_span,
                 ));
             }
             let body = Box::new(self.parse_function_body_block()?);
+            self.in_await_context = prev_await;
             let end = stmt_span(&body).end.0;
             return Ok(ClassElement::Accessor {
                 kind,
@@ -1333,11 +1370,14 @@ impl Parser {
             if is_async || is_generator || self.check(&TokenKind::LParen) {
                 self.expect(&TokenKind::LParen)?;
                 let prev_gen = self.in_generator;
+                let prev_await = self.in_await_context;
                 self.in_generator = is_generator;
+                self.in_await_context = is_async;
                 let params = self.parse_param_list()?;
                 self.expect(&TokenKind::RParen)?;
                 if is_generator && params_contain_yield_expr(&params) {
                     self.in_generator = prev_gen;
+                    self.in_await_context = prev_await;
                     return Err(Diagnostic::new(
                         "generator parameters cannot contain yield".to_string(),
                         Span::new(start, self.current_span().end.0),
@@ -1345,6 +1385,7 @@ impl Parser {
                 }
                 let body = Box::new(self.parse_function_body_block()?);
                 self.in_generator = prev_gen;
+                self.in_await_context = prev_await;
                 let end = stmt_span(&body).end.0;
                 return Ok(ClassElement::Method {
                     key: ObjectKey::Ident(name),
@@ -1357,12 +1398,7 @@ impl Parser {
                     span: Span::new(start, end),
                 });
             }
-            let value = if self.check(&TokenKind::Eq) {
-                self.bump();
-                Some(self.parse_assignment()?)
-            } else {
-                None
-            };
+            let value = self.parse_optional_class_field_init()?;
             let end = value
                 .as_ref()
                 .map(|v| expr_span(v).end.0)
@@ -1380,12 +1416,7 @@ impl Parser {
         let key_span = object_key_span(&key);
         // Public field: `name;` / `name = expr;` / `[e];` / `[e] = expr;` (not a method/constructor).
         if !is_async && !is_generator && !self.check(&TokenKind::LParen) {
-            let value = if self.check(&TokenKind::Eq) {
-                self.bump();
-                Some(self.parse_assignment()?)
-            } else {
-                None
-            };
+            let value = self.parse_optional_class_field_init()?;
             let end = value
                 .as_ref()
                 .map(|v| expr_span(v).end.0)
@@ -1407,12 +1438,15 @@ impl Parser {
         }
         self.expect(&TokenKind::LParen)?;
         let prev_gen = self.in_generator;
+        let prev_await = self.in_await_context;
         self.in_generator = is_generator;
+        self.in_await_context = is_async;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
         // E19.39: generator FormalParameters cannot contain YieldExpression.
         if is_generator && params_contain_yield_expr(&params) {
             self.in_generator = prev_gen;
+            self.in_await_context = prev_await;
             return Err(Diagnostic::new(
                 "generator parameters cannot contain yield".to_string(),
                 Span::new(start, self.current_span().end.0),
@@ -1420,6 +1454,7 @@ impl Parser {
         }
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
+        self.in_await_context = prev_await;
         let end = stmt_span(&body).end.0;
         let span = Span::new(start, end);
         // Only literal IdentifierName `constructor` is the constructor; computed/`"constructor"` are methods.
@@ -1477,8 +1512,11 @@ impl Parser {
             false
         };
         // Generator BindingIdentifier has [+Yield]: optional name cannot be `yield`.
+        // Non-async FunctionExpression name/params/body are [~Await]; async are [+Await] (E19.52).
         let prev_gen = self.in_generator;
+        let prev_await = self.in_await_context;
         self.in_generator = is_generator;
+        self.in_await_context = is_async;
         let name = if self.at_binding_ident() {
             let name_tok = self.expect_ident()?;
             let id = Ident {
@@ -1487,6 +1525,8 @@ impl Parser {
             };
             // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
             if self.in_strict && is_strict_forbidden_binding_name(&id.name) {
+                self.in_generator = prev_gen;
+                self.in_await_context = prev_await;
                 return Err(Diagnostic::new(
                     format!("binding `{}` is invalid in strict mode", id.name),
                     id.span,
@@ -1502,6 +1542,7 @@ impl Parser {
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
+        self.in_await_context = prev_await;
         if let Some(ref id) = name {
             if is_strict_forbidden_binding_name(&id.name) && block_has_use_strict_directive(&body) {
                 return Err(Diagnostic::new(
@@ -2319,7 +2360,9 @@ impl Parser {
                 false
             };
             let prev_gen = self.in_generator;
+            let prev_await = self.in_await_context;
             self.in_generator = is_generator;
+            // Default export function declaration name inherits outer [Await]; body uses is_async.
             let (name, is_synthetic) = if self.at_binding_ident() {
                 let name_tok = self.expect_ident()?;
                 (
@@ -2338,12 +2381,14 @@ impl Parser {
                     true,
                 )
             };
+            self.in_await_context = is_async;
             self.expect(&TokenKind::LParen)?;
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
             let return_type = self.parse_optional_type_ann()?;
             let body = Box::new(self.parse_function_body_block()?);
             self.in_generator = prev_gen;
+            self.in_await_context = prev_await;
             let end = stmt_span(&body).end.0;
             let local = name.clone();
             let declaration = if is_synthetic {
@@ -2889,7 +2934,8 @@ impl Parser {
             let next = self.tokens.get(self.pos + 1).map(|t| &t.kind);
             let after = self.tokens.get(self.pos + 2).map(|t| &t.kind);
             let next_is_ident = matches!(next, Some(TokenKind::Ident(_)))
-                || (matches!(next, Some(TokenKind::Yield)) && self.yield_is_ident());
+                || (matches!(next, Some(TokenKind::Yield)) && self.yield_is_ident())
+                || (matches!(next, Some(TokenKind::Await)) && self.await_is_ident());
             if next_is_ident && matches!(after, Some(TokenKind::Arrow)) {
                 return true;
             }
@@ -2954,6 +3000,12 @@ impl Parser {
             (false, self.current().span.start.0)
         };
         // Arrows inherit [Yield] from the surrounding context (not a new generator).
+        // Params inherit outer [Await] for non-async; async params/body are [+Await].
+        // Non-async ConciseBody is always [~Await] (E19.52).
+        let prev_await = self.in_await_context;
+        if is_async {
+            self.in_await_context = true;
+        }
         let (params, return_type) = if self.at_binding_ident() {
             let p = self.expect_ident()?;
             (
@@ -2976,11 +3028,15 @@ impl Parser {
             (params, return_type)
         };
         self.expect(&TokenKind::Arrow)?;
+        if !is_async {
+            self.in_await_context = false;
+        }
         let body = if self.check(&TokenKind::LBrace) {
             ArrowBody::Block(Box::new(self.parse_function_body_block()?))
         } else {
             ArrowBody::Expr(Box::new(self.parse_assignment()?))
         };
+        self.in_await_context = prev_await;
         let end = match &body {
             ArrowBody::Block(s) => stmt_span(s).end.0,
             ArrowBody::Expr(e) => expr_span(e).end.0,
@@ -3312,7 +3368,8 @@ impl Parser {
             TokenKind::TypeOf => Some(UnaryOp::TypeOf),
             TokenKind::Void => Some(UnaryOp::Void),
             TokenKind::Delete => Some(UnaryOp::Delete),
-            TokenKind::Await => Some(UnaryOp::Await),
+            // AwaitExpression only when [+Await]; else IdentifierReference (E19.52).
+            TokenKind::Await if self.in_await_context => Some(UnaryOp::Await),
             // N03.03 native pointers: `&x` address-of, `*p` dereference.
             TokenKind::BitAnd => Some(UnaryOp::Ref),
             TokenKind::Star => Some(UnaryOp::Deref),
@@ -3773,21 +3830,26 @@ impl Parser {
             self.bump(); // consume get/set
             let key = self.parse_object_key()?;
             self.expect(&TokenKind::LParen)?;
+            let prev_await = self.in_await_context;
+            self.in_await_context = false;
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
             if kind == AccessorKind::Get && !params.is_empty() {
+                self.in_await_context = prev_await;
                 return Err(Diagnostic::new(
                     "getter must have zero parameters".to_string(),
                     self.current_span(),
                 ));
             }
             if kind == AccessorKind::Set && params.len() != 1 {
+                self.in_await_context = prev_await;
                 return Err(Diagnostic::new(
                     "setter must have exactly one parameter".to_string(),
                     self.current_span(),
                 ));
             }
             let body = Box::new(self.parse_function_body_block()?);
+            self.in_await_context = prev_await;
             let end = stmt_span(&body).end.0;
             return Ok(ObjectProp::Accessor {
                 kind,
@@ -3888,11 +3950,13 @@ impl Parser {
                 // Property shorthand: `{ a }` / CoverInitializedName `{ a = default }`
                 // (latter is only valid as assignment pattern; checker rejects as value).
                 // Keywords as IdentifierName keys require `: value` (not bare shorthand),
-                // except non-strict non-generator `yield` (IdentifierReference, E19.37).
+                // except non-strict non-generator `yield` (IdentifierReference, E19.37)
+                // and [~Await] `await` (E19.52).
                 // Escaped reserved words are TokenKind::Ident but still invalid IdentifierReference
                 // (E19.39 assignment dstr / object shorthand).
                 let is_keyword_key = !matches!(key_tok.kind, TokenKind::Ident(_))
-                    && !(matches!(key_tok.kind, TokenKind::Yield) && self.yield_is_ident());
+                    && !(matches!(key_tok.kind, TokenKind::Yield) && self.yield_is_ident())
+                    && !(matches!(key_tok.kind, TokenKind::Await) && self.await_is_ident());
                 if matches!(&key_tok.kind, TokenKind::Ident(n) if self.is_invalid_ident_name(n))
                     && (self.check(&TokenKind::Comma)
                         || self.check(&TokenKind::RBrace)
@@ -4047,12 +4111,15 @@ impl Parser {
     ) -> Result<Expr, Diagnostic> {
         self.expect(&TokenKind::LParen)?;
         let prev_gen = self.in_generator;
+        let prev_await = self.in_await_context;
         self.in_generator = is_generator;
+        self.in_await_context = is_async;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
         // E19.39: FormalParameters of a generator must not contain YieldExpression.
         if is_generator && params_contain_yield_expr(&params) {
             self.in_generator = prev_gen;
+            self.in_await_context = prev_await;
             return Err(Diagnostic::new(
                 "generator parameters cannot contain yield".to_string(),
                 Span::new(start, self.current_span().end.0),
@@ -4061,6 +4128,7 @@ impl Parser {
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
+        self.in_await_context = prev_await;
         let end = stmt_span(&body).end.0;
         Ok(Expr::FunctionExpression {
             name: None,
@@ -4243,6 +4311,18 @@ impl Parser {
             }
             TokenKind::Yield => Err(Diagnostic::new(
                 "'yield' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
+            // E19.52: [~Await] IdentifierReference `await` (scripts, non-async functions).
+            TokenKind::Await if self.await_is_ident() => {
+                self.bump();
+                Ok(Expr::Ident(Ident {
+                    name: "await".into(),
+                    span: tok.span,
+                }))
+            }
+            TokenKind::Await => Err(Diagnostic::new(
+                "'await' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
             // Non-strict IdentifierReference `let` (E19.41 statement-position ASI / bare `let`).
@@ -4455,6 +4535,7 @@ impl Parser {
         match &self.current().kind {
             TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
             TokenKind::Yield if self.yield_is_ident() => true,
+            TokenKind::Await if self.await_is_ident() => true,
             _ => false,
         }
     }
@@ -4468,6 +4549,14 @@ impl Parser {
             }
             TokenKind::Yield => Err(Diagnostic::new(
                 "'yield' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
+            TokenKind::Await if self.await_is_ident() => {
+                self.bump();
+                Ok(tok)
+            }
+            TokenKind::Await => Err(Diagnostic::new(
+                "'await' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
             TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
@@ -4612,11 +4701,11 @@ impl IdentName for Token {
 
 /// ECMA-262 ReservedWord (always reserved; not strict-only FutureReservedWord).
 /// `yield` is handled via `TokenKind::Yield` + `yield_is_ident` (E19.37), not here.
+/// `await` is handled via `TokenKind::Await` + `await_is_ident` (E19.52), not here.
 fn is_reserved_word(name: &str) -> bool {
     matches!(
         name,
-        "await"
-            | "break"
+        "break"
             | "case"
             | "catch"
             | "class"
@@ -8100,6 +8189,86 @@ Program
         assert!(
             gen.contains("Unary yield"),
             "generator yield expr, got:\n{gen}"
+        );
+    }
+
+    #[test]
+    fn parse_await_as_identifier_script() {
+        // E19.52: outside modules/async/static-blocks, `await` is IdentifierReference.
+        let dump = parse_and_dump("var await = 0; await = 1;").unwrap();
+        assert!(
+            dump.contains("name: await") && dump.contains("Ident await"),
+            "await as binding/ident, got:\n{dump}"
+        );
+        assert!(
+            !dump.contains("Unary await"),
+            "must not parse as AwaitExpression, got:\n{dump}"
+        );
+
+        let cls = parse_and_dump("var C = class await {};").unwrap();
+        assert!(
+            cls.contains("name: await"),
+            "class expression name await, got:\n{cls}"
+        );
+
+        // Strict script still allows await as ident (not module).
+        let strict = parse_and_dump("\"use strict\"; var await = 1; ({ await });").unwrap();
+        assert!(
+            strict.contains("Ident await"),
+            "strict script await-ident, got:\n{strict}"
+        );
+
+        // Nested in static block: function expression may bind await.
+        let nested = parse_and_dump(
+            "class C { static { (function await(await) {}); ({method(await){}}); } }",
+        )
+        .unwrap();
+        assert!(
+            nested.contains("name: await"),
+            "static-block nested FE/method await binding, got:\n{nested}"
+        );
+
+        // Direct binding in static block is [+Await] → error.
+        assert!(
+            parse_and_dump("class C { static { function await() {} } }").is_err(),
+            "static-block FunctionDeclaration name await must fail"
+        );
+        assert!(
+            parse_and_dump("class C { static { let await = 1; } }").is_err(),
+            "static-block let await must fail"
+        );
+
+        // Async body: await is keyword.
+        let async_fn = parse_and_dump("async function f() { await 1; }").unwrap();
+        assert!(
+            async_fn.contains("Unary await"),
+            "async await expr, got:\n{async_fn}"
+        );
+
+        // Module: await reserved everywhere (goal-symbol early error).
+        assert!(
+            parse_module("var await = 1;").is_err(),
+            "module BindingIdentifier await must fail"
+        );
+        assert!(
+            parse_module("function f() { let await = 1; }").is_err(),
+            "module nested await binding must fail"
+        );
+        assert!(
+            parse_module("async () => class { x = await };").is_err(),
+            "module field await-ident must fail"
+        );
+
+        // Class field Initializer is [~Await]: script allows await-ident even in async.
+        let field = parse_and_dump("var await = 1; async function f() { return class { x = await; }; }")
+            .unwrap();
+        assert!(
+            field.contains("Ident await") && !field.contains("Unary await"),
+            "class field await-ident in async, got:\n{field}"
+        );
+        assert!(
+            parse_and_dump("async () => class { x = await 1 };").is_err(),
+            "class field await-expr must fail ([~Await])"
         );
     }
 

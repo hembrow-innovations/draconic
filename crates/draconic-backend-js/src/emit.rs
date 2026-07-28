@@ -70,7 +70,15 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
             out.push_str(";\n");
         }
         Stmt::Expr { expr } => {
-            emit_expr(out, expr, names);
+            // Object / function / class at statement start need grouping so they
+            // are not parsed as block / declaration (E19.52 await-ident fixtures).
+            if expr_needs_stmt_paren(expr) {
+                out.push('(');
+                emit_expr(out, expr, names);
+                out.push(')');
+            } else {
+                emit_expr(out, expr, names);
+            }
             out.push_str(";\n");
         }
         Stmt::Block { body } => {
@@ -924,6 +932,22 @@ fn is_js_ident(s: &str) -> bool {
         _ => return false,
     }
     chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
+}
+
+/// Expression statement forms that would be mis-parsed without grouping parens.
+fn expr_needs_stmt_paren(expr: &Expr) -> bool {
+    match expr {
+        Expr::Object { .. } => true,
+        // Non-arrow function expression at stmt start → FunctionDeclaration.
+        Expr::Function { is_arrow: false, .. } => true,
+        Expr::Assign { value, .. } => expr_needs_stmt_paren(value),
+        Expr::Binary {
+            op: BinaryOp::Comma,
+            left,
+            ..
+        } => expr_needs_stmt_paren(left),
+        _ => false,
+    }
 }
 
 /// Object-pattern property key: static name or computed `[expr]`.

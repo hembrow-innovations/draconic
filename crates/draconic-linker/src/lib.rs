@@ -17,7 +17,7 @@ use draconic_ast::{
 };
 use draconic_diagnostics::{Diagnostic, Span};
 
-use draconic_parser::parse;
+use draconic_parser::parse_module;
 
 /// Parse `entry` and all static relative imports into one linked Program.
 pub fn link_entry(entry: &Path) -> Result<Program, Diagnostic> {
@@ -101,7 +101,8 @@ impl Loader {
                 Span::dummy(),
             )
         })?;
-        let program = parse(&source)?;
+        // ESM files are always Module goal ([+Await], reserved `await`) — E19.52.
+        let program = parse_module(&source)?;
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
 
         let mut body = Vec::new();
