@@ -431,9 +431,9 @@ pub enum ArrayPatternEl {
 /// One property of an object destructuring pattern in IR.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectPatternEl {
-    /// `key` / `key: pattern` / defaults (static ident key only).
+    /// `key` / `key: pattern` / `[expr]: pattern` / defaults.
     Prop {
-        key: String,
+        key: ObjectPropKey,
         binding: Pattern,
         shorthand: bool,
         default: Option<Expr>,
@@ -3236,7 +3236,17 @@ fn lower_object_pattern_props(
             } => {
                 let hint = single_name_binding_hint(binding);
                 ObjectPatternEl::Prop {
-                    key: key.name.clone(),
+                    key: match key {
+                        draconic_ast::ObjectKey::Ident(id) => {
+                            ObjectPropKey::Static(id.name.clone().into())
+                        }
+                        draconic_ast::ObjectKey::String(s) => {
+                            ObjectPropKey::Static(s.value.clone())
+                        }
+                        draconic_ast::ObjectKey::Computed(expr) => {
+                            ObjectPropKey::Computed(lower_expr(checked, ctx, expr, None))
+                        }
+                    },
                     binding: lower_binding_pattern(checked, ctx, binding),
                     shorthand: *shorthand,
                     default: default
@@ -3414,10 +3424,23 @@ fn dump_object_pattern_els(properties: &[ObjectPatternEl], level: usize, out: &m
                 default,
             } => {
                 indent(level, out);
-                if *shorthand {
-                    out.push_str(&format!("prop shorthand {key}:\n"));
-                } else {
-                    out.push_str(&format!("prop {key}:\n"));
+                match key {
+                    ObjectPropKey::Static(k) => {
+                        let name = k.to_string_lossy();
+                        if *shorthand {
+                            out.push_str(&format!("prop shorthand {name}:\n"));
+                        } else {
+                            out.push_str(&format!("prop {name}:\n"));
+                        }
+                    }
+                    ObjectPropKey::Computed(e) => {
+                        if *shorthand {
+                            out.push_str("prop shorthand Computed:\n");
+                        } else {
+                            out.push_str("prop Computed:\n");
+                        }
+                        dump_expr(e, level + 1, out);
+                    }
                 }
                 dump_pattern(binding, level + 1, out);
                 if let Some(def) = default {
@@ -3475,10 +3498,11 @@ fn dump_pattern_inline(pat: &Pattern, out: &mut String) {
                         shorthand,
                         default,
                     } => {
-                        if *shorthand {
-                            out.push_str(key);
-                        } else {
-                            out.push_str(key);
+                        match key {
+                            ObjectPropKey::Static(k) => out.push_str(&k.to_string_lossy()),
+                            ObjectPropKey::Computed(_) => out.push_str("[…]"),
+                        }
+                        if !*shorthand {
                             out.push_str(": ");
                             dump_pattern_inline(binding, out);
                         }

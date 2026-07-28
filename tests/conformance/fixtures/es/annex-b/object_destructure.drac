@@ -37,3 +37,16 @@ let strKey;
 ({ "0": strKey } = { "0": 99 });
 let hexKey;
 ({ 0x10: hexKey } = { 16: 16 });
+// E19.46: computed PropertyName keys in object binding / assignment patterns
+let ck = "a";
+let { [ck]: cv } = { a: 11, b: 22 };
+let cSum = cv;
+let ck2 = "x";
+function takeComputed({ [ck2]: p }) {
+  return p;
+}
+let cParam = takeComputed({ x: 33 });
+let cAsg;
+({ [ck]: cAsg } = { a: 44 });
+let cDef;
+({ [ck]: cDef = 55 } = {});

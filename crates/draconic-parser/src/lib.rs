@@ -2594,7 +2594,7 @@ impl Parser {
                     // PropertyName: IdentifierName | StringLiteral | NumericLiteral | [AssignmentExpression]
                     // Shorthand only for BindingIdentifier (not string/number/computed).
                     let (key, can_shorthand) = self.parse_binding_property_name()?;
-                    let key_span = key.span;
+                    let key_span = object_key_span(&key);
                     if self.check(&TokenKind::Colon) {
                         self.bump();
                         let binding = self.parse_binding_pattern()?;
@@ -2622,12 +2622,18 @@ impl Parser {
                                 self.current().span,
                             ));
                         }
+                        let ObjectKey::Ident(key_id) = &key else {
+                            return Err(Diagnostic::new(
+                                "expected ':' after property name in object pattern".to_string(),
+                                self.current().span,
+                            ));
+                        };
                         // Shorthand `{ a }` — BindingIdentifier (yield only when yield_is_ident).
-                        if self.is_invalid_ident_name(&key.name) {
+                        if self.is_invalid_ident_name(&key_id.name) {
                             return Err(Diagnostic::new(
                                 format!(
                                     "'{}' is a reserved word and cannot be used as an identifier",
-                                    key.name
+                                    key_id.name
                                 ),
                                 key_span,
                             ));
@@ -2641,13 +2647,13 @@ impl Parser {
                         let end = default
                             .as_ref()
                             .map(|d| expr_span(d).end.0)
-                            .unwrap_or(key.span.end.0);
+                            .unwrap_or(key_id.span.end.0);
                         properties.push(ObjectPatternProp::Prop {
                             key: key.clone(),
-                            binding: BindingPattern::Ident(key.clone()),
+                            binding: BindingPattern::Ident(key_id.clone()),
                             shorthand: true,
                             default,
-                            span: Span::new(key.span.start.0, end),
+                            span: Span::new(key_id.span.start.0, end),
                         });
                     }
                 }
@@ -4389,30 +4395,29 @@ impl Parser {
         }
     }
 
-    /// Object-pattern PropertyName → key Ident (string form) + whether shorthand is allowed.
-    /// Numeric/string keys become Ident with the ToPropertyKey string; computed → Ident of
-    /// a synthetic form is not used — computed returns via ObjectKey path only for assignment.
-    fn parse_binding_property_name(&mut self) -> Result<(Ident, bool), Diagnostic> {
+    /// Object-pattern PropertyName → ObjectKey + whether shorthand is allowed.
+    /// Shorthand only for IdentifierName; string/number/computed require `:`.
+    fn parse_binding_property_name(&mut self) -> Result<(ObjectKey, bool), Diagnostic> {
         let tok = self.current().clone();
         if let Some(name) = tok.ident_name_opt() {
             self.bump();
             return Ok((
-                Ident {
+                ObjectKey::Ident(Ident {
                     name,
                     span: tok.span,
-                },
+                }),
                 true,
             ));
         }
         match &tok.kind {
             TokenKind::String(value) => {
-                let name = value.to_string_lossy();
+                let value = value.clone();
                 self.bump();
                 Ok((
-                    Ident {
-                        name,
+                    ObjectKey::String(StringLit {
+                        value,
                         span: tok.span,
-                    },
+                    }),
                     false,
                 ))
             }
@@ -4420,22 +4425,18 @@ impl Parser {
                 let name = numeric_literal_property_name(raw);
                 self.bump();
                 Ok((
-                    Ident {
-                        name,
+                    ObjectKey::String(StringLit {
+                        value: name.into(),
                         span: tok.span,
-                    },
+                    }),
                     false,
                 ))
             }
             TokenKind::LBracket => {
-                // Computed property names in binding patterns: store key as empty +
-                // not supported as Ident — reject until AST gains ObjectKey on patterns.
-                // For E19.43 scope is numeric/string only; computed still fails here.
-                Err(Diagnostic::new(
-                    "computed property names in object binding patterns are not yet supported"
-                        .to_string(),
-                    tok.span,
-                ))
+                self.bump();
+                let expr = self.parse_assignment()?;
+                self.expect(&TokenKind::RBracket)?;
+                Ok((ObjectKey::Computed(Box::new(expr)), false))
             }
             _ => Err(Diagnostic::new(
                 format!("expected property name, found {:?}", tok.kind),
@@ -4991,13 +4992,24 @@ fn binding_pattern_contains_yield_expr(b: &BindingPattern) -> bool {
         }),
         BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
             ObjectPatternProp::Prop {
-                binding, default, ..
+                key,
+                binding,
+                default,
+                ..
             } => {
-                binding_pattern_contains_yield_expr(binding)
+                object_key_contains_yield_expr(key)
+                    || binding_pattern_contains_yield_expr(binding)
                     || default.as_ref().is_some_and(expr_contains_yield_expr)
             }
             ObjectPatternProp::Rest(inner) => binding_pattern_contains_yield_expr(inner),
         }),
+    }
+}
+
+fn object_key_contains_yield_expr(key: &ObjectKey) -> bool {
+    match key {
+        ObjectKey::Computed(e) => expr_contains_yield_expr(e),
+        ObjectKey::Ident(_) | ObjectKey::String(_) => false,
     }
 }
 
@@ -5079,9 +5091,13 @@ fn binding_pattern_contains_super_call(b: &BindingPattern) -> bool {
         }),
         BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
             ObjectPatternProp::Prop {
-                binding, default, ..
+                key,
+                binding,
+                default,
+                ..
             } => {
-                binding_pattern_contains_super_call(binding)
+                object_key_contains_super_call(key)
+                    || binding_pattern_contains_super_call(binding)
                     || default.as_ref().is_some_and(expr_contains_super_call)
             }
             ObjectPatternProp::Rest(inner) => binding_pattern_contains_super_call(inner),
@@ -5632,8 +5648,11 @@ fn expr_contains_super_call(expr: &Expr) -> bool {
             _ => false,
         }),
         Expr::ObjectPattern { properties, .. } => properties.iter().any(|p| match p {
-            ObjectPatternProp::Prop { default, .. } => {
-                default.as_ref().is_some_and(expr_contains_super_call)
+            ObjectPatternProp::Prop {
+                key, default, ..
+            } => {
+                object_key_contains_super_call(key)
+                    || default.as_ref().is_some_and(expr_contains_super_call)
             }
             _ => false,
         }),
@@ -5762,9 +5781,13 @@ fn expr_contains_arguments_ref(expr: &Expr) -> bool {
         }),
         Expr::ObjectPattern { properties, .. } => properties.iter().any(|p| match p {
             ObjectPatternProp::Prop {
-                binding, default, ..
+                key,
+                binding,
+                default,
+                ..
             } => {
-                binding_contains_arguments(binding)
+                object_key_contains_arguments(key)
+                    || binding_contains_arguments(binding)
                     || default.as_ref().is_some_and(expr_contains_arguments_ref)
             }
             ObjectPatternProp::Rest(b) => binding_contains_arguments(b),
@@ -5786,9 +5809,13 @@ fn binding_contains_arguments(b: &BindingPattern) -> bool {
         BindingPattern::Member(e) => expr_contains_arguments_ref(e),
         BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
             ObjectPatternProp::Prop {
-                binding, default, ..
+                key,
+                binding,
+                default,
+                ..
             } => {
-                binding_contains_arguments(binding)
+                object_key_contains_arguments(key)
+                    || binding_contains_arguments(binding)
                     || default.as_ref().is_some_and(expr_contains_arguments_ref)
             }
             ObjectPatternProp::Rest(inner) => binding_contains_arguments(inner),
@@ -5943,9 +5970,11 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 shorthand,
                 span: prop_span,
             } => {
-                let key_id = object_key_to_pattern_ident(key)?;
                 // CoverInitializedName: `{ a = default }` encoded as shorthand Assign.
                 if *shorthand {
+                    let ObjectKey::Ident(key_id) = key else {
+                        return None;
+                    };
                     if let Expr::Assign {
                         target,
                         op: AssignOp::Eq,
@@ -5960,7 +5989,7 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                             return None;
                         }
                         props.push(ObjectPatternProp::Prop {
-                            key: key_id.clone(),
+                            key: key.clone(),
                             binding: BindingPattern::Ident(id.clone()),
                             shorthand: true,
                             default: Some((**def).clone()),
@@ -5971,7 +6000,7 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
                 }
                 let (binding, default) = expr_to_pattern_element(value)?;
                 props.push(ObjectPatternProp::Prop {
-                    key: key_id,
+                    key: key.clone(),
                     binding,
                     shorthand: *shorthand,
                     default,
@@ -5990,18 +6019,6 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
         properties: props,
         span: *span,
     })
-}
-
-/// Static PropertyName → pattern key Ident (numeric/string keys use ToPropertyKey string).
-fn object_key_to_pattern_ident(key: &ObjectKey) -> Option<Ident> {
-    match key {
-        ObjectKey::Ident(id) => Some(id.clone()),
-        ObjectKey::String(s) => Some(Ident {
-            name: s.value.to_string_lossy(),
-            span: s.span,
-        }),
-        ObjectKey::Computed(_) => None,
-    }
 }
 
 fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
@@ -6064,8 +6081,10 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         shorthand,
                         span: prop_span,
                     } => {
-                        let key_id = object_key_to_pattern_ident(key)?;
                         if *shorthand {
+                            let ObjectKey::Ident(key_id) = key else {
+                                return None;
+                            };
                             if let Expr::Assign {
                                 target,
                                 op: AssignOp::Eq,
@@ -6080,7 +6099,7 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                                     return None;
                                 }
                                 props.push(ObjectPatternProp::Prop {
-                                    key: key_id.clone(),
+                                    key: key.clone(),
                                     binding: BindingPattern::Ident(id.clone()),
                                     shorthand: true,
                                     default: Some((**def).clone()),
@@ -6091,7 +6110,7 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
                         }
                         let (binding, default) = expr_to_pattern_element(value)?;
                         props.push(ObjectPatternProp::Prop {
-                            key: key_id,
+                            key: key.clone(),
                             binding,
                             shorthand: *shorthand,
                             default,
@@ -8283,6 +8302,42 @@ Program
         assert!(
             parse_and_dump("if (true) var x = 1;\n").is_ok(),
             "var VariableStatement is allowed in Statement position"
+        );
+    }
+
+    /// E19.46: computed property names in object binding / assignment patterns.
+    #[test]
+    fn parse_e19_46_object_binding_computed_keys() {
+        let dump = parse_and_dump("let { [k]: v } = a;\n").unwrap();
+        assert!(
+            dump.contains("ObjectPattern")
+                && dump.contains("key: Computed")
+                && dump.contains("name: v"),
+            "computed key in let object pattern; got:\n{dump}"
+        );
+        let dump = parse_and_dump("function f({ [k]: v }) {}\n").unwrap();
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: Computed"),
+            "computed key in params; got:\n{dump}"
+        );
+        let dump = parse_and_dump("({ [k]: x } = a);\n").unwrap();
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: Computed"),
+            "assignment object pattern computed key; got:\n{dump}"
+        );
+        let dump = parse_and_dump("let { [k + 1]: v = 0 } = a;\n").unwrap();
+        assert!(
+            dump.contains("key: Computed") && dump.contains("default:"),
+            "computed key with default; got:\n{dump}"
+        );
+        let dump = parse_and_dump("const { [\"x\"]: n } = a;\n").unwrap();
+        assert!(
+            dump.contains("key: Computed"),
+            "string expr computed key; got:\n{dump}"
+        );
+        assert!(
+            parse("let { [k] } = a;\n").is_err(),
+            "computed key without ':' must fail (no shorthand)"
         );
     }
 

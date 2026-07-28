@@ -425,8 +425,14 @@ fn reject_native_only_array_pat_el(el: &ArrayPatternEl) -> Result<(), Diagnostic
 fn reject_native_only_object_pat_el(el: &ObjectPatternEl) -> Result<(), Diagnostic> {
     match el {
         ObjectPatternEl::Prop {
-            binding, default, ..
+            key,
+            binding,
+            default,
+            ..
         } => {
+            if let draconic_ir::ObjectPropKey::Computed(e) = key {
+                reject_native_only_expr(e)?;
+            }
             reject_native_only_pattern(binding)?;
             if let Some(d) = default {
                 reject_native_only_expr(d)?;

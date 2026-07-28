@@ -2099,8 +2099,12 @@ impl Binder {
                 for p in properties {
                     match p {
                         ObjectPatternProp::Prop {
-                            binding, default, ..
+                            key,
+                            binding,
+                            default,
+                            ..
                         } => {
+                            self.bind_object_key(key)?;
                             self.bind_assign_pattern(binding)?;
                             if let Some(def) = default {
                                 self.bind_expr(def)?;
@@ -2153,8 +2157,12 @@ impl Binder {
                 for p in properties {
                     match p {
                         ObjectPatternProp::Prop {
-                            binding, default, ..
+                            key,
+                            binding,
+                            default,
+                            ..
                         } => {
+                            self.bind_object_key(key)?;
                             self.bind_assign_pattern(binding)?;
                             if let Some(def) = default {
                                 self.bind_expr(def)?;
@@ -2170,7 +2178,8 @@ impl Binder {
         }
     }
 
-    /// Bind free references in pattern default initializers (`pat = expr`).
+    /// Bind free references in pattern default initializers (`pat = expr`)
+    /// and computed property names in object patterns.
     fn bind_pattern_defaults(&mut self, pat: &BindingPattern) -> Result<(), Diagnostic> {
         match pat {
             BindingPattern::Ident(_) | BindingPattern::Member(_) => Ok(()),
@@ -2195,8 +2204,12 @@ impl Binder {
                 for p in properties {
                     match p {
                         ObjectPatternProp::Prop {
-                            binding, default, ..
+                            key,
+                            binding,
+                            default,
+                            ..
                         } => {
+                            self.bind_object_key(key)?;
                             self.bind_pattern_defaults(binding)?;
                             if let Some(def) = default {
                                 self.bind_expr(def)?;
@@ -2640,8 +2653,12 @@ impl<'a> Checker<'a> {
                 for p in properties {
                     match p {
                         ObjectPatternProp::Prop {
-                            binding, default, ..
+                            key,
+                            binding,
+                            default,
+                            ..
                         } => {
+                            self.check_object_key(key)?;
                             self.check_binding_pattern(binding, Type::Any)?;
                             if let Some(def) = default {
                                 self.check_expr(def)?;
@@ -2747,8 +2764,12 @@ impl<'a> Checker<'a> {
                 for p in properties {
                     match p {
                         ObjectPatternProp::Prop {
-                            binding, default, ..
+                            key,
+                            binding,
+                            default,
+                            ..
                         } => {
+                            self.check_object_key(key)?;
                             self.check_assign_pattern(binding, span)?;
                             if let Some(def) = default {
                                 self.check_expr(def)?;
@@ -3499,8 +3520,12 @@ impl<'a> Checker<'a> {
                         for p in properties {
                             match p {
                                 ObjectPatternProp::Prop {
-                                    binding, default, ..
+                                    key,
+                                    binding,
+                                    default,
+                                    ..
                                 } => {
+                                    self.check_object_key(key)?;
                                     self.check_assign_pattern(binding, *span)?;
                                     if let Some(def) = default {
                                         self.check_expr(def)?;
@@ -6960,29 +6985,41 @@ mod tests {
                     for p in properties {
                         match p {
                             ObjectPatternProp::Prop {
+                                key,
                                 binding: BindingPattern::Ident(id),
                                 default,
                                 ..
                             } if id.name == name => {
                                 *out = Some(id.span);
+                                if let ObjectKey::Computed(e) = key {
+                                    walk_expr(e, name, out);
+                                }
                                 if let Some(def) = default {
                                     walk_expr(def, name, out);
                                 }
                             }
                             ObjectPatternProp::Prop {
+                                key,
                                 binding: BindingPattern::Ident(_),
                                 default,
                                 ..
                             } => {
+                                if let ObjectKey::Computed(e) = key {
+                                    walk_expr(e, name, out);
+                                }
                                 if let Some(def) = default {
                                     walk_expr(def, name, out);
                                 }
                             }
                             ObjectPatternProp::Prop {
+                                key,
                                 binding: BindingPattern::Array { elements, .. },
                                 default,
                                 ..
                             } => {
+                                if let ObjectKey::Computed(e) = key {
+                                    walk_expr(e, name, out);
+                                }
                                 walk_expr(
                                     &Expr::ArrayPattern {
                                         elements: elements.clone(),
@@ -6996,6 +7033,7 @@ mod tests {
                                 }
                             }
                             ObjectPatternProp::Prop {
+                                key,
                                 binding:
                                     BindingPattern::Object {
                                         properties: nested,
@@ -7004,6 +7042,9 @@ mod tests {
                                 default,
                                 ..
                             } => {
+                                if let ObjectKey::Computed(e) = key {
+                                    walk_expr(e, name, out);
+                                }
                                 walk_expr(
                                     &Expr::ObjectPattern {
                                         properties: nested.clone(),
@@ -7017,10 +7058,14 @@ mod tests {
                                 }
                             }
                             ObjectPatternProp::Prop {
+                                key,
                                 binding: BindingPattern::Member(expr),
                                 default,
                                 ..
                             } => {
+                                if let ObjectKey::Computed(e) = key {
+                                    walk_expr(e, name, out);
+                                }
                                 walk_expr(expr, name, out);
                                 if let Some(def) = default {
                                     walk_expr(def, name, out);

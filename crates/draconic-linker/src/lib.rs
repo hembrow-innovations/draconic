@@ -819,7 +819,7 @@ fn uniqueify_binding_spans(pat: &mut BindingPattern, spans: &mut SyntheticSpans)
                         ..
                     } => {
                         *prop_span = spans.next();
-                        key.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         uniqueify_binding_spans(binding, spans);
                         if let Some(def) = default {
                             uniqueify_expr_spans(def, spans);
@@ -1131,7 +1131,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                         ..
                     } => {
                         *prop_span = spans.next();
-                        key.span = spans.next();
+                        uniqueify_object_key_spans(key, spans);
                         uniqueify_binding_spans(binding, spans);
                         if let Some(def) = default {
                             uniqueify_expr_spans(def, spans);
@@ -1339,8 +1339,12 @@ fn rename_binding_decl(
             for p in properties {
                 match p {
                     ObjectPatternProp::Prop {
-                        binding, default, ..
+                        key,
+                        binding,
+                        default,
+                        ..
                     } => {
+                        rename_object_key(key, renames, scopes);
                         rename_binding_decl(binding, renames, scopes);
                         if let Some(def) = default {
                             rename_expr(def, renames, scopes);
@@ -1779,8 +1783,12 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
             for p in properties {
                 match p {
                     ObjectPatternProp::Prop {
-                        binding, default, ..
+                        key,
+                        binding,
+                        default,
+                        ..
                     } => {
+                        rename_object_key(key, renames, scopes);
                         rename_binding_pattern_use(binding, renames, scopes);
                         if let Some(def) = default {
                             rename_expr(def, renames, scopes);
@@ -1836,8 +1844,12 @@ fn rename_binding_pattern_use(
             for p in properties {
                 match p {
                     ObjectPatternProp::Prop {
-                        binding, default, ..
+                        key,
+                        binding,
+                        default,
+                        ..
                     } => {
+                        rename_object_key(key, renames, scopes);
                         rename_binding_pattern_use(binding, renames, scopes);
                         if let Some(def) = default {
                             rename_expr(def, renames, scopes);

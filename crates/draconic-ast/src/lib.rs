@@ -82,8 +82,8 @@ pub enum ArrayPatternElement {
 pub enum ObjectPatternProp {
     /// `key` shorthand, `key = default`, `key: nested`, or `key: name = default`.
     Prop {
-        /// Property key name (ident only in this surface).
-        key: Ident,
+        /// PropertyName: IdentifierName, StringLiteral, NumericLiteral, or `[AssignmentExpression]`.
+        key: ObjectKey,
         /// Binding target for the property value.
         binding: BindingPattern,
         /// True when written as shorthand `{ a }` / `{ a = d }` (binding is the same Ident as key).
@@ -1079,9 +1079,9 @@ fn dump_binding_pattern_inline(pat: &BindingPattern, out: &mut String) {
                         ..
                     } => {
                         if *shorthand {
-                            out.push_str(&key.name);
+                            dump_object_key_inline(key, out);
                         } else {
-                            out.push_str(&key.name);
+                            dump_object_key_inline(key, out);
                             out.push_str(": ");
                             dump_binding_pattern_inline(binding, out);
                         }
@@ -1161,7 +1161,16 @@ fn dump_object_pattern_props(properties: &[ObjectPatternProp], level: usize, out
                     out.push_str("prop:\n");
                 }
                 indent(level + 1, out);
-                out.push_str(&format!("key: {}\n", key.name));
+                match key {
+                    ObjectKey::Ident(id) => out.push_str(&format!("key: {}\n", id.name)),
+                    ObjectKey::String(s) => {
+                        out.push_str(&format!("key: {}\n", s.value.to_string_lossy()))
+                    }
+                    ObjectKey::Computed(expr) => {
+                        out.push_str("key: Computed\n");
+                        dump_expr(expr, level + 2, out);
+                    }
+                }
                 indent(level + 1, out);
                 out.push_str("binding:\n");
                 dump_binding_pattern(binding, level + 2, out);
@@ -1177,6 +1186,14 @@ fn dump_object_pattern_props(properties: &[ObjectPatternProp], level: usize, out
                 dump_binding_pattern(binding, level + 1, out);
             }
         }
+    }
+}
+
+fn dump_object_key_inline(key: &ObjectKey, out: &mut String) {
+    match key {
+        ObjectKey::Ident(id) => out.push_str(&id.name),
+        ObjectKey::String(s) => out.push_str(&s.value.to_string_lossy()),
+        ObjectKey::Computed(_) => out.push_str("[…]"),
     }
 }
 
