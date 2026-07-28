@@ -1457,14 +1457,10 @@ impl Parser {
         self.in_await_context = prev_await;
         let end = stmt_span(&body).end.0;
         let span = Span::new(start, end);
-        // Only literal IdentifierName `constructor` is the constructor; computed/`"constructor"` are methods.
-        if class_key_is_literal_constructor(&key) {
-            if is_static {
-                return Err(Diagnostic::new(
-                    "class constructor cannot be static".to_string(),
-                    span,
-                ));
-            }
+        // Only non-static literal IdentifierName `constructor` is the constructor.
+        // `static constructor` / `static *constructor` / `static async constructor` are ordinary methods (E19.53).
+        // computed/`"constructor"` are always methods.
+        if class_key_is_literal_constructor(&key) && !is_static {
             if is_async {
                 return Err(Diagnostic::new(
                     "class constructor cannot be async".to_string(),

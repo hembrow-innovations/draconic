@@ -1353,121 +1353,266 @@ fn lower_class_local(
         });
     }
 
+    // Default derived ctor uses Reflect.construct + temp `this` when this class has
+    // instance brands/fields that must run after parent construction (E19.53).
+    // Empty `class X extends Map {}` stays a thin ctor so Annex B brand checks on
+    // non-constructed exotic instances keep their prior shape.
+    // Super expression is evaluated once at class def (not inside ctor) so TLA
+    // `extends fn(await x)` keeps `await` at module top-level.
+    let needs_instance_init =
+        !instance_fields.is_empty() || !instance_brands.is_empty();
+    let default_derived_ctor =
+        ctor_body_ast.is_none() && super_class.is_some() && needs_instance_init;
+    let derived_this_id = if default_derived_ctor {
+        Some(ctx.alloc_synthetic_local(
+            format!("__drac_this_{}", local.0),
+            Type::Any,
+        ))
+    } else {
+        None
+    };
+    let super_local_id = if default_derived_ctor {
+        Some(ctx.alloc_synthetic_local(
+            format!("__drac_super_{}", local.0),
+            Type::Any,
+        ))
+    } else {
+        None
+    };
     let mut ctor_body = match ctor_body_ast {
         Some(body) => lower_fn_body(checked, ctx, body, super_class),
+        None if default_derived_ctor => {
+            let this_id = derived_this_id.expect("derived this temp");
+            let super_id = super_local_id.expect("super temp");
+            // `_this = Reflect.construct(__drac_super, arguments, new.target)`
+            let reflect_construct = Expr::Call {
+                callee: Box::new(Expr::Member {
+                    object: Box::new(Expr::IdentName {
+                        name: "Reflect".into(),
+                        ty: Type::Object,
+                    }),
+                    property: Box::new(Expr::String {
+                        value: "construct".into(),
+                        ty: Type::String,
+                    }),
+                    computed: false,
+                    optional: false,
+                    ty: Type::Function,
+                }),
+                args: vec![
+                    Arg::Expr(Expr::Local {
+                        id: super_id,
+                        ty: Type::Any,
+                    }),
+                    Arg::Expr(Expr::IdentName {
+                        name: "arguments".into(),
+                        ty: Type::Any,
+                    }),
+                    Arg::Expr(Expr::NewTarget { ty: Type::Any }),
+                ],
+                optional: false,
+                ty: Type::Any,
+            };
+            vec![Stmt::Declare {
+                local: this_id,
+                init: Some(reflect_construct),
+                kind: BindingKind::Let,
+            }]
+        }
         None => Vec::new(),
     };
+    // For default derived ctor, field/brand inits must target `_this`, not bare `this`.
+    let ctor_this = || {
+        if let Some(id) = derived_this_id {
+            Expr::Local {
+                id,
+                ty: Type::Any,
+            }
+        } else {
+            Expr::This { ty: Type::Any }
+        }
+    };
 
+    // Computed public instance field names are ToPropertyKey'd at class evaluation
+    // (not construct) — store keys in temps referenced from the constructor (E19.53).
+    let mut computed_field_key_locals: Vec<(LocalId, Expr)> = Vec::new();
     if !instance_fields.is_empty() {
-        let field_inits: Vec<Stmt> = instance_fields
-            .iter()
-            .map(|(fkey, value, is_private)| {
-                let init = match value {
-                    Some(v) => lower_expr(checked, ctx, v, super_class),
-                    None => Expr::IdentName {
-                        name: "undefined".into(),
+        let mut field_inits: Vec<Stmt> = Vec::with_capacity(instance_fields.len());
+        for (fkey, value, is_private) in &instance_fields {
+            let init = match value {
+                Some(v) => lower_expr(checked, ctx, v, super_class),
+                None => Expr::IdentName {
+                    name: "undefined".into(),
+                    ty: Type::Any,
+                },
+            };
+            let stmt = if *is_private {
+                let pname = object_key_private_name(fkey).expect("private field name");
+                let wm = *ctx
+                    .private_fields
+                    .get(pname)
+                    .expect("private field WeakMap");
+                Stmt::Expr {
+                    expr: Expr::Call {
+                        callee: Box::new(Expr::Member {
+                            object: Box::new(Expr::Local {
+                                id: wm,
+                                ty: Type::Any,
+                            }),
+                            property: Box::new(Expr::String {
+                                value: "set".into(),
+                                ty: Type::String,
+                            }),
+                            computed: false,
+                            optional: false,
+                            ty: Type::Function,
+                        }),
+                        args: vec![Arg::Expr(ctor_this()), Arg::Expr(init)],
+                        optional: false,
                         ty: Type::Any,
                     },
-                };
-                if *is_private {
-                    let pname = object_key_private_name(fkey).expect("private field name");
-                    let wm = *ctx
-                        .private_fields
-                        .get(pname)
-                        .expect("private field WeakMap");
-                    // wm.set(this, init)
-                    Stmt::Expr {
-                        expr: Expr::Call {
-                            callee: Box::new(Expr::Member {
-                                object: Box::new(Expr::Local {
-                                    id: wm,
-                                    ty: Type::Any,
-                                }),
-                                property: Box::new(Expr::String {
-                                    value: "set".into(),
-                                    ty: Type::String,
-                                }),
-                                computed: false,
-                                optional: false,
-                                ty: Type::Function,
-                            }),
-                            args: vec![
-                                Arg::Expr(Expr::This { ty: Type::Any }),
-                                Arg::Expr(init),
-                            ],
-                            optional: false,
-                            ty: Type::Any,
-                        },
-                    }
-                } else {
-                    let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, super_class);
-                    Stmt::Expr {
-                        expr: Expr::Assign {
-                            target: AssignTarget::Member {
-                                object: Box::new(Expr::This { ty: Type::Any }),
-                                property: Box::new(prop),
-                                computed,
-                            },
-                            op: AssignOp::Eq,
-                            value: Box::new(init),
-                            ty: Type::Any,
-                        },
-                    }
                 }
-            })
-            .collect();
-        // After `super(...)` when present (first body stmt), else at start of ctor.
+            } else if matches!(fkey, draconic_ast::ObjectKey::Computed(_)) {
+                let key_expr = lower_object_key_name_expr(checked, ctx, fkey, super_class);
+                let key_id = ctx.alloc_synthetic_local(
+                    format!("__drac_cfk_{}_{}", local.0, computed_field_key_locals.len()),
+                    Type::Any,
+                );
+                // Reflect.ownKeys({[key]:1})[0] forces ToPropertyKey at class eval.
+                let to_key = Expr::Member {
+                    object: Box::new(Expr::Call {
+                        callee: Box::new(Expr::Member {
+                            object: Box::new(Expr::IdentName {
+                                name: "Reflect".into(),
+                                ty: Type::Object,
+                            }),
+                            property: Box::new(Expr::String {
+                                value: "ownKeys".into(),
+                                ty: Type::String,
+                            }),
+                            computed: false,
+                            optional: false,
+                            ty: Type::Function,
+                        }),
+                        args: vec![Arg::Expr(Expr::Object {
+                            properties: vec![ObjectProp::Property {
+                                key: ObjectPropKey::Computed(key_expr),
+                                value: Expr::Number {
+                                    raw: "1".into(),
+                                    ty: Type::Number,
+                                },
+                            }],
+                            ty: Type::Object,
+                        })],
+                        optional: false,
+                        ty: Type::Any,
+                    }),
+                    property: Box::new(Expr::Number {
+                        raw: "0".into(),
+                        ty: Type::Number,
+                    }),
+                    computed: true,
+                    optional: false,
+                    ty: Type::Any,
+                };
+                computed_field_key_locals.push((key_id, to_key));
+                Stmt::Expr {
+                    expr: Expr::Assign {
+                        target: AssignTarget::Member {
+                            object: Box::new(ctor_this()),
+                            property: Box::new(Expr::Local {
+                                id: key_id,
+                                ty: Type::Any,
+                            }),
+                            computed: true,
+                        },
+                        op: AssignOp::Eq,
+                        value: Box::new(init),
+                        ty: Type::Any,
+                    },
+                }
+            } else {
+                let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, super_class);
+                Stmt::Expr {
+                    expr: Expr::Assign {
+                        target: AssignTarget::Member {
+                            object: Box::new(ctor_this()),
+                            property: Box::new(prop),
+                            computed,
+                        },
+                        op: AssignOp::Eq,
+                        value: Box::new(init),
+                        ty: Type::Any,
+                    },
+                }
+            };
+            field_inits.push(stmt);
+        }
+        // Private methods brand before field initializers (InitializeInstanceElements).
+        // After `super(...)` / Reflect.construct when present (first body stmt).
         let insert_at = if super_class.is_some() && !ctor_body.is_empty() {
             1
         } else {
             0
         };
-        let mut new_body = Vec::with_capacity(ctor_body.len() + field_inits.len());
+        let brand_inits: Vec<Stmt> = instance_brands
+            .iter()
+            .map(|brand| private_brand_add(*brand, ctor_this()))
+            .collect();
+        let mut new_body =
+            Vec::with_capacity(ctor_body.len() + field_inits.len() + brand_inits.len());
         new_body.extend(ctor_body.drain(..insert_at.min(ctor_body.len())));
+        new_body.extend(brand_inits);
         new_body.extend(field_inits);
         new_body.extend(ctor_body);
         ctor_body = new_body;
-    }
-
-    // Brand instances for private methods/accessors (E18.40).
-    if !instance_brands.is_empty() {
+    } else if !instance_brands.is_empty() {
+        // Brands only (no instance fields).
         let brand_inits: Vec<Stmt> = instance_brands
             .iter()
-            .map(|brand| private_brand_add(*brand, Expr::This { ty: Type::Any }))
+            .map(|brand| private_brand_add(*brand, ctor_this()))
             .collect();
         let insert_at = if super_class.is_some() && !ctor_body.is_empty() {
-            // After super; field inits already after super when present.
             1
         } else {
             0
         };
-        // Prefer after field inits: find end of leading brand/field region is complex;
-        // append brand adds right after super (or start), then fields already shifted.
-        // Install brands at the same insert point as fields would use when fields empty,
-        // or immediately after whatever was inserted for fields.
         let mut new_body = Vec::with_capacity(ctor_body.len() + brand_inits.len());
-        // If we already inserted fields after super, brands should also run after super.
-        // Use insert_at but if fields were inserted, brands should be after fields.
-        // Simpler: always insert brands just after super (index 1) or at 0, before fields
-        // is wrong for fields-only branding via WeakMap — methods need brand on this.
-        // Order: super, fields (wm.set), brands (ws.add), rest — fields already in place.
-        // Find first non-field-init is hard; append brands after all field inits by
-        // inserting at insert_at + field count. Track field count from instance_fields.
-        let after_fields = if !instance_fields.is_empty() {
-            let n_fields = instance_fields.len();
-            insert_at + n_fields
-        } else {
-            insert_at
-        };
-        new_body.extend(ctor_body.drain(..after_fields.min(ctor_body.len())));
+        new_body.extend(ctor_body.drain(..insert_at.min(ctor_body.len())));
         new_body.extend(brand_inits);
         new_body.extend(ctor_body);
         ctor_body = new_body;
     }
 
+    if let Some(this_id) = derived_this_id {
+        ctor_body.push(Stmt::Return {
+            value: Some(Expr::Local {
+                id: this_id,
+                ty: Type::Any,
+            }),
+        });
+    }
+
     let mut out = private_wm_decls;
     out.extend(private_brand_decls);
     out.extend(private_method_fns);
+    // Evaluate extends expression once before ctor (TLA-safe) for default derived classes.
+    if let (Some(super_id), Some(sc)) = (super_local_id, super_class) {
+        let parent = lower_expr(checked, ctx, sc, None);
+        out.push(Stmt::Declare {
+            local: super_id,
+            init: Some(parent),
+            kind: BindingKind::Let,
+        });
+    }
+    // Declare computed field key temps before constructor (referenced from ctor body).
+    for (key_id, _) in &computed_field_key_locals {
+        out.push(Stmt::Declare {
+            local: *key_id,
+            init: None,
+            kind: BindingKind::Let,
+        });
+    }
     out.push(Stmt::Function {
         local,
         params: ctor_params,
@@ -1478,6 +1623,17 @@ fn lower_class_local(
     // NamedEvaluation / SetFunctionName before class elements (static `name` may overwrite).
     if let Some(hint) = name_hint {
         out.push(set_function_name_stmt(local, hint));
+    }
+    // Evaluate computed instance field names at class definition time (E19.53).
+    for (key_id, to_key) in computed_field_key_locals {
+        out.push(Stmt::Expr {
+            expr: Expr::Assign {
+                target: AssignTarget::Local(key_id),
+                op: AssignOp::Eq,
+                value: Box::new(to_key),
+                ty: Type::Any,
+            },
+        });
     }
 
     for (method_key, params, body, is_static, is_async, is_generator, is_private) in methods {
@@ -1660,8 +1816,15 @@ fn lower_class_local(
     }
 
     if let Some(sc) = super_class {
-        // Child.prototype.__proto__ = Parent.prototype
-        let parent = lower_expr(checked, ctx, sc, None);
+        // Prefer cached super local (default derived) so extends side-effects run once.
+        let parent = if let Some(super_id) = super_local_id {
+            Expr::Local {
+                id: super_id,
+                ty: Type::Any,
+            }
+        } else {
+            lower_expr(checked, ctx, sc, None)
+        };
         let parent_proto = Expr::Member {
             object: Box::new(parent.clone()),
             property: Box::new(Expr::String {
@@ -2017,16 +2180,16 @@ fn resolve_private_brand(ctx: &LowerCtx, name: &str) -> LocalId {
     panic!("unknown private brand #{name}");
 }
 
-/// `wm.get(object)` for private field read.
-fn private_field_get(wm: LocalId, object: Expr) -> Expr {
+/// `brand.has(object)` (WeakMap/WeakSet).
+fn private_brand_has(brand: LocalId, object: Expr) -> Expr {
     Expr::Call {
         callee: Box::new(Expr::Member {
             object: Box::new(Expr::Local {
-                id: wm,
+                id: brand,
                 ty: Type::Any,
             }),
             property: Box::new(Expr::String {
-                value: "get".into(),
+                value: "has".into(),
                 ty: Type::String,
             }),
             computed: false,
@@ -2035,58 +2198,262 @@ fn private_field_get(wm: LocalId, object: Expr) -> Expr {
         }),
         args: vec![Arg::Expr(object)],
         optional: false,
-        ty: Type::Any,
+        ty: Type::Boolean,
     }
 }
 
-/// `(wm.set(object, value), value)` so assignment yields the RHS.
-fn private_field_set(wm: LocalId, object: Expr, value: Expr) -> Expr {
-    let set_call = Expr::Call {
-        callee: Box::new(Expr::Member {
-            object: Box::new(Expr::Local {
-                id: wm,
-                ty: Type::Any,
-            }),
-            property: Box::new(Expr::String {
-                value: "set".into(),
-                ty: Type::String,
-            }),
-            computed: false,
-            optional: false,
-            ty: Type::Function,
+/// Object-like check: `o != null && (typeof o === "object" || typeof o === "function")`.
+fn is_object_like_expr(object: Expr) -> Expr {
+    let not_nullish = Expr::Binary {
+        left: Box::new(object.clone()),
+        op: BinaryOp::NotEq,
+        right: Box::new(Expr::Null { ty: Type::Null }),
+        ty: Type::Boolean,
+    };
+    let typeof_obj = Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg: Box::new(object.clone()),
+        ty: Type::String,
+    };
+    let is_object = Expr::Binary {
+        left: Box::new(typeof_obj),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::String {
+            value: "object".into(),
+            ty: Type::String,
         }),
-        args: vec![Arg::Expr(object), Arg::Expr(value.clone())],
-        optional: false,
-        ty: Type::Any,
+        ty: Type::Boolean,
+    };
+    let typeof_fn = Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg: Box::new(object),
+        ty: Type::String,
+    };
+    let is_function = Expr::Binary {
+        left: Box::new(typeof_fn),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::String {
+            value: "function".into(),
+            ty: Type::String,
+        }),
+        ty: Type::Boolean,
+    };
+    let is_obj_like = Expr::Binary {
+        left: Box::new(is_object),
+        op: BinaryOp::Or,
+        right: Box::new(is_function),
+        ty: Type::Boolean,
     };
     Expr::Binary {
-        left: Box::new(set_call),
-        op: BinaryOp::Comma,
-        right: Box::new(value),
+        left: Box::new(not_nullish),
+        op: BinaryOp::And,
+        right: Box::new(is_obj_like),
+        ty: Type::Boolean,
+    }
+}
+
+/// `((o) => body)(arg)` with `o` bound once (E19.53 brand / optional private).
+fn iife_bind_arg(ctx: &mut LowerCtx, arg: Expr, body: impl FnOnce(Expr) -> Expr) -> Expr {
+    let pid = ctx.alloc_synthetic_local("__drac_o".into(), Type::Any);
+    let body_expr = body(Expr::Local {
+        id: pid,
+        ty: Type::Any,
+    });
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: vec![Param {
+                pattern: Pattern::Local(pid),
+                default: None,
+                rest: false,
+            }],
+            body: vec![Stmt::Return {
+                value: Some(body_expr),
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(arg)],
+        optional: false,
         ty: Type::Any,
     }
 }
 
-/// Read private field / accessor / method value for `object.#name`.
-fn private_member_get(ctx: &LowerCtx, fname: &str, object: Expr) -> Expr {
-    if let Some(fn_id) = ctx.private_methods.get(fname).copied() {
-        let _ = object;
-        return Expr::Local {
-            id: fn_id,
+/// `base?.#priv…` → `((o) => o == null ? undefined : then(o))(base)`.
+fn optional_private_chain(
+    ctx: &mut LowerCtx,
+    base: Expr,
+    then: impl FnOnce(&mut LowerCtx, Expr) -> Expr,
+) -> Expr {
+    let pid = ctx.alloc_synthetic_local("__drac_o".into(), Type::Any);
+    let o = Expr::Local {
+        id: pid,
+        ty: Type::Any,
+    };
+    let nullish = Expr::Binary {
+        left: Box::new(o.clone()),
+        op: BinaryOp::EqEq,
+        right: Box::new(Expr::Null { ty: Type::Null }),
+        ty: Type::Boolean,
+    };
+    let then_expr = then(ctx, o);
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: vec![Param {
+                pattern: Pattern::Local(pid),
+                default: None,
+                rest: false,
+            }],
+            body: vec![Stmt::Return {
+                value: Some(Expr::Conditional {
+                    test: Box::new(nullish),
+                    consequent: Box::new(Expr::IdentName {
+                        name: "undefined".into(),
+                        ty: Type::Any,
+                    }),
+                    alternate: Box::new(then_expr),
+                    ty: Type::Any,
+                }),
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
             ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(base)],
+        optional: false,
+        ty: Type::Any,
+    }
+}
+
+/// Brand-check `object` then yield `then` (PrivateBrandCheck / PrivateFieldFind).
+fn private_access_checked(
+    ctx: &mut LowerCtx,
+    brand: LocalId,
+    object: Expr,
+    then: impl FnOnce(Expr) -> Expr,
+    err_msg: &str,
+) -> Expr {
+    iife_bind_arg(ctx, object, |o| {
+        let ok = Expr::Binary {
+            left: Box::new(is_object_like_expr(o.clone())),
+            op: BinaryOp::And,
+            right: Box::new(private_brand_has(brand, o.clone())),
+            ty: Type::Boolean,
         };
+        Expr::Conditional {
+            test: Box::new(ok),
+            consequent: Box::new(then(o)),
+            alternate: Box::new(throw_type_error_expr(err_msg)),
+            ty: Type::Any,
+        }
+    })
+}
+
+/// `wm.get(object)` with brand check (missing → TypeError).
+fn private_field_get(ctx: &mut LowerCtx, wm: LocalId, object: Expr) -> Expr {
+    private_access_checked(
+        ctx,
+        wm,
+        object,
+        |o| {
+            Expr::Call {
+                callee: Box::new(Expr::Member {
+                    object: Box::new(Expr::Local {
+                        id: wm,
+                        ty: Type::Any,
+                    }),
+                    property: Box::new(Expr::String {
+                        value: "get".into(),
+                        ty: Type::String,
+                    }),
+                    computed: false,
+                    optional: false,
+                    ty: Type::Function,
+                }),
+                args: vec![Arg::Expr(o)],
+                optional: false,
+                ty: Type::Any,
+            }
+        },
+        "Cannot read private member from an object whose class did not declare it",
+    )
+}
+
+/// `(wm.set(object, value), value)` with brand check so assignment yields the RHS.
+fn private_field_set(ctx: &mut LowerCtx, wm: LocalId, object: Expr, value: Expr) -> Expr {
+    private_access_checked(
+        ctx,
+        wm,
+        object,
+        |o| {
+            let set_call = Expr::Call {
+                callee: Box::new(Expr::Member {
+                    object: Box::new(Expr::Local {
+                        id: wm,
+                        ty: Type::Any,
+                    }),
+                    property: Box::new(Expr::String {
+                        value: "set".into(),
+                        ty: Type::String,
+                    }),
+                    computed: false,
+                    optional: false,
+                    ty: Type::Function,
+                }),
+                args: vec![Arg::Expr(o), Arg::Expr(value.clone())],
+                optional: false,
+                ty: Type::Any,
+            };
+            Expr::Binary {
+                left: Box::new(set_call),
+                op: BinaryOp::Comma,
+                right: Box::new(value),
+                ty: Type::Any,
+            }
+        },
+        "Cannot write private member to an object whose class did not declare it",
+    )
+}
+
+/// Read private field / accessor / method value for `object.#name` (with brand check).
+fn private_member_get(ctx: &mut LowerCtx, fname: &str, object: Expr) -> Expr {
+    if let Some(fn_id) = ctx.private_methods.get(fname).copied() {
+        let brand = resolve_private_brand(ctx, fname);
+        return private_access_checked(
+            ctx,
+            brand,
+            object,
+            |_| Expr::Local {
+                id: fn_id,
+                ty: Type::Function,
+            },
+            &format!("Cannot read private method #{fname}"),
+        );
     }
     if let Some((get, set)) = ctx.private_accessors.get(fname).copied() {
         let _ = set;
+        let brand = resolve_private_brand(ctx, fname);
         if let Some(get_id) = get {
-            return private_fn_call(get_id, object, Vec::new());
+            return private_access_checked(
+                ctx,
+                brand,
+                object,
+                |o| private_fn_call(get_id, o, Vec::new()),
+                &format!("Cannot read private accessor #{fname}"),
+            );
         }
         return throw_type_error_expr(&format!(
             "Private accessor #{fname} has no getter"
         ));
     }
     if let Some(wm) = ctx.private_fields.get(fname).copied() {
-        return private_field_get(wm, object);
+        return private_field_get(ctx, wm, object);
     }
     throw_type_error_expr(&format!("unknown private field #{fname}"))
 }
@@ -2122,8 +2489,8 @@ fn throw_type_error_expr(message: &str) -> Expr {
     }
 }
 
-/// Write private field / accessor: yields `value`.
-fn private_member_set(ctx: &LowerCtx, fname: &str, object: Expr, value: Expr) -> Expr {
+/// Write private field / accessor: yields `value` (with brand check).
+fn private_member_set(ctx: &mut LowerCtx, fname: &str, object: Expr, value: Expr) -> Expr {
     // Private methods are not writable (TypeError, not IR panic).
     if ctx.private_methods.contains_key(fname) {
         return throw_type_error_expr(&format!(
@@ -2132,21 +2499,31 @@ fn private_member_set(ctx: &LowerCtx, fname: &str, object: Expr, value: Expr) ->
     }
     if let Some((get, set)) = ctx.private_accessors.get(fname).copied() {
         let _ = get;
+        let brand = resolve_private_brand(ctx, fname);
         if let Some(set_id) = set {
-            let set_call = private_fn_call(set_id, object, vec![Arg::Expr(value.clone())]);
-            return Expr::Binary {
-                left: Box::new(set_call),
-                op: BinaryOp::Comma,
-                right: Box::new(value),
-                ty: Type::Any,
-            };
+            return private_access_checked(
+                ctx,
+                brand,
+                object,
+                |o| {
+                    let set_call =
+                        private_fn_call(set_id, o, vec![Arg::Expr(value.clone())]);
+                    Expr::Binary {
+                        left: Box::new(set_call),
+                        op: BinaryOp::Comma,
+                        right: Box::new(value),
+                        ty: Type::Any,
+                    }
+                },
+                &format!("Cannot write private accessor #{fname}"),
+            );
         }
         return throw_type_error_expr(&format!(
             "Private accessor #{fname} has no setter"
         ));
     }
     if let Some(wm) = ctx.private_fields.get(fname).copied() {
-        return private_field_set(wm, object, value);
+        return private_field_set(ctx, wm, object, value);
     }
     throw_type_error_expr(&format!("unknown private field #{fname}"))
 }
@@ -2187,20 +2564,23 @@ fn lower_private_assign(
         id: val_id,
         ty: Type::Any,
     };
-    let set_val = || private_member_set(ctx, fname, obj_local(), val_local());
     let assigned = match op {
-        AssignOp::Eq => Expr::Binary {
-            left: Box::new(bind_val(rhs)),
-            op: BinaryOp::Comma,
-            right: Box::new(set_val()),
-            ty: Type::Any,
-        },
+        AssignOp::Eq => {
+            let set = private_member_set(ctx, fname, obj_local(), val_local());
+            Expr::Binary {
+                left: Box::new(bind_val(rhs)),
+                op: BinaryOp::Comma,
+                right: Box::new(set),
+                ty: Type::Any,
+            }
+        }
         AssignOp::AndAndEq => {
             let cur = private_member_get(ctx, fname, obj_local());
+            let set = private_member_set(ctx, fname, obj_local(), val_local());
             let then_set = Expr::Binary {
                 left: Box::new(bind_val(rhs)),
                 op: BinaryOp::Comma,
-                right: Box::new(set_val()),
+                right: Box::new(set),
                 ty: Type::Any,
             };
             Expr::Binary {
@@ -2212,10 +2592,11 @@ fn lower_private_assign(
         }
         AssignOp::OrOrEq => {
             let cur = private_member_get(ctx, fname, obj_local());
+            let set = private_member_set(ctx, fname, obj_local(), val_local());
             let then_set = Expr::Binary {
                 left: Box::new(bind_val(rhs)),
                 op: BinaryOp::Comma,
-                right: Box::new(set_val()),
+                right: Box::new(set),
                 ty: Type::Any,
             };
             Expr::Binary {
@@ -2227,10 +2608,11 @@ fn lower_private_assign(
         }
         AssignOp::NullishEq => {
             let cur = private_member_get(ctx, fname, obj_local());
+            let set = private_member_set(ctx, fname, obj_local(), val_local());
             let then_set = Expr::Binary {
                 left: Box::new(bind_val(rhs)),
                 op: BinaryOp::Comma,
-                right: Box::new(set_val()),
+                right: Box::new(set),
                 ty: Type::Any,
             };
             Expr::Binary {
@@ -2251,10 +2633,11 @@ fn lower_private_assign(
                 right: Box::new(rhs),
                 ty: Type::Any,
             };
+            let set = private_member_set(ctx, fname, obj_local(), val_local());
             Expr::Binary {
                 left: Box::new(bind_val(combined)),
                 op: BinaryOp::Comma,
-                right: Box::new(set_val()),
+                right: Box::new(set),
                 ty: Type::Any,
             }
         }
@@ -2758,6 +3141,7 @@ fn lower_expr_hint(
                 property,
                 computed,
                 private,
+                optional: member_optional,
                 ..
             } = callee.as_ref()
             {
@@ -2844,37 +3228,60 @@ fn lower_expr_hint(
                         ty: expr_ty(checked, *span),
                     };
                 }
-                // `obj.#m(args)` → `__drac_pm_m.call(obj, ...args)` (E18.37)
+                // `obj.#m(args)` / `obj?.#m(args)` → brand-check then `__drac_pm_m.call(obj, …)` (E18.37 / E19.53)
                 if *private {
                     let fname = match property.as_ref() {
                         AstExpr::Ident(id) => id.name.clone(),
                         _ => panic!("private member property must be ident"),
                     };
                     if let Some(fn_id) = ctx.private_methods.get(&fname).copied() {
-                        let call_member = Expr::Member {
-                            object: Box::new(Expr::Local {
-                                id: fn_id,
-                                ty: Type::Function,
-                            }),
-                            property: Box::new(Expr::String {
-                                value: "call".into(),
-                                ty: Type::String,
-                            }),
-                            computed: false,
-                            optional: false,
-                            ty: Type::Function,
-                        };
-                        let mut call_args = Vec::with_capacity(args.len() + 1);
-                        call_args.push(Arg::Expr(lower_expr(checked, ctx, object, super_class)));
+                        let brand = resolve_private_brand(ctx, &fname);
+                        let obj_expr = lower_expr(checked, ctx, object, super_class);
+                        let mut lowered_args = Vec::with_capacity(args.len());
                         for a in args {
-                            call_args.push(lower_arg(checked, ctx, a, super_class));
+                            lowered_args.push(lower_arg(checked, ctx, a, super_class));
                         }
-                        return Expr::Call {
-                            callee: Box::new(call_member),
-                            args: call_args,
-                            optional: false,
-                            ty: expr_ty(checked, *span),
+                        let err = format!("Cannot read private method #{fname}");
+                        let result_ty = expr_ty(checked, *span);
+                        let build = |ctx: &mut LowerCtx, base: Expr| {
+                            private_access_checked(
+                                ctx,
+                                brand,
+                                base,
+                                |o| {
+                                    let call_member = Expr::Member {
+                                        object: Box::new(Expr::Local {
+                                            id: fn_id,
+                                            ty: Type::Function,
+                                        }),
+                                        property: Box::new(Expr::String {
+                                            value: "call".into(),
+                                            ty: Type::String,
+                                        }),
+                                        computed: false,
+                                        optional: false,
+                                        ty: Type::Function,
+                                    };
+                                    let mut call_args =
+                                        Vec::with_capacity(lowered_args.len() + 1);
+                                    call_args.push(Arg::Expr(o));
+                                    call_args.extend(lowered_args.iter().cloned());
+                                    Expr::Call {
+                                        callee: Box::new(call_member),
+                                        args: call_args,
+                                        optional: false,
+                                        ty: result_ty.clone(),
+                                    }
+                                },
+                                &err,
+                            )
                         };
+                        if *member_optional || *optional {
+                            return optional_private_chain(ctx, obj_expr, |ctx, o| {
+                                build(ctx, o)
+                            });
+                        }
+                        return build(ctx, obj_expr);
                     }
                 }
             }
@@ -3091,6 +3498,50 @@ fn lower_expr_hint(
                     AstExpr::Ident(id) => id.name.as_str(),
                     _ => panic!("private member property must be ident"),
                 };
+                // `obj?.#f` — optional on the private member itself.
+                if *optional {
+                    let obj = lower_expr(checked, ctx, object, super_class);
+                    let fname = fname.to_string();
+                    return optional_private_chain(ctx, obj, |ctx, o| {
+                        private_member_get(ctx, &fname, o)
+                    });
+                }
+                // `o?.c.#f` — private continues an optional chain; short-circuit on nullish
+                // base before brand-check (not `(o?.c).#f` which would throw) (E19.53).
+                if let AstExpr::MemberExpression {
+                    object: inner,
+                    property: mid_prop,
+                    computed: mid_computed,
+                    optional: true,
+                    private: false,
+                    ..
+                } = object.as_ref()
+                {
+                    let base = lower_expr(checked, ctx, inner, super_class);
+                    let mid_prop = if *mid_computed {
+                        lower_expr(checked, ctx, mid_prop, super_class)
+                    } else {
+                        match mid_prop.as_ref() {
+                            AstExpr::Ident(id) => Expr::String {
+                                value: id.name.clone().into(),
+                                ty: Type::String,
+                            },
+                            other => lower_expr(checked, ctx, other, super_class),
+                        }
+                    };
+                    let fname = fname.to_string();
+                    let mid_computed = *mid_computed;
+                    return optional_private_chain(ctx, base, |ctx, o| {
+                        let mid = Expr::Member {
+                            object: Box::new(o),
+                            property: Box::new(mid_prop.clone()),
+                            computed: mid_computed,
+                            optional: false,
+                            ty: Type::Any,
+                        };
+                        private_member_get(ctx, &fname, mid)
+                    });
+                }
                 let obj = lower_expr(checked, ctx, object, super_class);
                 return private_member_get(ctx, fname, obj);
             }
