@@ -1075,24 +1075,16 @@ impl<'a> Lexer<'a> {
         self.scan_decimal_integer_digits(start)?;
 
         // Optional fractional part: `.` DecimalDigits_opt (then ExponentPart_opt).
-        // Consume `.` when it continues the DecimalLiteral: digit, invalid `_…`, or
-        // exponent. Leave `.` for member access (`1.toString`) and `...`.
+        // ECMA-262: DecimalIntegerLiteral `.` DecimalDigits_opt — empty fraction is valid
+        // (`1.` `10.` `0.`). Always consume one `.` here so `1..x` is `1.` + `.` + `x`.
         let mut is_integer = true;
         if !self.is_eof() && self.peek() == b'.' {
-            let next = self.peek_at(1);
-            if next != Some(b'.')
-                && (next.is_some_and(|b| b.is_ascii_digit())
-                    || next == Some(b'_')
-                    || next == Some(b'e')
-                    || next == Some(b'E'))
-            {
-                self.bump(); // .
-                // DecimalDigits_opt — empty ok before exponent; `_` alone / leading `_` invalid.
-                if !self.is_eof() && (self.peek().is_ascii_digit() || self.peek() == b'_') {
-                    self.scan_decimal_digits_required(start)?;
-                }
-                is_integer = false;
+            self.bump(); // .
+            // DecimalDigits_opt — empty ok; `_` alone / leading `_` invalid.
+            if !self.is_eof() && (self.peek().is_ascii_digit() || self.peek() == b'_') {
+                self.scan_decimal_digits_required(start)?;
             }
+            is_integer = false;
         }
 
         let had_exponent = self.scan_exponent_opt(start)?;
@@ -1143,18 +1135,11 @@ impl<'a> Lexer<'a> {
 
         if has_non_octal {
             // NonOctalDecimalIntegerLiteral: optional fraction + exponent (decimal MV).
+            // Empty fraction is valid (`089.`); always consume one `.` when present.
             if !self.is_eof() && self.peek() == b'.' {
-                let next = self.peek_at(1);
-                if next != Some(b'.')
-                    && (next.is_some_and(|b| b.is_ascii_digit())
-                        || next == Some(b'_')
-                        || next == Some(b'e')
-                        || next == Some(b'E'))
-                {
-                    self.bump(); // .
-                    if !self.is_eof() && (self.peek().is_ascii_digit() || self.peek() == b'_') {
-                        self.scan_decimal_digits_required(start)?;
-                    }
+                self.bump(); // .
+                if !self.is_eof() && (self.peek().is_ascii_digit() || self.peek() == b'_') {
+                    self.scan_decimal_digits_required(start)?;
                 }
             }
             self.scan_exponent_opt(start)?;
@@ -2293,11 +2278,48 @@ mod tests {
         );
     }
 
+    /// E19.51: trailing-dot DecimalLiteral (`1.` / `0.` / `10.`).
     #[test]
-    fn lex_number_dot_still_member() {
-        // Identifier after `.` is member access (not a fraction / exponent).
+    fn lex_number_trailing_dot() {
+        assert_eq!(
+            kinds("1. 0. 10."),
+            vec![
+                TokenKind::Number("1.".into()),
+                TokenKind::Number("0.".into()),
+                TokenKind::Number("10.".into()),
+                TokenKind::Eof,
+            ]
+        );
+        assert_eq!(
+            kinds("1.;"),
+            vec![
+                TokenKind::Number("1.".into()),
+                TokenKind::Semi,
+                TokenKind::Eof,
+            ]
+        );
+        // Double-dot: trailing-dot number then member `.`.
+        assert_eq!(
+            kinds("1..toString"),
+            vec![
+                TokenKind::Number("1.".into()),
+                TokenKind::Dot,
+                TokenKind::Ident("toString".into()),
+                TokenKind::Eof,
+            ]
+        );
+        // `1.toString`: number `1.` then bare Ident (parse-time SyntaxError in ES).
         assert_eq!(
             kinds("1.toString"),
+            vec![
+                TokenKind::Number("1.".into()),
+                TokenKind::Ident("toString".into()),
+                TokenKind::Eof,
+            ]
+        );
+        // Space allows integer + member access.
+        assert_eq!(
+            kinds("1 .toString"),
             vec![
                 TokenKind::Number("1".into()),
                 TokenKind::Dot,

@@ -8595,6 +8595,31 @@ Program
         );
     }
 
+    /// E19.51: trailing-dot number + object rest with non-string computed key.
+    #[test]
+    fn parse_e19_51_obj_rest_non_string_computed_trailing_dot() {
+        let dump = parse_and_dump("var a = 1.;\nvar b, rest;\n({[a]:b, ...rest} = vals);\n")
+            .expect("var a = 1.; and assignment pattern must parse");
+        assert!(
+            dump.contains("Number 1.")
+                && dump.contains("ObjectPattern")
+                && dump.contains("rest:")
+                && dump.contains("key: Computed"),
+            "trailing-dot number + computed key + rest; got:\n{dump}"
+        );
+        let dump = parse_and_dump("for (var {[a]:b, ...rest} of vals) {}\n")
+            .expect("for-of object rest computed key must parse");
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: Computed"),
+            "for-of dstr; got:\n{dump}"
+        );
+        let dump = parse_and_dump("let {...{ [k]: v }} = obj;\n").expect("nested rest object");
+        assert!(
+            dump.contains("ObjectPattern") && dump.contains("key: Computed"),
+            "nested rest object computed; got:\n{dump}"
+        );
+    }
+
     /// E19.46: computed property names in object binding / assignment patterns.
     #[test]
     fn parse_e19_46_object_binding_computed_keys() {
