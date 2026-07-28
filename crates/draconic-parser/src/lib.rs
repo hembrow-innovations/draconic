@@ -3971,7 +3971,7 @@ impl Parser {
         })
     }
 
-    /// True when the next token can start a method name after `async` (`m`, `"m"`, `0`, `[`, `*`).
+    /// True when the next token can start a method name after `async` (`m`, keywords, `"m"`, `0`, `[`, `*`).
     fn peek_starts_method_name(&self) -> bool {
         let next = match self.tokens.get(self.pos + 1) {
             Some(t) => t,
@@ -3985,7 +3985,7 @@ impl Parser {
                 | TokenKind::Number(_)
                 | TokenKind::LBracket
                 | TokenKind::Star
-        )
+        ) || next.ident_name_opt().is_some()
     }
 
     /// True when next token starts an auto-accessor field name after `accessor` (no LineTerminator).
@@ -4026,6 +4026,7 @@ impl Parser {
             | TokenKind::String(_)
             | TokenKind::Number(_)
             | TokenKind::LBracket => Some(kind),
+            _ if next.ident_name_opt().is_some() => Some(kind),
             _ => None,
         }
     }
@@ -7014,6 +7015,47 @@ Program
         assert!(dump.contains("Accessor get"), "{dump}");
         assert!(dump.contains("Accessor set"), "{dump}");
         assert!(dump.contains("StaticAccessor get"), "{dump}");
+    }
+
+    /// E19.47: reserved words are valid IdentifierName method/accessor keys.
+    #[test]
+    fn parse_reserved_word_method_and_accessor_names() {
+        let dump = parse_and_dump(
+            r#"
+            let o = {
+              return() { return 1; },
+              throw() {},
+              await() {},
+              get return() { return 1; },
+              set throw(v) {},
+              get await() { return 2; },
+              async return() {},
+              *throw() { yield 1; },
+              async *await() { yield 1; }
+            };
+            class C {
+              return() {}
+              throw() {}
+              get return() { return 1; }
+              set throw(v) {}
+              async await() {}
+              *break() { yield 1; }
+              async *continue() { yield 1; }
+            }
+            "#,
+        )
+        .unwrap();
+        assert!(dump.contains("key: Ident return"), "{dump}");
+        assert!(dump.contains("key: Ident throw"), "{dump}");
+        assert!(dump.contains("key: Ident await"), "{dump}");
+        assert!(dump.contains("name: break"), "{dump}");
+        assert!(dump.contains("name: continue"), "{dump}");
+        assert!(dump.contains("accessor get:"), "{dump}");
+        assert!(dump.contains("accessor set:"), "{dump}");
+        assert!(dump.contains("Accessor get"), "{dump}");
+        assert!(dump.contains("Accessor set"), "{dump}");
+        assert!(dump.contains("async: true"), "{dump}");
+        assert!(dump.contains("generator: true"), "{dump}");
     }
 
     #[test]

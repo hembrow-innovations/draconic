@@ -272,7 +272,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.44 | done | js | `using` / `await using` declarations: parse (and basic semantics); currently expected `;` after expression | `crates/draconic-parser`, `tests/test262` |
 | E19.45 | done | js | Expand allowlist further after E19.41–E19.44 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 | E19.46 | done | js | Computed property names in object binding patterns: `{ [expr]: v }` in params/dstr/assignment (currently “not yet supported”) | `crates/draconic-parser` / check, `tests/test262` |
-| E19.47 | todo | js | Method/generator names that are reserved words: object/class `return()`/`throw()`/`await` method shorthand; async generator `yield*` return/throw path (expected Colon found Return/Throw) | `crates/draconic-parser`, `tests/test262` |
+| E19.47 | done | js | Method/generator names that are reserved words: object/class `return()`/`throw()`/`await` method shorthand; async generator `yield*` return/throw path (expected Colon found Return/Throw) | `crates/draconic-parser`, `tests/test262` |
 | E19.48 | todo | js | Untyped assignability residual: do not reject ECMA-262 `object`/`null`/`string`→number (and similar) without annotations when ToNumber applies at runtime | `crates/draconic-check`, `tests/test262` |
 | E19.49 | todo | js | Early SyntaxError residual II + `with` body decls: negative parse still accepted (block-scope fn, strict `eval`/`arguments`); `with` + function/generator decl must not panic | `crates/draconic-parser` / check, `tests/test262` |
 | E19.50 | todo | js | Expand allowlist further after E19.46–E19.49 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
