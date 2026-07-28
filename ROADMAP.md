@@ -275,7 +275,13 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.47 | done | js | Method/generator names that are reserved words: object/class `return()`/`throw()`/`await` method shorthand; async generator `yield*` return/throw path (expected Colon found Return/Throw) | `crates/draconic-parser`, `tests/test262` |
 | E19.48 | done | js | Untyped assignability residual: do not reject ECMA-262 `object`/`null`/`string`→number (and similar) without annotations when ToNumber applies at runtime | `crates/draconic-check`, `tests/test262` |
 | E19.49 | done | js | Early SyntaxError residual II + `with` body decls: negative parse still accepted (block-scope fn, strict `eval`/`arguments`); `with` + function/generator decl must not panic | `crates/draconic-parser` / check, `tests/test262` |
-| E19.50 | todo | js | Expand allowlist further after E19.46–E19.49 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.50 | done | js | Expand allowlist further after E19.46–E19.49 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.51 | todo | js | Object rest non-string computed keys: `{...{ [sym]: v }}` / assignment & for-of dstr `obj-rest-non-string-computed-property` (expected identifier, found Semi) | `crates/draconic-parser` / check, `tests/test262` |
+| E19.52 | todo | js | `await` IdentifierReference residual: assignmenttargettype `await`; object method static-init `await` binding; non-module ident (expected identifier, found Await) | `crates/draconic-parser` / check, `tests/test262` |
+| E19.53 | todo | js | Class elements residual II: private optional chaining / brand / inner-arrow private access; static `constructor` name edge (`grammar-static-ctor-*`); computed-name ToPrimitive TypeError | `crates/draconic-parser` / IR, `tests/test262` |
+| E19.54 | todo | js | Top-level `await` export forms residual: `export default class … await` / `export var x = await expr` (expected Extends / export production after `export`) | `crates/draconic-parser`, `tests/test262` |
+| E19.55 | todo | js | Dynamic `import.defer` nested emit + evaluation: nested arrow/block/await forms still SyntaxError at runtime; import-defer evaluation-triggers residual | `crates/draconic-backend-js` / linker, `tests/test262` |
+| E19.56 | todo | js | Expand allowlist further after E19.51–E19.55 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 
