@@ -1092,23 +1092,40 @@ impl Parser {
 
     /// `class Name extends Super? { constructor?(…) {…} method(…) {…} … }`
     fn parse_class_decl(&mut self) -> Result<Stmt, Diagnostic> {
+        self.parse_class_decl_inner(false)
+    }
+
+    /// `class` declaration. When `default_export`, name may be omitted
+    /// (`export default class extends …` / `export default class {…}`) (E19.54).
+    fn parse_class_decl_inner(&mut self, default_export: bool) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::Class)?.span.start.0;
         // Entire class is strict mode code (incl. BindingIdentifier name).
         let prev_strict = self.in_strict;
         self.in_strict = true;
-        let name_tok = self.expect_ident()?;
-        let name = Ident {
-            name: name_tok.ident_name(),
-            span: name_tok.span,
+        let name = if default_export
+            && (self.check(&TokenKind::Extends) || self.check(&TokenKind::LBrace))
+        {
+            // [+Default] class ClassTail — synthetic binding for ExportDefault local.
+            Ident {
+                name: "__class".into(),
+                span: Span::new(start, start),
+            }
+        } else {
+            let name_tok = self.expect_ident()?;
+            let name = Ident {
+                name: name_tok.ident_name(),
+                span: name_tok.span,
+            };
+            // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
+            if is_strict_forbidden_binding_name(&name.name) {
+                self.in_strict = prev_strict;
+                return Err(Diagnostic::new(
+                    format!("binding `{}` is invalid in strict mode", name.name),
+                    name.span,
+                ));
+            }
+            name
         };
-        // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
-        if is_strict_forbidden_binding_name(&name.name) {
-            self.in_strict = prev_strict;
-            return Err(Diagnostic::new(
-                format!("binding `{}` is invalid in strict mode", name.name),
-                name.span,
-            ));
-        }
         let (super_class, body, end) = self.parse_class_tail()?;
         self.in_strict = prev_strict;
         Ok(Stmt::ClassDeclaration {
@@ -2294,7 +2311,11 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
-        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) {
+        if self.check(&TokenKind::Let)
+            || self.check(&TokenKind::Const)
+            || self.check(&TokenKind::Var)
+        {
+            // `export VariableStatement` / `export LexicalDeclaration` (E19.54: `export var`).
             let decl = self.parse_lexical_decl()?;
             let end = stmt_span(&decl).end.0;
             return Ok(Stmt::ExportNamedDeclaration {
@@ -2330,7 +2351,7 @@ impl Parser {
             });
         }
         Err(Diagnostic::new(
-            "expected `default`, `*`, `let`, `const`, `function`, `class`, or `{` after `export`"
+            "expected `default`, `*`, `let`, `const`, `var`, `function`, `class`, or `{` after `export`"
                 .to_string(),
             self.current_span(),
         ))
@@ -2424,11 +2445,12 @@ impl Parser {
             });
         }
         if self.check(&TokenKind::Class) {
-            let decl = self.parse_class_decl()?;
+            // E19.54: `export default class extends …` / anonymous `export default class {…}`.
+            let decl = self.parse_class_decl_inner(true)?;
             let end = stmt_span(&decl).end.0;
             let local = match &decl {
                 Stmt::ClassDeclaration { name, .. } => name.clone(),
-                _ => unreachable!("parse_class_decl returns ClassDeclaration"),
+                _ => unreachable!("parse_class_decl_inner returns ClassDeclaration"),
             };
             return Ok(Stmt::ExportDefaultDeclaration {
                 declaration: Box::new(decl),
@@ -8360,6 +8382,70 @@ Program
                 && dump.contains("ClassDeclaration")
                 && dump.contains("name: Counter"),
             "expected export default class, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_export_var() {
+        let dump = parse_and_dump("export var name1 = 1;\n").unwrap();
+        assert!(
+            dump.contains("ExportNamedDeclaration")
+                && dump.contains("Var")
+                && dump.contains("name: name1"),
+            "expected export var, got:\n{dump}"
+        );
+        let dstr = parse_and_dump("export var { x = 1 } = {};\n").unwrap();
+        assert!(
+            dstr.contains("ExportNamedDeclaration") && dstr.contains("ObjectPattern"),
+            "expected export var destructuring, got:\n{dstr}"
+        );
+    }
+
+    #[test]
+    fn parse_export_var_await_module() {
+        // E19.54: `export var x = await expr` under Module [+Await].
+        let prog = parse_module("export var name1 = await foo;\nexport var { x = await foo } = {};\n")
+            .expect("export var await");
+        let dump = dump_program(&prog);
+        assert!(
+            dump.contains("ExportNamedDeclaration")
+                && dump.contains("Unary await")
+                && dump.matches("ExportNamedDeclaration").count() >= 2,
+            "expected export var await, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_export_default_class_anonymous_await_extends() {
+        // E19.54: `export default class extends fn(await foo) {}`
+        let prog = parse_module(
+            "function fn() { return function() {}; }\n\
+             export default class extends fn(await foo) {}\n",
+        )
+        .expect("export default class anonymous + await extends");
+        let dump = dump_program(&prog);
+        assert!(
+            dump.contains("ExportDefaultDeclaration")
+                && dump.contains("ClassDeclaration")
+                && dump.contains("name: __class")
+                && dump.contains("Unary await"),
+            "expected anonymous default class with await extends, got:\n{dump}"
+        );
+    }
+
+    #[test]
+    fn parse_export_class_await_extends() {
+        let prog = parse_module(
+            "function fn() { return function() {}; }\n\
+             export class C extends fn(await foo) {}\n",
+        )
+        .expect("export class await extends");
+        let dump = dump_program(&prog);
+        assert!(
+            dump.contains("ExportNamedDeclaration")
+                && dump.contains("name: C")
+                && dump.contains("Unary await"),
+            "expected export class await extends, got:\n{dump}"
         );
     }
 
