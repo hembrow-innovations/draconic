@@ -526,9 +526,10 @@ mod tests {
 
     #[test]
     fn emit_import_defer_and_source_call() {
-        // E19.33: `import.defer` / `import.source` phase variants.
+        // E19.33: `import.source` kept; E19.55: `import.defer` → `import()` for Node hosts.
         let js = emit_src("let d = import.defer('./m.js'); let s = import.source(x);");
-        assert!(js.contains("import.defer(\"./m.js\")"), "{js}");
+        assert!(js.contains("import(\"./m.js\")"), "{js}");
+        assert!(!js.contains("import.defer"), "{js}");
         assert!(js.contains("import.source(x)"), "{js}");
     }
 

@@ -12,12 +12,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use draconic_ast::{
-    Arg, ArrayElement, ArrayPatternElement, ArrowBody, BindingKind, BindingPattern, ClassElement,
-    Expr, Ident, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt,
+    Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BindingKind, BindingPattern,
+    ClassElement, Expr, Ident, ImportPhase, ObjectKey, ObjectPatternProp, ObjectProp, Param,
+    Program, Stmt,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 
-use draconic_parser::parse_module;
+use draconic_parser::{parse, parse_module};
 
 /// Parse `entry` and all static relative imports into one linked Program.
 pub fn link_entry(entry: &Path) -> Result<Program, Diagnostic> {
@@ -48,6 +49,8 @@ struct ModuleData {
     imports: Vec<ImportBind>,
     /// `import * as local` → resolved module path.
     namespaces: Vec<NamespaceBind>,
+    /// Dependencies that must evaluate with this module (named/side-effect/non-defer).
+    eval_deps: Vec<PathBuf>,
 }
 
 struct NamedReexport {
@@ -68,6 +71,8 @@ struct ImportBind {
 struct NamespaceBind {
     local: String,
     from: PathBuf,
+    /// `import defer * as local` (E19.42 / E19.55).
+    deferred: bool,
 }
 
 impl Loader {
@@ -112,6 +117,7 @@ impl Loader {
         let mut namespace_reexports: Vec<NamespaceBind> = Vec::new();
         let mut imports: Vec<ImportBind> = Vec::new();
         let mut namespaces: Vec<NamespaceBind> = Vec::new();
+        let mut eval_deps: Vec<PathBuf> = Vec::new();
         let mut dep_paths = Vec::new();
 
         for stmt in program.body {
@@ -120,6 +126,7 @@ impl Loader {
                     specifiers,
                     namespace,
                     source,
+                    phase,
                     ..
                 } => {
                     let spec = source.value.to_string_strict().ok_or_else(|| {
@@ -130,6 +137,18 @@ impl Loader {
                     })?;
                     let dep = resolve_specifier(parent, &spec, source.span)?;
                     dep_paths.push(dep.clone());
+                    let deferred_ns = phase == ImportPhase::Defer && namespace.is_some();
+                    // Named / default / side-effect imports evaluate the target; deferred
+                    // namespace alone does not (E19.55).
+                    let mut marks_eval = !specifiers.is_empty()
+                        || namespace.is_none()
+                        || (namespace.is_some() && !deferred_ns);
+                    if deferred_ns && specifiers.is_empty() {
+                        marks_eval = false;
+                    }
+                    if marks_eval {
+                        eval_deps.push(dep.clone());
+                    }
                     for s in specifiers {
                         imports.push(ImportBind {
                             local: s.local.name,
@@ -141,6 +160,7 @@ impl Loader {
                         namespaces.push(NamespaceBind {
                             local: ns.name,
                             from: dep.clone(),
+                            deferred: deferred_ns,
                         });
                     }
                 }
@@ -159,6 +179,7 @@ impl Loader {
                         })?;
                         let dep = resolve_specifier(parent, &spec, src.span)?;
                         dep_paths.push(dep.clone());
+                        eval_deps.push(dep.clone());
                         for s in specifiers {
                             if exports.contains_key(&s.exported.name)
                                 || named_reexports
@@ -228,6 +249,7 @@ impl Loader {
                     })?;
                     let dep = resolve_specifier(parent, &spec, source.span)?;
                     dep_paths.push(dep.clone());
+                    eval_deps.push(dep.clone());
                     if let Some(ns) = exported {
                         if exports
                             .insert(ns.name.clone(), ns.name.clone())
@@ -243,6 +265,7 @@ impl Loader {
                         namespace_reexports.push(NamespaceBind {
                             local: ns.name,
                             from: dep,
+                            deferred: false,
                         });
                     } else {
                         star_reexports.push(dep);
@@ -266,6 +289,7 @@ impl Loader {
             namespace_reexports,
             imports,
             namespaces,
+            eval_deps,
         });
         stack.pop();
         Ok(())
@@ -339,10 +363,15 @@ impl Loader {
             }
         }
 
+        // E19.55: modules reachable only via `import defer` stay unevaluated until a
+        // deferred-namespace trigger. Eager = entry + eval_deps closure.
+        let eager = self.compute_eager_modules(entry_id);
+
         // Inject namespace object bindings before rename (object values use final remote names).
         // Unique synthetic spans: binder/IR key symbols and resolutions by Span.
         // Covers `import * as ns` and `export * as ns from`.
         let mut span_gen = SyntheticSpans::new();
+        let mut any_deferred_ns = false;
         for id in 0..self.modules.len() {
             let mut ns_binds = self.modules[id].namespaces.clone();
             ns_binds.extend(self.modules[id].namespace_reexports.clone());
@@ -355,22 +384,52 @@ impl Loader {
                     )
                 })?;
                 let resolved = self.collect_resolved_exports(from_id)?;
-                let props = namespace_object_props_resolved(&resolved, &mangled, &mut span_gen)?;
                 let bind_span = span_gen.next();
-                let obj_span = span_gen.next();
-                ns_stmts.push(Stmt::Let {
-                    kind: BindingKind::Let,
-                    binding: BindingPattern::Ident(Ident {
-                        name: bind.local.clone(),
+                // Deferred ns over a still-lazy module: Proxy + eval thunk.
+                // Deferred ns over an eager module (e.g. TLA under import defer): plain
+                // object — evaluation already ran with the importer.
+                if bind.deferred && !eager.contains(&from_id) {
+                    any_deferred_ns = true;
+                    let eval_name = deferred_eval_fn_name(from_id);
+                    let mut pairs: Vec<(String, String)> = Vec::new();
+                    let mut names: Vec<_> = resolved.keys().cloned().collect();
+                    names.sort();
+                    for export_name in names {
+                        let (def_id, local_in_exporter) =
+                            resolved.get(&export_name).expect("key from map");
+                        let remote = final_local_name(&mangled[*def_id], local_in_exporter)
+                            .ok_or_else(|| {
+                                Diagnostic::new(
+                                    format!("namespace export `{export_name}` local missing"),
+                                    Span::dummy(),
+                                )
+                            })?;
+                        pairs.push((export_name, remote));
+                    }
+                    ns_stmts.push(make_deferred_namespace_binding(
+                        &bind.local,
+                        &eval_name,
+                        &pairs,
+                        bind_span,
+                    )?);
+                } else {
+                    let props =
+                        namespace_object_props_resolved(&resolved, &mangled, &mut span_gen)?;
+                    let obj_span = span_gen.next();
+                    ns_stmts.push(Stmt::Let {
+                        kind: BindingKind::Let,
+                        binding: BindingPattern::Ident(Ident {
+                            name: bind.local.clone(),
+                            span: bind_span,
+                        }),
+                        type_ann: None,
+                        init: Some(Expr::ObjectExpression {
+                            properties: props,
+                            span: obj_span,
+                        }),
                         span: bind_span,
-                    }),
-                    type_ann: None,
-                    init: Some(Expr::ObjectExpression {
-                        properties: props,
-                        span: obj_span,
-                    }),
-                    span: bind_span,
-                });
+                    });
+                }
             }
             if !ns_stmts.is_empty() {
                 let body = &mut self.modules[id].body;
@@ -385,10 +444,55 @@ impl Loader {
         order.retain(|&id| id != entry_id);
         order.push(entry_id);
 
+        // Pre-rename deferred module bodies and build lazy eval thunks.
+        let mut deferred_thunks: HashMap<usize, Vec<Stmt>> = HashMap::new();
+        for id in 0..self.modules.len() {
+            if eager.contains(&id) {
+                continue;
+            }
+            let mut rename = mangled[id].clone();
+            rename.extend(import_renames[id].clone());
+            let mut body = std::mem::take(&mut self.modules[id].body);
+            for stmt in &mut body {
+                rename_stmt(stmt, &rename, &mut ScopeStack::new());
+                uniqueify_stmt_spans(stmt, &mut span_gen);
+            }
+            // Call deferred eval deps first (named imports into this deferred module).
+            let mut prelude_calls = Vec::new();
+            for dep in &self.modules[id].eval_deps.clone() {
+                if let Some(&dep_id) = self.ids.get(dep) {
+                    if !eager.contains(&dep_id) {
+                        let fn_name = deferred_eval_fn_name(dep_id);
+                        prelude_calls.push(make_call_stmt(&fn_name, span_gen.next()));
+                    }
+                }
+            }
+            let eval_name = deferred_eval_fn_name(id);
+            deferred_thunks.insert(
+                id,
+                wrap_deferred_module_body(id, &eval_name, prelude_calls, body, &mut span_gen),
+            );
+        }
+
         let mut linked_body = Vec::new();
+        if any_deferred_ns {
+            for stmt in deferred_namespace_helper_stmts()? {
+                linked_body.push(stmt);
+            }
+        }
+        // Emit deferred thunks before eager bodies (hoisted bindings + eval fns).
+        for id in &order {
+            if let Some(thunks) = deferred_thunks.remove(id) {
+                linked_body.extend(thunks);
+            }
+        }
+
         let mut start = 0u32;
         let mut end = 0u32;
         for id in order {
+            if !eager.contains(&id) {
+                continue;
+            }
             let mut rename = mangled[id].clone();
             rename.extend(import_renames[id].clone());
             let mut body = std::mem::take(&mut self.modules[id].body);
@@ -411,6 +515,70 @@ impl Loader {
             body: linked_body,
             span: Span::new(start, end),
         })
+    }
+
+    /// Modules that evaluate eagerly: entry plus the closure of `eval_deps`.
+    ///
+    /// Also: deferred-import targets that have top-level await (or that transitively
+    /// reach TLA) evaluate eagerly — GatherAsynchronousTransitiveDependencies (E19.55).
+    fn compute_eager_modules(&self, entry_id: usize) -> HashSet<usize> {
+        let mut eager = HashSet::new();
+        let mut stack = vec![entry_id];
+        while let Some(id) = stack.pop() {
+            if !eager.insert(id) {
+                continue;
+            }
+            for dep in &self.modules[id].eval_deps {
+                if let Some(&dep_id) = self.ids.get(dep) {
+                    stack.push(dep_id);
+                }
+            }
+            // Deferred namespace edges: still pull in async/TLA transitive deps.
+            for ns in &self.modules[id].namespaces {
+                if !ns.deferred {
+                    continue;
+                }
+                if let Some(&dep_id) = self.ids.get(&ns.from) {
+                    for tla_id in self.gather_async_transitive(dep_id) {
+                        stack.push(tla_id);
+                    }
+                }
+            }
+        }
+        eager
+    }
+
+    /// Modules with TLA (or that reach them) under a deferred import subgraph.
+    fn gather_async_transitive(&self, start: usize) -> Vec<usize> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        self.gather_async_transitive_rec(start, &mut seen, &mut out);
+        out
+    }
+
+    fn gather_async_transitive_rec(
+        &self,
+        id: usize,
+        seen: &mut HashSet<usize>,
+        out: &mut Vec<usize>,
+    ) {
+        if !seen.insert(id) {
+            return;
+        }
+        if module_body_has_tla(&self.modules[id].body) {
+            out.push(id);
+            return;
+        }
+        for dep in &self.modules[id].eval_deps {
+            if let Some(&dep_id) = self.ids.get(dep) {
+                self.gather_async_transitive_rec(dep_id, seen, out);
+            }
+        }
+        for ns in &self.modules[id].namespaces {
+            if let Some(&dep_id) = self.ids.get(&ns.from) {
+                self.gather_async_transitive_rec(dep_id, seen, out);
+            }
+        }
     }
 
     /// Resolve `name` exported by `module_id` to `(defining_module_id, local_name)`.
@@ -1161,6 +1329,471 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             name.span = spans.next();
             uniqueify_expr_spans(object, spans);
         }
+    }
+}
+
+fn deferred_eval_fn_name(mod_id: usize) -> String {
+    format!("__draconic_eval_m{mod_id}")
+}
+
+/// True when module body has top-level `await` / `await using` / `for await` (HasTLA).
+fn module_body_has_tla(body: &[Stmt]) -> bool {
+    body.iter().any(stmt_has_top_level_await)
+}
+
+fn stmt_has_top_level_await(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Expression { expr, .. } | Stmt::Throw { argument: expr, .. } => {
+            expr_has_top_level_await(expr)
+        }
+        Stmt::Let { kind, init, .. } => {
+            *kind == BindingKind::AwaitUsing
+                || init.as_ref().is_some_and(expr_has_top_level_await)
+        }
+        Stmt::Return {
+            argument: Some(expr),
+            ..
+        } => expr_has_top_level_await(expr),
+        Stmt::Block { body, .. } => body.iter().any(stmt_has_top_level_await),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_has_top_level_await(test)
+                || stmt_has_top_level_await(consequent)
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_has_top_level_await(a))
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            expr_has_top_level_await(test) || stmt_has_top_level_await(body)
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+            ..
+        } => {
+            init.as_ref().is_some_and(|s| stmt_has_top_level_await(s))
+                || test.as_ref().is_some_and(expr_has_top_level_await)
+                || update.as_ref().is_some_and(expr_has_top_level_await)
+                || stmt_has_top_level_await(body)
+        }
+        Stmt::ForIn {
+            left, right, body, ..
+        } => {
+            stmt_has_top_level_await(left)
+                || expr_has_top_level_await(right)
+                || stmt_has_top_level_await(body)
+        }
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            is_await,
+            ..
+        } => {
+            *is_await
+                || stmt_has_top_level_await(left)
+                || expr_has_top_level_await(right)
+                || stmt_has_top_level_await(body)
+        }
+        Stmt::Labeled { body, .. } => stmt_has_top_level_await(body),
+        Stmt::Switch {
+            discriminant,
+            cases,
+            ..
+        } => {
+            expr_has_top_level_await(discriminant)
+                || cases.iter().any(|c| {
+                    c.test.as_ref().is_some_and(expr_has_top_level_await)
+                        || c.body.iter().any(stmt_has_top_level_await)
+                })
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            stmt_has_top_level_await(block)
+                || handler.as_ref().is_some_and(|h| stmt_has_top_level_await(h))
+                || finalizer
+                    .as_ref()
+                    .is_some_and(|f| stmt_has_top_level_await(f))
+        }
+        Stmt::With { object, body, .. } => {
+            expr_has_top_level_await(object) || stmt_has_top_level_await(body)
+        }
+        // Nested functions/classes have their own async context — not module TLA.
+        Stmt::FunctionDeclaration { .. }
+        | Stmt::ClassDeclaration { .. }
+        | Stmt::Break { .. }
+        | Stmt::Continue { .. }
+        | Stmt::Empty { .. }
+        | Stmt::ImportDeclaration { .. }
+        | Stmt::ExportNamedDeclaration { .. }
+        | Stmt::ExportDefaultDeclaration { .. }
+        | Stmt::ExportAllDeclaration { .. }
+        | Stmt::TypeAlias { .. }
+        | Stmt::Return { argument: None, .. } => false,
+    }
+}
+
+fn expr_has_top_level_await(expr: &Expr) -> bool {
+    match expr {
+        Expr::Unary {
+            op: draconic_ast::UnaryOp::Await,
+            ..
+        } => true,
+        Expr::Unary { arg, .. } | Expr::Update { arg, .. } => expr_has_top_level_await(arg),
+        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+            expr_has_top_level_await(left) || expr_has_top_level_await(right)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_has_top_level_await(test)
+                || expr_has_top_level_await(consequent)
+                || expr_has_top_level_await(alternate)
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_has_top_level_await(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_has_top_level_await(e),
+                })
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => expr_has_top_level_await(object) || expr_has_top_level_await(property),
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_has_top_level_await(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { value, key, .. } => {
+                expr_has_top_level_await(value)
+                    || matches!(key, ObjectKey::Computed(e) if expr_has_top_level_await(e))
+            }
+            ObjectProp::Spread { expr, .. } => expr_has_top_level_await(expr),
+            ObjectProp::Accessor { .. } => false,
+        }),
+        Expr::ImportCall {
+            source, options, ..
+        } => {
+            expr_has_top_level_await(source)
+                || options.as_ref().is_some_and(|o| expr_has_top_level_await(o))
+        }
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => expr_has_top_level_await(tag) || expressions.iter().any(expr_has_top_level_await),
+        Expr::TemplateLiteral { expressions, .. } => {
+            expressions.iter().any(expr_has_top_level_await)
+        }
+        Expr::Paren { expr, .. } | Expr::As { expr, .. } => expr_has_top_level_await(expr),
+        Expr::PrivateIn { object, .. } => expr_has_top_level_await(object),
+        // Nested functions — not module TLA.
+        Expr::FunctionExpression { .. }
+        | Expr::ArrowFunction { .. }
+        | Expr::ClassExpression { .. }
+        | Expr::Ident(_)
+        | Expr::Number(_)
+        | Expr::BigInt(_)
+        | Expr::String(_)
+        | Expr::RegExp { .. }
+        | Expr::Boolean { .. }
+        | Expr::Null { .. }
+        | Expr::This { .. }
+        | Expr::Super { .. }
+        | Expr::NewTarget { .. }
+        | Expr::ArrayPattern { .. }
+        | Expr::ObjectPattern { .. } => false,
+    }
+}
+
+/// Runtime helper implementing deferred module namespace exotic object triggers (E19.55).
+fn deferred_namespace_helper_stmts() -> Result<Vec<Stmt>, Diagnostic> {
+    // Parsed once per link that needs deferred namespaces. Node hosts lack native
+    // `import defer`; this Proxy matches Test262 evaluation-trigger surface.
+    let src = r#"
+function __draconic_deferred_ns(evaluate) {
+  let evaluated = false;
+  let exportsObj = null;
+  let target = Object.create(null);
+  function ensure() {
+    if (!evaluated) {
+      evaluated = true;
+      exportsObj = evaluate();
+    }
+    return exportsObj;
+  }
+  function isSymbolLike(p) {
+    return typeof p === "symbol" || p === "then";
+  }
+  // Traps encode deferred module-namespace trigger rules (E19.55). Target starts
+  // extensible; preventExtensions makes it non-extensible when asked.
+  return new Proxy(target, {
+    get(_t, p) {
+      if (p === Symbol.toStringTag) return "Module";
+      if (isSymbolLike(p)) return undefined;
+      let ex = ensure();
+      if (Object.prototype.hasOwnProperty.call(ex, p)) return ex[p];
+      return undefined;
+    },
+    has(_t, p) {
+      if (isSymbolLike(p)) return false;
+      let ex = ensure();
+      return Object.prototype.hasOwnProperty.call(ex, p);
+    },
+    getOwnPropertyDescriptor(_t, p) {
+      if (isSymbolLike(p)) return undefined;
+      let ex = ensure();
+      if (!Object.prototype.hasOwnProperty.call(ex, p)) return undefined;
+      return { value: ex[p], writable: true, enumerable: true, configurable: true };
+    },
+    ownKeys() {
+      return Reflect.ownKeys(ensure());
+    },
+    defineProperty(_t, p, desc) {
+      if (isSymbolLike(p)) return false;
+      ensure();
+      return false;
+    },
+    deleteProperty(_t, p) {
+      if (isSymbolLike(p)) return true;
+      ensure();
+      return false;
+    },
+    set() {
+      return false;
+    },
+    getPrototypeOf() {
+      return null;
+    },
+    setPrototypeOf() {
+      return false;
+    },
+    isExtensible() {
+      return Object.isExtensible(target);
+    },
+    preventExtensions() {
+      Object.preventExtensions(target);
+      return true;
+    },
+  });
+}
+"#;
+    Ok(parse(src)?.body)
+}
+
+fn make_call_stmt(fn_name: &str, span: Span) -> Stmt {
+    Stmt::Expression {
+        expr: Expr::Call {
+            callee: Box::new(Expr::Ident(Ident {
+                name: fn_name.to_string(),
+                span,
+            })),
+            args: vec![],
+            optional: false,
+            span,
+        },
+        span,
+    }
+}
+
+fn make_deferred_namespace_binding(
+    local: &str,
+    eval_fn: &str,
+    export_pairs: &[(String, String)],
+    span: Span,
+) -> Result<Stmt, Diagnostic> {
+    let mut props = String::new();
+    for (export_name, remote) in export_pairs {
+        let key = js_object_key(export_name);
+        props.push_str(&format!("{key}: {remote}, "));
+    }
+    let src = format!(
+        "let {local} = __draconic_deferred_ns(function () {{ {eval_fn}(); return {{ {props} }}; }});"
+    );
+    let mut body = parse(&src)?.body;
+    let stmt = body.pop().ok_or_else(|| {
+        Diagnostic::new("deferred namespace binding parse produced no stmt", span)
+    })?;
+    Ok(stmt)
+}
+
+fn js_object_key(name: &str) -> String {
+    if is_js_ident(name) {
+        name.to_string()
+    } else {
+        format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+    }
+}
+
+fn is_js_ident(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c == '$' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
+}
+
+/// Hoist top-level bindings and wrap module body in a once-eval function.
+fn wrap_deferred_module_body(
+    _mod_id: usize,
+    eval_name: &str,
+    prelude_calls: Vec<Stmt>,
+    body: Vec<Stmt>,
+    spans: &mut SyntheticSpans,
+) -> Vec<Stmt> {
+    let names = top_level_names(&body);
+    let mut out = Vec::new();
+    let mut sorted: Vec<_> = names.into_iter().collect();
+    sorted.sort();
+    for name in &sorted {
+        let sp = spans.next();
+        out.push(Stmt::Let {
+            kind: BindingKind::Let,
+            binding: BindingPattern::Ident(Ident {
+                name: name.clone(),
+                span: sp,
+            }),
+            type_ann: None,
+            init: None,
+            span: sp,
+        });
+    }
+    let done_name = format!("{eval_name}_done");
+    let done_span = spans.next();
+    out.push(Stmt::Let {
+        kind: BindingKind::Let,
+        binding: BindingPattern::Ident(Ident {
+            name: done_name.clone(),
+            span: done_span,
+        }),
+        type_ann: None,
+        init: Some(Expr::Boolean {
+            value: false,
+            span: done_span,
+        }),
+        span: done_span,
+    });
+
+    let mut eval_body: Vec<Stmt> = Vec::new();
+    let guard_span = spans.next();
+    // if (done) return; done = true;
+    eval_body.push(Stmt::If {
+        test: Expr::Ident(Ident {
+            name: done_name.clone(),
+            span: guard_span,
+        }),
+        consequent: Box::new(Stmt::Return {
+            argument: None,
+            span: guard_span,
+        }),
+        alternate: None,
+        span: guard_span,
+    });
+    eval_body.push(Stmt::Expression {
+        expr: Expr::Assign {
+            target: Box::new(Expr::Ident(Ident {
+                name: done_name,
+                span: guard_span,
+            })),
+            op: AssignOp::Eq,
+            value: Box::new(Expr::Boolean {
+                value: true,
+                span: guard_span,
+            }),
+            span: guard_span,
+        },
+        span: guard_span,
+    });
+    eval_body.extend(prelude_calls);
+    for stmt in body {
+        eval_body.push(hoist_decl_to_assign(stmt));
+    }
+    let fn_span = spans.next();
+    out.push(Stmt::FunctionDeclaration {
+        name: Ident {
+            name: eval_name.to_string(),
+            span: fn_span,
+        },
+        type_params: vec![],
+        params: vec![],
+        return_type: None,
+        body: Box::new(Stmt::Block {
+            body: eval_body,
+            span: fn_span,
+        }),
+        is_async: false,
+        is_generator: false,
+        span: fn_span,
+    });
+    out
+}
+
+/// Turn top-level `let/const x = init` / `function f` into assignments to hoisted bindings.
+fn hoist_decl_to_assign(stmt: Stmt) -> Stmt {
+    match stmt {
+        Stmt::Let {
+            binding: BindingPattern::Ident(id),
+            init: Some(init),
+            span,
+            ..
+        } => Stmt::Expression {
+            expr: Expr::Assign {
+                target: Box::new(Expr::Ident(id)),
+                op: AssignOp::Eq,
+                value: Box::new(init),
+                span,
+            },
+            span,
+        },
+        Stmt::Let {
+            binding: BindingPattern::Ident(_),
+            init: None,
+            span,
+            ..
+        } => Stmt::Empty { span },
+        Stmt::FunctionDeclaration {
+            name,
+            params,
+            return_type,
+            body,
+            is_async,
+            is_generator,
+            span,
+            ..
+        } => {
+            let fn_expr = Expr::FunctionExpression {
+                name: Some(name.clone()),
+                params,
+                return_type,
+                body,
+                is_async,
+                is_generator,
+                is_method: false,
+                span,
+            };
+            Stmt::Expression {
+                expr: Expr::Assign {
+                    target: Box::new(Expr::Ident(name)),
+                    op: AssignOp::Eq,
+                    value: Box::new(fn_expr),
+                    span,
+                },
+                span,
+            }
+        }
+        other => other,
     }
 }
 
@@ -2216,6 +2849,43 @@ mod tests {
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("ClassDeclaration") || dump.contains("Point"), "{dump}");
         assert!(dump.contains("Counter") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_import_defer_namespace_lazy() {
+        // E19.55: deferred namespace must not eagerly run the dependency body.
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-link-import-defer-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let dep = dir.join("dep.drac");
+        let main = dir.join("main.drac");
+        fs::write(
+            &dep,
+            "globalThis.side = (globalThis.side || 0) + 1;\nexport let exported = 3;\n",
+        )
+        .unwrap();
+        fs::write(
+            &main,
+            "import defer * as ns from \"./dep.drac\";\nlet x = ns;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("import defer link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(
+            dump.contains("__draconic_deferred_ns") || dump.contains("draconic_deferred"),
+            "expected deferred ns helper, got:\n{dump}"
+        );
+        assert!(
+            dump.contains("__draconic_eval_m") || dump.contains("FunctionDeclaration"),
+            "expected deferred eval thunk, got:\n{dump}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

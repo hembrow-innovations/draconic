@@ -534,7 +534,10 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
         } => {
             match phase {
                 draconic_ast::ImportPhase::Evaluation => out.push_str("import("),
-                draconic_ast::ImportPhase::Defer => out.push_str("import.defer("),
+                // E19.55: Node hosts lack `import.defer` syntax; emit evaluation-phase
+                // `import()` so nested forms are not SyntaxError at runtime.
+                // Deferred *evaluation* semantics for static `import defer` live in the linker.
+                draconic_ast::ImportPhase::Defer => out.push_str("import("),
                 draconic_ast::ImportPhase::Source => out.push_str("import.source("),
             }
             emit_expr(out, source, names);

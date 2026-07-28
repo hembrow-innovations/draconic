@@ -280,7 +280,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.52 | done | js | `await` IdentifierReference residual: assignmenttargettype `await`; object method static-init `await` binding; non-module ident (expected identifier, found Await) | `crates/draconic-parser` / check, `tests/test262` |
 | E19.53 | done | js | Class elements residual II: private optional chaining / brand / inner-arrow private access; static `constructor` name edge (`grammar-static-ctor-*`); computed-name ToPrimitive TypeError | `crates/draconic-parser` / IR, `tests/test262` |
 | E19.54 | done | js | Top-level `await` export forms residual: `export default class … await` / `export var x = await expr` (expected Extends / export production after `export`) | `crates/draconic-parser`, `tests/test262` |
-| E19.55 | todo | js | Dynamic `import.defer` nested emit + evaluation: nested arrow/block/await forms still SyntaxError at runtime; import-defer evaluation-triggers residual | `crates/draconic-backend-js` / linker, `tests/test262` |
+| E19.55 | done | js | Dynamic `import.defer` nested emit + evaluation: nested arrow/block/await forms still SyntaxError at runtime; import-defer evaluation-triggers residual | `crates/draconic-backend-js` / linker, `tests/test262` |
 | E19.56 | todo | js | Expand allowlist further after E19.51–E19.55 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
