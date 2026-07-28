@@ -559,6 +559,20 @@ fn body_has_use_strict(body: &Stmt) -> bool {
     }
 }
 
+/// Peel parens; if the core is Ident `eval`/`arguments`, return (name, span). E19.49.
+fn strict_forbidden_assign_target(expr: &Expr) -> Option<(String, Span)> {
+    let mut inner = expr;
+    while let Expr::Paren { expr, .. } = inner {
+        inner = expr.as_ref();
+    }
+    match inner {
+        Expr::Ident(id) if id.name == "eval" || id.name == "arguments" => {
+            Some((id.name.clone(), id.span))
+        }
+        _ => None,
+    }
+}
+
 /// LexicallyDeclaredNames of a StatementList (not nested blocks).
 ///
 /// When `top_level` (Script / FunctionBody), hoistable `function`/`async`/`generator`
@@ -1136,6 +1150,13 @@ impl Binder {
     /// Declare a function-scoped `var` in the nearest var environment.
     /// Redeclaration with `var`/`function` is allowed; creates a span alias for IR.
     fn declare_var(&mut self, name: String, span: Span) -> Result<SymbolId, Diagnostic> {
+        // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
+        if self.strict && (name == "eval" || name == "arguments") {
+            return Err(Diagnostic::new(
+                format!("binding `{name}` is invalid in strict mode"),
+                span,
+            ));
+        }
         let env_idx = *self
             .var_env_indices
             .last()
@@ -1346,6 +1367,13 @@ impl Binder {
         span: Span,
         kind: BindingKind,
     ) -> Result<SymbolId, Diagnostic> {
+        // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
+        if self.strict && (name == "eval" || name == "arguments") {
+            return Err(Diagnostic::new(
+                format!("binding `{name}` is invalid in strict mode"),
+                span,
+            ));
+        }
         let scope = self.scopes.last_mut().expect("scope stack non-empty");
         if let Some(&existing) = scope.get(&name) {
             // `var` then `let`/`const` in the same var environment is a conflict.
@@ -1526,6 +1554,7 @@ impl Binder {
                 Ok(())
             }
             Stmt::FunctionDeclaration {
+                name,
                 params,
                 body,
                 is_async,
@@ -1545,6 +1574,13 @@ impl Binder {
                         ));
                     }
                     self.strict = true;
+                }
+                // E19.49: BindingIdentifier of FunctionDeclaration in strict function code.
+                if self.strict && (name.name == "eval" || name.name == "arguments") {
+                    return Err(Diagnostic::new(
+                        format!("binding `{}` is invalid in strict mode", name.name),
+                        name.span,
+                    ));
                 }
                 self.push_scope_kind(true);
                 // E17.02.04: only plain (non-async/generator) functions allow sloppy dups.
@@ -1830,10 +1866,30 @@ impl Binder {
                 self.bind_expr(alternate)
             }
             Expr::Assign { target, value, .. } => {
+                // E19.49: strict mode — `eval`/`arguments` are not valid simple assignment targets.
+                if self.strict {
+                    if let Some((name, span)) = strict_forbidden_assign_target(target) {
+                        return Err(Diagnostic::new(
+                            format!("cannot assign to `{name}` in strict mode"),
+                            span,
+                        ));
+                    }
+                }
                 self.bind_expr(target)?;
                 self.bind_expr(value)
             }
-            Expr::Update { arg, .. } => self.bind_expr(arg),
+            Expr::Update { arg, .. } => {
+                // E19.49: strict mode — `eval`/`arguments` are not valid update targets.
+                if self.strict {
+                    if let Some((name, span)) = strict_forbidden_assign_target(arg) {
+                        return Err(Diagnostic::new(
+                            format!("cannot assign to `{name}` in strict mode"),
+                            span,
+                        ));
+                    }
+                }
+                self.bind_expr(arg)
+            }
             Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
                 self.bind_expr(callee)?;
                 for arg in args {
@@ -2332,15 +2388,20 @@ impl Binder {
     /// Implicit `arguments` binding for non-arrow functions (E18.24).
     /// Skipped when a param already shadows the name. Arrows inherit lexically.
     fn install_arguments_object(&mut self) -> Result<(), Diagnostic> {
-        let scope = self.scopes.last().expect("scope stack non-empty");
+        let scope = self.scopes.last_mut().expect("scope stack non-empty");
         if scope.contains_key("arguments") {
             return Ok(());
         }
-        self.declare(
-            "arguments".into(),
-            Span::dummy(),
-            BindingKind::Var,
-        )?;
+        // Implicit Arguments object — not a user BindingIdentifier (ok in strict).
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbols.push(Symbol {
+            id,
+            name: "arguments".into(),
+            span: Span::dummy(),
+            kind: BindingKind::Var,
+            with_depth: self.with_depth,
+        });
+        scope.insert("arguments".into(), id);
         Ok(())
     }
 }
@@ -3006,15 +3067,22 @@ impl<'a> Checker<'a> {
                 body,
                 is_async,
                 is_generator,
+                span,
                 ..
             } => {
-                let id = self
+                // E19.49: undeclared function name (e.g. with-body before parse reject) → diagnostic.
+                let Some(id) = self
                     .bound
                     .symbols()
                     .iter()
                     .find(|s| s.span == name.span)
                     .map(|s| s.id)
-                    .expect("function binding must be declared");
+                else {
+                    return Err(Diagnostic::new(
+                        format!("function binding `{}` must be declared", name.name),
+                        *span,
+                    ));
+                };
                 let fn_ty = if type_params.is_empty() {
                     Type::Function
                 } else {
@@ -6290,6 +6358,74 @@ mod tests {
     fn bind_sloppy_arrow_eval_param_ok() {
         let program = parse("let af = eval => eval;").unwrap();
         bind(program).expect("sloppy arrow may bind eval");
+    }
+
+    // E19.49: strict eval/arguments bindings + assign targets.
+    #[test]
+    fn bind_e19_49_strict_var_eval_errors() {
+        let program = parse("\"use strict\"; var eval;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("eval") && err.message.contains("strict"),
+            "unexpected: {}",
+            err.message
+        );
+        let program = parse("\"use strict\"; var arguments;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("arguments") && err.message.contains("strict"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_e19_49_strict_catch_eval_errors() {
+        let program = parse("\"use strict\"; try {} catch (eval) {}").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("eval") && err.message.contains("strict"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_e19_49_strict_assign_eval_errors() {
+        let program = parse("\"use strict\"; eval = 1;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("eval") && err.message.contains("strict"),
+            "unexpected: {}",
+            err.message
+        );
+        let program = parse("\"use strict\"; arguments += 1;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("arguments") && err.message.contains("strict"),
+            "unexpected: {}",
+            err.message
+        );
+        let program = parse("\"use strict\"; ++arguments;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("arguments") && err.message.contains("strict"),
+            "unexpected: {}",
+            err.message
+        );
+        let program = parse("\"use strict\"; (eval) = 1;").unwrap();
+        let err = bind(program).unwrap_err();
+        assert!(
+            err.message.contains("eval") && err.message.contains("strict"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_e19_49_sloppy_eval_assign_ok() {
+        bind(parse("eval = 1;").unwrap()).expect("sloppy eval assign");
+        bind(parse("var eval;").unwrap()).expect("sloppy var eval");
     }
 
     // E19.39: early SyntaxError residuals.

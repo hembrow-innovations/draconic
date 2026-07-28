@@ -155,6 +155,13 @@ impl Parser {
             body.push(self.parse_class_decl()?);
             return Ok(());
         }
+        // HoistableDeclaration is StatementListItem (E19.49); bare Statement is Annex B only.
+        if self.check(&TokenKind::Function)
+            || (self.check(&TokenKind::Async) && self.peek_is(&TokenKind::Function))
+        {
+            body.push(self.parse_function_decl()?);
+            return Ok(());
+        }
         body.push(self.parse_stmt()?);
         Ok(())
     }
@@ -260,10 +267,16 @@ impl Parser {
         if self.check(&TokenKind::Switch) {
             return self.parse_switch();
         }
+        // FunctionDeclaration is StatementListItem only. Annex B.3.4 allows it solely as
+        // IfStatement clause (and B.3.2 labelled) in non-strict — handled in parse_if /
+        // parse_labeled. while/do/for/with always reject (E19.49 / Node parity).
         if self.check(&TokenKind::Function)
             || (self.check(&TokenKind::Async) && self.peek_is(&TokenKind::Function))
         {
-            return self.parse_function_decl();
+            return Err(Diagnostic::new(
+                "function declaration not allowed in statement position".to_string(),
+                self.current().span,
+            ));
         }
         // ClassDeclaration is StatementListItem only (E19.41).
         if self.check(&TokenKind::Class) {
@@ -358,13 +371,25 @@ impl Parser {
         };
         let start = name_tok.span.start.0;
         self.expect(&TokenKind::Colon)?;
-        let body = Box::new(self.parse_stmt()?);
+        // Annex B.3.2: non-strict `label: function f() {}`.
+        let body = Box::new(self.parse_stmt_or_annex_b_function()?);
         let end = stmt_span(&body).end.0;
         Ok(Stmt::Labeled {
             label,
             body,
             span: Span::new(start, end),
         })
+    }
+
+    /// Statement, or Annex B hoistable function declaration in non-strict (if / label only).
+    fn parse_stmt_or_annex_b_function(&mut self) -> Result<Stmt, Diagnostic> {
+        if !self.in_strict
+            && (self.check(&TokenKind::Function)
+                || (self.check(&TokenKind::Async) && self.peek_is(&TokenKind::Function)))
+        {
+            return self.parse_function_decl();
+        }
+        self.parse_stmt()
     }
 
     fn parse_block(&mut self) -> Result<Stmt, Diagnostic> {
@@ -517,10 +542,11 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
         let test = self.parse_expr()?;
         self.expect(&TokenKind::RParen)?;
-        let consequent = Box::new(self.parse_stmt()?);
+        // Annex B.3.4: non-strict `if (c) function f() {}` / `else function g() {}`.
+        let consequent = Box::new(self.parse_stmt_or_annex_b_function()?);
         let alternate = if self.check(&TokenKind::Else) {
             self.bump();
-            Some(Box::new(self.parse_stmt()?))
+            Some(Box::new(self.parse_stmt_or_annex_b_function()?))
         } else {
             None
         };
@@ -1010,6 +1036,13 @@ impl Parser {
             name: name_tok.ident_name(),
             span: name_tok.span,
         };
+        // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
+        if self.in_strict && is_strict_forbidden_binding_name(&name.name) {
+            return Err(Diagnostic::new(
+                format!("binding `{}` is invalid in strict mode", name.name),
+                name.span,
+            ));
+        }
         let type_params = self.parse_optional_type_params()?;
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
@@ -1017,6 +1050,13 @@ impl Parser {
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
+        // Name is also invalid when FunctionBody ContainsUseStrict (even if outer is sloppy).
+        if is_strict_forbidden_binding_name(&name.name) && block_has_use_strict_directive(&body) {
+            return Err(Diagnostic::new(
+                format!("binding `{}` is invalid in strict mode", name.name),
+                name.span,
+            ));
+        }
         let end = stmt_span(&body).end.0;
         Ok(Stmt::FunctionDeclaration {
             name,
@@ -1041,6 +1081,14 @@ impl Parser {
             name: name_tok.ident_name(),
             span: name_tok.span,
         };
+        // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
+        if is_strict_forbidden_binding_name(&name.name) {
+            self.in_strict = prev_strict;
+            return Err(Diagnostic::new(
+                format!("binding `{}` is invalid in strict mode", name.name),
+                name.span,
+            ));
+        }
         let (super_class, body, end) = self.parse_class_tail()?;
         self.in_strict = prev_strict;
         Ok(Stmt::ClassDeclaration {
@@ -1060,10 +1108,19 @@ impl Parser {
             None
         } else {
             let name_tok = self.expect_ident()?;
-            Some(Ident {
+            let id = Ident {
                 name: name_tok.ident_name(),
                 span: name_tok.span,
-            })
+            };
+            // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
+            if is_strict_forbidden_binding_name(&id.name) {
+                self.in_strict = prev_strict;
+                return Err(Diagnostic::new(
+                    format!("binding `{}` is invalid in strict mode", id.name),
+                    id.span,
+                ));
+            }
+            Some(id)
         };
         let (super_class, body, end) = self.parse_class_tail()?;
         self.in_strict = prev_strict;
@@ -1424,10 +1481,18 @@ impl Parser {
         self.in_generator = is_generator;
         let name = if self.at_binding_ident() {
             let name_tok = self.expect_ident()?;
-            Some(Ident {
+            let id = Ident {
                 name: name_tok.ident_name(),
                 span: name_tok.span,
-            })
+            };
+            // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
+            if self.in_strict && is_strict_forbidden_binding_name(&id.name) {
+                return Err(Diagnostic::new(
+                    format!("binding `{}` is invalid in strict mode", id.name),
+                    id.span,
+                ));
+            }
+            Some(id)
         } else {
             None
         };
@@ -1437,6 +1502,14 @@ impl Parser {
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
+        if let Some(ref id) = name {
+            if is_strict_forbidden_binding_name(&id.name) && block_has_use_strict_directive(&body) {
+                return Err(Diagnostic::new(
+                    format!("binding `{}` is invalid in strict mode", id.name),
+                    id.span,
+                ));
+            }
+        }
         let end = stmt_span(&body).end.0;
         Ok(Expr::FunctionExpression {
             name,
@@ -1859,6 +1932,14 @@ impl Parser {
         let object = self.parse_expr()?;
         self.expect(&TokenKind::RParen)?;
         let body = Box::new(self.parse_stmt()?);
+        // E19.49: WithStatement body is Statement — never FunctionDeclaration, and
+        // IsLabelledFunction(Statement) is always a SyntaxError (Annex B does not extend with).
+        if stmt_is_function_or_labelled_function(&body) {
+            return Err(Diagnostic::new(
+                "function declaration not allowed in with statement body".to_string(),
+                stmt_span(&body),
+            ));
+        }
         let end = stmt_span(&body).end.0;
         Ok(Stmt::With {
             object,
@@ -1900,6 +1981,13 @@ impl Parser {
                     name: local_tok.ident_name(),
                     span: local_tok.span,
                 };
+                // E19.49: ImportedBinding is BindingIdentifier (modules always strict).
+                if is_strict_forbidden_binding_name(&local.name) {
+                    return Err(Diagnostic::new(
+                        format!("binding `{}` is invalid in strict mode", local.name),
+                        local.span,
+                    ));
+                }
                 let def_span = local.span;
                 specifiers.push(ImportSpecifier {
                     imported: Ident {
@@ -2018,10 +2106,18 @@ impl Parser {
         self.expect(&TokenKind::Star)?;
         self.expect(&TokenKind::As)?;
         let local_tok = self.expect_ident()?;
-        Ok(Ident {
+        let local = Ident {
             name: local_tok.ident_name(),
             span: local_tok.span,
-        })
+        };
+        // E19.49: ImportedBinding is BindingIdentifier (modules always strict).
+        if is_strict_forbidden_binding_name(&local.name) {
+            return Err(Diagnostic::new(
+                format!("binding `{}` is invalid in strict mode", local.name),
+                local.span,
+            ));
+        }
+        Ok(local)
     }
 
     fn parse_named_import_specifiers(
@@ -2053,6 +2149,13 @@ impl Parser {
             } else {
                 imported.clone()
             };
+            // E19.49: ImportedBinding is BindingIdentifier (modules always strict).
+            if is_strict_forbidden_binding_name(&local.name) {
+                return Err(Diagnostic::new(
+                    format!("binding `{}` is invalid in strict mode", local.name),
+                    local.span,
+                ));
+            }
             specifiers.push(ImportSpecifier { imported, local });
             if self.check(&TokenKind::Comma) {
                 self.bump();
@@ -4591,6 +4694,37 @@ fn stmt_is_use_strict_directive(stmt: &Stmt) -> bool {
         return false;
     };
     matches!(s.value.to_string_lossy().as_str(), "use strict")
+}
+
+/// Bare FunctionDeclaration or `label: … function` (IsLabelledFunction). E19.49.
+fn stmt_is_function_or_labelled_function(stmt: &Stmt) -> bool {
+    let mut s = stmt;
+    loop {
+        match s {
+            Stmt::FunctionDeclaration { .. } => return true,
+            Stmt::Labeled { body, .. } => s = body,
+            _ => return false,
+        }
+    }
+}
+
+fn is_strict_forbidden_binding_name(name: &str) -> bool {
+    name == "eval" || name == "arguments"
+}
+
+fn block_has_use_strict_directive(body: &Stmt) -> bool {
+    let Stmt::Block { body: stmts, .. } = body else {
+        return false;
+    };
+    for stmt in stmts {
+        if !stmt_is_directive(stmt) {
+            break;
+        }
+        if stmt_is_use_strict_directive(stmt) {
+            return true;
+        }
+    }
+    false
 }
 
 fn object_key_span(key: &ObjectKey) -> Span {
@@ -8344,6 +8478,120 @@ Program
         assert!(
             parse_and_dump("if (true) var x = 1;\n").is_ok(),
             "var VariableStatement is allowed in Statement position"
+        );
+    }
+
+    /// E19.49: with body never allows function/generator/async/labelled-function decls.
+    #[test]
+    fn parse_e19_49_with_function_body_errors() {
+        assert!(
+            parse("with ({}) function f() {}").is_err(),
+            "with + function decl must fail"
+        );
+        assert!(
+            parse("with ({}) function* g() {}").is_err(),
+            "with + generator decl must fail"
+        );
+        assert!(
+            parse("with ({}) async function f() {}").is_err(),
+            "with + async function decl must fail"
+        );
+        assert!(
+            parse("with ({}) async function* g() {}").is_err(),
+            "with + async generator decl must fail"
+        );
+        assert!(
+            parse("with ({}) label1: label2: function f() {}").is_err(),
+            "with + labelled function must fail"
+        );
+        // Non-strict Annex B still allows bare function in if / label only.
+        assert!(
+            parse("if (true) function f() {}").is_ok(),
+            "non-strict if + function must remain valid (Annex B)"
+        );
+        assert!(
+            parse("label: function f() {}").is_ok(),
+            "non-strict labelled function must remain valid (Annex B)"
+        );
+        // while/do/for never allow bare function (even sloppy).
+        assert!(
+            parse("while (false) function g() {}").is_err(),
+            "while + function must fail even non-strict"
+        );
+        assert!(
+            parse("do function g() {} while (false);").is_err(),
+            "do + function must fail even non-strict"
+        );
+        assert!(
+            parse("for (;;) function g() {}").is_err(),
+            "for + function must fail even non-strict"
+        );
+    }
+
+    /// E19.49: strict mode rejects function declaration in statement position.
+    #[test]
+    fn parse_e19_49_strict_statement_position_function() {
+        assert!(
+            parse("\"use strict\"; if (true) function g() {}").is_err(),
+            "strict if + function must fail"
+        );
+        assert!(
+            parse("\"use strict\"; while (false) function g() {}").is_err(),
+            "strict while + function must fail"
+        );
+        assert!(
+            parse("\"use strict\"; for (;;) function g() {}").is_err(),
+            "strict for + function must fail"
+        );
+        assert!(
+            parse("\"use strict\"; do function g() {} while (false);").is_err(),
+            "strict do + function must fail"
+        );
+        assert!(
+            parse("\"use strict\"; label: function g() {}").is_err(),
+            "strict labelled function must fail"
+        );
+        // StatementListItem still allows function decls in strict.
+        assert!(
+            parse("\"use strict\"; function f() {}\n").is_ok(),
+            "strict top-level function declaration must remain valid"
+        );
+        assert!(
+            parse("\"use strict\"; if (true) { function g() {} }\n").is_ok(),
+            "strict block-level function declaration must remain valid"
+        );
+    }
+
+    /// E19.49: strict BindingIdentifier cannot be eval/arguments (function/class names).
+    #[test]
+    fn parse_e19_49_strict_eval_arguments_names() {
+        assert!(
+            parse("\"use strict\"; function eval() {}").is_err(),
+            "strict function eval name must fail"
+        );
+        assert!(
+            parse("\"use strict\"; function arguments() {}").is_err(),
+            "strict function arguments name must fail"
+        );
+        assert!(
+            parse("function eval() { \"use strict\"; }").is_err(),
+            "function eval with use-strict body must fail"
+        );
+        assert!(
+            parse("\"use strict\"; let f = function eval() {};").is_err(),
+            "strict FE eval name must fail"
+        );
+        assert!(
+            parse("class eval {}").is_err(),
+            "class eval name must fail"
+        );
+        assert!(
+            parse_module("import { eval } from \"./m.js\";").is_err(),
+            "import eval binding must fail"
+        );
+        assert!(
+            parse_module("import arguments from \"./m.js\";").is_err(),
+            "default import arguments must fail"
         );
     }
 
