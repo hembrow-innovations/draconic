@@ -458,6 +458,20 @@ fn params_contain_super(params: &[Param]) -> bool {
         .any(|p| p.default.as_ref().is_some_and(expr_contains_super))
 }
 
+/// True when `expr` is (or chains from) an OptionalExpression (`?.`).
+fn expr_has_optional_chain(expr: &Expr) -> bool {
+    match expr {
+        Expr::MemberExpression {
+            object, optional, ..
+        } => *optional || expr_has_optional_chain(object),
+        Expr::Call {
+            callee, optional, ..
+        } => *optional || expr_has_optional_chain(callee),
+        Expr::Paren { expr: inner, .. } => expr_has_optional_chain(inner),
+        _ => false,
+    }
+}
+
 fn expr_contains_super_call(expr: &Expr) -> bool {
     match expr {
         Expr::Call { callee, args, .. } => {
@@ -862,6 +876,9 @@ struct Binder {
     with_depth: u32,
     /// Current strict-mode code (directive prologue / nested function body).
     strict: bool,
+    /// SuperProperty allowed (class/object method or constructor). Arrows inherit; plain
+    /// functions clear it. SuperCall is never allowed in arrows (E19.58).
+    super_allowed: bool,
 }
 
 impl Binder {
@@ -875,6 +892,7 @@ impl Binder {
             resolutions: HashMap::new(),
             with_depth: 0,
             strict: false,
+            super_allowed: false,
         };
         binder.install_builtin("Math", BindingKind::Const);
         binder.install_builtin("Number", BindingKind::Const);
@@ -1677,6 +1695,8 @@ impl Binder {
                         *span,
                     ));
                 }
+                let prev_super = self.super_allowed;
+                self.super_allowed = false;
                 self.push_scope_kind(true);
                 // E17.02.04: only plain (non-async/generator) functions allow sloppy dups.
                 let allow_sloppy_dups = !*is_async && !*is_generator;
@@ -1686,6 +1706,7 @@ impl Binder {
                 self.check_params_body_lexical_conflict(params, body)?;
                 self.bind_function_body(body)?;
                 self.pop_scope();
+                self.super_allowed = prev_super;
                 self.strict = prev_strict;
                 Ok(())
             }
@@ -1703,13 +1724,16 @@ impl Binder {
                         ClassElement::Constructor { params, body, .. } => {
                             // Class bodies are always strict mode code.
                             let prev_strict = self.strict;
+                            let prev_super = self.super_allowed;
                             self.strict = true;
+                            self.super_allowed = true;
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.super_allowed = prev_super;
                             self.strict = prev_strict;
                         }
                         ClassElement::Method {
@@ -1734,13 +1758,16 @@ impl Binder {
                                 ));
                             }
                             let prev_strict = self.strict;
+                            let prev_super = self.super_allowed;
                             self.strict = true;
+                            self.super_allowed = true;
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.super_allowed = prev_super;
                             self.strict = prev_strict;
                         }
                         ClassElement::Field { key, value, .. } => {
@@ -2031,6 +2058,9 @@ impl Binder {
                         *span,
                     ));
                 }
+                let prev_super = self.super_allowed;
+                // Methods allow SuperProperty (and nested arrows inherit); plain FE clears it.
+                self.super_allowed = *is_method;
                 // Named FE: name lives in an outer env so params may shadow it
                 // (e.g. `function await(await) {}` — E19.52).
                 let named = name.is_some();
@@ -2047,6 +2077,7 @@ impl Binder {
                 self.install_arguments_object()?;
                 self.check_params_body_lexical_conflict(params, body)?;
                 self.bind_function_body(body)?;
+                self.super_allowed = prev_super;
                 self.pop_scope();
                 if named {
                     self.pop_scope();
@@ -2076,13 +2107,16 @@ impl Binder {
                     match el {
                         ClassElement::Constructor { params, body, .. } => {
                             let prev_strict = self.strict;
+                            let prev_super = self.super_allowed;
                             self.strict = true;
+                            self.super_allowed = true;
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.super_allowed = prev_super;
                             self.strict = prev_strict;
                         }
                         ClassElement::Method {
@@ -2107,13 +2141,16 @@ impl Binder {
                                 ));
                             }
                             let prev_strict = self.strict;
+                            let prev_super = self.super_allowed;
                             self.strict = true;
+                            self.super_allowed = true;
                             self.push_scope_kind(true);
                             self.bind_params(params, false)?;
                             self.install_arguments_object()?;
                             self.check_params_body_lexical_conflict(params, body)?;
                             self.bind_function_body(body)?;
                             self.pop_scope();
+                            self.super_allowed = prev_super;
                             self.strict = prev_strict;
                         }
                         ClassElement::Field { key, value, .. } => {
@@ -2152,6 +2189,28 @@ impl Binder {
                         ));
                     }
                     self.strict = true;
+                }
+                // E19.58: SuperCall never allowed in arrow formals/body.
+                let body_super_call = match body {
+                    ArrowBody::Expr(e) => expr_contains_super_call(e),
+                    ArrowBody::Block(s) => stmt_contains_super_call(s),
+                };
+                if params_contain_super_call(params) || body_super_call {
+                    return Err(Diagnostic::new(
+                        "arrow function cannot contain super call".to_string(),
+                        *span,
+                    ));
+                }
+                // SuperProperty only when nested in method/constructor (lexical super).
+                let body_super = match body {
+                    ArrowBody::Expr(e) => expr_contains_super(e),
+                    ArrowBody::Block(s) => stmt_contains_super(s),
+                };
+                if !self.super_allowed && (params_contain_super(params) || body_super) {
+                    return Err(Diagnostic::new(
+                        "arrow function cannot contain super".to_string(),
+                        *span,
+                    ));
                 }
                 self.push_scope_kind(true);
                 self.bind_params(params, false)?;
@@ -2882,13 +2941,9 @@ impl<'a> Checker<'a> {
                             span,
                         ));
                     }
-                    BindingKind::Function => {
-                        return Err(Diagnostic::new(
-                            format!("cannot assign to function binding `{}`", id.name),
-                            span,
-                        ));
-                    }
-                    BindingKind::Let | BindingKind::Var => {}
+                    // E19.57: function/class name bindings — runtime immutable (TypeError /
+                    // silent); do not compile-reject. Declarations are mutable at runtime.
+                    BindingKind::Function | BindingKind::Let | BindingKind::Var => {}
                 }
                 let left_ty = self.symbol_types[sym.0 as usize];
                 if left_ty == Type::Any {
@@ -2904,11 +2959,12 @@ impl<'a> Checker<'a> {
                         object,
                         property,
                         computed,
-                        optional,
                         private,
                         span: mspan,
+                        ..
                     } => {
-                        if *optional {
+                        // E19.58: OptionalExpression is not a valid AssignmentTarget.
+                        if expr_has_optional_chain(expr) {
                             return Err(Diagnostic::new(
                                 "invalid assignment target".to_string(),
                                 *mspan,
@@ -3586,34 +3642,35 @@ impl<'a> Checker<'a> {
                                     *span,
                                 ));
                             }
-                            BindingKind::Function => {
-                                return Err(Diagnostic::new(
-                                    format!("cannot assign to function binding `{}`", id.name),
-                                    *span,
-                                ));
-                            }
-                            BindingKind::Let | BindingKind::Var => {}
+                            // E19.57: function/class name bindings — runtime immutable
+                            // (TypeError / silent); do not compile-reject.
+                            BindingKind::Function | BindingKind::Let | BindingKind::Var => {}
                         }
+                        let kind = self.bound.symbol(sym).kind;
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let result_ty = if let Some(bin_op) = op.binary_op() {
                             self.check_binary(bin_op, left_ty, value_ty, *span, target, value)?
                         } else {
                             value_ty
                         };
-                        if left_ty == Type::Any {
-                            self.symbol_types[sym.0 as usize] = result_ty;
-                        } else if !self.is_assignable(result_ty, left_ty) {
-                            // E19.12 / E19.48: untyped JS assign (simple + compound) may
-                            // replace an inferred binding type (ToNumber/ToString at runtime
-                            // for compound; plain store for simple). Annotated + native stay
-                            // strict (with number-literal contextual typing for natives).
-                            let annotated = self.symbol_annotated[sym.0 as usize];
-                            let native = matches!(left_ty, Type::Native(_) | Type::Ptr(_))
-                                || matches!(result_ty, Type::Native(_) | Type::Ptr(_));
-                            if annotated || native {
-                                self.require_assignable_expr(result_ty, left_ty, value)?;
-                            } else {
+                        // Function/class name bindings stay typed as functions; assignment
+                        // does not stick at runtime for immutable names.
+                        if kind != BindingKind::Function {
+                            if left_ty == Type::Any {
                                 self.symbol_types[sym.0 as usize] = result_ty;
+                            } else if !self.is_assignable(result_ty, left_ty) {
+                                // E19.12 / E19.48: untyped JS assign (simple + compound) may
+                                // replace an inferred binding type (ToNumber/ToString at runtime
+                                // for compound; plain store for simple). Annotated + native stay
+                                // strict (with number-literal contextual typing for natives).
+                                let annotated = self.symbol_annotated[sym.0 as usize];
+                                let native = matches!(left_ty, Type::Native(_) | Type::Ptr(_))
+                                    || matches!(result_ty, Type::Native(_) | Type::Ptr(_));
+                                if annotated || native {
+                                    self.require_assignable_expr(result_ty, left_ty, value)?;
+                                } else {
+                                    self.symbol_types[sym.0 as usize] = result_ty;
+                                }
                             }
                         }
                         self.record(id.span, self.symbol_types[sym.0 as usize]);
@@ -3624,8 +3681,16 @@ impl<'a> Checker<'a> {
                         object,
                         property,
                         computed,
+                        span: mspan,
                         ..
                     } => {
+                        // E19.58: OptionalExpression is not a valid AssignmentTarget.
+                        if expr_has_optional_chain(target) {
+                            return Err(Diagnostic::new(
+                                "invalid assignment target".to_string(),
+                                *mspan,
+                            ));
+                        }
                         // Property write: object + key are checked; result is the assigned value
                         // (simple `=`) or the compound binary result (`op=`).
                         let obj_ty = self.check_expr(object)?;
@@ -3648,6 +3713,17 @@ impl<'a> Checker<'a> {
                         };
                         self.record(*span, result_ty);
                         result_ty
+                    }
+                    // E19.58: optional call is not a valid AssignmentTarget.
+                    Expr::Call {
+                        optional: true,
+                        span: cspan,
+                        ..
+                    } => {
+                        return Err(Diagnostic::new(
+                            "invalid assignment target".to_string(),
+                            *cspan,
+                        ));
                     }
                     // N03.03: `*p = v` store through native pointer.
                     Expr::Unary {
@@ -3767,13 +3843,9 @@ impl<'a> Checker<'a> {
                                     *span,
                                 ));
                             }
-                            BindingKind::Function => {
-                                return Err(Diagnostic::new(
-                                    format!("cannot assign to function binding `{}`", id.name),
-                                    *span,
-                                ));
-                            }
-                            BindingKind::Let | BindingKind::Var => {}
+                            // E19.57: function/class name bindings — runtime immutable
+                            // (TypeError / silent); do not compile-reject.
+                            BindingKind::Function | BindingKind::Let | BindingKind::Var => {}
                         }
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let out = self.check_update_operand(left_ty, *span)?;
@@ -3789,8 +3861,16 @@ impl<'a> Checker<'a> {
                         object,
                         property,
                         computed,
+                        span: mspan,
                         ..
                     } => {
+                        // E19.58: OptionalExpression is not a valid update target.
+                        if expr_has_optional_chain(arg) {
+                            return Err(Diagnostic::new(
+                                "invalid update target".to_string(),
+                                *mspan,
+                            ));
+                        }
                         let obj_ty = self.check_expr(object)?;
                         let left_ty = if *computed {
                             self.check_expr(property)?;
@@ -3807,6 +3887,17 @@ impl<'a> Checker<'a> {
                         let out = self.check_update_operand(left_ty, *span)?;
                         self.record(*span, out);
                         return Ok(out);
+                    }
+                    // E19.58: optional call is not a valid update target.
+                    Expr::Call {
+                        optional: true,
+                        span: cspan,
+                        ..
+                    } => {
+                        return Err(Diagnostic::new(
+                            "invalid update target".to_string(),
+                            *cspan,
+                        ));
                     }
                     _ => {
                         return Err(Diagnostic::new(
@@ -5399,6 +5490,139 @@ mod tests {
             "unexpected message: {}",
             err.message
         );
+    }
+
+    // E19.57: named FE / class expr name reassignment is a runtime TypeError (strict)
+    // or silent no-op (non-strict FE), not a compile reject.
+    #[test]
+    fn check_named_function_expression_reassign_ok() {
+        let program = parse(
+            "let ref = function BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_async_function_expression_reassign_ok() {
+        let program = parse(
+            "let ref = async function BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named async FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_generator_expression_reassign_ok() {
+        let program = parse(
+            "let ref = function* BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named generator FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_async_generator_expression_reassign_ok() {
+        let program = parse(
+            "let ref = async function* BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named async generator FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_class_expression_reassign_ok() {
+        let program = parse("let C = class Name { m() { Name = 1; } };").unwrap();
+        check(program).expect("named class expression name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_class_declaration_name_reassign_ok() {
+        let program = parse("class C { constructor() { C = 42; } }").unwrap();
+        check(program).expect("class declaration name reassign must typecheck (runtime TypeError)");
+    }
+
+    #[test]
+    fn check_function_declaration_reassign_ok() {
+        let program = parse("function f() {} f = 1;").unwrap();
+        check(program).expect("function declaration reassign must typecheck");
+    }
+
+    // E19.58: OptionalExpression is not a valid AssignmentTarget / update target.
+    #[test]
+    fn check_optional_chain_assignment_fails() {
+        let program = parse("let o = {}; o?.p = 1;").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("invalid assignment target"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_optional_chain_update_fails() {
+        let program = parse("let o = {}; o?.p++;").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("invalid update target"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    // E19.58: SuperCall never in arrows; SuperProperty only when lexically in method.
+    #[test]
+    fn check_arrow_super_call_fails() {
+        let program = parse("() => super();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("super"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_async_arrow_super_call_fails() {
+        let program = parse("async () => super();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("super"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_arrow_super_property_outside_method_fails() {
+        let program = parse("() => super.x;").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("super"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_async_arrow_super_property_outside_method_fails() {
+        let program = parse("async () => super.x;").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("super"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_arrow_super_property_in_method_ok() {
+        let program = parse(
+            "class B {} class C extends B { m() { return () => super.x; } }",
+        )
+        .unwrap();
+        check(program).expect("arrow SuperProperty in method must typecheck");
     }
 
     #[test]

@@ -26,6 +26,9 @@ struct LowerCtx {
     private_brands: HashMap<String, LocalId>,
     /// Inside object method/accessor: keep `super` for JS home-object emit (E19.23).
     object_super: bool,
+    /// Class declaration: outer mutable name → inner immutable const local (E19.57).
+    /// Stack so nested class decls restore the outer remap.
+    class_name_remap: Vec<(LocalId, LocalId)>,
     extra_locals: Vec<Local>,
     next_synth_id: u32,
 }
@@ -38,6 +41,7 @@ impl LowerCtx {
             private_accessors: HashMap::new(),
             private_brands: HashMap::new(),
             object_super: false,
+            class_name_remap: Vec::new(),
             extra_locals: Vec::new(),
             next_synth_id,
         }
@@ -52,6 +56,16 @@ impl LowerCtx {
             ty,
             kind: BindingKind::Let,
         });
+        id
+    }
+
+    /// Map class declaration outer name to the inner immutable binding while lowering the body.
+    fn map_class_name(&self, id: LocalId) -> LocalId {
+        for &(outer, inner) in self.class_name_remap.iter().rev() {
+            if outer == id {
+                return inner;
+            }
+        }
         id
     }
 }
@@ -903,6 +917,9 @@ fn lower_fn_body(
 }
 
 /// Desugar `class Name extends? Super { constructor… methods… fields… }` to function + assigns.
+///
+/// E19.57: outer binding is mutable (`let C = …`); methods close over an inner `const` name so
+/// reassignment inside the class is a runtime TypeError while `C = null` outside still works.
 fn lower_class(
     checked: &CheckedProgram,
     ctx: &mut LowerCtx,
@@ -910,14 +927,51 @@ fn lower_class(
     super_class: Option<&AstExpr>,
     elements: &[ClassElement],
 ) -> Vec<Stmt> {
-    let local = checked
+    let outer = checked
         .bound
         .symbols()
         .iter()
         .find(|s| s.span == name.span)
         .map(|s| s.id)
         .expect("class binding must be declared");
-    lower_class_local(checked, ctx, local, super_class, elements, None)
+    let inner = ctx.alloc_synthetic_local(format!("__cls_{}", name.name), Type::Function);
+    ctx.class_name_remap.push((outer, inner));
+    // Pass BindingIdentifier so constructor `.name === "C"` (not `__cls_C` from const).
+    let mut body = lower_class_local(
+        checked,
+        ctx,
+        inner,
+        super_class,
+        elements,
+        Some(name.name.as_str()),
+    );
+    ctx.class_name_remap.pop();
+    body.push(Stmt::Return {
+        value: Some(Expr::Local {
+            id: inner,
+            ty: Type::Function,
+        }),
+    });
+    let iife = Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: Vec::new(),
+            body,
+            is_async: false,
+            is_generator: false,
+            is_arrow: false,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: Vec::new(),
+        optional: false,
+        ty: Type::Function,
+    };
+    vec![Stmt::Declare {
+        local: outer,
+        init: Some(iife),
+        kind: BindingKind::Let,
+    }]
 }
 
 /// Class expression → IIFE that builds the constructor and returns it (E18.33).
@@ -1613,16 +1667,29 @@ fn lower_class_local(
             kind: BindingKind::Let,
         });
     }
-    out.push(Stmt::Function {
+    // E19.57: class name binding is immutable (const-like). Emit `const C = function…`
+    // (anonymous FE so body refs resolve to outer const) so `C = …` is a runtime TypeError.
+    out.push(Stmt::Declare {
         local,
-        params: ctor_params,
-        body: ctor_body,
-        is_async: false,
-        is_generator: false,
+        init: Some(Expr::Function {
+            name: None,
+            params: ctor_params,
+            body: ctor_body,
+            is_async: false,
+            is_generator: false,
+            is_arrow: false,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        kind: BindingKind::Const,
     });
-    // NamedEvaluation / SetFunctionName before class elements (static `name` may overwrite).
+    // NamedEvaluation / class BindingIdentifier → constructor `.name` (E19.31 / E19.57).
     if let Some(hint) = name_hint {
         out.push(set_function_name_stmt(local, hint));
+    } else if let Some(sym) = checked.bound.symbols().iter().find(|s| s.id == local) {
+        if sym.name != "__class" {
+            out.push(set_function_name_stmt(local, sym.name.as_str()));
+        }
     }
     // Evaluate computed instance field names at class definition time (E19.53).
     for (key_id, to_key) in computed_field_key_locals {
@@ -2807,7 +2874,10 @@ fn lower_expr_hint(
         AstExpr::Ident(id) => {
             let ty = expr_ty(checked, id.span);
             if let Some(sym) = checked.bound.resolve(id.span) {
-                Expr::Local { id: sym, ty }
+                Expr::Local {
+                    id: ctx.map_class_name(sym),
+                    ty,
+                }
             } else {
                 Expr::IdentName {
                     name: id.name.clone(),
@@ -2963,7 +3033,7 @@ fn lower_expr_hint(
             let target = match target.as_ref() {
                 AstExpr::Ident(id) => {
                     if let Some(local) = checked.bound.resolve(id.span) {
-                        AssignTarget::Local(local)
+                        AssignTarget::Local(ctx.map_class_name(local))
                     } else {
                         AssignTarget::Name(id.name.clone())
                     }
@@ -3050,7 +3120,7 @@ fn lower_expr_hint(
             let target = match arg.as_ref() {
                 AstExpr::Ident(id) => {
                     if let Some(local) = checked.bound.resolve(id.span) {
-                        UpdateTarget::Local(local)
+                        UpdateTarget::Local(ctx.map_class_name(local))
                     } else {
                         UpdateTarget::Name(id.name.clone())
                     }

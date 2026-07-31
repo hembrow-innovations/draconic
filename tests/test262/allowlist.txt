@@ -16436,6 +16436,9 @@ test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cov
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-duplicates.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-eval.js
 test/language/expressions/arrow-function/syntax/early-errors/arrowparameters-cover-no-yield.js
+test/language/expressions/arrow-function/syntax/early-errors/asi-restriction-invalid-parenless-parameters-expression-body.js
+test/language/expressions/arrow-function/syntax/early-errors/asi-restriction-invalid-parenless-parameters.js
+test/language/expressions/arrow-function/syntax/early-errors/asi-restriction-invalid.js
 test/language/expressions/arrow-function/syntax/early-errors/use-strict-with-non-simple-param.js
 test/language/expressions/arrow-function/syntax/variations.js
 test/language/expressions/arrow-function/throw-new.js
@@ -17000,6 +17003,7 @@ test/language/expressions/assignmenttargettype/direct-multiplicativeexpression-m
 test/language/expressions/assignmenttargettype/direct-multiplicativeexpression-multiplicativeoperator-exponentiationexpression-5.js
 test/language/expressions/assignmenttargettype/direct-new-memberexpression-arguments.js
 test/language/expressions/assignmenttargettype/direct-new-newexpression.js
+test/language/expressions/assignmenttargettype/direct-optionalexpression.js
 test/language/expressions/assignmenttargettype/direct-plus-plus-unaryexpression.js
 test/language/expressions/assignmenttargettype/direct-primaryexpression-asyncfunctionexpression.js
 test/language/expressions/assignmenttargettype/direct-primaryexpression-asyncgeneratorexpression.js
@@ -17255,9 +17259,14 @@ test/language/expressions/async-arrow-function/dflt-params-trailing-comma.js
 test/language/expressions/async-arrow-function/early-errors-arrow-arguments-in-formal-parameters.js
 test/language/expressions/async-arrow-function/early-errors-arrow-await-in-formals-default.js
 test/language/expressions/async-arrow-function/early-errors-arrow-await-in-formals.js
+test/language/expressions/async-arrow-function/early-errors-arrow-body-contains-super-call.js
+test/language/expressions/async-arrow-function/early-errors-arrow-body-contains-super-property.js
 test/language/expressions/async-arrow-function/early-errors-arrow-duplicate-parameters.js
 test/language/expressions/async-arrow-function/early-errors-arrow-eval-in-formal-parameters.js
 test/language/expressions/async-arrow-function/early-errors-arrow-formals-body-duplicate.js
+test/language/expressions/async-arrow-function/early-errors-arrow-formals-contains-super-call.js
+test/language/expressions/async-arrow-function/early-errors-arrow-formals-contains-super-property.js
+test/language/expressions/async-arrow-function/early-errors-arrow-formals-lineterminator.js
 test/language/expressions/async-arrow-function/early-errors-arrow-NSPL-with-USD.js
 test/language/expressions/async-arrow-function/escaped-async-line-terminator.js
 test/language/expressions/async-arrow-function/escaped-async.js
@@ -22098,6 +22107,8 @@ test/language/expressions/class/scope-gen-meth-paramsbody-var-open.js
 test/language/expressions/class/scope-meth-paramsbody-var-close.js
 test/language/expressions/class/scope-meth-paramsbody-var-open.js
 test/language/expressions/class/scope-name-lex-close.js
+test/language/expressions/class/scope-name-lex-open-heritage.js
+test/language/expressions/class/scope-name-lex-open-no-heritage.js
 test/language/expressions/class/scope-setter-paramsbody-var-close.js
 test/language/expressions/class/scope-setter-paramsbody-var-open.js
 test/language/expressions/class/scope-static-gen-meth-paramsbody-var-close.js
@@ -23703,6 +23714,13 @@ test/language/expressions/exponentiation/exp-assignment-operator.js
 test/language/expressions/exponentiation/exp-operator-evaluation-order.js
 test/language/expressions/exponentiation/exp-operator-precedence-unary-expression-semantics.js
 test/language/expressions/exponentiation/exp-operator-precedence-update-expression-semantics.js
+test/language/expressions/exponentiation/exp-operator-syntax-error-bitnot-unary-expression-base.js
+test/language/expressions/exponentiation/exp-operator-syntax-error-delete-unary-expression-base.js
+test/language/expressions/exponentiation/exp-operator-syntax-error-logical-not-unary-expression-base.js
+test/language/expressions/exponentiation/exp-operator-syntax-error-negate-unary-expression-base.js
+test/language/expressions/exponentiation/exp-operator-syntax-error-plus-unary-expression-base.js
+test/language/expressions/exponentiation/exp-operator-syntax-error-typeof-unary-expression-base.js
+test/language/expressions/exponentiation/exp-operator-syntax-error-void-unary-expression-base.js
 test/language/expressions/exponentiation/exp-operator.js
 test/language/expressions/exponentiation/int32_min-exponent.js
 test/language/expressions/exponentiation/order-of-evaluation.js
@@ -23927,8 +23945,12 @@ test/language/expressions/function/name-eval-strict-body.js
 test/language/expressions/function/name-eval-strict.js
 test/language/expressions/function/name-eval-stricteval.js
 test/language/expressions/function/name.js
+test/language/expressions/function/named-no-strict-reassign-fn-name-in-body-in-arrow.js
 test/language/expressions/function/named-no-strict-reassign-fn-name-in-body-in-eval.js
+test/language/expressions/function/named-no-strict-reassign-fn-name-in-body.js
+test/language/expressions/function/named-strict-error-reassign-fn-name-in-body-in-arrow.js
 test/language/expressions/function/named-strict-error-reassign-fn-name-in-body-in-eval.js
+test/language/expressions/function/named-strict-error-reassign-fn-name-in-body.js
 test/language/expressions/function/object-destructuring-param-strict-body.js
 test/language/expressions/function/param-arguments-non-strict.js
 test/language/expressions/function/param-dflt-yield-non-strict.js
@@ -24174,8 +24196,12 @@ test/language/expressions/generators/invoke-as-constructor.js
 test/language/expressions/generators/length-dflt.js
 test/language/expressions/generators/length-property-descriptor.js
 test/language/expressions/generators/name.js
+test/language/expressions/generators/named-no-strict-reassign-fn-name-in-body-in-arrow.js
 test/language/expressions/generators/named-no-strict-reassign-fn-name-in-body-in-eval.js
+test/language/expressions/generators/named-no-strict-reassign-fn-name-in-body.js
+test/language/expressions/generators/named-strict-error-reassign-fn-name-in-body-in-arrow.js
 test/language/expressions/generators/named-strict-error-reassign-fn-name-in-body-in-eval.js
+test/language/expressions/generators/named-strict-error-reassign-fn-name-in-body.js
 test/language/expressions/generators/named-yield-as-binding-identifier-escaped.js
 test/language/expressions/generators/named-yield-as-binding-identifier.js
 test/language/expressions/generators/named-yield-as-identifier-reference-escaped.js
@@ -24192,6 +24218,7 @@ test/language/expressions/generators/named-yield-spread-obj.js
 test/language/expressions/generators/no-name.js
 test/language/expressions/generators/no-yield.js
 test/language/expressions/generators/object-destructuring-param-strict-body.js
+test/language/expressions/generators/param-dflt-yield.js
 test/language/expressions/generators/params-dflt-args-unmapped.js
 test/language/expressions/generators/params-dflt-ref-arguments.js
 test/language/expressions/generators/params-trailing-comma-multiple.js
@@ -32846,6 +32873,7 @@ test/language/statements/class/method/params-trailing-comma-single.js
 test/language/statements/class/method/rest-param-strict-body.js
 test/language/statements/class/method/rest-params-trailing-comma-early-error.js
 test/language/statements/class/name-binding/basic.js
+test/language/statements/class/name-binding/const.js
 test/language/statements/class/name-binding/expression.js
 test/language/statements/class/name.js
 test/language/statements/class/params-dflt-gen-meth-args-unmapped.js
@@ -32864,6 +32892,9 @@ test/language/statements/class/scope-gen-meth-paramsbody-var-close.js
 test/language/statements/class/scope-gen-meth-paramsbody-var-open.js
 test/language/statements/class/scope-meth-paramsbody-var-close.js
 test/language/statements/class/scope-meth-paramsbody-var-open.js
+test/language/statements/class/scope-name-lex-close.js
+test/language/statements/class/scope-name-lex-open-heritage.js
+test/language/statements/class/scope-name-lex-open-no-heritage.js
 test/language/statements/class/scope-setter-paramsbody-var-close.js
 test/language/statements/class/scope-setter-paramsbody-var-open.js
 test/language/statements/class/scope-static-gen-meth-paramsbody-var-close.js
@@ -36263,6 +36294,7 @@ test/language/statements/generators/length-property-descriptor.js
 test/language/statements/generators/name.js
 test/language/statements/generators/no-yield.js
 test/language/statements/generators/object-destructuring-param-strict-body.js
+test/language/statements/generators/param-dflt-yield.js
 test/language/statements/generators/params-dflt-args-unmapped.js
 test/language/statements/generators/params-dflt-ref-arguments.js
 test/language/statements/generators/params-trailing-comma-multiple.js

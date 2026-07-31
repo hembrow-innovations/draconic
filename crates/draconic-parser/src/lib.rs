@@ -1066,6 +1066,15 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
+        // E19.58: FormalParameters of a generator must not contain YieldExpression.
+        if is_generator && params_contain_yield_expr(&params) {
+            self.in_await_context = prev_await;
+            self.in_generator = prev_gen;
+            return Err(Diagnostic::new(
+                "generator parameters cannot contain yield".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
         self.in_await_context = prev_await;
@@ -1552,6 +1561,15 @@ impl Parser {
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen)?;
+        // E19.58: FormalParameters of a generator must not contain YieldExpression.
+        if is_generator && params_contain_yield_expr(&params) {
+            self.in_generator = prev_gen;
+            self.in_await_context = prev_await;
+            return Err(Diagnostic::new(
+                "generator parameters cannot contain yield".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
         let return_type = self.parse_optional_type_ann()?;
         let body = Box::new(self.parse_function_body_block()?);
         self.in_generator = prev_gen;
@@ -2402,6 +2420,15 @@ impl Parser {
             self.expect(&TokenKind::LParen)?;
             let params = self.parse_param_list()?;
             self.expect(&TokenKind::RParen)?;
+            // E19.58: FormalParameters of a generator must not contain YieldExpression.
+            if is_generator && params_contain_yield_expr(&params) {
+                self.in_generator = prev_gen;
+                self.in_await_context = prev_await;
+                return Err(Diagnostic::new(
+                    "generator parameters cannot contain yield".to_string(),
+                    Span::new(fn_start, self.current_span().end.0),
+                ));
+            }
             let return_type = self.parse_optional_type_ann()?;
             let body = Box::new(self.parse_function_body_block()?);
             self.in_generator = prev_gen;
@@ -2949,12 +2976,23 @@ impl Parser {
     /// `async? ident =>` or `async? (params) =>` with simple ident params only.
     fn is_arrow_start(&self) -> bool {
         if self.check(&TokenKind::Async) && !self.peek_is(&TokenKind::Function) {
+            // E19.58: no LineTerminator between `async` and ArrowFormalParameters / binding.
+            if self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| t.preceded_by_line_terminator)
+            {
+                return false;
+            }
             let next = self.tokens.get(self.pos + 1).map(|t| &t.kind);
-            let after = self.tokens.get(self.pos + 2).map(|t| &t.kind);
+            let after = self.tokens.get(self.pos + 2);
             let next_is_ident = matches!(next, Some(TokenKind::Ident(_)))
                 || (matches!(next, Some(TokenKind::Yield)) && self.yield_is_ident())
                 || (matches!(next, Some(TokenKind::Await)) && self.await_is_ident());
-            if next_is_ident && matches!(after, Some(TokenKind::Arrow)) {
+            if next_is_ident
+                && matches!(after.map(|t| &t.kind), Some(TokenKind::Arrow))
+                && !after.is_some_and(|t| t.preceded_by_line_terminator)
+            {
                 return true;
             }
             if self.peek_is(&TokenKind::LParen) {
@@ -2963,7 +3001,11 @@ impl Parser {
             return false;
         }
         if self.at_binding_ident() && self.peek_is(&TokenKind::Arrow) {
-            return true;
+            // E19.58: no LineTerminator between ArrowParameters and `=>`.
+            return !self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|t| t.preceded_by_line_terminator);
         }
         if self.check(&TokenKind::LParen) {
             return self.lookahead_paren_arrow_from(self.pos);
@@ -3003,10 +3045,14 @@ impl Parser {
             }
             i += 1;
         }
+        // E19.58: no LineTerminator between ArrowParameters and `=>`.
         matches!(
             self.tokens.get(i).map(|t| &t.kind),
             Some(TokenKind::Arrow)
-        )
+        ) && !self
+            .tokens
+            .get(i)
+            .is_some_and(|t| t.preceded_by_line_terminator)
     }
 
     /// `async? (params): ret? => body` or bare `async? param => body`.
@@ -3045,6 +3091,14 @@ impl Parser {
             let return_type = self.parse_optional_type_ann()?;
             (params, return_type)
         };
+        // E19.58: no LineTerminator between ArrowParameters and `=>`.
+        if self.current().preceded_by_line_terminator && self.check(&TokenKind::Arrow) {
+            self.in_await_context = prev_await;
+            return Err(Diagnostic::new(
+                "line terminator not allowed before '=>'".to_string(),
+                self.current_span(),
+            ));
+        }
         self.expect(&TokenKind::Arrow)?;
         if !is_async {
             self.in_await_context = false;
@@ -3345,9 +3399,17 @@ impl Parser {
     }
 
     /// Right-associative `**` (ECMA-262 ExponentiationExpression).
+    /// Left must be UpdateExpression; unparenthesized UnaryExpression base is early SyntaxError (E19.58).
     fn parse_exponentiation(&mut self) -> Result<Expr, Diagnostic> {
         let left = self.parse_unary()?;
         if self.check(&TokenKind::StarStar) {
+            if expr_is_unparenthesized_unary_op(&left) {
+                return Err(Diagnostic::new(
+                    "unary expression cannot be used as exponentiation base without parentheses"
+                        .to_string(),
+                    expr_span(&left),
+                ));
+            }
             self.bump();
             let right = self.parse_exponentiation()?;
             let span = span_merge(expr_span(&left), expr_span(&right));
@@ -5219,6 +5281,27 @@ fn params_contain_yield_expr(params: &[Param]) -> bool {
         p.default.as_ref().is_some_and(expr_contains_yield_expr)
             || binding_pattern_contains_yield_expr(&p.binding)
     })
+}
+
+/// True when `expr` is an unparenthesized UnaryExpression with a unary operator
+/// (not UpdateExpression). Invalid as the left operand of `**` (E19.58).
+fn expr_is_unparenthesized_unary_op(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Unary {
+            op: UnaryOp::Plus
+                | UnaryOp::Minus
+                | UnaryOp::Not
+                | UnaryOp::BitNot
+                | UnaryOp::TypeOf
+                | UnaryOp::Void
+                | UnaryOp::Delete
+                | UnaryOp::Await
+                | UnaryOp::Ref
+                | UnaryOp::Deref,
+            ..
+        }
+    )
 }
 
 fn binding_pattern_contains_yield_expr(b: &BindingPattern) -> bool {
@@ -7678,6 +7761,39 @@ Program
           Number 2
 "
         );
+    }
+
+    /// E19.58: unparenthesized UnaryExpression cannot be `**` base.
+    #[test]
+    fn parse_exponentiation_unary_base_fails() {
+        assert!(parse("-3 ** 2;").is_err());
+        assert!(parse("+3 ** 2;").is_err());
+        assert!(parse("!3 ** 2;").is_err());
+        assert!(parse("~3 ** 2;").is_err());
+        assert!(parse("typeof 3 ** 2;").is_err());
+        assert!(parse("void 3 ** 2;").is_err());
+        assert!(parse("delete x ** 2;").is_err());
+        assert!(parse("(-3) ** 2;").is_ok());
+        assert!(parse("2 ** -1;").is_ok());
+    }
+
+    /// E19.58: no LineTerminator before `=>`.
+    #[test]
+    fn parse_arrow_asi_restriction_fails() {
+        assert!(parse("var af = ()\n=> {};").is_err());
+        assert!(parse("var af = x\n=> {};").is_err());
+        assert!(parse("var af = x\n=> x;").is_err());
+        assert!(parse("async\n(foo) => {};").is_err());
+        assert!(parse("() => {};").is_ok());
+        assert!(parse("async (foo) => {};").is_ok());
+    }
+
+    /// E19.58: yield in generator FormalParameters.
+    #[test]
+    fn parse_generator_param_default_yield_fails() {
+        assert!(parse("function* g(x = yield) {}").is_err());
+        assert!(parse("0, function*(x = yield) {};").is_err());
+        assert!(parse("function* g(x = 1) { yield x; }").is_ok());
     }
 
     #[test]

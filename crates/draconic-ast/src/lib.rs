@@ -15,7 +15,8 @@ pub enum BindingKind {
     Const,
     /// Function-scoped `var` (hoisted; redeclarable; no TDZ).
     Var,
-    /// Function declaration binding (hoisted, not reassignable in the minimal surface).
+    /// Function/class declaration or named expression binding (hoisted for decls).
+    /// Reassignment is a runtime concern (immutable FE/class names; mutable decls).
     Function,
     /// `using x = expr` (explicit resource management; const-like + dispose).
     Using,
