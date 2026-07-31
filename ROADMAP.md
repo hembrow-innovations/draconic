@@ -537,14 +537,38 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | F01 | todo | native | `extern "C"` call: scalar args/returns (`i32`/`i64`/`f64`/`*T`/void) | `tests/conformance` fixtures `ffi/call` |
+| F01.01 | todo | native | Call extern C fn: i32 args/return | `tests/conformance` fixtures `ffi/call` |
+| F01.02 | todo | native | Call extern C: i64 / f64 / void return | `tests/conformance` fixtures `ffi/call` |
+| F01.03 | todo | native | Call extern C: pointer args (`*T` / null) | `tests/conformance` fixtures `ffi/call` |
 | F02 | todo | native | C callbacks: Draconic fn as `extern "C"` pointer; host invokes | `tests/conformance` fixtures `ffi/callback` |
+| F02.01 | todo | native | Export Draconic fn as C function pointer | `tests/conformance` fixtures `ffi/callback` |
+| F02.02 | todo | native | Host invokes callback with scalar args; return value observed | `tests/conformance` fixtures `ffi/callback` |
 | F03 | todo | native | C-compatible struct layout (repr(C)-style); read/write both sides | `tests/conformance` fixtures `ffi/layout` |
+| F03.01 | todo | native | repr(C) struct field offsets match C ABI for scalars | `tests/conformance` fixtures `ffi/layout` |
+| F03.02 | todo | native | Pass/return struct by value or pointer across FFI | `tests/conformance` fixtures `ffi/layout` |
 | F04 | todo | native | Link external static lib (`.a`); call one symbol | `tests/integration`, `tests/conformance` fixtures `ffi/link_static` |
+| F04.01 | todo | native | Build links `.a`; resolve one C symbol | `tests/integration`, `tests/conformance` fixtures `ffi/link_static` |
+| F04.02 | todo | native | Call linked static symbol end-to-end | `tests/conformance` fixtures `ffi/link_static` |
 | F05 | todo | native | Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol | `tests/integration`, `tests/conformance` fixtures `ffi/link_dynamic` |
+| F05.01 | todo | native | Load dynamic lib at link or runtime; resolve one symbol | `tests/integration`, `tests/conformance` fixtures `ffi/link_dynamic` |
+| F05.02 | todo | native | Call dynamic symbol; missing lib → typed error | `tests/conformance` fixtures `ffi/link_dynamic` |
 | F06 | todo | compiler | Manual `extern` decls: parse + check signatures; IR/ABI surface | `crates/draconic-parser`, `crates/draconic-check`, `tests/conformance/types` |
+| F06.01 | todo | compiler | Parse `extern "C"` function decls | `crates/draconic-parser` |
+| F06.02 | todo | compiler | Check extern signatures (native types only; reject JS-only types) | `crates/draconic-check` |
+| F06.03 | todo | compiler | Lower extern decls to IR/ABI surface for LLVM | `crates/draconic-ir`, `crates/draconic-backend-llvm` |
 | F07 | todo | compiler | Bindgen-ish: generate externs from C header subset | `tests/integration`, `crates/draconic-cli` |
+| F07.01 | todo | compiler | Parse C header subset: functions with scalar/pointer params | `crates/draconic-cli`, `tests/integration` |
+| F07.02 | todo | compiler | Emit Draconic `extern "C"` decls from parsed header | `tests/integration` |
+| F07.03 | todo | compiler | CLI: `draconic bindgen <header>` (or designed) writes extern module | `crates/draconic-cli`, `tests/integration` |
+| F07.04 | todo | compiler | Header subset: simple structs + typedef names (no full C) | `tests/integration` |
 | F08 | todo | both | Unsafe/native-only FFI diagnostics; JS hard-error; clear spans | `tests/conformance` fixtures `ffi/policy` |
+| F08.01 | todo | js | FFI/extern on js → hard diagnostic (N04 spirit) | `tests/conformance` fixtures `ffi/policy` |
+| F08.02 | todo | both | Clear spans + codes for bad extern signatures / unsupported types | `tests/conformance` fixtures `ffi/policy` |
 | F09 | todo | native | Optional later: wasm32/wasi emit + link smoke | `tests/integration`, `crates/draconic-backend-llvm` |
+
+**F v1 done bar:** F06 + F01 + F08 + F04 (static link one symbol). F02/F03/F05 deepen; F07 bindgen; F09 later.
+
+**F critical path to first real C call:** F06.01–03 → F01.01 → F04.01–02 → F08.01.
 
 ---
 
@@ -555,11 +579,29 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | C01 | todo | both | Worker / OS thread: spawn isolate running module/fn; join/terminate; no shared JS heap by default | `tests/conformance` fixtures `concurrency/workers` |
+| C01.01 | todo | both | Spawn worker isolate from module path or fn entry | `tests/conformance` fixtures `concurrency/workers` |
+| C01.02 | todo | both | Join worker: wait for exit; capture result/error | `tests/conformance` fixtures `concurrency/workers` |
+| C01.03 | todo | both | Terminate worker; no shared JS heap across isolates | `tests/conformance` fixtures `concurrency/workers` |
+| C01.04 | todo | native | OS thread backing for native workers | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/workers` |
 | C02 | todo | both | Message-passing channels: send/recv; structured-clone or transfer policy; bounded buffer as designed | `tests/conformance` fixtures `concurrency/channels` |
+| C02.01 | todo | both | Channel send/recv: scalars + strings | `tests/conformance` fixtures `concurrency/channels` |
+| C02.02 | todo | both | Structured-clone (or designed) for plain objects; reject shared refs | `tests/conformance` fixtures `concurrency/channels` |
+| C02.03 | todo | both | Bounded buffer: backpressure / full-channel behavior as designed | `tests/conformance` fixtures `concurrency/channels` |
+| C02.04 | todo | both | Worker ↔ parent channel e2e (C01 + C02) | `tests/conformance` fixtures `concurrency/channels` |
 | C03 | todo | native | `once` / thread-safe init; mutex only if Runtime internals need it | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
+| C03.01 | todo | native | `once` / thread-safe init primitive | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
+| C03.02 | todo | native | Runtime-internal mutex only where required (not user-facing shared heap) | `crates/draconic-runtime` |
 | C04 | todo | compiler | Parallel `draconic test`: multi-fixture workers; deterministic aggregate exit | `crates/draconic-cli`, `tests/integration` |
+| C04.01 | todo | compiler | `draconic test` runs fixtures on worker pool (N>1) | `crates/draconic-cli`, `tests/integration` |
+| C04.02 | todo | compiler | Deterministic aggregate exit code + stable failure summary order | `crates/draconic-cli`, `tests/integration` |
 | C05 | todo | both | Structured cancellation / timeout helpers on async work (channels + timers) | `tests/conformance` fixtures `concurrency/cancel` |
+| C05.01 | todo | both | Cancel token / Abort-like signal: propagate to async work | `tests/conformance` fixtures `concurrency/cancel` |
+| C05.02 | todo | both | Timeout helper: race work vs timer (needs **H05**); settle cleanly | `tests/conformance` fixtures `concurrency/cancel` |
 | C06 | todo | native | Optional later: shared-memory atomics (advanced; not v1 bar) | `tests/conformance` fixtures `concurrency/atomics` |
+
+**C v1 done bar:** C01.01–03 + C02.01 + C02.04. C03/C04 tooling; C05 after H05; C06 later.
+
+**C critical path to worker+channel e2e:** C01.01 → C01.02 → C02.01 → C02.04.
 
 ---
 
@@ -570,15 +612,38 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | L01 | todo | both | Encoding: UTF-8 bytes↔string, Base64, hex | `tests/conformance` fixtures `stdlib/encoding` |
+| L01.01 | todo | both | UTF-8 encode/decode: string ↔ bytes; invalid UTF-8 error | `tests/conformance` fixtures `stdlib/encoding` |
+| L01.02 | todo | both | Base64 encode/decode | `tests/conformance` fixtures `stdlib/encoding` |
+| L01.03 | todo | both | Hex encode/decode | `tests/conformance` fixtures `stdlib/encoding` |
 | L02 | todo | both | Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set) | `tests/conformance` fixtures `stdlib/collections` |
+| L02.01 | todo | both | `groupBy` / `chunk` (or designed names) on arrays | `tests/conformance` fixtures `stdlib/collections` |
+| L02.02 | todo | both | Deque (or designed): push/pop both ends | `tests/conformance` fixtures `stdlib/collections` |
 | L03 | todo | both | Crypto: SHA-256 digest + secure random bytes | `tests/conformance` fixtures `stdlib/crypto` |
+| L03.01 | todo | both | SHA-256 digest over bytes; known test vectors | `tests/conformance` fixtures `stdlib/crypto` |
+| L03.02 | todo | both | Secure random bytes (OS CSPRNG); length parameter | `tests/conformance` fixtures `stdlib/crypto` |
 | L04 | todo | both | Compression later: gzip/deflate byte buffers | `tests/conformance` fixtures `stdlib/compression` |
 | L05 | todo | both | In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
+| L05.01 | todo | both | `describe` / `it` (or designed) register tests; run via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
+| L05.02 | todo | both | `expect` matchers: equality, truthiness; failure messages | `tests/conformance` fixtures `stdlib/testing` |
+| L05.03 | todo | both | Nested describe; before/after hooks as designed | `tests/conformance` fixtures `stdlib/testing` |
+| L05.04 | todo | both | CLI aggregates in-language suite exit codes with fixture runner | `crates/draconic-cli`, `tests/integration` |
 | L06 | todo | both | Logging: leveled logger; stderr/stdout sink | `tests/conformance` fixtures `stdlib/logging` |
+| L06.01 | todo | both | Leveled log (error/warn/info/debug); filter by level | `tests/conformance` fixtures `stdlib/logging` |
+| L06.02 | todo | both | Sink to stderr/stdout (string format) | `tests/conformance` fixtures `stdlib/logging` |
 | L07 | todo | both | Flags/CLI parse: argv → typed options/positionals | `tests/conformance` fixtures `stdlib/flags` |
+| L07.01 | todo | both | Parse long/short flags + positionals from string array | `tests/conformance` fixtures `stdlib/flags` |
+| L07.02 | todo | both | Typed options (bool/string/number); help text as designed | `tests/conformance` fixtures `stdlib/flags` |
 | L08 | todo | both | URL / query parse + serialize | `tests/conformance` fixtures `stdlib/url` |
-| L09 | todo | both | MIME multipart later (HTTP-shaped programs) | `tests/conformance` fixtures `stdlib/mime` |
+| L08.01 | todo | both | Parse URL: scheme/host/path/query/hash | `tests/conformance` fixtures `stdlib/url` |
+| L08.02 | todo | both | Query parse/serialize; round-trip common cases | `tests/conformance` fixtures `stdlib/url` |
+| L09 | todo | both | MIME multipart later (HTTP-shaped programs; after H10) | `tests/conformance` fixtures `stdlib/mime` |
 | L10 | todo | both | Crypto later: HMAC + AEAD (after L03) | `tests/conformance` fixtures `stdlib/crypto` |
+| L10.01 | todo | both | HMAC-SHA256 (after L03) | `tests/conformance` fixtures `stdlib/crypto` |
+| L10.02 | todo | both | AEAD encrypt/decrypt (after L03; algorithm as designed) | `tests/conformance` fixtures `stdlib/crypto` |
+
+**L v1 done bar:** L01 + L03 + L05.01–02 + L06 + L08. L02/L07 polish; L04/L09/L10 later.
+
+**L critical path:** no ordered flagship; claim any v1-bar todo. Prefer L01/L03 before L10; L05 after U01.
 
 ---
 
@@ -589,10 +654,25 @@ Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | D01 | todo | compiler | Release binaries + install script; one-line install to PATH | `tests/integration` (install smoke), CI |
+| D01.01 | todo | compiler | CI/release: produce platform binary artifact for host triple | CI, `tests/integration` |
+| D01.02 | todo | compiler | Install script: download + place `draconic` on PATH (one-line) | `tests/integration` (install smoke) |
+| D01.03 | todo | compiler | Install smoke: fresh PATH → `draconic -V` / parse hello | `tests/integration` |
 | D02 | todo | compiler | Toolchain version pin in `draconic.toml`; CLI enforces or warns | `crates/draconic-cli`, `tests/integration` |
+| D02.01 | todo | compiler | Manifest field: required/optional toolchain version | `crates/draconic-cli`, `crates/draconic-pkg` |
+| D02.02 | todo | compiler | CLI: enforce or warn when running toolchain ≠ pin | `crates/draconic-cli`, `tests/integration` |
 | D03 | todo | compiler | Reproducible builds: same source + pin → documented-equivalent artifacts | `tests/integration` |
+| D03.01 | todo | compiler | Document reproducibility expectations (timestamps, paths) | `tests/integration`, docs |
+| D03.02 | todo | compiler | Same source + pin → byte-identical or documented-equivalent emit | `tests/integration` |
 | D04 | todo | native | Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available) | `tests/integration`, `crates/draconic-backend-llvm` |
+| D04.01 | todo | native | Cross-compile: at least one non-host triple smoke | `tests/integration`, `crates/draconic-backend-llvm` |
+| D04.02 | todo | native | Matrix docs + CI jobs for available OS/arch pairs | CI, `tests/integration` |
 | D05 | todo | native | Binary size opts: strip / LTO flags documented and testable | `tests/integration`, `crates/draconic-cli` |
+| D05.01 | todo | native | CLI/build flags: strip symbols | `crates/draconic-cli`, `tests/integration` |
+| D05.02 | todo | native | LTO (or designed) flag documented; size delta smoke | `crates/draconic-cli`, `tests/integration` |
+
+**D v1 done bar:** D01.01–03 + D02. D03/D04/D05 deepen distribution quality.
+
+**D critical path to installable toolchain:** D01.01 → D01.02 → D01.03 → D02.01–02.
 
 ---
 
@@ -603,11 +683,28 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | R01 | todo | native | Embed/eval resource limits: max source size, alloc/time budget | `crates/draconic-embed`, `crates/draconic-runtime` |
+| R01.01 | todo | native | Max source size for embed/eval; reject oversize | `crates/draconic-embed` |
+| R01.02 | todo | native | Alloc budget: fail closed when exceeded | `crates/draconic-runtime`, `crates/draconic-embed` |
+| R01.03 | todo | native | Time budget: interrupt/fail long-running eval | `crates/draconic-embed`, `crates/draconic-runtime` |
 | R02 | todo | both | Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics | `tests/conformance` fixtures `security/permissions` |
+| R02.01 | todo | both | Permission grants: fs read/write, net listen/connect (as designed) | `tests/conformance` fixtures `security/permissions` |
+| R02.02 | todo | both | Deny path: clear diagnostic when host op lacks grant | `tests/conformance` fixtures `security/permissions` |
+| R02.03 | todo | both | CLI/runtime flags to grant subset (opt-in permissions) | `crates/draconic-cli`, `tests/conformance` fixtures `security/permissions` |
+| R02.04 | todo | both | Default policy documented (permissive vs locked-down as designed) | `tests/conformance` fixtures `security/permissions` |
 | R03 | todo | compiler | Supply-chain policy tests once **K08** lands (lock verify refuse tamper) | `tests/integration`, **K08** |
+| R03.01 | todo | compiler | Integration: tampered cache refused (depends **K08**) | `tests/integration`, **K08** |
+| R03.02 | todo | compiler | Integration: lock hash mismatch hard-fails build | `tests/integration`, **K08** |
 | R04 | todo | native | Panic/abort vs catchable exception policy; fixtures per class | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
+| R04.01 | todo | native | Document + fixture: which failures are catchable exceptions | `tests/conformance` fixtures `security/panic_policy` |
+| R04.02 | todo | native | Document + fixture: which failures abort/panic process | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
 | R05 | todo | both | Fuzz/stress hooks: parser/embed/runtime entry points | `crates/draconic-parser` and/or `crates/draconic-runtime` fuzz |
+| R05.01 | todo | compiler | Parser fuzz entry (cargo-fuzz or designed harness) | `crates/draconic-parser` fuzz |
+| R05.02 | todo | native | Embed/runtime fuzz or stress hooks | `crates/draconic-runtime` fuzz, `crates/draconic-embed` |
 | R06 | todo | native | Panic backtraces with source locations (ties **U07** DWARF) | `crates/draconic-runtime`, `tests/integration` |
+
+**R v1 done bar:** R01 + R04. R02 after H fs/net; R03 after K08; R05/R06 deepen.
+
+**R critical path:** R01.01–03 (embed limits) then R04; R02 after H04/H06; R03 after K08.
 
 ---
 
@@ -625,6 +722,8 @@ Native depth stays under **N**; host/net under **H**; packages under **K**.
 | P04 | todo | both | Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09) | `examples/` |
 | P05 | todo | compiler | Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**) | `crates/draconic-cli`, `examples/` |
 
+**P note:** no ordered bar beyond P04 after H17+K09; claim any todo.
+
 ---
 
 ## S — Spec external (Phase 2)
@@ -636,6 +735,8 @@ External conformance bar (Test262 staged). If **E19** (or children) already trac
 | S01 | done | js | Test262 staged harness (see **E19.01**): curated allowlist on js; baseline report; suite optional | `tests/test262`, **E19.01** |
 | S02 | todo | js | Expand Test262 allowlist / promote first failure cluster (see **E19.02**) | `tests/test262` + **E19.02** |
 
+**S note:** ordered via **E19**; S02 tracks allowlist expansion only — no duplicate harness work.
+
 ---
 
 ## How the Loop updates this file
@@ -645,4 +746,4 @@ External conformance bar (Test262 staged). If **E19** (or children) already trac
 3. Split a cluster into child rows (e.g. `E01.01`) when the cluster is too large for one Loop — never mark a cluster `done` with failing or missing coverage.
 4. Never delete ECMA-262 obligations; move only to finer rows or explicit `blocked` with reason.
 5. **Empty board = stop.** If there are **zero** `todo` rows anywhere on this Roadmap, **stop** — do not invent work, do not open ad-hoc features, do not mark speculative items `todo`. File a vault issue or wait for a human if more work is needed.
-6. Platform tracks (**H/K/F/C/L/D/R**) are real Loop work. Prefer critical paths: **H** → http-echo; **K** → temp-git e2e; spine **T07/N08/S02** when intent is language honesty.
+6. Platform tracks (**H/K/F/C/L/D/R**) are real Loop work. Prefer critical paths: **H** → http-echo; **K** → temp-git e2e; **F** → first C call; **C** → worker+channel; **D** → install smoke; **L**/**R** claim any v1-bar todo; spine **T07/N08/S02** when intent is language honesty.
