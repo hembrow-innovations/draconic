@@ -12,3 +12,4 @@ path = "src/bin/probe.rs"
 [dependencies]
 draconic-frontend.workspace = true
 draconic-backend-js.workspace = true
+rayon = { workspace = true }

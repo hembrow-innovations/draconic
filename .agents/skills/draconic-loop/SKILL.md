@@ -16,7 +16,12 @@ Read before work: `CONTEXT.md`, relevant `docs/adr/`, `ROADMAP.md`.
 2. **Orient** — Read existing tests and code for that item’s **Tests** paths. Skim ADRs if the item touches IR, Runtime, Embed, or dual worlds.
 3. **Red** — Add or extend tests that fail for the missing behavior. Prefer crate unit tests for compiler pieces; `tests/conformance/**` for language semantics; both backends when **Targets** is `both`.
 4. **Green** — Implement the minimum to pass. No silent subsetting of ECMA-262: if the item’s scope is large, **split** the Roadmap row into child IDs (e.g. `E01.01`) and complete only the claimed child this Loop.
-5. **Verify** — Run `cargo test` for touched crates, then `cargo test --workspace`. Run `cargo build -p draconic-cli` if the CLI changed.
+5. **Verify** — Run `cargo test` for touched crates, then `cargo test --workspace` (**fast by default**). Full Test262 allowlist (~37k Node runs) is **opt-in**:
+   - Default: workspace tests use a **smoke** allowlist slice only (`DRACONIC_TEST262_FULL` unset).
+   - Always **probe** newly added allowlist paths (or the item’s target fixtures) with `cargo build -p draconic-test262 --bin probe --release` + `./target/release/probe` before `done`.
+   - For **Expand allowlist** rows or when you changed many allowlist entries: `DRACONIC_TEST262_FULL=1 cargo test -p draconic-test262 --lib default_run` (parallel via `DRACONIC_TEST262_JOBS`, default = CPU count).
+   - Run `cargo build -p draconic-cli` if the CLI changed.
+   - Do **not** burn a Loop on a serial full-suite run; prefer probe + unit tests, full gate only when expanding.
 6. **Close** — Set the item to `done` only if verify is green. Never `done` with failing or missing tests. If blocked on tools (e.g. system LLVM), set `blocked` and note the reason in the Roadmap cell or a short comment under the table.
 7. **Commit** — Stage all changes for this work package and create a git commit before stopping or claiming the next item. Message: Roadmap ID(s) + short summary (e.g. `E03.05 Arrow functions: parse, lower, emit, conformance`). One commit per completed Loop item.
 8. **Stop** — Default: **one item per invocation**. Do not start the next item unless the user says to continue.

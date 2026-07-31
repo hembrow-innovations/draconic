@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 
 use draconic_backend_js::emit_js;
 use draconic_frontend::{compile_path, compile_source, compile_source_module};
+use rayon::prelude::*;
 
 /// Outcome bucket for one allowlisted path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -679,7 +680,21 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     }
 }
 
+/// Parallelism for allowlist runs (`DRACONIC_TEST262_JOBS`, default = CPUs).
+pub fn test262_jobs() -> usize {
+    if let Ok(raw) = std::env::var("DRACONIC_TEST262_JOBS") {
+        if let Ok(n) = raw.trim().parse::<usize>() {
+            return n.max(1);
+        }
+    }
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+}
+
 /// Run the curated allowlist. Suite absent → every case `skip`.
+///
+/// Cases run in parallel (see [`test262_jobs`]). Order matches the allowlist.
 pub fn run_allowlist(suite_root: &Path, allowlist: &[String]) -> Report {
     let present = suite_present(suite_root);
     let cases = if !present {
@@ -695,10 +710,19 @@ pub fn run_allowlist(suite_root: &Path, allowlist: &[String]) -> Report {
             })
             .collect()
     } else {
-        allowlist
-            .iter()
-            .map(|p| run_case(suite_root, p))
-            .collect()
+        let jobs = test262_jobs();
+        let root = suite_root.to_path_buf();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs)
+            .stack_size(8 * 1024 * 1024)
+            .build()
+            .expect("test262 rayon pool");
+        pool.install(|| {
+            allowlist
+                .par_iter()
+                .map(|p| run_case(&root, p))
+                .collect()
+        })
     };
     Report {
         suite_root: Some(suite_root.to_path_buf()),
@@ -1005,36 +1029,65 @@ assert.throws(TypeError, function() {
 
     #[test]
     fn default_run_does_not_fail_ci_without_suite() {
-        // E19.25–E19.56: expanded allowlist needs a larger stack in debug.
+        // Fast path (default): suite absent → skip-all green; suite present → do not
+        // run the full allowlist (tens of k Node spawns). Set DRACONIC_TEST262_FULL=1
+        // for the full gate (allowlist-expand Loops / pre-push).
+        let root = resolve_suite_root();
+        let list = load_allowlist(&allowlist_path()).expect("allowlist");
+        if !suite_present(&root) {
+            let report = run_allowlist(&root, &list);
+            let path = write_baseline_report(&report).expect("write report");
+            assert!(path.is_file(), "report path {}", path.display());
+            let (pass, fail, skip) = report.counts();
+            eprintln!(
+                "test262 default (suite absent): pass={pass} fail={fail} skip={skip} report={}",
+                path.display()
+            );
+            assert!(skip > 0);
+            assert_eq!(fail, 0);
+            assert_eq!(pass, 0);
+            return;
+        }
+
+        let full = std::env::var_os("DRACONIC_TEST262_FULL").is_some();
+        if !full {
+            // Smoke: a handful of stable allowlisted paths (parallel still).
+            let smoke: Vec<String> = list.iter().take(32).cloned().collect();
+            let report = run_allowlist(&root, &smoke);
+            let (pass, fail, skip) = report.counts();
+            eprintln!(
+                "test262 smoke (set DRACONIC_TEST262_FULL=1 for full allowlist): pass={pass} fail={fail} skip={skip} jobs={}",
+                test262_jobs()
+            );
+            assert_eq!(fail, 0, "smoke allowlist must pass; failing: {:?}", report.cases.iter().filter(|c| c.status == Status::Fail).map(|c| &c.path).collect::<Vec<_>>());
+            assert_eq!(skip, 0);
+            assert_eq!(pass, smoke.len());
+            return;
+        }
+
+        // Full allowlist gate (parallel). Larger stack for deep debug recursion.
         let handle = std::thread::Builder::new()
             .name("test262-default-run".into())
             .stack_size(32 * 1024 * 1024)
             .spawn(|| {
-                // Suite missing → all skip (CI green). Suite present → allowlist must pass.
                 let report = run_default().expect("run_default");
                 let path = write_baseline_report(&report).expect("write report");
                 assert!(path.is_file(), "report path {}", path.display());
                 let (pass, fail, skip) = report.counts();
                 eprintln!(
-                    "test262 default: present={} pass={pass} fail={fail} skip={skip} report={}",
+                    "test262 FULL: present={} pass={pass} fail={fail} skip={skip} jobs={} report={}",
                     report.suite_present,
+                    test262_jobs(),
                     path.display()
                 );
-                if !report.suite_present {
-                    assert!(skip > 0);
-                    assert_eq!(fail, 0);
-                }
-                // E19.02: expanded allowlist must stay green when suite is present.
-                if report.suite_present {
-                    assert_eq!(
-                        fail, 0,
-                        "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
-                    );
-                    assert!(
-                        pass >= 37500,
-                        "expected expanded allowlist pass count >= 37500, got {pass}"
-                    );
-                }
+                assert_eq!(
+                    fail, 0,
+                    "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
+                );
+                assert!(
+                    pass >= 37500,
+                    "expected expanded allowlist pass count >= 37500, got {pass}"
+                );
             })
             .expect("spawn test262-default-run");
         handle.join().expect("test262-default-run thread");

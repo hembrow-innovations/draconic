@@ -14,7 +14,8 @@ import { createInterface } from "node:readline";
 const DEFAULT_PROMPT =
 	"Run the draconic-loop skill exactly once: claim the next ROADMAP.md item, implement it test-first, mark it done only when cargo test --workspace is green, then stop. Do not start a second item.";
 
-const DEFAULT_STALL_SEC = 600;
+// Full Test262 is opt-in now; 15m still covers slow compiles without false stalls.
+const DEFAULT_STALL_SEC = 900;
 
 const [, , loopsArg, ...rest] = process.argv;
 const loops = Number.parseInt(loopsArg, 10);

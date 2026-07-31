@@ -40,3 +40,4 @@ draconic-runtime = { path = "crates/draconic-runtime" }
 draconic-embed = { path = "crates/draconic-embed" }
 draconic-conformance = { path = "tests/conformance" }
 thiserror = "2"
+rayon = "1.10"
