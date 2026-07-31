@@ -3923,15 +3923,16 @@ impl<'a> Checker<'a> {
                     }
                 }
                 let result_ty = match callee_ty {
-                    // E19.13: Object/Shape may or may not have [[Call]]; TypeError is runtime.
-                    Type::Any | Type::Function | Type::Object | Type::Shape(_) => Type::Any,
                     Type::GenericFn(gid) => self.instantiate_generic_call(gid, &arg_tys, *span)?,
-                    _ => {
+                    // Native/ptr have no JS [[Call]].
+                    Type::Native(_) | Type::Ptr(_) => {
                         return Err(Diagnostic::new(
                             format!("type `{callee_ty}` is not callable"),
                             *span,
                         ));
                     }
+                    // E19.13 / E19.59: JS values may lack [[Call]]; TypeError is runtime.
+                    _ => Type::Any,
                 };
                 self.record(*span, result_ty);
                 result_ty
@@ -3950,10 +3951,9 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                if callee_ty != Type::Any
-                    && callee_ty != Type::Function
-                    && !matches!(callee_ty, Type::GenericFn(_))
-                {
+                // Native/ptr have no JS [[Construct]]. E19.59: boolean/number/string/null
+                // (and other JS values) — TypeError is runtime, not compile reject.
+                if matches!(callee_ty, Type::Native(_) | Type::Ptr(_)) {
                     return Err(Diagnostic::new(
                         format!("type `{callee_ty}` is not constructable"),
                         *span,
@@ -7231,15 +7231,41 @@ mod tests {
         assert_eq!(sym_type(&checked, "c"), Type::BigInt);
     }
 
+    // E19.59: call/`new` on boolean/number/string/null — TypeError is runtime, not compile.
     #[test]
-    fn check_call_on_number_errors() {
-        let program = parse("let f = 1; f();").unwrap();
-        let err = check(program).unwrap_err();
-        assert!(
-            err.message.contains("not callable"),
-            "unexpected message: {}",
-            err.message
-        );
+    fn check_call_on_primitives_typechecks() {
+        let program = parse(
+            r#"
+            let n = 1; try { n(); } catch (e) {}
+            let b = true; try { b(); } catch (e) {}
+            let s = "x"; try { s(); } catch (e) {}
+            let z = null; try { z(); } catch (e) {}
+            try { (1)(); } catch (e) {}
+            try { (true)(); } catch (e) {}
+            try { ("x")(); } catch (e) {}
+            try { (null)(); } catch (e) {}
+            "#,
+        )
+        .unwrap();
+        check(program).expect("call on primitives should typecheck; [[Call]] is runtime");
+    }
+
+    #[test]
+    fn check_new_on_primitives_typechecks() {
+        let program = parse(
+            r#"
+            let n = 1; try { new n(); } catch (e) {}
+            let b = true; try { new b(); } catch (e) {}
+            let s = "x"; try { new s(); } catch (e) {}
+            let z = null; try { new z(); } catch (e) {}
+            try { new (1)(); } catch (e) {}
+            try { new (true)(); } catch (e) {}
+            try { new ("x")(); } catch (e) {}
+            try { new (null)(); } catch (e) {}
+            "#,
+        )
+        .unwrap();
+        check(program).expect("new on primitives should typecheck; [[Construct]] is runtime");
     }
 
     // E19.13: ++/-- and call on ToPrimitive / object values — runtime ToNumber/[[Call]], not compile reject.
