@@ -281,7 +281,13 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.53 | done | js | Class elements residual II: private optional chaining / brand / inner-arrow private access; static `constructor` name edge (`grammar-static-ctor-*`); computed-name ToPrimitive TypeError | `crates/draconic-parser` / IR, `tests/test262` |
 | E19.54 | done | js | Top-level `await` export forms residual: `export default class … await` / `export var x = await expr` (expected Extends / export production after `export`) | `crates/draconic-parser`, `tests/test262` |
 | E19.55 | done | js | Dynamic `import.defer` nested emit + evaluation: nested arrow/block/await forms still SyntaxError at runtime; import-defer evaluation-triggers residual | `crates/draconic-backend-js` / linker, `tests/test262` |
-| E19.56 | todo | js | Expand allowlist further after E19.51–E19.55 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.56 | done | js | Expand allowlist further after E19.51–E19.55 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.57 | in_progress | js | Named binding reassignment residual: non-strict reassign of named `function`/`async function`/`function*`/`async function*` expression binding and class expression name; strict → runtime TypeError not compile reject | `crates/draconic-check`, `tests/test262` |
+| E19.58 | todo | js | Early SyntaxError residual III: negative parse still accepted (exponentiation unary base, arrow ASI restrictions, async-arrow `super` early errors, assignmenttargettype optional, generator param-default `yield`) | `crates/draconic-parser` / check, `tests/test262` |
+| E19.59 | todo | js | Untyped call/construct residual: do not reject ECMA-262 call/`new` on boolean/number/string/null without annotations (TypeError is runtime) | `crates/draconic-check`, `tests/test262` |
+| E19.60 | todo | js | Assignment/update target residual: parenthesized cover id `(id)++`/`(id)=`; const PutValue / dstr put-const runtime TypeError not compile reject; non-strict `eval`/`arguments` assignment target | `crates/draconic-parser` / check, `tests/test262` |
+| E19.61 | todo | js | Test262 harness helpers bulk: `isConstructor`, `$262.createRealm` (minimal), `testWithTypedArrayConstructors` / BigInt variants, `asyncTest` residual — unlock built-ins bulk | `tests/test262` (allowlist + baseline-report) |
+| E19.62 | todo | js | Expand allowlist further after E19.57–E19.61 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 
