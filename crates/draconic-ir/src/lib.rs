@@ -3004,13 +3004,18 @@ fn lower_expr_hint(
             value,
             span,
         } => {
+            // E19.60: peel cover parentheses so `(id) = v` lowers as a simple target.
+            let mut core = target.as_ref();
+            while let AstExpr::Paren { expr, .. } = core {
+                core = expr.as_ref();
+            }
             // Private field/accessor assign: `obj.#x = v` / compound / logical (E19.36).
             if let AstExpr::MemberExpression {
                 object,
                 property,
                 private: true,
                 ..
-            } = target.as_ref()
+            } = core
             {
                 let fname = match property.as_ref() {
                     AstExpr::Ident(id) => id.name.as_str(),
@@ -3026,11 +3031,11 @@ fn lower_expr_hint(
                     super_class,
                 );
             }
-            let assign_name_hint = match target.as_ref() {
+            let assign_name_hint = match core {
                 AstExpr::Ident(id) if matches!(op, AssignOp::Eq) => Some(id.name.as_str()),
                 _ => None,
             };
-            let target = match target.as_ref() {
+            let target = match core {
                 AstExpr::Ident(id) => {
                     if let Some(local) = checked.bound.resolve(id.span) {
                         AssignTarget::Local(ctx.map_class_name(local))
@@ -3096,12 +3101,17 @@ fn lower_expr_hint(
             prefix,
             span,
         } => {
+            // E19.60: peel cover parentheses so `(id)++` lowers as a simple target.
+            let mut core = arg.as_ref();
+            while let AstExpr::Paren { expr, .. } = core {
+                core = expr.as_ref();
+            }
             if let AstExpr::MemberExpression {
                 object,
                 property,
                 private: true,
                 ..
-            } = arg.as_ref()
+            } = core
             {
                 let fname = match property.as_ref() {
                     AstExpr::Ident(id) => id.name.as_str(),
@@ -3117,7 +3127,7 @@ fn lower_expr_hint(
                     super_class,
                 );
             }
-            let target = match arg.as_ref() {
+            let target = match core {
                 AstExpr::Ident(id) => {
                     if let Some(local) = checked.bound.resolve(id.span) {
                         UpdateTarget::Local(ctx.map_class_name(local))

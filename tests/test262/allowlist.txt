@@ -16464,6 +16464,7 @@ test/language/expressions/assignment/assignment-operator-calls-putvalue-lref--rv
 test/language/expressions/assignment/assignment-operator-calls-putvalue-lref--rval-.js
 test/language/expressions/assignment/destructuring/default-expr-throws-iterator-return-get-throws.js
 test/language/expressions/assignment/destructuring/default-expr-throws-iterator-return-is-not-callable.js
+test/language/expressions/assignment/destructuring/iterator-destructuring-property-reference-target-evaluation-order.js
 test/language/expressions/assignment/destructuring/keyed-destructuring-property-reference-target-evaluation-order-with-bindings.js
 test/language/expressions/assignment/destructuring/keyed-destructuring-property-reference-target-evaluation-order.js
 test/language/expressions/assignment/destructuring/obj-prop-__proto__dup.js
@@ -16513,6 +16514,7 @@ test/language/expressions/assignment/dstr/array-elem-nested-obj-yield-expr.js
 test/language/expressions/assignment/dstr/array-elem-nested-obj-yield-ident-invalid.js
 test/language/expressions/assignment/dstr/array-elem-nested-obj-yield-ident-valid.js
 test/language/expressions/assignment/dstr/array-elem-nested-obj.js
+test/language/expressions/assignment/dstr/array-elem-put-const.js
 test/language/expressions/assignment/dstr/array-elem-put-let.js
 test/language/expressions/assignment/dstr/array-elem-put-obj-literal-optchain-prop-ref-init.js
 test/language/expressions/assignment/dstr/array-elem-put-obj-literal-prop-ref-init-active.js
@@ -16616,6 +16618,7 @@ test/language/expressions/assignment/dstr/array-rest-nested-obj-yield-expr.js
 test/language/expressions/assignment/dstr/array-rest-nested-obj-yield-ident-invalid.js
 test/language/expressions/assignment/dstr/array-rest-nested-obj-yield-ident-valid.js
 test/language/expressions/assignment/dstr/array-rest-nested-obj.js
+test/language/expressions/assignment/dstr/array-rest-put-const.js
 test/language/expressions/assignment/dstr/array-rest-put-let.js
 test/language/expressions/assignment/dstr/array-rest-put-prop-ref-no-get.js
 test/language/expressions/assignment/dstr/array-rest-put-prop-ref-user-err-iter-close-skip.js
@@ -16704,6 +16707,7 @@ test/language/expressions/assignment/dstr/obj-id-init-simple-strict.js
 test/language/expressions/assignment/dstr/obj-id-init-yield-expr.js
 test/language/expressions/assignment/dstr/obj-id-init-yield-ident-invalid.js
 test/language/expressions/assignment/dstr/obj-id-init-yield-ident-valid.js
+test/language/expressions/assignment/dstr/obj-id-put-const.js
 test/language/expressions/assignment/dstr/obj-id-put-let.js
 test/language/expressions/assignment/dstr/obj-id-put-unresolvable-no-strict.js
 test/language/expressions/assignment/dstr/obj-id-put-unresolvable-strict.js
@@ -16755,6 +16759,7 @@ test/language/expressions/assignment/dstr/obj-prop-nested-obj-yield-expr.js
 test/language/expressions/assignment/dstr/obj-prop-nested-obj-yield-ident-invalid.js
 test/language/expressions/assignment/dstr/obj-prop-nested-obj-yield-ident-valid.js
 test/language/expressions/assignment/dstr/obj-prop-nested-obj.js
+test/language/expressions/assignment/dstr/obj-prop-put-const.js
 test/language/expressions/assignment/dstr/obj-prop-put-let.js
 test/language/expressions/assignment/dstr/obj-prop-put-order.js
 test/language/expressions/assignment/dstr/obj-prop-put-prop-ref-no-get.js
@@ -16778,6 +16783,7 @@ test/language/expressions/assignment/dstr/obj-rest-non-string-computed-property-
 test/language/expressions/assignment/dstr/obj-rest-not-last-element-invalid.js
 test/language/expressions/assignment/dstr/obj-rest-number.js
 test/language/expressions/assignment/dstr/obj-rest-order.js
+test/language/expressions/assignment/dstr/obj-rest-put-const.js
 test/language/expressions/assignment/dstr/obj-rest-same-name.js
 test/language/expressions/assignment/dstr/obj-rest-skip-non-enumerable.js
 test/language/expressions/assignment/dstr/obj-rest-str-val.js
@@ -16900,6 +16906,7 @@ test/language/expressions/assignment/S8.12.5_A2.js
 test/language/expressions/assignment/target-assignment-inside-function.js
 test/language/expressions/assignment/target-assignment.js
 test/language/expressions/assignment/target-boolean.js
+test/language/expressions/assignment/target-cover-id.js
 test/language/expressions/assignment/target-cover-newtarget.js
 test/language/expressions/assignment/target-cover-yieldexpr.js
 test/language/expressions/assignment/target-member-computed-reference-null.js
@@ -17230,6 +17237,7 @@ test/language/expressions/assignmenttargettype/parenthesized-yieldexpression-0.j
 test/language/expressions/assignmenttargettype/parenthesized-yieldexpression-1.js
 test/language/expressions/assignmenttargettype/simple-basic-identifierreference-arguments.js
 test/language/expressions/assignmenttargettype/simple-basic-identifierreference-await.js
+test/language/expressions/assignmenttargettype/simple-basic-identifierreference-eval.js
 test/language/expressions/assignmenttargettype/simple-basic-identifierreference-yield.js
 test/language/expressions/assignmenttargettype/simple-complex-callexpression-expression.js
 test/language/expressions/assignmenttargettype/simple-complex-callexpression.identifiername.js
@@ -26067,6 +26075,7 @@ test/language/expressions/postfix-decrement/11.3.2-2-3-s.js
 test/language/expressions/postfix-decrement/arguments-nostrict.js
 test/language/expressions/postfix-decrement/arguments.js
 test/language/expressions/postfix-decrement/bigint.js
+test/language/expressions/postfix-decrement/eval-nostrict.js
 test/language/expressions/postfix-decrement/eval.js
 test/language/expressions/postfix-decrement/line-terminator-carriage-return.js
 test/language/expressions/postfix-decrement/line-terminator-line-feed.js
@@ -26089,6 +26098,7 @@ test/language/expressions/postfix-decrement/S11.3.2_A4_T4.js
 test/language/expressions/postfix-decrement/S11.3.2_A4_T5.js
 test/language/expressions/postfix-decrement/S11.3.2_A6_T1.js
 test/language/expressions/postfix-decrement/S11.3.2_A6_T2.js
+test/language/expressions/postfix-decrement/target-cover-id.js
 test/language/expressions/postfix-decrement/target-cover-newtarget.js
 test/language/expressions/postfix-decrement/target-cover-yieldexpr.js
 test/language/expressions/postfix-decrement/target-newtarget.js
@@ -26099,6 +26109,7 @@ test/language/expressions/postfix-increment/11.3.1-2-3.js
 test/language/expressions/postfix-increment/arguments-nostrict.js
 test/language/expressions/postfix-increment/arguments.js
 test/language/expressions/postfix-increment/bigint.js
+test/language/expressions/postfix-increment/eval-nostrict.js
 test/language/expressions/postfix-increment/eval.js
 test/language/expressions/postfix-increment/line-terminator-carriage-return.js
 test/language/expressions/postfix-increment/line-terminator-line-feed.js
@@ -26121,6 +26132,7 @@ test/language/expressions/postfix-increment/S11.3.1_A4_T4.js
 test/language/expressions/postfix-increment/S11.3.1_A4_T5.js
 test/language/expressions/postfix-increment/S11.3.1_A6_T1.js
 test/language/expressions/postfix-increment/S11.3.1_A6_T2.js
+test/language/expressions/postfix-increment/target-cover-id.js
 test/language/expressions/postfix-increment/target-cover-newtarget.js
 test/language/expressions/postfix-increment/target-cover-yieldexpr.js
 test/language/expressions/postfix-increment/target-newtarget.js
@@ -26131,6 +26143,7 @@ test/language/expressions/prefix-decrement/11.4.5-2-3-s.js
 test/language/expressions/prefix-decrement/arguments-nostrict.js
 test/language/expressions/prefix-decrement/arguments.js
 test/language/expressions/prefix-decrement/bigint.js
+test/language/expressions/prefix-decrement/eval-nostrict.js
 test/language/expressions/prefix-decrement/eval.js
 test/language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue--1.js
 test/language/expressions/prefix-decrement/operator-prefix-decrement-x-calls-putvalue-lhs-newvalue-.js
@@ -26149,6 +26162,7 @@ test/language/expressions/prefix-decrement/S11.4.5_A4_T4.js
 test/language/expressions/prefix-decrement/S11.4.5_A4_T5.js
 test/language/expressions/prefix-decrement/S11.4.5_A6_T1.js
 test/language/expressions/prefix-decrement/S11.4.5_A6_T2.js
+test/language/expressions/prefix-decrement/target-cover-id.js
 test/language/expressions/prefix-decrement/target-cover-newtarget.js
 test/language/expressions/prefix-decrement/target-cover-yieldexpr.js
 test/language/expressions/prefix-decrement/target-newtarget.js
@@ -26158,6 +26172,7 @@ test/language/expressions/prefix-increment/11.4.4-2-3-s.js
 test/language/expressions/prefix-increment/arguments-nostrict.js
 test/language/expressions/prefix-increment/arguments.js
 test/language/expressions/prefix-increment/bigint.js
+test/language/expressions/prefix-increment/eval-nostrict.js
 test/language/expressions/prefix-increment/eval.js
 test/language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue--1.js
 test/language/expressions/prefix-increment/operator-prefix-increment-x-calls-putvalue-lhs-newvalue-.js
@@ -26176,6 +26191,7 @@ test/language/expressions/prefix-increment/S11.4.4_A4_T4.js
 test/language/expressions/prefix-increment/S11.4.4_A4_T5.js
 test/language/expressions/prefix-increment/S11.4.4_A6_T1.js
 test/language/expressions/prefix-increment/S11.4.4_A6_T2.js
+test/language/expressions/prefix-increment/target-cover-id.js
 test/language/expressions/prefix-increment/target-cover-newtarget.js
 test/language/expressions/prefix-increment/target-cover-yieldexpr.js
 test/language/expressions/prefix-increment/target-newtarget.js
@@ -33139,6 +33155,9 @@ test/language/statements/const/syntax/block-scope-syntax-const-declarations-mixe
 test/language/statements/const/syntax/block-scope-syntax-const-declarations-mixed-without-with-initialiser.js
 test/language/statements/const/syntax/block-scope-syntax-const-declarations-without-initialiser.js
 test/language/statements/const/syntax/const-declaring-let-split-across-two-lines.js
+test/language/statements/const/syntax/const-invalid-assignment-next-expression-for.js
+test/language/statements/const/syntax/const-invalid-assignment-statement-body-for-in.js
+test/language/statements/const/syntax/const-invalid-assignment-statement-body-for-of.js
 test/language/statements/const/syntax/const-outer-inner-let-bindings.js
 test/language/statements/const/syntax/const.js
 test/language/statements/const/syntax/with-initializer-case-expression-statement-list.js
@@ -33249,6 +33268,7 @@ test/language/statements/for-await-of/async-func-decl-dstr-array-elem-nested-obj
 test/language/statements/for-await-of/async-func-decl-dstr-array-elem-nested-obj-yield-ident-invalid.js
 test/language/statements/for-await-of/async-func-decl-dstr-array-elem-nested-obj-yield-ident-valid.js
 test/language/statements/for-await-of/async-func-decl-dstr-array-elem-nested-obj.js
+test/language/statements/for-await-of/async-func-decl-dstr-array-elem-put-const.js
 test/language/statements/for-await-of/async-func-decl-dstr-array-elem-put-prop-ref-no-get.js
 test/language/statements/for-await-of/async-func-decl-dstr-array-elem-put-prop-ref-user-err.js
 test/language/statements/for-await-of/async-func-decl-dstr-array-elem-put-prop-ref.js
@@ -33843,6 +33863,7 @@ test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-nested-obj-
 test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-nested-obj-undefined.js
 test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-nested-obj-yield-expr.js
 test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-nested-obj.js
+test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-put-const.js
 test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-put-prop-ref-no-get.js
 test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-put-prop-ref-user-err.js
 test/language/statements/for-await-of/async-gen-decl-dstr-array-elem-put-prop-ref.js
@@ -34637,6 +34658,7 @@ test/language/statements/for-of/dstr/array-elem-nested-obj-yield-expr.js
 test/language/statements/for-of/dstr/array-elem-nested-obj-yield-ident-invalid.js
 test/language/statements/for-of/dstr/array-elem-nested-obj-yield-ident-valid.js
 test/language/statements/for-of/dstr/array-elem-nested-obj.js
+test/language/statements/for-of/dstr/array-elem-put-const.js
 test/language/statements/for-of/dstr/array-elem-put-let.js
 test/language/statements/for-of/dstr/array-elem-put-obj-literal-optchain-prop-ref-init.js
 test/language/statements/for-of/dstr/array-elem-put-obj-literal-prop-ref-init-active.js
@@ -34740,6 +34762,7 @@ test/language/statements/for-of/dstr/array-rest-nested-obj-yield-expr.js
 test/language/statements/for-of/dstr/array-rest-nested-obj-yield-ident-invalid.js
 test/language/statements/for-of/dstr/array-rest-nested-obj-yield-ident-valid.js
 test/language/statements/for-of/dstr/array-rest-nested-obj.js
+test/language/statements/for-of/dstr/array-rest-put-const.js
 test/language/statements/for-of/dstr/array-rest-put-let.js
 test/language/statements/for-of/dstr/array-rest-put-prop-ref-no-get.js
 test/language/statements/for-of/dstr/array-rest-put-prop-ref-user-err-iter-close-skip.js
@@ -34976,6 +34999,7 @@ test/language/statements/for-of/dstr/obj-id-init-simple-strict.js
 test/language/statements/for-of/dstr/obj-id-init-yield-expr.js
 test/language/statements/for-of/dstr/obj-id-init-yield-ident-invalid.js
 test/language/statements/for-of/dstr/obj-id-init-yield-ident-valid.js
+test/language/statements/for-of/dstr/obj-id-put-const.js
 test/language/statements/for-of/dstr/obj-id-put-let.js
 test/language/statements/for-of/dstr/obj-id-put-unresolvable-no-strict.js
 test/language/statements/for-of/dstr/obj-id-put-unresolvable-strict.js
@@ -35026,6 +35050,7 @@ test/language/statements/for-of/dstr/obj-prop-nested-obj-yield-expr.js
 test/language/statements/for-of/dstr/obj-prop-nested-obj-yield-ident-invalid.js
 test/language/statements/for-of/dstr/obj-prop-nested-obj-yield-ident-valid.js
 test/language/statements/for-of/dstr/obj-prop-nested-obj.js
+test/language/statements/for-of/dstr/obj-prop-put-const.js
 test/language/statements/for-of/dstr/obj-prop-put-let.js
 test/language/statements/for-of/dstr/obj-prop-put-order.js
 test/language/statements/for-of/dstr/obj-prop-put-prop-ref-no-get.js
@@ -35049,6 +35074,7 @@ test/language/statements/for-of/dstr/obj-rest-non-string-computed-property-strin
 test/language/statements/for-of/dstr/obj-rest-not-last-element-invalid.js
 test/language/statements/for-of/dstr/obj-rest-number.js
 test/language/statements/for-of/dstr/obj-rest-order.js
+test/language/statements/for-of/dstr/obj-rest-put-const.js
 test/language/statements/for-of/dstr/obj-rest-same-name.js
 test/language/statements/for-of/dstr/obj-rest-skip-non-enumerable.js
 test/language/statements/for-of/dstr/obj-rest-str-val.js

@@ -661,13 +661,18 @@ fn body_has_use_strict(body: &Stmt) -> bool {
     }
 }
 
-/// Peel parens; if the core is Ident `eval`/`arguments`, return (name, span). E19.49.
-fn strict_forbidden_assign_target(expr: &Expr) -> Option<(String, Span)> {
+/// Peel covering parentheses (E19.60 cover IdentifierReference).
+fn peel_parens(expr: &Expr) -> &Expr {
     let mut inner = expr;
     while let Expr::Paren { expr, .. } = inner {
         inner = expr.as_ref();
     }
-    match inner {
+    inner
+}
+
+/// Peel parens; if the core is Ident `eval`/`arguments`, return (name, span). E19.49.
+fn strict_forbidden_assign_target(expr: &Expr) -> Option<(String, Span)> {
+    match peel_parens(expr) {
         Expr::Ident(id) if id.name == "eval" || id.name == "arguments" => {
             Some((id.name.clone(), id.span))
         }
@@ -2934,21 +2939,8 @@ impl<'a> Checker<'a> {
                     self.record(id.span, Type::Any);
                     return Ok(());
                 };
-                match self.bound.symbol(sym).kind {
-                    BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing => {
-                        return Err(Diagnostic::new(
-                            format!("cannot assign to const binding `{}`", id.name),
-                            span,
-                        ));
-                    }
-                    // E19.57: function/class name bindings — runtime immutable (TypeError /
-                    // silent); do not compile-reject. Declarations are mutable at runtime.
-                    BindingKind::Function | BindingKind::Let | BindingKind::Var => {}
-                }
-                let left_ty = self.symbol_types[sym.0 as usize];
-                if left_ty == Type::Any {
-                    // leave Any; element values are untyped here
-                }
+                // E19.57 / E19.60: const/using/function-name PutValue is runtime TypeError
+                // (or silent); do not compile-reject.
                 self.record(id.span, self.symbol_types[sym.0 as usize]);
                 Ok(())
             }
@@ -3625,7 +3617,8 @@ impl<'a> Checker<'a> {
                 span,
             } => {
                 let value_ty = self.check_expr(value)?;
-                match target.as_ref() {
+                // E19.60: peel cover parentheses so `(id) = v` is a simple assignment target.
+                match peel_parens(target.as_ref()) {
                     Expr::Ident(id) => {
                         let Some(sym) = self.bound.resolve(id.span) else {
                             // Free / with-chain assign target.
@@ -3633,19 +3626,8 @@ impl<'a> Checker<'a> {
                             self.record(*span, value_ty);
                             return Ok(value_ty);
                         };
-                        match self.bound.symbol(sym).kind {
-                            BindingKind::Const
-                            | BindingKind::Using
-                            | BindingKind::AwaitUsing => {
-                                return Err(Diagnostic::new(
-                                    format!("cannot assign to const binding `{}`", id.name),
-                                    *span,
-                                ));
-                            }
-                            // E19.57: function/class name bindings — runtime immutable
-                            // (TypeError / silent); do not compile-reject.
-                            BindingKind::Function | BindingKind::Let | BindingKind::Var => {}
-                        }
+                        // E19.57 / E19.60: const/using/function-name PutValue is runtime
+                        // TypeError (or silent); do not compile-reject.
                         let kind = self.bound.symbol(sym).kind;
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let result_ty = if let Some(bin_op) = op.binary_op() {
@@ -3653,9 +3635,15 @@ impl<'a> Checker<'a> {
                         } else {
                             value_ty
                         };
-                        // Function/class name bindings stay typed as functions; assignment
-                        // does not stick at runtime for immutable names.
-                        if kind != BindingKind::Function {
+                        // Immutable bindings keep their static type; assignment does not stick.
+                        let immutable = matches!(
+                            kind,
+                            BindingKind::Const
+                                | BindingKind::Using
+                                | BindingKind::AwaitUsing
+                                | BindingKind::Function
+                        );
+                        if !immutable {
                             if left_ty == Type::Any {
                                 self.symbol_types[sym.0 as usize] = result_ty;
                             } else if !self.is_assignable(result_ty, left_ty) {
@@ -3827,29 +3815,27 @@ impl<'a> Checker<'a> {
                 ));
             }
             Expr::Update { arg, span, .. } => {
-                match arg.as_ref() {
+                // E19.60: peel cover parentheses so `(id)++` is a valid update target.
+                match peel_parens(arg.as_ref()) {
                     Expr::Ident(id) => {
                         let Some(sym) = self.bound.resolve(id.span) else {
                             self.record(id.span, Type::Any);
                             self.record(*span, Type::Number);
                             return Ok(Type::Number);
                         };
-                        match self.bound.symbol(sym).kind {
-                            BindingKind::Const
-                            | BindingKind::Using
-                            | BindingKind::AwaitUsing => {
-                                return Err(Diagnostic::new(
-                                    format!("cannot assign to const binding `{}`", id.name),
-                                    *span,
-                                ));
-                            }
-                            // E19.57: function/class name bindings — runtime immutable
-                            // (TypeError / silent); do not compile-reject.
-                            BindingKind::Function | BindingKind::Let | BindingKind::Var => {}
-                        }
+                        // E19.57 / E19.60: const/using/function-name PutValue is runtime
+                        // TypeError (or silent); do not compile-reject.
+                        let kind = self.bound.symbol(sym).kind;
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let out = self.check_update_operand(left_ty, *span)?;
-                        if left_ty == Type::Any {
+                        let immutable = matches!(
+                            kind,
+                            BindingKind::Const
+                                | BindingKind::Using
+                                | BindingKind::AwaitUsing
+                                | BindingKind::Function
+                        );
+                        if !immutable && left_ty == Type::Any {
                             self.symbol_types[sym.0 as usize] = out;
                         }
                         self.record(id.span, out);
@@ -5481,15 +5467,49 @@ mod tests {
         assert_eq!(x.kind, BindingKind::Const);
     }
 
+    // E19.60: const PutValue is a runtime TypeError, not a compile reject.
     #[test]
-    fn check_const_rejects_reassignment() {
+    fn check_const_reassignment_ok() {
         let program = parse("const x = 1; x = 2;").unwrap();
-        let err = check(program).unwrap_err();
-        assert!(
-            err.message.contains("const") && err.message.contains("x"),
-            "unexpected message: {}",
-            err.message
-        );
+        check(program).expect("const reassignment must typecheck (runtime TypeError)");
+    }
+
+    #[test]
+    fn check_const_dstr_put_ok() {
+        let program = parse("const c = null; [c] = [1];").unwrap();
+        check(program).expect("const dstr put must typecheck (runtime TypeError)");
+    }
+
+    #[test]
+    fn check_const_update_ok() {
+        let program = parse("const x = 1; x++;").unwrap();
+        check(program).expect("const update must typecheck (runtime TypeError)");
+    }
+
+    // E19.60: parenthesized cover IdentifierReference is a valid simple assignment target.
+    #[test]
+    fn check_parenthesized_assign_target_ok() {
+        let program = parse("var x; (x) = 1;").unwrap();
+        check(program).expect("(x) = 1 must typecheck");
+    }
+
+    #[test]
+    fn check_parenthesized_update_target_ok() {
+        let program = parse("var y = 1; (y)++; ((y))++;").unwrap();
+        check(program).expect("(y)++ must typecheck");
+    }
+
+    // E19.60: non-strict eval/arguments are simple assignment targets (not early error).
+    #[test]
+    fn check_nonstrict_eval_assign_ok() {
+        let program = parse("eval = 1;").unwrap();
+        check(program).expect("non-strict eval = must typecheck");
+    }
+
+    #[test]
+    fn check_nonstrict_eval_update_ok() {
+        let program = parse("eval++;").unwrap();
+        check(program).expect("non-strict eval++ must typecheck");
     }
 
     // E19.57: named FE / class expr name reassignment is a runtime TypeError (strict)
@@ -5727,17 +5747,6 @@ mod tests {
         let err = check(program).unwrap_err();
         assert!(
             err.message.contains("cannot assign") || err.message.contains("not assignable"),
-            "unexpected message: {}",
-            err.message
-        );
-    }
-
-    #[test]
-    fn check_const_rejects_update() {
-        let program = parse("const x = 1; x++;").unwrap();
-        let err = check(program).unwrap_err();
-        assert!(
-            err.message.contains("const") && err.message.contains("x"),
             "unexpected message: {}",
             err.message
         );
