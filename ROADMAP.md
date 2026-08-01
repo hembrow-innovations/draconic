@@ -286,7 +286,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.58 | done | js | Early SyntaxError residual III: negative parse still accepted (exponentiation unary base, arrow ASI restrictions, async-arrow `super` early errors, assignmenttargettype optional, generator param-default `yield`) | `crates/draconic-parser` / check, `tests/test262` |
 | E19.59 | done | js | Untyped call/construct residual: do not reject ECMA-262 call/`new` on boolean/number/string/null without annotations (TypeError is runtime) | `crates/draconic-check`, `tests/test262` |
 | E19.60 | done | js | Assignment/update target residual: parenthesized cover id `(id)++`/`(id)=`; const PutValue / dstr put-const runtime TypeError not compile reject; non-strict `eval`/`arguments` assignment target | `crates/draconic-parser` / check, `tests/test262` |
-| E19.61 | todo | js | Test262 harness helpers bulk: `isConstructor`, `$262.createRealm` (minimal), `testWithTypedArrayConstructors` / BigInt variants, `asyncTest` residual — unlock built-ins bulk | `tests/test262` (allowlist + baseline-report) |
+| E19.61 | done | js | Test262 harness helpers bulk: `isConstructor`, `$262.createRealm` (minimal), `testWithTypedArrayConstructors` / BigInt variants, `asyncTest` residual — unlock built-ins bulk | `tests/test262` (allowlist + baseline-report) |
 | E19.62 | todo | js | Expand allowlist further after E19.57–E19.61 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---

@@ -303,6 +303,318 @@ function verifyProperty(obj, name, desc, options) {
   }
   return true;
 }
+// E19.61: isConstructor (harness/isConstructor.js)
+function isConstructor(f) {
+  if (typeof f !== "function") {
+    throw new Test262Error("isConstructor invoked with a non-function value");
+  }
+  try {
+    Reflect.construct(function(){}, [], f);
+  } catch (e) {
+    return false;
+  }
+  return true;
+}
+// E19.61: asyncTest + assert.throwsAsync (harness/asyncHelpers.js)
+function asyncTest(testFunc) {
+  if (!Object.prototype.hasOwnProperty.call(globalThis, "$DONE")) {
+    throw new Test262Error("asyncTest called without async flag");
+  }
+  if (typeof testFunc !== "function") {
+    $DONE(new Test262Error("asyncTest called with non-function argument"));
+    return;
+  }
+  try {
+    testFunc().then(
+      function () {
+        $DONE();
+      },
+      function (error) {
+        $DONE(error);
+      }
+    );
+  } catch (syncError) {
+    $DONE(syncError);
+  }
+}
+assert.throwsAsync = function (expectedErrorConstructor, func, message) {
+  return new Promise(function (resolve) {
+    let fail = function (detail) {
+      if (message === undefined) {
+        throw new Test262Error(detail);
+      }
+      throw new Test262Error(message + " " + detail);
+    };
+    if (typeof expectedErrorConstructor !== "function") {
+      fail("assert.throwsAsync called with an argument that is not an error constructor");
+    }
+    if (typeof func !== "function") {
+      fail("assert.throwsAsync called with an argument that is not a function");
+    }
+    let expectedName = expectedErrorConstructor.name;
+    let expectation = "Expected a " + expectedName + " to be thrown asynchronously";
+    let res;
+    try {
+      res = func();
+    } catch (thrown) {
+      fail(expectation + " but the function threw synchronously");
+    }
+    if (res === null || typeof res !== "object" || typeof res.then !== "function") {
+      fail(expectation + " but result was not a thenable");
+    }
+    let onResFulfilled;
+    let onResRejected;
+    let resSettlementP = new Promise(function (onFulfilled, onRejected) {
+      onResFulfilled = onFulfilled;
+      onResRejected = onRejected;
+    });
+    try {
+      res.then(onResFulfilled, onResRejected);
+    } catch (thrown) {
+      fail(expectation + " but .then threw synchronously");
+    }
+    resolve(resSettlementP.then(
+      function () {
+        fail(expectation + " but no exception was thrown at all");
+      },
+      function (thrown) {
+        if (thrown === null || typeof thrown !== "object") {
+          fail(expectation + " but thrown value was not an object");
+        } else if (thrown.constructor !== expectedErrorConstructor) {
+          let actualName = thrown.constructor.name;
+          if (expectedName === actualName) {
+            fail(expectation + " but got a different error constructor with the same name");
+          }
+          fail(expectation + " but got a " + actualName);
+        }
+      }
+    ));
+  });
+};
+// E19.61: TypedArray harness (minimal port of harness/testTypedArray.js)
+function isPrimitive(value) {
+  return !value || (typeof value !== "object" && typeof value !== "function");
+}
+let floatArrayConstructors = [Float64Array, Float32Array];
+let nonClampedIntArrayConstructors = [
+  Int32Array,
+  Int16Array,
+  Int8Array,
+  Uint32Array,
+  Uint16Array,
+  Uint8Array
+];
+let intArrayConstructors = nonClampedIntArrayConstructors.concat([Uint8ClampedArray]);
+if (typeof Float16Array !== "undefined") {
+  floatArrayConstructors = floatArrayConstructors.concat([Float16Array]);
+}
+let bigIntArrayConstructors = [];
+if (typeof BigInt64Array !== "undefined") {
+  bigIntArrayConstructors = bigIntArrayConstructors.concat([BigInt64Array]);
+}
+if (typeof BigUint64Array !== "undefined") {
+  bigIntArrayConstructors = bigIntArrayConstructors.concat([BigUint64Array]);
+}
+let typedArrayConstructors = floatArrayConstructors.concat(intArrayConstructors);
+let allTypedArrayConstructors = typedArrayConstructors.concat(bigIntArrayConstructors);
+let TypedArray = Object.getPrototypeOf(Int8Array);
+function makePassthrough(TA, primitiveOrIterable) {
+  return primitiveOrIterable;
+}
+function makeArray(TA, primitiveOrIterable) {
+  if (isPrimitive(primitiveOrIterable)) {
+    let n = Number(primitiveOrIterable);
+    if (!(n >= 0 && n < 9007199254740992)) {
+      return primitiveOrIterable;
+    }
+    let out = [];
+    let i = 0;
+    while (i < n) {
+      out = out.concat(["0"]);
+      i = i + 1;
+    }
+    return out;
+  }
+  return Array.from(primitiveOrIterable);
+}
+function makeArrayLike(TA, primitiveOrIterable) {
+  let arr = makeArray(TA, primitiveOrIterable);
+  if (isPrimitive(arr)) {
+    return arr;
+  }
+  let obj = { length: arr.length };
+  let i = 0;
+  while (i < obj.length) {
+    obj[i] = arr[i];
+    i = i + 1;
+  }
+  return obj;
+}
+function makeIterable(TA, primitiveOrIterable) {
+  let src = makeArray(TA, primitiveOrIterable);
+  if (isPrimitive(src)) {
+    return src;
+  }
+  let obj = {};
+  obj[Symbol.iterator] = function () {
+    return src[Symbol.iterator]();
+  };
+  return obj;
+}
+function makeArrayBuffer(TA, primitiveOrIterable) {
+  let arr = makeArray(TA, primitiveOrIterable);
+  if (isPrimitive(arr)) {
+    return arr;
+  }
+  return new TA(arr).buffer;
+}
+let typedArrayCtorArgFactories = [
+  makePassthrough,
+  makeArray,
+  makeArrayLike,
+  makeIterable,
+  makeArrayBuffer
+];
+function ctorArgFactoryMatchesSome(argFactory, features) {
+  let i = 0;
+  while (i < features.length) {
+    let feat = features[i];
+    if (feat === "passthrough" && argFactory === makePassthrough) {
+      return true;
+    }
+    if (feat === "arraylike" && (argFactory === makeArray || argFactory === makeArrayLike)) {
+      return true;
+    }
+    if (feat === "iterable" && argFactory === makeIterable) {
+      return true;
+    }
+    if (feat === "arraybuffer" && argFactory === makeArrayBuffer) {
+      return true;
+    }
+    i = i + 1;
+  }
+  return false;
+}
+function testWithAllTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
+  let ctors = constructors || allTypedArrayConstructors;
+  let ctorArgFactories = typedArrayCtorArgFactories;
+  if (includeArgFactories) {
+    ctorArgFactories = [];
+    let i = 0;
+    while (i < typedArrayCtorArgFactories.length) {
+      if (ctorArgFactoryMatchesSome(typedArrayCtorArgFactories[i], includeArgFactories)) {
+        ctorArgFactories = ctorArgFactories.concat([typedArrayCtorArgFactories[i]]);
+      }
+      i = i + 1;
+    }
+  }
+  if (excludeArgFactories) {
+    let filtered = [];
+    let j = 0;
+    while (j < ctorArgFactories.length) {
+      if (!ctorArgFactoryMatchesSome(ctorArgFactories[j], excludeArgFactories)) {
+        filtered = filtered.concat([ctorArgFactories[j]]);
+      }
+      j = j + 1;
+    }
+    ctorArgFactories = filtered;
+  }
+  if (ctorArgFactories.length === 0) {
+    throw new Test262Error("no arg factories match include " + includeArgFactories + " and exclude " + excludeArgFactories);
+  }
+  let k = 0;
+  while (k < ctorArgFactories.length) {
+    let argFactory = ctorArgFactories[k];
+    let i = 0;
+    while (i < ctors.length) {
+      let constructor = ctors[i];
+      let boundArgFactory = function (x) {
+        return argFactory(constructor, x);
+      };
+      try {
+        f(constructor, boundArgFactory);
+      } catch (e) {
+        if (e && typeof e === "object") {
+          e.message = String(e.message || "") + " (Testing with " + constructor.name + " and " + argFactory.name + ".)";
+        }
+        throw e;
+      }
+      i = i + 1;
+    }
+    k = k + 1;
+  }
+}
+function testWithTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
+  let ctors = constructors || typedArrayConstructors;
+  testWithAllTypedArrayConstructors(f, ctors, includeArgFactories, excludeArgFactories);
+}
+function testWithBigIntTypedArrayConstructors(f, constructors, includeArgFactories, excludeArgFactories) {
+  let ctors = constructors || bigIntArrayConstructors;
+  testWithAllTypedArrayConstructors(f, ctors, includeArgFactories, excludeArgFactories);
+}
+let nonAtomicsFriendlyTypedArrayConstructors = floatArrayConstructors.concat([Uint8ClampedArray]);
+function testWithNonAtomicsFriendlyTypedArrayConstructors(f, includeArgFactories, excludeArgFactories) {
+  testWithAllTypedArrayConstructors(
+    f,
+    nonAtomicsFriendlyTypedArrayConstructors,
+    includeArgFactories,
+    excludeArgFactories
+  );
+}
+function testWithAtomicsFriendlyTypedArrayConstructors(f, includeArgFactories, excludeArgFactories) {
+  testWithAllTypedArrayConstructors(
+    f,
+    [
+      Int32Array,
+      Int16Array,
+      Int8Array,
+      Uint32Array,
+      Uint16Array,
+      Uint8Array
+    ],
+    includeArgFactories,
+    excludeArgFactories
+  );
+}
+function testTypedArrayConversions(byteConversionValues, fn) {
+  let values = byteConversionValues.values;
+  let expected = byteConversionValues.expected;
+  testWithTypedArrayConstructors(function (TA) {
+    let name = TA.name.slice(0, -5);
+    let index = 0;
+    while (index < values.length) {
+      let value = values[index];
+      let exp = expected[name][index];
+      let initial = 0;
+      if (exp === 0) {
+        initial = 1;
+      }
+      fn(TA, value, exp, initial);
+      index = index + 1;
+    }
+  }, null, ["passthrough"]);
+}
+function isFloatTypedArrayConstructor(arg) {
+  let i = 0;
+  while (i < floatArrayConstructors.length) {
+    if (floatArrayConstructors[i] === arg) {
+      return true;
+    }
+    i = i + 1;
+  }
+  return false;
+}
+function floatTypedArrayConstructorPrecision(FA) {
+  if (typeof Float16Array !== "undefined" && FA === Float16Array) {
+    return "half";
+  } else if (FA === Float32Array) {
+    return "single";
+  } else if (FA === Float64Array) {
+    return "double";
+  } else {
+    throw new Error("Malformed test - floatTypedArrayConstructorPrecision called with non-float TypedArray");
+  }
+}
 "#;
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -455,6 +767,113 @@ function $DONE(error) {{
 process.on("unhandledRejection", function (reason) {{
   $DONE(reason);
 }});
+{compiled_js}
+"#
+    )
+}
+
+/// Node-only `$262` host API (E19.61 / INTERPRETING.md).
+///
+/// Injected **after** frontend emit so `require('vm')` is not compiled.
+/// Minimal surface: `global`, `createRealm`, `evalScript` (+ best-effort detach).
+///
+/// When `as_module` is true, uses `createRequire` so the wrapper works under
+/// Node `--input-type=module` (bare `require` is not defined in ESM).
+pub fn wrap_host_api(compiled_js: &str) -> String {
+    wrap_host_api_mode(compiled_js, false, false)
+}
+
+/// Like [`wrap_host_api`], with ESM vs script host bootstrap.
+///
+/// When `only_strict` is set (and not module), the wrapper begins with
+/// `"use strict";` so host statements do not suppress the script's strict mode
+/// (caller/callee TypeError tests, strict PutValue, etc.).
+pub fn wrap_host_api_mode(compiled_js: &str, as_module: bool, only_strict: bool) -> String {
+    let strict_boot = if only_strict && !as_module {
+        "\"use strict\";\n"
+    } else {
+        ""
+    };
+    let require_boot = if as_module {
+        r#"
+import { createRequire as __test262CreateRequire } from "module";
+var require = __test262CreateRequire(import.meta.url);
+"#
+    } else {
+        ""
+    };
+    format!(
+        r#"{strict_boot}{require_boot}
+(function () {{
+  var vm = require("vm");
+  function __test262InstallHost(globalObj, runEval) {{
+    var api = {{
+      global: globalObj,
+      createRealm: function () {{
+        return __test262CreateRealm();
+      }},
+      evalScript: function (src) {{
+        return runEval(String(src));
+      }},
+      detachArrayBuffer: function (buffer) {{
+        if (buffer && typeof buffer.transfer === "function") {{
+          buffer.transfer(0);
+          return;
+        }}
+        throw new TypeError("$262.detachArrayBuffer is not supported on this host");
+      }}
+    }};
+    Object.defineProperty(globalObj, "$262", {{
+      value: api,
+      writable: true,
+      configurable: true,
+      enumerable: false
+    }});
+    return api;
+  }}
+  function __test262CreateRealm() {{
+    var context = vm.createContext({{}});
+    // Node vm keeps intrinsics inside the context; copy them onto the context
+    // object so outer code can read `other.Array` / `other.Function` (cross-realm).
+    vm.runInContext(
+      "(function () {{" +
+        "var g = globalThis;" +
+        "var names = Object.getOwnPropertyNames(g);" +
+        "var snap = {{}};" +
+        "for (var i = 0; i < names.length; i++) {{" +
+          "var n = names[i];" +
+          "try {{ snap[n] = g[n]; }} catch (e) {{}}" +
+        "}}" +
+        "globalThis.__test262Snap = snap;" +
+      "}})();",
+      context
+    );
+    var snap = vm.runInContext("globalThis.__test262Snap", context);
+    var keys = Object.keys(snap);
+    for (var ki = 0; ki < keys.length; ki++) {{
+      var key = keys[ki];
+      if (key === "__test262Snap" || key === "$262") continue;
+      try {{
+        Object.defineProperty(context, key, {{
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: snap[key]
+        }});
+      }} catch (e) {{}}
+    }}
+    try {{
+      vm.runInContext("delete globalThis.__test262Snap", context);
+    }} catch (e) {{}}
+    return __test262InstallHost(context, function (src) {{
+      return vm.runInContext(src, context);
+    }});
+  }}
+  var __test262Root = typeof globalThis !== "undefined" ? globalThis : global;
+  __test262InstallHost(__test262Root, function (src) {{
+    return (0, eval)(src);
+  }});
+}})();
 {compiled_js}
 "#
     )
@@ -633,16 +1052,19 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             };
         }
     };
+    // E19.27: resolve relative dynamic `import()` against the test file directory.
+    // E19.28: Module-flag tests run as ESM (`--input-type=module`) for top-level await.
+    let cwd = full.parent();
+    let as_module = is_module_flag(&source);
     // E19.26: async-flag tests need `$DONE` host (Node wrapper around emitted JS).
     let js = if is_async_flag(&source) {
         wrap_async_host(&js)
     } else {
         js
     };
-    // E19.27: resolve relative dynamic `import()` against the test file directory.
-    // E19.28: Module-flag tests run as ESM (`--input-type=module`) for top-level await.
-    let cwd = full.parent();
-    let as_module = is_module_flag(&source);
+    // E19.61: `$262` host outside so ESM `import` stays first under module goal.
+    // onlyStrict: host must not precede the effective `"use strict"` directive.
+    let js = wrap_host_api_mode(&js, as_module, is_only_strict(&source));
     if is_negative_runtime(&source) {
         // Negative runtime: pass iff Node throws (exit ≠ 0).
         return match run_js_in_node_cwd(&js, cwd, as_module) {
@@ -768,10 +1190,10 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.56 expanded curated set.
+        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.61 expanded curated set.
         assert!(
-            list.len() >= 37500,
-            "expected expanded curated allowlist (>=37500), got {}",
+            list.len() >= 40000,
+            "expected expanded curated allowlist (>=40000), got {}",
             list.len()
         );
         assert!(list.iter().all(|p| p.starts_with("test/")));
@@ -1028,6 +1450,95 @@ assert.throws(TypeError, function() {
     }
 
     #[test]
+    fn harness_is_constructor() {
+        // E19.61: isConstructor via Reflect.construct.
+        let src = r#"
+assert.sameValue(isConstructor(Array), true);
+assert.sameValue(isConstructor(function () {}), true);
+assert.sameValue(isConstructor(() => {}), false);
+assert.sameValue(isConstructor(eval), false);
+assert.throws(Test262Error, function () {
+  isConstructor({});
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&wrap_host_api(&js)).expect("isConstructor");
+    }
+
+    #[test]
+    fn harness_async_test_success() {
+        // E19.61: asyncTest settles via $DONE.
+        let src = r#"
+/*---
+flags: [async]
+---*/
+asyncTest(async function () {
+  assert.sameValue(await Promise.resolve(7), 7);
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        let js = wrap_async_host(&wrap_host_api(&js));
+        run_js_in_node(&js).expect("asyncTest success");
+    }
+
+    #[test]
+    fn harness_async_test_failure() {
+        let src = r#"
+/*---
+flags: [async]
+---*/
+asyncTest(async function () {
+  assert.sameValue(1, 2);
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        let js = wrap_async_host(&wrap_host_api(&js));
+        assert!(run_js_in_node(&js).is_err());
+    }
+
+    #[test]
+    fn harness_typed_array_constructors() {
+        // E19.61: testWithTypedArrayConstructors + TypedArray intrinsic.
+        let src = r#"
+assert.sameValue(typeof TypedArray, "function");
+assert.sameValue(TypedArray.name, "TypedArray");
+let seen = 0;
+testWithTypedArrayConstructors(function (TA) {
+  let sample = new TA([1, 2, 3]);
+  assert.sameValue(sample.length, 3);
+  seen = seen + 1;
+}, null, ["passthrough"]);
+assert.sameValue(seen >= 9, true, "visited non-bigint TAs");
+let bigSeen = 0;
+testWithBigIntTypedArrayConstructors(function (TA) {
+  let sample = new TA([1n, 2n]);
+  assert.sameValue(sample.length, 2);
+  bigSeen = bigSeen + 1;
+}, null, ["passthrough"]);
+assert.sameValue(bigSeen >= 2, true, "visited bigint TAs");
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&wrap_host_api(&js)).expect("typed array harness");
+    }
+
+    #[test]
+    fn harness_create_realm_minimal() {
+        // E19.61: $262.createRealm().global has distinct constructors.
+        let src = r#"
+assert.sameValue(typeof $262, "object");
+assert.sameValue(typeof $262.createRealm, "function");
+let other = $262.createRealm().global;
+assert.sameValue(typeof other.Array, "function");
+assert.sameValue(other.Array === Array, false, "cross-realm Array");
+let a = new other.Array(1, 2, 3);
+assert.sameValue(a instanceof other.Array, true);
+assert.sameValue(Object.getPrototypeOf(a) === other.Array.prototype, true);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&wrap_host_api(&js)).expect("createRealm");
+    }
+
+    #[test]
     fn default_run_does_not_fail_ci_without_suite() {
         // Fast path (default): suite absent → skip-all green; suite present → do not
         // run the full allowlist (tens of k Node spawns). Set DRACONIC_TEST262_FULL=1
@@ -1085,11 +1596,12 @@ assert.throws(TypeError, function() {
                     "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
                 );
                 assert!(
-                    pass >= 37500,
-                    "expected expanded allowlist pass count >= 37500, got {pass}"
+                    pass >= 40000,
+                    "expected expanded allowlist pass count >= 40000, got {pass}"
                 );
             })
             .expect("spawn test262-default-run");
         handle.join().expect("test262-default-run thread");
     }
 }
+
