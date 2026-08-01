@@ -1,0 +1,53 @@
+class Base {
+  constructor() {
+    this.own = 0;
+  }
+}
+Base.prototype.x = 10;
+Base.prototype.y = 1;
+
+class Child extends Base {
+  read() {
+    return super.x;
+  }
+  fromEval() {
+    return eval("super.x");
+  }
+  write() {
+    super.y = 3;
+    return this.y;
+  }
+  compound() {
+    super.y += 2;
+    return this.y;
+  }
+  computed(k) {
+    return super[k];
+  }
+  assignComputed(k, v) {
+    super[k] = v;
+    return this[k];
+  }
+}
+
+let c = new Child();
+let a = c.read();
+let b = c.fromEval();
+let d = c.write();
+let e = c.compound();
+let f = c.computed("x");
+let g = c.assignComputed("z", 9);
+let h = Base.prototype.y;
+let i = c.z;
+
+class NullChild extends null {
+  m() {
+    try {
+      return super.x;
+    } catch (err) {
+      return "typeerror";
+    }
+  }
+}
+let nc = Object.create(NullChild.prototype);
+let j = NullChild.prototype.m.call(nc);

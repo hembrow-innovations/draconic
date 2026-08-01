@@ -297,7 +297,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.68 | done | js | Expand allowlist further after E19.63–E19.67 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 | E19.70 | done | js | RegExp Unicode property escapes: `\p{…}` / `\P{…}` / `unicodeSets` (`v` flag) — valid property names; generated property-escapes cluster | `crates/draconic-parser` / runtime RegExp, `tests/test262` |
 | E19.71 | done | js | Module residual: bare `import`/`export` without link before bind; ambiguous re-export; namespace internals; dynamic-import module resolution | `crates/draconic-linker` / frontend, `tests/test262` |
-| E19.72 | todo | js | Super in direct eval + super assignment targets: `eval('super.x')` in derived methods; `super[…] =` / compound assign; null-proto super | `crates/draconic-check` / IR / backend-js, `tests/test262` |
+| E19.72 | done | js | Super in direct eval + super assignment targets: `eval('super.x')` in derived methods; `super[…] =` / compound assign; null-proto super | `crates/draconic-check` / IR / backend-js, `tests/test262` |
 | E19.73 | todo | js | `ShadowRealm`: constructor + `prototype.evaluate` / `importValue` basics (`typeof`, call) | `tests/test262` (allowlist + harness/runtime) |
 | E19.74 | todo | js | `Promise.allKeyed` / `Promise.allSettledKeyed`: static keyed aggregate helpers | `tests/test262` (allowlist + runtime) |
 | E19.75 | todo | js | Expand allowlist further after E19.69–E19.74 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |

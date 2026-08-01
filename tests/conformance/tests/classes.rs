@@ -146,3 +146,34 @@ fn class_computed_runs() {
         );
     }
 }
+
+#[test]
+fn class_super_assign_eval_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "es/classes/class_super_assign_eval"),
+        "missing es/classes/class_super_assign_eval fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn class_super_assign_eval_runs() {
+    // E19.72: super assign/compound/eval/null-proto on class methods.
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "es/classes/class_super_assign_eval")
+        .expect("es/classes/class_super_assign_eval");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}

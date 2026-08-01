@@ -1,0 +1,4 @@
+id: es/classes/class_super_assign_eval
+targets: js
+js.exit: 0
+js.check: if (a !== 10) process.exit(1); if (b !== 10) process.exit(1); if (d !== 3) process.exit(1); if (e !== 3) process.exit(1); if (f !== 10) process.exit(1); if (g !== 9) process.exit(1); if (h !== 1) process.exit(1); if (i !== 9) process.exit(1); if (j !== "typeerror") process.exit(1);

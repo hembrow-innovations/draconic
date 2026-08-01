@@ -539,6 +539,38 @@ pub fn lower(checked: &CheckedProgram) -> Module {
         }
     }
 
+    // Private compound/update temps are assigned without a prior Declare (sloppy-mode
+    // globals historically). Hoist `var` so strict class methods can assign them (E19.72).
+    // Only these prefixes: other synthetics are params (`__drac_o`) or already declared.
+    let mut hoisted = Vec::new();
+    let mut hoisted_spans = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
+    for local in &ctx.extra_locals {
+        let n = local.name.as_str();
+        if !(n.starts_with("__drac_pobj_")
+            || n.starts_with("__drac_pval_")
+            || n.starts_with("__drac_pnext_")
+            || n.starts_with("__drac_pcur_"))
+        {
+            continue;
+        }
+        if !seen_names.insert(local.name.clone()) {
+            continue;
+        }
+        hoisted.push(Stmt::Declare {
+            local: local.id,
+            init: None,
+            kind: BindingKind::Var,
+        });
+        hoisted_spans.push(Span::dummy());
+    }
+    if !hoisted.is_empty() {
+        hoisted.append(&mut body);
+        hoisted_spans.append(&mut body_spans);
+        body = hoisted;
+        body_spans = hoisted_spans;
+    }
+
     locals.extend(ctx.extra_locals.drain(..));
 
     debug_assert_eq!(body.len(), body_spans.len());
@@ -1099,6 +1131,213 @@ fn object_key_private_name(key: &draconic_ast::ObjectKey) -> Option<&str> {
         draconic_ast::ObjectKey::Ident(id) => Some(id.name.as_str()),
         _ => None,
     }
+}
+
+/// `obj.prop` member read helper.
+fn member_prop(object: Expr, prop: &str, ty: Type) -> Expr {
+    Expr::Member {
+        object: Box::new(object),
+        property: Box::new(Expr::String {
+            value: prop.into(),
+            ty: Type::String,
+        }),
+        computed: false,
+        optional: false,
+        ty,
+    }
+}
+
+/// `Object.method(...)` call helper.
+fn object_method_call(method: &str, args: Vec<Arg>) -> Expr {
+    Expr::Call {
+        callee: Box::new(member_prop(
+            Expr::IdentName {
+                name: "Object".into(),
+                ty: Type::Object,
+            },
+            method,
+            Type::Function,
+        )),
+        args,
+        optional: false,
+        ty: Type::Any,
+    }
+}
+
+/// `(parent === null) ? null : parent.prototype` — `extends null` super base (E19.72).
+fn parent_instance_super_base(parent: Expr) -> Expr {
+    Expr::Conditional {
+        test: Box::new(Expr::Binary {
+            left: Box::new(parent.clone()),
+            op: BinaryOp::EqEqEq,
+            right: Box::new(Expr::Null { ty: Type::Any }),
+            ty: Type::Boolean,
+        }),
+        consequent: Box::new(Expr::Null { ty: Type::Any }),
+        alternate: Box::new(member_prop(parent, "prototype", Type::Any)),
+        ty: Type::Any,
+    }
+}
+
+/// Install a class method/accessor so the function keeps a real [[HomeObject]] and
+/// correct super base — required for `super.x =`, compound assign, null-proto, and
+/// `eval('super…')` in derived methods (E19.72).
+///
+/// Emits roughly:
+/// ```js
+/// Object.defineProperty(target, key, ((d) => {
+///   d.enumerable = false;
+///   if (d.get === undefined) delete d.get;
+///   if (d.set === undefined) delete d.set;
+///   return d;
+/// })(Object.getOwnPropertyDescriptor({ __proto__: homeProto, … }, key)));
+/// ```
+/// Deleting absent get/set keeps separate get-then-set installs from wiping each other.
+fn define_class_element_with_home(
+    ctx: &mut LowerCtx,
+    target: Expr,
+    key_expr: Expr,
+    home_prop: ObjectProp,
+    home_proto: Option<Expr>,
+) -> Stmt {
+    let mut home_props = Vec::new();
+    if let Some(proto) = home_proto {
+        home_props.push(ObjectProp::Property {
+            key: ObjectPropKey::Static("__proto__".into()),
+            value: proto,
+        });
+    }
+    home_props.push(home_prop);
+    let home = Expr::Object {
+        properties: home_props,
+        ty: Type::Object,
+    };
+    let gopd = object_method_call(
+        "getOwnPropertyDescriptor",
+        vec![Arg::Expr(home), Arg::Expr(key_expr.clone())],
+    );
+    // ((d) => (d.enumerable = false, d.get === void 0 && delete d.get, d.set === void 0 && delete d.set, d))(gopd)
+    let d_id = ctx.alloc_synthetic_local("__drac_desc".into(), Type::Any);
+    let d_local = Expr::Local {
+        id: d_id,
+        ty: Type::Any,
+    };
+    let set_enumerable = Expr::Assign {
+        target: AssignTarget::Member {
+            object: Box::new(d_local.clone()),
+            property: Box::new(Expr::String {
+                value: "enumerable".into(),
+                ty: Type::String,
+            }),
+            computed: false,
+        },
+        op: AssignOp::Eq,
+        value: Box::new(Expr::Boolean {
+            value: false,
+            ty: Type::Boolean,
+        }),
+        ty: Type::Any,
+    };
+    let undef = Expr::Unary {
+        op: UnaryOp::Void,
+        arg: Box::new(Expr::Number {
+            raw: "0".into(),
+            ty: Type::Number,
+        }),
+        ty: Type::Any,
+    };
+    let delete_if_undef = |prop: &str| {
+        let get_prop = member_prop(d_local.clone(), prop, Type::Any);
+        let is_undef = Expr::Binary {
+            left: Box::new(get_prop),
+            op: BinaryOp::EqEqEq,
+            right: Box::new(undef.clone()),
+            ty: Type::Boolean,
+        };
+        let del = Expr::Unary {
+            op: UnaryOp::Delete,
+            arg: Box::new(member_prop(d_local.clone(), prop, Type::Any)),
+            ty: Type::Boolean,
+        };
+        Expr::Binary {
+            left: Box::new(is_undef),
+            op: BinaryOp::And,
+            right: Box::new(del),
+            ty: Type::Any,
+        }
+    };
+    let clean = Expr::Binary {
+        left: Box::new(set_enumerable),
+        op: BinaryOp::Comma,
+        right: Box::new(Expr::Binary {
+            left: Box::new(delete_if_undef("get")),
+            op: BinaryOp::Comma,
+            right: Box::new(Expr::Binary {
+                left: Box::new(delete_if_undef("set")),
+                op: BinaryOp::Comma,
+                right: Box::new(d_local.clone()),
+                ty: Type::Any,
+            }),
+            ty: Type::Any,
+        }),
+        ty: Type::Any,
+    };
+    let desc = Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: vec![Param {
+                pattern: Pattern::Local(d_id),
+                default: None,
+                rest: false,
+            }],
+            body: vec![Stmt::Return {
+                value: Some(clean),
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(gopd)],
+        optional: false,
+        ty: Type::Any,
+    };
+    Stmt::Expr {
+        expr: object_method_call(
+            "defineProperty",
+            vec![Arg::Expr(target), Arg::Expr(key_expr), Arg::Expr(desc)],
+        ),
+    }
+}
+
+fn lower_object_prop_key(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    key: &draconic_ast::ObjectKey,
+    super_class: Option<&AstExpr>,
+) -> ObjectPropKey {
+    match key {
+        draconic_ast::ObjectKey::Ident(id) => ObjectPropKey::Static(id.name.clone().into()),
+        draconic_ast::ObjectKey::String(s) => ObjectPropKey::Static(s.value.clone()),
+        draconic_ast::ObjectKey::Computed(expr) => {
+            ObjectPropKey::Computed(lower_expr(checked, ctx, expr, super_class))
+        }
+    }
+}
+
+/// Class bodies are strict; method-form install is sloppy unless we inject a directive (E19.72).
+fn with_use_strict(mut body: Vec<Stmt>) -> Vec<Stmt> {
+    body.insert(
+        0,
+        Stmt::Expr {
+            expr: Expr::String {
+                value: "use strict".into(),
+                ty: Type::String,
+            },
+        },
+    );
+    body
 }
 
 /// Property key expression for `Object.defineProperty` / member name (always a value expr).
@@ -1703,19 +1942,33 @@ fn lower_class_local(
         });
     }
 
+    // Parent expression for heritage / method home-object super base (E19.72).
+    let parent_expr = super_class.map(|sc| {
+        if let Some(super_id) = super_local_id {
+            Expr::Local {
+                id: super_id,
+                ty: Type::Any,
+            }
+        } else {
+            lower_expr(checked, ctx, sc, None)
+        }
+    });
+
     for (method_key, params, body, is_static, is_async, is_generator, is_private) in methods {
         if is_private {
             // Already emitted as standalone function; not installed on prototype.
             continue;
         }
+        // Keep Super + method form so [[HomeObject]] / eval('super…') work (E19.72).
+        // SuperCall stays desugared only in constructors (super_class still passed there).
         let method_fn = Expr::Function {
             name: None,
-            params: lower_params(checked, ctx, params, super_class),
-            body: lower_fn_body(checked, ctx, body, super_class),
+            params: lower_params(checked, ctx, params, None),
+            body: with_use_strict(lower_fn_body(checked, ctx, body, None)),
             is_async,
             is_generator,
             is_arrow: false,
-            is_method: false,
+            is_method: true,
             ty: Type::Function,
         };
         let class_ref = Expr::Local {
@@ -1725,73 +1978,33 @@ fn lower_class_local(
         let target_object = if is_static {
             class_ref
         } else {
-            Expr::Member {
-                object: Box::new(class_ref),
-                property: Box::new(Expr::String {
-                    value: "prototype".into(),
-                    ty: Type::String,
-                }),
-                computed: false,
-                optional: false,
-                ty: Type::Any,
-            }
+            member_prop(class_ref, "prototype", Type::Any)
         };
-        let prop_name = lower_object_key_name_expr(checked, ctx, method_key, super_class);
-        // Object.defineProperty(target, name, { value: fn, writable: true, configurable: true, enumerable: false })
-        let desc = Expr::Object {
-            properties: vec![
-                ObjectProp::Property {
-                    key: ObjectPropKey::Static("value".into()),
-                    value: method_fn,
-                },
-                ObjectProp::Property {
-                    key: ObjectPropKey::Static("writable".into()),
-                    value: Expr::Boolean {
-                        value: true,
-                        ty: Type::Boolean,
-                    },
-                },
-                ObjectProp::Property {
-                    key: ObjectPropKey::Static("configurable".into()),
-                    value: Expr::Boolean {
-                        value: true,
-                        ty: Type::Boolean,
-                    },
-                },
-                ObjectProp::Property {
-                    key: ObjectPropKey::Static("enumerable".into()),
-                    value: Expr::Boolean {
-                        value: false,
-                        ty: Type::Boolean,
-                    },
-                },
-            ],
-            ty: Type::Object,
-        };
-        out.push(Stmt::Expr {
-            expr: Expr::Call {
-                callee: Box::new(Expr::Member {
-                    object: Box::new(Expr::IdentName {
-                        name: "Object".into(),
-                        ty: Type::Object,
-                    }),
-                    property: Box::new(Expr::String {
-                        value: "defineProperty".into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
-                    optional: false,
+        let prop_name = lower_object_key_name_expr(checked, ctx, method_key, None);
+        let prop_key = lower_object_prop_key(checked, ctx, method_key, None);
+        let home_proto = match (&parent_expr, is_static) {
+            (Some(p), true) => Some(p.clone()),
+            (Some(p), false) => Some(parent_instance_super_base(p.clone())),
+            (None, true) => Some(member_prop(
+                Expr::IdentName {
+                    name: "Function".into(),
                     ty: Type::Function,
-                }),
-                args: vec![
-                    Arg::Expr(target_object),
-                    Arg::Expr(prop_name),
-                    Arg::Expr(desc),
-                ],
-                optional: false,
-                ty: Type::Any,
+                },
+                "prototype",
+                Type::Any,
+            )),
+            (None, false) => None,
+        };
+        out.push(define_class_element_with_home(
+            ctx,
+            target_object,
+            prop_name,
+            ObjectProp::Property {
+                key: prop_key,
+                value: method_fn,
             },
-        });
+            home_proto,
+        ));
     }
 
     for (kind, acc_key, params, body, is_static, is_private) in accessors {
@@ -1801,12 +2014,12 @@ fn lower_class_local(
         }
         let accessor_fn = Expr::Function {
             name: None,
-            params: lower_params(checked, ctx, params, super_class),
-            body: lower_fn_body(checked, ctx, body, super_class),
+            params: lower_params(checked, ctx, params, None),
+            body: with_use_strict(lower_fn_body(checked, ctx, body, None)),
             is_async: false,
             is_generator: false,
             is_arrow: false,
-            is_method: false,
+            is_method: true,
             ty: Type::Function,
         };
         let class_ref = Expr::Local {
@@ -1816,105 +2029,47 @@ fn lower_class_local(
         let target_object = if is_static {
             class_ref
         } else {
-            Expr::Member {
-                object: Box::new(class_ref),
-                property: Box::new(Expr::String {
-                    value: "prototype".into(),
-                    ty: Type::String,
-                }),
-                computed: false,
-                optional: false,
-                ty: Type::Any,
-            }
+            member_prop(class_ref, "prototype", Type::Any)
         };
-        let kind_key = match kind {
-            AccessorKind::Get => "get",
-            AccessorKind::Set => "set",
-        };
-        // Object.defineProperty(target, name, { get|set: fn, configurable: true, enumerable: false })
-        let desc = Expr::Object {
-            properties: vec![
-                ObjectProp::Property {
-                    key: ObjectPropKey::Static(kind_key.into()),
-                    value: accessor_fn,
-                },
-                ObjectProp::Property {
-                    key: ObjectPropKey::Static("configurable".into()),
-                    value: Expr::Boolean {
-                        value: true,
-                        ty: Type::Boolean,
-                    },
-                },
-                ObjectProp::Property {
-                    key: ObjectPropKey::Static("enumerable".into()),
-                    value: Expr::Boolean {
-                        value: false,
-                        ty: Type::Boolean,
-                    },
-                },
-            ],
-            ty: Type::Object,
-        };
-        let prop_name = lower_object_key_name_expr(checked, ctx, acc_key, super_class);
-        out.push(Stmt::Expr {
-            expr: Expr::Call {
-                callee: Box::new(Expr::Member {
-                    object: Box::new(Expr::IdentName {
-                        name: "Object".into(),
-                        ty: Type::Object,
-                    }),
-                    property: Box::new(Expr::String {
-                        value: "defineProperty".into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
-                    optional: false,
+        let prop_name = lower_object_key_name_expr(checked, ctx, acc_key, None);
+        let prop_key = lower_object_prop_key(checked, ctx, acc_key, None);
+        let home_proto = match (&parent_expr, is_static) {
+            (Some(p), true) => Some(p.clone()),
+            (Some(p), false) => Some(parent_instance_super_base(p.clone())),
+            (None, true) => Some(member_prop(
+                Expr::IdentName {
+                    name: "Function".into(),
                     ty: Type::Function,
-                }),
-                args: vec![
-                    Arg::Expr(target_object),
-                    Arg::Expr(prop_name),
-                    Arg::Expr(desc),
-                ],
-                optional: false,
-                ty: Type::Any,
+                },
+                "prototype",
+                Type::Any,
+            )),
+            (None, false) => None,
+        };
+        out.push(define_class_element_with_home(
+            ctx,
+            target_object,
+            prop_name,
+            ObjectProp::Accessor {
+                kind,
+                key: prop_key,
+                value: accessor_fn,
             },
-        });
+            home_proto,
+        ));
     }
 
-    if let Some(sc) = super_class {
-        // Prefer cached super local (default derived) so extends side-effects run once.
-        let parent = if let Some(super_id) = super_local_id {
+    if let Some(parent) = parent_expr.as_ref() {
+        // extends null → instance [[Prototype]] is null, not null.prototype (E19.72).
+        let parent_proto = parent_instance_super_base(parent.clone());
+        let child_proto = member_prop(
             Expr::Local {
-                id: super_id,
-                ty: Type::Any,
-            }
-        } else {
-            lower_expr(checked, ctx, sc, None)
-        };
-        let parent_proto = Expr::Member {
-            object: Box::new(parent.clone()),
-            property: Box::new(Expr::String {
-                value: "prototype".into(),
-                ty: Type::String,
-            }),
-            computed: false,
-            optional: false,
-            ty: Type::Any,
-        };
-        let child_proto = Expr::Member {
-            object: Box::new(Expr::Local {
                 id: local,
                 ty: Type::Function,
-            }),
-            property: Box::new(Expr::String {
-                value: "prototype".into(),
-                ty: Type::String,
-            }),
-            computed: false,
-            optional: false,
-            ty: Type::Any,
-        };
+            },
+            "prototype",
+            Type::Any,
+        );
         out.push(Stmt::Expr {
             expr: Expr::Assign {
                 target: AssignTarget::Member {
@@ -1945,7 +2100,7 @@ fn lower_class_local(
                     computed: false,
                 },
                 op: AssignOp::Eq,
-                value: Box::new(parent),
+                value: Box::new(parent.clone()),
                 ty: Type::Any,
             },
         });
@@ -2027,29 +2182,50 @@ fn lower_class_local(
                 }
             }
             StaticInit::Block(body) => {
-                // (function() { … }).call(Class) so `this` is the constructor.
-                let block_body = lower_fn_body(checked, ctx, body, None);
+                // Method-form on home with correct super base so `super.x` works (E19.72).
+                // `({ __proto__: Parent, __sb() { … } }).__sb.call(Class)`
+                let block_body = with_use_strict(lower_fn_body(checked, ctx, body, None));
+                let method_fn = Expr::Function {
+                    name: None,
+                    params: Vec::new(),
+                    body: block_body,
+                    is_async: false,
+                    is_generator: false,
+                    is_arrow: false,
+                    is_method: true,
+                    ty: Type::Function,
+                };
+                let home_proto = match parent_expr.as_ref() {
+                    Some(p) => p.clone(),
+                    None => member_prop(
+                        Expr::IdentName {
+                            name: "Function".into(),
+                            ty: Type::Function,
+                        },
+                        "prototype",
+                        Type::Any,
+                    ),
+                };
+                let home = Expr::Object {
+                    properties: vec![
+                        ObjectProp::Property {
+                            key: ObjectPropKey::Static("__proto__".into()),
+                            value: home_proto,
+                        },
+                        ObjectProp::Property {
+                            key: ObjectPropKey::Static("__sb".into()),
+                            value: method_fn,
+                        },
+                    ],
+                    ty: Type::Object,
+                };
                 out.push(Stmt::Expr {
                     expr: Expr::Call {
-                        callee: Box::new(Expr::Member {
-                            object: Box::new(Expr::Function {
-                                name: None,
-                                params: Vec::new(),
-                                body: block_body,
-                                is_async: false,
-                                is_generator: false,
-                                is_arrow: false,
-                                is_method: false,
-                                ty: Type::Function,
-                            }),
-                            property: Box::new(Expr::String {
-                                value: "call".into(),
-                                ty: Type::String,
-                            }),
-                            computed: false,
-                            optional: false,
-                            ty: Type::Function,
-                        }),
+                        callee: Box::new(member_prop(
+                            member_prop(home, "__sb", Type::Function),
+                            "call",
+                            Type::Function,
+                        )),
                         args: vec![Arg::Expr(Expr::Local {
                             id: local,
                             ty: Type::Function,

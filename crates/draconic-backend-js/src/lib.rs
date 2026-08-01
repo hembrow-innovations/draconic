@@ -666,6 +666,27 @@ mod tests {
     }
 
     #[test]
+    fn emit_class_method_super_home_object() {
+        // E19.72: class methods keep Super + method form with home-object install.
+        let js = emit_src(
+            r#"
+class B { }
+class C extends B {
+  m() { return super.x; }
+  n() { super.y = 1; super.z += 2; return eval("super.x"); }
+}
+"#,
+        );
+        assert!(js.contains("super.x"), "{js}");
+        assert!(js.contains("super.y"), "{js}");
+        assert!(js.contains("super.z"), "{js}");
+        assert!(js.contains("getOwnPropertyDescriptor"), "{js}");
+        assert!(js.contains("m() {") || js.contains("m(){"), "{js}");
+        assert!(!js.contains("B.prototype.x"), "{js}");
+        assert!(!js.contains("(super)"), "{js}");
+    }
+
+    #[test]
     fn emit_for() {
         let js = emit_src("let x = 0; for (let i = 0; i < 3; i = i + 1) { x = x + 1; }");
         assert_eq!(
