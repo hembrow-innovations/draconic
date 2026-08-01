@@ -1878,6 +1878,7 @@ fn lower_class_local(
     let mut private_method_map: HashMap<String, LocalId> = HashMap::new();
     let mut private_method_meta: Vec<(
         LocalId,
+        String,
         &Vec<draconic_ast::Param>,
         &AstStmt,
         bool,
@@ -1900,7 +1901,14 @@ fn lower_class_local(
         let fn_name = format!("__drac_pm_{}_{}", local.0, method_name);
         let fn_id = ctx.alloc_synthetic_local(fn_name, Type::Function);
         private_method_map.insert(method_name.to_string(), fn_id);
-        private_method_meta.push((fn_id, params, body, *is_async, *is_generator));
+        private_method_meta.push((
+            fn_id,
+            method_name.to_string(),
+            params,
+            body,
+            *is_async,
+            *is_generator,
+        ));
         ensure_private_brand(
             ctx,
             local,
@@ -1918,6 +1926,7 @@ fn lower_class_local(
         HashMap::new();
     let mut private_accessor_meta: Vec<(
         LocalId,
+        String,
         &Vec<draconic_ast::Param>,
         &AstStmt,
     )> = Vec::new();
@@ -1941,7 +1950,11 @@ fn lower_class_local(
             AccessorKind::Get => entry.0 = Some(fn_id),
             AccessorKind::Set => entry.1 = Some(fn_id),
         }
-        private_accessor_meta.push((fn_id, params, body));
+        let display = match kind {
+            AccessorKind::Get => format!("get #{acc_name}"),
+            AccessorKind::Set => format!("set #{acc_name}"),
+        };
+        private_accessor_meta.push((fn_id, display, params, body));
         ensure_private_brand(
             ctx,
             local,
@@ -1973,7 +1986,7 @@ fn lower_class_local(
     }
 
     let mut private_method_fns: Vec<Stmt> = Vec::new();
-    for (fn_id, params, body, is_async, is_generator) in private_method_meta {
+    for (fn_id, method_name, params, body, is_async, is_generator) in private_method_meta {
         private_method_fns.push(Stmt::Function {
             local: fn_id,
             params: lower_params(checked, ctx, params, super_class),
@@ -1981,8 +1994,13 @@ fn lower_class_local(
             is_async,
             is_generator,
         });
+        // SetFunctionName(closure, PrivateName) → "#description" (E19.82).
+        private_method_fns.push(set_function_name_stmt(
+            fn_id,
+            &format!("#{method_name}"),
+        ));
     }
-    for (fn_id, params, body) in private_accessor_meta {
+    for (fn_id, display_name, params, body) in private_accessor_meta {
         private_method_fns.push(Stmt::Function {
             local: fn_id,
             params: lower_params(checked, ctx, params, super_class),
@@ -1990,6 +2008,7 @@ fn lower_class_local(
             is_async: false,
             is_generator: false,
         });
+        private_method_fns.push(set_function_name_stmt(fn_id, &display_name));
     }
 
     // Default derived ctor always uses Reflect.construct + new.target so built-ins

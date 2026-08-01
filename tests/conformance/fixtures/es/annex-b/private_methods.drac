@@ -80,3 +80,67 @@ class WithThis {
   }
 }
 let j = new WithThis().twice();
+
+// E19.82: private method `.name` is "#description" (SetFunctionName with PrivateName).
+class Named {
+  #m() {
+    return 1;
+  }
+  *#g() {
+    yield 1;
+  }
+  async #a() {
+    return 2;
+  }
+  async *#ag() {
+    yield 3;
+  }
+  refM() {
+    return this.#m;
+  }
+  refG() {
+    return this.#g;
+  }
+  refA() {
+    return this.#a;
+  }
+  refAg() {
+    return this.#ag;
+  }
+}
+let named = new Named();
+let k = named.refM().name;
+let l = named.refG().name;
+let mName = named.refA().name;
+let o = named.refAg().name;
+
+class StaticNamed {
+  static #sm() {
+    return 1;
+  }
+  static *#sg() {
+    yield 1;
+  }
+  static async #sa() {
+    return 2;
+  }
+  static async *#sag() {
+    yield 3;
+  }
+  static refSm() {
+    return this.#sm;
+  }
+  static refSg() {
+    return this.#sg;
+  }
+  static refSa() {
+    return this.#sa;
+  }
+  static refSag() {
+    return this.#sag;
+  }
+}
+let nmSm = StaticNamed.refSm().name;
+let nmSg = StaticNamed.refSg().name;
+let nmSa = StaticNamed.refSa().name;
+let nmSag = StaticNamed.refSag().name;
