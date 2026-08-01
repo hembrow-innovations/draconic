@@ -18344,7 +18344,12 @@ test/harness/compare-array-same-elements-same-order.js
 test/harness/compare-array-samevalue.js
 test/harness/compare-array-sparse.js
 test/harness/compare-array-symbol.js
+test/harness/decimalToHexString.js
+test/harness/fnGlobalObject.js
 test/harness/isConstructor.js
+test/harness/nativeFunctionMatcher.js
+test/harness/promiseHelper.js
+test/harness/tcoHelper.js
 test/harness/propertyhelper-verifyconfigurable-configurable-object.js
 test/harness/propertyhelper-verifyconfigurable-configurable.js
 test/harness/propertyhelper-verifyconfigurable-not-configurable.js

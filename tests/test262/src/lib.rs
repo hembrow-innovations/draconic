@@ -758,6 +758,7 @@ function floatTypedArrayConstructorPrecision(FA) {
 }
 "#,
     include_str!("harness_e19_64.js"),
+    include_str!("harness_e19_65.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -1935,6 +1936,88 @@ assert.sameValue($262.agent.getReport(), "42");
 "#;
         let js = compile_test_to_js(src).expect("compile");
         run_js_in_node(&wrap_host_api(&js)).expect("agent minimal");
+    }
+
+    #[test]
+    fn harness_e19_65_residual_helpers() {
+        // E19.65: fnGlobalObject, decimalTo*, checkSequence/Settled, assertThrowsValue,
+        // assertNativeFunction, assertNear, $MAX_ITERATIONS.
+        let src = r#"
+assert.sameValue(typeof fnGlobalObject, "function");
+assert.sameValue(fnGlobalObject(), globalThis);
+
+assert.sameValue(decimalToHexString(-1), "FFFFFFFF");
+assert.sameValue(decimalToHexString(0.5), "0000");
+assert.sameValue(decimalToHexString(1), "0001");
+assert.sameValue(decimalToHexString(100), "0064");
+assert.sameValue(decimalToHexString(65535), "FFFF");
+assert.sameValue(decimalToHexString(65536), "10000");
+assert.sameValue(decimalToPercentHexString(-1), "%FF");
+assert.sameValue(decimalToPercentHexString(0.5), "%00");
+assert.sameValue(decimalToPercentHexString(1), "%01");
+assert.sameValue(decimalToPercentHexString(100), "%64");
+assert.sameValue(decimalToPercentHexString(65535), "%FF");
+assert.sameValue(decimalToPercentHexString(65536), "%00");
+
+assert.sameValue(checkSequence([1, 2, 3, 4, 5]), true);
+assert.throws(Test262Error, function () {
+  checkSequence([2, 1, 3]);
+});
+checkSettledPromises(
+  [
+    { status: "fulfilled", value: 1 },
+    { status: "rejected", reason: "e" }
+  ],
+  [
+    { status: "fulfilled", value: 1 },
+    { status: "rejected", reason: "e" }
+  ]
+);
+assert.throws(Test262Error, function () {
+  checkSettledPromises([{ status: "fulfilled", value: 1 }], [{ status: "fulfilled", value: 2 }]);
+});
+
+assertThrowsValue(function () {
+  throw 42;
+}, 42);
+assert.throws(Test262Error, function () {
+  assertThrowsValue(function () {}, 1);
+});
+
+assert.sameValue($MAX_ITERATIONS, 100000);
+
+assert.sameValue(typeof assertNativeFunction, "function");
+assert.sameValue(typeof validateNativeFunctionSource, "function");
+validateNativeFunctionSource("function(){ [native code] }");
+validateNativeFunctionSource("function a(){ [native code] }");
+validateNativeFunctionSource("function ( ) { [ native code ] }");
+assert.throws(SyntaxError, function () {
+  validateNativeFunctionSource("function() {}");
+});
+assert.throws(Test262Error, function () {
+  assertNativeFunction(function () {
+    return 1;
+  });
+});
+
+assert.sameValue(typeof assertNear, "function");
+assertNear(1, 1);
+assertNear(1, ONE_PLUS_EPSILON);
+assertNear(1, ONE_MINUS_EPSILON);
+assert.throws(Error, function () {
+  assertNear(1, 2);
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.65");
+        // assertNativeFunction on real host natives needs Node builtins.
+        let host_src = r#"
+assertNativeFunction(Array);
+assertNativeFunction(Object);
+assertToStringOrNativeFunction(Array, String(Array));
+"#;
+        let host_js = compile_test_to_js(host_src).expect("compile e19.65 host");
+        run_js_in_node(&js).expect("e19.65 residual helpers");
+        run_js_in_node(&wrap_host_api(&host_js)).expect("e19.65 native Function matchers");
     }
 
     #[test]
