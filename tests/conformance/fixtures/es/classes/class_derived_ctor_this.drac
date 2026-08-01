@@ -1,0 +1,78 @@
+class Base {
+  constructor(v) {
+    this.v = v;
+  }
+}
+
+// super() binds this; instance props work
+class Ok extends Base {
+  constructor(v) {
+    super(v);
+    this.x = 1;
+  }
+}
+let ok = new Ok(42);
+
+// empty derived ctor without super → ReferenceError
+class NoSuper extends Base {
+  constructor() {}
+}
+let noSuperName = "";
+try {
+  new NoSuper();
+} catch (e) {
+  noSuperName = e.name;
+}
+
+// this before super → ReferenceError
+class ThisBefore extends Base {
+  constructor() {
+    this.x = 1;
+    super();
+  }
+}
+let thisBeforeName = "";
+try {
+  new ThisBefore();
+} catch (e) {
+  thisBeforeName = e.name;
+}
+
+// return non-object after super → TypeError
+class RetNull extends Base {
+  constructor() {
+    super(0);
+    return null;
+  }
+}
+let retNullName = "";
+try {
+  new RetNull();
+} catch (e) {
+  retNullName = e.name;
+}
+
+// return object without super is allowed (override)
+class RetObj extends Base {
+  constructor() {
+    return { overridden: true };
+  }
+}
+let retObj = new RetObj();
+
+// builtin subclass: super must be called
+class MyArr extends Array {
+  constructor() {}
+}
+let arrName = "";
+try {
+  new MyArr();
+} catch (e) {
+  arrName = e.name;
+}
+class MyArr2 extends Array {
+  constructor() {
+    super(1, 2, 3);
+  }
+}
+let arr2 = new MyArr2();

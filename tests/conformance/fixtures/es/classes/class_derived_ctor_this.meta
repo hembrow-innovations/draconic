@@ -1,0 +1,4 @@
+id: es/classes/class_derived_ctor_this
+targets: js
+js.exit: 0
+js.check: if (ok.v !== 42 || ok.x !== 1) process.exit(1); if (noSuperName !== "ReferenceError") process.exit(2); if (thisBeforeName !== "ReferenceError") process.exit(3); if (retNullName !== "TypeError") process.exit(4); if (retObj.overridden !== true) process.exit(5); if (arrName !== "ReferenceError") process.exit(6); if (arr2.length !== 3 || arr2[0] !== 1) process.exit(7);

@@ -26,6 +26,16 @@ struct LowerCtx {
     private_brands: HashMap<String, LocalId>,
     /// Inside object method/accessor: keep `super` for JS home-object emit (E19.23).
     object_super: bool,
+    /// Derived class constructor: ES `this` binding temp (uninit until `super()`).
+    /// Inherited by nested arrows (lexical this); cleared in nested non-arrow functions.
+    derived_this: Option<LocalId>,
+    /// Derived class constructor: heritage local for `Reflect.construct`.
+    derived_super: Option<LocalId>,
+    /// Side-effect exprs run once after `super()` binds this (fields/brands).
+    derived_super_inits: Vec<Expr>,
+    /// True only while lowering the constructor body itself (not nested arrows/fns).
+    /// Gates [[Construct]] return completion wrapping (E19.82.03).
+    derived_ctor_body: bool,
     /// Class declaration: outer mutable name → inner immutable const local (E19.57).
     /// Stack so nested class decls restore the outer remap.
     class_name_remap: Vec<(LocalId, LocalId)>,
@@ -41,6 +51,10 @@ impl LowerCtx {
             private_accessors: HashMap::new(),
             private_brands: HashMap::new(),
             object_super: false,
+            derived_this: None,
+            derived_super: None,
+            derived_super_inits: Vec::new(),
+            derived_ctor_body: false,
             class_name_remap: Vec::new(),
             extra_locals: Vec::new(),
             next_synth_id,
@@ -876,11 +890,20 @@ fn lower_stmt(
                 .map(|s| s.id)
                 .expect("function binding must be declared");
             let params = lower_params(checked, ctx, params, None);
-            // Nested functions do not inherit `super` (class parent or object home).
+            // Nested functions do not inherit `super` / derived ctor this (class parent or object home).
             let prev_object_super = ctx.object_super;
+            let prev_derived_this = ctx.derived_this.take();
+            let prev_derived_super = ctx.derived_super.take();
+            let prev_inits = std::mem::take(&mut ctx.derived_super_inits);
+            let prev_ctor_body = ctx.derived_ctor_body;
             ctx.object_super = false;
+            ctx.derived_ctor_body = false;
             let body = lower_fn_body(checked, ctx, body, None);
             ctx.object_super = prev_object_super;
+            ctx.derived_this = prev_derived_this;
+            ctx.derived_super = prev_derived_super;
+            ctx.derived_super_inits = prev_inits;
+            ctx.derived_ctor_body = prev_ctor_body;
             Some(Stmt::Function {
                 local,
                 params,
@@ -889,11 +912,20 @@ fn lower_stmt(
                 is_generator: *is_generator,
             })
         }
-        AstStmt::Return { argument, .. } => Some(Stmt::Return {
-            value: argument
+        AstStmt::Return { argument, .. } => {
+            let value = argument
                 .as_ref()
-                .map(|e| lower_expr(checked, ctx, e, super_class)),
-        }),
+                .map(|e| lower_expr(checked, ctx, e, super_class));
+            if ctx.derived_ctor_body {
+                if let Some(this_id) = ctx.derived_this {
+                    // Derived [[Construct]] return completion (E19.82.03).
+                    return Some(Stmt::Return {
+                        value: Some(possible_constructor_return(this_id, value)),
+                    });
+                }
+            }
+            Some(Stmt::Return { value })
+        }
         AstStmt::Throw { argument, .. } => Some(Stmt::Throw {
             value: lower_expr(checked, ctx, argument, super_class),
         }),
@@ -1855,6 +1887,227 @@ fn with_use_strict(mut body: Vec<Stmt>) -> Vec<Stmt> {
     body
 }
 
+fn undef_expr() -> Expr {
+    Expr::IdentName {
+        name: "undefined".into(),
+        ty: Type::Any,
+    }
+}
+
+fn local_expr(id: LocalId) -> Expr {
+    Expr::Local {
+        id,
+        ty: Type::Any,
+    }
+}
+
+/// `(() => { throw new ReferenceError(msg); })()`
+fn throw_reference_error_expr(msg: &str) -> Expr {
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: Vec::new(),
+            body: vec![Stmt::Throw {
+                value: Expr::New {
+                    callee: Box::new(Expr::IdentName {
+                        name: "ReferenceError".into(),
+                        ty: Type::Function,
+                    }),
+                    args: vec![Arg::Expr(Expr::String {
+                        value: msg.into(),
+                        ty: Type::String,
+                    })],
+                    ty: Type::Any,
+                },
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: Vec::new(),
+        optional: false,
+        ty: Type::Any,
+    }
+}
+
+/// ES GetThisBinding for derived ctor: uninitialized → ReferenceError.
+fn assert_derived_this(this_id: LocalId) -> Expr {
+    Expr::Conditional {
+        test: Box::new(Expr::Binary {
+            left: Box::new(local_expr(this_id)),
+            op: BinaryOp::EqEqEq,
+            right: Box::new(undef_expr()),
+            ty: Type::Boolean,
+        }),
+        consequent: Box::new(throw_reference_error_expr(
+            "Must call super constructor in derived class before accessing 'this' or returning from it",
+        )),
+        alternate: Box::new(local_expr(this_id)),
+        ty: Type::Any,
+    }
+}
+
+/// [[Construct]] completion for derived constructors (E19.82.03):
+/// object return → that object; undefined → assert this; else TypeError.
+fn possible_constructor_return(this_id: LocalId, value: Option<Expr>) -> Expr {
+    let v = value.unwrap_or_else(undef_expr);
+    // (v === undefined) ? assertThis(_this)
+    //   : (v !== null && (typeof v === "object" || typeof v === "function")) ? v
+    //   : throw TypeError
+    let is_undef = Expr::Binary {
+        left: Box::new(v.clone()),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(undef_expr()),
+        ty: Type::Boolean,
+    };
+    let is_null = Expr::Binary {
+        left: Box::new(v.clone()),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::Null { ty: Type::Any }),
+        ty: Type::Boolean,
+    };
+    let typeof_v = Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg: Box::new(v.clone()),
+        ty: Type::String,
+    };
+    let is_object_type = Expr::Binary {
+        left: Box::new(Expr::Binary {
+            left: Box::new(typeof_v.clone()),
+            op: BinaryOp::EqEqEq,
+            right: Box::new(Expr::String {
+                value: "object".into(),
+                ty: Type::String,
+            }),
+            ty: Type::Boolean,
+        }),
+        op: BinaryOp::Or,
+        right: Box::new(Expr::Binary {
+            left: Box::new(typeof_v),
+            op: BinaryOp::EqEqEq,
+            right: Box::new(Expr::String {
+                value: "function".into(),
+                ty: Type::String,
+            }),
+            ty: Type::Boolean,
+        }),
+        ty: Type::Boolean,
+    };
+    let is_object = Expr::Binary {
+        left: Box::new(Expr::Unary {
+            op: UnaryOp::Not,
+            arg: Box::new(is_null),
+            ty: Type::Boolean,
+        }),
+        op: BinaryOp::And,
+        right: Box::new(is_object_type),
+        ty: Type::Boolean,
+    };
+    Expr::Conditional {
+        test: Box::new(is_undef),
+        consequent: Box::new(assert_derived_this(this_id)),
+        alternate: Box::new(Expr::Conditional {
+            test: Box::new(is_object),
+            consequent: Box::new(v),
+            alternate: Box::new(throw_type_error_expr(
+                "Derived constructors may only return object or undefined",
+            )),
+            ty: Type::Any,
+        }),
+        ty: Type::Any,
+    }
+}
+
+/// `super(...args)` in derived ctor → Reflect.construct + field inits + bind this.
+fn derived_super_call_expr(ctx: &mut LowerCtx, args: Vec<Arg>) -> Expr {
+    let this_id = ctx.derived_this.expect("derived_this");
+    let super_id = ctx.derived_super.expect("derived_super");
+    let inits = ctx.derived_super_inits.clone();
+    let args_id = ctx.alloc_synthetic_local("__drac_sargs".into(), Type::Any);
+    let mut body = Vec::new();
+    // if (_this !== undefined) throw ReferenceError (double super)
+    body.push(Stmt::If {
+        test: Expr::Binary {
+            left: Box::new(local_expr(this_id)),
+            op: BinaryOp::NotEqEq,
+            right: Box::new(undef_expr()),
+            ty: Type::Boolean,
+        },
+        consequent: Box::new(Stmt::Throw {
+            value: Expr::New {
+                callee: Box::new(Expr::IdentName {
+                    name: "ReferenceError".into(),
+                    ty: Type::Function,
+                }),
+                args: vec![Arg::Expr(Expr::String {
+                    value: "Super constructor may only be called once".into(),
+                    ty: Type::String,
+                })],
+                ty: Type::Any,
+            },
+        }),
+        alternate: None,
+    });
+    // _this = Reflect.construct(Super, args, new.target)
+    let reflect = Expr::Call {
+        callee: Box::new(Expr::Member {
+            object: Box::new(Expr::IdentName {
+                name: "Reflect".into(),
+                ty: Type::Object,
+            }),
+            property: Box::new(Expr::String {
+                value: "construct".into(),
+                ty: Type::String,
+            }),
+            computed: false,
+            optional: false,
+            ty: Type::Function,
+        }),
+        args: vec![
+            Arg::Expr(local_expr(super_id)),
+            Arg::Expr(local_expr(args_id)),
+            Arg::Expr(Expr::NewTarget { ty: Type::Any }),
+        ],
+        optional: false,
+        ty: Type::Any,
+    };
+    body.push(Stmt::Expr {
+        expr: Expr::Assign {
+            target: AssignTarget::Local(this_id),
+            op: AssignOp::Eq,
+            value: Box::new(reflect),
+            ty: Type::Any,
+        },
+    });
+    for init in inits {
+        body.push(Stmt::Expr { expr: init });
+    }
+    body.push(Stmt::Return {
+        value: Some(local_expr(this_id)),
+    });
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: vec![Param {
+                pattern: Pattern::Local(args_id),
+                default: None,
+                rest: true,
+            }],
+            body,
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args,
+        optional: false,
+        ty: Type::Any,
+    }
+}
+
 /// Property key expression for `Object.defineProperty` / member name (always a value expr).
 fn lower_object_key_name_expr(
     checked: &CheckedProgram,
@@ -2180,13 +2433,13 @@ fn lower_class_local(
         private_method_fns.push(set_function_name_stmt(fn_id, &display_name));
     }
 
-    // Default derived ctor always uses Reflect.construct + new.target so built-ins
-    // (Error/Map/…) install internal slots (E19.79 Error.isError on subclasses).
+    // Derived constructors use a TDZ `this` temp + Reflect.construct (E19.82.03).
     // Super expression is evaluated once at class def (not inside ctor) so TLA
     // `extends fn(await x)` keeps `await` at module top-level. Always bind the
     // heritage value so IsConstructor / prototype checks run once (E19.82.02).
-    let default_derived_ctor = ctor_body_ast.is_none() && super_class.is_some();
-    let derived_this_id = if default_derived_ctor {
+    let is_derived = super_class.is_some();
+    let default_derived_ctor = ctor_body_ast.is_none() && is_derived;
+    let derived_this_id = if is_derived {
         Some(ctx.alloc_synthetic_local(
             format!("__drac_this_{}", local.0),
             Type::Any,
@@ -2194,7 +2447,7 @@ fn lower_class_local(
     } else {
         None
     };
-    let super_local_id = if super_class.is_some() {
+    let super_local_id = if is_derived {
         Some(ctx.alloc_synthetic_local(
             format!("__drac_super_{}", local.0),
             Type::Any,
@@ -2202,55 +2455,10 @@ fn lower_class_local(
     } else {
         None
     };
-    let mut ctor_body = match ctor_body_ast {
-        Some(body) => lower_fn_body(checked, ctx, body, super_class),
-        None if default_derived_ctor => {
-            let this_id = derived_this_id.expect("derived this temp");
-            let super_id = super_local_id.expect("super temp");
-            // `_this = Reflect.construct(__drac_super, arguments, new.target)`
-            let reflect_construct = Expr::Call {
-                callee: Box::new(Expr::Member {
-                    object: Box::new(Expr::IdentName {
-                        name: "Reflect".into(),
-                        ty: Type::Object,
-                    }),
-                    property: Box::new(Expr::String {
-                        value: "construct".into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
-                    optional: false,
-                    ty: Type::Function,
-                }),
-                args: vec![
-                    Arg::Expr(Expr::Local {
-                        id: super_id,
-                        ty: Type::Any,
-                    }),
-                    Arg::Expr(Expr::IdentName {
-                        name: "arguments".into(),
-                        ty: Type::Any,
-                    }),
-                    Arg::Expr(Expr::NewTarget { ty: Type::Any }),
-                ],
-                optional: false,
-                ty: Type::Any,
-            };
-            vec![Stmt::Declare {
-                local: this_id,
-                init: Some(reflect_construct),
-                kind: BindingKind::Let,
-            }]
-        }
-        None => Vec::new(),
-    };
-    // For default derived ctor, field/brand inits must target `_this`, not bare `this`.
+    // Receiver for field/brand inits: derived `_this` temp or bare `this` (base).
     let ctor_this = || {
         if let Some(id) = derived_this_id {
-            Expr::Local {
-                id,
-                ty: Type::Any,
-            }
+            local_expr(id)
         } else {
             Expr::This { ty: Type::Any }
         }
@@ -2259,162 +2467,206 @@ fn lower_class_local(
     // Computed public instance field names are ToPropertyKey'd at class evaluation
     // (not construct) — store keys in temps referenced from the constructor (E19.53).
     let mut computed_field_key_locals: Vec<(LocalId, Expr)> = Vec::new();
-    if !instance_fields.is_empty() {
-        let mut field_inits: Vec<Stmt> = Vec::with_capacity(instance_fields.len());
-        for (fkey, value, is_private) in &instance_fields {
-            let init = match value {
-                Some(v) => lower_expr(checked, ctx, v, super_class),
-                None => Expr::IdentName {
-                    name: "undefined".into(),
-                    ty: Type::Any,
-                },
-            };
-            let stmt = if *is_private {
-                let pname = object_key_private_name(fkey).expect("private field name");
-                let wm = *ctx
-                    .private_fields
-                    .get(pname)
-                    .expect("private field WeakMap");
-                Stmt::Expr {
-                    expr: Expr::Call {
-                        callee: Box::new(Expr::Member {
-                            object: Box::new(Expr::Local {
-                                id: wm,
-                                ty: Type::Any,
-                            }),
-                            property: Box::new(Expr::String {
-                                value: "set".into(),
-                                ty: Type::String,
-                            }),
-                            computed: false,
-                            optional: false,
-                            ty: Type::Function,
-                        }),
-                        args: vec![Arg::Expr(ctor_this()), Arg::Expr(init)],
-                        optional: false,
-                        ty: Type::Any,
-                    },
-                }
-            } else if matches!(fkey, draconic_ast::ObjectKey::Computed(_)) {
-                let key_expr = lower_object_key_name_expr(checked, ctx, fkey, super_class);
-                let key_id = ctx.alloc_synthetic_local(
-                    format!("__drac_cfk_{}_{}", local.0, computed_field_key_locals.len()),
-                    Type::Any,
-                );
-                // Reflect.ownKeys({[key]:1})[0] forces ToPropertyKey at class eval.
-                let to_key = Expr::Member {
-                    object: Box::new(Expr::Call {
-                        callee: Box::new(Expr::Member {
-                            object: Box::new(Expr::IdentName {
-                                name: "Reflect".into(),
-                                ty: Type::Object,
-                            }),
-                            property: Box::new(Expr::String {
-                                value: "ownKeys".into(),
-                                ty: Type::String,
-                            }),
-                            computed: false,
-                            optional: false,
-                            ty: Type::Function,
-                        }),
-                        args: vec![Arg::Expr(Expr::Object {
-                            properties: vec![ObjectProp::Property {
-                                key: ObjectPropKey::Computed(key_expr),
-                                value: Expr::Number {
-                                    raw: "1".into(),
-                                    ty: Type::Number,
-                                },
-                            }],
+    let mut instance_init_exprs: Vec<Expr> = Vec::new();
+    // While lowering field initializer RHS, map `this` to the derived temp.
+    if let (Some(this_id), Some(super_id)) = (derived_this_id, super_local_id) {
+        ctx.derived_this = Some(this_id);
+        ctx.derived_super = Some(super_id);
+    }
+    // Brands before fields (InitializeInstanceElements).
+    for brand in &instance_brands {
+        // private_brand_add returns Stmt::Expr — extract expr.
+        match private_brand_add(*brand, ctor_this()) {
+            Stmt::Expr { expr } => instance_init_exprs.push(expr),
+            other => panic!("private_brand_add must be Expr stmt, got {other:?}"),
+        }
+    }
+    for (fkey, value, is_private) in &instance_fields {
+        let init = match value {
+            Some(v) => lower_expr(checked, ctx, v, super_class),
+            None => undef_expr(),
+        };
+        let expr = if *is_private {
+            let pname = object_key_private_name(fkey).expect("private field name");
+            let wm = *ctx
+                .private_fields
+                .get(pname)
+                .expect("private field WeakMap");
+            Expr::Call {
+                callee: Box::new(Expr::Member {
+                    object: Box::new(local_expr(wm)),
+                    property: Box::new(Expr::String {
+                        value: "set".into(),
+                        ty: Type::String,
+                    }),
+                    computed: false,
+                    optional: false,
+                    ty: Type::Function,
+                }),
+                args: vec![Arg::Expr(ctor_this()), Arg::Expr(init)],
+                optional: false,
+                ty: Type::Any,
+            }
+        } else if matches!(fkey, draconic_ast::ObjectKey::Computed(_)) {
+            let key_expr = lower_object_key_name_expr(checked, ctx, fkey, super_class);
+            let key_id = ctx.alloc_synthetic_local(
+                format!("__drac_cfk_{}_{}", local.0, computed_field_key_locals.len()),
+                Type::Any,
+            );
+            // Reflect.ownKeys({[key]:1})[0] forces ToPropertyKey at class eval.
+            let to_key = Expr::Member {
+                object: Box::new(Expr::Call {
+                    callee: Box::new(Expr::Member {
+                        object: Box::new(Expr::IdentName {
+                            name: "Reflect".into(),
                             ty: Type::Object,
-                        })],
+                        }),
+                        property: Box::new(Expr::String {
+                            value: "ownKeys".into(),
+                            ty: Type::String,
+                        }),
+                        computed: false,
                         optional: false,
-                        ty: Type::Any,
+                        ty: Type::Function,
                     }),
-                    property: Box::new(Expr::Number {
-                        raw: "0".into(),
-                        ty: Type::Number,
-                    }),
-                    computed: true,
+                    args: vec![Arg::Expr(Expr::Object {
+                        properties: vec![ObjectProp::Property {
+                            key: ObjectPropKey::Computed(key_expr),
+                            value: Expr::Number {
+                                raw: "1".into(),
+                                ty: Type::Number,
+                            },
+                        }],
+                        ty: Type::Object,
+                    })],
                     optional: false,
                     ty: Type::Any,
-                };
-                computed_field_key_locals.push((key_id, to_key));
-                Stmt::Expr {
-                    expr: Expr::Assign {
-                        target: AssignTarget::Member {
-                            object: Box::new(ctor_this()),
-                            property: Box::new(Expr::Local {
-                                id: key_id,
-                                ty: Type::Any,
-                            }),
-                            computed: true,
-                        },
-                        op: AssignOp::Eq,
-                        value: Box::new(init),
-                        ty: Type::Any,
-                    },
-                }
-            } else {
-                let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, super_class);
-                Stmt::Expr {
-                    expr: Expr::Assign {
-                        target: AssignTarget::Member {
-                            object: Box::new(ctor_this()),
-                            property: Box::new(prop),
-                            computed,
-                        },
-                        op: AssignOp::Eq,
-                        value: Box::new(init),
-                        ty: Type::Any,
-                    },
-                }
-            };
-            field_inits.push(stmt);
-        }
-        // Private methods brand before field initializers (InitializeInstanceElements).
-        // After `super(...)` / Reflect.construct when present (first body stmt).
-        let insert_at = if super_class.is_some() && !ctor_body.is_empty() {
-            1
-        } else {
-            0
-        };
-        let brand_inits: Vec<Stmt> = instance_brands
-            .iter()
-            .map(|brand| private_brand_add(*brand, ctor_this()))
-            .collect();
-        let mut new_body =
-            Vec::with_capacity(ctor_body.len() + field_inits.len() + brand_inits.len());
-        new_body.extend(ctor_body.drain(..insert_at.min(ctor_body.len())));
-        new_body.extend(brand_inits);
-        new_body.extend(field_inits);
-        new_body.extend(ctor_body);
-        ctor_body = new_body;
-    } else if !instance_brands.is_empty() {
-        // Brands only (no instance fields).
-        let brand_inits: Vec<Stmt> = instance_brands
-            .iter()
-            .map(|brand| private_brand_add(*brand, ctor_this()))
-            .collect();
-        let insert_at = if super_class.is_some() && !ctor_body.is_empty() {
-            1
-        } else {
-            0
-        };
-        let mut new_body = Vec::with_capacity(ctor_body.len() + brand_inits.len());
-        new_body.extend(ctor_body.drain(..insert_at.min(ctor_body.len())));
-        new_body.extend(brand_inits);
-        new_body.extend(ctor_body);
-        ctor_body = new_body;
-    }
-
-    if let Some(this_id) = derived_this_id {
-        ctor_body.push(Stmt::Return {
-            value: Some(Expr::Local {
-                id: this_id,
+                }),
+                property: Box::new(Expr::Number {
+                    raw: "0".into(),
+                    ty: Type::Number,
+                }),
+                computed: true,
+                optional: false,
                 ty: Type::Any,
-            }),
-        });
+            };
+            computed_field_key_locals.push((key_id, to_key));
+            Expr::Assign {
+                target: AssignTarget::Member {
+                    object: Box::new(ctor_this()),
+                    property: Box::new(local_expr(key_id)),
+                    computed: true,
+                },
+                op: AssignOp::Eq,
+                value: Box::new(init),
+                ty: Type::Any,
+            }
+        } else {
+            let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, super_class);
+            Expr::Assign {
+                target: AssignTarget::Member {
+                    object: Box::new(ctor_this()),
+                    property: Box::new(prop),
+                    computed,
+                },
+                op: AssignOp::Eq,
+                value: Box::new(init),
+                ty: Type::Any,
+            }
+        };
+        instance_init_exprs.push(expr);
     }
+    // Clear derived ctx after field RHS; re-set for user ctor body below.
+    ctx.derived_this = None;
+    ctx.derived_super = None;
+    ctx.derived_super_inits.clear();
+
+    let ctor_body = if default_derived_ctor {
+        let this_id = derived_this_id.expect("derived this temp");
+        let super_id = super_local_id.expect("super temp");
+        // `_this = Reflect.construct(__drac_super, arguments, new.target)` then inits.
+        let reflect_construct = Expr::Call {
+            callee: Box::new(Expr::Member {
+                object: Box::new(Expr::IdentName {
+                    name: "Reflect".into(),
+                    ty: Type::Object,
+                }),
+                property: Box::new(Expr::String {
+                    value: "construct".into(),
+                    ty: Type::String,
+                }),
+                computed: false,
+                optional: false,
+                ty: Type::Function,
+            }),
+            args: vec![
+                Arg::Expr(local_expr(super_id)),
+                Arg::Expr(Expr::IdentName {
+                    name: "arguments".into(),
+                    ty: Type::Any,
+                }),
+                Arg::Expr(Expr::NewTarget { ty: Type::Any }),
+            ],
+            optional: false,
+            ty: Type::Any,
+        };
+        let mut body = vec![Stmt::Declare {
+            local: this_id,
+            init: Some(reflect_construct),
+            kind: BindingKind::Let,
+        }];
+        for init in &instance_init_exprs {
+            body.push(Stmt::Expr {
+                expr: init.clone(),
+            });
+        }
+        body.push(Stmt::Return {
+            value: Some(local_expr(this_id)),
+        });
+        body
+    } else if is_derived {
+        let this_id = derived_this_id.expect("derived this temp");
+        let super_id = super_local_id.expect("super temp");
+        // User-defined derived ctor: TDZ this, super() binds via Reflect.construct.
+        ctx.derived_this = Some(this_id);
+        ctx.derived_super = Some(super_id);
+        ctx.derived_super_inits = instance_init_exprs.clone();
+        ctx.derived_ctor_body = true;
+        let mut body = vec![Stmt::Declare {
+            local: this_id,
+            init: None,
+            kind: BindingKind::Let,
+        }];
+        if let Some(ast_body) = ctor_body_ast {
+            body.extend(lower_fn_body(checked, ctx, ast_body, super_class));
+        }
+        ctx.derived_this = None;
+        ctx.derived_super = None;
+        ctx.derived_super_inits.clear();
+        ctx.derived_ctor_body = false;
+        // Fall-through: uninitialized this → ReferenceError; else return this.
+        body.push(Stmt::Return {
+            value: Some(assert_derived_this(this_id)),
+        });
+        body
+    } else {
+        // Base class: bare `this`; field inits at start of ctor (after super N/A).
+        let mut body = match ctor_body_ast {
+            Some(ast_body) => lower_fn_body(checked, ctx, ast_body, super_class),
+            None => Vec::new(),
+        };
+        if !instance_init_exprs.is_empty() {
+            let mut new_body = Vec::with_capacity(body.len() + instance_init_exprs.len());
+            for init in &instance_init_exprs {
+                new_body.push(Stmt::Expr {
+                    expr: init.clone(),
+                });
+            }
+            new_body.extend(body);
+            body = new_body;
+        }
+        body
+    };
 
     let mut out = private_wm_decls;
     out.extend(private_brand_decls);
@@ -3649,9 +3901,17 @@ fn lower_expr_hint(
         AstExpr::Null { span } => Expr::Null {
             ty: expr_ty(checked, *span),
         },
-        AstExpr::This { span } => Expr::This {
-            ty: expr_ty(checked, *span),
-        },
+        AstExpr::This { span } => {
+            if let Some(this_id) = ctx.derived_this {
+                // Derived ctor: ES this TDZ until super() (E19.82.03).
+                let _ = span;
+                assert_derived_this(this_id)
+            } else {
+                Expr::This {
+                    ty: expr_ty(checked, *span),
+                }
+            }
+        }
         AstExpr::NewTarget { span } => Expr::NewTarget {
             ty: expr_ty(checked, *span),
         },
@@ -3884,9 +4144,17 @@ fn lower_expr_hint(
             optional,
             span,
         } => {
-            // `super(args)` → class: `Parent.call(this, ...args)`; object method: keep `super(...)`
+            // `super(args)` → derived ctor: Reflect.construct; object method: keep `super(...)`
             // (early SyntaxError for SuperCall in object methods is deferred to check/parser).
             if matches!(callee.as_ref(), AstExpr::Super { .. }) {
+                // Derived constructor: bind this via Reflect.construct + field inits (E19.82.03).
+                if ctx.derived_this.is_some() {
+                    let call_args: Vec<Arg> = args
+                        .iter()
+                        .map(|a| lower_arg(checked, ctx, a, super_class))
+                        .collect();
+                    return derived_super_call_expr(ctx, call_args);
+                }
                 // Object methods and missing-extends: keep `super(...)` for JS emit (E19.34).
                 if super_class.is_none() {
                     return Expr::Call {
@@ -3966,8 +4234,12 @@ fn lower_expr_hint(
                             ty: expr_ty(checked, *span),
                         };
                     }
-                    let parent_ast = super_class.expect("super_class present");
-                    let parent = lower_expr(checked, ctx, parent_ast, None);
+                    let parent = if let Some(sid) = ctx.derived_super {
+                        local_expr(sid)
+                    } else {
+                        let parent_ast = super_class.expect("super_class present");
+                        lower_expr(checked, ctx, parent_ast, None)
+                    };
                     let parent_proto = Expr::Member {
                         object: Box::new(parent),
                         property: Box::new(Expr::String {
@@ -4006,8 +4278,13 @@ fn lower_expr_hint(
                         optional: false,
                         ty: Type::Function,
                     };
+                    let this_arg = if let Some(tid) = ctx.derived_this {
+                        assert_derived_this(tid)
+                    } else {
+                        Expr::This { ty: Type::Any }
+                    };
                     let mut call_args = Vec::with_capacity(args.len() + 1);
-                    call_args.push(Arg::Expr(Expr::This { ty: Type::Any }));
+                    call_args.push(Arg::Expr(this_arg));
                     for a in args {
                         call_args.push(lower_arg(checked, ctx, a, super_class));
                     }
@@ -4116,16 +4393,26 @@ fn lower_expr_hint(
                     .map(|s| s.id)
                     .expect("function expression name must be declared")
             });
-            // Methods get object-home `super`; plain function expressions do not inherit `super`.
+            // Methods get object-home `super`; plain function expressions do not inherit `super`
+            // or derived ctor this TDZ (E19.82.03).
             let prev_object_super = ctx.object_super;
+            let prev_derived_this = ctx.derived_this.take();
+            let prev_derived_super = ctx.derived_super.take();
+            let prev_inits = std::mem::take(&mut ctx.derived_super_inits);
+            let prev_ctor_body = ctx.derived_ctor_body;
             if *is_method {
                 ctx.object_super = true;
             } else {
                 ctx.object_super = false;
             }
+            ctx.derived_ctor_body = false;
             let params = lower_params(checked, ctx, params, None);
             let body = lower_fn_body(checked, ctx, body, None);
             ctx.object_super = prev_object_super;
+            ctx.derived_this = prev_derived_this;
+            ctx.derived_super = prev_derived_super;
+            ctx.derived_super_inits = prev_inits;
+            ctx.derived_ctor_body = prev_ctor_body;
             Expr::Function {
                 name,
                 params,
@@ -4158,7 +4445,9 @@ fn lower_expr_hint(
             span,
             ..
         } => {
-            // Arrows inherit lexical `super` (class parent and/or object-home flag).
+            // Arrows inherit lexical `super` / derived this; not construct-return wrapping.
+            let prev_ctor_body = ctx.derived_ctor_body;
+            ctx.derived_ctor_body = false;
             let params = lower_params(checked, ctx, params, super_class);
             let body = match body {
                 draconic_ast::ArrowBody::Block(stmt) => {
@@ -4170,6 +4459,7 @@ fn lower_expr_hint(
                     }]
                 }
             };
+            ctx.derived_ctor_body = prev_ctor_body;
             Expr::Function {
                 name: None,
                 params,
@@ -4348,7 +4638,7 @@ fn lower_expr_hint(
                         other => lower_expr(checked, ctx, other, super_class),
                     }
                 };
-                if super_class.is_none() {
+                if super_class.is_none() && ctx.derived_super.is_none() {
                     return Expr::Member {
                         object: Box::new(Expr::Super { ty: Type::Any }),
                         property: Box::new(property),
@@ -4357,8 +4647,12 @@ fn lower_expr_hint(
                         ty: expr_ty(checked, *span),
                     };
                 }
-                let parent_ast = super_class.expect("super_class present");
-                let parent = lower_expr(checked, ctx, parent_ast, None);
+                let parent = if let Some(sid) = ctx.derived_super {
+                    local_expr(sid)
+                } else {
+                    let parent_ast = super_class.expect("super_class present");
+                    lower_expr(checked, ctx, parent_ast, None)
+                };
                 let parent_proto = Expr::Member {
                     object: Box::new(parent),
                     property: Box::new(Expr::String {
@@ -4369,13 +4663,23 @@ fn lower_expr_hint(
                     optional: false,
                     ty: Type::Any,
                 };
-                return Expr::Member {
+                let member = Expr::Member {
                     object: Box::new(parent_proto),
                     property: Box::new(property),
                     computed: *computed,
                     optional: false,
                     ty: expr_ty(checked, *span),
                 };
+                // SuperProperty uses GetThisBinding — TDZ before super() (E19.82.03).
+                if let Some(tid) = ctx.derived_this {
+                    return Expr::Binary {
+                        left: Box::new(assert_derived_this(tid)),
+                        op: BinaryOp::Comma,
+                        right: Box::new(member),
+                        ty: expr_ty(checked, *span),
+                    };
+                }
+                return member;
             }
             let property = if *computed {
                 lower_expr(checked, ctx, property, super_class)
