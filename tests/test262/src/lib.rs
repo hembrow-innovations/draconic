@@ -870,6 +870,7 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_74.js"),
     include_str!("harness_e19_76.js"),
     include_str!("harness_e19_77.js"),
+    include_str!("harness_e19_79.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -1224,6 +1225,213 @@ var require = __test262CreateRequire(import.meta.url);
       agent.sleep(ms);
     }};
   }}
+  // E19.79: Error.prototype.stack accessor + no own stack on fresh instances.
+  // Host engines often install an own stack accessor; rewrite to the proposal shape.
+  function __test262InstallErrorStack(globalObj) {{
+    var E = globalObj.Error;
+    if (typeof E !== "function" || !E.prototype) {{
+      return;
+    }}
+    var existing = Object.getOwnPropertyDescriptor(E.prototype, "stack");
+    if (
+      existing &&
+      typeof existing.get === "function" &&
+      typeof existing.set === "function" &&
+      existing.enumerable === false &&
+      existing.configurable === true
+    ) {{
+      // Already looks like the error-stack-accessor proposal.
+      return;
+    }}
+    var stackStore = new WeakMap();
+    var isErrorFn =
+      typeof E.isError === "function"
+        ? E.isError.bind(E)
+        : function (v) {{
+            return v instanceof E;
+          }};
+    // Prefer the realm's current TypeError so assert.throws(TypeError, …) matches
+    // after we replace global error constructors.
+    function makeTypeError(msg) {{
+      var TE = globalObj.TypeError;
+      if (typeof TE !== "function") {{
+        TE = TypeError;
+      }}
+      return new TE(msg);
+    }}
+    function stashStack(err) {{
+      if (!isErrorFn(err)) {{
+        return err;
+      }}
+      if (!stackStore.has(err)) {{
+        var s = "";
+        try {{
+          var d = Object.getOwnPropertyDescriptor(err, "stack");
+          if (d) {{
+            if (typeof d.get === "function") {{
+              s = d.get.call(err);
+            }} else if (typeof d.value === "string") {{
+              s = d.value;
+            }}
+          }} else if (typeof err.stack === "string") {{
+            s = err.stack;
+          }}
+        }} catch (e0) {{
+          s = "";
+        }}
+        if (typeof s !== "string") {{
+          s = "";
+        }}
+        stackStore.set(err, s);
+      }}
+      try {{
+        delete err.stack;
+      }} catch (e1) {{}}
+      // If delete left a non-configurable own stack, leave it; most hosts are configurable.
+      return err;
+    }}
+    // Concise methods are non-constructible (isConstructor false). Body is strict
+    // so null/undefined this is not coerced to the global object.
+    var getHolder = {{
+      "get stack"() {{
+        "use strict";
+        var receiver = this;
+        if (receiver === null || (typeof receiver !== "object" && typeof receiver !== "function")) {{
+          throw makeTypeError("Error.prototype.stack getter called on non-object");
+        }}
+        if (!isErrorFn(receiver)) {{
+          return undefined;
+        }}
+        if (stackStore.has(receiver)) {{
+          return stackStore.get(receiver);
+        }}
+        // Error created before install: capture once, strip own, return.
+        stashStack(receiver);
+        return stackStore.has(receiver) ? stackStore.get(receiver) : "";
+      }}
+    }};
+    var setHolder = {{
+      "set stack"(v) {{
+        "use strict";
+        var receiver = this;
+        if (receiver === null || (typeof receiver !== "object" && typeof receiver !== "function")) {{
+          throw makeTypeError("Error.prototype.stack setter called on non-object");
+        }}
+        if (typeof v !== "string") {{
+          throw makeTypeError("Error.prototype.stack setter requires a string");
+        }}
+        if (receiver === E.prototype) {{
+          throw makeTypeError("Cannot set Error.prototype.stack on Error.prototype");
+        }}
+        var desc = Object.getOwnPropertyDescriptor(receiver, "stack");
+        if (desc === undefined) {{
+          Object.defineProperty(receiver, "stack", {{
+            value: v,
+            writable: true,
+            enumerable: true,
+            configurable: true
+          }});
+        }} else {{
+          var ok = Reflect.set(receiver, "stack", v, receiver);
+          if (!ok) {{
+            throw makeTypeError("Error.prototype.stack setter failed");
+          }}
+        }}
+      }}
+    }};
+    var getStack = getHolder["get stack"];
+    var setStack = setHolder["set stack"];
+    try {{
+      Object.defineProperty(E.prototype, "stack", {{
+        get: getStack,
+        set: setStack,
+        enumerable: false,
+        configurable: true
+      }});
+    }} catch (e2) {{
+      return;
+    }}
+    function patchErrorCtor(name) {{
+      var Orig = globalObj[name];
+      if (typeof Orig !== "function") {{
+        return;
+      }}
+      var Patched = function () {{
+        var args = arguments;
+        var nt = new.target;
+        var err = Reflect.construct(Orig, args, nt || Patched);
+        return stashStack(err);
+      }};
+      try {{
+        Object.defineProperty(Patched, "name", {{
+          value: name,
+          writable: false,
+          enumerable: false,
+          configurable: true
+        }});
+      }} catch (e3) {{}}
+      try {{
+        Object.defineProperty(Patched, "length", {{
+          value: Orig.length,
+          writable: false,
+          enumerable: false,
+          configurable: true
+        }});
+      }} catch (e4) {{}}
+      Patched.prototype = Orig.prototype;
+      // Keep `.constructor === Ctor` for assert.throws after global replacement.
+      try {{
+        Object.defineProperty(Orig.prototype, "constructor", {{
+          value: Patched,
+          writable: true,
+          enumerable: false,
+          configurable: true
+        }});
+      }} catch (e4b) {{}}
+      try {{
+        Object.setPrototypeOf(Patched, Object.getPrototypeOf(Orig));
+      }} catch (e5) {{
+        try {{
+          Patched.__proto__ = Orig.__proto__;
+        }} catch (e6) {{}}
+      }}
+      try {{
+        var keys = Object.getOwnPropertyNames(Orig);
+        var ki = 0;
+        while (ki < keys.length) {{
+          var k = keys[ki];
+          if (k !== "prototype" && k !== "length" && k !== "name") {{
+            try {{
+              var pd = Object.getOwnPropertyDescriptor(Orig, k);
+              if (pd) {{
+                Object.defineProperty(Patched, k, pd);
+              }}
+            }} catch (e7) {{}}
+          }}
+          ki = ki + 1;
+        }}
+      }} catch (e8) {{}}
+      try {{
+        globalObj[name] = Patched;
+      }} catch (e9) {{}}
+    }}
+    var names = [
+      "Error",
+      "EvalError",
+      "RangeError",
+      "ReferenceError",
+      "SyntaxError",
+      "TypeError",
+      "URIError",
+      "AggregateError",
+      "SuppressedError"
+    ];
+    var ni = 0;
+    while (ni < names.length) {{
+      patchErrorCtor(names[ni]);
+      ni = ni + 1;
+    }}
+  }}
   // E19.77: Function.prototype.toString (NativeFunction form for user fns) +
   // caller/arguments poison props sharing one %ThrowTypeError%.
   function __test262InstallFunctionProto(globalObj) {{
@@ -1337,6 +1545,7 @@ var require = __test262CreateRequire(import.meta.url);
   }}
   function __test262InstallHost(globalObj, runEval) {{
     __test262InstallFunctionProto(globalObj);
+    __test262InstallErrorStack(globalObj);
     var agent = __test262MakeAgent();
     __test262InstallAgentHelpers(agent);
     var api = {{
@@ -2599,6 +2808,55 @@ assert.throws(TypeError, function () {
 "#;
         let js = compile_test_to_js(src).expect("compile e19.77");
         run_js_in_node(&wrap_host_api(&js)).expect("e19.77 function toString + poison");
+    }
+
+    #[test]
+    fn harness_e19_79_error_iserror_and_stack() {
+        // E19.79: Error.isError on subclasses + Error.prototype.stack accessor.
+        let src = r#"
+class MyError extends Error {}
+assert.sameValue(Error.isError(new MyError()), true);
+assert.sameValue(Error.isError(new Error()), true);
+assert.sameValue(Error.isError({}), false);
+
+var desc = Object.getOwnPropertyDescriptor(Error.prototype, "stack");
+assert.sameValue(typeof desc.get, "function");
+assert.sameValue(typeof desc.set, "function");
+assert.sameValue(desc.enumerable, false);
+assert.sameValue(desc.configurable, true);
+assert.sameValue(desc.get.name, "get stack");
+assert.sameValue(desc.set.name, "set stack");
+assert.sameValue(desc.get.length, 0);
+assert.sameValue(desc.set.length, 1);
+
+var err = new Error("msg");
+assert.sameValue(Object.prototype.hasOwnProperty.call(err, "stack"), false);
+assert.sameValue(typeof desc.get.call(err), "string");
+assert.sameValue(typeof err.stack, "string");
+assert.sameValue(desc.get.call({}), undefined);
+
+desc.set.call(err, "sentinel");
+assert.sameValue(err.stack, "sentinel");
+assert.sameValue(Object.prototype.hasOwnProperty.call(err, "stack"), true);
+assert.sameValue(typeof desc.get.call(err), "string");
+
+assert.throws(TypeError, function () {
+  desc.set.call(Error.prototype, "x");
+});
+assert.throws(TypeError, function () {
+  desc.get.call(null);
+});
+assert.throws(TypeError, function () {
+  desc.set.call(err, 1);
+});
+
+assert.sameValue(typeof nativeErrors, "object");
+assert.sameValue(nativeErrors.length, 7);
+assert.sameValue(typeof makeNativeError, "function");
+assert.sameValue(typeof verifyPrimordialAccessorProperty, "function");
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.79");
+        run_js_in_node(&wrap_host_api(&js)).expect("e19.79 error isError + stack");
     }
 
     #[test]

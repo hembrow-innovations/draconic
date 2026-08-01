@@ -1992,16 +1992,11 @@ fn lower_class_local(
         });
     }
 
-    // Default derived ctor uses Reflect.construct + temp `this` when this class has
-    // instance brands/fields that must run after parent construction (E19.53).
-    // Empty `class X extends Map {}` stays a thin ctor so Annex B brand checks on
-    // non-constructed exotic instances keep their prior shape.
+    // Default derived ctor always uses Reflect.construct + new.target so built-ins
+    // (Error/Map/…) install internal slots (E19.79 Error.isError on subclasses).
     // Super expression is evaluated once at class def (not inside ctor) so TLA
     // `extends fn(await x)` keeps `await` at module top-level.
-    let needs_instance_init =
-        !instance_fields.is_empty() || !instance_brands.is_empty();
-    let default_derived_ctor =
-        ctor_body_ast.is_none() && super_class.is_some() && needs_instance_init;
+    let default_derived_ctor = ctor_body_ast.is_none() && super_class.is_some();
     let derived_this_id = if default_derived_ctor {
         Some(ctx.alloc_synthetic_local(
             format!("__drac_this_{}", local.0),
