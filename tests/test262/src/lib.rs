@@ -1787,6 +1787,87 @@ fn source_has_static_module_syntax(body: &str) -> bool {
     false
 }
 
+/// Specifiers of static `from '…'` / `from "…"` imports (relative or bare).
+fn static_import_specifiers(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in body.lines() {
+        let t = line.trim_start();
+        if t.starts_with("//") {
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("import") {
+            let rest = rest.trim_start();
+            if rest.starts_with('(') {
+                continue;
+            }
+        } else if !t.starts_with("export") {
+            continue;
+        }
+        // `from './x'` / `from "./x"` (static import or re-export).
+        for quote in ['\'', '"'] {
+            let needle = format!("from {quote}");
+            let mut search = t;
+            while let Some(idx) = search.find(&needle) {
+                let after = &search[idx + needle.len()..];
+                if let Some(end) = after.find(quote) {
+                    out.push(after[..end].to_string());
+                    search = &after[end + 1..];
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Specifiers of dynamic `import('…')` / `import("…")` / `import(\`…\`)` with
+/// a string literal argument (no expressions).
+fn dynamic_import_specifiers(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for quote in ['\'', '"', '`'] {
+        let open = format!("import({quote}");
+        let mut search = body;
+        while let Some(idx) = search.find(&open) {
+            let after = &search[idx + open.len()..];
+            if let Some(end) = after.find(quote) {
+                out.push(after[..end].to_string());
+                search = &after[end + 1..];
+            } else {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Normalize `./foo.js` / `foo.js` for specifier set membership.
+fn normalize_module_specifier(spec: &str) -> &str {
+    spec.strip_prefix("./").unwrap_or(spec)
+}
+
+/// E19.83.03: static `import * as ns from X` and dynamic `import(X)` must share
+/// one Module Namespace object. Linker flatten cannot preserve that identity —
+/// run original ESM under the file-module host instead.
+fn source_needs_static_dynamic_ns_identity(body: &str) -> bool {
+    let static_owned = static_import_specifiers(body);
+    let static_specs: std::collections::HashSet<&str> = static_owned
+        .iter()
+        .map(|s| normalize_module_specifier(s))
+        .collect();
+    if static_specs.is_empty() {
+        return false;
+    }
+    dynamic_import_specifiers(body)
+        .iter()
+        .any(|s| static_specs.contains(normalize_module_specifier(s)))
+}
+
+/// Preload hooks: force ESM for Test262 `.js` under dynamic `import()` (E19.83.03).
+fn force_esm_hooks_path() -> PathBuf {
+    package_root().join("src").join("force_esm_hooks.mjs")
+}
+
 /// Run emitted JS under Node. Exit 0 = pass.
 ///
 /// When `cwd` is set (typically the test file's directory), relative
@@ -1832,6 +1913,12 @@ pub fn run_js_in_node_cwd_opts_file(
     cmd.arg("--harmony-shadow-realm");
     if ignore_unhandled_rejections {
         cmd.arg("--unhandled-rejections=none");
+    }
+    // E19.83.03: empty / script-shaped fixtures must load as ESM namespaces
+    // (no CJS synthetic `default`), matching Test262 host expectations.
+    let hooks = force_esm_hooks_path();
+    if hooks.is_file() {
+        cmd.arg("--import").arg(hooks);
     }
     let tmp_path = if let Some(name) = file_module_name {
         let dir = cwd.ok_or_else(|| "file-module host needs cwd".to_string())?;
@@ -1947,13 +2034,18 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     //   identity is shared (eval-self-once-module).
     // - with static export: run original ESM body (live bindings); linker flatten
     //   cannot preserve export live bindings for self-import (imported-self-update).
+    // E19.83.03: static namespace + dynamic `import` of the same specifier must
+    // share one Module Namespace object — run original ESM (not linker flatten).
     let needs_static_link = as_module && source_has_static_module_syntax(scan_body);
     let self_import = basename
         .map(|b| source_has_dynamic_self_import(scan_body, b))
         .unwrap_or(false);
+    let ns_identity = as_module && source_needs_static_dynamic_ns_identity(scan_body);
     let file_module_self = as_module && self_import && !needs_static_link;
     let file_module_export_self = as_module && self_import && needs_static_link;
-    let use_file_module = file_module_self || file_module_export_self;
+    let file_module_ns_identity = ns_identity && !file_module_self && !file_module_export_self;
+    let use_file_module =
+        file_module_self || file_module_export_self || file_module_ns_identity;
     static RUN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let file_module_name = if use_file_module {
         let seq = RUN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1966,8 +2058,8 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
         None
     };
     // Compile already succeeded above (frontend accepts the test). For export
-    // self-import, execute original ESM so `export` live bindings work under Node.
-    let js = if file_module_export_self {
+    // self-import / static+dynamic ns identity, execute original ESM under Node.
+    let js = if file_module_export_self || file_module_ns_identity {
         let body = if is_raw_flag(&source) {
             source.clone()
         } else {
@@ -2404,6 +2496,49 @@ p.catch(function () {}).then($DONE, $DONE);
             "import('./other.js');\n",
             "foo.js"
         ));
+    }
+
+    #[test]
+    fn source_detects_static_dynamic_ns_identity() {
+        // E19.83.03: reuse-namespace-object-from-import pattern.
+        let body = r#"
+import * as ns from './module-code_FIXTURE.js';
+Promise.all([
+    import('./module-code_FIXTURE.js'),
+    import('./module-code_FIXTURE.js'),
+]).then(([a, b]) => {
+    assert.sameValue(a, ns);
+});
+"#;
+        assert!(source_needs_static_dynamic_ns_identity(body));
+        assert!(!source_needs_static_dynamic_ns_identity(
+            "import('./only-dynamic.js');\n"
+        ));
+        assert!(!source_needs_static_dynamic_ns_identity(
+            "import * as ns from './only-static.js';\n"
+        ));
+    }
+
+    #[test]
+    fn force_esm_empty_fixture_has_no_default() {
+        // E19.83.03: empty module namespace must not own `default` (CJS interop).
+        let suite = resolve_suite_root();
+        if !suite_present(&suite) {
+            return;
+        }
+        let cwd = suite.join("test/language/expressions/dynamic-import/namespace");
+        if !cwd.join("empty_FIXTURE.js").is_file() {
+            return;
+        }
+        let js = r#"
+const ns = await import('./empty_FIXTURE.js');
+if (Object.prototype.hasOwnProperty.call(ns, 'default')) {
+  throw new Error('empty fixture must not own default');
+}
+if (!delete ns.undef) throw new Error('delete undef');
+if (!delete ns.default) throw new Error('delete default');
+"#;
+        run_js_in_node_cwd(js, Some(&cwd), true).expect("empty fixture ESM namespace");
     }
 
     #[test]
