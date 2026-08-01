@@ -167,11 +167,20 @@ pub fn load_allowlist(path: &Path) -> Result<Vec<String>, String> {
 /// `assert.sameValue` / `assert.notSameValue` / `assert.throws` used by
 /// early language tests (incl. E19.07 BigInt mixed-type TypeError paths).
 pub const HARNESS_SHIM: &str = r#"
-function $ERROR(message) {
-  throw new Error(String(message));
-}
 function Test262Error(message) {
-  this.message = message;
+  if (!(this instanceof Test262Error)) {
+    return new Test262Error(message);
+  }
+  this.message = message || "";
+}
+Test262Error.prototype.toString = function () {
+  return "Test262Error: " + this.message;
+};
+Test262Error.thrower = function (message) {
+  throw new Test262Error(message);
+};
+function $ERROR(message) {
+  throw new Test262Error(String(message));
 }
 function assert(mustBeTrue, message) {
   if (mustBeTrue !== true) {
@@ -221,87 +230,218 @@ assert.throws = function(expectedErrorConstructor, func, message) {
     $ERROR(msg + "Expected a " + expectedErrorConstructor.name + " to be thrown but no exception was thrown at all");
   }
 };
-assert.compareArray = function(actual, expected, message) {
-  if (typeof actual !== "object" || actual === null || typeof expected !== "object" || expected === null) {
-    $ERROR(message || "assert.compareArray requires array-like arguments");
+function compareArray(a, b) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return false;
   }
-  let al = actual.length;
-  let el = expected.length;
-  if (al !== el) {
-    $ERROR(message || ("Expected array length " + el + " but got " + al + ": [" + Array.prototype.join.call(actual, ",") + "] vs [" + Array.prototype.join.call(expected, ",") + "]"));
+  if (typeof a !== "object" || typeof b !== "object") {
+    return false;
+  }
+  if (b.length !== a.length) {
+    return false;
   }
   let i = 0;
-  while (i < al) {
-    let a = actual[i];
-    let e = expected[i];
-    let same = a === e;
-    if (a !== a && e !== e) {
+  while (i < a.length) {
+    let av = a[i];
+    let bv = b[i];
+    let same = av === bv;
+    if (av !== av && bv !== bv) {
       same = true;
     }
+    if (av === 0 && bv === 0 && 1 / av !== 1 / bv) {
+      same = false;
+    }
     if (same === false) {
-      $ERROR(message || ("arrays differ at " + i + ": " + String(a) + " vs " + String(e) + " (actual=[" + Array.prototype.join.call(actual, ",") + "])"));
+      return false;
     }
     i = i + 1;
   }
+  return true;
+}
+compareArray.format = function (arrayLike) {
+  return "[" + Array.prototype.map.call(arrayLike, String).join(", ") + "]";
 };
-// E19.29: minimal propertyHelper.js `verifyProperty` (descriptor checks via
-// getOwnPropertyDescriptor; no destructive writable/configurable probes).
+assert.compareArray = function(actual, expected, message) {
+  let msg = message === undefined ? "" : message;
+  if (typeof msg === "symbol") {
+    msg = msg.toString();
+  }
+  if (actual === null || actual === undefined || (typeof actual !== "object" && typeof actual !== "function")) {
+    $ERROR("Actual argument [" + actual + "] shouldn't be primitive. " + String(msg));
+  }
+  if (expected === null || expected === undefined || (typeof expected !== "object" && typeof expected !== "function")) {
+    $ERROR("Expected argument [" + expected + "] shouldn't be primitive. " + String(msg));
+  }
+  if (compareArray(actual, expected)) {
+    return;
+  }
+  $ERROR("Actual " + compareArray.format(actual) + " and expected " + compareArray.format(expected) + " should have the same contents. " + String(msg));
+};
+// E19.29 / E19.63: propertyHelper.js verifyProperty + deprecated verify* helpers.
+// Capture primordials at load so verifyConfigurable(this, "Object") can delete Object.
+let __phIsArray = Array.isArray;
+let __phDefineProperty = Object.defineProperty;
+let __phGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+let __phHasOwnProperty = Function.prototype.call.bind(Object.prototype.hasOwnProperty);
+let __phPropertyIsEnumerable = Function.prototype.call.bind(Object.prototype.propertyIsEnumerable);
+function __phIsSameValue(a, b) {
+  if (a === 0 && b === 0) {
+    return 1 / a === 1 / b;
+  }
+  if (a !== a && b !== b) {
+    return true;
+  }
+  return a === b;
+}
+function __phIsConfigurable(obj, name) {
+  try {
+    delete obj[name];
+  } catch (e) {
+    if (!(e instanceof TypeError)) {
+      throw new Test262Error("Expected TypeError, got " + e);
+    }
+  }
+  return !__phHasOwnProperty(obj, name);
+}
+function __phIsEnumerable(obj, name) {
+  let stringCheck = false;
+  if (typeof name === "string") {
+    for (let x in obj) {
+      if (x === name) {
+        stringCheck = true;
+        break;
+      }
+    }
+  } else {
+    stringCheck = true;
+  }
+  return stringCheck && __phHasOwnProperty(obj, name) && __phPropertyIsEnumerable(obj, name);
+}
+function __phIsWritable(obj, name, verifyProp, value) {
+  let nonIndexNumericPropertyName = 4294967295;
+  let unlikelyValue = __phIsArray(obj) && name === "length" ? nonIndexNumericPropertyName : "unlikelyValue";
+  let newValue = value || unlikelyValue;
+  let hadValue = __phHasOwnProperty(obj, name);
+  let oldValue = obj[name];
+  let writeSucceeded;
+  if (arguments.length < 4 && newValue === oldValue) {
+    newValue = newValue + "2";
+  }
+  try {
+    obj[name] = newValue;
+  } catch (e) {
+    if (!(e instanceof TypeError)) {
+      throw new Test262Error("Expected TypeError, got " + e);
+    }
+  }
+  writeSucceeded = __phIsSameValue(obj[verifyProp || name], newValue);
+  if (writeSucceeded) {
+    if (hadValue) {
+      obj[name] = oldValue;
+    } else {
+      delete obj[name];
+    }
+  }
+  return writeSucceeded;
+}
 function verifyProperty(obj, name, desc, options) {
+  assert(arguments.length > 2, "verifyProperty should receive at least 3 arguments: obj, name, and descriptor");
   let label = (options && options.label) || String(name);
-  let originalDesc = Object.getOwnPropertyDescriptor(obj, name);
+  let originalDesc = __phGetOwnPropertyDescriptor(obj, name);
   if (desc === undefined) {
     assert.sameValue(originalDesc, undefined, label + " descriptor should be undefined");
     return true;
   }
-  if (!Object.prototype.hasOwnProperty.call(obj, name)) {
-    $ERROR(label + " should be an own property");
-  }
-  if (desc === null || typeof desc !== "object") {
-    $ERROR("The desc argument should be an object or undefined");
-  }
-  if (Object.prototype.hasOwnProperty.call(desc, "value")) {
-    let sameV = originalDesc.value === desc.value;
-    if (originalDesc.value !== originalDesc.value && desc.value !== desc.value) {
-      sameV = true;
+  assert(__phHasOwnProperty(obj, name), label + " should be an own property");
+  assert.notSameValue(desc, null, "The desc argument should be an object or undefined, null");
+  assert.sameValue(typeof desc, "object", "The desc argument should be an object or undefined, " + String(desc));
+  let failures = [];
+  if (__phHasOwnProperty(desc, "value")) {
+    if (!__phIsSameValue(desc.value, originalDesc.value)) {
+      failures = failures.concat([label + " descriptor value should be " + String(desc.value)]);
     }
-    if (sameV === false) {
-      $ERROR(label + " descriptor value should be " + String(desc.value));
-    }
-    let cur = obj[name];
-    let sameCur = cur === desc.value;
-    if (cur !== cur && desc.value !== desc.value) {
-      sameCur = true;
-    }
-    if (sameCur === false) {
-      $ERROR(label + " value should be " + String(desc.value));
+    if (!__phIsSameValue(desc.value, obj[name])) {
+      failures = failures.concat([label + " value should be " + String(desc.value)]);
     }
   }
-  if (Object.prototype.hasOwnProperty.call(desc, "enumerable") && desc.enumerable !== undefined) {
-    if (desc.enumerable !== originalDesc.enumerable) {
-      $ERROR(label + " descriptor should " + (desc.enumerable ? "" : "not ") + "be enumerable");
+  if (__phHasOwnProperty(desc, "enumerable") && desc.enumerable !== undefined) {
+    if (desc.enumerable !== originalDesc.enumerable || desc.enumerable !== __phIsEnumerable(obj, name)) {
+      failures = failures.concat([label + " descriptor should " + (desc.enumerable ? "" : "not ") + "be enumerable"]);
     }
   }
-  if (Object.prototype.hasOwnProperty.call(desc, "writable") && desc.writable !== undefined) {
-    if (desc.writable !== originalDesc.writable) {
-      $ERROR(label + " descriptor should " + (desc.writable ? "" : "not ") + "be writable");
+  if (__phHasOwnProperty(desc, "writable") && desc.writable !== undefined) {
+    if (desc.writable !== originalDesc.writable || desc.writable !== __phIsWritable(obj, name)) {
+      failures = failures.concat([label + " descriptor should " + (desc.writable ? "" : "not ") + "be writable"]);
     }
   }
-  if (Object.prototype.hasOwnProperty.call(desc, "configurable") && desc.configurable !== undefined) {
-    if (desc.configurable !== originalDesc.configurable) {
-      $ERROR(label + " descriptor should " + (desc.configurable ? "" : "not ") + "be configurable");
+  if (__phHasOwnProperty(desc, "configurable") && desc.configurable !== undefined) {
+    if (desc.configurable !== originalDesc.configurable || desc.configurable !== __phIsConfigurable(obj, name)) {
+      failures = failures.concat([label + " descriptor should " + (desc.configurable ? "" : "not ") + "be configurable"]);
     }
   }
-  if (Object.prototype.hasOwnProperty.call(desc, "get")) {
+  if (__phHasOwnProperty(desc, "get")) {
     if (originalDesc.get !== desc.get) {
-      $ERROR(label + " getter mismatch");
+      failures = failures.concat([label + " getter mismatch"]);
     }
   }
-  if (Object.prototype.hasOwnProperty.call(desc, "set")) {
+  if (__phHasOwnProperty(desc, "set")) {
     if (originalDesc.set !== desc.set) {
-      $ERROR(label + " setter mismatch");
+      failures = failures.concat([label + " setter mismatch"]);
     }
+  }
+  if (failures.length) {
+    assert(false, failures.join("; "));
+  }
+  if (options && options.restore) {
+    __phDefineProperty(obj, name, originalDesc);
   }
   return true;
+}
+// E19.63: deprecated propertyHelper verify* helpers (+ bare compareArray above).
+function verifyEqualTo(obj, name, value) {
+  if (!__phIsSameValue(obj[name], value)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to equal " + value + ", actually " + obj[name]);
+  }
+}
+function verifyWritable(obj, name, verifyProp, value) {
+  if (!verifyProp) {
+    assert(__phGetOwnPropertyDescriptor(obj, name).writable, "Expected obj[" + String(name) + "] to have writable:true.");
+  }
+  if (!__phIsWritable(obj, name, verifyProp, value)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to be writable, but was not.");
+  }
+}
+function verifyNotWritable(obj, name, verifyProp, value) {
+  if (!verifyProp) {
+    assert(!__phGetOwnPropertyDescriptor(obj, name).writable, "Expected obj[" + String(name) + "] to have writable:false.");
+  }
+  if (__phIsWritable(obj, name, verifyProp)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] NOT to be writable, but was.");
+  }
+}
+function verifyEnumerable(obj, name) {
+  assert(__phGetOwnPropertyDescriptor(obj, name).enumerable, "Expected obj[" + String(name) + "] to have enumerable:true.");
+  if (!__phIsEnumerable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to be enumerable, but was not.");
+  }
+}
+function verifyNotEnumerable(obj, name) {
+  assert(!__phGetOwnPropertyDescriptor(obj, name).enumerable, "Expected obj[" + String(name) + "] to have enumerable:false.");
+  if (__phIsEnumerable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] NOT to be enumerable, but was.");
+  }
+}
+function verifyConfigurable(obj, name) {
+  assert(__phGetOwnPropertyDescriptor(obj, name).configurable, "Expected obj[" + String(name) + "] to have configurable:true.");
+  if (!__phIsConfigurable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] to be configurable, but was not.");
+  }
+}
+function verifyNotConfigurable(obj, name) {
+  assert(!__phGetOwnPropertyDescriptor(obj, name).configurable, "Expected obj[" + String(name) + "] to have configurable:false.");
+  if (__phIsConfigurable(obj, name)) {
+    throw new Test262Error("Expected obj[" + String(name) + "] NOT to be configurable, but was.");
+  }
 }
 // E19.61: isConstructor (harness/isConstructor.js)
 function isConstructor(f) {
@@ -1190,10 +1330,10 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.62 expanded curated set.
+        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.63 expanded curated set.
         assert!(
-            list.len() >= 42000,
-            "expected expanded curated allowlist (>=42000), got {}",
+            list.len() >= 42500,
+            "expected expanded curated allowlist (>=42500), got {}",
             list.len()
         );
         assert!(list.iter().all(|p| p.starts_with("test/")));
@@ -1539,6 +1679,59 @@ assert.sameValue(Object.getPrototypeOf(a) === other.Array.prototype, true);
     }
 
     #[test]
+    fn harness_property_helpers_verify_star() {
+        // E19.63: deprecated verify* helpers + bare compareArray.
+        let src = r#"
+let obj = {};
+Object.defineProperty(obj, "a", {
+  writable: true,
+  enumerable: true,
+  configurable: true,
+  value: 123
+});
+verifyEqualTo(obj, "a", 123);
+verifyWritable(obj, "a");
+assert.sameValue(obj.a, 123, "verifyWritable non-destructive");
+verifyEnumerable(obj, "a");
+assert.throws(Test262Error, function () {
+  verifyNotWritable(obj, "a");
+});
+verifyConfigurable(obj, "a");
+assert.sameValue(Object.prototype.hasOwnProperty.call(obj, "a"), false, "verifyConfigurable deletes");
+
+let frozen = {};
+Object.defineProperty(frozen, "b", {
+  writable: false,
+  enumerable: false,
+  configurable: false,
+  value: 7
+});
+verifyEqualTo(frozen, "b", 7);
+verifyNotWritable(frozen, "b");
+verifyNotEnumerable(frozen, "b");
+verifyNotConfigurable(frozen, "b");
+assert.sameValue(frozen.b, 7);
+assert.throws(Test262Error, function () {
+  verifyWritable(frozen, "b");
+});
+
+let arr = [1, 2, 3];
+verifyWritable(arr, "length");
+assert.sameValue(arr.length, 3);
+
+assert.sameValue(compareArray([1, 2], [1, 2]), true);
+assert.sameValue(compareArray([1, 2], [1, 3]), false);
+assert.sameValue(compareArray([], []), true);
+assert.compareArray([1, NaN], [1, NaN]);
+assert.throws(Test262Error, function () {
+  assert.compareArray([1], [2]);
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&js).expect("property helpers");
+    }
+
+    #[test]
     fn default_run_does_not_fail_ci_without_suite() {
         // Fast path (default): suite absent → skip-all green; suite present → do not
         // run the full allowlist (tens of k Node spawns). Set DRACONIC_TEST262_FULL=1
@@ -1596,8 +1789,8 @@ assert.sameValue(Object.getPrototypeOf(a) === other.Array.prototype, true);
                     "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
                 );
                 assert!(
-                    pass >= 42000,
-                    "expected expanded allowlist pass count >= 42000, got {pass}"
+                    pass >= 42500,
+                    "expected expanded allowlist pass count >= 42500, got {pass}"
                 );
             })
             .expect("spawn test262-default-run");
