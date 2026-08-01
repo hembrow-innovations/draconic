@@ -1,0 +1,4 @@
+id: es/classes/class_residual_ii
+targets: js
+js.exit: 0
+js.check: if (callName !== "TypeError") process.exit(1); if (nullProto !== true) process.exit(2); if (nullCtorParent !== true) process.exit(3); if (fieldOk !== true) process.exit(4); if (poisonOk !== true) process.exit(5); if (retName !== "TypeError") process.exit(6); if (superBaseOk !== true) process.exit(7); if (strictOk !== true) process.exit(8); if (superMethodTd !== "ReferenceError") process.exit(9);

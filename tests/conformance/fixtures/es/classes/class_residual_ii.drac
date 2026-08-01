@@ -1,0 +1,103 @@
+// E19.82: class residual II — new.target, setPrototypeOf, DefineField, return completion, strict
+
+// 1) Class constructor cannot be invoked without new
+class CtorOnly {}
+let callName = "";
+try {
+  CtorOnly();
+} catch (e) {
+  callName = e.name;
+}
+
+// 2) extends null: protoParent null, constructorParent %FunctionPrototype%
+class NullExt extends null {}
+let nullProto = Object.getPrototypeOf(NullExt.prototype) === null;
+let nullCtorParent =
+  Object.getPrototypeOf(NullExt.prototype.constructor) === Function.prototype;
+
+// 3) Field init uses DefineOwnProperty (superclass setter must not run)
+class SuperSet {
+  set f(v) {
+    throw new Error("setter");
+  }
+}
+class FieldDef extends SuperSet {
+  f = "ok";
+}
+let fieldOk = new FieldDef().f === "ok";
+
+// 4) Poisoned Object.prototype.__proto__ must not run during class link
+let poisonHit = false;
+let prev = Object.getOwnPropertyDescriptor(Object.prototype, "__proto__");
+Object.defineProperty(Object.prototype, "__proto__", {
+  set: function () {
+    poisonHit = true;
+  },
+  configurable: true,
+});
+class ExtArr extends Array {}
+let poisonOk = !poisonHit && new ExtArr(1).length === 1;
+if (prev) {
+  Object.defineProperty(Object.prototype, "__proto__", prev);
+} else {
+  delete Object.prototype.__proto__;
+}
+
+// 5) Derived return non-object TypeError is not catchable inside ctor
+class RetBad extends class {} {
+  constructor() {
+    super();
+    try {
+      return 0;
+    } catch (e) {
+      return;
+    }
+  }
+}
+let retName = "";
+try {
+  new RetBad();
+} catch (e) {
+  retName = e.name;
+}
+
+// 6) Base class SuperProperty via Object.prototype
+class SuperBase {
+  constructor() {
+    super.toString();
+  }
+  setBug() {
+    super.makeBugs = 1;
+  }
+}
+let sb = new SuperBase();
+sb.setBug();
+let superBaseOk = sb.makeBugs === 1;
+
+// 7) Constructor body is strict
+class StrictCtor {
+  constructor() {
+    try {
+      undeclaredStrictBind = 1;
+      this.strict = false;
+    } catch (e) {
+      this.strict = e instanceof ReferenceError;
+    }
+  }
+}
+let strictOk = new StrictCtor().strict === true;
+
+// 8) SuperProperty this TDZ before missing method lookup
+class Base {}
+let superMethodTd = "";
+try {
+  class C extends Base {
+    constructor() {
+      super.method();
+      super();
+    }
+  }
+  new C();
+} catch (e) {
+  superMethodTd = e.name;
+}

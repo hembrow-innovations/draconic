@@ -36,6 +36,11 @@ struct LowerCtx {
     /// True only while lowering the constructor body itself (not nested arrows/fns).
     /// Gates [[Construct]] return completion wrapping (E19.82.03).
     derived_ctor_body: bool,
+    /// Derived ctor: label + temps so return TypeError is thrown outside user try/catch (E19.82).
+    /// `return v` → store v, break label; after label, run [[Construct]] completion.
+    derived_ctor_label: Option<String>,
+    derived_ret_mode: Option<LocalId>,
+    derived_ret_val: Option<LocalId>,
     /// True while lowering a class field initializer expression (not nested fn bodies).
     /// Direct `eval` gets field-init early errors (E19.82.06 ContainsArguments).
     in_field_init: bool,
@@ -58,6 +63,9 @@ impl LowerCtx {
             derived_super: None,
             derived_super_inits: Vec::new(),
             derived_ctor_body: false,
+            derived_ctor_label: None,
+            derived_ret_mode: None,
+            derived_ret_val: None,
             in_field_init: false,
             class_name_remap: Vec::new(),
             extra_locals: Vec::new(),
@@ -901,6 +909,9 @@ fn lower_stmt(
             let prev_derived_super = ctx.derived_super.take();
             let prev_inits = std::mem::take(&mut ctx.derived_super_inits);
             let prev_ctor_body = ctx.derived_ctor_body;
+            let prev_ctor_label = ctx.derived_ctor_label.take();
+            let prev_ret_mode = ctx.derived_ret_mode.take();
+            let prev_ret_val = ctx.derived_ret_val.take();
             ctx.object_super = false;
             ctx.derived_ctor_body = false;
             let body = lower_fn_body(checked, ctx, body, None);
@@ -909,6 +920,9 @@ fn lower_stmt(
             ctx.derived_super = prev_derived_super;
             ctx.derived_super_inits = prev_inits;
             ctx.derived_ctor_body = prev_ctor_body;
+            ctx.derived_ctor_label = prev_ctor_label;
+            ctx.derived_ret_mode = prev_ret_mode;
+            ctx.derived_ret_val = prev_ret_val;
             Some(Stmt::Function {
                 local,
                 params,
@@ -921,9 +935,42 @@ fn lower_stmt(
             let value = argument
                 .as_ref()
                 .map(|e| lower_expr(checked, ctx, e, super_class));
+            // Derived ctor: store completion + break so TypeError is outside try/catch (E19.82).
             if ctx.derived_ctor_body {
+                if let (Some(mode_id), Some(val_id), Some(label)) = (
+                    ctx.derived_ret_mode,
+                    ctx.derived_ret_val,
+                    ctx.derived_ctor_label.clone(),
+                ) {
+                    return Some(Stmt::Block {
+                        body: vec![
+                            Stmt::Expr {
+                                expr: Expr::Assign {
+                                    target: AssignTarget::Local(mode_id),
+                                    op: AssignOp::Eq,
+                                    value: Box::new(Expr::Number {
+                                        raw: "1".into(),
+                                        ty: Type::Number,
+                                    }),
+                                    ty: Type::Any,
+                                },
+                            },
+                            Stmt::Expr {
+                                expr: Expr::Assign {
+                                    target: AssignTarget::Local(val_id),
+                                    op: AssignOp::Eq,
+                                    value: Box::new(value.unwrap_or_else(undef_expr)),
+                                    ty: Type::Any,
+                                },
+                            },
+                            Stmt::Break {
+                                label: Some(label),
+                            },
+                        ],
+                    });
+                }
                 if let Some(this_id) = ctx.derived_this {
-                    // Derived [[Construct]] return completion (E19.82.03).
+                    // Fallback: inline [[Construct]] return completion (E19.82.03).
                     return Some(Stmt::Return {
                         value: Some(possible_constructor_return(this_id, value)),
                     });
@@ -1587,17 +1634,9 @@ fn object_method_call(method: &str, args: Vec<Arg>) -> Expr {
 /// - else IsConstructor(superclass) must be true → TypeError
 /// - else Get(superclass, "prototype") must be Object or Null → TypeError
 ///
-/// Emits roughly:
-/// ```js
-/// if (parent !== null) {
-///   try { Reflect.construct(function () {}, [], parent); }
-///   catch { throw new TypeError("…not a constructor or null"); }
-///   let __p = parent.prototype;
-///   if (__p !== null && typeof __p !== "object" && typeof __p !== "function")
-///     throw new TypeError("…valid prototype property");
-/// }
-/// ```
-fn heritage_validation_stmts(parent: Expr) -> Vec<Stmt> {
+/// When `proto_out` is set, stores the single Get(parent,"prototype") (or null for
+/// `extends null`) into that local so ClassDefinitionEvaluation does not re-get (E19.82).
+fn heritage_validation_stmts(parent: Expr, proto_out: Option<LocalId>) -> Vec<Stmt> {
     let is_null = Expr::Binary {
         left: Box::new(parent.clone()),
         op: BinaryOp::EqEqEq,
@@ -1606,11 +1645,14 @@ fn heritage_validation_stmts(parent: Expr) -> Vec<Stmt> {
     };
     let not_null = Expr::Unary {
         op: UnaryOp::Not,
-        arg: Box::new(is_null),
+        arg: Box::new(is_null.clone()),
         ty: Type::Boolean,
     };
 
-    // Reflect.construct(function () {}, [], parent) — throws if !IsConstructor(parent)
+    // IsConstructor via Reflect.construct(empty, [], parent). Engines reject
+    // arrows/async/generators here; a bare Proxy construct trap does not (E19.82).
+    // Intercept Get(parent,"prototype") during GetPrototypeFromConstructor so the
+    // single Get is cached for linking (prototype-getter calls === 1).
     let empty_ctor = Expr::Function {
         name: None,
         params: Vec::new(),
@@ -1620,31 +1662,6 @@ fn heritage_validation_stmts(parent: Expr) -> Vec<Stmt> {
         is_arrow: false,
         is_method: false,
         ty: Type::Function,
-    };
-    let is_ctor_probe = Expr::Call {
-        callee: Box::new(Expr::Member {
-            object: Box::new(Expr::IdentName {
-                name: "Reflect".into(),
-                ty: Type::Object,
-            }),
-            property: Box::new(Expr::String {
-                value: "construct".into(),
-                ty: Type::String,
-            }),
-            computed: false,
-            optional: false,
-            ty: Type::Function,
-        }),
-        args: vec![
-            Arg::Expr(empty_ctor),
-            Arg::Expr(Expr::Array {
-                elements: Vec::new(),
-                ty: Type::Any,
-            }),
-            Arg::Expr(parent.clone()),
-        ],
-        optional: false,
-        ty: Type::Any,
     };
 
     let throw_not_ctor = Stmt::Throw {
@@ -1661,26 +1678,198 @@ fn heritage_validation_stmts(parent: Expr) -> Vec<Stmt> {
         },
     };
 
-    let try_is_ctor = Stmt::Try {
-        block: vec![Stmt::Expr {
-            expr: is_ctor_probe,
-        }],
-        handler_param: None,
-        handler: Some(vec![throw_not_ctor]),
-        finalizer: None,
-    };
+    // When proto_out is set, Reflect.construct uses newTarget = Proxy(parent) whose
+    // get trap caches parent.prototype into proto_out (single Get for linking).
+    let (try_is_ctor, proto_for_check, after_ctor_stmts): (Stmt, Expr, Vec<Stmt>) =
+        if let Some(pid) = proto_out {
+            let get_trap = Expr::Function {
+                name: None,
+                params: vec![
+                    Param {
+                        pattern: Pattern::Name("t".into()),
+                        default: None,
+                        rest: false,
+                    },
+                    Param {
+                        pattern: Pattern::Name("p".into()),
+                        default: None,
+                        rest: false,
+                    },
+                    Param {
+                        pattern: Pattern::Name("r".into()),
+                        default: None,
+                        rest: false,
+                    },
+                ],
+                body: vec![Stmt::If {
+                    test: Expr::Binary {
+                        left: Box::new(Expr::IdentName {
+                            name: "p".into(),
+                            ty: Type::Any,
+                        }),
+                        op: BinaryOp::EqEqEq,
+                        right: Box::new(Expr::String {
+                            value: "prototype".into(),
+                            ty: Type::String,
+                        }),
+                        ty: Type::Boolean,
+                    },
+                    consequent: Box::new(Stmt::Return {
+                        value: Some(Expr::Assign {
+                            target: AssignTarget::Local(pid),
+                            op: AssignOp::Eq,
+                            value: Box::new(Expr::Call {
+                                callee: Box::new(member_prop(
+                                    Expr::IdentName {
+                                        name: "Reflect".into(),
+                                        ty: Type::Object,
+                                    },
+                                    "get",
+                                    Type::Function,
+                                )),
+                                args: vec![
+                                    Arg::Expr(Expr::IdentName {
+                                        name: "t".into(),
+                                        ty: Type::Any,
+                                    }),
+                                    Arg::Expr(Expr::IdentName {
+                                        name: "p".into(),
+                                        ty: Type::Any,
+                                    }),
+                                    Arg::Expr(Expr::IdentName {
+                                        name: "r".into(),
+                                        ty: Type::Any,
+                                    }),
+                                ],
+                                optional: false,
+                                ty: Type::Any,
+                            }),
+                            ty: Type::Any,
+                        }),
+                    }),
+                    alternate: Some(Box::new(Stmt::Return {
+                        value: Some(Expr::Call {
+                            callee: Box::new(member_prop(
+                                Expr::IdentName {
+                                    name: "Reflect".into(),
+                                    ty: Type::Object,
+                                },
+                                "get",
+                                Type::Function,
+                            )),
+                            args: vec![
+                                Arg::Expr(Expr::IdentName {
+                                    name: "t".into(),
+                                    ty: Type::Any,
+                                }),
+                                Arg::Expr(Expr::IdentName {
+                                    name: "p".into(),
+                                    ty: Type::Any,
+                                }),
+                                Arg::Expr(Expr::IdentName {
+                                    name: "r".into(),
+                                    ty: Type::Any,
+                                }),
+                            ],
+                            optional: false,
+                            ty: Type::Any,
+                        }),
+                    })),
+                }],
+                is_async: false,
+                is_generator: false,
+                is_arrow: false,
+                is_method: false,
+                ty: Type::Function,
+            };
+            let proxy_new_target = Expr::New {
+                callee: Box::new(Expr::IdentName {
+                    name: "Proxy".into(),
+                    ty: Type::Function,
+                }),
+                args: vec![
+                    Arg::Expr(parent.clone()),
+                    Arg::Expr(Expr::Object {
+                        properties: vec![ObjectProp::Property {
+                            key: ObjectPropKey::Static("get".into()),
+                            value: get_trap,
+                        }],
+                        ty: Type::Object,
+                    }),
+                ],
+                ty: Type::Any,
+            };
+            let is_ctor_probe = Expr::Call {
+                callee: Box::new(member_prop(
+                    Expr::IdentName {
+                        name: "Reflect".into(),
+                        ty: Type::Object,
+                    },
+                    "construct",
+                    Type::Function,
+                )),
+                args: vec![
+                    Arg::Expr(empty_ctor),
+                    Arg::Expr(Expr::Array {
+                        elements: Vec::new(),
+                        ty: Type::Any,
+                    }),
+                    Arg::Expr(proxy_new_target),
+                ],
+                optional: false,
+                ty: Type::Any,
+            };
+            let try_stmt = Stmt::Try {
+                block: vec![Stmt::Expr {
+                    expr: is_ctor_probe,
+                }],
+                handler_param: None,
+                handler: Some(vec![throw_not_ctor]),
+                finalizer: None,
+            };
+            (try_stmt, local_expr(pid), Vec::new())
+        } else {
+            let is_ctor_probe = Expr::Call {
+                callee: Box::new(member_prop(
+                    Expr::IdentName {
+                        name: "Reflect".into(),
+                        ty: Type::Object,
+                    },
+                    "construct",
+                    Type::Function,
+                )),
+                args: vec![
+                    Arg::Expr(empty_ctor),
+                    Arg::Expr(Expr::Array {
+                        elements: Vec::new(),
+                        ty: Type::Any,
+                    }),
+                    Arg::Expr(parent.clone()),
+                ],
+                optional: false,
+                ty: Type::Any,
+            };
+            let try_stmt = Stmt::Try {
+                block: vec![Stmt::Expr {
+                    expr: is_ctor_probe,
+                }],
+                handler_param: None,
+                handler: Some(vec![throw_not_ctor]),
+                finalizer: None,
+            };
+            let proto = member_prop(parent, "prototype", Type::Any);
+            (try_stmt, proto, Vec::new())
+        };
 
-    // prototype must be Object or Null (functions count as Object)
-    let proto = member_prop(parent, "prototype", Type::Any);
     let proto_is_null = Expr::Binary {
-        left: Box::new(proto.clone()),
+        left: Box::new(proto_for_check.clone()),
         op: BinaryOp::EqEqEq,
         right: Box::new(Expr::Null { ty: Type::Any }),
         ty: Type::Boolean,
     };
     let typeof_proto = Expr::Unary {
         op: UnaryOp::TypeOf,
-        arg: Box::new(proto.clone()),
+        arg: Box::new(proto_for_check.clone()),
         ty: Type::String,
     };
     let proto_is_object = Expr::Binary {
@@ -1694,7 +1883,7 @@ fn heritage_validation_stmts(parent: Expr) -> Vec<Stmt> {
     };
     let typeof_proto_fn = Expr::Unary {
         op: UnaryOp::TypeOf,
-        arg: Box::new(proto),
+        arg: Box::new(proto_for_check),
         ty: Type::String,
     };
     let proto_is_function = Expr::Binary {
@@ -1742,12 +1931,25 @@ fn heritage_validation_stmts(parent: Expr) -> Vec<Stmt> {
         alternate: None,
     };
 
+    let mut not_null_body = vec![try_is_ctor];
+    not_null_body.extend(after_ctor_stmts);
+    not_null_body.push(check_proto);
+    // extends null → cached proto is null
     vec![Stmt::If {
         test: not_null,
         consequent: Box::new(Stmt::Block {
-            body: vec![try_is_ctor, check_proto],
+            body: not_null_body,
         }),
-        alternate: None,
+        alternate: proto_out.map(|pid| {
+            Box::new(Stmt::Expr {
+                expr: Expr::Assign {
+                    target: AssignTarget::Local(pid),
+                    op: AssignOp::Eq,
+                    value: Box::new(Expr::Null { ty: Type::Any }),
+                    ty: Type::Any,
+                },
+            })
+        }),
     }]
 }
 
@@ -2003,6 +2205,40 @@ fn throw_reference_error_expr(msg: &str) -> Expr {
         optional: false,
         ty: Type::Any,
     }
+}
+
+/// Class constructors have [[FunctionKind]] "classConstructor": call without `new` → TypeError (E19.82).
+fn class_ctor_new_target_check() -> Stmt {
+    Stmt::If {
+        test: Expr::Binary {
+            left: Box::new(Expr::NewTarget { ty: Type::Any }),
+            op: BinaryOp::EqEqEq,
+            right: Box::new(undef_expr()),
+            ty: Type::Boolean,
+        },
+        consequent: Box::new(Stmt::Throw {
+            value: Expr::New {
+                callee: Box::new(Expr::IdentName {
+                    name: "TypeError".into(),
+                    ty: Type::Function,
+                }),
+                args: vec![Arg::Expr(Expr::String {
+                    value: "Class constructor cannot be invoked without 'new'".into(),
+                    ty: Type::String,
+                })],
+                ty: Type::Any,
+            },
+        }),
+        alternate: None,
+    }
+}
+
+/// `Object.setPrototypeOf(obj, proto)` — avoids poisoned `__proto__` setters (E19.82).
+fn object_set_prototype_of(obj: Expr, proto: Expr) -> Expr {
+    object_method_call(
+        "setPrototypeOf",
+        vec![Arg::Expr(obj), Arg::Expr(proto)],
+    )
 }
 
 /// ES GetThisBinding for derived ctor: uninitialized → ReferenceError.
@@ -2682,28 +2918,11 @@ fn lower_class_local(
             // PrivateFieldAdd: non-extensible / already-present → TypeError (E19.82.09).
             private_field_add(ctx, wm, receiver, init)
         } else if let Some(key_id) = computed_key {
-            Expr::Assign {
-                target: AssignTarget::Member {
-                    object: Box::new(receiver),
-                    property: Box::new(local_expr(*key_id)),
-                    computed: true,
-                },
-                op: AssignOp::Eq,
-                value: Box::new(init),
-                ty: Type::Any,
-            }
+            // CreateDataPropertyOrThrow — not [[Set]] (superclass setters must not run) (E19.82).
+            create_data_property_or_throw(receiver, local_expr(*key_id), init)
         } else {
-            let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, None);
-            Expr::Assign {
-                target: AssignTarget::Member {
-                    object: Box::new(receiver),
-                    property: Box::new(prop),
-                    computed,
-                },
-                op: AssignOp::Eq,
-                value: Box::new(init),
-                ty: Type::Any,
-            }
+            let (prop, _computed) = lower_object_key_prop(checked, ctx, fkey, None);
+            create_data_property_or_throw(receiver, prop, init)
         };
         let expr = call_method_with_home(
             instance_super_home.clone(),
@@ -2750,11 +2969,12 @@ fn lower_class_local(
             optional: false,
             ty: Type::Any,
         };
-        let mut body = vec![Stmt::Declare {
+        let mut body = with_use_strict(vec![class_ctor_new_target_check()]);
+        body.push(Stmt::Declare {
             local: this_id,
             init: Some(reflect_construct),
             kind: BindingKind::Let,
-        }];
+        });
         for init in &instance_init_exprs {
             body.push(Stmt::Expr {
                 expr: init.clone(),
@@ -2768,25 +2988,77 @@ fn lower_class_local(
         let this_id = derived_this_id.expect("derived this temp");
         let super_id = super_local_id.expect("super temp");
         // User-defined derived ctor: TDZ this, super() binds via Reflect.construct.
+        // Return completion is deferred past user try/catch via labeled break (E19.82).
+        let ret_mode_id = ctx.alloc_synthetic_local(
+            format!("__drac_rm_{}", local.0),
+            Type::Number,
+        );
+        let ret_val_id = ctx.alloc_synthetic_local(
+            format!("__drac_rv_{}", local.0),
+            Type::Any,
+        );
+        let ctor_label = format!("__drac_ctor_{}", local.0);
         ctx.derived_this = Some(this_id);
         ctx.derived_super = Some(super_id);
         ctx.derived_super_inits = instance_init_exprs.clone();
         ctx.derived_ctor_body = true;
-        let mut body = vec![Stmt::Declare {
-            local: this_id,
-            init: None,
-            kind: BindingKind::Let,
-        }];
+        ctx.derived_ctor_label = Some(ctor_label.clone());
+        ctx.derived_ret_mode = Some(ret_mode_id);
+        ctx.derived_ret_val = Some(ret_val_id);
+        let mut inner = Vec::new();
         if let Some(ast_body) = ctor_body_ast {
-            body.extend(lower_fn_body(checked, ctx, ast_body, super_class));
+            inner.extend(lower_fn_body(checked, ctx, ast_body, super_class));
         }
         ctx.derived_this = None;
         ctx.derived_super = None;
         ctx.derived_super_inits.clear();
         ctx.derived_ctor_body = false;
-        // Fall-through: uninitialized this → ReferenceError; else return this.
+        ctx.derived_ctor_label = None;
+        ctx.derived_ret_mode = None;
+        ctx.derived_ret_val = None;
+        // Class constructors must be called with `new` (E19.82). Directive first (strict).
+        let mut body = with_use_strict(vec![class_ctor_new_target_check()]);
+        body.push(Stmt::Declare {
+            local: this_id,
+            init: None,
+            kind: BindingKind::Let,
+        });
+        body.push(Stmt::Declare {
+            local: ret_mode_id,
+            init: Some(Expr::Number {
+                raw: "0".into(),
+                ty: Type::Number,
+            }),
+            kind: BindingKind::Let,
+        });
+        body.push(Stmt::Declare {
+            local: ret_val_id,
+            init: Some(undef_expr()),
+            kind: BindingKind::Let,
+        });
+        body.push(Stmt::Labeled {
+            label: ctor_label,
+            body: Box::new(Stmt::Block { body: inner }),
+        });
+        // After label: explicit return → [[Construct]] completion; else assert this.
         body.push(Stmt::Return {
-            value: Some(assert_derived_this(this_id)),
+            value: Some(Expr::Conditional {
+                test: Box::new(Expr::Binary {
+                    left: Box::new(local_expr(ret_mode_id)),
+                    op: BinaryOp::EqEqEq,
+                    right: Box::new(Expr::Number {
+                        raw: "1".into(),
+                        ty: Type::Number,
+                    }),
+                    ty: Type::Boolean,
+                }),
+                consequent: Box::new(possible_constructor_return(
+                    this_id,
+                    Some(local_expr(ret_val_id)),
+                )),
+                alternate: Box::new(assert_derived_this(this_id)),
+                ty: Type::Any,
+            }),
         });
         body
     } else {
@@ -2805,13 +3077,18 @@ fn lower_class_local(
             new_body.extend(body);
             body = new_body;
         }
-        body
+        // Class constructors: strict + must be called with `new` (E19.82).
+        let mut with_check = with_use_strict(vec![class_ctor_new_target_check()]);
+        with_check.extend(body);
+        with_check
     };
 
     let mut out = private_wm_decls;
     out.extend(private_brand_decls);
     out.extend(private_method_fns);
     // Evaluate extends once (TLA-safe) and validate IsConstructor + prototype (E19.82.02).
+    // Cache Get(superclass,"prototype") once for linking (E19.82 prototype-getter).
+    let mut cached_super_proto: Option<LocalId> = None;
     if let (Some(super_id), Some(sc)) = (super_local_id, super_class) {
         let parent = lower_expr(checked, ctx, sc, None);
         out.push(Stmt::Declare {
@@ -2819,10 +3096,23 @@ fn lower_class_local(
             init: Some(parent),
             kind: BindingKind::Let,
         });
-        out.extend(heritage_validation_stmts(Expr::Local {
-            id: super_id,
-            ty: Type::Any,
-        }));
+        let proto_id = ctx.alloc_synthetic_local(
+            format!("__drac_sproto_{}", local.0),
+            Type::Any,
+        );
+        out.push(Stmt::Declare {
+            local: proto_id,
+            init: None,
+            kind: BindingKind::Let,
+        });
+        out.extend(heritage_validation_stmts(
+            Expr::Local {
+                id: super_id,
+                ty: Type::Any,
+            },
+            Some(proto_id),
+        ));
+        cached_super_proto = Some(proto_id);
     }
     // Declare computed field key temps before constructor (referenced from ctor body).
     for (key_id, _) in &computed_field_key_locals {
@@ -2914,10 +3204,15 @@ fn lower_class_local(
         }
         // Keep Super + method form so [[HomeObject]] / eval('super…') work (E19.72).
         // SuperCall stays desugared only in constructors (super_class still passed there).
+        let prev_object_super = ctx.object_super;
+        ctx.object_super = true;
+        let method_body = with_use_strict(lower_fn_body(checked, ctx, body, None));
+        let method_params = lower_params(checked, ctx, params, None);
+        ctx.object_super = prev_object_super;
         let method_fn = Expr::Function {
             name: None,
-            params: lower_params(checked, ctx, params, None),
-            body: with_use_strict(lower_fn_body(checked, ctx, body, None)),
+            params: method_params,
+            body: method_body,
             is_async,
             is_generator,
             is_arrow: false,
@@ -2966,10 +3261,15 @@ fn lower_class_local(
             // Already emitted as standalone function; not installed on prototype.
             continue;
         }
+        let prev_object_super = ctx.object_super;
+        ctx.object_super = true;
+        let acc_body = with_use_strict(lower_fn_body(checked, ctx, body, None));
+        let acc_params = lower_params(checked, ctx, params, None);
+        ctx.object_super = prev_object_super;
         let accessor_fn = Expr::Function {
             name: None,
-            params: lower_params(checked, ctx, params, None),
-            body: with_use_strict(lower_fn_body(checked, ctx, body, None)),
+            params: acc_params,
+            body: acc_body,
             is_async: false,
             is_generator: false,
             is_arrow: false,
@@ -3013,8 +3313,13 @@ fn lower_class_local(
     }
 
     if let Some(parent) = parent_expr.as_ref() {
-        // extends null → instance [[Prototype]] is null, not null.prototype (E19.72).
-        let parent_proto = parent_instance_super_base(parent.clone());
+        // extends null → instance [[Prototype]] is null; constructor [[Prototype]] is %FunctionPrototype%.
+        // Reuse cached Get(superclass,"prototype") from heritage validation when present (E19.82).
+        let parent_proto = if let Some(pid) = cached_super_proto {
+            local_expr(pid)
+        } else {
+            parent_instance_super_base(parent.clone())
+        };
         let child_proto = member_prop(
             Expr::Local {
                 id: local,
@@ -3024,38 +3329,35 @@ fn lower_class_local(
             Type::Any,
         );
         out.push(Stmt::Expr {
-            expr: Expr::Assign {
-                target: AssignTarget::Member {
-                    object: Box::new(child_proto),
-                    property: Box::new(Expr::String {
-                        value: "__proto__".into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
-                },
-                op: AssignOp::Eq,
-                value: Box::new(parent_proto),
-                ty: Type::Any,
-            },
+            expr: object_set_prototype_of(child_proto, parent_proto),
         });
-        // Child.__proto__ = Parent (static inheritance / instanceof chain helpers)
-        out.push(Stmt::Expr {
-            expr: Expr::Assign {
-                target: AssignTarget::Member {
-                    object: Box::new(Expr::Local {
-                        id: local,
-                        ty: Type::Function,
-                    }),
-                    property: Box::new(Expr::String {
-                        value: "__proto__".into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
+        // F.[[Prototype]] = null heritage → %FunctionPrototype%; else superclass (E19.82).
+        let ctor_parent = Expr::Conditional {
+            test: Box::new(Expr::Binary {
+                left: Box::new(parent.clone()),
+                op: BinaryOp::EqEqEq,
+                right: Box::new(Expr::Null { ty: Type::Any }),
+                ty: Type::Boolean,
+            }),
+            consequent: Box::new(member_prop(
+                Expr::IdentName {
+                    name: "Function".into(),
+                    ty: Type::Function,
                 },
-                op: AssignOp::Eq,
-                value: Box::new(parent.clone()),
-                ty: Type::Any,
-            },
+                "prototype",
+                Type::Any,
+            )),
+            alternate: Box::new(parent.clone()),
+            ty: Type::Any,
+        };
+        out.push(Stmt::Expr {
+            expr: object_set_prototype_of(
+                Expr::Local {
+                    id: local,
+                    ty: Type::Function,
+                },
+                ctor_parent,
+            ),
         });
     }
 
@@ -5501,8 +5803,9 @@ fn lower_expr_hint(
             } = callee.as_ref()
             {
                 if matches!(object.as_ref(), AstExpr::Super { .. }) {
-                    // Object method / base class: keep `super.m(...)` for JS home-object emit (E19.34).
-                    if super_class.is_none() {
+                    // Object/class methods + field-init bodies: keep `super.m(...)` for
+                    // JS home-object emit (E19.34 / E19.82). Base ctor: Object.prototype.
+                    if super_class.is_none() && ctx.derived_super.is_none() {
                         let prop = if *computed {
                             lower_expr(checked, ctx, property, super_class)
                         } else {
@@ -5514,19 +5817,56 @@ fn lower_expr_hint(
                                 other => lower_expr(checked, ctx, other, super_class),
                             }
                         };
+                        if ctx.object_super || ctx.in_field_init {
+                            let method = Expr::Member {
+                                object: Box::new(Expr::Super { ty: Type::Any }),
+                                property: Box::new(prop),
+                                computed: *computed,
+                                optional: false,
+                                ty: Type::Function,
+                            };
+                            return Expr::Call {
+                                callee: Box::new(method),
+                                args: args
+                                    .iter()
+                                    .map(|a| lower_arg(checked, ctx, a, super_class))
+                                    .collect(),
+                                optional: false,
+                                ty: expr_ty(checked, *span),
+                            };
+                        }
                         let method = Expr::Member {
-                            object: Box::new(Expr::Super { ty: Type::Any }),
+                            object: Box::new(member_prop(
+                                Expr::IdentName {
+                                    name: "Object".into(),
+                                    ty: Type::Function,
+                                },
+                                "prototype",
+                                Type::Any,
+                            )),
                             property: Box::new(prop),
                             computed: *computed,
                             optional: false,
                             ty: Type::Function,
                         };
+                        let call_member = Expr::Member {
+                            object: Box::new(method),
+                            property: Box::new(Expr::String {
+                                value: "call".into(),
+                                ty: Type::String,
+                            }),
+                            computed: false,
+                            optional: false,
+                            ty: Type::Function,
+                        };
+                        let mut call_args = Vec::with_capacity(args.len() + 1);
+                        call_args.push(Arg::Expr(Expr::This { ty: Type::Any }));
+                        for a in args {
+                            call_args.push(lower_arg(checked, ctx, a, super_class));
+                        }
                         return Expr::Call {
-                            callee: Box::new(method),
-                            args: args
-                                .iter()
-                                .map(|a| lower_arg(checked, ctx, a, super_class))
-                                .collect(),
+                            callee: Box::new(call_member),
+                            args: call_args,
                             optional: false,
                             ty: expr_ty(checked, *span),
                         };
@@ -5581,13 +5921,37 @@ fn lower_expr_hint(
                         Expr::This { ty: Type::Any }
                     };
                     let mut call_args = Vec::with_capacity(args.len() + 1);
-                    call_args.push(Arg::Expr(this_arg));
+                    // Placeholder this — real receiver bound via outer IIFE so GetThisBinding
+                    // runs before Parent.prototype.m lookup (missing method → TypeError) (E19.82).
+                    let this_param = ctx.alloc_synthetic_local("__drac_sthis".into(), Type::Any);
+                    call_args.push(Arg::Expr(local_expr(this_param)));
                     for a in args {
                         call_args.push(lower_arg(checked, ctx, a, super_class));
                     }
-                    return Expr::Call {
+                    let call = Expr::Call {
                         callee: Box::new(call_member),
                         args: call_args,
+                        optional: false,
+                        ty: expr_ty(checked, *span),
+                    };
+                    return Expr::Call {
+                        callee: Box::new(Expr::Function {
+                            name: None,
+                            params: vec![Param {
+                                pattern: Pattern::Local(this_param),
+                                default: None,
+                                rest: false,
+                            }],
+                            body: vec![Stmt::Return {
+                                value: Some(call),
+                            }],
+                            is_async: false,
+                            is_generator: false,
+                            is_arrow: true,
+                            is_method: false,
+                            ty: Type::Function,
+                        }),
+                        args: vec![Arg::Expr(this_arg)],
                         optional: false,
                         ty: expr_ty(checked, *span),
                     };
@@ -5697,6 +6061,9 @@ fn lower_expr_hint(
             let prev_derived_super = ctx.derived_super.take();
             let prev_inits = std::mem::take(&mut ctx.derived_super_inits);
             let prev_ctor_body = ctx.derived_ctor_body;
+            let prev_ctor_label = ctx.derived_ctor_label.take();
+            let prev_ret_mode = ctx.derived_ret_mode.take();
+            let prev_ret_val = ctx.derived_ret_val.take();
             let prev_field_init = ctx.in_field_init;
             if *is_method {
                 ctx.object_super = true;
@@ -5713,6 +6080,9 @@ fn lower_expr_hint(
             ctx.derived_super = prev_derived_super;
             ctx.derived_super_inits = prev_inits;
             ctx.derived_ctor_body = prev_ctor_body;
+            ctx.derived_ctor_label = prev_ctor_label;
+            ctx.derived_ret_mode = prev_ret_mode;
+            ctx.derived_ret_val = prev_ret_val;
             ctx.in_field_init = prev_field_init;
             Expr::Function {
                 name,
@@ -5828,10 +6198,25 @@ fn lower_expr_hint(
                             key,
                             value: {
                                 let prev_object_super = ctx.object_super;
+                                let prev_ctor_body = ctx.derived_ctor_body;
+                                let prev_ctor_label = ctx.derived_ctor_label.take();
+                                let prev_ret_mode = ctx.derived_ret_mode.take();
+                                let prev_ret_val = ctx.derived_ret_val.take();
+                                let prev_derived_this = ctx.derived_this.take();
+                                let prev_derived_super = ctx.derived_super.take();
+                                let prev_inits = std::mem::take(&mut ctx.derived_super_inits);
                                 ctx.object_super = true;
+                                ctx.derived_ctor_body = false;
                                 let params = lower_params(checked, ctx, params, None);
                                 let body = lower_fn_body(checked, ctx, body, None);
                                 ctx.object_super = prev_object_super;
+                                ctx.derived_ctor_body = prev_ctor_body;
+                                ctx.derived_ctor_label = prev_ctor_label;
+                                ctx.derived_ret_mode = prev_ret_mode;
+                                ctx.derived_ret_val = prev_ret_val;
+                                ctx.derived_this = prev_derived_this;
+                                ctx.derived_super = prev_derived_super;
+                                ctx.derived_super_inits = prev_inits;
                                 Expr::Function {
                                     name: None,
                                     params,
@@ -5927,7 +6312,8 @@ fn lower_expr_hint(
                 let obj = lower_expr(checked, ctx, object, super_class);
                 return private_member_get(ctx, fname, obj);
             }
-            // `super.prop` → class with extends: `Parent.prototype.prop`; else keep `super.prop` (E19.34)
+            // `super.prop` → class with extends: `Parent.prototype.prop`;
+            // object/class methods keep `super.prop`; base ctor uses Object.prototype (E19.34 / E19.82).
             if matches!(object.as_ref(), AstExpr::Super { .. }) {
                 let property = if *computed {
                     lower_expr(checked, ctx, property, super_class)
@@ -5941,8 +6327,25 @@ fn lower_expr_hint(
                     }
                 };
                 if super_class.is_none() && ctx.derived_super.is_none() {
+                    // Keep Super for methods + field-init home-object emit (E19.82).
+                    if ctx.object_super || ctx.in_field_init {
+                        return Expr::Member {
+                            object: Box::new(Expr::Super { ty: Type::Any }),
+                            property: Box::new(property),
+                            computed: *computed,
+                            optional: false,
+                            ty: expr_ty(checked, *span),
+                        };
+                    }
                     return Expr::Member {
-                        object: Box::new(Expr::Super { ty: Type::Any }),
+                        object: Box::new(member_prop(
+                            Expr::IdentName {
+                                name: "Object".into(),
+                                ty: Type::Function,
+                            },
+                            "prototype",
+                            Type::Any,
+                        )),
                         property: Box::new(property),
                         computed: *computed,
                         optional: false,
