@@ -320,7 +320,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.82.04 | done | js | Static field residual: `this`=constructor; NamedEvaluation SetFunctionName on field inits; intercalated computed key order; `static` as instance field name; static `prototype` → TypeError | `crates/draconic-parser` / ir, `tests/conformance` fixtures `es/classes/class_static_fields`, `tests/test262` |
 | E19.83 | todo | js | Dynamic `import()` residual: syntax/namespace/catch/usage clusters still failing after E19.27/E19.55 (children below) | `crates/draconic-parser` / linker / backend-js, `tests/test262` |
 | E19.83.01 | done | js | Dynamic import syntax residual: `import.meta` meta-property; syntax/valid empty-str & nested-import host (non-async unhandledRejection); allowlist newly green | `crates/draconic-parser` / backend-js, `tests/test262` |
-| E19.83.02 | todo | js | Dynamic import usage residual: self-import module eval + eval-export-dflt + `$DONE`/file-module host | `tests/test262` (allowlist + harness) |
+| E19.83.02 | done | js | Dynamic import usage residual: self-import module eval + eval-export-dflt + `$DONE`/file-module host | `tests/test262` (allowlist + harness) |
 | E19.83.03 | todo | js | Dynamic import namespace residual: delete non-exported, default not own, reuse ns from static import | `tests/test262` (allowlist + linker/backend) |
 | E19.83.04 | todo | js | Dynamic import catch residual: async-gen script-code-target SyntaxError path | `tests/test262` |
 | E19.84 | todo | js | `import.defer` residual: errors, evaluation-triggers, deferred-namespace, top-level-await defer clusters | `crates/draconic-parser` / linker, `tests/test262` |

@@ -29007,7 +29007,19 @@ test/language/expressions/dynamic-import/catch/top-level-import-catch-specifier-
 test/language/expressions/dynamic-import/custom-primitive.js
 test/language/expressions/dynamic-import/empty_FIXTURE.js
 test/language/expressions/dynamic-import/escape-sequence-import.js
+test/language/expressions/dynamic-import/eval-export-dflt-cls-anon.js
+test/language/expressions/dynamic-import/eval-export-dflt-cls-name-meth.js
+test/language/expressions/dynamic-import/eval-export-dflt-cls-named.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-cls-anon.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-cls-name-meth.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-cls-named.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-fn-anon.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-fn-named.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-gen-anon.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-gen-named.js
+test/language/expressions/dynamic-import/eval-export-dflt-expr-in.js
 test/language/expressions/dynamic-import/eval-rqstd-once.js
+test/language/expressions/dynamic-import/eval-self-once-module.js
 test/language/expressions/dynamic-import/eval-self-once-script.js
 test/language/expressions/dynamic-import/for-await-resolution-and-error-agen-yield.js
 test/language/expressions/dynamic-import/for-await-resolution-and-error-agen.js
@@ -29039,6 +29051,7 @@ test/language/expressions/dynamic-import/import-defer/import-defer-transitive-as
 test/language/expressions/dynamic-import/import-defer/sync-dependency-of-deferred-async-module/setup_FIXTURE.js
 test/language/expressions/dynamic-import/import-defer/sync/setup_FIXTURE.js
 test/language/expressions/dynamic-import/import-errored-module.js
+test/language/expressions/dynamic-import/imported-self-update.js
 test/language/expressions/dynamic-import/indirect-resolution.js
 test/language/expressions/dynamic-import/namespace/await-ns-define-own-property.js
 test/language/expressions/dynamic-import/namespace/await-ns-delete-exported-init-no-strict.js

@@ -872,6 +872,21 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_77.js"),
     include_str!("harness_e19_79.js"),
     include_str!("harness_e19_80.js"),
+    // E19.83.02: Module-goal / file-module self-import sees harness via global object
+    // (ESM free bindings do not pick up module-local `function` decls).
+    r#"
+;(function (g) {
+  if (!g) return;
+  g.Test262Error = Test262Error;
+  g.$ERROR = $ERROR;
+  g.assert = assert;
+  g.compareArray = compareArray;
+  g.fnGlobalObject = fnGlobalObject;
+  if (typeof checkSequence === "function") g.checkSequence = checkSequence;
+  if (typeof checkSettledPromises === "function") g.checkSettledPromises = checkSettledPromises;
+  if (typeof $DETACHBUFFER === "function") g.$DETACHBUFFER = $DETACHBUFFER;
+})(typeof globalThis !== "undefined" ? globalThis : null);
+"#,
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -997,6 +1012,9 @@ fn flag_token(source: &str, token: &str) -> bool {
 ///
 /// Injected **after** frontend emit so `process` / `setTimeout` are not compiled.
 /// Defines `$DONE` as a free global the emitted body looks up.
+///
+/// E19.83.02: also installs `$DONE` on `globalThis` so dynamically imported
+/// file modules (self-import / eval-export-dflt bodies) resolve it.
 pub fn wrap_async_host(compiled_js: &str) -> String {
     format!(
         r#"
@@ -1025,6 +1043,9 @@ function $DONE(error) {{
   }}
   console.log("Test262:AsyncTestComplete");
   process.exit(0);
+}}
+if (typeof globalThis !== "undefined") {{
+  globalThis.$DONE = $DONE;
 }}
 process.on("unhandledRejection", function (reason) {{
   $DONE(reason);
@@ -1718,6 +1739,32 @@ fn rewrite_self_module_specifiers(source: &str, orig_base: &str, tmp_base: &str)
     out
 }
 
+/// True if `body` dynamically imports `./basename` or `basename` (E19.83.02 self-import).
+fn source_has_dynamic_self_import(body: &str, basename: &str) -> bool {
+    for quote in ['\'', '"', '`'] {
+        let a = format!("import({quote}./{basename}{quote})");
+        let b = format!("import({quote}{basename}{quote})");
+        if body.contains(&a) || body.contains(&b) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Rewrite dynamic `import('./orig')` strings to a run-file basename (E19.83.02).
+fn rewrite_dynamic_self_import(js: &str, orig_base: &str, run_base: &str) -> String {
+    let mut out = js.to_string();
+    for quote in ['\'', '"', '`'] {
+        let from = format!("import({quote}./{orig_base}{quote})");
+        let to = format!("import({quote}./{run_base}{quote})");
+        out = out.replace(&from, &to);
+        let from = format!("import({quote}{orig_base}{quote})");
+        let to = format!("import({quote}./{run_base}{quote})");
+        out = out.replace(&from, &to);
+    }
+    out
+}
+
 /// Rough scan: static `import`/`export` declarations (not dynamic `import()`).
 fn source_has_static_module_syntax(body: &str) -> bool {
     for line in body.lines() {
@@ -1766,20 +1813,50 @@ pub fn run_js_in_node_cwd_opts(
     as_module: bool,
     ignore_unhandled_rejections: bool,
 ) -> Result<(), String> {
+    run_js_in_node_cwd_opts_file(js, cwd, as_module, ignore_unhandled_rejections, None)
+}
+
+/// E19.83.02: optional on-disk ESM entry so dynamic self-import shares module identity.
+///
+/// When `file_module_name` is set, writes `js` next to `cwd` and runs that path
+/// (ESM via `.mjs`); otherwise uses `node -e` as before.
+pub fn run_js_in_node_cwd_opts_file(
+    js: &str,
+    cwd: Option<&Path>,
+    as_module: bool,
+    ignore_unhandled_rejections: bool,
+    file_module_name: Option<&str>,
+) -> Result<(), String> {
     let mut cmd = Command::new("node");
     // E19.73: V8 ShadowRealm is experimental; enable for Test262 built-ins/ShadowRealm.
     cmd.arg("--harmony-shadow-realm");
     if ignore_unhandled_rejections {
         cmd.arg("--unhandled-rejections=none");
     }
-    if as_module {
-        cmd.arg("--input-type=module");
+    let tmp_path = if let Some(name) = file_module_name {
+        let dir = cwd.ok_or_else(|| "file-module host needs cwd".to_string())?;
+        let path = dir.join(name);
+        fs::write(&path, js).map_err(|e| format!("write file-module entry: {e}"))?;
+        Some(path)
+    } else {
+        None
+    };
+    if let Some(ref path) = tmp_path {
+        cmd.arg(path);
+    } else {
+        if as_module {
+            cmd.arg("--input-type=module");
+        }
+        cmd.arg("-e").arg(js);
     }
-    cmd.arg("-e").arg(js).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
     let output = cmd.output().map_err(|e| format!("spawn node: {e}"))?;
+    if let Some(path) = tmp_path {
+        let _ = fs::remove_file(path);
+    }
     let code = output.status.code().unwrap_or(1);
     if code == 0 {
         return Ok(());
@@ -1859,6 +1936,47 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     let cwd = full.parent();
     let as_module = is_module_flag(&source);
     let async_flag = is_async_flag(&source);
+    let scan_body = if is_raw_flag(&source) {
+        source.as_str()
+    } else {
+        strip_frontmatter(&source)
+    };
+    let basename = full.file_name().and_then(|s| s.to_str());
+    // E19.83.02 file-module host:
+    // - no static export: rewrite self-import onto the run entry so module
+    //   identity is shared (eval-self-once-module).
+    // - with static export: run original ESM body (live bindings); linker flatten
+    //   cannot preserve export live bindings for self-import (imported-self-update).
+    let needs_static_link = as_module && source_has_static_module_syntax(scan_body);
+    let self_import = basename
+        .map(|b| source_has_dynamic_self_import(scan_body, b))
+        .unwrap_or(false);
+    let file_module_self = as_module && self_import && !needs_static_link;
+    let file_module_export_self = as_module && self_import && needs_static_link;
+    let use_file_module = file_module_self || file_module_export_self;
+    static RUN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let file_module_name = if use_file_module {
+        let seq = RUN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Some(format!(
+            ".draconic-test262-run-{}-{}.mjs",
+            std::process::id(),
+            seq
+        ))
+    } else {
+        None
+    };
+    // Compile already succeeded above (frontend accepts the test). For export
+    // self-import, execute original ESM so `export` live bindings work under Node.
+    let js = if file_module_export_self {
+        let body = if is_raw_flag(&source) {
+            source.clone()
+        } else {
+            strip_frontmatter(&source).to_string()
+        };
+        format!("{HARNESS_SHIM}\n{body}")
+    } else {
+        js
+    };
     // E19.26: async-flag tests need `$DONE` host (Node wrapper around emitted JS).
     let js = if async_flag {
         wrap_async_host(&js)
@@ -1867,13 +1985,29 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     };
     // E19.61: `$262` host outside so ESM `import` stays first under module goal.
     // onlyStrict: host must not precede the effective `"use strict"` directive.
-    let js = wrap_host_api_mode(&js, as_module, is_only_strict(&source));
+    // File-module self-import is always ESM (`.mjs`), so host uses module boot.
+    let host_as_module = as_module || use_file_module;
+    let js = wrap_host_api_mode(&js, host_as_module, is_only_strict(&source));
+    let js = if let (Some(run_name), Some(base)) = (file_module_name.as_deref(), basename) {
+        rewrite_dynamic_self_import(&js, base, run_name)
+    } else {
+        js
+    };
     // E19.83.01: non-async tests may leave dynamic-import rejections unhandled;
     // async tests settle via `$DONE` / unhandledRejection → keep default policy.
     let ignore_unhandled = !async_flag;
+    let run = |js: &str| {
+        run_js_in_node_cwd_opts_file(
+            js,
+            cwd,
+            as_module,
+            ignore_unhandled,
+            file_module_name.as_deref(),
+        )
+    };
     if is_negative_runtime(&source) {
         // Negative runtime: pass iff Node throws (exit ≠ 0).
-        return match run_js_in_node_cwd_opts(&js, cwd, as_module, ignore_unhandled) {
+        return match run(&js) {
             Err(_) => CaseResult {
                 path: rel.to_string(),
                 status: Status::Pass,
@@ -1886,11 +2020,13 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             },
         };
     }
-    match run_js_in_node_cwd_opts(&js, cwd, as_module, ignore_unhandled) {
+    match run(&js) {
         Ok(()) => CaseResult {
             path: rel.to_string(),
             status: Status::Pass,
-            message: if async_flag && as_module {
+            message: if use_file_module && async_flag {
+                "ok (file-module async $DONE)".to_string()
+            } else if async_flag && as_module {
                 "ok (module async $DONE)".to_string()
             } else if async_flag {
                 "ok (async $DONE)".to_string()
@@ -2228,6 +2364,46 @@ p.catch(function () {}).then($DONE, $DONE);
         let js = compile_test_to_js(src).expect("compile");
         assert!(js.contains("import.meta"), "{js}");
         assert!(js.contains("import("), "{js}");
+    }
+
+    #[test]
+    fn async_done_installed_on_global_this() {
+        // E19.83.02: `$DONE` must be a global object property for file-module self-import.
+        let js = wrap_async_host(
+            "if (typeof globalThis.$DONE !== \"function\") { throw new Error(\"missing $DONE\"); }\n$DONE();\n",
+        );
+        run_js_in_node(&js).expect("$DONE on globalThis");
+    }
+
+    #[test]
+    fn harness_installs_assert_on_global_this() {
+        // E19.83.02: module-local harness decls are also copied to globalThis.
+        let js = format!(
+            "{HARNESS_SHIM}\nassert.sameValue(typeof globalThis.assert, \"function\");\nassert.sameValue(typeof globalThis.fnGlobalObject, \"function\");\n"
+        );
+        run_js_in_node(&js).expect("harness globals");
+    }
+
+    #[test]
+    fn rewrite_dynamic_self_import_rewrites_specifier() {
+        // E19.83.02: file-module host rewrites self-import to the run entry name.
+        let js = r#"import("./eval-self-once-module.js"); import('./eval-self-once-module.js');"#;
+        let out = rewrite_dynamic_self_import(js, "eval-self-once-module.js", "run.mjs");
+        assert!(out.contains(r#"import("./run.mjs")"#), "{out}");
+        assert!(out.contains(r#"import('./run.mjs')"#), "{out}");
+        assert!(!out.contains("eval-self-once-module.js"), "{out}");
+    }
+
+    #[test]
+    fn source_detects_dynamic_self_import() {
+        assert!(source_has_dynamic_self_import(
+            "import('./foo.js').then(x => x);\n",
+            "foo.js"
+        ));
+        assert!(!source_has_dynamic_self_import(
+            "import('./other.js');\n",
+            "foo.js"
+        ));
     }
 
     #[test]
