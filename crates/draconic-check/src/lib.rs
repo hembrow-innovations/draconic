@@ -1814,7 +1814,11 @@ impl Binder {
                         ClassElement::Field { key, value, .. } => {
                             self.bind_object_key(key)?;
                             if let Some(v) = value {
+                                // E19.82.05: field inits allow SuperProperty (lexical home object).
+                                let prev_super = self.super_allowed;
+                                self.super_allowed = true;
                                 self.bind_expr(v)?;
+                                self.super_allowed = prev_super;
                             }
                         }
                         ClassElement::StaticBlock { body, .. } => {
@@ -2197,7 +2201,11 @@ impl Binder {
                         ClassElement::Field { key, value, .. } => {
                             self.bind_object_key(key)?;
                             if let Some(v) = value {
+                                // E19.82.05: field inits allow SuperProperty (lexical home object).
+                                let prev_super = self.super_allowed;
+                                self.super_allowed = true;
                                 self.bind_expr(v)?;
+                                self.super_allowed = prev_super;
                             }
                         }
                         ClassElement::StaticBlock { body, .. } => {
@@ -2231,18 +2239,10 @@ impl Binder {
                     }
                     self.strict = true;
                 }
-                // E19.58: SuperCall never allowed in arrow formals/body.
-                let body_super_call = match body {
-                    ArrowBody::Expr(e) => expr_contains_super_call(e),
-                    ArrowBody::Block(s) => stmt_contains_super_call(s),
-                };
-                if params_contain_super_call(params) || body_super_call {
-                    return Err(Diagnostic::new(
-                        "arrow function cannot contain super call".to_string(),
-                        *span,
-                    ));
-                }
-                // SuperProperty only when nested in method/constructor (lexical super).
+                // SuperCall/SuperProperty in arrows: lexical — allowed when nested in a
+                // Super-enabled context (ctor/method/field). Outer early errors reject
+                // SuperCall in methods/fields/static-blocks via Contains SuperCall (E19.82.05).
+                // SuperProperty only when nested in method/constructor/field (lexical super).
                 let body_super = match body {
                     ArrowBody::Expr(e) => expr_contains_super(e),
                     ArrowBody::Block(s) => stmt_contains_super(s),
@@ -5629,7 +5629,7 @@ mod tests {
         );
     }
 
-    // E19.58: SuperCall never in arrows; SuperProperty only when lexically in method.
+    // E19.58 / E19.82.05: Super in arrows only when lexically nested in Super context.
     #[test]
     fn check_arrow_super_call_fails() {
         // E19.67: super outside method is parse-time SyntaxError.
@@ -5670,6 +5670,23 @@ mod tests {
         )
         .unwrap();
         check(program).expect("arrow SuperProperty in method must typecheck");
+    }
+
+    #[test]
+    fn check_arrow_super_call_in_derived_ctor_ok() {
+        // E19.82.05: SuperCall in arrow nested in derived constructor is valid.
+        let program = parse(
+            "class B {} class C extends B { constructor() { let f = () => super(); f(); } }",
+        )
+        .unwrap();
+        check(program).expect("arrow SuperCall in derived ctor must typecheck");
+    }
+
+    #[test]
+    fn check_arrow_super_property_in_field_ok() {
+        // E19.82.05: SuperProperty in field initializer arrows is valid.
+        let program = parse("class C { f = () => { super.x = 1; }; }").unwrap();
+        check(program).expect("arrow SuperProperty in field init must typecheck");
     }
 
     #[test]

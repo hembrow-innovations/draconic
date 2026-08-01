@@ -45252,3 +45252,9 @@ test/language/expressions/class/elements/class-name-static-initializer-anonymous
 test/language/expressions/class/elements/class-name-static-initializer-decl.js
 test/language/expressions/class/elements/class-name-static-initializer-expr.js
 test/language/expressions/class/elements/class-name-static-initializer-default-export.js
+test/language/expressions/arrow-function/lexical-super-call-from-within-constructor.js
+test/language/expressions/arrow-function/lexical-supercall-from-immediately-invoked-arrow.js
+test/language/expressions/class/elements/fields-run-once-on-double-super.js
+test/language/expressions/class/elements/super-access-from-arrow-func-on-field.js
+test/language/statements/class/definition/prototype-property.js
+test/language/statements/class/elements/super-access-from-arrow-func-on-field.js

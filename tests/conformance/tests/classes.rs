@@ -270,3 +270,34 @@ fn class_static_fields_runs() {
         );
     }
 }
+
+#[test]
+fn class_arrow_super_fields_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "es/classes/class_arrow_super_fields"),
+        "missing es/classes/class_arrow_super_fields fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn class_arrow_super_fields_runs() {
+    // E19.82.05: arrow SuperCall in derived ctor; SuperProperty in field inits; .prototype.
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "es/classes/class_arrow_super_fields")
+        .expect("es/classes/class_arrow_super_fields");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}

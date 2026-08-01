@@ -1491,6 +1491,7 @@ impl Parser {
     }
 
     /// Class field Initializer is always [~Await] (E19.52 / FieldDefinition).
+    /// SuperProperty is allowed (E19.82.05); SuperCall still rejected by ClassBody early errors.
     fn parse_optional_class_field_init(&mut self) -> Result<Option<Expr>, Diagnostic> {
         if !self.check(&TokenKind::Eq) {
             return Ok(None);
@@ -1498,7 +1499,9 @@ impl Parser {
         self.bump();
         let prev_await = self.in_await_context;
         self.in_await_context = false;
+        self.super_property_depth += 1;
         let value = self.parse_assignment()?;
+        self.super_property_depth -= 1;
         self.in_await_context = prev_await;
         Ok(Some(value))
     }

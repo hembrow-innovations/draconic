@@ -1,0 +1,66 @@
+// E19.82.05: arrow SuperCall in derived ctor; SuperProperty in field inits; .prototype non-writable
+
+// 1) SuperCall via arrow in derived constructor
+class Base1 {
+  constructor() {
+    this.fromBase = 1;
+  }
+}
+class Derived1 extends Base1 {
+  constructor() {
+    let f = () => super();
+    f();
+  }
+}
+let d1 = new Derived1();
+let d1ok = d1.fromBase;
+
+// 2) Double super via arrow → ReferenceError
+class Derived2 extends Base1 {
+  constructor() {
+    super();
+    let threw = false;
+    try {
+      (() => super())();
+    } catch (e) {
+      threw = e instanceof ReferenceError;
+    }
+    this.doubleSuper = threw;
+  }
+}
+let d2 = new Derived2();
+let d2ok = d2.doubleSuper;
+
+// 3) SuperProperty in instance + static field arrows (home object)
+class C {
+  func = () => {
+    super.prop = "test262";
+  };
+  static staticFunc = () => {
+    super.staticProp = "static test262";
+  };
+}
+let c = new C();
+c.func();
+let instProp = c.prop;
+C.staticFunc();
+let staticProp = C.staticProp;
+
+// 4) SuperProperty in field arrow with heritage
+class Animal {
+  tag() {
+    return "animal";
+  }
+}
+class Dog extends Animal {
+  getTag = () => super.tag();
+}
+let dogTag = new Dog().getTag();
+
+// 5) class .prototype is non-writable / non-enumerable / non-configurable
+class ProtoC {}
+let descr = Object.getOwnPropertyDescriptor(ProtoC, "prototype");
+let protoOk =
+  descr.writable === false &&
+  descr.enumerable === false &&
+  descr.configurable === false;

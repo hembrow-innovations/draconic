@@ -1,0 +1,4 @@
+id: es/classes/class_arrow_super_fields
+targets: js
+js.exit: 0
+js.check: if (d1ok !== 1) process.exit(1); if (d2ok !== true) process.exit(2); if (instProp !== "test262") process.exit(3); if (staticProp !== "static test262") process.exit(4); if (dogTag !== "animal") process.exit(5); if (protoOk !== true) process.exit(6);

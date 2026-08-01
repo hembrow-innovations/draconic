@@ -2089,36 +2089,15 @@ fn possible_constructor_return(this_id: LocalId, value: Option<Expr>) -> Expr {
 }
 
 /// `super(...args)` in derived ctor → Reflect.construct + field inits + bind this.
+/// Spec order: Construct first, then BindThisValue (double-super throws after parent runs).
 fn derived_super_call_expr(ctx: &mut LowerCtx, args: Vec<Arg>) -> Expr {
     let this_id = ctx.derived_this.expect("derived_this");
     let super_id = ctx.derived_super.expect("derived_super");
     let inits = ctx.derived_super_inits.clone();
     let args_id = ctx.alloc_synthetic_local("__drac_sargs".into(), Type::Any);
+    let result_id = ctx.alloc_synthetic_local("__drac_sres".into(), Type::Any);
     let mut body = Vec::new();
-    // if (_this !== undefined) throw ReferenceError (double super)
-    body.push(Stmt::If {
-        test: Expr::Binary {
-            left: Box::new(local_expr(this_id)),
-            op: BinaryOp::NotEqEq,
-            right: Box::new(undef_expr()),
-            ty: Type::Boolean,
-        },
-        consequent: Box::new(Stmt::Throw {
-            value: Expr::New {
-                callee: Box::new(Expr::IdentName {
-                    name: "ReferenceError".into(),
-                    ty: Type::Function,
-                }),
-                args: vec![Arg::Expr(Expr::String {
-                    value: "Super constructor may only be called once".into(),
-                    ty: Type::String,
-                })],
-                ty: Type::Any,
-            },
-        }),
-        alternate: None,
-    });
-    // _this = Reflect.construct(Super, args, new.target)
+    // let result = Reflect.construct(Super, args, new.target) — always (E19.82.05 double-super).
     let reflect = Expr::Call {
         callee: Box::new(Expr::Member {
             object: Box::new(Expr::IdentName {
@@ -2141,11 +2120,40 @@ fn derived_super_call_expr(ctx: &mut LowerCtx, args: Vec<Arg>) -> Expr {
         optional: false,
         ty: Type::Any,
     };
+    body.push(Stmt::Declare {
+        local: result_id,
+        init: Some(reflect),
+        kind: BindingKind::Let,
+    });
+    // if (_this !== undefined) throw ReferenceError (already initialized)
+    body.push(Stmt::If {
+        test: Expr::Binary {
+            left: Box::new(local_expr(this_id)),
+            op: BinaryOp::NotEqEq,
+            right: Box::new(undef_expr()),
+            ty: Type::Boolean,
+        },
+        consequent: Box::new(Stmt::Throw {
+            value: Expr::New {
+                callee: Box::new(Expr::IdentName {
+                    name: "ReferenceError".into(),
+                    ty: Type::Function,
+                }),
+                args: vec![Arg::Expr(Expr::String {
+                    value: "Super constructor may only be called once".into(),
+                    ty: Type::String,
+                })],
+                ty: Type::Any,
+            },
+        }),
+        alternate: None,
+    });
+    // _this = result; field inits once
     body.push(Stmt::Expr {
         expr: Expr::Assign {
             target: AssignTarget::Local(this_id),
             op: AssignOp::Eq,
-            value: Box::new(reflect),
+            value: Box::new(local_expr(result_id)),
             ty: Type::Any,
         },
     });
@@ -2615,11 +2623,6 @@ fn lower_class_local(
 
     // Instance field inits reference computed key temps allocated in source order above.
     let mut instance_init_exprs: Vec<Expr> = Vec::new();
-    // While lowering field initializer RHS, map `this` to the derived temp.
-    if let (Some(this_id), Some(super_id)) = (derived_this_id, super_local_id) {
-        ctx.derived_this = Some(this_id);
-        ctx.derived_super = Some(super_id);
-    }
     // Brands before fields (InitializeInstanceElements).
     for brand in &instance_brands {
         // private_brand_add returns Stmt::Expr — extract expr.
@@ -2628,15 +2631,48 @@ fn lower_class_local(
             other => panic!("private_brand_add must be Expr stmt, got {other:?}"),
         }
     }
+    // Instance SuperProperty home base: Parent.prototype or Object.prototype (E19.82.05).
+    let instance_super_home = match super_local_id {
+        Some(sid) => parent_instance_super_base(local_expr(sid)),
+        None => match super_class {
+            Some(sc) => parent_instance_super_base(lower_expr(checked, ctx, sc, None)),
+            None => member_prop(
+                Expr::IdentName {
+                    name: "Object".into(),
+                    ty: Type::Function,
+                },
+                "prototype",
+                Type::Any,
+            ),
+        },
+    };
     for (fkey, value, is_private, computed_key) in &instance_fields {
         let name_hint = field_name_hint(fkey, *is_private);
+        let needs_super_home = value.is_some_and(ast_expr_contains_super);
+        // SuperProperty in field inits needs method HomeObject; keep bare `super` (E19.82.05).
+        // Otherwise map `this` to derived temp when present.
+        let prev_derived_this = ctx.derived_this.take();
+        let prev_derived_super = ctx.derived_super.take();
+        if needs_super_home {
+            // Clear so Super stays as Super; bare this for method.call(receiver).
+        } else if let (Some(this_id), Some(super_id)) = (derived_this_id, super_local_id) {
+            ctx.derived_this = Some(this_id);
+            ctx.derived_super = Some(super_id);
+        }
+        let init_super_class = if needs_super_home { None } else { super_class };
         let init = match value {
             Some(v) => {
-                lower_field_init_expr(checked, ctx, v, super_class, name_hint.as_deref())
+                lower_field_init_expr(checked, ctx, v, init_super_class, name_hint.as_deref())
             }
             None => undef_expr(),
         };
-        let expr = if *is_private {
+        // Field assignment uses bare `this` when Super-home method wraps it.
+        let receiver = if needs_super_home {
+            Expr::This { ty: Type::Any }
+        } else {
+            ctor_this()
+        };
+        let assign_expr = if *is_private {
             let pname = object_key_private_name(fkey).expect("private field name");
             let wm = *ctx
                 .private_fields
@@ -2653,14 +2689,14 @@ fn lower_class_local(
                     optional: false,
                     ty: Type::Function,
                 }),
-                args: vec![Arg::Expr(ctor_this()), Arg::Expr(init)],
+                args: vec![Arg::Expr(receiver), Arg::Expr(init)],
                 optional: false,
                 ty: Type::Any,
             }
         } else if let Some(key_id) = computed_key {
             Expr::Assign {
                 target: AssignTarget::Member {
-                    object: Box::new(ctor_this()),
+                    object: Box::new(receiver),
                     property: Box::new(local_expr(*key_id)),
                     computed: true,
                 },
@@ -2669,10 +2705,10 @@ fn lower_class_local(
                 ty: Type::Any,
             }
         } else {
-            let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, super_class);
+            let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, init_super_class);
             Expr::Assign {
                 target: AssignTarget::Member {
-                    object: Box::new(ctor_this()),
+                    object: Box::new(receiver),
                     property: Box::new(prop),
                     computed,
                 },
@@ -2681,7 +2717,20 @@ fn lower_class_local(
                 ty: Type::Any,
             }
         };
+        let expr = if needs_super_home {
+            call_method_with_home(
+                instance_super_home.clone(),
+                vec![Stmt::Expr {
+                    expr: assign_expr,
+                }],
+                ctor_this(),
+            )
+        } else {
+            assign_expr
+        };
         instance_init_exprs.push(expr);
+        ctx.derived_this = prev_derived_this;
+        ctx.derived_super = prev_derived_super;
     }
     // Clear derived ctx after field RHS; re-set for user ctor body below.
     ctx.derived_this = None;
@@ -2822,6 +2871,33 @@ fn lower_class_local(
         if sym.name != "__class" {
             out.push(set_function_name_stmt(local, sym.name.as_str()));
         }
+    }
+    // Class constructors: `.prototype` is non-writable/non-enumerable/non-configurable (E19.82.05).
+    {
+        let proto = member_prop(
+            Expr::Local {
+                id: local,
+                ty: Type::Function,
+            },
+            "prototype",
+            Type::Any,
+        );
+        out.push(Stmt::Expr {
+            expr: object_method_call(
+                "defineProperty",
+                vec![
+                    Arg::Expr(Expr::Local {
+                        id: local,
+                        ty: Type::Function,
+                    }),
+                    Arg::Expr(Expr::String {
+                        value: "prototype".into(),
+                        ty: Type::String,
+                    }),
+                    Arg::Expr(data_prop_desc(proto, false, false, false)),
+                ],
+            ),
+        });
     }
     // Evaluate computed instance field names at class definition time (E19.53).
     for (key_id, to_key) in computed_field_key_locals {
@@ -3023,6 +3099,7 @@ fn lower_class_local(
                 computed_key,
             } => {
                 let name_hint = field_name_hint(fkey, is_private);
+                let needs_super_home = value.is_some_and(ast_expr_contains_super);
                 let init_body = match value {
                     Some(v) => lower_field_init_expr(checked, ctx, v, None, name_hint.as_deref()),
                     None => Expr::IdentName {
@@ -3030,30 +3107,54 @@ fn lower_class_local(
                         ty: Type::Any,
                     },
                 };
-                // (function(){ "use strict"; return <init>; }).call(Class)
-                let init_expr = Expr::Call {
-                    callee: Box::new(member_prop(
-                        Expr::Function {
-                            name: None,
-                            params: Vec::new(),
-                            body: with_use_strict(vec![Stmt::Return {
-                                value: Some(init_body),
-                            }]),
-                            is_async: false,
-                            is_generator: false,
-                            is_arrow: false,
-                            is_method: false,
-                            ty: Type::Function,
-                        },
-                        "call",
-                        Type::Function,
-                    )),
-                    args: vec![Arg::Expr(Expr::Local {
-                        id: local,
-                        ty: Type::Function,
-                    })],
-                    optional: false,
-                    ty: Type::Any,
+                let class_ref = Expr::Local {
+                    id: local,
+                    ty: Type::Function,
+                };
+                // SuperProperty needs method HomeObject (static home = Parent or Function.prototype).
+                // Else plain function so this/direct eval see the constructor (E19.82.04 / E19.82.05).
+                let init_expr = if needs_super_home {
+                    let home_proto = match parent_expr.as_ref() {
+                        Some(p) => p.clone(),
+                        None => member_prop(
+                            Expr::IdentName {
+                                name: "Function".into(),
+                                ty: Type::Function,
+                            },
+                            "prototype",
+                            Type::Any,
+                        ),
+                    };
+                    call_method_with_home(
+                        home_proto,
+                        vec![Stmt::Return {
+                            value: Some(init_body),
+                        }],
+                        class_ref.clone(),
+                    )
+                } else {
+                    // (function(){ "use strict"; return <init>; }).call(Class)
+                    Expr::Call {
+                        callee: Box::new(member_prop(
+                            Expr::Function {
+                                name: None,
+                                params: Vec::new(),
+                                body: with_use_strict(vec![Stmt::Return {
+                                    value: Some(init_body),
+                                }]),
+                                is_async: false,
+                                is_generator: false,
+                                is_arrow: false,
+                                is_method: false,
+                                ty: Type::Function,
+                            },
+                            "call",
+                            Type::Function,
+                        )),
+                        args: vec![Arg::Expr(class_ref)],
+                        optional: false,
+                        ty: Type::Any,
+                    }
                 };
                 if is_private {
                     let pname = object_key_private_name(fkey).expect("static private field name");
@@ -3215,6 +3316,139 @@ fn lower_field_init_expr(
         }
     }
     init
+}
+
+/// True if `expr` Contains SuperCall or SuperProperty (recurse into arrows; skip nested fns/classes).
+fn ast_expr_contains_super(expr: &AstExpr) -> bool {
+    match expr {
+        AstExpr::Super { .. } => true,
+        AstExpr::Paren { expr: inner, .. }
+        | AstExpr::Unary { arg: inner, .. }
+        | AstExpr::Update { arg: inner, .. }
+        | AstExpr::As { expr: inner, .. } => ast_expr_contains_super(inner),
+        AstExpr::Binary { left, right, .. }
+        | AstExpr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => ast_expr_contains_super(left) || ast_expr_contains_super(right),
+        AstExpr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            ast_expr_contains_super(test)
+                || ast_expr_contains_super(consequent)
+                || ast_expr_contains_super(alternate)
+        }
+        AstExpr::MemberExpression {
+            object, property, ..
+        } => ast_expr_contains_super(object) || ast_expr_contains_super(property),
+        AstExpr::Call { callee, args, .. } | AstExpr::New { callee, args, .. } => {
+            ast_expr_contains_super(callee)
+                || args.iter().any(|a| match a {
+                    AstArg::Expr(e) | AstArg::Spread(e) => ast_expr_contains_super(e),
+                })
+        }
+        AstExpr::ArrowFunction { params, body, .. } => {
+            params
+                .iter()
+                .any(|p| p.default.as_ref().is_some_and(ast_expr_contains_super))
+                || match body {
+                    draconic_ast::ArrowBody::Expr(e) => ast_expr_contains_super(e),
+                    draconic_ast::ArrowBody::Block(s) => ast_stmt_contains_super(s),
+                }
+        }
+        // Nested functions/classes are separate Super roots.
+        AstExpr::FunctionExpression { .. } | AstExpr::ClassExpression { .. } => false,
+        AstExpr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            AstArrayElement::Expr(e) | AstArrayElement::Spread(e) => ast_expr_contains_super(e),
+            AstArrayElement::Elision => false,
+        }),
+        AstExpr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            AstObjectProp::Property { value, .. } => ast_expr_contains_super(value),
+            AstObjectProp::Spread { expr, .. } => ast_expr_contains_super(expr),
+            AstObjectProp::Accessor { .. } => false,
+        }),
+        AstExpr::TemplateLiteral { expressions, .. } => {
+            expressions.iter().any(ast_expr_contains_super)
+        }
+        AstExpr::TaggedTemplate {
+            tag, expressions, ..
+        } => ast_expr_contains_super(tag) || expressions.iter().any(ast_expr_contains_super),
+        AstExpr::ImportCall {
+            source, options, ..
+        } => {
+            ast_expr_contains_super(source)
+                || options.as_ref().is_some_and(|o| ast_expr_contains_super(o))
+        }
+        AstExpr::PrivateIn { object, .. } => ast_expr_contains_super(object),
+        _ => false,
+    }
+}
+
+fn ast_stmt_contains_super(stmt: &AstStmt) -> bool {
+    match stmt {
+        AstStmt::Block { body, .. } => body.iter().any(ast_stmt_contains_super),
+        AstStmt::Expression { expr, .. } => ast_expr_contains_super(expr),
+        AstStmt::Return { argument, .. } => argument.as_ref().is_some_and(ast_expr_contains_super),
+        AstStmt::Throw { argument, .. } => ast_expr_contains_super(argument),
+        AstStmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            ast_expr_contains_super(test)
+                || ast_stmt_contains_super(consequent)
+                || alternate.as_ref().is_some_and(|a| ast_stmt_contains_super(a))
+        }
+        AstStmt::While { test, body, .. } | AstStmt::DoWhile { test, body, .. } => {
+            ast_expr_contains_super(test) || ast_stmt_contains_super(body)
+        }
+        AstStmt::Let { init, .. } => init.as_ref().is_some_and(ast_expr_contains_super),
+        AstStmt::FunctionDeclaration { .. } | AstStmt::ClassDeclaration { .. } => false,
+        _ => false,
+    }
+}
+
+/// Evaluate `body` as a method with [[HomeObject]] prototype `home_proto`, called with `receiver`.
+/// Used so SuperProperty in field initializers resolves correctly (E19.82.05).
+fn call_method_with_home(home_proto: Expr, body: Vec<Stmt>, receiver: Expr) -> Expr {
+    let method_fn = Expr::Function {
+        name: None,
+        params: Vec::new(),
+        body: with_use_strict(body),
+        is_async: false,
+        is_generator: false,
+        is_arrow: false,
+        is_method: true,
+        ty: Type::Function,
+    };
+    let home = Expr::Object {
+        properties: vec![
+            ObjectProp::Property {
+                key: ObjectPropKey::Static("__proto__".into()),
+                value: home_proto,
+            },
+            ObjectProp::Property {
+                key: ObjectPropKey::Static("__fi".into()),
+                value: method_fn,
+            },
+        ],
+        ty: Type::Object,
+    };
+    Expr::Call {
+        callee: Box::new(member_prop(
+            member_prop(home, "__fi", Type::Function),
+            "call",
+            Type::Function,
+        )),
+        args: vec![Arg::Expr(receiver)],
+        optional: false,
+        ty: Type::Any,
+    }
 }
 
 /// `fn.call(object, ...args)` for private method/accessor invocation.
