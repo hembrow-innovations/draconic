@@ -1,6 +1,6 @@
 //! Shared IR lowered from checked Programs (ROADMAP B06).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use draconic_ast::{
     AccessorKind, Arg as AstArg, ArrayElement as AstArrayElement, ArrayPatternElement, AssignOp,
@@ -2550,11 +2550,22 @@ fn lower_class_local(
         );
     }
 
-    // Nested classes inherit outer private names; inner same-name bindings shadow (E19.36).
+    // Nested classes inherit outer private names; inner same-name bindings fully
+    // shadow any outer kind (field/method/accessor/brand) — E19.36 / E19.82.07.
     let prev_privates = ctx.private_fields.clone();
     let prev_private_methods = ctx.private_methods.clone();
     let prev_private_accessors = ctx.private_accessors.clone();
     let prev_private_brands = ctx.private_brands.clone();
+    let mut shadowed: HashSet<String> = HashSet::new();
+    shadowed.extend(private_map.keys().cloned());
+    shadowed.extend(private_method_map.keys().cloned());
+    shadowed.extend(private_accessor_map.keys().cloned());
+    for name in &shadowed {
+        ctx.private_fields.remove(name);
+        ctx.private_methods.remove(name);
+        ctx.private_accessors.remove(name);
+        ctx.private_brands.remove(name);
+    }
     for (k, v) in private_map {
         ctx.private_fields.insert(k, v);
     }
@@ -6690,6 +6701,33 @@ Module
         assert_eq!(pfs.len(), 2, "outer and inner each need a WeakMap: {pfs:?}");
         assert!(pfs.iter().any(|n| n.contains("o")), "{pfs:?}");
         assert!(pfs.iter().any(|n| n.contains("i")), "{pfs:?}");
+    }
+
+    /// E19.82.07: nested private field shadows outer private method of same name.
+    #[test]
+    fn lower_nested_private_field_shadows_outer_method() {
+        let module = lower_src(
+            r#"
+            class C {
+                #m() { return "outer"; }
+                outer() { return this.#m(); }
+                B = class {
+                    #m = "inner";
+                    read(o) { return o.#m; }
+                };
+            }
+        "#,
+        );
+        let dump = dump_module(&module);
+        // Inner field needs a WeakMap; outer method needs a brand WeakSet / fn local.
+        assert!(
+            dump.contains("__drac_pf_") && dump.contains("__drac_pm_"),
+            "expected both private field WeakMap and private method fn: {dump}"
+        );
+        assert!(
+            !dump.contains("unknown private"),
+            "shadowed private must resolve"
+        );
     }
 
     /// E19.36: nested class body may read outer private names (no IR panic).

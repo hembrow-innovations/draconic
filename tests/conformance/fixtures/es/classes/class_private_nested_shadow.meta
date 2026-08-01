@@ -1,0 +1,4 @@
+id: es/classes/class_private_nested_shadow
+targets: js
+js.exit: 0
+js.check: if (a !== "inner" || b !== "outer" || e1 !== true) process.exit(1); if (c !== "inner" || d !== "outer" || e2 !== true) process.exit(2); if (e !== "inner" || f !== "outer" || e3 !== true) process.exit(3); if (e4a !== true || g !== "outer" || e4b !== true) process.exit(4); if (h !== "outer" || i !== "inner" || e5 !== true) process.exit(5); if (j !== "outer" || k !== "inner" || e6 !== true) process.exit(6);

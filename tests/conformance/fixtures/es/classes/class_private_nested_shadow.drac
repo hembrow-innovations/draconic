@@ -1,0 +1,100 @@
+// E19.82.07: nested class private name fully shadows outer same-name private.
+
+// method shadowed by field
+class M1 {
+  #m() { return "outer"; }
+  outer() { return this.#m(); }
+  B = class {
+    #m = "inner";
+    read(o) { return o.#m; }
+  };
+}
+let m1 = new M1();
+let m1b = new m1.B();
+let a = m1b.read(m1b);
+let b = m1.outer();
+let e1 = false;
+try { m1b.read(m1); } catch (err) { e1 = err instanceof TypeError; }
+
+// getter shadowed by field
+class M2 {
+  get #m() { return "outer"; }
+  outer() { return this.#m; }
+  B = class {
+    #m = "inner";
+    read(o) { return o.#m; }
+  };
+}
+let m2 = new M2();
+let m2b = new m2.B();
+let c = m2b.read(m2b);
+let d = m2.outer();
+let e2 = false;
+try { m2b.read(m2); } catch (err) { e2 = err instanceof TypeError; }
+
+// setter shadowed by field
+class M3 {
+  set #m(v) { this._v = v; }
+  write(v) { this.#m = v; }
+  B = class {
+    #m;
+    write(o, v) { o.#m = v; }
+    read() { return this.#m; }
+  };
+}
+let m3 = new M3();
+let m3b = new m3.B();
+m3b.write(m3b, "inner");
+let e = m3b.read();
+m3.write("outer");
+let f = m3._v;
+let e3 = false;
+try { m3b.write(m3, "x"); } catch (err) { e3 = err instanceof TypeError; }
+
+// method shadowed by setter-only accessor (get → TypeError)
+class M4 {
+  #m() { return "outer"; }
+  outer() { return this.#m(); }
+  B = class {
+    set #m(v) { this._v = v; }
+    read(o) { return o.#m; }
+  };
+}
+let m4 = new M4();
+let m4b = new m4.B();
+let e4a = false;
+try { m4b.read(m4b); } catch (err) { e4a = err instanceof TypeError; }
+let g = m4.outer();
+let e4b = false;
+try { m4b.read(m4); } catch (err) { e4b = err instanceof TypeError; }
+
+// static field shadowed by instance method on nested
+class M5 {
+  static #m = () => "outer";
+  static outer() { return this.#m(); }
+  static B = class {
+    #m() { return "inner"; }
+    static access(o) { return o.#m(); }
+  };
+}
+let h = M5.outer();
+let m5b = new M5.B();
+let i = M5.B.access(m5b);
+let e5 = false;
+try { M5.B.access(M5); } catch (err) { e5 = err instanceof TypeError; }
+
+// static method shadowed by setter on nested
+class M6 {
+  static #m() { return "outer"; }
+  static outer() { return this.#m(); }
+  static B = class {
+    set #m(v) { this._v = v; }
+    static write(o, v) { o.#m = v; }
+  };
+}
+let j = M6.outer();
+let m6b = new M6.B();
+M6.B.write(m6b, "inner");
+let k = m6b._v;
+let e6 = false;
+try { M6.B.write(M6, "x"); } catch (err) { e6 = err instanceof TypeError; }
