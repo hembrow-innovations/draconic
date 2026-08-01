@@ -177,3 +177,34 @@ fn class_super_assign_eval_runs() {
         );
     }
 }
+
+#[test]
+fn class_heritage_is_constructor_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "es/classes/class_heritage_is_constructor"),
+        "missing es/classes/class_heritage_is_constructor fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn class_heritage_is_constructor_runs() {
+    // E19.82.02: extends non-constructor / invalid prototype → TypeError.
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "es/classes/class_heritage_is_constructor")
+        .expect("es/classes/class_heritage_is_constructor");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}

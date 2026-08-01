@@ -1477,6 +1477,175 @@ fn object_method_call(method: &str, args: Vec<Arg>) -> Expr {
     }
 }
 
+/// ClassDefinitionEvaluation heritage checks (E19.82.02):
+/// - `null` is allowed (protoParent = null)
+/// - else IsConstructor(superclass) must be true → TypeError
+/// - else Get(superclass, "prototype") must be Object or Null → TypeError
+///
+/// Emits roughly:
+/// ```js
+/// if (parent !== null) {
+///   try { Reflect.construct(function () {}, [], parent); }
+///   catch { throw new TypeError("…not a constructor or null"); }
+///   let __p = parent.prototype;
+///   if (__p !== null && typeof __p !== "object" && typeof __p !== "function")
+///     throw new TypeError("…valid prototype property");
+/// }
+/// ```
+fn heritage_validation_stmts(parent: Expr) -> Vec<Stmt> {
+    let is_null = Expr::Binary {
+        left: Box::new(parent.clone()),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::Null { ty: Type::Any }),
+        ty: Type::Boolean,
+    };
+    let not_null = Expr::Unary {
+        op: UnaryOp::Not,
+        arg: Box::new(is_null),
+        ty: Type::Boolean,
+    };
+
+    // Reflect.construct(function () {}, [], parent) — throws if !IsConstructor(parent)
+    let empty_ctor = Expr::Function {
+        name: None,
+        params: Vec::new(),
+        body: Vec::new(),
+        is_async: false,
+        is_generator: false,
+        is_arrow: false,
+        is_method: false,
+        ty: Type::Function,
+    };
+    let is_ctor_probe = Expr::Call {
+        callee: Box::new(Expr::Member {
+            object: Box::new(Expr::IdentName {
+                name: "Reflect".into(),
+                ty: Type::Object,
+            }),
+            property: Box::new(Expr::String {
+                value: "construct".into(),
+                ty: Type::String,
+            }),
+            computed: false,
+            optional: false,
+            ty: Type::Function,
+        }),
+        args: vec![
+            Arg::Expr(empty_ctor),
+            Arg::Expr(Expr::Array {
+                elements: Vec::new(),
+                ty: Type::Any,
+            }),
+            Arg::Expr(parent.clone()),
+        ],
+        optional: false,
+        ty: Type::Any,
+    };
+
+    let throw_not_ctor = Stmt::Throw {
+        value: Expr::New {
+            callee: Box::new(Expr::IdentName {
+                name: "TypeError".into(),
+                ty: Type::Function,
+            }),
+            args: vec![Arg::Expr(Expr::String {
+                value: "Class extends value is not a constructor or null".into(),
+                ty: Type::String,
+            })],
+            ty: Type::Any,
+        },
+    };
+
+    let try_is_ctor = Stmt::Try {
+        block: vec![Stmt::Expr {
+            expr: is_ctor_probe,
+        }],
+        handler_param: None,
+        handler: Some(vec![throw_not_ctor]),
+        finalizer: None,
+    };
+
+    // prototype must be Object or Null (functions count as Object)
+    let proto = member_prop(parent, "prototype", Type::Any);
+    let proto_is_null = Expr::Binary {
+        left: Box::new(proto.clone()),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::Null { ty: Type::Any }),
+        ty: Type::Boolean,
+    };
+    let typeof_proto = Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg: Box::new(proto.clone()),
+        ty: Type::String,
+    };
+    let proto_is_object = Expr::Binary {
+        left: Box::new(typeof_proto.clone()),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::String {
+            value: "object".into(),
+            ty: Type::String,
+        }),
+        ty: Type::Boolean,
+    };
+    let typeof_proto_fn = Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg: Box::new(proto),
+        ty: Type::String,
+    };
+    let proto_is_function = Expr::Binary {
+        left: Box::new(typeof_proto_fn),
+        op: BinaryOp::EqEqEq,
+        right: Box::new(Expr::String {
+            value: "function".into(),
+            ty: Type::String,
+        }),
+        ty: Type::Boolean,
+    };
+    let proto_ok = Expr::Binary {
+        left: Box::new(proto_is_null),
+        op: BinaryOp::Or,
+        right: Box::new(Expr::Binary {
+            left: Box::new(proto_is_object),
+            op: BinaryOp::Or,
+            right: Box::new(proto_is_function),
+            ty: Type::Boolean,
+        }),
+        ty: Type::Boolean,
+    };
+    let proto_bad = Expr::Unary {
+        op: UnaryOp::Not,
+        arg: Box::new(proto_ok),
+        ty: Type::Boolean,
+    };
+    let throw_bad_proto = Stmt::Throw {
+        value: Expr::New {
+            callee: Box::new(Expr::IdentName {
+                name: "TypeError".into(),
+                ty: Type::Function,
+            }),
+            args: vec![Arg::Expr(Expr::String {
+                value: "Class extends value does not have valid prototype property"
+                    .into(),
+                ty: Type::String,
+            })],
+            ty: Type::Any,
+        },
+    };
+    let check_proto = Stmt::If {
+        test: proto_bad,
+        consequent: Box::new(throw_bad_proto),
+        alternate: None,
+    };
+
+    vec![Stmt::If {
+        test: not_null,
+        consequent: Box::new(Stmt::Block {
+            body: vec![try_is_ctor, check_proto],
+        }),
+        alternate: None,
+    }]
+}
+
 /// `(parent === null) ? null : parent.prototype` — `extends null` super base (E19.72).
 fn parent_instance_super_base(parent: Expr) -> Expr {
     Expr::Conditional {
@@ -2014,7 +2183,8 @@ fn lower_class_local(
     // Default derived ctor always uses Reflect.construct + new.target so built-ins
     // (Error/Map/…) install internal slots (E19.79 Error.isError on subclasses).
     // Super expression is evaluated once at class def (not inside ctor) so TLA
-    // `extends fn(await x)` keeps `await` at module top-level.
+    // `extends fn(await x)` keeps `await` at module top-level. Always bind the
+    // heritage value so IsConstructor / prototype checks run once (E19.82.02).
     let default_derived_ctor = ctor_body_ast.is_none() && super_class.is_some();
     let derived_this_id = if default_derived_ctor {
         Some(ctx.alloc_synthetic_local(
@@ -2024,7 +2194,7 @@ fn lower_class_local(
     } else {
         None
     };
-    let super_local_id = if default_derived_ctor {
+    let super_local_id = if super_class.is_some() {
         Some(ctx.alloc_synthetic_local(
             format!("__drac_super_{}", local.0),
             Type::Any,
@@ -2249,7 +2419,7 @@ fn lower_class_local(
     let mut out = private_wm_decls;
     out.extend(private_brand_decls);
     out.extend(private_method_fns);
-    // Evaluate extends expression once before ctor (TLA-safe) for default derived classes.
+    // Evaluate extends once (TLA-safe) and validate IsConstructor + prototype (E19.82.02).
     if let (Some(super_id), Some(sc)) = (super_local_id, super_class) {
         let parent = lower_expr(checked, ctx, sc, None);
         out.push(Stmt::Declare {
@@ -2257,6 +2427,10 @@ fn lower_class_local(
             init: Some(parent),
             kind: BindingKind::Let,
         });
+        out.extend(heritage_validation_stmts(Expr::Local {
+            id: super_id,
+            ty: Type::Any,
+        }));
     }
     // Declare computed field key temps before constructor (referenced from ctor body).
     for (key_id, _) in &computed_field_key_locals {

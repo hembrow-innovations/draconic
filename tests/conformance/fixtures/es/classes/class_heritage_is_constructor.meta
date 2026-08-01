@@ -1,0 +1,4 @@
+id: es/classes/class_heritage_is_constructor
+targets: js
+js.exit: 0
+js.check: if (!threw_arrow) process.exit(1); if (!threw_async) process.exit(1); if (!threw_gen) process.exit(1); if (!threw_num) process.exit(1); if (!threw_bound) process.exit(1); if (!ok) process.exit(1); if (!n_ok) process.exit(1);

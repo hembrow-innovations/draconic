@@ -1,0 +1,47 @@
+// E19.82.02: ClassDefinitionEvaluation IsConstructor + prototype checks.
+let threw_arrow = false;
+try {
+  class C extends (() => {}) {}
+} catch (e) {
+  threw_arrow = e instanceof TypeError;
+}
+
+let threw_async = false;
+try {
+  class C extends (async function () {}) {}
+} catch (e) {
+  threw_async = e instanceof TypeError;
+}
+
+let threw_gen = false;
+try {
+  class C extends (function* () {}) {}
+} catch (e) {
+  threw_gen = e instanceof TypeError;
+}
+
+let threw_num = false;
+try {
+  class C extends 42 {}
+} catch (e) {
+  threw_num = e instanceof TypeError;
+}
+
+// Bound function is constructable but has no .prototype → TypeError.
+let threw_bound = false;
+try {
+  let Base = function () {}.bind();
+  class C extends Base {}
+} catch (e) {
+  threw_bound = e instanceof TypeError;
+}
+
+// Valid heritage still works.
+class Animal {}
+class Dog extends Animal {}
+let d = new Dog();
+let ok = d instanceof Dog && d instanceof Animal;
+
+// extends null is allowed.
+class N extends null {}
+let n_ok = typeof N === "function";
