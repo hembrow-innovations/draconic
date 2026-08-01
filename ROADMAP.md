@@ -305,7 +305,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.77 | done | js | `Function.prototype.toString` source text + `caller`/`arguments` poison props residual | `tests/test262` (allowlist + baseline-report) |
 | E19.78 | done | js | Class residual: computed names with `yield`/`await`; decorator `@` syntax; numeric accessor names | `crates/draconic-parser` / backend-js, `tests/test262` |
 | E19.79 | done | js | `Error.isError` + `Error.prototype.stack` accessor residual | `tests/test262` (allowlist + runtime) |
-| E19.80 | todo | js | `Math.sumPrecise`: static precise sum helper | `tests/test262` (allowlist + runtime) |
+| E19.80 | done | js | `Math.sumPrecise`: static precise sum helper | `tests/test262` (allowlist + runtime) |
 | E19.81 | todo | js | Expand allowlist further after E19.76–E19.80 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---

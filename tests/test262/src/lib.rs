@@ -871,6 +871,7 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_76.js"),
     include_str!("harness_e19_77.js"),
     include_str!("harness_e19_79.js"),
+    include_str!("harness_e19_80.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -2857,6 +2858,76 @@ assert.sameValue(typeof verifyPrimordialAccessorProperty, "function");
 "#;
         let js = compile_test_to_js(src).expect("compile e19.79");
         run_js_in_node(&wrap_host_api(&js)).expect("e19.79 error isError + stack");
+    }
+
+    #[test]
+    fn harness_e19_80_math_sum_precise() {
+        // E19.80: Math.sumPrecise polyfill (precise iterable sum).
+        let src = r#"
+assert.sameValue(typeof Math.sumPrecise, "function");
+assert.sameValue(Math.sumPrecise.length, 1);
+assert.sameValue(Math.sumPrecise.name, "sumPrecise");
+assert.sameValue(isConstructor(Math.sumPrecise), false);
+assert.throws(TypeError, function () {
+  new Math.sumPrecise([]);
+});
+
+var desc = Object.getOwnPropertyDescriptor(Math, "sumPrecise");
+assert.sameValue(desc.writable, true);
+assert.sameValue(desc.enumerable, false);
+assert.sameValue(desc.configurable, true);
+
+assert.sameValue(Math.sumPrecise([]), -0);
+assert.sameValue(Math.sumPrecise([-0]), -0);
+assert.sameValue(Math.sumPrecise([-0, 0]), 0);
+assert.sameValue(Math.sumPrecise([1, 2, 3]), 6);
+assert.sameValue(Math.sumPrecise([1e20, 0.1, -1e20]), 0.1);
+assert.sameValue(Math.sumPrecise([1e308, -1e308]), 0);
+assert.sameValue(Math.sumPrecise([NaN]), NaN);
+assert.sameValue(Math.sumPrecise([Infinity, -Infinity]), NaN);
+assert.sameValue(Math.sumPrecise([Infinity]), Infinity);
+assert.sameValue(Math.sumPrecise([-Infinity]), -Infinity);
+
+function* gen() {
+  yield 1;
+  yield 2;
+}
+assert.sameValue(Math.sumPrecise(gen()), 3);
+
+assert.throws(TypeError, function () {
+  Math.sumPrecise();
+});
+assert.throws(TypeError, function () {
+  Math.sumPrecise(1);
+});
+assert.throws(TypeError, function () {
+  Math.sumPrecise([{}]);
+});
+assert.throws(TypeError, function () {
+  Math.sumPrecise([0n]);
+});
+
+var returnCalls = 0;
+var bad = {
+  next: function () {
+    return { done: false, value: {} };
+  },
+  return: function () {
+    returnCalls = returnCalls + 1;
+    return {};
+  }
+};
+var iterable = {};
+iterable[Symbol.iterator] = function () {
+  return bad;
+};
+assert.throws(TypeError, function () {
+  Math.sumPrecise(iterable);
+});
+assert.sameValue(returnCalls, 1);
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.80");
+        run_js_in_node(&wrap_host_api(&js)).expect("e19.80 Math.sumPrecise");
     }
 
     #[test]

@@ -8160,6 +8160,16 @@ test/built-ins/Math/sqrt/name.js
 test/built-ins/Math/sqrt/not-a-constructor.js
 test/built-ins/Math/sqrt/prop-desc.js
 test/built-ins/Math/sqrt/results.js
+test/built-ins/Math/sumPrecise/length.js
+test/built-ins/Math/sumPrecise/name.js
+test/built-ins/Math/sumPrecise/not-a-constructor.js
+test/built-ins/Math/sumPrecise/prop-desc.js
+test/built-ins/Math/sumPrecise/sum-is-infinite.js
+test/built-ins/Math/sumPrecise/sum-is-minus-zero.js
+test/built-ins/Math/sumPrecise/sum-is-NaN.js
+test/built-ins/Math/sumPrecise/sum.js
+test/built-ins/Math/sumPrecise/takes-iterable.js
+test/built-ins/Math/sumPrecise/throws-on-non-number.js
 test/built-ins/Math/tan/S15.8.2.18_A1.js
 test/built-ins/Math/tan/S15.8.2.18_A2.js
 test/built-ins/Math/tan/S15.8.2.18_A3.js
