@@ -866,6 +866,7 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_64.js"),
     include_str!("harness_e19_65.js"),
     include_str!("harness_e19_66.js"),
+    include_str!("harness_e19_70.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -2202,6 +2203,39 @@ assertToStringOrNativeFunction(Array, String(Array));
         let host_js = compile_test_to_js(host_src).expect("compile e19.65 host");
         run_js_in_node(&js).expect("e19.65 residual helpers");
         run_js_in_node(&wrap_host_api(&host_js)).expect("e19.65 native Function matchers");
+    }
+
+    #[test]
+    fn harness_e19_70_regexp_utils() {
+        // E19.70: buildString + testPropertyEscapes + testPropertyOfStrings.
+        let src = r#"
+const matchSymbols = buildString({
+  loneCodePoints: [],
+  ranges: [
+    [0x000000, 0x00007F]
+  ]
+});
+testPropertyEscapes(
+  /^\p{ASCII}+$/u,
+  matchSymbols,
+  "\\p{ASCII}"
+);
+const nonMatchSymbols = buildString({
+  loneCodePoints: [0x000080],
+  ranges: []
+});
+assert.sameValue(/^\p{ASCII}+$/u.test(nonMatchSymbols), false);
+testPropertyOfStrings({
+  regExp: /^\p{Basic_Emoji}+$/v,
+  expression: "\\p{Basic_Emoji}",
+  matchStrings: ["\u231A"],
+  nonMatchStrings: ["A"]
+});
+let validate = matchValidator(["b"], 1, "abc");
+validate(/b/.exec("abc"));
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.70 harness");
+        run_js_in_node(&js).expect("e19.70 regexp utils");
     }
 
     #[test]

@@ -6,5 +6,5 @@ license.workspace = true
 
 [dependencies]
 draconic-diagnostics.workspace = true
-regress = "0.10"
+regress = "0.11"
 unicode-id-start = "1.4"

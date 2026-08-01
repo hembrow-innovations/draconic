@@ -52,9 +52,64 @@ fn validate_regexp_pattern(pattern: &str, flags: &str) -> Result<(), String> {
             pattern_flags.push(c);
         }
     }
-    match regress::Regex::with_flags(pattern, pattern_flags.as_str()) {
+    // ECMA-262 + UTS#24: Script / Script_Extensions accept special value Unknown (Zzzz).
+    // regress omits these; rewrite only that value so the rest of the pattern still validates.
+    let normalized = rewrite_script_unknown_for_validate(pattern);
+    match regress::Regex::with_flags(normalized.as_str(), pattern_flags.as_str()) {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("invalid regular expression pattern: {e}")),
+    }
+}
+
+/// Map `Script` / `Script_Extensions` special value `Unknown`/`Zzzz` → `Latin` for regress.
+///
+/// Only rewrites well-formed `\p{…}` / `\P{…}` property escapes; other text is unchanged.
+fn rewrite_script_unknown_for_validate(pattern: &str) -> String {
+    let bytes = pattern.as_bytes();
+    let mut out = String::with_capacity(pattern.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        // Look for \p{ or \P{
+        if bytes[i] == b'\\'
+            && i + 2 < bytes.len()
+            && (bytes[i + 1] == b'p' || bytes[i + 1] == b'P')
+            && bytes[i + 2] == b'{'
+        {
+            if let Some(end) = pattern[i + 3..].find('}') {
+                let inner = &pattern[i + 3..i + 3 + end];
+                out.push('\\');
+                out.push(bytes[i + 1] as char);
+                out.push('{');
+                out.push_str(&rewrite_script_unknown_inner(inner));
+                out.push('}');
+                i = i + 3 + end + 1;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+fn rewrite_script_unknown_inner(inner: &str) -> String {
+    // Loose match is not applied here; ECMA uses exact names after UnicodeMatchProperty.
+    // Accept both canonical names and short aliases for the Script* properties.
+    let eq = match inner.find('=') {
+        Some(i) => i,
+        None => return inner.to_string(),
+    };
+    let name = inner[..eq].trim();
+    let value = inner[eq + 1..].trim();
+    let is_script = matches!(
+        name,
+        "Script" | "sc" | "Script_Extensions" | "scx"
+    );
+    let is_unknown = matches!(value, "Unknown" | "Zzzz");
+    if is_script && is_unknown {
+        format!("{name}=Latin")
+    } else {
+        inner.to_string()
     }
 }
 
@@ -105,5 +160,49 @@ mod tests {
         assert!(validate_regexp_literal(".", "").is_ok());
         assert!(validate_regexp_literal("[a/]", "").is_ok());
         assert!(validate_regexp_literal(r"a\/b", "").is_ok());
+    }
+
+    #[test]
+    fn property_escapes_ok() {
+        assert!(validate_regexp_literal(r"\p{ASCII}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\P{ASCII}", "u").is_ok());
+        assert!(validate_regexp_literal(r"^\p{ASCII}+$", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{Script=Latin}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{gc=Nd}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{Any}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{Emoji}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{General_Category=Letter}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{Basic_Emoji}", "v").is_ok());
+    }
+
+    #[test]
+    fn property_escapes_script_unknown_zzzz() {
+        // UTS#24 special value; required by Test262 special-property-value-Script_* tests.
+        assert!(validate_regexp_literal(r"\p{Script_Extensions=Unknown}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{Script_Extensions=Zzzz}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{scx=Unknown}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{scx=Zzzz}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{Script=Unknown}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{Script=Zzzz}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{sc=Unknown}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\p{sc=Zzzz}", "u").is_ok());
+    }
+
+    #[test]
+    fn property_escapes_still_reject_bogus() {
+        assert!(validate_regexp_literal(r"\p{NotARealProperty}", "u").is_err());
+        assert!(validate_regexp_literal(r"\p{Script=NotARealScript}", "u").is_err());
+        // Without u/v, `\p` is not a property escape (IdentityEscape / literal path).
+        assert!(validate_regexp_literal(r"\p{ASCII}", "").is_ok());
+    }
+
+    #[test]
+    fn rewrite_unknown_preserves_other_text() {
+        let s = rewrite_script_unknown_for_validate(r"a\p{scx=Unknown}b\p{ASCII}c");
+        assert_eq!(s, r"a\p{scx=Latin}b\p{ASCII}c");
+        assert_eq!(
+            rewrite_script_unknown_for_validate(r"\P{Script=Zzzz}"),
+            r"\P{Script=Latin}"
+        );
     }
 }
