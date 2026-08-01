@@ -867,6 +867,7 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_65.js"),
     include_str!("harness_e19_66.js"),
     include_str!("harness_e19_70.js"),
+    include_str!("harness_e19_74.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -2320,6 +2321,53 @@ validate(/b/.exec("abc"));
 "#;
         let js = compile_test_to_js(src).expect("compile e19.70 harness");
         run_js_in_node(&js).expect("e19.70 regexp utils");
+    }
+
+    #[test]
+    fn harness_e19_74_promise_all_keyed() {
+        // E19.74: Promise.allKeyed / Promise.allSettledKeyed polyfill.
+        let sync_src = r#"
+assert.sameValue(typeof Promise.allKeyed, "function");
+assert.sameValue(typeof Promise.allSettledKeyed, "function");
+assert.sameValue(Promise.allKeyed.length, 1);
+assert.sameValue(Promise.allKeyed.name, "allKeyed");
+assert.sameValue(Promise.allSettledKeyed.name, "allSettledKeyed");
+assert.sameValue(isConstructor(Promise.allKeyed), false);
+assert.sameValue(isConstructor(Promise.allSettledKeyed), false);
+assert.throws(TypeError, function () {
+  Promise.allKeyed.call(eval);
+});
+"#;
+        let sync_js = compile_test_to_js(sync_src).expect("compile e19.74 sync");
+        run_js_in_node(&wrap_host_api(&sync_js)).expect("e19.74 promise allKeyed sync");
+
+        let async_src = r#"
+asyncTest(function () {
+  return Promise.allKeyed({}).then(function (result) {
+    assert.sameValue(Object.getPrototypeOf(result), null);
+    assert.compareArray(Reflect.ownKeys(result), []);
+  }).then(function () {
+    return Promise.allKeyed({ a: Promise.resolve(1), b: 2 }).then(function (result) {
+      assert.sameValue(Object.getPrototypeOf(result), null);
+      assert.sameValue(result.a, 1);
+      assert.sameValue(result.b, 2);
+    });
+  }).then(function () {
+    return Promise.allSettledKeyed({
+      ok: Promise.resolve(1),
+      bad: Promise.reject("nope")
+    }).then(function (result) {
+      assert.sameValue(Object.getPrototypeOf(result), null);
+      assert.sameValue(result.ok.status, "fulfilled");
+      assert.sameValue(result.ok.value, 1);
+      assert.sameValue(result.bad.status, "rejected");
+      assert.sameValue(result.bad.reason, "nope");
+    });
+  });
+});
+"#;
+        let async_js = compile_test_to_js(async_src).expect("compile e19.74 async");
+        run_js_in_node(&wrap_async_host(&async_js)).expect("e19.74 promise allKeyed async");
     }
 
     #[test]
