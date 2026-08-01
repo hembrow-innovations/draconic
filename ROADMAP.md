@@ -302,7 +302,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.74 | done | js | `Promise.allKeyed` / `Promise.allSettledKeyed`: static keyed aggregate helpers | `tests/test262` (allowlist + runtime) |
 | E19.75 | done | js | Expand allowlist further after E19.69–E19.74 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 | E19.76 | done | js | `Iterator.zip` / `Iterator.zipKeyed`: static zip helpers + harness sequence helpers | `tests/test262` (allowlist + harness/runtime) |
-| E19.77 | todo | js | `Function.prototype.toString` source text + `caller`/`arguments` poison props residual | `tests/test262` (allowlist + baseline-report) |
+| E19.77 | done | js | `Function.prototype.toString` source text + `caller`/`arguments` poison props residual | `tests/test262` (allowlist + baseline-report) |
 | E19.78 | todo | js | Class residual: computed names with `yield`/`await`; decorator `@` syntax; numeric accessor names | `crates/draconic-parser` / backend-js, `tests/test262` |
 | E19.79 | todo | js | `Error.isError` + `Error.prototype.stack` accessor residual | `tests/test262` (allowlist + runtime) |
 | E19.80 | todo | js | `Math.sumPrecise`: static precise sum helper | `tests/test262` (allowlist + runtime) |

@@ -869,6 +869,7 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_70.js"),
     include_str!("harness_e19_74.js"),
     include_str!("harness_e19_76.js"),
+    include_str!("harness_e19_77.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -1223,7 +1224,119 @@ var require = __test262CreateRequire(import.meta.url);
       agent.sleep(ms);
     }};
   }}
+  // E19.77: Function.prototype.toString (NativeFunction form for user fns) +
+  // caller/arguments poison props sharing one %ThrowTypeError%.
+  function __test262InstallFunctionProto(globalObj) {{
+    var F = globalObj.Function;
+    if (typeof F !== "function" || !F.prototype) {{
+      return;
+    }}
+    var proto = F.prototype;
+    function __test262ThrowTypeError() {{
+      throw new TypeError(
+        "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them"
+      );
+    }}
+    try {{
+      Object.defineProperty(__test262ThrowTypeError, "length", {{
+        value: 0,
+        writable: false,
+        enumerable: false,
+        configurable: true
+      }});
+    }} catch (e) {{}}
+    try {{
+      Object.defineProperty(__test262ThrowTypeError, "name", {{
+        value: "",
+        writable: false,
+        enumerable: false,
+        configurable: true
+      }});
+    }} catch (e) {{}}
+    try {{
+      Object.preventExtensions(__test262ThrowTypeError);
+    }} catch (e) {{}}
+    try {{
+      globalObj.__test262ThrowTypeError = __test262ThrowTypeError;
+    }} catch (e) {{}}
+    // Concise method → no [[Construct]] (isConstructor false).
+    // Also tag with a sentinel so self-stringification does not return method source.
+    var __dracNativeTag = "__draconicNativeToString__";
+    var __toStringHolder = {{
+      toString() {{
+        if (typeof this !== "function") {{
+          throw new TypeError("Function.prototype.toString requires that 'this' be a Function");
+        }}
+        if (this && this[__dracNativeTag]) {{
+          return "function toString() {{ [native code] }}";
+        }}
+        var name = "";
+        try {{
+          name = this.name;
+          if (typeof name !== "string") {{
+            name = "";
+          }}
+        }} catch (e2) {{
+          name = "";
+        }}
+        // Always synthesize NativeFunction form with a safe IdentifierName
+        // (host names like "get $&" are not valid IdentifierName).
+        var acc = "";
+        var id = name;
+        if (name === "get" || name === "set") {{
+          acc = name + " ";
+          id = "";
+        }} else if (name.indexOf("get ") === 0) {{
+          acc = "get ";
+          id = name.slice(4);
+        }} else if (name.indexOf("set ") === 0) {{
+          acc = "set ";
+          id = name.slice(4);
+        }}
+        if (!/^[A-Za-z_$][\w$]*$/.test(id)) {{
+          id = "";
+        }}
+        if (acc || id) {{
+          return "function " + acc + id + "() {{ [native code] }}";
+        }}
+        return "function () {{ [native code] }}";
+      }}
+    }};
+    try {{
+      Object.defineProperty(__toStringHolder.toString, __dracNativeTag, {{
+        value: true,
+        writable: false,
+        enumerable: false,
+        configurable: false
+      }});
+    }} catch (e) {{}}
+    try {{
+      Object.defineProperty(proto, "toString", {{
+        value: __toStringHolder.toString,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      }});
+    }} catch (e) {{}}
+    try {{
+      Object.defineProperty(proto, "caller", {{
+        get: __test262ThrowTypeError,
+        set: __test262ThrowTypeError,
+        enumerable: false,
+        configurable: true
+      }});
+    }} catch (e) {{}}
+    try {{
+      Object.defineProperty(proto, "arguments", {{
+        get: __test262ThrowTypeError,
+        set: __test262ThrowTypeError,
+        enumerable: false,
+        configurable: true
+      }});
+    }} catch (e) {{}}
+  }}
   function __test262InstallHost(globalObj, runEval) {{
+    __test262InstallFunctionProto(globalObj);
     var agent = __test262MakeAgent();
     __test262InstallAgentHelpers(agent);
     var api = {{
@@ -2454,6 +2567,38 @@ forEachSequenceCombination(function (inputs, label, min) {
 "#;
         let js = compile_test_to_js(src).expect("compile e19.76");
         run_js_in_node(&wrap_host_api(&js)).expect("e19.76 iterator zip");
+    }
+
+    #[test]
+    fn harness_e19_77_function_tostring_and_poison() {
+        // E19.77: Function.prototype.toString NativeFunction form + caller/arguments poison.
+        let src = r#"
+function f /* a */ (x) { return x; }
+assertToStringOrNativeFunction(f, "function /* a */ (x) { return x; }");
+assertNativeFunction(function () {});
+assert.sameValue(typeof WellKnownIntrinsicObjects, "object");
+assert.sameValue(Array.isArray(WellKnownIntrinsicObjects), true);
+assert.notSameValue(WellKnownIntrinsicObjects.length, 0);
+
+const callerDesc = Object.getOwnPropertyDescriptor(Function.prototype, "caller");
+const argumentsDesc = Object.getOwnPropertyDescriptor(Function.prototype, "arguments");
+assert.sameValue(typeof callerDesc.get, "function");
+assert.sameValue(typeof callerDesc.set, "function");
+assert.sameValue(callerDesc.get, callerDesc.set);
+assert.sameValue(argumentsDesc.get, argumentsDesc.set);
+assert.sameValue(callerDesc.get, argumentsDesc.get);
+assert.throws(TypeError, function () {
+  return Function.prototype.caller;
+});
+assert.throws(TypeError, function () {
+  Function.prototype.caller = null;
+});
+assert.throws(TypeError, function () {
+  return Function.prototype.arguments;
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.77");
+        run_js_in_node(&wrap_host_api(&js)).expect("e19.77 function toString + poison");
     }
 
     #[test]

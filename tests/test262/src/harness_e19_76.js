@@ -29,22 +29,7 @@ function allowProxyTraps(overrides, label) {
   };
 }
 
-// --- harness: getWellKnownIntrinsicObject (minimal) ---
-function getWellKnownIntrinsicObject(key) {
-  if (key === "%IteratorHelperPrototype%") {
-    if (typeof Iterator !== "function") {
-      throw new Test262Error("this implementation could not obtain " + key);
-    }
-    return Object.getPrototypeOf(Iterator.from([]).drop(0));
-  }
-  if (key === "%Iterator%") {
-    if (typeof Iterator !== "function") {
-      throw new Test262Error("this implementation could not obtain " + key);
-    }
-    return Iterator;
-  }
-  throw new Test262Error("unknown well-known intrinsic " + key);
-}
+// getWellKnownIntrinsicObject: see harness_e19_77.js (E19.77)
 
 // --- harness: iteratorZipUtils.js ---
 function assertIteratorResult(result, value, done, label) {
