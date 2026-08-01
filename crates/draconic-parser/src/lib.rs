@@ -378,8 +378,8 @@ impl Parser {
             return self.parse_with();
         }
         if self.check(&TokenKind::Import) {
-            // `import(…)`, `import.defer(…)`, `import.source(…)` are ImportCall expressions.
-            if !self.is_import_call_start() {
+            // `import(…)`, `import.defer(…)`, `import.source(…)`, `import.meta` are expressions.
+            if !self.is_import_call_start() && !self.is_import_meta_start() {
                 return self.parse_import();
             }
         }
@@ -3869,6 +3869,8 @@ impl Parser {
             self.parse_new()?
         } else if self.check(&TokenKind::Import) && self.is_import_call_start() {
             self.parse_import_call()?
+        } else if self.check(&TokenKind::Import) && self.is_import_meta_start() {
+            self.parse_import_meta()?
         } else {
             self.parse_primary()?
         };
@@ -4041,6 +4043,46 @@ impl Parser {
             self.tokens.get(self.pos + 3).map(|t| &t.kind),
             Some(TokenKind::LParen)
         )
+    }
+
+    /// `import.meta` lookahead from `import`.
+    fn is_import_meta_start(&self) -> bool {
+        if !self.peek_is(&TokenKind::Dot) {
+            return false;
+        }
+        matches!(
+            self.tokens.get(self.pos + 2).map(|t| &t.kind),
+            Some(TokenKind::Ident(name)) if name == "meta"
+        )
+    }
+
+    /// `import.meta` meta-property (Module goal only; E19.83.01).
+    fn parse_import_meta(&mut self) -> Result<Expr, Diagnostic> {
+        let start = self.expect(&TokenKind::Import)?.span.start.0;
+        self.expect(&TokenKind::Dot)?;
+        let meta_escaped = self.current().escaped;
+        let (name, prop_span) = self.expect_ident_name()?;
+        if meta_escaped {
+            return Err(Diagnostic::new(
+                "escaped 'meta' is not allowed in import.meta".to_string(),
+                prop_span,
+            ));
+        }
+        if name != "meta" {
+            return Err(Diagnostic::new(
+                format!("expected `meta` after `import.`, found `{name}`"),
+                prop_span,
+            ));
+        }
+        if !self.is_module {
+            return Err(Diagnostic::new(
+                "'import.meta' is only valid in modules".to_string(),
+                Span::new(start, prop_span.end.0),
+            ));
+        }
+        Ok(Expr::ImportMeta {
+            span: Span::new(start, prop_span.end.0),
+        })
     }
 
     /// `import(AssignmentExpression)` / `import(AssignmentExpression, options)` /
@@ -6890,6 +6932,7 @@ fn expr_span(expr: &Expr) -> Span {
         | Expr::This { span }
         | Expr::Super { span }
         | Expr::NewTarget { span }
+        | Expr::ImportMeta { span }
         | Expr::ImportCall { span, .. }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
@@ -7206,6 +7249,12 @@ fn span_merge(a: Span, b: Span) -> Span {
 /// Helper for tests and CLI.
 pub fn parse_and_dump(source: &str) -> Result<String, Diagnostic> {
     let program = parse(source)?;
+    Ok(dump_program(&program))
+}
+
+/// Helper for Module-goal dump tests (E19.83.01 `import.meta`).
+pub fn parse_module_and_dump(source: &str) -> Result<String, Diagnostic> {
+    let program = parse_module(source)?;
     Ok(dump_program(&program))
 }
 
@@ -8157,6 +8206,17 @@ Program
         assert!(dump.contains("String \"./m.js\""), "{dump}");
         assert!(!dump.contains("ImportCall defer"), "{dump}");
         assert!(!dump.contains("ImportCall source"), "{dump}");
+    }
+
+    #[test]
+    fn parse_import_meta() {
+        // E19.83.01: Module-goal `import.meta` meta-property.
+        let dump = parse_module_and_dump("const u = import.meta;").unwrap();
+        assert!(dump.contains("ImportMeta\n"), "{dump}");
+        assert!(!dump.contains("ImportCall"), "{dump}");
+        assert!(parse("const u = import.meta;").is_err());
+        let dump2 = parse_module_and_dump("const p = import(import.meta);").unwrap();
+        assert!(dump2.contains("ImportCall\n") && dump2.contains("ImportMeta\n"), "{dump2}");
     }
 
     #[test]

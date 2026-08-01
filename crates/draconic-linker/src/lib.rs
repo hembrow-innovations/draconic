@@ -1194,7 +1194,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
         | Expr::Null { span }
         | Expr::This { span }
         | Expr::Super { span }
-        | Expr::NewTarget { span } => *span = spans.next(),
+        | Expr::NewTarget { span } | Expr::ImportMeta { span } => *span = spans.next(),
         Expr::ImportCall {
             source,
             options,
@@ -1677,6 +1677,7 @@ fn expr_has_top_level_await(expr: &Expr) -> bool {
         | Expr::This { .. }
         | Expr::Super { .. }
         | Expr::NewTarget { .. }
+        | Expr::ImportMeta { .. }
         | Expr::ArrayPattern { .. }
         | Expr::ObjectPattern { .. } => false,
     }
@@ -2395,7 +2396,7 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         | Expr::Null { .. }
         | Expr::This { .. }
         | Expr::Super { .. }
-        | Expr::NewTarget { .. } => {}
+        | Expr::NewTarget { .. } | Expr::ImportMeta { .. } => {}
         Expr::ImportCall {
             source, options, ..
         } => {

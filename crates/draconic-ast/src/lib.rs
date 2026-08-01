@@ -147,6 +147,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::This { span }
         | Expr::Super { span }
         | Expr::NewTarget { span }
+        | Expr::ImportMeta { span }
         | Expr::ImportCall { span, .. }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
@@ -515,6 +516,10 @@ pub enum Expr {
     },
     /// `new.target` meta-property (active construct target; `undefined` if not `new`).
     NewTarget {
+        span: Span,
+    },
+    /// `import.meta` meta-property (Module goal only).
+    ImportMeta {
         span: Span,
     },
     /// Dynamic `import(specifier)` / `import.defer(…)` / `import.source(…)` (ImportCall).
@@ -1836,6 +1841,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::NewTarget { .. } => {
             indent(level, out);
             out.push_str("NewTarget\n");
+        }
+        Expr::ImportMeta { .. } => {
+            indent(level, out);
+            out.push_str("ImportMeta\n");
         }
         Expr::ImportCall {
             phase,

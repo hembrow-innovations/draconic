@@ -1752,9 +1752,26 @@ pub fn run_js_in_node(js: &str) -> Result<(), String> {
 ///
 /// E19.28: `as_module` uses `--input-type=module` so top-level `await` is valid.
 pub fn run_js_in_node_cwd(js: &str, cwd: Option<&Path>, as_module: bool) -> Result<(), String> {
+    run_js_in_node_cwd_opts(js, cwd, as_module, false)
+}
+
+/// Like [`run_js_in_node_cwd`], with optional Node `--unhandled-rejections=none`.
+///
+/// E19.83.01: non-async dynamic-import syntax tests fire `import('')` / nested
+/// `import(import(…))` without awaiting; Node would exit 1 on the rejected
+/// promise. Test262 only requires the syntax to be accepted.
+pub fn run_js_in_node_cwd_opts(
+    js: &str,
+    cwd: Option<&Path>,
+    as_module: bool,
+    ignore_unhandled_rejections: bool,
+) -> Result<(), String> {
     let mut cmd = Command::new("node");
     // E19.73: V8 ShadowRealm is experimental; enable for Test262 built-ins/ShadowRealm.
     cmd.arg("--harmony-shadow-realm");
+    if ignore_unhandled_rejections {
+        cmd.arg("--unhandled-rejections=none");
+    }
     if as_module {
         cmd.arg("--input-type=module");
     }
@@ -1841,8 +1858,9 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     // E19.28: Module-flag tests run as ESM (`--input-type=module`) for top-level await.
     let cwd = full.parent();
     let as_module = is_module_flag(&source);
+    let async_flag = is_async_flag(&source);
     // E19.26: async-flag tests need `$DONE` host (Node wrapper around emitted JS).
-    let js = if is_async_flag(&source) {
+    let js = if async_flag {
         wrap_async_host(&js)
     } else {
         js
@@ -1850,9 +1868,12 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     // E19.61: `$262` host outside so ESM `import` stays first under module goal.
     // onlyStrict: host must not precede the effective `"use strict"` directive.
     let js = wrap_host_api_mode(&js, as_module, is_only_strict(&source));
+    // E19.83.01: non-async tests may leave dynamic-import rejections unhandled;
+    // async tests settle via `$DONE` / unhandledRejection → keep default policy.
+    let ignore_unhandled = !async_flag;
     if is_negative_runtime(&source) {
         // Negative runtime: pass iff Node throws (exit ≠ 0).
-        return match run_js_in_node_cwd(&js, cwd, as_module) {
+        return match run_js_in_node_cwd_opts(&js, cwd, as_module, ignore_unhandled) {
             Err(_) => CaseResult {
                 path: rel.to_string(),
                 status: Status::Pass,
@@ -1865,13 +1886,13 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
             },
         };
     }
-    match run_js_in_node_cwd(&js, cwd, as_module) {
+    match run_js_in_node_cwd_opts(&js, cwd, as_module, ignore_unhandled) {
         Ok(()) => CaseResult {
             path: rel.to_string(),
             status: Status::Pass,
-            message: if is_async_flag(&source) && as_module {
+            message: if async_flag && as_module {
                 "ok (module async $DONE)".to_string()
-            } else if is_async_flag(&source) {
+            } else if async_flag {
                 "ok (async $DONE)".to_string()
             } else if as_module {
                 "ok (module)".to_string()
@@ -2190,6 +2211,23 @@ assert.sameValue(typeof p.then, "function");
 "#;
         let js = compile_test_to_js(src).expect("compile");
         assert!(js.contains("import(\"./m.js\")"), "{js}");
+    }
+
+    #[test]
+    fn import_meta_compiles_and_emits() {
+        // E19.83.01: `import.meta` as ImportCall AssignmentExpression (module).
+        let src = r#"
+/*---
+features: [dynamic-import, import.meta]
+flags: [module, async]
+---*/
+const p = import(import.meta);
+assert.sameValue(Promise.resolve(p), p);
+p.catch(function () {}).then($DONE, $DONE);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        assert!(js.contains("import.meta"), "{js}");
+        assert!(js.contains("import("), "{js}");
     }
 
     #[test]

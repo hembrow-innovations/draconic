@@ -263,6 +263,7 @@ fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
         | Expr::Null { .. }
         | Expr::This { .. }
         | Expr::NewTarget { .. }
+        | Expr::ImportMeta { .. }
         | Expr::Super { .. } => Ok(()),
         Expr::ImportCall {
             source, options, ..
@@ -459,7 +460,7 @@ fn reject_native_only_object_prop(prop: &draconic_ir::ObjectProp) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draconic_frontend::compile_source;
+    use draconic_frontend::{compile_source, compile_source_module};
 
     fn emit_src(src: &str) -> String {
         let module = compile_source(src).expect("compile");
@@ -522,6 +523,14 @@ mod tests {
         let js = emit_src("let p = import('./m.js'); let q = import(p, opts);");
         assert!(js.contains("import(\"./m.js\")"), "{js}");
         assert!(js.contains("import(p, opts)"), "{js}");
+    }
+
+    #[test]
+    fn emit_import_meta() {
+        // E19.83.01: Module-goal `import.meta` + ImportCall argument.
+        let module = compile_source_module("const p = import(import.meta);").expect("compile");
+        let js = emit_js(&module).expect("emit");
+        assert!(js.contains("import(import.meta)"), "{js}");
     }
 
     #[test]

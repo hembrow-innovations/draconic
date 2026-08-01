@@ -287,6 +287,10 @@ pub enum Expr {
     NewTarget {
         ty: Type,
     },
+    /// `import.meta` meta-property.
+    ImportMeta {
+        ty: Type,
+    },
     /// Dynamic `import(specifier)` / `import.defer(…)` / `import.source(…)`.
     ImportCall {
         phase: draconic_ast::ImportPhase,
@@ -520,6 +524,7 @@ impl Expr {
              | Expr::Null { ty }
              | Expr::This { ty }
              | Expr::NewTarget { ty }
+             | Expr::ImportMeta { ty }
              | Expr::ImportCall { ty, .. }
              | Expr::Super { ty }
              | Expr::Unary { ty, .. }
@@ -5464,6 +5469,9 @@ fn lower_expr_hint(
         AstExpr::NewTarget { span } => Expr::NewTarget {
             ty: expr_ty(checked, *span),
         },
+        AstExpr::ImportMeta { span } => Expr::ImportMeta {
+            ty: expr_ty(checked, *span),
+        },
         AstExpr::ImportCall {
             phase,
             source,
@@ -7193,6 +7201,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
         Expr::NewTarget { ty } => {
             indent(level, out);
             out.push_str(&format!("NewTarget : {ty}\n"));
+        }
+        Expr::ImportMeta { ty } => {
+            indent(level, out);
+            out.push_str(&format!("ImportMeta : {ty}\n"));
         }
         Expr::ImportCall {
             phase,

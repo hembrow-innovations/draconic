@@ -1976,7 +1976,7 @@ impl Binder {
             | Expr::Null { .. }
             | Expr::This { .. }
             | Expr::Super { .. }
-            | Expr::NewTarget { .. } => Ok(()),
+            | Expr::NewTarget { .. } | Expr::ImportMeta { .. } => Ok(()),
             Expr::ImportCall {
                 source, options, ..
             } => {
@@ -3539,6 +3539,10 @@ impl<'a> Checker<'a> {
                 Type::Any
             }
             Expr::NewTarget { span } => {
+                self.record(*span, Type::Any);
+                Type::Any
+            }
+            Expr::ImportMeta { span } => {
                 self.record(*span, Type::Any);
                 Type::Any
             }
@@ -5447,6 +5451,7 @@ fn expr_span_of(expr: &Expr) -> Span {
         | Expr::This { span }
         | Expr::Super { span }
         | Expr::NewTarget { span }
+        | Expr::ImportMeta { span }
         | Expr::ImportCall { span, .. }
         | Expr::TemplateLiteral { span, .. }
         | Expr::TaggedTemplate { span, .. }
@@ -7403,7 +7408,7 @@ mod tests {
                 | Expr::Null { .. }
                 | Expr::This { .. }
                 | Expr::Super { .. }
-                | Expr::NewTarget { .. } => {}
+                | Expr::NewTarget { .. } | Expr::ImportMeta { .. } => {}
                 Expr::ImportCall {
                     source, options, ..
                 } => {

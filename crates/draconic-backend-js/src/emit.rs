@@ -526,6 +526,9 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
         Expr::NewTarget { .. } => {
             out.push_str("new.target");
         }
+        Expr::ImportMeta { .. } => {
+            out.push_str("import.meta");
+        }
         Expr::ImportCall {
             phase,
             source,
