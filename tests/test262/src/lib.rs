@@ -2542,6 +2542,39 @@ if (!delete ns.default) throw new Error('delete default');
     }
 
     #[test]
+    fn async_gen_dynamic_import_script_code_target_syntax_error() {
+        // E19.83.04: dynamic import always loads Module Record; script-valid
+        // `var`/`function` smoosh is a Module early SyntaxError. Async-gen
+        // `.next()` promise must reject with that error (catch residual path).
+        let suite = resolve_suite_root();
+        if !suite_present(&suite) {
+            return;
+        }
+        let cwd = suite.join("test/language/expressions/dynamic-import/catch");
+        if !cwd.join("script-code_FIXTURE.js").is_file() {
+            return;
+        }
+        let js = r#"
+async function * f() {
+  await import('./script-code_FIXTURE.js');
+}
+let done = false;
+await f().next().then(
+  () => { throw new Error('expected SyntaxError rejection'); },
+  (error) => {
+    if (!error || error.name !== 'SyntaxError') {
+      throw new Error('expected SyntaxError, got ' + (error && error.name));
+    }
+    done = true;
+  }
+);
+if (!done) throw new Error('async-gen catch path did not settle');
+"#;
+        run_js_in_node_cwd(js, Some(&cwd), true)
+            .expect("async-gen script-code-target SyntaxError");
+    }
+
+    #[test]
     fn only_strict_compound_assign_putvalue_typeerror() {
         // E19.19: non-writable data prop + compound `*=` must TypeError under onlyStrict.
         let src = r#"

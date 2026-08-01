@@ -28897,6 +28897,7 @@ test/language/expressions/dynamic-import/catch/nested-async-function-return-awai
 test/language/expressions/dynamic-import/catch/nested-async-function-specifier-tostring-abrupt-rejects.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-eval-rqstd-abrupt-typeerror.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-eval-rqstd-abrupt-urierror.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-await-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-file-does-not-exist.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-import-defer-specifier-tostring-abrupt-rejects.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-import-source-source-text-module.js
@@ -28907,6 +28908,7 @@ test/language/expressions/dynamic-import/catch/nested-async-gen-await-instn-iee-
 test/language/expressions/dynamic-import/catch/nested-async-gen-await-specifier-tostring-abrupt-rejects.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-eval-rqstd-abrupt-typeerror.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-eval-rqstd-abrupt-urierror.js
+test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-eval-script-code-target.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-file-does-not-exist.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-import-defer-specifier-tostring-abrupt-rejects.js
 test/language/expressions/dynamic-import/catch/nested-async-gen-return-await-import-source-source-text-module.js
