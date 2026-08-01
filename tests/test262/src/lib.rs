@@ -868,6 +868,7 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_66.js"),
     include_str!("harness_e19_70.js"),
     include_str!("harness_e19_74.js"),
+    include_str!("harness_e19_76.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -2368,6 +2369,91 @@ asyncTest(function () {
 "#;
         let async_js = compile_test_to_js(async_src).expect("compile e19.74 async");
         run_js_in_node(&wrap_async_host(&async_js)).expect("e19.74 promise allKeyed async");
+    }
+
+    #[test]
+    fn harness_e19_76_iterator_zip() {
+        // E19.76: Iterator.zip / Iterator.zipKeyed polyfill + zip utils.
+        let src = r#"
+assert.sameValue(typeof Iterator.zip, "function");
+assert.sameValue(typeof Iterator.zipKeyed, "function");
+assert.sameValue(Iterator.zip.length, 1);
+assert.sameValue(Iterator.zip.name, "zip");
+assert.sameValue(Iterator.zipKeyed.name, "zipKeyed");
+assert.sameValue(isConstructor(Iterator.zip), false);
+assert.sameValue(isConstructor(Iterator.zipKeyed), false);
+assert.throws(TypeError, function () {
+  new Iterator.zip([]);
+});
+assert.throws(TypeError, function () {
+  Iterator.zip();
+});
+assert.throws(TypeError, function () {
+  Iterator.zip(null);
+});
+assert.throws(TypeError, function () {
+  Iterator.zip([], null);
+});
+assert.throws(TypeError, function () {
+  Iterator.zip([], { mode: "loose" });
+});
+
+var it = Iterator.zip([[1, 2], [3, 4]]);
+assert(it instanceof Iterator);
+assert.sameValue(
+  Object.getPrototypeOf(it),
+  getWellKnownIntrinsicObject("%IteratorHelperPrototype%")
+);
+assert.compareArray(it.next().value, [1, 3]);
+assert.compareArray(it.next().value, [2, 4]);
+assert.sameValue(it.next().done, true);
+
+var short = Iterator.zip([[1, 2, 3], [4]]);
+assert.compareArray(short.next().value, [1, 4]);
+assert.sameValue(short.next().done, true);
+
+var long = Iterator.zip([[1], [2, 3]], { mode: "longest", padding: ["p", "q"] });
+assert.compareArray(long.next().value, [1, 2]);
+assert.compareArray(long.next().value, ["p", 3]);
+assert.sameValue(long.next().done, true);
+
+assert.throws(TypeError, function () {
+  var s = Iterator.zip([[1], [2, 3]], { mode: "strict" });
+  s.next();
+  s.next();
+});
+
+var keyed = Iterator.zipKeyed({ a: [1, 2], b: [3, 4] });
+var k0 = keyed.next().value;
+assert.sameValue(Object.getPrototypeOf(k0), null);
+assert.sameValue(k0.a, 1);
+assert.sameValue(k0.b, 3);
+var k1 = keyed.next().value;
+assert.sameValue(k1.a, 2);
+assert.sameValue(k1.b, 4);
+assert.sameValue(keyed.next().done, true);
+
+var returnCount = 0;
+var underlying = {
+  next: function () {
+    return { value: 1, done: false };
+  },
+  return: function () {
+    returnCount = returnCount + 1;
+    return {};
+  }
+};
+var closed = Iterator.zip([underlying]);
+assert.sameValue(closed.return().done, true);
+assert.sameValue(returnCount, 1);
+
+forEachSequenceCombination(function (inputs, label, min) {
+  var z = Iterator.zip(inputs);
+  assertZipped(z, inputs, min, label);
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.76");
+        run_js_in_node(&wrap_host_api(&js)).expect("e19.76 iterator zip");
     }
 
     #[test]
