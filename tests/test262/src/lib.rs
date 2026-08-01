@@ -609,6 +609,82 @@ function makeArrayBuffer(TA, primitiveOrIterable) {
   }
   return new TA(arr).buffer;
 }
+// E19.66: resizable / grown / shrunk / immutable ArrayBuffer arg factories
+let makeResizableArrayBuffer = undefined;
+let makeGrownArrayBuffer = undefined;
+let makeShrunkArrayBuffer = undefined;
+let makeImmutableArrayBuffer = undefined;
+if (ArrayBuffer.prototype.resize) {
+  function copyIntoArrayBuffer(destBuffer, srcBuffer) {
+    let destView = new Uint8Array(destBuffer);
+    let srcView = new Uint8Array(srcBuffer);
+    let i = 0;
+    while (i < srcView.length) {
+      destView[i] = srcView[i];
+      i = i + 1;
+    }
+    return destBuffer;
+  }
+  makeResizableArrayBuffer = function makeResizableArrayBuffer(TA, primitiveOrIterable) {
+    if (isPrimitive(primitiveOrIterable)) {
+      let n = Number(primitiveOrIterable) * TA.BYTES_PER_ELEMENT;
+      if (!(n >= 0 && n < 9007199254740992)) {
+        return primitiveOrIterable;
+      }
+      return new ArrayBuffer(n, { maxByteLength: n * 2 });
+    }
+    let fixed = makeArrayBuffer(TA, primitiveOrIterable);
+    let byteLength = fixed.byteLength;
+    let resizable = new ArrayBuffer(byteLength, { maxByteLength: byteLength * 2 });
+    return copyIntoArrayBuffer(resizable, fixed);
+  };
+  makeGrownArrayBuffer = function makeGrownArrayBuffer(TA, primitiveOrIterable) {
+    if (isPrimitive(primitiveOrIterable)) {
+      let n = Number(primitiveOrIterable) * TA.BYTES_PER_ELEMENT;
+      if (!(n >= 0 && n < 9007199254740992)) {
+        return primitiveOrIterable;
+      }
+      let grownP = new ArrayBuffer(Math.floor(n / 2), { maxByteLength: n });
+      grownP.resize(n);
+      return grownP;
+    }
+    let fixed = makeArrayBuffer(TA, primitiveOrIterable);
+    let byteLength = fixed.byteLength;
+    let grown = new ArrayBuffer(Math.floor(byteLength / 2), { maxByteLength: byteLength });
+    grown.resize(byteLength);
+    return copyIntoArrayBuffer(grown, fixed);
+  };
+  makeShrunkArrayBuffer = function makeShrunkArrayBuffer(TA, primitiveOrIterable) {
+    if (isPrimitive(primitiveOrIterable)) {
+      let n = Number(primitiveOrIterable) * TA.BYTES_PER_ELEMENT;
+      if (!(n >= 0 && n < 9007199254740992)) {
+        return primitiveOrIterable;
+      }
+      let shrunkP = new ArrayBuffer(n * 2, { maxByteLength: n * 2 });
+      shrunkP.resize(n);
+      return shrunkP;
+    }
+    let fixed = makeArrayBuffer(TA, primitiveOrIterable);
+    let byteLength = fixed.byteLength;
+    let shrunk = new ArrayBuffer(byteLength * 2, { maxByteLength: byteLength * 2 });
+    copyIntoArrayBuffer(shrunk, fixed);
+    shrunk.resize(byteLength);
+    return shrunk;
+  };
+}
+if (ArrayBuffer.prototype.transferToImmutable) {
+  makeImmutableArrayBuffer = function makeImmutableArrayBuffer(TA, primitiveOrIterable) {
+    if (isPrimitive(primitiveOrIterable)) {
+      let n = Number(primitiveOrIterable) * TA.BYTES_PER_ELEMENT;
+      if (!(n >= 0 && n < 9007199254740992)) {
+        return primitiveOrIterable;
+      }
+      return new ArrayBuffer(n).transferToImmutable();
+    }
+    let mutable = makeArrayBuffer(TA, primitiveOrIterable);
+    return mutable.transferToImmutable();
+  };
+}
 let typedArrayCtorArgFactories = [
   makePassthrough,
   makeArray,
@@ -616,6 +692,18 @@ let typedArrayCtorArgFactories = [
   makeIterable,
   makeArrayBuffer
 ];
+if (makeResizableArrayBuffer) {
+  typedArrayCtorArgFactories = typedArrayCtorArgFactories.concat([makeResizableArrayBuffer]);
+}
+if (makeGrownArrayBuffer) {
+  typedArrayCtorArgFactories = typedArrayCtorArgFactories.concat([makeGrownArrayBuffer]);
+}
+if (makeShrunkArrayBuffer) {
+  typedArrayCtorArgFactories = typedArrayCtorArgFactories.concat([makeShrunkArrayBuffer]);
+}
+if (makeImmutableArrayBuffer) {
+  typedArrayCtorArgFactories = typedArrayCtorArgFactories.concat([makeImmutableArrayBuffer]);
+}
 function ctorArgFactoryMatchesSome(argFactory, features) {
   let i = 0;
   while (i < features.length) {
@@ -629,7 +717,25 @@ function ctorArgFactoryMatchesSome(argFactory, features) {
     if (feat === "iterable" && argFactory === makeIterable) {
       return true;
     }
-    if (feat === "arraybuffer" && argFactory === makeArrayBuffer) {
+    if (
+      feat === "arraybuffer" &&
+      (argFactory === makeArrayBuffer ||
+        argFactory === makeResizableArrayBuffer ||
+        argFactory === makeGrownArrayBuffer ||
+        argFactory === makeShrunkArrayBuffer ||
+        argFactory === makeImmutableArrayBuffer)
+    ) {
+      return true;
+    }
+    if (
+      feat === "resizable" &&
+      (argFactory === makeResizableArrayBuffer ||
+        argFactory === makeGrownArrayBuffer ||
+        argFactory === makeShrunkArrayBuffer)
+    ) {
+      return true;
+    }
+    if (feat === "immutable" && argFactory === makeImmutableArrayBuffer) {
       return true;
     }
     i = i + 1;
@@ -756,9 +862,10 @@ function floatTypedArrayConstructorPrecision(FA) {
     throw new Error("Malformed test - floatTypedArrayConstructorPrecision called with non-float TypedArray");
   }
 }
-"#,
+    "#,
     include_str!("harness_e19_64.js"),
     include_str!("harness_e19_65.js"),
+    include_str!("harness_e19_66.js"),
 );
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
@@ -1224,9 +1331,13 @@ pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Resul
             return Err("compile: module test with import/export needs suite path".into());
         };
         let dir = path.parent().ok_or_else(|| "compile: test path has no parent".to_string())?;
+        // Unique per concurrent compile (pid alone races under DRACONIC_TEST262_JOBS>1).
+        static ENTRY_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = ENTRY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tmp = dir.join(format!(
-            ".draconic-test262-entry-{}.js",
-            std::process::id()
+            ".draconic-test262-entry-{}-{}.js",
+            std::process::id(),
+            seq
         ));
         fs::write(&tmp, &source).map_err(|e| format!("compile: write temp entry: {e}"))?;
         let result = compile_path(&tmp).map_err(|d| format!("compile: {d}"));
@@ -1936,6 +2047,79 @@ assert.sameValue($262.agent.getReport(), "42");
 "#;
         let js = compile_test_to_js(src).expect("compile");
         run_js_in_node(&wrap_host_api(&js)).expect("agent minimal");
+    }
+
+    #[test]
+    fn harness_e19_66_ctors_and_rab_utils() {
+        // E19.66: global ctors / floatCtors / CreateResizableArrayBuffer / NaNs +
+        // resizable/immutable TypedArray arg factories.
+        let src = r#"
+assert.sameValue(typeof ctors, "object");
+assert.sameValue(ctors.length >= 9, true);
+assert.sameValue(typeof floatCtors, "object");
+assert.sameValue(floatCtors.length >= 2, true);
+assert.sameValue(typeof CreateResizableArrayBuffer, "function");
+assert.sameValue(typeof MayNeedBigInt, "function");
+assert.sameValue(typeof CreateRabForTest, "function");
+assert.sameValue(typeof ToNumbers, "function");
+assert.sameValue(typeof CollectValuesAndResize, "function");
+assert.sameValue(typeof TestIterationAndResize, "function");
+
+let rab = CreateResizableArrayBuffer(8, 16);
+assert.sameValue(rab.byteLength, 8);
+assert.sameValue(rab.maxByteLength, 16);
+rab.resize(12);
+assert.sameValue(rab.byteLength, 12);
+
+let rab2 = CreateRabForTest(Uint8Array);
+assert.sameValue(rab2.byteLength, 4);
+let view = new Uint8Array(rab2);
+assert.sameValue(view[0], 0);
+assert.sameValue(view[1], 2);
+assert.sameValue(view[2], 4);
+assert.sameValue(view[3], 6);
+
+assert.sameValue(MayNeedBigInt(new Uint8Array(1), 3), 3);
+if (typeof BigInt64Array !== "undefined") {
+  assert.sameValue(MayNeedBigInt(new BigInt64Array(1), 3), 3n);
+}
+
+assert.sameValue(typeof NaNs, "object");
+assert.sameValue(NaNs.length >= 5, true);
+let ni = 0;
+while (ni < NaNs.length) {
+  assert.sameValue(Number.isNaN(NaNs[ni]), true);
+  ni = ni + 1;
+}
+
+let resSeen = 0;
+testWithTypedArrayConstructors(function (TA, makeCtorArg) {
+  let ta = new TA(makeCtorArg([1, 2, 3, 4]));
+  assert.sameValue(ta.length, 4);
+  assert.sameValue(ta.buffer.resizable, true);
+  resSeen = resSeen + 1;
+}, [Uint8Array], ["resizable"]);
+assert.sameValue(resSeen >= 1, true, "resizable factories");
+
+if (typeof ArrayBuffer.prototype.transferToImmutable === "function") {
+  let immSeen = 0;
+  testWithTypedArrayConstructors(function (TA, makeCtorArg) {
+    let ta = new TA(makeCtorArg([1, 2, 3, 4]));
+    assert.sameValue(ta.length, 4);
+    assert.sameValue(ta.buffer.immutable, true);
+    immSeen = immSeen + 1;
+  }, [Uint8Array], ["immutable"]);
+  assert.sameValue(immSeen >= 1, true, "immutable factory");
+}
+
+let bi = 0;
+while (bi < ctors.length) {
+  assert.sameValue(typeof ctors[bi], "function");
+  bi = bi + 1;
+}
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.66");
+        run_js_in_node(&wrap_host_api(&js)).expect("e19.66 ctors and rab utils");
     }
 
     #[test]
