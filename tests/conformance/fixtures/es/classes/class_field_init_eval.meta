@@ -1,0 +1,4 @@
+id: es/classes/class_field_init_eval
+targets: js
+js.exit: 0
+js.check: if (v1 !== 7 || e1 !== true) process.exit(1); if (v2 !== "ok" || e2 !== true) process.exit(2); if (v3 !== undefined || e3 !== true) process.exit(3); if (err4 !== "SyntaxError" || e4 !== false) process.exit(4); if (err5 !== "SyntaxError" || e5 !== false) process.exit(5); if (v6 !== 11 || e6 !== true) process.exit(6); if (err7 !== "SyntaxError") process.exit(7); if (v8ok !== true || e8 !== true) process.exit(8);

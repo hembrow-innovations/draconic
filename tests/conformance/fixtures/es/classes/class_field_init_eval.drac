@@ -1,0 +1,90 @@
+// E19.82.06: class field initializer direct-eval environment
+// (SuperProperty / new.target allowed; arguments → SyntaxError)
+
+// 1) SuperProperty via direct eval in derived instance field
+class A1 {}
+A1.prototype.x = 7;
+let exec1 = false;
+class C1 extends A1 {
+  y = eval("exec1 = true; super.x");
+}
+let c1 = new C1();
+let v1 = c1.y;
+let e1 = exec1;
+
+// 2) SuperProperty via eval returning arrow (arrow-body case)
+class A2 {}
+A2.prototype.tag = function () {
+  return "ok";
+};
+let exec2 = false;
+class C2 extends A2 {
+  f = eval("exec2 = true; () => super.tag()");
+}
+let v2 = new C2().f();
+let e2 = exec2;
+
+// 3) new.target in field-init direct eval → undefined (allowed)
+let exec3 = false;
+class C3 {
+  t = eval("exec3 = true; new.target");
+}
+let c3 = new C3();
+let v3 = c3.t;
+let e3 = exec3;
+
+// 4) arguments in field-init direct eval → SyntaxError; side effects skipped
+let exec4 = false;
+let err4 = "";
+class C4 {
+  x = eval("exec4 = true; arguments");
+}
+try {
+  new C4();
+} catch (e) {
+  err4 = e.name;
+}
+let e4 = exec4;
+
+// 5) arguments inside arrow in eval source still early-error
+let exec5 = false;
+let err5 = "";
+class C5 {
+  x = eval("exec5 = true; () => arguments");
+}
+try {
+  new C5();
+} catch (e) {
+  err5 = e.name;
+}
+let e5 = exec5;
+
+// 6) static field SuperProperty via direct eval
+class A6 {}
+A6.sx = 11;
+let exec6 = false;
+class C6 extends A6 {
+  static y = eval("exec6 = true; super.sx");
+}
+let v6 = C6.y;
+let e6 = exec6;
+
+// 7) SuperCall in field-init direct eval → SyntaxError (outside constructor)
+let err7 = "";
+class C7 {
+  x = eval("super()");
+}
+try {
+  new C7();
+} catch (e) {
+  err7 = e.name;
+}
+
+// 8) base class SuperProperty in field eval is allowed (home = Object.prototype)
+let exec8 = false;
+class C8 {
+  x = eval("exec8 = true; super.toString");
+}
+let c8 = new C8();
+let v8ok = typeof c8.x === "function";
+let e8 = exec8;
