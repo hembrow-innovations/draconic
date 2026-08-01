@@ -239,3 +239,34 @@ fn class_derived_ctor_this_runs() {
         );
     }
 }
+
+#[test]
+fn class_static_fields_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "es/classes/class_static_fields"),
+        "missing es/classes/class_static_fields fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn class_static_fields_runs() {
+    // E19.82.04: static field this, NamedEvaluation, intercalated keys, static name.
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "es/classes/class_static_fields")
+        .expect("es/classes/class_static_fields");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}

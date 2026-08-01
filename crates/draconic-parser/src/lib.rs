@@ -1509,9 +1509,17 @@ impl Parser {
             self.parse_decorator_list()?;
         }
         let start = self.current_span().start.0;
+        // `static` is a keyword only when followed by a ClassElement; `static;` / `static =`
+        // is an instance field named "static" (E19.82.04 / IdentifierName).
         let is_static = if self.check(&TokenKind::Static) {
-            self.bump();
-            true
+            let next = self.tokens.get(self.pos + 1).map(|t| &t.kind);
+            match next {
+                Some(TokenKind::Semi) | Some(TokenKind::Eq) => false,
+                _ => {
+                    self.bump();
+                    true
+                }
+            }
         } else {
             false
         };
@@ -9444,6 +9452,26 @@ Program
     }
 
     /// E19.29: empty ClassElement `;` and same-line fields after methods (ASI / explicit).
+    #[test]
+    fn parse_static_as_instance_field_name() {
+        // E19.82.04: `static;` / `static = expr` is a field named "static".
+        let bare = parse_and_dump("class C { static; }\n").unwrap();
+        assert!(
+            bare.contains("Field") && bare.contains("static") && !bare.contains("StaticField"),
+            "expected instance field named static, got:\n{bare}"
+        );
+        let assigned = parse_and_dump("class C { static = \"foo\"; }\n").unwrap();
+        assert!(
+            assigned.contains("Field") && !assigned.contains("StaticField"),
+            "expected instance field static=, got:\n{assigned}"
+        );
+        let both = parse_and_dump("class C { static static; }\n").unwrap();
+        assert!(
+            both.contains("StaticField"),
+            "expected static field named static, got:\n{both}"
+        );
+    }
+
     #[test]
     fn parse_class_empty_element_and_same_line_fields() {
         let empty = parse_and_dump("class C { ; }\n").unwrap();

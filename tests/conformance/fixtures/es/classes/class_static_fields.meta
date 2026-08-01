@@ -1,0 +1,4 @@
+id: es/classes/class_static_fields
+targets: js
+js.exit: 0
+js.check: if (tbF !== "test" || tbG !== "test262" || tbH !== true) process.exit(1); if (fnStatic !== "field" || fnPriv !== "#priv" || fnInst !== "inst") process.exit(2); if (rdF !== "test262" || rdG !== 45) process.exit(3); if (i0 !== 4 || i2 !== 5 || s1 !== 3 || iFinal !== 6) process.exit(4); if (snVal !== "foo") process.exit(5); if (protoErr !== "TypeError") process.exit(6); if (className !== "Named") process.exit(7);

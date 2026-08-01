@@ -1001,13 +1001,20 @@ fn lower_class(
     let inner = ctx.alloc_synthetic_local(format!("__cls_{}", name.name), Type::Function);
     ctx.class_name_remap.push((outer, inner));
     // Pass BindingIdentifier so constructor `.name === "C"` (not `__cls_C` from const).
+    // Anonymous `export default class {…}` uses synthetic `__class` → SetFunctionName "default"
+    // (E19.82.04 / ClassDefinitionEvaluation className for Default export).
+    let name_hint = if name.name == "__class" {
+        "default"
+    } else {
+        name.name.as_str()
+    };
     let mut body = lower_class_local(
         checked,
         ctx,
         inner,
         super_class,
         elements,
-        Some(name.name.as_str()),
+        Some(name_hint),
     );
     ctx.class_name_remap.pop();
     body.push(Stmt::Return {
@@ -1403,58 +1410,47 @@ fn stmt_has_await(stmt: &AstStmt) -> bool {
     }
 }
 
-/// `Object.defineProperty(fn, "name", { value, writable: false, enumerable: false, configurable: true })`
-/// — ECMA-262 SetFunctionName (used for class NamedEvaluation, E19.31).
-fn set_function_name_stmt(local: LocalId, name: &str) -> Stmt {
-    let desc = Expr::Object {
+/// Descriptor for SetFunctionName / CreateDataProperty helpers.
+fn data_prop_desc(value: Expr, writable: bool, enumerable: bool, configurable: bool) -> Expr {
+    Expr::Object {
         properties: vec![
             ObjectProp::Property {
                 key: ObjectPropKey::Static("value".into()),
-                value: Expr::String {
-                    value: name.into(),
-                    ty: Type::String,
-                },
+                value,
             },
             ObjectProp::Property {
                 key: ObjectPropKey::Static("writable".into()),
                 value: Expr::Boolean {
-                    value: false,
+                    value: writable,
                     ty: Type::Boolean,
                 },
             },
             ObjectProp::Property {
                 key: ObjectPropKey::Static("enumerable".into()),
                 value: Expr::Boolean {
-                    value: false,
+                    value: enumerable,
                     ty: Type::Boolean,
                 },
             },
             ObjectProp::Property {
                 key: ObjectPropKey::Static("configurable".into()),
                 value: Expr::Boolean {
-                    value: true,
+                    value: configurable,
                     ty: Type::Boolean,
                 },
             },
         ],
         ty: Type::Object,
-    };
+    }
+}
+
+/// `Object.defineProperty(fn, "name", { value, writable: false, enumerable: false, configurable: true })`
+/// — ECMA-262 SetFunctionName (used for class NamedEvaluation, E19.31).
+fn set_function_name_stmt(local: LocalId, name: &str) -> Stmt {
     Stmt::Expr {
-        expr: Expr::Call {
-            callee: Box::new(Expr::Member {
-                object: Box::new(Expr::IdentName {
-                    name: "Object".into(),
-                    ty: Type::Object,
-                }),
-                property: Box::new(Expr::String {
-                    value: "defineProperty".into(),
-                    ty: Type::String,
-                }),
-                computed: false,
-                optional: false,
-                ty: Type::Function,
-            }),
-            args: vec![
+        expr: object_method_call(
+            "defineProperty",
+            vec![
                 Arg::Expr(Expr::Local {
                     id: local,
                     ty: Type::Function,
@@ -1463,12 +1459,84 @@ fn set_function_name_stmt(local: LocalId, name: &str) -> Stmt {
                     value: "name".into(),
                     ty: Type::String,
                 }),
-                Arg::Expr(desc),
+                Arg::Expr(data_prop_desc(
+                    Expr::String {
+                        value: name.into(),
+                        ty: Type::String,
+                    },
+                    false,
+                    false,
+                    true,
+                )),
             ],
-            optional: false,
-            ty: Type::Any,
-        },
+        ),
     }
+}
+
+/// NamedEvaluation: `((f) => (Object.defineProperty(f,"name",…), f))(fe)`.
+/// Used for anonymous function/arrow field initializers (E19.82.04).
+fn set_function_name_on_expr(ctx: &mut LowerCtx, fe: Expr, name: &str) -> Expr {
+    let tmp = ctx.alloc_synthetic_local(
+        format!("__drac_fnname_{}", ctx.next_synth_id),
+        Type::Function,
+    );
+    let set_name = object_method_call(
+        "defineProperty",
+        vec![
+            Arg::Expr(local_expr(tmp)),
+            Arg::Expr(Expr::String {
+                value: "name".into(),
+                ty: Type::String,
+            }),
+            Arg::Expr(data_prop_desc(
+                Expr::String {
+                    value: name.into(),
+                    ty: Type::String,
+                },
+                false,
+                false,
+                true,
+            )),
+        ],
+    );
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: vec![Param {
+                pattern: Pattern::Local(tmp),
+                default: None,
+                rest: false,
+            }],
+            body: vec![Stmt::Return {
+                value: Some(Expr::Binary {
+                    left: Box::new(set_name),
+                    op: BinaryOp::Comma,
+                    right: Box::new(local_expr(tmp)),
+                    ty: Type::Function,
+                }),
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(fe)],
+        optional: false,
+        ty: Type::Function,
+    }
+}
+
+/// CreateDataPropertyOrThrow via defineProperty (throws on non-writable `prototype`, E19.82.04).
+fn create_data_property_or_throw(object: Expr, key: Expr, value: Expr) -> Expr {
+    object_method_call(
+        "defineProperty",
+        vec![
+            Arg::Expr(object),
+            Arg::Expr(key),
+            Arg::Expr(data_prop_desc(value, true, true, true)),
+        ],
+    )
 }
 
 fn object_key_private_name(key: &draconic_ast::ObjectKey) -> Option<&str> {
@@ -2184,13 +2252,28 @@ fn lower_class_local(
         bool,
         bool,
     )> = Vec::new();
-    let mut instance_fields: Vec<(&draconic_ast::ObjectKey, Option<&AstExpr>, bool)> = Vec::new();
+    // Instance fields: (key, value, is_private, precomputed_key_local for public computed).
+    let mut instance_fields: Vec<(
+        &draconic_ast::ObjectKey,
+        Option<&AstExpr>,
+        bool,
+        Option<LocalId>,
+    )> = Vec::new();
     // Static fields and static blocks in source order (E18.41).
     enum StaticInit<'a> {
-        Field(&'a draconic_ast::ObjectKey, Option<&'a AstExpr>, bool),
+        Field {
+            key: &'a draconic_ast::ObjectKey,
+            value: Option<&'a AstExpr>,
+            is_private: bool,
+            /// Public computed key temp evaluated in source order (E19.82.04).
+            computed_key: Option<LocalId>,
+        },
         Block(&'a AstStmt),
     }
     let mut static_inits: Vec<StaticInit<'_>> = Vec::new();
+    // Computed public field keys (instance + static) in source order — evaluated at
+    // class definition before any field initializers (E19.82.04 intercalated keys).
+    let mut computed_field_key_locals: Vec<(LocalId, Expr)> = Vec::new();
 
     for el in elements {
         match el {
@@ -2244,10 +2327,71 @@ fn lower_class_local(
                 ..
             } => {
                 let v = value.as_ref();
-                if *is_static {
-                    static_inits.push(StaticInit::Field(field_key, v, *is_private));
+                // Public computed keys: ToPropertyKey at class eval, source order (E19.82.04).
+                let computed_key = if !*is_private
+                    && matches!(field_key, draconic_ast::ObjectKey::Computed(_))
+                {
+                    let key_id = ctx.alloc_synthetic_local(
+                        format!(
+                            "__drac_cfk_{}_{}",
+                            local.0,
+                            computed_field_key_locals.len()
+                        ),
+                        Type::Any,
+                    );
+                    let key_expr =
+                        lower_object_key_name_expr(checked, ctx, field_key, super_class);
+                    // Reflect.ownKeys({[key]:1})[0] forces ToPropertyKey.
+                    let to_key = Expr::Member {
+                        object: Box::new(Expr::Call {
+                            callee: Box::new(Expr::Member {
+                                object: Box::new(Expr::IdentName {
+                                    name: "Reflect".into(),
+                                    ty: Type::Object,
+                                }),
+                                property: Box::new(Expr::String {
+                                    value: "ownKeys".into(),
+                                    ty: Type::String,
+                                }),
+                                computed: false,
+                                optional: false,
+                                ty: Type::Function,
+                            }),
+                            args: vec![Arg::Expr(Expr::Object {
+                                properties: vec![ObjectProp::Property {
+                                    key: ObjectPropKey::Computed(key_expr),
+                                    value: Expr::Number {
+                                        raw: "1".into(),
+                                        ty: Type::Number,
+                                    },
+                                }],
+                                ty: Type::Object,
+                            })],
+                            optional: false,
+                            ty: Type::Any,
+                        }),
+                        property: Box::new(Expr::Number {
+                            raw: "0".into(),
+                            ty: Type::Number,
+                        }),
+                        computed: true,
+                        optional: false,
+                        ty: Type::Any,
+                    };
+                    computed_field_key_locals.push((key_id, to_key));
+                    Some(key_id)
                 } else {
-                    instance_fields.push((field_key, v, *is_private));
+                    None
+                };
+                if *is_static {
+                    static_inits.push(StaticInit::Field {
+                        key: field_key,
+                        value: v,
+                        is_private: *is_private,
+                        computed_key,
+                    });
+                } else {
+                    instance_fields.push((field_key, v, *is_private, computed_key));
                 }
             }
             ClassElement::StaticBlock { body, .. } => {
@@ -2279,7 +2423,7 @@ fn lower_class_local(
             kind: BindingKind::Let,
         });
     };
-    for (fkey, _, is_private) in &instance_fields {
+    for (fkey, _, is_private, _) in &instance_fields {
         if *is_private {
             if let Some(n) = object_key_private_name(fkey) {
                 add_private_wm(n);
@@ -2287,7 +2431,12 @@ fn lower_class_local(
         }
     }
     for init in &static_inits {
-        if let StaticInit::Field(fkey, _, is_private) = init {
+        if let StaticInit::Field {
+            key: fkey,
+            is_private,
+            ..
+        } = init
+        {
             if *is_private {
                 if let Some(n) = object_key_private_name(fkey) {
                     add_private_wm(n);
@@ -2464,9 +2613,7 @@ fn lower_class_local(
         }
     };
 
-    // Computed public instance field names are ToPropertyKey'd at class evaluation
-    // (not construct) — store keys in temps referenced from the constructor (E19.53).
-    let mut computed_field_key_locals: Vec<(LocalId, Expr)> = Vec::new();
+    // Instance field inits reference computed key temps allocated in source order above.
     let mut instance_init_exprs: Vec<Expr> = Vec::new();
     // While lowering field initializer RHS, map `this` to the derived temp.
     if let (Some(this_id), Some(super_id)) = (derived_this_id, super_local_id) {
@@ -2481,9 +2628,12 @@ fn lower_class_local(
             other => panic!("private_brand_add must be Expr stmt, got {other:?}"),
         }
     }
-    for (fkey, value, is_private) in &instance_fields {
+    for (fkey, value, is_private, computed_key) in &instance_fields {
+        let name_hint = field_name_hint(fkey, *is_private);
         let init = match value {
-            Some(v) => lower_expr(checked, ctx, v, super_class),
+            Some(v) => {
+                lower_field_init_expr(checked, ctx, v, super_class, name_hint.as_deref())
+            }
             None => undef_expr(),
         };
         let expr = if *is_private {
@@ -2507,54 +2657,11 @@ fn lower_class_local(
                 optional: false,
                 ty: Type::Any,
             }
-        } else if matches!(fkey, draconic_ast::ObjectKey::Computed(_)) {
-            let key_expr = lower_object_key_name_expr(checked, ctx, fkey, super_class);
-            let key_id = ctx.alloc_synthetic_local(
-                format!("__drac_cfk_{}_{}", local.0, computed_field_key_locals.len()),
-                Type::Any,
-            );
-            // Reflect.ownKeys({[key]:1})[0] forces ToPropertyKey at class eval.
-            let to_key = Expr::Member {
-                object: Box::new(Expr::Call {
-                    callee: Box::new(Expr::Member {
-                        object: Box::new(Expr::IdentName {
-                            name: "Reflect".into(),
-                            ty: Type::Object,
-                        }),
-                        property: Box::new(Expr::String {
-                            value: "ownKeys".into(),
-                            ty: Type::String,
-                        }),
-                        computed: false,
-                        optional: false,
-                        ty: Type::Function,
-                    }),
-                    args: vec![Arg::Expr(Expr::Object {
-                        properties: vec![ObjectProp::Property {
-                            key: ObjectPropKey::Computed(key_expr),
-                            value: Expr::Number {
-                                raw: "1".into(),
-                                ty: Type::Number,
-                            },
-                        }],
-                        ty: Type::Object,
-                    })],
-                    optional: false,
-                    ty: Type::Any,
-                }),
-                property: Box::new(Expr::Number {
-                    raw: "0".into(),
-                    ty: Type::Number,
-                }),
-                computed: true,
-                optional: false,
-                ty: Type::Any,
-            };
-            computed_field_key_locals.push((key_id, to_key));
+        } else if let Some(key_id) = computed_key {
             Expr::Assign {
                 target: AssignTarget::Member {
                     object: Box::new(ctor_this()),
-                    property: Box::new(local_expr(key_id)),
+                    property: Box::new(local_expr(*key_id)),
                     computed: true,
                 },
                 op: AssignOp::Eq,
@@ -2905,15 +3012,48 @@ fn lower_class_local(
     }
 
     // Static fields and static blocks run after the class is fully linked, in order (E18.41).
+    // Initializers run as `function(){ return <init>; }.call(Class)` so `this` / direct
+    // eval see the constructor (E19.82.04). Arrows inside capture that this.
     for init in static_inits {
         match init {
-            StaticInit::Field(fkey, value, is_private) => {
-                let init_expr = match value {
-                    Some(v) => lower_expr(checked, ctx, v, None),
+            StaticInit::Field {
+                key: fkey,
+                value,
+                is_private,
+                computed_key,
+            } => {
+                let name_hint = field_name_hint(fkey, is_private);
+                let init_body = match value {
+                    Some(v) => lower_field_init_expr(checked, ctx, v, None, name_hint.as_deref()),
                     None => Expr::IdentName {
                         name: "undefined".into(),
                         ty: Type::Any,
                     },
+                };
+                // (function(){ "use strict"; return <init>; }).call(Class)
+                let init_expr = Expr::Call {
+                    callee: Box::new(member_prop(
+                        Expr::Function {
+                            name: None,
+                            params: Vec::new(),
+                            body: with_use_strict(vec![Stmt::Return {
+                                value: Some(init_body),
+                            }]),
+                            is_async: false,
+                            is_generator: false,
+                            is_arrow: false,
+                            is_method: false,
+                            ty: Type::Function,
+                        },
+                        "call",
+                        Type::Function,
+                    )),
+                    args: vec![Arg::Expr(Expr::Local {
+                        id: local,
+                        ty: Type::Function,
+                    })],
+                    optional: false,
+                    ty: Type::Any,
                 };
                 if is_private {
                     let pname = object_key_private_name(fkey).expect("static private field name");
@@ -2949,21 +3089,21 @@ fn lower_class_local(
                         },
                     });
                 } else {
-                    let (prop, computed) = lower_object_key_prop(checked, ctx, fkey, None);
+                    // CreateDataPropertyOrThrow — TypeError on non-writable prototype (E19.82.04).
+                    let key_expr = if let Some(key_id) = computed_key {
+                        local_expr(key_id)
+                    } else {
+                        lower_object_key_name_expr(checked, ctx, fkey, None)
+                    };
                     out.push(Stmt::Expr {
-                        expr: Expr::Assign {
-                            target: AssignTarget::Member {
-                                object: Box::new(Expr::Local {
-                                    id: local,
-                                    ty: Type::Function,
-                                }),
-                                property: Box::new(prop),
-                                computed,
+                        expr: create_data_property_or_throw(
+                            Expr::Local {
+                                id: local,
+                                ty: Type::Function,
                             },
-                            op: AssignOp::Eq,
-                            value: Box::new(init_expr),
-                            ty: Type::Any,
-                        },
+                            key_expr,
+                            init_expr,
+                        ),
                     });
                 }
             }
@@ -3029,6 +3169,52 @@ fn lower_class_local(
     ctx.private_accessors = prev_private_accessors;
     ctx.private_brands = prev_private_brands;
     out
+}
+
+/// NamedEvaluation name for a class field (`#x` for private) (E19.82.04).
+fn field_name_hint(key: &draconic_ast::ObjectKey, is_private: bool) -> Option<String> {
+    match key {
+        draconic_ast::ObjectKey::Ident(id) => {
+            if is_private {
+                Some(format!("#{}", id.name))
+            } else {
+                Some(id.name.clone())
+            }
+        }
+        draconic_ast::ObjectKey::String(s) => Some(s.value.to_string_lossy()),
+        draconic_ast::ObjectKey::Computed(_) => None,
+    }
+}
+
+/// ECMA-262 IsAnonymousFunctionDefinition (function/arrow only; classes use name_hint).
+fn is_anonymous_function_def(expr: &AstExpr) -> bool {
+    let mut e = expr;
+    loop {
+        match e {
+            AstExpr::Paren { expr: inner, .. } | AstExpr::As { expr: inner, .. } => e = inner,
+            AstExpr::FunctionExpression { name: None, is_method: false, .. } => return true,
+            AstExpr::ArrowFunction { .. } => return true,
+            _ => return false,
+        }
+    }
+}
+
+/// Lower a class field initializer with NamedEvaluation SetFunctionName (E19.82.04).
+fn lower_field_init_expr(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    value: &AstExpr,
+    super_class: Option<&AstExpr>,
+    name_hint: Option<&str>,
+) -> Expr {
+    // Class expressions still use name_hint inside lower_expr_hint.
+    let init = lower_expr_hint(checked, ctx, value, super_class, name_hint);
+    if let Some(hint) = name_hint {
+        if is_anonymous_function_def(value) {
+            return set_function_name_on_expr(ctx, init, hint);
+        }
+    }
+    init
 }
 
 /// `fn.call(object, ...args)` for private method/accessor invocation.

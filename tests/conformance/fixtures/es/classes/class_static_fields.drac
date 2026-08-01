@@ -1,0 +1,79 @@
+// E19.82.04: static field this, NamedEvaluation, intercalated keys, `static` name.
+
+// this in static field initializer is the constructor
+class ThisBind {
+  static f = "test";
+  static g = this.f + "262";
+  static h = () => this;
+}
+let tbF = ThisBind.f;
+let tbG = ThisBind.g;
+let tbH = ThisBind.h() === ThisBind;
+
+// NamedEvaluation SetFunctionName on field initializers
+class FnName {
+  static field = function () {
+    return 42;
+  };
+  static #priv = () => "ok";
+  static access() {
+    return this.#priv;
+  }
+  inst = function () {
+    return 1;
+  };
+}
+let fnStatic = FnName.field.name;
+let fnPriv = FnName.access().name;
+let fnInst = new FnName().inst.name;
+
+// static field redeclaration overwrites prior method
+class Redecl {
+  static f = "test";
+  static f = this.f + "262";
+  static g() {
+    return 45;
+  }
+  static g = this.g();
+}
+let rdF = Redecl.f;
+let rdG = Redecl.g;
+
+// intercalated computed keys: keys in source order; static values before instance values
+let i = 0;
+class Inter {
+  [i++] = i++;
+  static [i++] = i++;
+  [i++] = i++;
+}
+let inter = new Inter();
+let i0 = inter[0];
+let i2 = inter[2];
+let s1 = Inter[1];
+let iFinal = i;
+
+// `static` is a valid instance field name
+class StaticName {
+  static;
+  static = "foo";
+}
+let sn = new StaticName();
+// last field wins for same name — second is also named static with init
+// (two fields both named static: second overwrites)
+let snVal = sn.static;
+
+// static computed name "prototype" → TypeError
+let protoErr = "";
+try {
+  class Bad {
+    static ["prototype"] = 42;
+  }
+} catch (e) {
+  protoErr = e.name;
+}
+
+// class .name available during static field init
+let className = "";
+class Named {
+  static f = (className = this.name);
+}
