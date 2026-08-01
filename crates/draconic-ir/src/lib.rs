@@ -984,21 +984,8 @@ fn lower_class(
             ty: Type::Function,
         }),
     });
-    let iife = Expr::Call {
-        callee: Box::new(Expr::Function {
-            name: None,
-            params: Vec::new(),
-            body,
-            is_async: false,
-            is_generator: false,
-            is_arrow: false,
-            is_method: false,
-            ty: Type::Function,
-        }),
-        args: Vec::new(),
-        optional: false,
-        ty: Type::Function,
-    };
+    let (needs_yield, needs_await) = class_eval_yield_await(super_class, elements);
+    let iife = wrap_class_builder_iife(body, needs_yield, needs_await);
     vec![Stmt::Declare {
         local: outer,
         init: Some(iife),
@@ -1041,13 +1028,60 @@ fn lower_class_expression(
             ty: Type::Function,
         }),
     });
-    Expr::Call {
+    let (needs_yield, needs_await) = class_eval_yield_await(super_class, elements);
+    wrap_class_builder_iife(body, needs_yield, needs_await)
+}
+
+/// Whether ClassDefinitionEvaluation evaluates `yield` / `await` (E19.78).
+/// Computed keys, extends, static field inits, and static blocks run at class eval time.
+fn class_eval_yield_await(
+    super_class: Option<&AstExpr>,
+    elements: &[ClassElement],
+) -> (bool, bool) {
+    let mut needs_yield = super_class.is_some_and(ast_has_yield);
+    let mut needs_await = super_class.is_some_and(ast_has_await);
+    for el in elements {
+        match el {
+            ClassElement::Method { key, .. } | ClassElement::Accessor { key, .. } => {
+                needs_yield |= object_key_has_yield(key);
+                needs_await |= object_key_has_await(key);
+            }
+            ClassElement::Field {
+                key,
+                value,
+                is_static,
+                ..
+            } => {
+                needs_yield |= object_key_has_yield(key);
+                needs_await |= object_key_has_await(key);
+                if *is_static {
+                    if let Some(v) = value {
+                        needs_yield |= ast_has_yield(v);
+                        needs_await |= ast_has_await(v);
+                    }
+                }
+            }
+            ClassElement::StaticBlock { body, .. } => {
+                needs_await |= stmt_has_await(body);
+            }
+            ClassElement::Constructor { .. } => {}
+        }
+        if needs_yield && needs_await {
+            break;
+        }
+    }
+    (needs_yield, needs_await)
+}
+
+/// Build class IIFE, preserving outer `yield`/`await` via `yield*` / `await` (E19.78).
+fn wrap_class_builder_iife(body: Vec<Stmt>, needs_yield: bool, needs_await: bool) -> Expr {
+    let call = Expr::Call {
         callee: Box::new(Expr::Function {
             name: None,
             params: Vec::new(),
             body,
-            is_async: false,
-            is_generator: false,
+            is_async: needs_await && !needs_yield,
+            is_generator: needs_yield,
             is_arrow: false,
             is_method: false,
             ty: Type::Function,
@@ -1055,6 +1089,285 @@ fn lower_class_expression(
         args: Vec::new(),
         optional: false,
         ty: Type::Function,
+    };
+    if needs_yield {
+        Expr::Unary {
+            op: UnaryOp::YieldStar,
+            arg: Box::new(call),
+            ty: Type::Function,
+        }
+    } else if needs_await {
+        Expr::Unary {
+            op: UnaryOp::Await,
+            arg: Box::new(call),
+            ty: Type::Function,
+        }
+    } else {
+        call
+    }
+}
+
+fn object_key_has_yield(key: &draconic_ast::ObjectKey) -> bool {
+    matches!(key, draconic_ast::ObjectKey::Computed(e) if ast_has_yield(e))
+}
+
+fn object_key_has_await(key: &draconic_ast::ObjectKey) -> bool {
+    matches!(key, draconic_ast::ObjectKey::Computed(e) if ast_has_await(e))
+}
+
+/// True if `expr` evaluates a `yield`/`yield*` in the current function (not nested fn/class).
+fn ast_has_yield(expr: &AstExpr) -> bool {
+    match expr {
+        AstExpr::Unary {
+            op: UnaryOp::Yield | UnaryOp::YieldStar,
+            ..
+        } => true,
+        AstExpr::FunctionExpression { .. } | AstExpr::ClassExpression { .. } => false,
+        AstExpr::Unary { arg, .. }
+        | AstExpr::Paren { expr: arg, .. }
+        | AstExpr::As { expr: arg, .. }
+        | AstExpr::Update { arg, .. } => ast_has_yield(arg),
+        AstExpr::Binary { left, right, .. } | AstExpr::Assign { target: left, value: right, .. } => {
+            ast_has_yield(left) || ast_has_yield(right)
+        }
+        AstExpr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => ast_has_yield(test) || ast_has_yield(consequent) || ast_has_yield(alternate),
+        AstExpr::Call { callee, args, .. } | AstExpr::New { callee, args, .. } => {
+            ast_has_yield(callee)
+                || args.iter().any(|a| match a {
+                    AstArg::Expr(e) | AstArg::Spread(e) => ast_has_yield(e),
+                })
+        }
+        AstExpr::MemberExpression {
+            object, property, ..
+        } => ast_has_yield(object) || ast_has_yield(property),
+        AstExpr::PrivateIn { object, .. } => ast_has_yield(object),
+        AstExpr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            AstArrayElement::Expr(e) | AstArrayElement::Spread(e) => ast_has_yield(e),
+            AstArrayElement::Elision => false,
+        }),
+        AstExpr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            AstObjectProp::Property { key, value, .. } => {
+                object_key_has_yield(key) || ast_has_yield(value)
+            }
+            AstObjectProp::Accessor { key, body, .. } => {
+                object_key_has_yield(key) || stmt_has_yield(body)
+            }
+            AstObjectProp::Spread { expr, .. } => ast_has_yield(expr),
+        }),
+        AstExpr::ArrowFunction { body, params, .. } => {
+            // Arrow may contain yield only in defaults (illegal in generator params separately).
+            params
+                .iter()
+                .any(|p| p.default.as_ref().is_some_and(ast_has_yield))
+                || match body {
+                    draconic_ast::ArrowBody::Expr(e) => ast_has_yield(e),
+                    draconic_ast::ArrowBody::Block(s) => stmt_has_yield(s),
+                }
+        }
+        AstExpr::TemplateLiteral { expressions, .. } => expressions.iter().any(ast_has_yield),
+        AstExpr::TaggedTemplate {
+            tag, expressions, ..
+        } => ast_has_yield(tag) || expressions.iter().any(ast_has_yield),
+        AstExpr::ImportCall {
+            source, options, ..
+        } => ast_has_yield(source) || options.as_ref().is_some_and(|o| ast_has_yield(o)),
+        AstExpr::ArrayPattern { .. } | AstExpr::ObjectPattern { .. } => false,
+        _ => false,
+    }
+}
+
+fn stmt_has_yield(stmt: &AstStmt) -> bool {
+    match stmt {
+        AstStmt::Block { body, .. } => body.iter().any(stmt_has_yield),
+        AstStmt::Expression { expr, .. } => ast_has_yield(expr),
+        AstStmt::Return {
+            argument: Some(e), ..
+        }
+        | AstStmt::Throw { argument: e, .. } => ast_has_yield(e),
+        AstStmt::Let { init: Some(e), .. } => ast_has_yield(e),
+        AstStmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            ast_has_yield(test)
+                || stmt_has_yield(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_has_yield(a))
+        }
+        AstStmt::While { test, body, .. } => ast_has_yield(test) || stmt_has_yield(body),
+        AstStmt::DoWhile { body, test, .. } => stmt_has_yield(body) || ast_has_yield(test),
+        AstStmt::For {
+            init,
+            test,
+            update,
+            body,
+            ..
+        } => {
+            init.as_ref().is_some_and(|s| stmt_has_yield(s))
+                || test.as_ref().is_some_and(ast_has_yield)
+                || update.as_ref().is_some_and(ast_has_yield)
+                || stmt_has_yield(body)
+        }
+        AstStmt::ForIn { left, right, body, .. } | AstStmt::ForOf { left, right, body, .. } => {
+            stmt_has_yield(left) || ast_has_yield(right) || stmt_has_yield(body)
+        }
+        AstStmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            stmt_has_yield(block)
+                || handler.as_ref().is_some_and(|h| stmt_has_yield(h))
+                || finalizer.as_ref().is_some_and(|f| stmt_has_yield(f))
+        }
+        AstStmt::Switch {
+            discriminant,
+            cases,
+            ..
+        } => {
+            ast_has_yield(discriminant)
+                || cases.iter().any(|c| {
+                    c.test.as_ref().is_some_and(ast_has_yield) || c.body.iter().any(stmt_has_yield)
+                })
+        }
+        AstStmt::Labeled { body, .. } => stmt_has_yield(body),
+        AstStmt::With { object, body, .. } => ast_has_yield(object) || stmt_has_yield(body),
+        _ => false,
+    }
+}
+
+/// True if `expr` evaluates `await` in the current async/module context (not nested async fn).
+fn ast_has_await(expr: &AstExpr) -> bool {
+    match expr {
+        AstExpr::Unary {
+            op: UnaryOp::Await, ..
+        } => true,
+        AstExpr::FunctionExpression { .. } | AstExpr::ClassExpression { .. } => false,
+        AstExpr::ArrowFunction {
+            is_async: true, ..
+        } => false,
+        AstExpr::Unary { arg, .. }
+        | AstExpr::Paren { expr: arg, .. }
+        | AstExpr::As { expr: arg, .. }
+        | AstExpr::Update { arg, .. } => ast_has_await(arg),
+        AstExpr::Binary { left, right, .. } | AstExpr::Assign { target: left, value: right, .. } => {
+            ast_has_await(left) || ast_has_await(right)
+        }
+        AstExpr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => ast_has_await(test) || ast_has_await(consequent) || ast_has_await(alternate),
+        AstExpr::Call { callee, args, .. } | AstExpr::New { callee, args, .. } => {
+            ast_has_await(callee)
+                || args.iter().any(|a| match a {
+                    AstArg::Expr(e) | AstArg::Spread(e) => ast_has_await(e),
+                })
+        }
+        AstExpr::MemberExpression {
+            object, property, ..
+        } => ast_has_await(object) || ast_has_await(property),
+        AstExpr::PrivateIn { object, .. } => ast_has_await(object),
+        AstExpr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            AstArrayElement::Expr(e) | AstArrayElement::Spread(e) => ast_has_await(e),
+            AstArrayElement::Elision => false,
+        }),
+        AstExpr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            AstObjectProp::Property { key, value, .. } => {
+                object_key_has_await(key) || ast_has_await(value)
+            }
+            AstObjectProp::Accessor { key, body, .. } => {
+                object_key_has_await(key) || stmt_has_await(body)
+            }
+            AstObjectProp::Spread { expr, .. } => ast_has_await(expr),
+        }),
+        AstExpr::ArrowFunction { body, params, .. } => {
+            params
+                .iter()
+                .any(|p| p.default.as_ref().is_some_and(ast_has_await))
+                || match body {
+                    draconic_ast::ArrowBody::Expr(e) => ast_has_await(e),
+                    draconic_ast::ArrowBody::Block(s) => stmt_has_await(s),
+                }
+        }
+        AstExpr::TemplateLiteral { expressions, .. } => expressions.iter().any(ast_has_await),
+        AstExpr::TaggedTemplate {
+            tag, expressions, ..
+        } => ast_has_await(tag) || expressions.iter().any(ast_has_await),
+        AstExpr::ImportCall {
+            source, options, ..
+        } => ast_has_await(source) || options.as_ref().is_some_and(|o| ast_has_await(o)),
+        _ => false,
+    }
+}
+
+fn stmt_has_await(stmt: &AstStmt) -> bool {
+    match stmt {
+        AstStmt::Block { body, .. } => body.iter().any(stmt_has_await),
+        AstStmt::Expression { expr, .. } => ast_has_await(expr),
+        AstStmt::Return {
+            argument: Some(e), ..
+        }
+        | AstStmt::Throw { argument: e, .. } => ast_has_await(e),
+        AstStmt::Let { init: Some(e), .. } => ast_has_await(e),
+        AstStmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            ast_has_await(test)
+                || stmt_has_await(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_has_await(a))
+        }
+        AstStmt::While { test, body, .. } => ast_has_await(test) || stmt_has_await(body),
+        AstStmt::DoWhile { body, test, .. } => stmt_has_await(body) || ast_has_await(test),
+        AstStmt::For {
+            init,
+            test,
+            update,
+            body,
+            ..
+        } => {
+            init.as_ref().is_some_and(|s| stmt_has_await(s))
+                || test.as_ref().is_some_and(ast_has_await)
+                || update.as_ref().is_some_and(ast_has_await)
+                || stmt_has_await(body)
+        }
+        AstStmt::ForIn { left, right, body, .. } | AstStmt::ForOf { left, right, body, .. } => {
+            stmt_has_await(left) || ast_has_await(right) || stmt_has_await(body)
+        }
+        AstStmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            stmt_has_await(block)
+                || handler.as_ref().is_some_and(|h| stmt_has_await(h))
+                || finalizer.as_ref().is_some_and(|f| stmt_has_await(f))
+        }
+        AstStmt::Switch {
+            discriminant,
+            cases,
+            ..
+        } => {
+            ast_has_await(discriminant)
+                || cases.iter().any(|c| {
+                    c.test.as_ref().is_some_and(ast_has_await) || c.body.iter().any(stmt_has_await)
+                })
+        }
+        AstStmt::Labeled { body, .. } => stmt_has_await(body),
+        AstStmt::With { object, body, .. } => ast_has_await(object) || stmt_has_await(body),
+        _ => false,
     }
 }
 
@@ -1185,21 +1498,53 @@ fn parent_instance_super_base(parent: Expr) -> Expr {
 ///
 /// Emits roughly:
 /// ```js
-/// Object.defineProperty(target, key, ((d) => {
+/// let __k = key; // once — preserves yield/await side effects (E19.78)
+/// Object.defineProperty(target, __k, ((d) => {
 ///   d.enumerable = false;
 ///   if (d.get === undefined) delete d.get;
 ///   if (d.set === undefined) delete d.set;
 ///   return d;
-/// })(Object.getOwnPropertyDescriptor({ __proto__: homeProto, … }, key)));
+/// })(Object.getOwnPropertyDescriptor({ __proto__: homeProto, … }, __k)));
 /// ```
 /// Deleting absent get/set keeps separate get-then-set installs from wiping each other.
+///
+/// `home_prop` must use `ObjectPropKey::Computed(Local(key_temp))` or Static matching
+/// `key_expr` — callers pass a key already bound via the returned temp binding.
 fn define_class_element_with_home(
     ctx: &mut LowerCtx,
     target: Expr,
     key_expr: Expr,
     home_prop: ObjectProp,
     home_proto: Option<Expr>,
-) -> Stmt {
+) -> Vec<Stmt> {
+    // Evaluate key once (yield/await/ToPropertyKey side effects) (E19.78).
+    // Unique name: JS emit uses local names, not ids.
+    let key_id = ctx.alloc_synthetic_local(
+        format!("__drac_ck_{}", ctx.next_synth_id),
+        Type::Any,
+    );
+    let key_local = Expr::Local {
+        id: key_id,
+        ty: Type::Any,
+    };
+    let mut out = vec![Stmt::Declare {
+        local: key_id,
+        init: Some(key_expr),
+        kind: BindingKind::Let,
+    }];
+    // Rewrite home prop key to the temp so the object literal does not re-eval.
+    let home_prop = match home_prop {
+        ObjectProp::Property { value, .. } => ObjectProp::Property {
+            key: ObjectPropKey::Computed(key_local.clone()),
+            value,
+        },
+        ObjectProp::Accessor { kind, value, .. } => ObjectProp::Accessor {
+            kind,
+            key: ObjectPropKey::Computed(key_local.clone()),
+            value,
+        },
+        other => other,
+    };
     let mut home_props = Vec::new();
     if let Some(proto) = home_proto {
         home_props.push(ObjectProp::Property {
@@ -1214,7 +1559,7 @@ fn define_class_element_with_home(
     };
     let gopd = object_method_call(
         "getOwnPropertyDescriptor",
-        vec![Arg::Expr(home), Arg::Expr(key_expr.clone())],
+        vec![Arg::Expr(home), Arg::Expr(key_local.clone())],
     );
     // ((d) => (d.enumerable = false, d.get === void 0 && delete d.get, d.set === void 0 && delete d.set, d))(gopd)
     let d_id = ctx.alloc_synthetic_local("__drac_desc".into(), Type::Any);
@@ -1303,12 +1648,13 @@ fn define_class_element_with_home(
         optional: false,
         ty: Type::Any,
     };
-    Stmt::Expr {
+    out.push(Stmt::Expr {
         expr: object_method_call(
             "defineProperty",
-            vec![Arg::Expr(target), Arg::Expr(key_expr), Arg::Expr(desc)],
+            vec![Arg::Expr(target), Arg::Expr(key_local), Arg::Expr(desc)],
         ),
-    }
+    });
+    out
 }
 
 fn lower_object_prop_key(
@@ -1980,8 +2326,8 @@ fn lower_class_local(
         } else {
             member_prop(class_ref, "prototype", Type::Any)
         };
+        // Key lowered once; define_class_element_with_home binds to temp (E19.78).
         let prop_name = lower_object_key_name_expr(checked, ctx, method_key, None);
-        let prop_key = lower_object_prop_key(checked, ctx, method_key, None);
         let home_proto = match (&parent_expr, is_static) {
             (Some(p), true) => Some(p.clone()),
             (Some(p), false) => Some(parent_instance_super_base(p.clone())),
@@ -1995,12 +2341,13 @@ fn lower_class_local(
             )),
             (None, false) => None,
         };
-        out.push(define_class_element_with_home(
+        out.extend(define_class_element_with_home(
             ctx,
             target_object,
             prop_name,
             ObjectProp::Property {
-                key: prop_key,
+                // Placeholder key — rewritten to the once-bound temp inside helper.
+                key: ObjectPropKey::Static("".into()),
                 value: method_fn,
             },
             home_proto,
@@ -2032,7 +2379,6 @@ fn lower_class_local(
             member_prop(class_ref, "prototype", Type::Any)
         };
         let prop_name = lower_object_key_name_expr(checked, ctx, acc_key, None);
-        let prop_key = lower_object_prop_key(checked, ctx, acc_key, None);
         let home_proto = match (&parent_expr, is_static) {
             (Some(p), true) => Some(p.clone()),
             (Some(p), false) => Some(parent_instance_super_base(p.clone())),
@@ -2046,13 +2392,13 @@ fn lower_class_local(
             )),
             (None, false) => None,
         };
-        out.push(define_class_element_with_home(
+        out.extend(define_class_element_with_home(
             ctx,
             target_object,
             prop_name,
             ObjectProp::Accessor {
                 kind,
-                key: prop_key,
+                key: ObjectPropKey::Static("".into()),
                 value: accessor_fn,
             },
             home_proto,

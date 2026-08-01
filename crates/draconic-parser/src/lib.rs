@@ -220,9 +220,19 @@ impl Parser {
             body.extend(self.parse_using_decls(false)?);
             return Ok(());
         }
-        if self.check(&TokenKind::Class) {
-            body.push(self.parse_class_decl()?);
-            return Ok(());
+        // E19.78: DecoratorList before class declaration.
+        if self.check(&TokenKind::At) || self.check(&TokenKind::Class) {
+            if self.check(&TokenKind::At) {
+                self.parse_decorator_list()?;
+            }
+            if self.check(&TokenKind::Class) {
+                body.push(self.parse_class_decl()?);
+                return Ok(());
+            }
+            return Err(Diagnostic::new(
+                "decorators must precede a class declaration".to_string(),
+                self.current_span(),
+            ));
         }
         // HoistableDeclaration is StatementListItem (E19.49); bare Statement is Annex B only.
         if self.check(&TokenKind::Function)
@@ -1246,6 +1256,97 @@ impl Parser {
         })
     }
 
+    /// E19.78: parse and discard DecoratorList (`@dec …`). Syntax only for now.
+    fn parse_decorator_list(&mut self) -> Result<(), Diagnostic> {
+        while self.check(&TokenKind::At) {
+            self.parse_decorator()?;
+        }
+        Ok(())
+    }
+
+    /// `@ DecoratorMemberExpression | @ DecoratorParenthesizedExpression | @ DecoratorCallExpression`
+    fn parse_decorator(&mut self) -> Result<(), Diagnostic> {
+        self.expect(&TokenKind::At)?;
+        if self.check(&TokenKind::LParen) {
+            // DecoratorParenthesizedExpression: `( Expression )`
+            self.bump();
+            let _ = self.parse_expr()?;
+            self.expect(&TokenKind::RParen)?;
+            return Ok(());
+        }
+        // DecoratorMemberExpression (+ optional Arguments for CallExpression).
+        let _ = self.parse_decorator_member_expression()?;
+        if self.check(&TokenKind::LParen) {
+            self.bump();
+            let _ = self.parse_arg_list()?;
+            self.expect(&TokenKind::RParen)?;
+        }
+        Ok(())
+    }
+
+    /// IdentifierReference / `. IdentifierName` / `. PrivateIdentifier` chain.
+    fn parse_decorator_member_expression(&mut self) -> Result<Expr, Diagnostic> {
+        // Start with IdentifierReference (incl. yield/await when allowed as idents).
+        let start_tok = self.current().clone();
+        let mut expr = if let Some(name) = start_tok.ident_name_opt() {
+            self.bump();
+            Expr::Ident(Ident {
+                name,
+                span: start_tok.span,
+            })
+        } else if self.check(&TokenKind::Yield) && !self.in_generator {
+            let sp = self.bump().span;
+            Expr::Ident(Ident {
+                name: "yield".into(),
+                span: sp,
+            })
+        } else if self.check(&TokenKind::Await) && !self.in_await_context {
+            let sp = self.bump().span;
+            Expr::Ident(Ident {
+                name: "await".into(),
+                span: sp,
+            })
+        } else {
+            return Err(Diagnostic::new(
+                format!("expected decorator expression, found {:?}", start_tok.kind),
+                start_tok.span,
+            ));
+        };
+        while self.check(&TokenKind::Dot) {
+            self.bump();
+            let obj_start = expr_span(&expr).start.0;
+            if let TokenKind::PrivateIdent(name) = &self.current().kind {
+                let name = name.clone();
+                let prop_span = self.bump().span;
+                expr = Expr::MemberExpression {
+                    object: Box::new(expr),
+                    property: Box::new(Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    })),
+                    computed: false,
+                    optional: false,
+                    private: true,
+                    span: Span::new(obj_start, prop_span.end.0),
+                };
+            } else {
+                let (name, prop_span) = self.expect_ident_name()?;
+                expr = Expr::MemberExpression {
+                    object: Box::new(expr),
+                    property: Box::new(Expr::Ident(Ident {
+                        name,
+                        span: prop_span,
+                    })),
+                    computed: false,
+                    optional: false,
+                    private: false,
+                    span: Span::new(obj_start, prop_span.end.0),
+                };
+            }
+        }
+        Ok(expr)
+    }
+
     /// `class Name extends Super? { constructor?(…) {…} method(…) {…} … }`
     fn parse_class_decl(&mut self) -> Result<Stmt, Diagnostic> {
         self.parse_class_decl_inner(false)
@@ -1403,6 +1504,10 @@ impl Parser {
     }
 
     fn parse_class_element(&mut self) -> Result<ClassElement, Diagnostic> {
+        // E19.78: optional DecoratorList before class element (discarded; syntax only).
+        if self.check(&TokenKind::At) {
+            self.parse_decorator_list()?;
+        }
         let start = self.current_span().start.0;
         let is_static = if self.check(&TokenKind::Static) {
             self.bump();
@@ -2555,16 +2660,26 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
-        if self.check(&TokenKind::Class) {
-            let decl = self.parse_class_decl()?;
-            let end = stmt_span(&decl).end.0;
-            return Ok(Stmt::ExportNamedDeclaration {
-                declaration: Some(Box::new(decl)),
-                specifiers: Vec::new(),
-                source: None,
-                attributes: Vec::new(),
-                span: Span::new(start, end),
-            });
+        // E19.78: `export` DecoratorList_opt `class` …
+        if self.check(&TokenKind::At) || self.check(&TokenKind::Class) {
+            if self.check(&TokenKind::At) {
+                self.parse_decorator_list()?;
+            }
+            if self.check(&TokenKind::Class) {
+                let decl = self.parse_class_decl()?;
+                let end = stmt_span(&decl).end.0;
+                return Ok(Stmt::ExportNamedDeclaration {
+                    declaration: Some(Box::new(decl)),
+                    specifiers: Vec::new(),
+                    source: None,
+                    attributes: Vec::new(),
+                    span: Span::new(start, end),
+                });
+            }
+            return Err(Diagnostic::new(
+                "decorators must precede a class declaration".to_string(),
+                self.current_span(),
+            ));
         }
         Err(Diagnostic::new(
             "expected `default`, `*`, `let`, `const`, `var`, `function`, `class`, or `{` after `export`"
@@ -2669,19 +2784,26 @@ impl Parser {
                 span: Span::new(start, end),
             });
         }
-        if self.check(&TokenKind::Class) {
-            // E19.54: `export default class extends …` / anonymous `export default class {…}`.
-            let decl = self.parse_class_decl_inner(true)?;
-            let end = stmt_span(&decl).end.0;
-            let local = match &decl {
-                Stmt::ClassDeclaration { name, .. } => name.clone(),
-                _ => unreachable!("parse_class_decl_inner returns ClassDeclaration"),
-            };
-            return Ok(Stmt::ExportDefaultDeclaration {
-                declaration: Box::new(decl),
-                local,
-                span: Span::new(start, end),
-            });
+        // E19.78: `export default` DecoratorList_opt `class` …
+        if self.check(&TokenKind::At) || self.check(&TokenKind::Class) {
+            if self.check(&TokenKind::At) {
+                self.parse_decorator_list()?;
+            }
+            if self.check(&TokenKind::Class) {
+                // E19.54: `export default class extends …` / anonymous `export default class {…}`.
+                let decl = self.parse_class_decl_inner(true)?;
+                let end = stmt_span(&decl).end.0;
+                let local = match &decl {
+                    Stmt::ClassDeclaration { name, .. } => name.clone(),
+                    _ => unreachable!("parse_class_decl_inner returns ClassDeclaration"),
+                };
+                return Ok(Stmt::ExportDefaultDeclaration {
+                    declaration: Box::new(decl),
+                    local,
+                    span: Span::new(start, end),
+                });
+            }
+            // Fall through: `@dec` alone is not export default (decorator applies to following).
         }
         // LexicalDeclaration is not a valid export default (E19.41 / Test262 parse-err-export-dflt-let).
         if self.check(&TokenKind::Const)
@@ -4230,7 +4352,11 @@ impl Parser {
                     key_tok.span.start.0
                 };
                 self.bump();
-                let key_expr = self.parse_assignment()?;
+                let prev_allow_in = self.allow_in;
+                self.allow_in = true;
+                let key_expr = self.parse_assignment();
+                self.allow_in = prev_allow_in;
+                let key_expr = key_expr?;
                 self.expect(&TokenKind::RBracket)?;
                 let key = ObjectKey::Computed(Box::new(key_expr));
                 if self.check(&TokenKind::LParen) {
@@ -4591,7 +4717,13 @@ impl Parser {
             }
             TokenKind::LBracket => {
                 self.bump();
-                let expr = self.parse_assignment()?;
+                // ComputedPropertyName AssignmentExpression always allows `in`
+                // (even when the surrounding cover is for-in `allow_in = false`) (E19.78).
+                let prev_allow_in = self.allow_in;
+                self.allow_in = true;
+                let expr = self.parse_assignment();
+                self.allow_in = prev_allow_in;
+                let expr = expr?;
                 self.expect(&TokenKind::RBracket)?;
                 Ok(ObjectKey::Computed(Box::new(expr)))
             }
@@ -4733,6 +4865,11 @@ impl Parser {
                 self.parse_function_expression()
             }
             TokenKind::Class => self.parse_class_expression(),
+            // E19.78: `@dec class …` class expression with DecoratorList.
+            TokenKind::At => {
+                self.parse_decorator_list()?;
+                self.parse_class_expression()
+            }
             _ => Err(Diagnostic::new(
                 format!("expected expression, found {:?}", tok.kind),
                 tok.span,
@@ -4998,7 +5135,11 @@ impl Parser {
             }
             TokenKind::LBracket => {
                 self.bump();
-                let expr = self.parse_assignment()?;
+                let prev_allow_in = self.allow_in;
+                self.allow_in = true;
+                let expr = self.parse_assignment();
+                self.allow_in = prev_allow_in;
+                let expr = expr?;
                 self.expect(&TokenKind::RBracket)?;
                 Ok((ObjectKey::Computed(Box::new(expr)), false))
             }
@@ -5479,7 +5620,12 @@ fn js_number_to_property_key(n: f64) -> String {
     if n == 0.0 {
         return "0".into();
     }
-    if n.fract() == 0.0 && n.abs() <= 9007199254740991.0 {
+    let abs = n.abs();
+    // ECMA-262 Number::toString(10): scientific when |n| < 1e-6 or |n| >= 1e21.
+    if abs < 1e-6 || abs >= 1e21 {
+        return js_number_to_exponential(n);
+    }
+    if n.fract() == 0.0 && abs <= 9007199254740991.0 {
         if n < 0.0 {
             return format!("-{}", (-n) as u64);
         }
@@ -5488,6 +5634,20 @@ fn js_number_to_property_key(n: f64) -> String {
     let mut s = format!("{n}");
     if let Some(stripped) = s.strip_suffix(".0") {
         s = stripped.to_string();
+    }
+    s
+}
+
+/// JS-style exponential: `1e-7`, `1e+21` (explicit `+` on non-negative exponents).
+fn js_number_to_exponential(n: f64) -> String {
+    let s = format!("{n:e}");
+    if let Some(e_idx) = s.rfind('e') {
+        let (mant, exp) = s.split_at(e_idx);
+        let digits = &exp[1..];
+        if digits.starts_with('+') || digits.starts_with('-') {
+            return s;
+        }
+        return format!("{mant}e+{digits}");
     }
     s
 }
@@ -9203,6 +9363,44 @@ Program
                 && dump.contains("key: String \"3\"")
                 && dump.contains("key: String \"16\""),
             "expected numeric PropNames as strings, got:\n{dump}"
+        );
+    }
+
+    /// E19.78: non-canonical numeric accessor names use ToString(MV) (`0.0000001` → `1e-7`).
+    #[test]
+    fn parse_class_numeric_accessor_non_canonical() {
+        let dump = parse_and_dump("class C { get 0.0000001() { return 1; } }\n").unwrap();
+        assert!(
+            dump.contains("key: String \"1e-7\""),
+            "expected ToString key 1e-7, got:\n{dump}"
+        );
+    }
+
+    /// E19.78: `in` allowed inside computed property names even in for-in cover.
+    #[test]
+    fn parse_computed_key_in_inside_for() {
+        let dump = parse_and_dump(
+            "for (C = class { get ['x' in empty]() { return 1; } }; ;) { break; }\n",
+        )
+        .unwrap();
+        assert!(
+            dump.contains("ClassExpression") && dump.contains("Binary"),
+            "expected class with `in` in computed key, got:\n{dump}"
+        );
+    }
+
+    /// E19.78: decorator `@` syntax on class declarations (parsed, discarded).
+    #[test]
+    fn parse_class_decorators() {
+        let dump = parse_and_dump("function dec() {}\n@dec class C {}\n").unwrap();
+        assert!(
+            dump.contains("ClassDeclaration") && dump.contains("name: C"),
+            "expected decorated class decl, got:\n{dump}"
+        );
+        let expr = parse_and_dump("function dec() {}\nvar C = @dec class {};\n").unwrap();
+        assert!(
+            expr.contains("ClassExpression"),
+            "expected decorated class expr, got:\n{expr}"
         );
     }
 

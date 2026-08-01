@@ -117,6 +117,8 @@ pub enum TokenKind {
     /// `...` rest/spread
     DotDotDot,
     Colon,
+    /// `@` decorator (E19.78).
+    At,
     Question,
     /// `?.` optional chaining punctuator (not when followed by a decimal digit).
     QuestionDot,
@@ -421,6 +423,10 @@ impl<'a> Lexer<'a> {
             b':' => {
                 self.bump();
                 TokenKind::Colon
+            }
+            b'@' => {
+                self.bump();
+                TokenKind::At
             }
             b'?' => {
                 self.bump();

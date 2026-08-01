@@ -681,7 +681,14 @@ class C extends B {
         assert!(js.contains("super.y"), "{js}");
         assert!(js.contains("super.z"), "{js}");
         assert!(js.contains("getOwnPropertyDescriptor"), "{js}");
-        assert!(js.contains("m() {") || js.contains("m(){"), "{js}");
+        // Method form via home-object install (key may be once-bound temp, E19.78).
+        assert!(
+            js.contains("m() {")
+                || js.contains("m(){")
+                || js.contains("]() {")
+                || js.contains("](){"),
+            "{js}"
+        );
         assert!(!js.contains("B.prototype.x"), "{js}");
         assert!(!js.contains("(super)"), "{js}");
     }
