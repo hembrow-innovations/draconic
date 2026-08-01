@@ -891,7 +891,10 @@ pub fn strip_frontmatter(source: &str) -> &str {
     after[end + 5..].trim_start()
 }
 
-/// True when frontmatter declares a negative parse/early SyntaxError expectation.
+/// True when frontmatter declares a negative parse/early/resolution SyntaxError expectation.
+///
+/// E19.71: `phase: resolution` is link-time (ambiguous/missing export) — treat like
+/// compile failure, same as parse/early.
 pub fn is_negative_parse(source: &str) -> bool {
     let Some(meta) = frontmatter_meta(source) else {
         return false;
@@ -899,7 +902,9 @@ pub fn is_negative_parse(source: &str) -> bool {
     if !meta.contains("negative:") {
         return false;
     }
-    meta.contains("phase: parse") || meta.contains("phase: early")
+    meta.contains("phase: parse")
+        || meta.contains("phase: early")
+        || meta.contains("phase: resolution")
 }
 
 /// True when frontmatter declares a negative runtime expectation (error must be thrown).
@@ -1304,29 +1309,38 @@ pub fn compile_test_to_js(test_body: &str) -> Result<String, String> {
 /// Like [`compile_test_to_js`], with optional suite file path for Module link.
 pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Result<String, String> {
     let module_goal = is_module_flag(test_body);
-    // E19.39 raw: keep full file (hashbang + copyright + frontmatter-as-comment).
-    // Hashbang must remain the first two bytes — append shim after the source.
-    let source = if is_raw_flag(test_body) {
-        if is_only_strict(test_body) {
-            format!("{test_body}\n\"use strict\";\n{HARNESS_SHIM}")
-        } else {
-            format!("{test_body}\n{HARNESS_SHIM}")
-        }
-    } else {
-        let body = strip_frontmatter(test_body);
-        // `"use strict"` must be the first statement so the whole script (incl. body) is strict.
-        if is_only_strict(test_body) {
-            format!("\"use strict\";\n{HARNESS_SHIM}\n{body}")
-        } else {
-            format!("{HARNESS_SHIM}\n{body}")
-        }
-    };
     let scan_body = if is_raw_flag(test_body) {
         test_body
     } else {
         strip_frontmatter(test_body)
     };
     let needs_link = module_goal && source_has_static_module_syntax(scan_body);
+    // E19.71: for static module link, keep harness *out* of the linked graph and
+    // prepend it to emitted JS so it always runs before any dependency body
+    // (sibling test files may still contain bare `assert.sameValue` calls).
+    let source = if is_raw_flag(test_body) {
+        if needs_link {
+            test_body.to_string()
+        } else if is_only_strict(test_body) {
+            format!("{test_body}\n\"use strict\";\n{HARNESS_SHIM}")
+        } else {
+            format!("{test_body}\n{HARNESS_SHIM}")
+        }
+    } else {
+        let body = strip_frontmatter(test_body);
+        if needs_link {
+            if is_only_strict(test_body) {
+                format!("\"use strict\";\n{body}")
+            } else {
+                body.to_string()
+            }
+        } else if is_only_strict(test_body) {
+            // `"use strict"` must be the first statement so the whole script (incl. body) is strict.
+            format!("\"use strict\";\n{HARNESS_SHIM}\n{body}")
+        } else {
+            format!("{HARNESS_SHIM}\n{body}")
+        }
+    };
     let module = if needs_link {
         let Some(path) = test_path else {
             return Err("compile: module test with import/export needs suite path".into());
@@ -1335,11 +1349,19 @@ pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Resul
         // Unique per concurrent compile (pid alone races under DRACONIC_TEST262_JOBS>1).
         static ENTRY_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let seq = ENTRY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = dir.join(format!(
+        let tmp_name = format!(
             ".draconic-test262-entry-{}-{}.js",
             std::process::id(),
             seq
-        ));
+        );
+        let tmp = dir.join(&tmp_name);
+        // E19.71: Test262 often self-imports `./this-file.js`. Rewrite to the temp
+        // entry so link does not load the on-disk original as a second module.
+        let source = if let Some(base) = path.file_name().and_then(|s| s.to_str()) {
+            rewrite_self_module_specifiers(&source, base, &tmp_name)
+        } else {
+            source
+        };
         fs::write(&tmp, &source).map_err(|e| format!("compile: write temp entry: {e}"))?;
         let result = compile_path(&tmp).map_err(|d| format!("compile: {d}"));
         let _ = fs::remove_file(&tmp);
@@ -1349,7 +1371,26 @@ pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Resul
     } else {
         compile_source(&source).map_err(|d| format!("compile: {d}"))?
     };
-    emit_js(&module).map_err(|d| format!("emit_js: {d}"))
+    let js = emit_js(&module).map_err(|d| format!("emit_js: {d}"))?;
+    if needs_link {
+        Ok(format!("{HARNESS_SHIM}\n{js}"))
+    } else {
+        Ok(js)
+    }
+}
+
+/// Rewrite `from "./orig.js"` / `from './orig.js'` to the temp entry name (E19.71).
+fn rewrite_self_module_specifiers(source: &str, orig_base: &str, tmp_base: &str) -> String {
+    let mut out = source.to_string();
+    for quote in ['\'', '"'] {
+        let from = format!("from {quote}./{orig_base}{quote}");
+        let to = format!("from {quote}./{tmp_base}{quote}");
+        out = out.replace(&from, &to);
+        let from = format!("from {quote}{orig_base}{quote}");
+        let to = format!("from {quote}./{tmp_base}{quote}");
+        out = out.replace(&from, &to);
+    }
+    out
 }
 
 /// Rough scan: static `import`/`export` declarations (not dynamic `import()`).
@@ -1691,6 +1732,9 @@ mod tests {
         let src = "/*---\nnegative:\n  phase: parse\n  type: SyntaxError\n---*/\n1_\n";
         assert!(is_negative_parse(src));
         assert!(!is_negative_parse("/*---\ndescription: x\n---*/\n1\n"));
+        // E19.71: resolution-phase SyntaxError is compile/link failure.
+        let res = "/*---\nnegative:\n  phase: resolution\n  type: SyntaxError\nflags: [module]\n---*/\nimport { x } from \"./m.js\";\n";
+        assert!(is_negative_parse(res));
     }
 
     #[test]

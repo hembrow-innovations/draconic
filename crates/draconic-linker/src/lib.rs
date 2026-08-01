@@ -325,6 +325,9 @@ impl Loader {
         let entry = normalize_path(entry)?;
         let entry_id = *self.ids.get(&entry).expect("entry loaded");
 
+        // E19.71: IndirectExportEntries must resolve before emit.
+        self.validate_indirect_exports()?;
+
         // Mangle non-entry modules fully. Entry keeps original local names so
         // host checks (js.check) and scripts see the source binding names.
         let mut mangled: Vec<HashMap<String, String>> = Vec::with_capacity(self.modules.len());
@@ -366,17 +369,7 @@ impl Loader {
                             Span::dummy(),
                         )
                     })?;
-                let remote = final_local_name(&mangled[def_id], &local_in_exporter).ok_or_else(
-                    || {
-                        Diagnostic::new(
-                            format!(
-                                "export `{}` local `{}` missing in defining module",
-                                bind.imported, local_in_exporter,
-                            ),
-                            Span::dummy(),
-                        )
-                    },
-                )?;
+                let remote = final_binding_name(&mangled, def_id, &local_in_exporter)?;
                 if let Some(prev) = import_renames[id].get(&bind.local) {
                     if prev != &remote {
                         return Err(Diagnostic::new(
@@ -393,11 +386,11 @@ impl Loader {
         // deferred-namespace trigger. Eager = entry + eval_deps closure.
         let eager = self.compute_eager_modules(entry_id);
 
-        // Inject namespace object bindings before rename (object values use final remote names).
-        // Unique synthetic spans: binder/IR key symbols and resolutions by Span.
-        // Covers `import * as ns` and `export * as ns from`.
+        // E19.71: one shared namespace object per target module (`__ns{id}`).
+        // Eager `import *` / `export * as` rename onto that binding.
         let mut span_gen = SyntheticSpans::new();
         let mut any_deferred_ns = false;
+        let mut shared_ns_targets: HashSet<usize> = HashSet::new();
         for id in 0..self.modules.len() {
             let mut ns_binds = self.modules[id].namespaces.clone();
             ns_binds.extend(self.modules[id].namespace_reexports.clone());
@@ -423,13 +416,8 @@ impl Loader {
                     for export_name in names {
                         let (def_id, local_in_exporter) =
                             resolved.get(&export_name).expect("key from map");
-                        let remote = final_local_name(&mangled[*def_id], local_in_exporter)
-                            .ok_or_else(|| {
-                                Diagnostic::new(
-                                    format!("namespace export `{export_name}` local missing"),
-                                    Span::dummy(),
-                                )
-                            })?;
+                        let remote =
+                            final_binding_name(&mangled, *def_id, local_in_exporter)?;
                         pairs.push((export_name, remote));
                     }
                     ns_stmts.push(make_deferred_namespace_binding(
@@ -439,22 +427,9 @@ impl Loader {
                         bind_span,
                     )?);
                 } else {
-                    let props =
-                        namespace_object_props_resolved(&resolved, &mangled, &mut span_gen)?;
-                    let obj_span = span_gen.next();
-                    ns_stmts.push(Stmt::Let {
-                        kind: BindingKind::Let,
-                        binding: BindingPattern::Ident(Ident {
-                            name: bind.local.clone(),
-                            span: bind_span,
-                        }),
-                        type_ann: None,
-                        init: Some(Expr::ObjectExpression {
-                            properties: props,
-                            span: obj_span,
-                        }),
-                        span: bind_span,
-                    });
+                    shared_ns_targets.insert(from_id);
+                    import_renames[id]
+                        .insert(bind.local.clone(), shared_namespace_binding_name(from_id));
                 }
             }
             if !ns_stmts.is_empty() {
@@ -463,6 +438,32 @@ impl Loader {
                 combined.append(body);
                 *body = combined;
             }
+        }
+
+        // Build shared eager namespace objects once per target module.
+        // Emitted after that module's body (post-order) so export locals are initialized.
+        let mut shared_ns_by_id: HashMap<usize, Stmt> = HashMap::new();
+        for from_id in shared_ns_targets {
+            let resolved = self.collect_resolved_exports(from_id)?;
+            let props = namespace_object_props_resolved(&resolved, &mangled, &mut span_gen)?;
+            let bind_span = span_gen.next();
+            let obj_span = span_gen.next();
+            shared_ns_by_id.insert(
+                from_id,
+                Stmt::Let {
+                    kind: BindingKind::Let,
+                    binding: BindingPattern::Ident(Ident {
+                        name: shared_namespace_binding_name(from_id),
+                        span: bind_span,
+                    }),
+                    type_ann: None,
+                    init: Some(Expr::ObjectExpression {
+                        properties: props,
+                        span: obj_span,
+                    }),
+                    span: bind_span,
+                },
+            );
         }
 
         // modules are stored in post-order (deps before importers). Entry last.
@@ -535,6 +536,26 @@ impl Loader {
                 end = sp.end.0;
             }
             linked_body.extend(body);
+            // Namespace object for this module after its exports are initialized.
+            if let Some(ns_stmt) = shared_ns_by_id.remove(&id) {
+                let sp = stmt_span_approx(&ns_stmt);
+                if linked_body.is_empty() {
+                    start = sp.start.0;
+                }
+                end = sp.end.0;
+                linked_body.push(ns_stmt);
+            }
+        }
+        // Empty modules that are still namespace targets (no body stmts).
+        let mut leftover: Vec<_> = shared_ns_by_id.into_iter().collect();
+        leftover.sort_by_key(|(id, _)| *id);
+        for (_, ns_stmt) in leftover {
+            let sp = stmt_span_approx(&ns_stmt);
+            if linked_body.is_empty() {
+                start = sp.start.0;
+            }
+            end = sp.end.0;
+            linked_body.push(ns_stmt);
         }
 
         Ok(Program {
@@ -609,38 +630,91 @@ impl Loader {
 
     /// Resolve `name` exported by `module_id` to `(defining_module_id, local_name)`.
     /// Follows `export * from` and `export { … } from`. Direct exports shadow stars.
+    /// Ambiguous star collisions yield `None` (same as missing for link errors).
     fn resolve_export(
         &self,
         module_id: usize,
         name: &str,
         visiting: &mut HashSet<usize>,
     ) -> Result<Option<(usize, String)>, Diagnostic> {
-        let all = self.collect_resolved_exports_rec(module_id, visiting)?;
-        Ok(all.get(name).cloned())
+        let (unambiguous, ambiguous) = self.collect_export_maps_rec(module_id, visiting)?;
+        if ambiguous.contains(name) {
+            return Ok(None);
+        }
+        Ok(unambiguous.get(name).cloned())
     }
 
-    /// All export names visible from `module_id` (direct + named/`export *` re-exports),
-    /// mapped to `(defining_module_id, local_name_pre_mangle)`.
+    /// Unambiguous export names visible from `module_id` (GetModuleNamespace set).
+    /// Ambiguous star collisions are omitted, not errors (E19.71).
     fn collect_resolved_exports(
         &self,
         module_id: usize,
     ) -> Result<HashMap<String, (usize, String)>, Diagnostic> {
-        self.collect_resolved_exports_rec(module_id, &mut HashSet::new())
+        let (unambiguous, _) = self.collect_export_maps_rec(module_id, &mut HashSet::new())?;
+        Ok(unambiguous)
     }
 
-    fn collect_resolved_exports_rec(
+    /// Resolve a local export name through import / `export * as` / true local binding.
+    ///
+    /// `export { foo }` after `import { foo }` or `import * as foo` is an indirect
+    /// re-export of the original binding (same Module + BindingName), not a new local.
+    fn resolve_local_export_binding(
+        &self,
+        module_id: usize,
+        local: &str,
+        visiting: &mut HashSet<usize>,
+    ) -> Result<Option<(usize, String)>, Diagnostic> {
+        let module = &self.modules[module_id];
+        if let Some(ns) = module
+            .namespaces
+            .iter()
+            .chain(module.namespace_reexports.iter())
+            .find(|n| n.local == local)
+        {
+            let from_id = *self.ids.get(&ns.from).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("module not loaded: {}", ns.from.display()),
+                    Span::dummy(),
+                )
+            })?;
+            return Ok(Some((from_id, BINDING_NAMESPACE.to_string())));
+        }
+        if let Some(imp) = module.imports.iter().find(|i| i.local == local) {
+            let from_id = *self.ids.get(&imp.from).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("module not loaded: {}", imp.from.display()),
+                    Span::dummy(),
+                )
+            })?;
+            return self.resolve_export(from_id, &imp.imported, visiting);
+        }
+        Ok(Some((module_id, local.to_string())))
+    }
+
+    fn collect_export_maps_rec(
         &self,
         module_id: usize,
         visiting: &mut HashSet<usize>,
-    ) -> Result<HashMap<String, (usize, String)>, Diagnostic> {
+    ) -> Result<(HashMap<String, (usize, String)>, HashSet<String>), Diagnostic> {
         if !visiting.insert(module_id) {
-            return Ok(HashMap::new());
+            return Ok((HashMap::new(), HashSet::new()));
         }
         let module = &self.modules[module_id];
         let mut out: HashMap<String, (usize, String)> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+
         for (export_name, local) in &module.exports {
-            out.insert(export_name.clone(), (module_id, local.clone()));
+            match self.resolve_local_export_binding(module_id, local, visiting)? {
+                Some(binding) => {
+                    out.insert(export_name.clone(), binding);
+                }
+                None => {
+                    // Imported local that is null/ambiguous — treat as ambiguous export.
+                    ambiguous.insert(export_name.clone());
+                }
+            }
         }
+
         // Named re-exports (`export { x as y } from`) — explicit, can include `default`.
         for re in &module.named_reexports {
             let dep_id = *self.ids.get(&re.from).ok_or_else(|| {
@@ -649,32 +723,33 @@ impl Loader {
                     Span::dummy(),
                 )
             })?;
-            let resolved = self
-                .resolve_export(dep_id, &re.imported, visiting)?
-                .ok_or_else(|| {
-                    Diagnostic::new(
-                        format!(
-                            "module {} has no export `{}`",
-                            re.from.display(),
-                            re.imported
-                        ),
-                        Span::dummy(),
-                    )
-                })?;
-            if out.contains_key(&re.exported) {
+            let resolved = self.resolve_export(dep_id, &re.imported, visiting)?;
+            if module.exports.contains_key(&re.exported) {
                 // Direct export already owns this name — skip (direct wins).
-                // Duplicate named re-export of same name is rejected at load.
-                if module.exports.contains_key(&re.exported) {
-                    continue;
-                }
-                visiting.remove(&module_id);
-                return Err(Diagnostic::new(
-                    format!("duplicate export `{}`", re.exported),
-                    Span::dummy(),
-                ));
+                continue;
             }
-            out.insert(re.exported.clone(), resolved);
+            match resolved {
+                Some(binding) => {
+                    if let Some(prev) = out.get(&re.exported) {
+                        if prev != &binding {
+                            visiting.remove(&module_id);
+                            return Err(Diagnostic::new(
+                                format!("duplicate export `{}`", re.exported),
+                                Span::dummy(),
+                            ));
+                        }
+                    } else {
+                        out.insert(re.exported.clone(), binding);
+                    }
+                }
+                None => {
+                    // Missing or ambiguous imported binding — record for named import errors.
+                    ambiguous.insert(re.exported.clone());
+                    out.remove(&re.exported);
+                }
+            }
         }
+
         for dep_path in &module.star_reexports {
             let dep_id = *self.ids.get(dep_path).ok_or_else(|| {
                 Diagnostic::new(
@@ -682,37 +757,101 @@ impl Loader {
                     Span::dummy(),
                 )
             })?;
-            let dep_exports = self.collect_resolved_exports_rec(dep_id, visiting)?;
-            for (export_name, (def_id, local)) in dep_exports {
+            let (dep_exports, dep_ambiguous) = self.collect_export_maps_rec(dep_id, visiting)?;
+            for name in dep_ambiguous {
+                if name == "default" {
+                    continue;
+                }
+                if module.exports.contains_key(&name)
+                    || module.named_reexports.iter().any(|r| r.exported == name)
+                {
+                    continue;
+                }
+                out.remove(&name);
+                ambiguous.insert(name);
+            }
+            for (export_name, binding) in dep_exports {
                 if export_name == "default" {
                     continue;
                 }
+                if module.exports.contains_key(&export_name)
+                    || module
+                        .named_reexports
+                        .iter()
+                        .any(|r| r.exported == export_name)
+                {
+                    continue;
+                }
+                if ambiguous.contains(&export_name) {
+                    continue;
+                }
                 match out.get(&export_name) {
-                    Some((prev_id, prev_local)) if *prev_id != def_id || *prev_local != local => {
-                        if module.exports.contains_key(&export_name)
-                            || module
-                                .named_reexports
-                                .iter()
-                                .any(|r| r.exported == export_name)
-                        {
-                            continue;
-                        }
-                        visiting.remove(&module_id);
-                        return Err(Diagnostic::new(
-                            format!("ambiguous re-export of `{export_name}`"),
-                            Span::dummy(),
-                        ));
+                    Some(prev) if prev != &binding => {
+                        out.remove(&export_name);
+                        ambiguous.insert(export_name);
                     }
                     Some(_) => {}
                     None => {
-                        out.insert(export_name, (def_id, local));
+                        out.insert(export_name, binding);
                     }
                 }
             }
         }
         visiting.remove(&module_id);
-        Ok(out)
+        Ok((out, ambiguous))
     }
+
+    /// IndirectExportEntries must resolve (not null/ambiguous) — E19.71.
+    fn validate_indirect_exports(&self) -> Result<(), Diagnostic> {
+        for module in &self.modules {
+            for re in &module.named_reexports {
+                let dep_id = *self.ids.get(&re.from).ok_or_else(|| {
+                    Diagnostic::new(
+                        format!("module not loaded: {}", re.from.display()),
+                        Span::dummy(),
+                    )
+                })?;
+                let resolved =
+                    self.resolve_export(dep_id, &re.imported, &mut HashSet::new())?;
+                if resolved.is_none() {
+                    return Err(Diagnostic::new(
+                        format!(
+                            "module {} has no export `{}` (missing or ambiguous)",
+                            re.from.display(),
+                            re.imported
+                        ),
+                        Span::dummy(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Sentinel local name: export BindingName is ~namespace~ (module namespace object).
+const BINDING_NAMESPACE: &str = "\0namespace";
+
+fn shared_namespace_binding_name(module_id: usize) -> String {
+    format!("__ns{module_id}")
+}
+
+fn final_binding_name(
+    mangled: &[HashMap<String, String>],
+    def_id: usize,
+    local_in_exporter: &str,
+) -> Result<String, Diagnostic> {
+    if local_in_exporter == BINDING_NAMESPACE {
+        return Ok(shared_namespace_binding_name(def_id));
+    }
+    final_local_name(&mangled[def_id], local_in_exporter).ok_or_else(|| {
+        Diagnostic::new(
+            format!(
+                "export local `{local_in_exporter}` missing in defining module {def_id}"
+            ),
+            Span::dummy(),
+        )
+    })
 }
 
 /// Resolve a local name through the module's mangling map (identity if unmangled).
@@ -1833,12 +1972,7 @@ fn namespace_object_props_resolved(
     let mut props = Vec::with_capacity(names.len());
     for export_name in names {
         let (def_id, local_in_exporter) = resolved.get(&export_name).expect("key from map");
-        let remote = final_local_name(&mangled[*def_id], local_in_exporter).ok_or_else(|| {
-            Diagnostic::new(
-                format!("namespace export `{export_name}` local missing"),
-                Span::dummy(),
-            )
-        })?;
+        let remote = final_binding_name(mangled, *def_id, local_in_exporter)?;
         let key_span = spans.next();
         let val_span = spans.next();
         let prop_span = spans.next();
@@ -2912,6 +3046,188 @@ mod tests {
             dump.contains("__draconic_eval_m") || dump.contains("FunctionDeclaration"),
             "expected deferred eval thunk, got:\n{dump}"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn temp_link_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-link-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn link_ambiguous_star_omitted_from_namespace() {
+        // E19.71: ambiguous export * names are absent from namespace objects.
+        let dir = temp_link_dir("ambig-ns");
+        fs::write(dir.join("a.drac"), "export let first = 1;\nexport let both = 2;\n").unwrap();
+        fs::write(dir.join("b.drac"), "export let second = 3;\nexport let both = 4;\n").unwrap();
+        fs::write(
+            dir.join("barrel.drac"),
+            "export * from \"./a.drac\";\nexport * from \"./b.drac\";\n",
+        )
+        .unwrap();
+        let main = dir.join("main.drac");
+        fs::write(
+            &main,
+            "import * as ns from \"./barrel.drac\";\nlet a = ns.first;\nlet b = ns.second;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("ambiguous star namespace link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("first") || dump.contains("__m"), "{dump}");
+        assert!(dump.contains("second") || dump.contains("__m"), "{dump}");
+        // Ambiguous `both` must not appear as a namespace object property key.
+        assert!(
+            !dump.contains("name: both"),
+            "ambiguous both must be omitted from namespace:\n{dump}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_ambiguous_named_import_errors() {
+        // E19.71: named import of ambiguous export * binding is a link error.
+        let dir = temp_link_dir("ambig-import");
+        fs::write(dir.join("a.drac"), "export let x = 1;\n").unwrap();
+        fs::write(dir.join("b.drac"), "export let x = 2;\n").unwrap();
+        fs::write(
+            dir.join("barrel.drac"),
+            "export * from \"./a.drac\";\nexport * from \"./b.drac\";\n",
+        )
+        .unwrap();
+        let main = dir.join("main.drac");
+        fs::write(&main, "import { x } from \"./barrel.drac\";\nlet y = x;\n").unwrap();
+        let err = link_entry(&main).expect_err("ambiguous named import");
+        assert!(
+            err.message.contains("no export") || err.message.contains("ambiguous"),
+            "got: {}",
+            err.message
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_ambiguous_named_reexport_errors() {
+        // E19.71: IndirectExportEntries of ambiguous bindings fail at link.
+        let dir = temp_link_dir("ambig-reexport");
+        fs::write(dir.join("a.drac"), "export let x = 1;\n").unwrap();
+        fs::write(dir.join("b.drac"), "export let x = 2;\n").unwrap();
+        fs::write(
+            dir.join("barrel.drac"),
+            "export * from \"./a.drac\";\nexport * from \"./b.drac\";\n",
+        )
+        .unwrap();
+        let main = dir.join("main.drac");
+        fs::write(&main, "export { x } from \"./barrel.drac\";\n").unwrap();
+        let err = link_entry(&main).expect_err("ambiguous named re-export");
+        assert!(
+            err.message.contains("no export") || err.message.contains("ambiguous"),
+            "got: {}",
+            err.message
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_same_binding_via_import_export_not_ambiguous() {
+        // E19.71: `export { foo } from` and `import { foo }; export { foo }` same binding.
+        let dir = temp_link_dir("same-binding");
+        fs::write(dir.join("lib.drac"), "export const foo = 2;\n").unwrap();
+        fs::write(
+            dir.join("via_from.drac"),
+            "export { foo } from \"./lib.drac\";\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("via_import.drac"),
+            "import { foo } from \"./lib.drac\";\nexport { foo };\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("barrel.drac"),
+            "export * from \"./via_from.drac\";\nexport * from \"./via_import.drac\";\n",
+        )
+        .unwrap();
+        let consumer = dir.join("consumer.drac");
+        fs::write(
+            &consumer,
+            "import { foo } from \"./barrel.drac\";\nlet v = foo;\n",
+        )
+        .unwrap();
+        let program = link_entry(&consumer).expect("same binding not ambiguous");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("v"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_export_star_as_same_module_not_ambiguous() {
+        // E19.71: two `export * as foo from empty` resolve to same namespace binding.
+        let dir = temp_link_dir("ns-star-as");
+        fs::write(dir.join("empty.drac"), "\n").unwrap();
+        fs::write(
+            dir.join("a.drac"),
+            "export * as foo from \"./empty.drac\";\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("b.drac"),
+            "export * as foo from \"./empty.drac\";\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("barrel.drac"),
+            "export * from \"./a.drac\";\nexport * from \"./b.drac\";\n",
+        )
+        .unwrap();
+        let main = dir.join("main.drac");
+        fs::write(
+            &main,
+            "import { foo } from \"./barrel.drac\";\nlet t = typeof foo;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("export * as same module");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("__ns") || dump.contains("ObjectExpression"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_import_star_export_same_module_not_ambiguous() {
+        // E19.71: `import * as foo; export { foo }` from same module twice.
+        let dir = temp_link_dir("ns-import-export");
+        fs::write(dir.join("empty.drac"), "\n").unwrap();
+        fs::write(
+            dir.join("a.drac"),
+            "import * as foo from \"./empty.drac\";\nexport { foo };\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("b.drac"),
+            "import * as foo from \"./empty.drac\";\nexport { foo };\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("barrel.drac"),
+            "export * from \"./a.drac\";\nexport * from \"./b.drac\";\n",
+        )
+        .unwrap();
+        let main = dir.join("main.drac");
+        fs::write(
+            &main,
+            "import { foo } from \"./barrel.drac\";\nlet t = typeof foo;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("import * export same module");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("__ns") || dump.contains("ObjectExpression"), "{dump}");
         let _ = fs::remove_dir_all(&dir);
     }
 }
