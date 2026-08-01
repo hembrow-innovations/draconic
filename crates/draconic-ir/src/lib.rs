@@ -5165,59 +5165,60 @@ Module
     %5 Promise: function
     %6 Proxy: function
     %7 Reflect: object
-    %8 undefined: any
-    %9 globalThis: object
-    %10 Object: function
-    %11 Function: function
-    %12 Array: function
-    %13 String: function
-    %14 Boolean: function
-    %15 Error: function
-    %16 TypeError: function
-    %17 RangeError: function
-    %18 ReferenceError: function
-    %19 SyntaxError: function
-    %20 URIError: function
-    %21 EvalError: function
-    %22 AggregateError: function
-    %23 parseInt: function
-    %24 parseFloat: function
-    %25 isNaN: function
-    %26 isFinite: function
-    %27 encodeURI: function
-    %28 decodeURI: function
-    %29 encodeURIComponent: function
-    %30 decodeURIComponent: function
-    %31 JSON: object
-    %32 Date: function
-    %33 RegExp: function
-    %34 Map: function
-    %35 Set: function
-    %36 WeakMap: function
-    %37 WeakSet: function
-    %38 ArrayBuffer: function
-    %39 DataView: function
-    %40 Int8Array: function
-    %41 Uint8Array: function
-    %42 Uint8ClampedArray: function
-    %43 Int16Array: function
-    %44 Uint16Array: function
-    %45 Int32Array: function
-    %46 Uint32Array: function
-    %47 Float32Array: function
-    %48 Float64Array: function
-    %49 BigInt64Array: function
-    %50 BigUint64Array: function
-    %51 eval: function
-    %52 escape: function
-    %53 unescape: function
-    %54 x: number
+    %8 ShadowRealm: function
+    %9 undefined: any
+    %10 globalThis: object
+    %11 Object: function
+    %12 Function: function
+    %13 Array: function
+    %14 String: function
+    %15 Boolean: function
+    %16 Error: function
+    %17 TypeError: function
+    %18 RangeError: function
+    %19 ReferenceError: function
+    %20 SyntaxError: function
+    %21 URIError: function
+    %22 EvalError: function
+    %23 AggregateError: function
+    %24 parseInt: function
+    %25 parseFloat: function
+    %26 isNaN: function
+    %27 isFinite: function
+    %28 encodeURI: function
+    %29 decodeURI: function
+    %30 encodeURIComponent: function
+    %31 decodeURIComponent: function
+    %32 JSON: object
+    %33 Date: function
+    %34 RegExp: function
+    %35 Map: function
+    %36 Set: function
+    %37 WeakMap: function
+    %38 WeakSet: function
+    %39 ArrayBuffer: function
+    %40 DataView: function
+    %41 Int8Array: function
+    %42 Uint8Array: function
+    %43 Uint8ClampedArray: function
+    %44 Int16Array: function
+    %45 Uint16Array: function
+    %46 Int32Array: function
+    %47 Uint32Array: function
+    %48 Float32Array: function
+    %49 Float64Array: function
+    %50 BigInt64Array: function
+    %51 BigUint64Array: function
+    %52 eval: function
+    %53 escape: function
+    %54 unescape: function
+    %55 x: number
   body:
-    Declare let %54
+    Declare let %55
       init:
         Number 1 : number
     Expr
-      Local %54 : number
+      Local %55 : number
 "
         );
     }

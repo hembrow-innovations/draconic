@@ -1428,6 +1428,8 @@ pub fn run_js_in_node(js: &str) -> Result<(), String> {
 /// E19.28: `as_module` uses `--input-type=module` so top-level `await` is valid.
 pub fn run_js_in_node_cwd(js: &str, cwd: Option<&Path>, as_module: bool) -> Result<(), String> {
     let mut cmd = Command::new("node");
+    // E19.73: V8 ShadowRealm is experimental; enable for Test262 built-ins/ShadowRealm.
+    cmd.arg("--harmony-shadow-realm");
     if as_module {
         cmd.arg("--input-type=module");
     }
@@ -1997,6 +1999,44 @@ assert.sameValue(Object.getPrototypeOf(a) === other.Array.prototype, true);
 "#;
         let js = compile_test_to_js(src).expect("compile");
         run_js_in_node(&wrap_host_api(&js)).expect("createRealm");
+    }
+
+    #[test]
+    fn e19_73_shadow_realm_basics() {
+        // E19.73: ShadowRealm constructor + evaluate / importValue basics.
+        let src = r#"
+assert.sameValue(typeof ShadowRealm, "function");
+assert.sameValue(ShadowRealm.length, 0);
+assert.sameValue(ShadowRealm.name, "ShadowRealm");
+let r = new ShadowRealm();
+assert.sameValue(typeof r.evaluate, "function");
+assert.sameValue(typeof r.importValue, "function");
+assert.sameValue(r.evaluate("1 + 1"), 2);
+assert.sameValue(r.evaluate("'hi'"), "hi");
+assert.sameValue(r.evaluate("undefined"), undefined);
+let wrapped = r.evaluate("(function (x) { return x + 1; })");
+assert.sameValue(typeof wrapped, "function");
+assert.sameValue(wrapped(41), 42);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&js).expect("ShadowRealm basics");
+    }
+
+    #[test]
+    fn e19_73_shadow_realm_import_value_data_url() {
+        // importValue via data: URL (relative file import is incomplete in Node harmony).
+        let src = r#"
+/*---
+flags: [async]
+---*/
+let r = new ShadowRealm();
+r.importValue("data:text/javascript,export const x = 41;", "x").then(function (x) {
+  assert.sameValue(x, 41);
+}).then($DONE, $DONE);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        let js = wrap_async_host(&js);
+        run_js_in_node(&js).expect("ShadowRealm importValue data:");
     }
 
     #[test]

@@ -918,6 +918,8 @@ impl Binder {
         binder.install_builtin("Promise", BindingKind::Const);
         binder.install_builtin("Proxy", BindingKind::Const);
         binder.install_builtin("Reflect", BindingKind::Const);
+        // E19.73: ShadowRealm constructor (host Node --harmony-shadow-realm)
+        binder.install_builtin("ShadowRealm", BindingKind::Const);
         // E15.01: global object basics
         binder.install_builtin("undefined", BindingKind::Const);
         binder.install_builtin("globalThis", BindingKind::Const);
@@ -2663,7 +2665,9 @@ impl<'a> Checker<'a> {
                     | "ArrayBuffer" | "DataView" | "Int8Array" | "Uint8Array"
                     | "Uint8ClampedArray" | "Int16Array" | "Uint16Array" | "Int32Array"
                     | "Uint32Array" | "Float32Array" | "Float64Array" | "BigInt64Array"
-                    | "BigUint64Array" | "eval" | "escape" | "unescape" => Type::Function,
+                    | "BigUint64Array" | "eval" | "escape" | "unescape" | "ShadowRealm" => {
+                        Type::Function
+                    }
                     "NaN" | "Infinity" => Type::Number,
                     // `undefined` is its own ES language type; coarse `any` until refined.
                     "undefined" => Type::Any,
