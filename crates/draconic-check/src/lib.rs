@@ -2989,7 +2989,7 @@ impl<'a> Checker<'a> {
                         object,
                         property,
                         computed,
-                        private,
+                        private: _,
                         span: mspan,
                         ..
                     } => {
@@ -3000,12 +3000,7 @@ impl<'a> Checker<'a> {
                                 *mspan,
                             ));
                         }
-                        if *private {
-                            return Err(Diagnostic::new(
-                                "invalid assignment target".to_string(),
-                                *mspan,
-                            ));
-                        }
+                        // E19.82.10: private members are valid destructuring assign targets.
                         self.check_expr(object)?;
                         if *computed {
                             self.check_expr(property)?;

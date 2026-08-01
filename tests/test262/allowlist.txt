@@ -38513,6 +38513,13 @@ test/language/statements/class/elements/privatefieldset-typeerror-4.js
 test/language/statements/class/elements/privatefieldset-typeerror-5.js
 test/language/statements/class/elements/privatefieldset-typeerror-6.js
 test/language/statements/class/elements/privatefieldset-typeerror-7.js
+test/language/statements/class/elements/privatefieldset-typeerror-8.js
+test/language/statements/class/elements/privatefieldset-typeerror-9.js
+test/language/statements/class/elements/privatefieldset-typeerror-10.js
+test/language/statements/class/elements/privatefieldset-typeerror-11.js
+test/language/statements/class/elements/privatefieldset-evaluation-order-1.js
+test/language/statements/class/elements/privatefieldset-evaluation-order-2.js
+test/language/statements/class/elements/privatefieldset-evaluation-order-3.js
 test/language/statements/class/elements/privategetter-on-proxy.js
 test/language/statements/class/elements/privatemethods-on-proxy.js
 test/language/statements/class/elements/privatename-not-valid-earlyerr-script-1.js

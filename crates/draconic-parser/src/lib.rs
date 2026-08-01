@@ -7045,9 +7045,9 @@ fn object_expr_to_pattern(expr: &Expr) -> Option<Expr> {
 fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
     match expr {
         Expr::Ident(id) => Some(BindingPattern::Ident(id.clone())),
+        // E19.82.10: private members (`obj.#f`) are valid assignment-pattern targets.
         Expr::MemberExpression {
             optional: false,
-            private: false,
             ..
         } => Some(BindingPattern::Member(Box::new(expr.clone()))),
         Expr::ArrayExpression {
