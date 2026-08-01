@@ -306,7 +306,13 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.78 | done | js | Class residual: computed names with `yield`/`await`; decorator `@` syntax; numeric accessor names | `crates/draconic-parser` / backend-js, `tests/test262` |
 | E19.79 | done | js | `Error.isError` + `Error.prototype.stack` accessor residual | `tests/test262` (allowlist + runtime) |
 | E19.80 | done | js | `Math.sumPrecise`: static precise sum helper | `tests/test262` (allowlist + runtime) |
-| E19.81 | todo | js | Expand allowlist further after E19.76–E19.80 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.81 | done | js | Expand allowlist further after E19.76–E19.80 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
+| E19.82 | todo | js | Class residual II: subclass builtin remaining, private async/generator method names, class elements residual after E19.81 | `crates/draconic-parser` / backend-js, `tests/test262` |
+| E19.83 | todo | js | Dynamic `import()` residual: syntax/namespace/catch/usage clusters still failing after E19.27/E19.55 | `crates/draconic-parser` / linker / backend-js, `tests/test262` |
+| E19.84 | todo | js | `import.defer` residual: errors, evaluation-triggers, deferred-namespace, top-level-await defer clusters | `crates/draconic-parser` / linker, `tests/test262` |
+| E19.85 | todo | js | `ArrayBuffer` immutable APIs: `.immutable`, `transferToImmutable`, `sliceToImmutable` | `tests/test262` (allowlist + runtime) |
+| E19.86 | todo | js | Module namespace internals residual: `[[Get]]`/`[[Set]]`/`[[HasProperty]]` / export-name string bindings | `crates/draconic-linker` / backend-js, `tests/test262` |
+| E19.87 | todo | js | Expand allowlist further after E19.82–E19.86 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---
 
