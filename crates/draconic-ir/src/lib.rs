@@ -2640,11 +2640,7 @@ fn lower_class_local(
     let mut instance_init_exprs: Vec<Expr> = Vec::new();
     // Brands before fields (InitializeInstanceElements).
     for brand in &instance_brands {
-        // private_brand_add returns Stmt::Expr — extract expr.
-        match private_brand_add(*brand, ctor_this()) {
-            Stmt::Expr { expr } => instance_init_exprs.push(expr),
-            other => panic!("private_brand_add must be Expr stmt, got {other:?}"),
-        }
+        instance_init_exprs.push(private_brand_add(ctx, *brand, ctor_this()));
     }
     // Instance SuperProperty home base: Parent.prototype or Object.prototype (E19.82.05).
     let instance_super_home = match super_local_id {
@@ -2682,21 +2678,8 @@ fn lower_class_local(
                 .private_fields
                 .get(pname)
                 .expect("private field WeakMap");
-            Expr::Call {
-                callee: Box::new(Expr::Member {
-                    object: Box::new(local_expr(wm)),
-                    property: Box::new(Expr::String {
-                        value: "set".into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
-                    optional: false,
-                    ty: Type::Function,
-                }),
-                args: vec![Arg::Expr(receiver), Arg::Expr(init)],
-                optional: false,
-                ty: Type::Any,
-            }
+            // PrivateFieldAdd: non-extensible / already-present → TypeError (E19.82.09).
+            private_field_add(ctx, wm, receiver, init)
         } else if let Some(key_id) = computed_key {
             Expr::Assign {
                 target: AssignTarget::Member {
@@ -3078,13 +3061,16 @@ fn lower_class_local(
     // Brand the constructor for static private methods/accessors (E18.40)
     // before static field/block evaluation so blocks can use private statics.
     for brand in static_brands {
-        out.push(private_brand_add(
-            brand,
-            Expr::Local {
-                id: local,
-                ty: Type::Function,
-            },
-        ));
+        out.push(Stmt::Expr {
+            expr: private_brand_add(
+                ctx,
+                brand,
+                Expr::Local {
+                    id: local,
+                    ty: Type::Function,
+                },
+            ),
+        });
     }
 
     // Static fields and static blocks run after the class is fully linked, in order (E18.41).
@@ -3139,32 +3125,17 @@ fn lower_class_local(
                         .private_fields
                         .get(pname)
                         .expect("static private field WeakMap");
-                    // wm.set(Class, init)
+                    // PrivateFieldAdd on constructor (E19.82.09).
                     out.push(Stmt::Expr {
-                        expr: Expr::Call {
-                            callee: Box::new(Expr::Member {
-                                object: Box::new(Expr::Local {
-                                    id: wm,
-                                    ty: Type::Any,
-                                }),
-                                property: Box::new(Expr::String {
-                                    value: "set".into(),
-                                    ty: Type::String,
-                                }),
-                                computed: false,
-                                optional: false,
+                        expr: private_field_add(
+                            ctx,
+                            wm,
+                            Expr::Local {
+                                id: local,
                                 ty: Type::Function,
-                            }),
-                            args: vec![
-                                Arg::Expr(Expr::Local {
-                                    id: local,
-                                    ty: Type::Function,
-                                }),
-                                Arg::Expr(init_expr),
-                            ],
-                            optional: false,
-                            ty: Type::Any,
-                        },
+                            },
+                            init_expr,
+                        ),
                     });
                 } else {
                     // CreateDataPropertyOrThrow — TypeError on non-writable prototype (E19.82.04).
@@ -3589,27 +3560,161 @@ fn private_fn_call(fn_id: LocalId, object: Expr, args: Vec<Arg>) -> Expr {
     }
 }
 
-/// `brand.add(object)` statement for private method/accessor branding (E18.40).
-fn private_brand_add(brand: LocalId, object: Expr) -> Stmt {
-    Stmt::Expr {
-        expr: Expr::Call {
-            callee: Box::new(Expr::Member {
-                object: Box::new(Expr::Local {
-                    id: brand,
-                    ty: Type::Any,
-                }),
-                property: Box::new(Expr::String {
-                    value: "add".into(),
-                    ty: Type::String,
-                }),
-                computed: false,
-                optional: false,
+/// `Object.isExtensible(object)`.
+fn object_is_extensible(object: Expr) -> Expr {
+    Expr::Call {
+        callee: Box::new(member_prop(
+            Expr::IdentName {
+                name: "Object".into(),
                 ty: Type::Function,
+            },
+            "isExtensible",
+            Type::Function,
+        )),
+        args: vec![Arg::Expr(object)],
+        optional: false,
+        ty: Type::Boolean,
+    }
+}
+
+/// PrivateMethodOrAccessorAdd: non-extensible or already branded → TypeError (E18.40 / E19.82.09).
+fn private_brand_add(ctx: &mut LowerCtx, brand: LocalId, object: Expr) -> Expr {
+    let oid = ctx.alloc_synthetic_local("__drac_o".into(), Type::Any);
+    let o = local_expr(oid);
+    let not_ext = Expr::Unary {
+        op: UnaryOp::Not,
+        arg: Box::new(object_is_extensible(o.clone())),
+        ty: Type::Boolean,
+    };
+    let already = private_brand_has(brand, o.clone());
+    let add_call = Expr::Call {
+        callee: Box::new(Expr::Member {
+            object: Box::new(local_expr(brand)),
+            property: Box::new(Expr::String {
+                value: "add".into(),
+                ty: Type::String,
             }),
-            args: vec![Arg::Expr(object)],
+            computed: false,
             optional: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(o)],
+        optional: false,
+        ty: Type::Any,
+    };
+    let body = Expr::Conditional {
+        test: Box::new(not_ext),
+        consequent: Box::new(throw_type_error_expr(
+            "Cannot define private method on non-extensible object",
+        )),
+        alternate: Box::new(Expr::Conditional {
+            test: Box::new(already),
+            consequent: Box::new(throw_type_error_expr(
+                "Cannot add private method that already exists",
+            )),
+            alternate: Box::new(add_call),
             ty: Type::Any,
-        },
+        }),
+        ty: Type::Any,
+    };
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: vec![Param {
+                pattern: Pattern::Local(oid),
+                default: None,
+                rest: false,
+            }],
+            body: vec![Stmt::Return {
+                value: Some(body),
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(object)],
+        optional: false,
+        ty: Type::Any,
+    }
+}
+
+/// PrivateFieldAdd: non-extensible or already present → TypeError (E18.35 / E19.82.09).
+fn private_field_add(ctx: &mut LowerCtx, wm: LocalId, object: Expr, value: Expr) -> Expr {
+    let oid = ctx.alloc_synthetic_local("__drac_o".into(), Type::Any);
+    let vid = ctx.alloc_synthetic_local("__drac_v".into(), Type::Any);
+    let o = local_expr(oid);
+    let v = local_expr(vid);
+    let not_ext = Expr::Unary {
+        op: UnaryOp::Not,
+        arg: Box::new(object_is_extensible(o.clone())),
+        ty: Type::Boolean,
+    };
+    let already = private_brand_has(wm, o.clone());
+    let set_call = Expr::Call {
+        callee: Box::new(Expr::Member {
+            object: Box::new(local_expr(wm)),
+            property: Box::new(Expr::String {
+                value: "set".into(),
+                ty: Type::String,
+            }),
+            computed: false,
+            optional: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(o), Arg::Expr(v.clone())],
+        optional: false,
+        ty: Type::Any,
+    };
+    let set_and_yield = Expr::Binary {
+        left: Box::new(set_call),
+        op: BinaryOp::Comma,
+        right: Box::new(v),
+        ty: Type::Any,
+    };
+    let body = Expr::Conditional {
+        test: Box::new(not_ext),
+        consequent: Box::new(throw_type_error_expr(
+            "Cannot define private field on non-extensible object",
+        )),
+        alternate: Box::new(Expr::Conditional {
+            test: Box::new(already),
+            consequent: Box::new(throw_type_error_expr(
+                "Cannot add private field that already exists",
+            )),
+            alternate: Box::new(set_and_yield),
+            ty: Type::Any,
+        }),
+        ty: Type::Any,
+    };
+    Expr::Call {
+        callee: Box::new(Expr::Function {
+            name: None,
+            params: vec![
+                Param {
+                    pattern: Pattern::Local(oid),
+                    default: None,
+                    rest: false,
+                },
+                Param {
+                    pattern: Pattern::Local(vid),
+                    default: None,
+                    rest: false,
+                },
+            ],
+            body: vec![Stmt::Return {
+                value: Some(body),
+            }],
+            is_async: false,
+            is_generator: false,
+            is_arrow: true,
+            is_method: false,
+            ty: Type::Function,
+        }),
+        args: vec![Arg::Expr(object), Arg::Expr(value)],
+        optional: false,
+        ty: Type::Any,
     }
 }
 

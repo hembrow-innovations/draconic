@@ -1,0 +1,135 @@
+// E19.82.09: PrivateFieldAdd / PrivateMethodOrAccessorAdd TypeError
+
+// 1) private method double-install via return-override
+class Base1 {
+  constructor(o) {
+    return o;
+  }
+}
+class C1 extends Base1 {
+  #m() {
+    return 1;
+  }
+  call() {
+    return this.#m();
+  }
+}
+let obj1 = {};
+new C1(obj1);
+// return-override: methods live on C1.prototype; brand is on obj1
+let v1 = C1.prototype.call.call(obj1);
+let err1 = "";
+try {
+  new C1(obj1);
+} catch (e) {
+  err1 = e.name;
+}
+
+// 2) private field double-install via return-override
+class Base2 {
+  constructor(o) {
+    return o;
+  }
+}
+class C2 extends Base2 {
+  #x;
+  constructor(arg) {
+    super(arg);
+  }
+  getX() {
+    return this.#x;
+  }
+}
+let hasX = new C2();
+let err2 = "";
+try {
+  new C2(hasX);
+} catch (e) {
+  err2 = e.name;
+}
+
+// 3) private field on non-extensible
+class NonExtBase {
+  constructor(seal) {
+    if (seal) Object.preventExtensions(this);
+  }
+}
+class C3 extends NonExtBase {
+  #val;
+  constructor(seal) {
+    super(seal);
+    this.#val = 42;
+  }
+  val() {
+    return this.#val;
+  }
+}
+let t3 = new C3(false);
+let v3 = t3.val();
+let err3 = "";
+try {
+  new C3(true);
+} catch (e) {
+  err3 = e.name;
+}
+
+// 4) private method on non-extensible
+class C4 extends NonExtBase {
+  constructor(seal) {
+    super(seal);
+  }
+  #pm() {
+    return 42;
+  }
+  publicMethod() {
+    return this.#pm();
+  }
+}
+let m4 = new C4(false);
+let v4 = m4.publicMethod();
+let err4 = "";
+try {
+  new C4(true);
+} catch (e) {
+  err4 = e.name;
+}
+
+// 5) private accessor double-install
+class C5 extends Base1 {
+  get #p() {
+    return 7;
+  }
+  read() {
+    return this.#p;
+  }
+}
+let obj5 = {};
+new C5(obj5);
+let v5 = C5.prototype.read.call(obj5);
+let err5 = "";
+try {
+  new C5(obj5);
+} catch (e) {
+  err5 = e.name;
+}
+
+// 6) private accessor on non-extensible
+class C6 extends NonExtBase {
+  constructor(seal) {
+    super(seal);
+  }
+  get #a() {
+    return 9;
+  }
+  read() {
+    return this.#a;
+  }
+}
+let a6 = new C6(false);
+let v6 = a6.read();
+let err6 = "";
+try {
+  new C6(true);
+} catch (e) {
+  err6 = e.name;
+}

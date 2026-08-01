@@ -45337,3 +45337,10 @@ test/language/statements/class/elements/private-static-getter-visible-to-direct-
 test/language/statements/class/elements/private-static-method-visible-to-direct-eval.js
 test/language/statements/class/elements/private-static-setter-visible-to-direct-eval.js
 test/language/statements/class/super/in-constructor-superproperty-evaluation.js
+test/language/statements/class/elements/private-class-field-on-nonextensible-objects.js
+test/language/statements/class/elements/private-method-double-initialisation-get-and-set.js
+test/language/statements/class/elements/private-method-double-initialisation-get.js
+test/language/statements/class/elements/private-method-double-initialisation-set.js
+test/language/statements/class/elements/private-method-double-initialisation.js
+test/language/statements/class/elements/privatefieldadd-typeerror.js
+test/language/statements/class/subclass/private-class-field-on-nonextensible-return-override.js
