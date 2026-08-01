@@ -166,7 +166,8 @@ pub fn load_allowlist(path: &Path) -> Result<Vec<String>, String> {
 /// patterns outside the current surface). This shim covers `$ERROR` and
 /// `assert.sameValue` / `assert.notSameValue` / `assert.throws` used by
 /// early language tests (incl. E19.07 BigInt mixed-type TypeError paths).
-pub const HARNESS_SHIM: &str = r#"
+pub const HARNESS_SHIM: &str = concat!(
+    r#"
 function Test262Error(message) {
   if (!(this instanceof Test262Error)) {
     return new Test262Error(message);
@@ -755,7 +756,9 @@ function floatTypedArrayConstructorPrecision(FA) {
     throw new Error("Malformed test - floatTypedArrayConstructorPrecision called with non-float TypedArray");
   }
 }
-"#;
+"#,
+    include_str!("harness_e19_64.js"),
+);
 
 /// Locate Test262 YAML frontmatter (`/*--- ... ---*/`), if present.
 ///
@@ -946,7 +949,167 @@ var require = __test262CreateRequire(import.meta.url);
         r#"{strict_boot}{require_boot}
 (function () {{
   var vm = require("vm");
+  var worker_threads = require("worker_threads");
+  var __agentWorkers = [];
+  var __agentReportPorts = [];
+  var __agentBroadcastPorts = [];
+  function __test262MakeAgent() {{
+    return {{
+      start: function (source) {{
+        // MessageChannel + receiveMessageOnPort: sync I/O without the event loop
+        // (Atomics.wait would otherwise starve worker "message" handlers).
+        var reportCh = new worker_threads.MessageChannel();
+        var broadcastCh = new worker_threads.MessageChannel();
+        var readySab = new SharedArrayBuffer(4);
+        var readyIa = new Int32Array(readySab);
+        var bootstrap =
+          "const {{ workerData }} = require('worker_threads');" +
+          "var __reportPort = workerData.reportPort;" +
+          "var __broadcastPort = workerData.broadcastPort;" +
+          "var __readyIa = new Int32Array(workerData.readySab);" +
+          "var __recv = null;" +
+          "var $262 = {{ agent: {{" +
+          "  receiveBroadcast: function (cb) {{ __recv = cb; }}," +
+          "  report: function (msg) {{ __reportPort.postMessage(String(msg)); }}," +
+          "  sleep: function (ms) {{ var s = new SharedArrayBuffer(4); var a = new Int32Array(s); Atomics.wait(a, 0, 0, ms); }}," +
+          "  leaving: function () {{}}," +
+          "  monotonicNow: function () {{ return performance.now(); }}" +
+          "}} }};" +
+          "__broadcastPort.on('message', function (m) {{" +
+          "  if (m && m.type === 'broadcast' && typeof __recv === 'function') {{ __recv(m.sab, m.id); }}" +
+          "}});" +
+          "Atomics.store(__readyIa, 0, 1);" +
+          "Atomics.notify(__readyIa, 0);" +
+          String(source);
+        var w = new worker_threads.Worker(bootstrap, {{
+          eval: true,
+          workerData: {{
+            reportPort: reportCh.port2,
+            broadcastPort: broadcastCh.port2,
+            readySab: readySab
+          }},
+          transferList: [reportCh.port2, broadcastCh.port2]
+        }});
+        w.on("error", function (err) {{
+          try {{
+            reportCh.port1.postMessage("agent-error:" + String(err && err.message ? err.message : err));
+          }} catch (e) {{}}
+        }});
+        // Do not keep the Node process alive solely for idle agents.
+        try {{ w.unref(); }} catch (e) {{}}
+        try {{ reportCh.port1.unref(); }} catch (e) {{}}
+        try {{ broadcastCh.port1.unref(); }} catch (e) {{}}
+        __agentWorkers.push(w);
+        __agentReportPorts.push(reportCh.port1);
+        __agentBroadcastPorts.push(broadcastCh.port1);
+        var spins = 0;
+        while (Atomics.load(readyIa, 0) === 0 && spins < 20000) {{
+          Atomics.wait(readyIa, 0, 0, 5);
+          spins = spins + 1;
+        }}
+        if (Atomics.load(readyIa, 0) === 0) {{
+          throw new Error("$262.agent.start: agent did not become ready");
+        }}
+      }},
+      broadcast: function (sab, id) {{
+        var msg = {{ type: "broadcast", sab: sab, id: id }};
+        var i = 0;
+        while (i < __agentBroadcastPorts.length) {{
+          __agentBroadcastPorts[i].postMessage(msg);
+          i = i + 1;
+        }}
+      }},
+      getReport: function () {{
+        var i = 0;
+        while (i < __agentReportPorts.length) {{
+          var got = worker_threads.receiveMessageOnPort(__agentReportPorts[i]);
+          if (got) {{
+            return String(got.message);
+          }}
+          i = i + 1;
+        }}
+        return null;
+      }},
+      sleep: function (ms) {{
+        var s = new SharedArrayBuffer(4);
+        var a = new Int32Array(s);
+        Atomics.wait(a, 0, 0, ms);
+      }},
+      monotonicNow: function () {{
+        return performance.now();
+      }},
+      // atomicsHelper overlays (E19.64) — installed after api object is created
+      timeouts: {{ yield: 100, small: 200, long: 1000, huge: 10000 }}
+    }};
+  }}
+  function __test262InstallAgentHelpers(agent) {{
+    var rawGetReport = agent.getReport.bind(agent);
+    agent.getReport = function () {{
+      var r;
+      while ((r = rawGetReport()) == null) {{
+        agent.sleep(1);
+      }}
+      return r;
+    }};
+    agent.setTimeout = typeof setTimeout === "function" ? setTimeout : function (cb, delay) {{
+      var p = Promise.resolve();
+      var start = Date.now();
+      var end = start + delay;
+      function check() {{
+        if ((end - Date.now()) > 0) {{
+          p.then(check);
+        }} else {{
+          cb();
+        }}
+      }}
+      p.then(check);
+    }};
+    agent.getReportAsync = function () {{
+      return new Promise(function (resolve) {{
+        (function loop() {{
+          var result = rawGetReport();
+          if (!result) {{
+            agent.setTimeout(loop, 1);
+          }} else {{
+            resolve(result);
+          }}
+        }})();
+      }});
+    }};
+    agent.safeBroadcast = function (typedArray) {{
+      var Constructor = Object.getPrototypeOf(typedArray).constructor;
+      var temp = new Constructor(new SharedArrayBuffer(Constructor.BYTES_PER_ELEMENT));
+      try {{
+        Atomics.wait(temp, 0, Constructor === Int32Array ? 1 : BigInt(1));
+      }} catch (error) {{
+        throw new Error(Constructor.name + " cannot be used as a shared typed array. (" + error + ")");
+      }}
+      agent.broadcast(typedArray.buffer);
+    }};
+    agent.safeBroadcastAsync = async function (ta, index, expected) {{
+      await agent.broadcast(ta.buffer);
+      await agent.waitUntil(ta, index, expected);
+      await agent.tryYield();
+      return await Atomics.load(ta, index);
+    }};
+    agent.waitUntil = function (typedArray, index, expected) {{
+      var agents = 0;
+      while ((agents = Atomics.load(typedArray, index)) !== expected) {{
+      }}
+      if (agents !== expected) {{
+        throw new Error("Reporting number of agents equals the value of expected");
+      }}
+    }};
+    agent.tryYield = function () {{
+      agent.sleep(agent.timeouts.yield);
+    }};
+    agent.trySleep = function (ms) {{
+      agent.sleep(ms);
+    }};
+  }}
   function __test262InstallHost(globalObj, runEval) {{
+    var agent = __test262MakeAgent();
+    __test262InstallAgentHelpers(agent);
     var api = {{
       global: globalObj,
       createRealm: function () {{
@@ -961,7 +1124,8 @@ var require = __test262CreateRequire(import.meta.url);
           return;
         }}
         throw new TypeError("$262.detachArrayBuffer is not supported on this host");
-      }}
+      }},
+      agent: agent
     }};
     Object.defineProperty(globalObj, "$262", {{
       value: api,
@@ -1330,7 +1494,7 @@ mod tests {
     #[test]
     fn allowlist_loads_and_has_entries() {
         let list = load_allowlist(&allowlist_path()).expect("allowlist");
-        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.63 expanded curated set.
+        // E19.02/E19.06/E19.10/E19.15/E19.20/E19.25–E19.64 expanded curated set.
         assert!(
             list.len() >= 42500,
             "expected expanded curated allowlist (>=42500), got {}",
@@ -1679,6 +1843,101 @@ assert.sameValue(Object.getPrototypeOf(a) === other.Array.prototype, true);
     }
 
     #[test]
+    fn harness_detach_buffer() {
+        // E19.64: $DETACHBUFFER via $262.detachArrayBuffer.
+        let src = r#"
+let buf = new ArrayBuffer(8);
+let view = new Uint8Array(buf);
+view[0] = 1;
+assert.sameValue(buf.byteLength, 8);
+$DETACHBUFFER(buf);
+assert.sameValue(buf.byteLength, 0);
+assert.sameValue(buf.detached, true);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&wrap_host_api(&js)).expect("detach buffer");
+    }
+
+    #[test]
+    fn harness_byte_conversion_values() {
+        // E19.64: byteConversionValues tables present for testTypedArrayConversions.
+        let src = r#"
+assert.sameValue(typeof byteConversionValues, "object");
+assert.sameValue(byteConversionValues.values.length > 0, true);
+assert.sameValue(byteConversionValues.expected.Int8.length, byteConversionValues.values.length);
+assert.sameValue(byteConversionValues.expected.Float64.length, byteConversionValues.values.length);
+let seen = 0;
+testTypedArrayConversions(byteConversionValues, function (TA, value, expected, initial) {
+  let sample = new TA([initial]);
+  sample[0] = value;
+  assert.sameValue(sample[0], expected);
+  seen = seen + 1;
+});
+assert.sameValue(seen > 0, true);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&wrap_host_api(&js)).expect("byteConversionValues");
+    }
+
+    #[test]
+    fn harness_test_with_atomics_indices() {
+        // E19.64: testWithAtomics* index/value generators.
+        let src = r#"
+let oob = 0;
+testWithAtomicsOutOfBoundsIndices(function (IdxGen) {
+  let v = new Int32Array(new SharedArrayBuffer(4));
+  let idx = IdxGen(v);
+  assert.sameValue(typeof idx === "number" || typeof idx === "object" || idx === undefined, true);
+  oob = oob + 1;
+});
+assert.sameValue(oob, 7);
+let ib = 0;
+testWithAtomicsInBoundsIndices(function (IdxGen) {
+  let v = new Int32Array(new SharedArrayBuffer(16));
+  IdxGen(v);
+  ib = ib + 1;
+});
+assert.sameValue(ib, 11);
+let nv = 0;
+testWithAtomicsNonViewValues(function (nonView) {
+  nv = nv + 1;
+});
+assert.sameValue(nv >= 20, true);
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&wrap_host_api(&js)).expect("testWithAtomics indices");
+    }
+
+    #[test]
+    fn harness_agent_minimal() {
+        // E19.64: minimal $262.agent parent surface + report round-trip.
+        let src = r#"
+assert.sameValue(typeof $262.agent, "object");
+assert.sameValue(typeof $262.agent.start, "function");
+assert.sameValue(typeof $262.agent.broadcast, "function");
+assert.sameValue(typeof $262.agent.getReport, "function");
+assert.sameValue(typeof $262.agent.sleep, "function");
+assert.sameValue(typeof $262.agent.monotonicNow, "function");
+assert.sameValue(typeof $262.agent.safeBroadcast, "function");
+assert.sameValue(typeof $262.agent.tryYield, "function");
+$262.agent.start(`
+  $262.agent.receiveBroadcast(function (sab) {
+    var i32a = new Int32Array(sab);
+    $262.agent.report(String(Atomics.load(i32a, 0)));
+    $262.agent.leaving();
+  });
+`);
+var sab = new SharedArrayBuffer(4);
+var i32a = new Int32Array(sab);
+Atomics.store(i32a, 0, 42);
+$262.agent.broadcast(sab);
+assert.sameValue($262.agent.getReport(), "42");
+"#;
+        let js = compile_test_to_js(src).expect("compile");
+        run_js_in_node(&wrap_host_api(&js)).expect("agent minimal");
+    }
+
+    #[test]
     fn harness_property_helpers_verify_star() {
         // E19.63: deprecated verify* helpers + bare compareArray.
         let src = r#"
@@ -1789,8 +2048,8 @@ assert.throws(Test262Error, function () {
                     "allowlisted Test262 cases must pass (got fail={fail}); triage before expanding"
                 );
                 assert!(
-                    pass >= 42500,
-                    "expected expanded allowlist pass count >= 42500, got {pass}"
+                    pass >= 43000,
+                    "expected expanded allowlist pass count >= 43000, got {pass}"
                 );
             })
             .expect("spawn test262-default-run");
