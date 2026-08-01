@@ -1,0 +1,4 @@
+id: es/classes/class_private_eval
+targets: js
+js.exit: 0
+js.check: if (v1 !== 44 || err1 !== "TypeError") process.exit(1); if (v2 !== "Test262" || err2 !== "TypeError") process.exit(2); if (v3 !== "g") process.exit(3); if (v4 !== "ok") process.exit(4); if (v5 !== 44) process.exit(5); if (v6 !== 7) process.exit(6); if (v7 !== 11 || err7 !== "TypeError") process.exit(7); if (v8 !== "S") process.exit(8); if (v9 !== "Z") process.exit(9);

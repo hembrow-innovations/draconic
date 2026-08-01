@@ -3406,6 +3406,92 @@ fn source_contains_arguments_ident(src: &str) -> bool {
     false
 }
 
+/// True when the running private environment is non-empty (fields/methods/accessors).
+fn ctx_has_private_env(ctx: &LowerCtx) -> bool {
+    !ctx.private_fields.is_empty()
+        || !ctx.private_methods.is_empty()
+        || !ctx.private_accessors.is_empty()
+}
+
+/// Collect private identifier names currently in scope for eval fragment wrapping.
+fn ctx_private_names(ctx: &LowerCtx) -> Vec<String> {
+    let mut names: HashSet<String> = HashSet::new();
+    names.extend(ctx.private_fields.keys().cloned());
+    names.extend(ctx.private_methods.keys().cloned());
+    names.extend(ctx.private_accessors.keys().cloned());
+    let mut v: Vec<String> = names.into_iter().collect();
+    v.sort();
+    v
+}
+
+/// Parse `src` as an expression under a synthetic class that declares `private_names`,
+/// so AllPrivateNamesValid accepts `#m` refs (E19.82.08).
+fn parse_eval_expr_with_privates(src: &str, private_names: &[String]) -> Option<AstExpr> {
+    let mut decls = String::new();
+    for n in private_names {
+        decls.push_str("#");
+        decls.push_str(n);
+        decls.push(';');
+    }
+    // Parenthesize so assignment / comma / etc. parse as a single Expression.
+    let wrapped = format!("class __DracEvalPriv {{{decls}__run(){{return({src});}}}}");
+    let program = draconic_parser::parse(&wrapped).ok()?;
+    extract_synthetic_eval_return_expr(&program)
+}
+
+fn extract_synthetic_eval_return_expr(program: &draconic_ast::Program) -> Option<AstExpr> {
+    let stmt = program.body.first()?;
+    let AstStmt::ClassDeclaration { body, .. } = stmt else {
+        return None;
+    };
+    for el in body {
+        if let ClassElement::Method {
+            key,
+            body: method_body,
+            is_static: false,
+            is_private: false,
+            ..
+        } = el
+        {
+            let is_run = match key {
+                draconic_ast::ObjectKey::Ident(id) => id.name == "__run",
+                draconic_ast::ObjectKey::String(s) => s.value.to_string_lossy() == "__run",
+                _ => false,
+            };
+            if !is_run {
+                continue;
+            }
+            let AstStmt::Block { body, .. } = method_body.as_ref() else {
+                continue;
+            };
+            if let Some(AstStmt::Return {
+                argument: Some(expr),
+                ..
+            }) = body.first()
+            {
+                return Some(expr.clone());
+            }
+        }
+    }
+    None
+}
+
+/// Direct `eval("…#m…")` with a private environment: lower the string as an expression
+/// so WeakMap/brand desugaring applies (native `#` would not see our desugared fields).
+fn try_lower_direct_eval_private(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    src: &str,
+    super_class: Option<&AstExpr>,
+) -> Option<Expr> {
+    if !src.contains('#') || !ctx_has_private_env(ctx) {
+        return None;
+    }
+    let names = ctx_private_names(ctx);
+    let expr = parse_eval_expr_with_privates(src, &names)?;
+    Some(lower_expr(checked, ctx, &expr, super_class))
+}
+
 /// `(() => { throw new SyntaxError("…arguments…"); })()` for field-init eval (E19.82.06).
 fn field_init_eval_arguments_error() -> Expr {
     let msg = Expr::String {
@@ -4639,15 +4725,23 @@ fn lower_expr_hint(
                     ty: expr_ty(checked, *span),
                 };
             }
-            // Field-init direct eval: ContainsArguments early error (E19.82.06).
+            // Direct eval string literal handling (E19.82.06 / E19.82.08).
             // SuperProperty/new.target work via method HomeObject; SuperCall is SyntaxError
             // natively inside methods. Nested fn/arrow bodies clear `in_field_init`.
-            if ctx.in_field_init && ast_expr_is_eval_ident(callee) {
+            if ast_expr_is_eval_ident(callee) {
                 if let Some(first) = args.first() {
                     if let AstArg::Expr(arg_expr) = first {
                         if let Some(src) = ast_string_literal_value(arg_expr) {
-                            if source_contains_arguments_ident(&src) {
+                            // Field-init: ContainsArguments early error (E19.82.06).
+                            if ctx.in_field_init && source_contains_arguments_ident(&src) {
                                 return field_init_eval_arguments_error();
+                            }
+                            // Private names desugared to WeakMap/brand — rewrite eval
+                            // source so `#m` resolves in the current private env (E19.82.08).
+                            if let Some(lowered) =
+                                try_lower_direct_eval_private(checked, ctx, &src, super_class)
+                            {
+                                return lowered;
                             }
                         }
                     }
@@ -5198,9 +5292,9 @@ fn single_name_binding_hint(pat: &BindingPattern) -> Option<&str> {
 }
 
 fn expr_ty(checked: &CheckedProgram, span: Span) -> Type {
-    checked
-        .type_of_expr(span)
-        .expect("checked expression must have a type")
+    // Missing types → Any: normal Programs are fully typed; direct-eval fragments
+    // inlined for private access (E19.82.08) are parsed outside the CheckedProgram.
+    checked.type_of_expr(span).unwrap_or(Type::Any)
 }
 
 fn lower_array_pattern_els(
@@ -6783,6 +6877,29 @@ Module
                 post() { return this.#n++; }
             }
         "#,
+        );
+    }
+
+    /// E19.82.08: direct eval string with private access lowers via WeakMap, not raw `#`.
+    #[test]
+    fn lower_direct_eval_private_field_rewrites() {
+        let module = lower_src(
+            r#"
+            class C {
+                #m = 44;
+                getWithEval() { return eval("this.#m"); }
+            }
+        "#,
+        );
+        let dump = dump_module(&module);
+        assert!(
+            dump.contains("__drac_pf_") || dump.contains("WeakMap"),
+            "expected private field desugar in dump: {dump}"
+        );
+        // The eval string must not remain as a runtime `#` private access.
+        assert!(
+            !dump.contains("this.#m") && !dump.contains("\"this.#m\""),
+            "eval private access should be inlined/desugared, dump: {dump}"
         );
     }
 }

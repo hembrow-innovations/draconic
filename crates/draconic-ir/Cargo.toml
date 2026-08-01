@@ -8,6 +8,6 @@ license.workspace = true
 draconic-ast.workspace = true
 draconic-check.workspace = true
 draconic-diagnostics.workspace = true
+draconic-parser.workspace = true
 
 [dev-dependencies]
-draconic-parser.workspace = true

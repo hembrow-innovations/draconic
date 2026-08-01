@@ -363,3 +363,34 @@ fn class_private_nested_shadow_runs() {
         );
     }
 }
+
+#[test]
+fn class_private_eval_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "es/classes/class_private_eval"),
+        "missing es/classes/class_private_eval fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn class_private_eval_runs() {
+    // E19.82.08: private names visible to direct eval in methods and field inits.
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "es/classes/class_private_eval")
+        .expect("es/classes/class_private_eval");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
