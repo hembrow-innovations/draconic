@@ -17,7 +17,8 @@ pub fn parse(source: &str) -> Result<Program, Diagnostic> {
 
 /// Parse as Module goal (always strict; `yield` reserved at top level).
 pub fn parse_module(source: &str) -> Result<Program, Diagnostic> {
-    let tokens = Lexer::new(source).tokenize()?;
+    // E19.67: Module goal rejects Annex B HTML-like comments.
+    let tokens = Lexer::new_module(source).tokenize()?;
     let mut parser = Parser::new(tokens, true);
     parser.in_strict = true;
     parser.parse_program()
@@ -46,6 +47,11 @@ struct Parser {
     /// Stack of private names for nested classes (E19.36 / E19.39 inheritance).
     /// Outer class names are visible inside nested class bodies.
     class_private_stack: Vec<Vec<String>>,
+    /// Depth of non-arrow functions / methods / static blocks (E19.67 `new.target`).
+    /// Arrows are transparent for Contains NewTarget.
+    new_target_depth: u32,
+    /// Depth of method/constructor bodies where SuperProperty is allowed (E19.67).
+    super_property_depth: u32,
 }
 
 impl Parser {
@@ -62,6 +68,8 @@ impl Parser {
             using_container_depth: 0,
             forbid_direct_using: false,
             class_private_stack: Vec::new(),
+            new_target_depth: 0,
+            super_property_depth: 0,
         }
     }
 
@@ -387,8 +395,23 @@ impl Parser {
         };
         let start = name_tok.span.start.0;
         self.expect(&TokenKind::Colon)?;
-        // Annex B.3.2: non-strict `label: function f() {}`.
+        // Annex B.3.2: non-strict `label: function f() {}` (plain FunctionDeclaration only).
         let body = Box::new(self.parse_stmt_or_annex_b_function()?);
+        // E19.67: LabelledItem FunctionDeclaration cannot be async/generator.
+        if let Stmt::FunctionDeclaration {
+            is_async,
+            is_generator,
+            span,
+            ..
+        } = body.as_ref()
+        {
+            if *is_async || *is_generator {
+                return Err(Diagnostic::new(
+                    "labelled function declaration cannot be async or generator".to_string(),
+                    *span,
+                ));
+            }
+        }
         let end = stmt_span(&body).end.0;
         Ok(Stmt::Labeled {
             label,
@@ -397,15 +420,36 @@ impl Parser {
         })
     }
 
-    /// Statement, or Annex B hoistable function declaration in non-strict (if / label only).
+    /// Statement, or Annex B plain FunctionDeclaration in non-strict (if / label only).
+    /// E19.67: Annex B does not allow `async function` / `function*` here.
     fn parse_stmt_or_annex_b_function(&mut self) -> Result<Stmt, Diagnostic> {
         if !self.in_strict
-            && (self.check(&TokenKind::Function)
-                || (self.check(&TokenKind::Async) && self.peek_is(&TokenKind::Function)))
+            && self.check(&TokenKind::Function)
+            && !self.peek_is(&TokenKind::Star)
         {
             return self.parse_function_decl();
         }
+        // Async / generator declarations are never valid Annex B statement forms.
+        if self.check(&TokenKind::Function)
+            || (self.check(&TokenKind::Async) && self.peek_is(&TokenKind::Function))
+        {
+            return Err(Diagnostic::new(
+                "function declaration not allowed in statement position".to_string(),
+                self.current().span,
+            ));
+        }
         self.parse_stmt()
+    }
+
+    /// E19.67: IterationStatement / IfStatement early error — IsLabelledFunction(Statement).
+    fn reject_labelled_function(stmt: &Stmt) -> Result<(), Diagnostic> {
+        if stmt_is_labelled_function(stmt) {
+            return Err(Diagnostic::new(
+                "labelled function declaration not allowed here".to_string(),
+                stmt_span(stmt),
+            ));
+        }
+        Ok(())
     }
 
     fn parse_block(&mut self) -> Result<Stmt, Diagnostic> {
@@ -559,10 +603,14 @@ impl Parser {
         let test = self.parse_expr()?;
         self.expect(&TokenKind::RParen)?;
         // Annex B.3.4: non-strict `if (c) function f() {}` / `else function g() {}`.
+        // Plain FunctionDeclaration only; IsLabelledFunction is always SyntaxError (E19.67).
         let consequent = Box::new(self.parse_stmt_or_annex_b_function()?);
+        Self::reject_labelled_function(&consequent)?;
         let alternate = if self.check(&TokenKind::Else) {
             self.bump();
-            Some(Box::new(self.parse_stmt_or_annex_b_function()?))
+            let alt = Box::new(self.parse_stmt_or_annex_b_function()?);
+            Self::reject_labelled_function(&alt)?;
+            Some(alt)
         } else {
             None
         };
@@ -584,6 +632,8 @@ impl Parser {
         let test = self.parse_expr()?;
         self.expect(&TokenKind::RParen)?;
         let body = Box::new(self.parse_stmt()?);
+        // E19.67: IterationStatement body must not be IsLabelledFunction.
+        Self::reject_labelled_function(&body)?;
         let end = stmt_span(&body).end.0;
         Ok(Stmt::While {
             test,
@@ -595,6 +645,7 @@ impl Parser {
     fn parse_do_while(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::Do)?.span.start.0;
         let body = Box::new(self.parse_stmt()?);
+        Self::reject_labelled_function(&body)?;
         self.expect(&TokenKind::While)?;
         self.expect(&TokenKind::LParen)?;
         let test = self.parse_expr()?;
@@ -665,9 +716,11 @@ impl Parser {
                         Span::new(let_start, binding_end),
                     ));
                 }
-                let right = self.parse_expr()?;
+                // E19.67: for-of RHS is AssignmentExpression (not Expression/comma).
+                let right = self.parse_assignment()?;
                 self.expect(&TokenKind::RParen)?;
                 let body = Box::new(self.parse_stmt()?);
+                Self::reject_labelled_function(&body)?;
                 let end = stmt_span(&body).end.0;
                 let left = Box::new(Stmt::Let {
                     kind,
@@ -732,9 +785,11 @@ impl Parser {
             if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
                 let is_in = self.check(&TokenKind::In);
                 self.bump();
-                let right = self.parse_expr()?;
+                // E19.67: for-in/of RHS is AssignmentExpression (not Expression/comma).
+                let right = self.parse_assignment()?;
                 self.expect(&TokenKind::RParen)?;
                 let body = Box::new(self.parse_stmt()?);
+                Self::reject_labelled_function(&body)?;
                 let end = stmt_span(&body).end.0;
                 let left = Box::new(Stmt::Let {
                     kind,
@@ -822,9 +877,11 @@ impl Parser {
                     ));
                 }
                 self.bump();
-                let right = self.parse_expr()?;
+                // E19.67: for-in RHS is AssignmentExpression (not Expression/comma).
+                let right = self.parse_assignment()?;
                 self.expect(&TokenKind::RParen)?;
                 let body = Box::new(self.parse_stmt()?);
+                Self::reject_labelled_function(&body)?;
                 let end = stmt_span(&body).end.0;
                 let let_end = if let Some(ref e) = init_expr {
                     expr_span(e).end.0
@@ -885,9 +942,11 @@ impl Parser {
         if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
             let is_in = self.check(&TokenKind::In);
             self.bump();
-            let right = self.parse_expr()?;
+            // E19.67: for-in/of RHS is AssignmentExpression (not Expression/comma).
+            let right = self.parse_assignment()?;
             self.expect(&TokenKind::RParen)?;
             let body = Box::new(self.parse_stmt()?);
+            Self::reject_labelled_function(&body)?;
             let end = stmt_span(&body).end.0;
             // Reinterpret array/object literals as assignment patterns for for-in/of LHS.
             let expr = array_expr_to_pattern(&expr)
@@ -956,6 +1015,7 @@ impl Parser {
         };
         self.expect(&TokenKind::RParen)?;
         let body = Box::new(self.parse_stmt()?);
+        Self::reject_labelled_function(&body)?;
         let end = stmt_span(&body).end.0;
         Ok(Stmt::For {
             init,
@@ -1019,8 +1079,20 @@ impl Parser {
         self.expect(&TokenKind::RParen)?;
         self.expect(&TokenKind::LBrace)?;
         let mut cases = Vec::new();
+        let mut saw_default = false;
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
-            cases.push(self.parse_switch_case()?);
+            let case = self.parse_switch_case()?;
+            // E19.67: at most one DefaultClause.
+            if case.test.is_none() {
+                if saw_default {
+                    return Err(Diagnostic::new(
+                        "multiple default clauses in switch".to_string(),
+                        case.span,
+                    ));
+                }
+                saw_default = true;
+            }
+            cases.push(case);
         }
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
         Ok(Stmt::Switch {
@@ -1075,8 +1147,20 @@ impl Parser {
                 Span::new(start, self.current_span().end.0),
             ));
         }
+        // E19.67: FormalParameters of an async function must not contain AwaitExpression.
+        if is_async && params_contain_await_expr(&params) {
+            self.in_await_context = prev_await;
+            self.in_generator = prev_gen;
+            return Err(Diagnostic::new(
+                "async function parameters cannot contain await".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
         let return_type = self.parse_optional_type_ann()?;
+        // E19.67: non-arrow functions introduce NewTarget.
+        self.new_target_depth += 1;
         let body = Box::new(self.parse_function_body_block()?);
+        self.new_target_depth -= 1;
         self.in_await_context = prev_await;
         self.in_generator = prev_gen;
         // Name is also invalid when FunctionBody ContainsUseStrict (even if outer is sloppy).
@@ -1267,7 +1351,12 @@ impl Parser {
         if is_static && self.check(&TokenKind::LBrace) {
             let prev_await = self.in_await_context;
             self.in_await_context = true;
+            // E19.67: static blocks introduce NewTarget and allow SuperProperty.
+            self.new_target_depth += 1;
+            self.super_property_depth += 1;
             let body = Box::new(self.parse_block()?);
+            self.super_property_depth -= 1;
+            self.new_target_depth -= 1;
             self.in_await_context = prev_await;
             let end = stmt_span(&body).end.0;
             return Ok(ClassElement::StaticBlock {
@@ -1352,7 +1441,12 @@ impl Parser {
                     key_span,
                 ));
             }
+            // E19.67: accessors introduce NewTarget and allow SuperProperty.
+            self.new_target_depth += 1;
+            self.super_property_depth += 1;
             let body = Box::new(self.parse_function_body_block()?);
+            self.super_property_depth -= 1;
+            self.new_target_depth -= 1;
             self.in_await_context = prev_await;
             let end = stmt_span(&body).end.0;
             return Ok(ClassElement::Accessor {
@@ -1409,7 +1503,19 @@ impl Parser {
                         Span::new(start, self.current_span().end.0),
                     ));
                 }
+                if is_async && params_contain_await_expr(&params) {
+                    self.in_generator = prev_gen;
+                    self.in_await_context = prev_await;
+                    return Err(Diagnostic::new(
+                        "async function parameters cannot contain await".to_string(),
+                        Span::new(start, self.current_span().end.0),
+                    ));
+                }
+                self.new_target_depth += 1;
+                self.super_property_depth += 1;
                 let body = Box::new(self.parse_function_body_block()?);
+                self.super_property_depth -= 1;
+                self.new_target_depth -= 1;
                 self.in_generator = prev_gen;
                 self.in_await_context = prev_await;
                 let end = stmt_span(&body).end.0;
@@ -1478,7 +1584,20 @@ impl Parser {
                 Span::new(start, self.current_span().end.0),
             ));
         }
+        // E19.67: async method FormalParameters cannot contain AwaitExpression.
+        if is_async && params_contain_await_expr(&params) {
+            self.in_generator = prev_gen;
+            self.in_await_context = prev_await;
+            return Err(Diagnostic::new(
+                "async function parameters cannot contain await".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
+        self.new_target_depth += 1;
+        self.super_property_depth += 1;
         let body = Box::new(self.parse_function_body_block()?);
+        self.super_property_depth -= 1;
+        self.new_target_depth -= 1;
         self.in_generator = prev_gen;
         self.in_await_context = prev_await;
         let end = stmt_span(&body).end.0;
@@ -1570,8 +1689,20 @@ impl Parser {
                 Span::new(start, self.current_span().end.0),
             ));
         }
+        // E19.67: FormalParameters of an async function must not contain AwaitExpression.
+        if is_async && params_contain_await_expr(&params) {
+            self.in_generator = prev_gen;
+            self.in_await_context = prev_await;
+            return Err(Diagnostic::new(
+                "async function parameters cannot contain await".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
         let return_type = self.parse_optional_type_ann()?;
+        // E19.67: non-arrow functions introduce NewTarget.
+        self.new_target_depth += 1;
         let body = Box::new(self.parse_function_body_block()?);
+        self.new_target_depth -= 1;
         self.in_generator = prev_gen;
         self.in_await_context = prev_await;
         if let Some(ref id) = name {
@@ -1918,7 +2049,13 @@ impl Parser {
     fn parse_throw(&mut self) -> Result<Stmt, Diagnostic> {
         let tok = self.expect(&TokenKind::Throw)?;
         let start = tok.span.start.0;
-        // ECMA-262: no LineTerminator between `throw` and Expression.
+        // ECMA-262 / E19.67: no LineTerminator between `throw` and Expression.
+        if self.current().preceded_by_line_terminator {
+            return Err(Diagnostic::new(
+                "line terminator not allowed after 'throw'".to_string(),
+                self.current_span(),
+            ));
+        }
         let argument = self.parse_expr()?;
         let mut end = expr_span(&argument).end.0;
         if self.check(&TokenKind::Semi) {
@@ -2900,6 +3037,13 @@ impl Parser {
         }
         let left = self.parse_conditional()?;
         let Some(op) = self.peek_assign_op() else {
+            // E19.67: CoverInitializedName is only valid as AssignmentPattern, not ObjectLiteral.
+            if expr_contains_cover_initialized_name(&left) {
+                return Err(Diagnostic::new(
+                    "CoverInitializedName is not valid in object literal".to_string(),
+                    expr_span(&left),
+                ));
+            }
             return Ok(left);
         };
         self.bump();
@@ -2914,6 +3058,13 @@ impl Parser {
                 left
             }
         } else {
+            // Compound assignment: CoverInitializedName invalid on LHS.
+            if expr_contains_cover_initialized_name(&left) {
+                return Err(Diagnostic::new(
+                    "CoverInitializedName is not valid in object literal".to_string(),
+                    expr_span(&left),
+                ));
+            }
             left
         };
         Ok(Expr::Assign {
@@ -3542,6 +3693,16 @@ impl Parser {
             } else if self.check(&TokenKind::QuestionDot) {
                 self.bump();
                 let start = expr_span(&expr).start.0;
+                // E19.67: optional chain cannot be followed by tagged template.
+                if matches!(
+                    &self.current().kind,
+                    TokenKind::TemplateNoSubstitution(_) | TokenKind::TemplateHead(_)
+                ) {
+                    return Err(Diagnostic::new(
+                        "tagged template not allowed after optional chain".to_string(),
+                        self.current_span(),
+                    ));
+                }
                 if self.check(&TokenKind::LParen) {
                     self.bump();
                     let args = self.parse_arg_list()?;
@@ -3648,6 +3809,13 @@ impl Parser {
                 &self.current().kind,
                 TokenKind::TemplateNoSubstitution(_) | TokenKind::TemplateHead(_)
             ) {
+                // E19.67: OptionalExpression cannot be the tag of a tagged template.
+                if expr_is_optional_chain(&expr) {
+                    return Err(Diagnostic::new(
+                        "tagged template not allowed after optional chain".to_string(),
+                        self.current_span(),
+                    ));
+                }
                 expr = self.parse_tagged_template(expr)?;
             } else {
                 break;
@@ -3760,11 +3928,26 @@ impl Parser {
         // `new.target` — meta-property, not a construct expression.
         if self.check(&TokenKind::Dot) {
             self.bump();
+            // E19.67: `new.t\u0061rget` — IdentifierName must be unescaped `target`.
+            let target_escaped = self.current().escaped;
             let (name, prop_span) = self.expect_ident_name()?;
+            if target_escaped {
+                return Err(Diagnostic::new(
+                    "escaped 'target' is not allowed in new.target".to_string(),
+                    prop_span,
+                ));
+            }
             if name != "target" {
                 return Err(Diagnostic::new(
                     format!("expected `target` after `new.`, found `{name}`"),
                     prop_span,
+                ));
+            }
+            // E19.67: NewTarget only in non-arrow function / method / static block code.
+            if self.new_target_depth == 0 {
+                return Err(Diagnostic::new(
+                    "'new.target' is only valid inside functions".to_string(),
+                    Span::new(start, prop_span.end.0),
                 ));
             }
             return Ok(Expr::NewTarget {
@@ -3871,9 +4054,22 @@ impl Parser {
     fn parse_object_expression(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::LBrace)?.span.start.0;
         let mut properties = Vec::new();
+        let mut proto_count = 0u32;
         if !self.check(&TokenKind::RBrace) {
             loop {
-                properties.push(self.parse_object_prop()?);
+                let prop = self.parse_object_prop()?;
+                // E19.67: duplicate `__proto__` PropertyName : AssignmentExpression is early error.
+                if object_prop_is_proto_data(&prop) {
+                    proto_count += 1;
+                    if proto_count > 1 {
+                        return Err(Diagnostic::new(
+                            "duplicate __proto__ fields are not allowed in object literal"
+                                .to_string(),
+                            object_prop_span(&prop),
+                        ));
+                    }
+                }
+                properties.push(prop);
                 if self.check(&TokenKind::Comma) {
                     self.bump();
                     if self.check(&TokenKind::RBrace) {
@@ -3928,7 +4124,12 @@ impl Parser {
                     self.current_span(),
                 ));
             }
+            // E19.67: object accessors introduce NewTarget and allow SuperProperty.
+            self.new_target_depth += 1;
+            self.super_property_depth += 1;
             let body = Box::new(self.parse_function_body_block()?);
+            self.super_property_depth -= 1;
+            self.new_target_depth -= 1;
             self.in_await_context = prev_await;
             let end = stmt_span(&body).end.0;
             return Ok(ObjectProp::Accessor {
@@ -4205,8 +4406,22 @@ impl Parser {
                 Span::new(start, self.current_span().end.0),
             ));
         }
+        // E19.67: async method FormalParameters cannot contain AwaitExpression.
+        if is_async && params_contain_await_expr(&params) {
+            self.in_generator = prev_gen;
+            self.in_await_context = prev_await;
+            return Err(Diagnostic::new(
+                "async function parameters cannot contain await".to_string(),
+                Span::new(start, self.current_span().end.0),
+            ));
+        }
         let return_type = self.parse_optional_type_ann()?;
+        // E19.67: methods introduce NewTarget and allow SuperProperty.
+        self.new_target_depth += 1;
+        self.super_property_depth += 1;
         let body = Box::new(self.parse_function_body_block()?);
+        self.super_property_depth -= 1;
+        self.new_target_depth -= 1;
         self.in_generator = prev_gen;
         self.in_await_context = prev_await;
         let end = stmt_span(&body).end.0;
@@ -4379,6 +4594,13 @@ impl Parser {
                 Ok(Expr::This { span: tok.span })
             }
             TokenKind::Super => {
+                // E19.67: SuperProperty / SuperCall only in method/constructor/static-block code.
+                if self.super_property_depth == 0 {
+                    return Err(Diagnostic::new(
+                        "'super' is only valid inside methods".to_string(),
+                        tok.span,
+                    ));
+                }
                 self.bump();
                 Ok(Expr::Super { span: tok.span })
             }
@@ -4874,6 +5096,240 @@ fn stmt_is_function_or_labelled_function(stmt: &Stmt) -> bool {
             Stmt::Labeled { body, .. } => s = body,
             _ => return false,
         }
+    }
+}
+
+/// ECMA-262 IsLabelledFunction: LabelledStatement whose innermost item is FunctionDeclaration.
+/// E19.67: IterationStatement / IfStatement early error.
+fn stmt_is_labelled_function(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Labeled { body, .. } => stmt_is_function_or_labelled_function(body),
+        _ => false,
+    }
+}
+
+/// True when `expr` is (or chains through) an optional chain (`?.`).
+fn expr_is_optional_chain(expr: &Expr) -> bool {
+    match expr {
+        Expr::MemberExpression { optional: true, .. } | Expr::Call { optional: true, .. } => true,
+        Expr::MemberExpression {
+            optional: false,
+            object,
+            ..
+        } => expr_is_optional_chain(object),
+        Expr::Call {
+            optional: false,
+            callee,
+            ..
+        } => expr_is_optional_chain(callee),
+        Expr::Paren { expr: inner, .. } => expr_is_optional_chain(inner),
+        _ => false,
+    }
+}
+
+/// CoverInitializedName encoded as shorthand Property with Assign value (E19.67).
+fn expr_contains_cover_initialized_name(expr: &Expr) -> bool {
+    match expr {
+        Expr::Paren { expr: inner, .. } => expr_contains_cover_initialized_name(inner),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property {
+                shorthand: true,
+                value: Expr::Assign { .. },
+                ..
+            } => true,
+            ObjectProp::Property { value, .. } => expr_contains_cover_initialized_name(value),
+            ObjectProp::Spread { expr, .. } => expr_contains_cover_initialized_name(expr),
+            ObjectProp::Accessor { .. } => false,
+        }),
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => {
+                expr_contains_cover_initialized_name(e)
+            }
+            ArrayElement::Elision => false,
+        }),
+        Expr::Assign { target, value, .. } => {
+            expr_contains_cover_initialized_name(target)
+                || expr_contains_cover_initialized_name(value)
+        }
+        Expr::Binary { left, right, .. } => {
+            expr_contains_cover_initialized_name(left)
+                || expr_contains_cover_initialized_name(right)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_cover_initialized_name(test)
+                || expr_contains_cover_initialized_name(consequent)
+                || expr_contains_cover_initialized_name(alternate)
+        }
+        Expr::Unary { arg, .. } | Expr::Update { arg, .. } | Expr::As { expr: arg, .. } => {
+            expr_contains_cover_initialized_name(arg)
+        }
+        Expr::Call { callee, args, .. } => {
+            expr_contains_cover_initialized_name(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_cover_initialized_name(e),
+                })
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => {
+            expr_contains_cover_initialized_name(object)
+                || expr_contains_cover_initialized_name(property)
+        }
+        _ => false,
+    }
+}
+
+fn object_prop_is_proto_data(prop: &ObjectProp) -> bool {
+    match prop {
+        ObjectProp::Property {
+            key,
+            shorthand: false,
+            value,
+            ..
+        } => {
+            // Only `PropertyName : AssignmentExpression` form — not methods/shorthand.
+            if matches!(value, Expr::FunctionExpression { is_method: true, .. }) {
+                return false;
+            }
+            match key {
+                ObjectKey::Ident(id) => id.name == "__proto__",
+                ObjectKey::String(s) => s.value.to_string_lossy() == "__proto__",
+                ObjectKey::Computed(_) => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn object_prop_span(prop: &ObjectProp) -> Span {
+    match prop {
+        ObjectProp::Property { span, .. }
+        | ObjectProp::Spread { span, .. }
+        | ObjectProp::Accessor { span, .. } => *span,
+    }
+}
+
+/// AwaitExpression in FormalParameters of async functions (E19.67).
+fn params_contain_await_expr(params: &[Param]) -> bool {
+    params.iter().any(|p| {
+        p.default.as_ref().is_some_and(expr_contains_await_expr)
+            || binding_pattern_contains_await_expr(&p.binding)
+    })
+}
+
+fn binding_pattern_contains_await_expr(b: &BindingPattern) -> bool {
+    match b {
+        BindingPattern::Ident(_) | BindingPattern::Member(_) => false,
+        BindingPattern::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayPatternElement::Elision => false,
+            ArrayPatternElement::Pattern { binding, default } => {
+                binding_pattern_contains_await_expr(binding)
+                    || default.as_ref().is_some_and(expr_contains_await_expr)
+            }
+            ArrayPatternElement::Rest(inner) => binding_pattern_contains_await_expr(inner),
+        }),
+        BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectPatternProp::Prop {
+                key,
+                binding,
+                default,
+                ..
+            } => {
+                object_key_contains_await_expr(key)
+                    || binding_pattern_contains_await_expr(binding)
+                    || default.as_ref().is_some_and(expr_contains_await_expr)
+            }
+            ObjectPatternProp::Rest(inner) => binding_pattern_contains_await_expr(inner),
+        }),
+    }
+}
+
+fn object_key_contains_await_expr(key: &ObjectKey) -> bool {
+    match key {
+        ObjectKey::Computed(e) => expr_contains_await_expr(e),
+        ObjectKey::Ident(_) | ObjectKey::String(_) => false,
+    }
+}
+
+fn expr_contains_await_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Unary {
+            op: UnaryOp::Await, ..
+        } => true,
+        // Nested functions/classes hide await of their bodies for outer Contains.
+        Expr::FunctionExpression { .. } | Expr::ClassExpression { .. } => false,
+        Expr::ArrowFunction { body, params, .. } => {
+            params_contain_await_expr(params)
+                || match body {
+                    ArrowBody::Expr(e) => expr_contains_await_expr(e),
+                    ArrowBody::Block(s) => stmt_contains_await_expr(s),
+                }
+        }
+        Expr::Paren { expr: inner, .. }
+        | Expr::Unary { arg: inner, .. }
+        | Expr::Update { arg: inner, .. }
+        | Expr::As { expr: inner, .. } => expr_contains_await_expr(inner),
+        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+            expr_contains_await_expr(left) || expr_contains_await_expr(right)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_contains_await_expr(test)
+                || expr_contains_await_expr(consequent)
+                || expr_contains_await_expr(alternate)
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => expr_contains_await_expr(object) || expr_contains_await_expr(property),
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_contains_await_expr(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_contains_await_expr(e),
+                })
+        }
+        Expr::ArrayExpression { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_contains_await_expr(e),
+            ArrayElement::Elision => false,
+        }),
+        Expr::ObjectExpression { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { key, value, .. } => {
+                object_key_contains_await_expr(key) || expr_contains_await_expr(value)
+            }
+            ObjectProp::Spread { expr, .. } => expr_contains_await_expr(expr),
+            ObjectProp::Accessor { key, .. } => object_key_contains_await_expr(key),
+        }),
+        Expr::TemplateLiteral { expressions, .. } => expressions.iter().any(expr_contains_await_expr),
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => expr_contains_await_expr(tag) || expressions.iter().any(expr_contains_await_expr),
+        Expr::ImportCall {
+            source, options, ..
+        } => {
+            expr_contains_await_expr(source)
+                || options.as_ref().is_some_and(|o| expr_contains_await_expr(o))
+        }
+        Expr::PrivateIn { object, .. } => expr_contains_await_expr(object),
+        _ => false,
+    }
+}
+
+fn stmt_contains_await_expr(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Expression { expr, .. } => expr_contains_await_expr(expr),
+        Stmt::Throw { argument, .. } => expr_contains_await_expr(argument),
+        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_await_expr),
+        Stmt::Block { body, .. } => body.iter().any(stmt_contains_await_expr),
+        Stmt::Let { init, .. } => init.as_ref().is_some_and(expr_contains_await_expr),
+        _ => false,
     }
 }
 
@@ -9201,5 +9657,61 @@ Program
             mod_dump.contains("Using"),
             "module top-level using: {mod_dump}"
         );
+    }
+
+    /// E19.67: early SyntaxError residual IV — statement position, new.target/super,
+    /// cover-init, __proto__, throw ASI, optional-chain template, async param await.
+    #[test]
+    fn parse_e19_67_early_syntax_residuals() {
+        // Annex B: plain function ok in non-strict if/label; async/generator never.
+        assert!(parse("if (true) function f() {}").is_ok());
+        assert!(parse("if (true) function* g() {}").is_err());
+        assert!(parse("if (true) async function f() {}").is_err());
+        assert!(parse("if (true) async function* g() {}").is_err());
+        assert!(parse("label: function f() {}").is_ok());
+        assert!(parse("label: function* g() {}").is_err());
+        assert!(parse("label: async function f() {}").is_err());
+        // IsLabelledFunction in if / iteration.
+        assert!(parse("if (false) label: function f() {}").is_err());
+        assert!(parse("while (false) label: function f() {}").is_err());
+        assert!(parse("do label: function f() {} while (false);").is_err());
+        assert!(parse("for (;;) label: function f() {}").is_err());
+        assert!(parse("for (let x of []) label: function f() {}").is_err());
+        assert!(parse("for (let x in {}) label: function f() {}").is_err());
+        // throw ASI
+        assert!(parse("throw\n1;").is_err());
+        assert!(parse("throw 1;").is_ok());
+        // new.target / super outside function/method
+        assert!(parse("new.target;").is_err());
+        assert!(parse("() => new.target;").is_err());
+        assert!(parse("function f() { return new.target; }").is_ok());
+        assert!(parse("function f() { () => new.target; }").is_ok());
+        assert!(parse("super;").is_err());
+        assert!(parse("super();").is_err());
+        assert!(parse("class C extends B { constructor() { super(); } }").is_ok());
+        assert!(parse("class C extends B { m() { return super.x; } }").is_ok());
+        // escaped new.target
+        assert!(parse("function f() { new.t\\u0061rget; }").is_err());
+        // switch duplicate default
+        assert!(parse("switch (0) { default: break; default: break; }").is_err());
+        // CoverInitializedName as object literal value
+        assert!(parse("({ a = 1 });").is_err());
+        assert!(parse("({ a = 1 } = {});").is_ok());
+        // duplicate __proto__
+        assert!(parse("({ __proto__: null, '__proto__': null });").is_err());
+        assert!(parse("({ __proto__: null, other: 1 });").is_ok());
+        // for-of RHS is AssignmentExpression (no comma)
+        assert!(parse("for (x of [], []) {}").is_err());
+        assert!(parse("for (let x of [], []) {}").is_err());
+        // optional chain + tagged template
+        assert!(parse("a?.fn`hello`;").is_err());
+        assert!(parse("null?.fn`hello`;").is_err());
+        // async function formals cannot contain await
+        assert!(parse("(async function*(x = await 1) {});").is_err());
+        assert!(parse("(async function(x = await 1) {});").is_err());
+        assert!(parse("(async function(x = 1) { await x; });").is_ok());
+        // module new.target / super
+        assert!(parse_module("new.target;").is_err());
+        assert!(parse_module("super;").is_err());
     }
 }

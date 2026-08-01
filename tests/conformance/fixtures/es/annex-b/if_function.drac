@@ -25,7 +25,3 @@ function outer() {
   return inner();
 }
 let e = outer();
-if (true) L: function m() {
-  return 8;
-}
-let i = m();

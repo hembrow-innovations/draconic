@@ -292,7 +292,8 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.64 | done | js | Test262 harness buffer/agent helpers: `$DETACHBUFFER`, `$262.agent` minimal, `byteConversionValues`, Atomics index helpers (`testWithAtomics*`) | `tests/test262` (allowlist + baseline-report) |
 | E19.65 | done | js | Test262 harness residual II: `fnGlobalObject`, `decimalToPercentHexString`, `checkSequence` / `checkSettledPromises`, `assertThrowsValue` / `assertNativeFunction` / `assertNear`, `$MAX_ITERATIONS` | `tests/test262` (allowlist + baseline-report) |
 | E19.66 | done | js | TypedArray/`ctors` residual after E19.61: remaining `testWithTypedArrayConstructors` paths still `ReferenceError: ctors` / incomplete include factories | `tests/test262` (allowlist + baseline-report) |
-| E19.67 | todo | js | Early SyntaxError residual IV: negative parse still accepted (`expected compile failure` cluster post-E19.62 probe) | `crates/draconic-parser` / check, `tests/test262` |
+| E19.67 | done | js | Early SyntaxError residual IV: statement-position Annex B/IsLabelledFunction; throw ASI; new.target/super; cover-init; `__proto__` dup; for-of AssignmentExpression RHS; optional-chain tagged template; async param await; module HTML comments + lexical functions; numeric+ident; for let/const∩var | `crates/draconic-parser` / lexer / check, `tests/test262` |
+| E19.69 | todo | js | Early SyntaxError residual V: legacy octal/non-octal numeric+string/template escapes in strict; module export early errors (semi/unresolvable/global); line-terminator in string/regexp; annexB for-in strict initializer | `crates/draconic-parser` / lexer / check, `tests/test262` |
 | E19.68 | todo | js | Expand allowlist further after E19.63–E19.67 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---

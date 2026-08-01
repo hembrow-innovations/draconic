@@ -248,6 +248,8 @@ pub struct Lexer<'a> {
     allow_regexp: bool,
     /// Set while skipping trivia that includes a LineTerminator; consumed by next token.
     had_line_terminator: bool,
+    /// Annex B HTML-like comments (`<!--` / `-->`) — Script only (E19.67 modules reject).
+    allow_html_comments: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -260,7 +262,15 @@ impl<'a> Lexer<'a> {
             at_line_start: true,
             allow_regexp: true,
             had_line_terminator: false,
+            allow_html_comments: true,
         }
+    }
+
+    /// Module goal: Annex B HTML-like comments are not allowed (E19.67).
+    pub fn new_module(src: &'a str) -> Self {
+        let mut lex = Self::new(src);
+        lex.allow_html_comments = false;
+        lex
     }
 
     fn finish_token(&mut self, kind: TokenKind, span: Span) -> Token {
@@ -664,8 +674,9 @@ impl<'a> Lexer<'a> {
                         self.had_line_terminator = true;
                     }
                 }
-                // Annex B.1.3 SingleLineHTMLOpenComment: `<!--` …
-                b'<' if self.peek_at(1) == Some(b'!')
+                // Annex B.1.3 SingleLineHTMLOpenComment: `<!--` … (Script only; E19.67).
+                b'<' if self.allow_html_comments
+                    && self.peek_at(1) == Some(b'!')
                     && self.peek_at(2) == Some(b'-')
                     && self.peek_at(3) == Some(b'-') =>
                 {
@@ -681,8 +692,9 @@ impl<'a> Lexer<'a> {
                         self.bump_char();
                     }
                 }
-                // Annex B.1.3 HTMLCloseComment at line start: `-->` …
-                b'-' if self.at_line_start
+                // Annex B.1.3 HTMLCloseComment at line start: `-->` … (Script only; E19.67).
+                b'-' if self.allow_html_comments
+                    && self.at_line_start
                     && self.peek_at(1) == Some(b'-')
                     && self.peek_at(2) == Some(b'>') =>
                 {
@@ -1150,6 +1162,7 @@ impl<'a> Lexer<'a> {
                     Span::new(start as u32, (self.pos + 1) as u32),
                 ));
             }
+            self.reject_numeric_followed_by_ident(start)?;
             let raw = self.src[start..self.pos].to_string();
             return Ok(TokenKind::Number(canonicalize_leading_zero_decimal(&raw)));
         }
@@ -1161,6 +1174,7 @@ impl<'a> Lexer<'a> {
                 Span::new(start as u32, (self.pos + 1) as u32),
             ));
         }
+        self.reject_numeric_followed_by_ident(start)?;
         let raw = &self.src[start..self.pos];
         let mv = legacy_octal_mv(raw);
         Ok(TokenKind::Number(mv))
@@ -1190,11 +1204,31 @@ impl<'a> Lexer<'a> {
                 ));
             }
             self.bump(); // n
+            // E19.67: NumericLiteral must not be followed by IdentifierStart.
+            self.reject_numeric_followed_by_ident(start)?;
             let raw = self.src[start..self.pos].to_string();
             return Ok(TokenKind::BigInt(raw));
         }
+        // E19.67: NumericLiteral must not be followed by IdentifierStart (`3in`).
+        self.reject_numeric_followed_by_ident(start)?;
         let raw = self.src[start..self.pos].to_string();
         Ok(TokenKind::Number(raw))
+    }
+
+    /// ECMA-262: The SourceCharacter immediately following a NumericLiteral must not
+    /// be an IdentifierStart or DecimalDigit.
+    fn reject_numeric_followed_by_ident(&self, start: usize) -> Result<(), Diagnostic> {
+        if self.is_eof() {
+            return Ok(());
+        }
+        let ch = self.peek_char();
+        if is_ident_start_char(ch) {
+            return Err(Diagnostic::new(
+                "numeric literal cannot be immediately followed by identifier".to_string(),
+                Span::new(start as u32, (self.pos + ch.len_utf8()) as u32),
+            ));
+        }
+        Ok(())
     }
 
     /// Returns `true` if an exponent part was consumed.
@@ -2308,14 +2342,14 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
-        // `1.toString`: number `1.` then bare Ident (parse-time SyntaxError in ES).
-        assert_eq!(
-            kinds("1.toString"),
-            vec![
-                TokenKind::Number("1.".into()),
-                TokenKind::Ident("toString".into()),
-                TokenKind::Eof,
-            ]
+        // `1.toString`: NumericLiteral must not be followed by IdentifierStart (E19.67).
+        assert!(
+            Lexer::new("1.toString").tokenize().is_err(),
+            "1.toString must be a lexical early error"
+        );
+        assert!(
+            Lexer::new("3in").tokenize().is_err(),
+            "3in must be a lexical early error"
         );
         // Space allows integer + member access.
         assert_eq!(
@@ -2816,3 +2850,5 @@ mod tests {
         );
     }
 }
+
+

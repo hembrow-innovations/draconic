@@ -314,7 +314,14 @@ fn format_type_full(
 /// Bind scopes and resolve identifiers for a minimal Program.
 pub fn bind(program: Program) -> Result<BoundProgram, Diagnostic> {
     let mut binder = Binder::new();
-    binder.bind_program(program)
+    binder.bind_program(program, false)
+}
+
+/// Bind under Module goal (E19.67): top-level functions are lexical, not var-like.
+pub fn bind_module(program: Program) -> Result<BoundProgram, Diagnostic> {
+    let mut binder = Binder::new();
+    binder.strict = true;
+    binder.bind_program(program, true)
 }
 
 pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
@@ -333,7 +340,11 @@ fn check_with_module_goal(
     program: Program,
     module_goal: bool,
 ) -> Result<CheckedProgram, Diagnostic> {
-    let bound = bind(program)?;
+    let bound = if module_goal {
+        bind_module(program)?
+    } else {
+        bind(program)?
+    };
     let mut checker = Checker::new(&bound);
     // Module evaluation may be async when the body uses top-level await.
     checker.in_async = module_goal;
@@ -981,11 +992,18 @@ impl Binder {
         self.builtins.insert(name.to_string(), id);
     }
 
-    fn bind_program(&mut self, program: Program) -> Result<BoundProgram, Diagnostic> {
+    fn bind_program(
+        &mut self,
+        program: Program,
+        module_goal: bool,
+    ) -> Result<BoundProgram, Diagnostic> {
         if stmt_list_has_use_strict(&program.body) {
             self.strict = true;
         }
-        self.bind_stmt_list(&program.body, true)?;
+        // E19.67: Module top-level uses Block-like LexicallyDeclaredNames (functions are
+        // lexical). Script/FunctionBody use TopLevel*DeclaredNames (functions are var-like).
+        let top_level = !module_goal;
+        self.bind_stmt_list(&program.body, top_level)?;
 
         Ok(BoundProgram {
             program,
@@ -997,6 +1015,7 @@ impl Binder {
     /// Two-pass list bind: declare lexical bindings in this scope, then bind each statement.
     ///
     /// `top_level`: Script or FunctionBody (TopLevel*DeclaredNames early errors).
+    /// Module program body passes `false` so functions are lexical (E19.67).
     fn bind_stmt_list(&mut self, stmts: &[Stmt], top_level: bool) -> Result<(), Diagnostic> {
         // E19.24: LexicallyDeclaredNames / VarDeclaredNames early errors.
         check_statement_list_early_errors(stmts, self.strict, top_level)?;
@@ -1600,6 +1619,21 @@ impl Binder {
                 }) = init.as_deref()
                 {
                     if matches!(kind, BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing) {
+                        // E19.67: ForDeclaration BoundNames ∩ VarDeclaredNames(Statement) empty.
+                        let mut bound = Vec::new();
+                        binding.for_each_ident(&mut |id| {
+                            bound.push((id.name.clone(), id.span));
+                        });
+                        let mut body_vars = Vec::new();
+                        collect_var_declared_names_stmt(body, &mut body_vars);
+                        for (name, span) in &bound {
+                            if body_vars.iter().any(|(n, _)| n == name) {
+                                return Err(Diagnostic::new(
+                                    format!("duplicate declaration of `{name}`"),
+                                    *span,
+                                ));
+                            }
+                        }
                         self.push_scope();
                         self.declare_binding(binding, *kind)?;
                         // Pattern defaults (`[cls = class {}]`) bind free refs + class expr locals.
@@ -5594,45 +5628,34 @@ mod tests {
     // E19.58: SuperCall never in arrows; SuperProperty only when lexically in method.
     #[test]
     fn check_arrow_super_call_fails() {
-        let program = parse("() => super();").unwrap();
-        let err = check(program).unwrap_err();
+        // E19.67: super outside method is parse-time SyntaxError.
         assert!(
-            err.message.contains("super"),
-            "unexpected: {}",
-            err.message
+            parse("() => super();").is_err(),
+            "top-level arrow SuperCall must fail at parse"
         );
     }
 
     #[test]
     fn check_async_arrow_super_call_fails() {
-        let program = parse("async () => super();").unwrap();
-        let err = check(program).unwrap_err();
         assert!(
-            err.message.contains("super"),
-            "unexpected: {}",
-            err.message
+            parse("async () => super();").is_err(),
+            "top-level async arrow SuperCall must fail at parse"
         );
     }
 
     #[test]
     fn check_arrow_super_property_outside_method_fails() {
-        let program = parse("() => super.x;").unwrap();
-        let err = check(program).unwrap_err();
         assert!(
-            err.message.contains("super"),
-            "unexpected: {}",
-            err.message
+            parse("() => super.x;").is_err(),
+            "top-level arrow SuperProperty must fail at parse"
         );
     }
 
     #[test]
     fn check_async_arrow_super_property_outside_method_fails() {
-        let program = parse("async () => super.x;").unwrap();
-        let err = check(program).unwrap_err();
         assert!(
-            err.message.contains("super"),
-            "unexpected: {}",
-            err.message
+            parse("async () => super.x;").is_err(),
+            "top-level async arrow SuperProperty must fail at parse"
         );
     }
 
