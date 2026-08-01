@@ -97,6 +97,9 @@ pub struct Token {
     /// True when the identifier/keyword token contained a Unicode escape (`\u…`).
     /// Contextual keywords (`get`/`set`/`async`) must not be escaped (E19.39).
     pub escaped: bool,
+    /// Annex B legacy octal / NonOctalDecimal numeric or string escape (E19.69).
+    /// Strict mode (and always for templates) rejects these as early SyntaxError.
+    pub legacy_octal: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,6 +253,8 @@ pub struct Lexer<'a> {
     had_line_terminator: bool,
     /// Annex B HTML-like comments (`<!--` / `-->`) — Script only (E19.67 modules reject).
     allow_html_comments: bool,
+    /// Set by numeric/string scanners; consumed by `finish_token` (E19.69).
+    pending_legacy_octal: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -263,6 +268,7 @@ impl<'a> Lexer<'a> {
             allow_regexp: true,
             had_line_terminator: false,
             allow_html_comments: true,
+            pending_legacy_octal: false,
         }
     }
 
@@ -280,11 +286,14 @@ impl<'a> Lexer<'a> {
     fn finish_token_escaped(&mut self, kind: TokenKind, span: Span, escaped: bool) -> Token {
         let preceded_by_line_terminator = self.had_line_terminator;
         self.had_line_terminator = false;
+        let legacy_octal = self.pending_legacy_octal;
+        self.pending_legacy_octal = false;
         Token {
             kind,
             span,
             preceded_by_line_terminator,
             escaped,
+            legacy_octal,
         }
     }
 
@@ -729,16 +738,23 @@ impl<'a> Lexer<'a> {
         let quote = self.bump();
         let start = self.pos as u32;
         let mut value = JsString::new();
+        let mut legacy = false;
         while !self.is_eof() {
             let c = self.peek();
             if c == quote {
                 self.bump();
+                if legacy {
+                    self.pending_legacy_octal = true;
+                }
                 return Ok(TokenKind::String(value));
             }
             if c == b'\\' {
                 self.bump();
-                self.scan_escape_into(&mut value, true)?;
-            } else if c == b'\n' {
+                if self.scan_escape_into(&mut value, true)? {
+                    legacy = true;
+                }
+            } else if c == b'\n' || c == b'\r' {
+                // E19.69: LF/CR terminate strings (unterminated); LS/PS allowed since ES2019.
                 return Err(Diagnostic::new(
                     "unterminated string literal",
                     Span::new(start.saturating_sub(1), self.pos as u32),
@@ -825,11 +841,12 @@ impl<'a> Lexer<'a> {
     /// and NonOctalDecimal `\8`/`\9`. Templates pass `false` (bare `\0` only).
     /// LineContinuation (`\` + LineTerminatorSequence) contributes no code units.
     /// IdentityEscape / NonEscapeSequence consume a full UTF-8 scalar (not one byte).
+    /// Returns `true` when a legacy octal / NonOctalDecimal escape was used (E19.69).
     fn scan_escape_into(
         &mut self,
         value: &mut JsString,
         allow_legacy_octal: bool,
-    ) -> Result<(), Diagnostic> {
+    ) -> Result<bool, Diagnostic> {
         if self.is_eof() {
             return Err(Diagnostic::new(
                 "unterminated escape sequence",
@@ -838,7 +855,7 @@ impl<'a> Lexer<'a> {
         }
         // LineContinuation :: `\` LineTerminatorSequence → empty SV.
         if self.try_consume_line_terminator_sequence() {
-            return Ok(());
+            return Ok(false);
         }
         let esc_start = self.pos as u32;
         let esc = self.peek();
@@ -846,59 +863,99 @@ impl<'a> Lexer<'a> {
             b'b' => {
                 self.bump();
                 value.push_scalar('\u{0008}');
+                Ok(false)
             }
             b'f' => {
                 self.bump();
                 value.push_scalar('\u{000C}');
+                Ok(false)
             }
             b'n' => {
                 self.bump();
                 value.push_scalar('\n');
+                Ok(false)
             }
             b'r' => {
                 self.bump();
                 value.push_scalar('\r');
+                Ok(false)
             }
             b't' => {
                 self.bump();
                 value.push_scalar('\t');
+                Ok(false)
             }
             b'v' => {
                 self.bump();
                 value.push_scalar('\u{000B}');
+                Ok(false)
             }
             b'\\' => {
                 self.bump();
                 value.push_scalar('\\');
+                Ok(false)
             }
             b'\'' => {
                 self.bump();
                 value.push_scalar('\'');
+                Ok(false)
             }
             b'"' => {
                 self.bump();
                 value.push_scalar('"');
+                Ok(false)
             }
             b'`' => {
                 self.bump();
                 value.push_scalar('`');
+                Ok(false)
             }
             b'$' => {
                 self.bump();
                 value.push_scalar('$');
+                Ok(false)
             }
+            // TemplateEscapeSequence: `0` only when not followed by DecimalDigit.
+            // Legacy octal / NonOctalDecimal are SyntaxError in templates (always).
+            b'0' if !allow_legacy_octal => {
+                self.bump();
+                if !self.is_eof() && self.peek().is_ascii_digit() {
+                    return Err(Diagnostic::new(
+                        "octal escape sequences are not allowed in template literals",
+                        Span::new(esc_start.saturating_sub(1), self.pos as u32 + 1),
+                    ));
+                }
+                value.push_scalar('\0');
+                Ok(false)
+            }
+            b'1'..=b'9' if !allow_legacy_octal => Err(Diagnostic::new(
+                "octal escape sequences are not allowed in template literals",
+                Span::new(esc_start.saturating_sub(1), self.pos as u32 + 1),
+            )),
             b'0'..=b'7' if allow_legacy_octal => {
                 let first = self.bump();
+                // Standard EscapeSequence `0` requires lookahead ∉ DecimalDigit.
+                // `\0`+digit / `\1`–`\7` are LegacyOctalEscapeSequence (E19.69 strict error).
+                let is_legacy = first != b'0'
+                    || (!self.is_eof() && self.peek().is_ascii_digit());
                 self.scan_legacy_octal_escape_into(value, first);
+                Ok(is_legacy)
+            }
+            b'8' | b'9' if allow_legacy_octal => {
+                // Annex B NonOctalDecimalEscapeSequence.
+                self.scan_source_char_into(value);
+                Ok(true)
             }
             b'0' => {
                 self.bump();
                 value.push_scalar('\0');
+                Ok(false)
             }
             b'x' => {
                 self.bump();
                 let cp = self.scan_hex_digits(2, esc_start)?;
                 push_code_point(value, cp, esc_start, self.pos as u32, false)?;
+                Ok(false)
             }
             b'u' => {
                 self.bump();
@@ -912,12 +969,14 @@ impl<'a> Lexer<'a> {
                     // `\uXXXX` may be any 16-bit code unit, including surrogates.
                     push_code_point(value, cp, esc_start, self.pos as u32, false)?;
                 }
+                Ok(false)
             }
-            // Annex B NonOctalDecimalEscapeSequence `\8` / `\9`, and IdentityEscape /
-            // NonEscapeSequence — full UTF-8 scalar (e.g. Cyrillic `"\А"`).
-            _ => self.scan_source_char_into(value),
+            // IdentityEscape / NonEscapeSequence — full UTF-8 scalar (e.g. Cyrillic `"\А"`).
+            _ => {
+                self.scan_source_char_into(value);
+                Ok(false)
+            }
         }
-        Ok(())
     }
 
     /// Consume one LineTerminatorSequence if present at `pos`. Returns true when consumed.
@@ -1164,6 +1223,8 @@ impl<'a> Lexer<'a> {
             }
             self.reject_numeric_followed_by_ident(start)?;
             let raw = self.src[start..self.pos].to_string();
+            // E19.69: NonOctalDecimalIntegerLiteral is SyntaxError in strict mode.
+            self.pending_legacy_octal = true;
             return Ok(TokenKind::Number(canonicalize_leading_zero_decimal(&raw)));
         }
 
@@ -1177,6 +1238,8 @@ impl<'a> Lexer<'a> {
         self.reject_numeric_followed_by_ident(start)?;
         let raw = &self.src[start..self.pos];
         let mv = legacy_octal_mv(raw);
+        // E19.69: LegacyOctalIntegerLiteral is SyntaxError in strict mode.
+        self.pending_legacy_octal = true;
         Ok(TokenKind::Number(mv))
     }
 
@@ -1520,19 +1583,22 @@ impl<'a> Lexer<'a> {
                         Span::new(start, self.pos as u32),
                     ));
                 }
-                if is_line_terminator_byte(self.peek()) {
+                // E19.69: LineTerminator includes LS/PS (not only LF/CR).
+                let ch = self.peek_char();
+                if is_line_terminator_char(ch) {
                     return Err(Diagnostic::new(
                         "line terminator in regular expression literal",
-                        Span::new(self.pos as u32, self.pos as u32 + 1),
+                        Span::new(self.pos as u32, self.pos as u32 + ch.len_utf8() as u32),
                     ));
                 }
-                self.bump();
+                self.bump_char();
                 continue;
             }
-            if is_line_terminator_byte(b) {
+            let ch = self.peek_char();
+            if is_line_terminator_char(ch) {
                 return Err(Diagnostic::new(
                     "line terminator in regular expression literal",
-                    Span::new(self.pos as u32, self.pos as u32 + 1),
+                    Span::new(self.pos as u32, self.pos as u32 + ch.len_utf8() as u32),
                 ));
             }
             if b == b'[' && !in_class {
@@ -1548,7 +1614,7 @@ impl<'a> Lexer<'a> {
             if b == b'/' && !in_class {
                 break;
             }
-            self.bump();
+            self.bump_char();
         }
         let pattern = self.src[pattern_start..self.pos].to_string();
         self.bump(); // closing `/`
@@ -1653,10 +1719,6 @@ fn regexp_allowed_after(kind: &TokenKind) -> bool {
             | TokenKind::PlusPlus
             | TokenKind::MinusMinus
     )
-}
-
-fn is_line_terminator_byte(b: u8) -> bool {
-    b == b'\n' || b == b'\r'
 }
 
 fn is_line_terminator_char(ch: char) -> bool {
@@ -2229,6 +2291,11 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+        // E19.69: zero-prefixed multi-digit forms set legacy_octal for strict rejection.
+        let toks = Lexer::new("00 08 1").tokenize().unwrap();
+        assert!(toks[0].legacy_octal, "00");
+        assert!(toks[1].legacy_octal, "08");
+        assert!(!toks[2].legacy_octal, "1");
         assert_eq!(
             kinds("08 09 089 0008 08.5 08e2"),
             vec![
@@ -2748,6 +2815,19 @@ mod tests {
     }
 
     #[test]
+    /// E19.69: legacy string escapes flagged; bare `\\0` is not legacy; templates reject octal.
+    #[test]
+    fn lex_legacy_escape_flags_and_template_reject() {
+        let s = Lexer::new(r"'\1' '\0' '\8'").tokenize().unwrap();
+        assert!(s[0].legacy_octal, r"\1");
+        assert!(!s[1].legacy_octal, r"\0");
+        assert!(s[2].legacy_octal, r"\8");
+        assert!(Lexer::new(r"`\00`").tokenize().is_err());
+        assert!(Lexer::new(r"`\1`").tokenize().is_err());
+        assert!(Lexer::new("'\r'").tokenize().is_err());
+        assert!(Lexer::new("/\u{2028}/").tokenize().is_err());
+    }
+
     fn lex_string_legacy_octal_escapes() {
         assert_eq!(
             kinds(r#""\101""#),

@@ -119,6 +119,8 @@ impl Loader {
         let mut namespaces: Vec<NamespaceBind> = Vec::new();
         let mut eval_deps: Vec<PathBuf> = Vec::new();
         let mut dep_paths = Vec::new();
+        // E19.69: bare `export { local }` must resolve to Var/LexicallyDeclaredNames.
+        let mut local_export_checks: Vec<(String, Span)> = Vec::new();
 
         for stmt in program.body {
             match stmt {
@@ -217,6 +219,7 @@ impl Loader {
                                     s.exported.span,
                                 ));
                             }
+                            local_export_checks.push((s.local.name.clone(), s.local.span));
                         }
                     }
                 }
@@ -272,6 +275,29 @@ impl Loader {
                     }
                 }
                 other => body.push(other),
+            }
+        }
+
+        // E19.69: ExportedBindings must also occur in Var/LexicallyDeclaredNames
+        // (or as import bindings). Globals like `Number` are not module bindings.
+        if !local_export_checks.is_empty() {
+            let mut declared = top_level_names(&body);
+            for imp in &imports {
+                declared.insert(imp.local.clone());
+            }
+            for ns in &namespaces {
+                declared.insert(ns.local.clone());
+            }
+            for ns in &namespace_reexports {
+                declared.insert(ns.local.clone());
+            }
+            for (name, span) in &local_export_checks {
+                if !declared.contains(name) {
+                    return Err(Diagnostic::new(
+                        format!("export of undeclared binding `{name}`"),
+                        *span,
+                    ));
+                }
             }
         }
 

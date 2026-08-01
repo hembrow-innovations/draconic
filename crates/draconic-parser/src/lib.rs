@@ -52,6 +52,8 @@ struct Parser {
     new_target_depth: u32,
     /// Depth of method/constructor bodies where SuperProperty is allowed (E19.67).
     super_property_depth: u32,
+    /// Directive prologue saw a string with Annex B legacy octal escape (E19.69).
+    prologue_had_legacy_escape: bool,
 }
 
 impl Parser {
@@ -70,7 +72,45 @@ impl Parser {
             class_private_stack: Vec::new(),
             new_target_depth: 0,
             super_property_depth: 0,
+            prologue_had_legacy_escape: false,
         }
+    }
+
+    /// Reject Annex B legacy octal / NonOctalDecimal when already in strict mode (E19.69).
+    fn reject_legacy_octal_token(&self, tok: &Token) -> Result<(), Diagnostic> {
+        if tok.legacy_octal && self.in_strict {
+            return Err(Diagnostic::new(
+                "legacy octal literals and escapes are not allowed in strict mode".to_string(),
+                tok.span,
+            ));
+        }
+        Ok(())
+    }
+
+    /// When `"use strict"` activates, prior prologue strings must not use legacy escapes.
+    fn activate_strict_from_directive(&mut self) -> Result<(), Diagnostic> {
+        if self.prologue_had_legacy_escape {
+            return Err(Diagnostic::new(
+                "legacy octal escape in directive prologue before use strict".to_string(),
+                self.current_span(),
+            ));
+        }
+        self.in_strict = true;
+        Ok(())
+    }
+
+    /// ExportDeclaration terminator: explicit `;` or ASI (LineTerminator / `}` / EOF).
+    fn expect_export_semi(&mut self, end: u32) -> Result<u32, Diagnostic> {
+        if self.check(&TokenKind::Semi) {
+            return Ok(self.bump().span.end.0);
+        }
+        if self.can_asi_before_current() {
+            return Ok(end);
+        }
+        Err(Diagnostic::new(
+            "expected `;` after export declaration".to_string(),
+            self.current_span(),
+        ))
     }
 
     fn using_allowed_here(&self) -> bool {
@@ -129,13 +169,19 @@ impl Parser {
         let start = self.current_span().start.0;
         let mut body = Vec::new();
         let mut directive_prologue = true;
+        self.prologue_had_legacy_escape = false;
         while !self.check(&TokenKind::Eof) {
+            let upcoming_legacy_string = self.current().legacy_octal
+                && matches!(self.current().kind, TokenKind::String(_));
             self.parse_stmt_list_item_into(&mut body)?;
             if directive_prologue {
                 match body.last() {
                     Some(stmt) if stmt_is_directive(stmt) => {
+                        if upcoming_legacy_string {
+                            self.prologue_had_legacy_escape = true;
+                        }
                         if stmt_is_use_strict_directive(stmt) {
-                            self.in_strict = true;
+                            self.activate_strict_from_directive()?;
                         }
                     }
                     _ => directive_prologue = false,
@@ -466,16 +512,25 @@ impl Parser {
         let mut body = Vec::new();
         let prev_strict = self.in_strict;
         let prev_forbid_using = self.forbid_direct_using;
+        let prev_prologue_legacy = self.prologue_had_legacy_escape;
         let mut directive_prologue = allow_directives;
+        if allow_directives {
+            self.prologue_had_legacy_escape = false;
+        }
         self.using_container_depth += 1;
         self.forbid_direct_using = false;
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
+            let upcoming_legacy_string = self.current().legacy_octal
+                && matches!(self.current().kind, TokenKind::String(_));
             self.parse_stmt_list_item_into(&mut body)?;
             if directive_prologue {
                 match body.last() {
                     Some(stmt) if stmt_is_directive(stmt) => {
+                        if upcoming_legacy_string {
+                            self.prologue_had_legacy_escape = true;
+                        }
                         if stmt_is_use_strict_directive(stmt) {
-                            self.in_strict = true;
+                            self.activate_strict_from_directive()?;
                         }
                     }
                     _ => directive_prologue = false,
@@ -486,6 +541,7 @@ impl Parser {
         self.forbid_direct_using = prev_forbid_using;
         let end = self.expect(&TokenKind::RBrace)?.span.end.0;
         self.in_strict = prev_strict;
+        self.prologue_had_legacy_escape = prev_prologue_legacy;
         Ok(Stmt::Block {
             body,
             span: Span::new(start, end),
@@ -859,6 +915,7 @@ impl Parser {
                 None
             };
             // Annex B.3.5 / for-of reject: initializer then `in`/`of`.
+            // E19.69: Annex B for-in initializer is prohibited in strict mode.
             if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
                 let is_in = self.check(&TokenKind::In);
                 if !is_in {
@@ -873,6 +930,12 @@ impl Parser {
                 {
                     return Err(Diagnostic::new(
                         "for-in binding cannot have an initializer".to_string(),
+                        binding.span(),
+                    ));
+                }
+                if self.in_strict {
+                    return Err(Diagnostic::new(
+                        "for-in binding cannot have an initializer in strict mode".to_string(),
                         binding.span(),
                     ));
                 }
@@ -2401,9 +2464,8 @@ impl Parser {
             let source = self.expect_string_lit()?;
             let (attributes, clause_end) = self.parse_with_clause_opt()?;
             let mut end = clause_end.unwrap_or(source.span.end.0);
-            if self.check(&TokenKind::Semi) {
-                end = self.bump().span.end.0;
-            }
+            // E19.69: ExportDeclaration requires `;` or LineTerminator (ASI) after FromClause.
+            end = self.expect_export_semi(end)?;
             return Ok(Stmt::ExportAllDeclaration {
                 exported,
                 source,
@@ -2455,9 +2517,8 @@ impl Parser {
             } else {
                 (None, Vec::new())
             };
-            if self.check(&TokenKind::Semi) {
-                end = self.bump().span.end.0;
-            }
+            // E19.69: trailing `;` or ASI after named export / export-from.
+            end = self.expect_export_semi(end)?;
             return Ok(Stmt::ExportNamedDeclaration {
                 declaration: None,
                 specifiers,
@@ -2634,11 +2695,10 @@ impl Parser {
             ));
         }
 
-        let expr = self.parse_expr()?;
+        // E19.69: `export default` AssignmentExpression (not Expression/comma).
+        let expr = self.parse_assignment()?;
         let mut end = expr_span(&expr).end.0;
-        if self.check(&TokenKind::Semi) {
-            end = self.bump().span.end.0;
-        }
+        end = self.expect_export_semi(end)?;
         let local = Ident {
             name: "__default".into(),
             span: Span::new(start, end),
@@ -2659,6 +2719,7 @@ impl Parser {
 
     fn expect_string_lit(&mut self) -> Result<StringLit, Diagnostic> {
         let tok = self.current().clone();
+        self.reject_legacy_octal_token(&tok)?;
         match tok.kind {
             TokenKind::String(value) => {
                 self.bump();
@@ -4299,6 +4360,7 @@ impl Parser {
                 })
             }
             TokenKind::String(value) => {
+                self.reject_legacy_octal_token(&key_tok)?;
                 let value_s = value.clone();
                 let key_span = key_tok.span;
                 let span_start = if is_async || is_generator {
@@ -4338,6 +4400,7 @@ impl Parser {
                 })
             }
             TokenKind::Number(raw) => {
+                self.reject_legacy_octal_token(&key_tok)?;
                 let name = numeric_literal_property_name(raw);
                 let key_span = key_tok.span;
                 let span_start = if is_async || is_generator {
@@ -4509,6 +4572,7 @@ impl Parser {
         }
         match &tok.kind {
             TokenKind::String(value) => {
+                self.reject_legacy_octal_token(&tok)?;
                 let value = value.clone();
                 self.bump();
                 Ok(ObjectKey::String(StringLit {
@@ -4517,6 +4581,7 @@ impl Parser {
                 }))
             }
             TokenKind::Number(raw) => {
+                self.reject_legacy_octal_token(&tok)?;
                 let name = numeric_literal_property_name(raw);
                 self.bump();
                 Ok(ObjectKey::String(StringLit {
@@ -4541,6 +4606,7 @@ impl Parser {
         let tok = self.current().clone();
         match &tok.kind {
             TokenKind::Number(raw) => {
+                self.reject_legacy_octal_token(&tok)?;
                 self.bump();
                 Ok(Expr::Number(NumberLit {
                     raw: raw.clone(),
@@ -4555,6 +4621,7 @@ impl Parser {
                 }))
             }
             TokenKind::String(value) => {
+                self.reject_legacy_octal_token(&tok)?;
                 self.bump();
                 Ok(Expr::String(StringLit {
                     value: value.clone(),
@@ -4906,6 +4973,7 @@ impl Parser {
         }
         match &tok.kind {
             TokenKind::String(value) => {
+                self.reject_legacy_octal_token(&tok)?;
                 let value = value.clone();
                 self.bump();
                 Ok((
@@ -4917,6 +4985,7 @@ impl Parser {
                 ))
             }
             TokenKind::Number(raw) => {
+                self.reject_legacy_octal_token(&tok)?;
                 let name = numeric_literal_property_name(raw);
                 self.bump();
                 Ok((
@@ -7227,6 +7296,20 @@ Program
           Ident k
 "
         );
+    }
+
+    /// E19.69: Annex B for-in initializer + legacy octal / export early errors.
+    #[test]
+    fn parse_e19_69_strict_legacy_and_export_early_errors() {
+        assert!(parse_and_dump("\"use strict\"; for (var a = 0 in {});").is_err());
+        assert!(parse_and_dump("\"use strict\"; 00;").is_err());
+        assert!(parse_and_dump("\"use strict\"; '\\1';").is_err());
+        assert!(parse_and_dump("\"\\1\"; \"use strict\";").is_err());
+        assert!(parse_module("export default null, null;").is_err());
+        assert!(parse_module("export * from \"./m.js\" null;").is_err());
+        assert!(parse_module("export {} null;").is_err());
+        assert!(parse_and_dump("for (var a = 0 in {});").is_ok());
+        assert!(parse_and_dump("00;").is_ok());
     }
 
     #[test]
