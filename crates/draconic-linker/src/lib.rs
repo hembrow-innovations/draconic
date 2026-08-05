@@ -391,10 +391,10 @@ impl Loader {
         let mut span_gen = SyntheticSpans::new();
         let mut any_deferred_ns = false;
         let mut shared_ns_targets: HashSet<usize> = HashSet::new();
+        let mut deferred_ns_targets: HashSet<usize> = HashSet::new();
         for id in 0..self.modules.len() {
             let mut ns_binds = self.modules[id].namespaces.clone();
             ns_binds.extend(self.modules[id].namespace_reexports.clone());
-            let mut ns_stmts = Vec::new();
             for bind in &ns_binds {
                 let from_id = *self.ids.get(&bind.from).ok_or_else(|| {
                     Diagnostic::new(
@@ -402,42 +402,51 @@ impl Loader {
                         Span::dummy(),
                     )
                 })?;
-                let resolved = self.collect_resolved_exports(from_id)?;
-                let bind_span = span_gen.next();
-                // Deferred ns over a still-lazy module: Proxy + eval thunk.
-                // Deferred ns over an eager module (e.g. TLA under import defer): plain
-                // object — evaluation already ran with the importer.
-                if bind.deferred && !eager.contains(&from_id) {
+                // E19.84.02: every `import defer * as ns` site renames onto one
+                // shared deferred namespace object per target module, distinct from
+                // the eager `__ns{id}` object. Re-exports of the namespace keep the
+                // deferred identity through `resolve_local_export_binding`.
+                if bind.deferred {
                     any_deferred_ns = true;
-                    let eval_name = deferred_eval_fn_name(from_id);
-                    let mut pairs: Vec<(String, String)> = Vec::new();
-                    let mut names: Vec<_> = resolved.keys().cloned().collect();
-                    names.sort();
-                    for export_name in names {
-                        let (def_id, local_in_exporter) =
-                            resolved.get(&export_name).expect("key from map");
-                        let remote =
-                            final_binding_name(&mangled, *def_id, local_in_exporter)?;
-                        pairs.push((export_name, remote));
-                    }
-                    ns_stmts.push(make_deferred_namespace_binding(
-                        &bind.local,
-                        &eval_name,
-                        &pairs,
-                        bind_span,
-                    )?);
+                    deferred_ns_targets.insert(from_id);
+                    import_renames[id]
+                        .insert(bind.local.clone(), deferred_namespace_binding_name(from_id));
                 } else {
                     shared_ns_targets.insert(from_id);
                     import_renames[id]
                         .insert(bind.local.clone(), shared_namespace_binding_name(from_id));
                 }
             }
-            if !ns_stmts.is_empty() {
-                let body = &mut self.modules[id].body;
-                let mut combined = ns_stmts;
-                combined.append(body);
-                *body = combined;
+        }
+
+        // E19.84.02: build one shared deferred namespace object per target module.
+        // Created once at link time (instantiation), distinct from the eager `__ns{id}`.
+        // Lazy target: evaluation calls the once-eval thunk. Eager target (e.g. TLA
+        // under import defer): exports are already initialized when the program runs,
+        // so the closure just reads the (mangled) export bindings.
+        let mut deferred_ns_by_id: HashMap<usize, Stmt> = HashMap::new();
+        for from_id in &deferred_ns_targets {
+            let resolved = self.collect_resolved_exports(*from_id)?;
+            let mut pairs: Vec<(String, String)> = Vec::new();
+            let mut names: Vec<_> = resolved.keys().cloned().collect();
+            names.sort();
+            for export_name in names {
+                let (def_id, local_in_exporter) =
+                    resolved.get(&export_name).expect("key from map");
+                let remote = final_binding_name(&mangled, *def_id, local_in_exporter)?;
+                pairs.push((export_name, remote));
             }
+            let eval_name = (!eager.contains(from_id)).then(|| deferred_eval_fn_name(*from_id));
+            let bind_span = span_gen.next();
+            deferred_ns_by_id.insert(
+                *from_id,
+                make_deferred_namespace_binding(
+                    &deferred_namespace_binding_name(*from_id),
+                    eval_name.as_deref(),
+                    &pairs,
+                    bind_span,
+                )?,
+            );
         }
 
         // Build shared eager namespace objects once per target module.
@@ -506,6 +515,13 @@ impl Loader {
             for stmt in deferred_namespace_helper_stmts()? {
                 linked_body.push(stmt);
             }
+            // E19.84.02: instantiate each shared deferred namespace object once, at
+            // the top of the program (module namespace objects exist at link time).
+            let mut defer_order: Vec<_> = deferred_ns_by_id.into_iter().collect();
+            defer_order.sort_by_key(|(id, _)| *id);
+            for (_, stmt) in defer_order {
+                linked_body.push(stmt);
+            }
         }
         // Emit deferred thunks before eager bodies (hoisted bindings + eval fns).
         for id in &order {
@@ -516,6 +532,12 @@ impl Loader {
 
         let mut start = 0u32;
         let mut end = 0u32;
+        // E19.84.02: reverse path lookup so dynamic `import.defer` specifiers can be
+        // resolved against the linking module's own location.
+        let mut id_to_path: HashMap<usize, PathBuf> = HashMap::new();
+        for (p, id) in &self.ids {
+            id_to_path.insert(*id, p.clone());
+        }
         for id in order {
             if !eager.contains(&id) {
                 continue;
@@ -527,6 +549,14 @@ impl Loader {
                 rename_stmt(stmt, &rename, &mut ScopeStack::new());
                 // Per-file source offsets collide across modules; binder/IR key by Span.
                 uniqueify_stmt_spans(stmt, &mut span_gen);
+            }
+            // E19.84.02: dynamic `import.defer("…")` of a linked module resolves to
+            // that module's shared deferred namespace object, keeping identity with
+            // static `import defer` sites (Node would otherwise return the eager ns).
+            if !deferred_ns_targets.is_empty() {
+                if let Some(path) = id_to_path.get(&id) {
+                    self.rewrite_dynamic_deferred_imports(&mut body, path, &deferred_ns_targets)?;
+                }
             }
             for stmt in &body {
                 let sp = stmt_span_approx(stmt);
@@ -677,6 +707,11 @@ impl Loader {
                     Span::dummy(),
                 )
             })?;
+            // E19.84.02: re-exporting a deferred namespace keeps deferred identity
+            // (distinct shared object from the eager namespace).
+            if ns.deferred {
+                return Ok(Some((from_id, BINDING_DEFERRED_NAMESPACE.to_string())));
+            }
             return Ok(Some((from_id, BINDING_NAMESPACE.to_string())));
         }
         if let Some(imp) = module.imports.iter().find(|i| i.local == local) {
@@ -827,13 +862,509 @@ impl Loader {
         }
         Ok(())
     }
+
+    /// E19.84.02: rewrite dynamic `import.defer("…")` calls of linked modules to
+    /// reference the shared deferred namespace object for that module (`__ns_defer{id}`).
+    /// The specifier is resolved relative to `self_path` (the linking module's own
+    /// file) so multiple sites get the same binding — matching the spec's per-module
+    /// `[[DeferredNamespace]]` cache. Unlinkable specifiers (external URLs, unloaded
+    /// modules) are left as regular dynamic `import`, which is an eager load on Node.
+    fn rewrite_dynamic_deferred_imports(
+        &self,
+        body: &mut Vec<Stmt>,
+        self_path: &Path,
+        deferred_ns_targets: &HashSet<usize>,
+    ) -> Result<(), Diagnostic> {
+        let mut ctx = RewriteCtx {
+            importer_dir: self_path.parent().unwrap_or(Path::new("")).to_path_buf(),
+            deferred_ns_targets,
+            ids: &self.ids,
+        };
+        for stmt in body.iter_mut() {
+            rewrite_stmt_dynamic_imports(stmt, &mut ctx)?;
+        }
+        Ok(())
+    }
 }
 
+struct RewriteCtx<'a> {
+    importer_dir: PathBuf,
+    deferred_ns_targets: &'a HashSet<usize>,
+    ids: &'a HashMap<PathBuf, usize>,
+}
+
+fn rewrite_stmt_dynamic_imports(stmt: &mut Stmt, ctx: &mut RewriteCtx<'_>) -> Result<(), Diagnostic> {
+    match stmt {
+        Stmt::Expression { expr, .. } => rewrite_expr_dynamic_imports(expr, ctx)?,
+        Stmt::Let {
+            binding,
+            init,
+            span,
+            ..
+        } => {
+            rewrite_binding_dynamic_imports(binding, ctx)?;
+            if let Some(init) = init {
+                rewrite_expr_dynamic_imports(init, ctx)?;
+            }
+            *span = Span::dummy(); // rewritten imports carry their own spans
+        }
+        Stmt::Empty { .. } => {}
+        Stmt::Block { body, .. } => {
+            for s in body {
+                rewrite_stmt_dynamic_imports(s, ctx)?;
+            }
+        }
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            rewrite_expr_dynamic_imports(test, ctx)?;
+            rewrite_stmt_dynamic_imports(consequent, ctx)?;
+            if let Some(alt) = alternate {
+                rewrite_stmt_dynamic_imports(alt, ctx)?;
+            }
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            rewrite_expr_dynamic_imports(test, ctx)?;
+            rewrite_stmt_dynamic_imports(body, ctx)?;
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+            ..
+        } => {
+            if let Some(init) = init {
+                rewrite_stmt_dynamic_imports(init, ctx)?;
+            }
+            if let Some(test) = test {
+                rewrite_expr_dynamic_imports(test, ctx)?;
+            }
+            if let Some(update) = update {
+                rewrite_expr_dynamic_imports(update, ctx)?;
+            }
+            rewrite_stmt_dynamic_imports(body, ctx)?;
+        }
+        Stmt::ForIn {
+            left, right, body, ..
+        }
+        | Stmt::ForOf {
+            left, right, body, ..
+        } => {
+            rewrite_stmt_dynamic_imports(left, ctx)?;
+            rewrite_expr_dynamic_imports(right, ctx)?;
+            rewrite_stmt_dynamic_imports(body, ctx)?;
+        }
+        Stmt::Labeled { body, .. } => rewrite_stmt_dynamic_imports(body, ctx)?,
+        Stmt::Switch {
+            discriminant,
+            cases,
+            ..
+        } => {
+            rewrite_expr_dynamic_imports(discriminant, ctx)?;
+            for c in cases {
+                if let Some(test) = &mut c.test {
+                    rewrite_expr_dynamic_imports(test, ctx)?;
+                }
+                for s in &mut c.body {
+                    rewrite_stmt_dynamic_imports(s, ctx)?;
+                }
+            }
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            rewrite_stmt_dynamic_imports(block, ctx)?;
+            if let Some(handler) = handler {
+                rewrite_stmt_dynamic_imports(handler, ctx)?;
+            }
+            if let Some(finalizer) = finalizer {
+                rewrite_stmt_dynamic_imports(finalizer, ctx)?;
+            }
+        }
+        Stmt::With { object, body, .. } => {
+            rewrite_expr_dynamic_imports(object, ctx)?;
+            rewrite_stmt_dynamic_imports(body, ctx)?;
+        }
+        Stmt::FunctionDeclaration { body, params, .. } => {
+            for p in params {
+                rewrite_binding_dynamic_imports(&mut p.binding, ctx)?;
+                if let Some(default) = &mut p.default {
+                    rewrite_expr_dynamic_imports(default, ctx)?;
+                }
+            }
+            rewrite_stmt_dynamic_imports(body, ctx)?;
+        }
+        Stmt::ClassDeclaration {
+            super_class, body, ..
+        } => {
+            if let Some(super_class) = super_class {
+                rewrite_expr_dynamic_imports(super_class, ctx)?;
+            }
+            rewrite_class_elements_dynamic_imports(body, ctx)?;
+        }
+        Stmt::Return { argument, .. } => {
+            if let Some(argument) = argument {
+                rewrite_expr_dynamic_imports(argument, ctx)?;
+            }
+        }
+        Stmt::Throw { argument, .. } => rewrite_expr_dynamic_imports(argument, ctx)?,
+        Stmt::Break { .. } | Stmt::Continue { .. } => {}
+        Stmt::ImportDeclaration { .. }
+        | Stmt::ExportNamedDeclaration { .. }
+        | Stmt::ExportDefaultDeclaration { .. }
+        | Stmt::ExportAllDeclaration { .. }
+        | Stmt::TypeAlias { .. } => {}
+    }
+    Ok(())
+}
+
+fn rewrite_class_elements_dynamic_imports(
+    elements: &mut [ClassElement],
+    ctx: &mut RewriteCtx<'_>,
+) -> Result<(), Diagnostic> {
+    for el in elements {
+        match el {
+            ClassElement::Constructor { body, .. }
+            | ClassElement::StaticBlock { body, .. } => rewrite_stmt_dynamic_imports(body, ctx)?,
+            ClassElement::Method { key, params, body, .. }
+            | ClassElement::Accessor {
+                key, params, body, ..
+            } => {
+                if let ObjectKey::Computed(key) = key {
+                    rewrite_expr_dynamic_imports(key, ctx)?;
+                }
+                for p in params {
+                    rewrite_binding_dynamic_imports(&mut p.binding, ctx)?;
+                    if let Some(default) = &mut p.default {
+                        rewrite_expr_dynamic_imports(default, ctx)?;
+                    }
+                }
+                rewrite_stmt_dynamic_imports(body, ctx)?;
+            }
+            ClassElement::Field {
+                key, value, is_static, ..
+            } => {
+                if *is_static {
+                    if let ObjectKey::Computed(key) = key {
+                        rewrite_expr_dynamic_imports(key, ctx)?;
+                    }
+                    if let Some(value) = value {
+                        rewrite_expr_dynamic_imports(value, ctx)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn rewrite_binding_dynamic_imports(
+    pat: &mut BindingPattern,
+    ctx: &mut RewriteCtx<'_>,
+) -> Result<(), Diagnostic> {
+    match pat {
+        BindingPattern::Ident(_) | BindingPattern::Member(_) => {}
+        BindingPattern::Array { elements, .. } => {
+            for el in elements {
+                match el {
+                    ArrayPatternElement::Elision => {}
+                    ArrayPatternElement::Pattern { binding, default, .. } => {
+                        rewrite_binding_dynamic_imports(binding, ctx)?;
+                        if let Some(default) = default {
+                            rewrite_expr_dynamic_imports(default, ctx)?;
+                        }
+                    }
+                    ArrayPatternElement::Rest(binding) => {
+                        rewrite_binding_dynamic_imports(binding, ctx)?
+                    }
+                }
+            }
+        }
+        BindingPattern::Object { properties, .. } => {
+            for prop in properties {
+                match prop {
+                    ObjectPatternProp::Prop {
+                        key,
+                        binding,
+                        default,
+                        ..
+                    } => {
+                        if let ObjectKey::Computed(key) = key {
+                            rewrite_expr_dynamic_imports(key, ctx)?;
+                        }
+                        rewrite_binding_dynamic_imports(binding, ctx)?;
+                        if let Some(default) = default {
+                            rewrite_expr_dynamic_imports(default, ctx)?;
+                        }
+                    }
+                    ObjectPatternProp::Rest(binding) => {
+                        rewrite_binding_dynamic_imports(binding, ctx)?
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Result<(), Diagnostic> {
+    match expr {
+        Expr::Ident(_)
+        | Expr::Number(_)
+        | Expr::BigInt(_)
+        | Expr::String(_)
+        | Expr::RegExp { .. }
+        | Expr::Boolean { .. }
+        | Expr::Null { .. }
+        | Expr::This { .. }
+        | Expr::Super { .. }
+        | Expr::NewTarget { .. }
+        | Expr::ImportMeta { .. } => {}
+        Expr::Unary { arg, .. } | Expr::Update { arg, .. } => {
+            rewrite_expr_dynamic_imports(arg, ctx)?
+        }
+        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+            rewrite_expr_dynamic_imports(left, ctx)?;
+            rewrite_expr_dynamic_imports(right, ctx)?;
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            rewrite_expr_dynamic_imports(test, ctx)?;
+            rewrite_expr_dynamic_imports(consequent, ctx)?;
+            rewrite_expr_dynamic_imports(alternate, ctx)?;
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            rewrite_expr_dynamic_imports(callee, ctx)?;
+            for a in args {
+                match a {
+                    Arg::Expr(e) | Arg::Spread(e) => rewrite_expr_dynamic_imports(e, ctx)?,
+                }
+            }
+        }
+        Expr::ImportCall { .. } => {
+            let replacement = match expr {
+                Expr::ImportCall {
+                    phase,
+                    source,
+                    span,
+                    ..
+                } if *phase == ImportPhase::Defer => {
+                    ctx.deferred_ident_for_source(source)?.map(|name| (name, *span))
+                }
+                _ => None,
+            };
+            if let Some((name, span)) = replacement {
+                *expr = Expr::Ident(Ident { name, span });
+                return Ok(());
+            }
+            if let Expr::ImportCall {
+                phase,
+                source,
+                options,
+                ..
+            } = expr
+            {
+                let _ = phase;
+                rewrite_expr_dynamic_imports(source, ctx)?;
+                if let Some(options) = options {
+                    rewrite_expr_dynamic_imports(options, ctx)?;
+                }
+            }
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => {
+            rewrite_expr_dynamic_imports(object, ctx)?;
+            rewrite_expr_dynamic_imports(property, ctx)?;
+        }
+        Expr::PrivateIn { object, .. } => rewrite_expr_dynamic_imports(object, ctx)?,
+        Expr::ArrayExpression { elements, .. } => {
+            for el in elements {
+                match el {
+                    ArrayElement::Expr(e) | ArrayElement::Spread(e) => {
+                        rewrite_expr_dynamic_imports(e, ctx)?
+                    }
+                    ArrayElement::Elision => {}
+                }
+            }
+        }
+        Expr::ObjectExpression { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectProp::Property { key, value, .. } => {
+                        if let ObjectKey::Computed(key) = key {
+                            rewrite_expr_dynamic_imports(key, ctx)?;
+                        }
+                        rewrite_expr_dynamic_imports(value, ctx)?;
+                    }
+                    ObjectProp::Accessor { key, params, body, .. } => {
+                        if let ObjectKey::Computed(key) = key {
+                            rewrite_expr_dynamic_imports(key, ctx)?;
+                        }
+                        for p in params {
+                            rewrite_binding_dynamic_imports(&mut p.binding, ctx)?;
+                            if let Some(default) = &mut p.default {
+                                rewrite_expr_dynamic_imports(default, ctx)?;
+                            }
+                        }
+                        rewrite_stmt_dynamic_imports(body, ctx)?;
+                    }
+                    ObjectProp::Spread { expr, .. } => {
+                        rewrite_expr_dynamic_imports(expr, ctx)?
+                    }
+                }
+            }
+        }
+        Expr::TemplateLiteral { expressions, .. }
+        | Expr::TaggedTemplate { expressions, .. } => {
+            for e in expressions {
+                rewrite_expr_dynamic_imports(e, ctx)?;
+            }
+        }
+        Expr::Paren { expr, .. } | Expr::As { expr, .. } => {
+            rewrite_expr_dynamic_imports(expr, ctx)?
+        }
+        Expr::FunctionExpression {
+            params,
+            body,
+            ..
+        } => {
+            for p in params {
+                rewrite_binding_dynamic_imports(&mut p.binding, ctx)?;
+                if let Some(default) = &mut p.default {
+                    rewrite_expr_dynamic_imports(default, ctx)?;
+                }
+            }
+            rewrite_stmt_dynamic_imports(body, ctx)?;
+        }
+        Expr::ClassExpression {
+            super_class, body, ..
+        } => {
+            if let Some(super_class) = super_class {
+                rewrite_expr_dynamic_imports(super_class, ctx)?;
+            }
+            rewrite_class_elements_dynamic_imports(body, ctx)?;
+        }
+        Expr::ArrowFunction { params, body, .. } => {
+            for p in params {
+                rewrite_binding_dynamic_imports(&mut p.binding, ctx)?;
+                if let Some(default) = &mut p.default {
+                    rewrite_expr_dynamic_imports(default, ctx)?;
+                }
+            }
+            match body {
+                ArrowBody::Expr(expr) => rewrite_expr_dynamic_imports(expr, ctx)?,
+                ArrowBody::Block(block) => rewrite_stmt_dynamic_imports(block, ctx)?,
+            }
+        }
+        Expr::ArrayPattern { elements, .. } => {
+            for el in elements {
+                match el {
+                    ArrayPatternElement::Elision => {}
+                    ArrayPatternElement::Pattern { binding, default, .. } => {
+                        rewrite_binding_dynamic_imports(binding, ctx)?;
+                        if let Some(default) = default {
+                            rewrite_expr_dynamic_imports(default, ctx)?;
+                        }
+                    }
+                    ArrayPatternElement::Rest(binding) => {
+                        rewrite_binding_dynamic_imports(binding, ctx)?
+                    }
+                }
+            }
+        }
+        Expr::ObjectPattern { properties, .. } => {
+            for prop in properties {
+                match prop {
+                    ObjectPatternProp::Prop {
+                        key,
+                        binding,
+                        default,
+                        ..
+                    } => {
+                        if let ObjectKey::Computed(key) = key {
+                            rewrite_expr_dynamic_imports(key, ctx)?;
+                        }
+                        rewrite_binding_dynamic_imports(binding, ctx)?;
+                        if let Some(default) = default {
+                            rewrite_expr_dynamic_imports(default, ctx)?;
+                        }
+                    }
+                    ObjectPatternProp::Rest(binding) => {
+                        rewrite_binding_dynamic_imports(binding, ctx)?
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+impl RewriteCtx<'_> {
+    /// If `source` is a static string referring to a linked module, return the
+    /// shared deferred namespace binding name for that module. Returns `None` for
+    /// unlinkable specifiers (external URLs, unloaded modules, dynamic sources).
+    fn deferred_ident_for_source(&self, source: &Expr) -> Result<Option<String>, Diagnostic> {
+        let Expr::String(lit) = source else {
+            return Ok(None);
+        };
+        let spec = lit.value.to_string_lossy();
+        let spec_path = Path::new(&spec);
+        if spec_path.is_absolute() || spec_path.starts_with("http") {
+            return Ok(None);
+        }
+        let mut resolved = self.importer_dir.clone();
+        for comp in spec_path.components() {
+            resolved.push(comp);
+        }
+        let norm = lexical_normalize_path(&resolved);
+        if let Some(&id) = self.ids.get(&norm) {
+            if self.deferred_ns_targets.contains(&id) {
+                return Ok(Some(deferred_namespace_binding_name(id)));
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// Lexically normalize a path without touching the filesystem (for specifier
+/// resolution against the linking module's location).
+fn lexical_normalize_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
 /// Sentinel local name: export BindingName is ~namespace~ (module namespace object).
 const BINDING_NAMESPACE: &str = "\0namespace";
+/// Sentinel local name: export BindingName is a deferred module namespace
+/// (E19.84.02) — distinct shared object from the eager namespace.
+const BINDING_DEFERRED_NAMESPACE: &str = "\0deferred-namespace";
 
 fn shared_namespace_binding_name(module_id: usize) -> String {
     format!("__ns{module_id}")
+}
+
+fn deferred_namespace_binding_name(module_id: usize) -> String {
+    format!("__ns_defer{module_id}")
 }
 
 fn final_binding_name(
@@ -843,6 +1374,9 @@ fn final_binding_name(
 ) -> Result<String, Diagnostic> {
     if local_in_exporter == BINDING_NAMESPACE {
         return Ok(shared_namespace_binding_name(def_id));
+    }
+    if local_in_exporter == BINDING_DEFERRED_NAMESPACE {
+        return Ok(deferred_namespace_binding_name(def_id));
     }
     final_local_name(&mangled[def_id], local_in_exporter).ok_or_else(|| {
         Diagnostic::new(
@@ -1809,7 +2343,7 @@ fn make_call_stmt(fn_name: &str, span: Span) -> Stmt {
 
 fn make_deferred_namespace_binding(
     local: &str,
-    eval_fn: &str,
+    eval_fn: Option<&str>,
     export_pairs: &[(String, String)],
     span: Span,
 ) -> Result<Stmt, Diagnostic> {
@@ -1821,8 +2355,14 @@ fn make_deferred_namespace_binding(
         let lit = export_name.replace('\\', "\\\\").replace('"', "\\\"");
         names.push_str(&format!("\"{lit}\", "));
     }
+    // `eval_fn` is the once-eval thunk for a still-lazy deferred module; eager
+    // modules already ran, so the closure just reads the initialized bindings.
+    let eval_src = match eval_fn {
+        Some(f) => format!("{f}();"),
+        None => String::new(),
+    };
     let src = format!(
-        "let {local} = __draconic_deferred_ns(function () {{ {eval_fn}(); return {{ {props} }}; }}, [{names}]);"
+        "let {local} = __draconic_deferred_ns(function () {{ {eval_src} return {{ {props} }}; }}, [{names}]);"
     );
     let mut body = parse(&src)?.body;
     let stmt = body.pop().ok_or_else(|| {
