@@ -872,6 +872,7 @@ function floatTypedArrayConstructorPrecision(FA) {
     include_str!("harness_e19_77.js"),
     include_str!("harness_e19_79.js"),
     include_str!("harness_e19_80.js"),
+    include_str!("harness_e19_85.js"),
     // E19.83.02: Module-goal / file-module self-import sees harness via global object
     // (ESM free bindings do not pick up module-local `function` decls).
     r#"
@@ -1580,7 +1581,9 @@ var require = __test262CreateRequire(import.meta.url);
       }},
       detachArrayBuffer: function (buffer) {{
         if (buffer && typeof buffer.transfer === "function") {{
-          buffer.transfer(0);
+          if (!buffer.detached) {{
+            buffer.transfer(0);
+          }}
           return;
         }}
         throw new TypeError("$262.detachArrayBuffer is not supported on this host");
@@ -3310,6 +3313,83 @@ assert.sameValue(returnCalls, 1);
 "#;
         let js = compile_test_to_js(src).expect("compile e19.80");
         run_js_in_node(&wrap_host_api(&js)).expect("e19.80 Math.sumPrecise");
+    }
+
+    #[test]
+    fn harness_e19_85_arraybuffer_immutable() {
+        // E19.85: ArrayBuffer `.immutable` / `transferToImmutable` /
+        // `sliceToImmutable` polyfill.
+        let src = r#"
+assert.sameValue(ArrayBuffer.prototype.transferToImmutable.name, "transferToImmutable");
+assert.sameValue(ArrayBuffer.prototype.transferToImmutable.length, 0);
+assert.sameValue(ArrayBuffer.prototype.sliceToImmutable.name, "sliceToImmutable");
+assert.sameValue(ArrayBuffer.prototype.sliceToImmutable.length, 2);
+assert.sameValue(isConstructor(ArrayBuffer.prototype.transferToImmutable), false);
+assert.throws(TypeError, function () {
+  new ArrayBuffer.prototype.transferToImmutable();
+});
+
+assert.sameValue(typeof ArrayBuffer.prototype.transferToImmutable, "function");
+assert.throws(TypeError, function () {
+  ArrayBuffer.prototype.immutable;
+});
+
+var desc = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "immutable");
+assert.sameValue(desc.enumerable, false);
+assert.sameValue(desc.configurable, true);
+assert.sameValue(typeof desc.get, "function");
+assert.sameValue(desc.get.name, "get immutable");
+assert.sameValue(desc.get.length, 0);
+
+var ab = new ArrayBuffer(4);
+assert.sameValue(ab.immutable, false);
+var v = new Uint8Array(ab);
+v[0] = 1; v[1] = 2; v[2] = 3; v[3] = 4;
+var iab = ab.transferToImmutable();
+assert.sameValue(ab.detached, true, "source detached");
+assert.sameValue(iab.immutable, true);
+assert.sameValue(iab.resizable, false);
+assert.sameValue(iab.byteLength, 4);
+assert.sameValue(iab.maxByteLength, 4);
+var iv = new Uint8Array(iab);
+assert.compareArray(iv, [1, 2, 3, 4], "transfer copy contents");
+
+assert.sameValue(new ArrayBuffer(4).transferToImmutable(2).byteLength, 2);
+assert.sameValue(new ArrayBuffer(4).transferToImmutable(6).byteLength, 6);
+assert.throws(RangeError, function () {
+  new ArrayBuffer(4).transferToImmutable(-1);
+});
+assert.throws(RangeError, function () {
+  new ArrayBuffer(4).transferToImmutable(Infinity);
+});
+
+assert.throws(TypeError, function () {
+  ArrayBuffer.prototype.transferToImmutable.call(1, 0);
+});
+var det = new ArrayBuffer(4);
+$DETACHBUFFER(det);
+assert.throws(TypeError, function () {
+  det.transferToImmutable();
+});
+assert.throws(TypeError, function () {
+  iab.transferToImmutable();
+}, "immutable receiver not transferable");
+
+var srcb = new ArrayBuffer(8);
+var sv = new Uint8Array(srcb);
+sv[0] = 1; sv[1] = 2; sv[2] = 3; sv[3] = 4;
+var sl = srcb.sliceToImmutable(1, 4);
+assert.sameValue(sl.immutable, true);
+assert.sameValue(sl.byteLength, 3);
+assert.compareArray(new Uint8Array(sl), [2, 3, 4], "slice copy contents");
+assert.sameValue(srcb.detached, false, "sliceToImmutable does not detach source");
+assert.sameValue(srcb.sliceToImmutable().byteLength, 8);
+assert.throws(TypeError, function () {
+  srcb.sliceToImmutable.call(undefined, 0);
+});
+"#;
+        let js = compile_test_to_js(src).expect("compile e19.85");
+        run_js_in_node(&wrap_host_api(&js)).expect("e19.85 ArrayBuffer immutable");
     }
 
     #[test]
