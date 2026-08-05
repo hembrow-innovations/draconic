@@ -33451,7 +33451,9 @@ test/language/import/escaped-from.js
 test/language/import/import-attributes/json-invalid.js
 test/language/import/import-attributes/json-named-bindings.js
 test/language/import/import-bytes/bytes-from-js_FIXTURE.js
+test/language/import/import-defer/deferred-namespace-object/exotic-object-behavior.js
 test/language/import/import-defer/deferred-namespace-object/setup_FIXTURE.js
+test/language/import/import-defer/deferred-namespace-object/to-string-tag.js
 test/language/import/import-defer/errors/get-other-while-dep-evaluating/dep-3_FIXTURE.js
 test/language/import/import-defer/errors/syntax-error/import-defer-of-syntax-error-fails.js
 test/language/import/import-defer/evaluation-sync/import-defer-does-not-evaluate.js

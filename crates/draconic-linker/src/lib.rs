@@ -1683,48 +1683,82 @@ fn expr_has_top_level_await(expr: &Expr) -> bool {
     }
 }
 
-/// Runtime helper implementing deferred module namespace exotic object triggers (E19.55).
+/// Runtime helper implementing deferred module namespace exotic object triggers
+/// (E19.55) and the deferred namespace object MOP (E19.84.01).
 fn deferred_namespace_helper_stmts() -> Result<Vec<Stmt>, Diagnostic> {
     // Parsed once per link that needs deferred namespaces. Node hosts lack native
-    // `import defer`; this Proxy matches Test262 evaluation-trigger surface.
+    // `import defer`; this Proxy matches Test262 evaluation-trigger + MOP surface.
     let src = r#"
-function __draconic_deferred_ns(evaluate) {
+function __draconic_deferred_ns(evaluate, exportNames) {
   let evaluated = false;
   let exportsObj = null;
+  let names = exportNames.slice().sort();
+  // Target is a static stand-in matching a module namespace exotic object's
+  // non-configurable keys, so Proxy invariants hold (E19.84.01).
   let target = Object.create(null);
+  Object.defineProperty(target, Symbol.toStringTag, {
+    value: "Deferred Module",
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+  for (let i = 0; i < names.length; i++) {
+    Object.defineProperty(target, names[i], {
+      value: undefined,
+      writable: true,
+      enumerable: true,
+      configurable: false,
+    });
+  }
+  Object.preventExtensions(target);
   function ensure() {
     if (!evaluated) {
       evaluated = true;
       exportsObj = evaluate();
+      for (let i = 0; i < names.length; i++) {
+        target[names[i]] = exportsObj[names[i]];
+      }
     }
     return exportsObj;
   }
   function isSymbolLike(p) {
     return typeof p === "symbol" || p === "then";
   }
-  // Traps encode deferred module-namespace trigger rules (E19.55). Target starts
-  // extensible; preventExtensions makes it non-extensible when asked.
+  // Traps encode deferred module-namespace trigger rules (E19.55) and the
+  // deferred namespace object MOP (E19.84.01).
   return new Proxy(target, {
     get(_t, p) {
-      if (p === Symbol.toStringTag) return "Module";
+      if (p === Symbol.toStringTag) return "Deferred Module";
       if (isSymbolLike(p)) return undefined;
       let ex = ensure();
       if (Object.prototype.hasOwnProperty.call(ex, p)) return ex[p];
       return undefined;
     },
     has(_t, p) {
-      if (isSymbolLike(p)) return false;
+      if (isSymbolLike(p)) {
+        return Object.prototype.hasOwnProperty.call(target, p);
+      }
       let ex = ensure();
       return Object.prototype.hasOwnProperty.call(ex, p);
     },
     getOwnPropertyDescriptor(_t, p) {
-      if (isSymbolLike(p)) return undefined;
+      if (p === Symbol.toStringTag) {
+        return { value: "Deferred Module", writable: false, enumerable: false, configurable: false };
+      }
+      if (isSymbolLike(p)) {
+        if (!Object.prototype.hasOwnProperty.call(target, p)) return undefined;
+        return { value: target[p], writable: true, enumerable: true, configurable: false };
+      }
       let ex = ensure();
       if (!Object.prototype.hasOwnProperty.call(ex, p)) return undefined;
-      return { value: ex[p], writable: true, enumerable: true, configurable: true };
+      target[p] = ex[p];
+      return { value: ex[p], writable: true, enumerable: true, configurable: false };
     },
     ownKeys() {
-      return Reflect.ownKeys(ensure());
+      ensure();
+      let keys = names.slice();
+      keys.push(Symbol.toStringTag);
+      return keys;
     },
     defineProperty(_t, p, desc) {
       if (isSymbolLike(p)) return false;
@@ -1742,8 +1776,8 @@ function __draconic_deferred_ns(evaluate) {
     getPrototypeOf() {
       return null;
     },
-    setPrototypeOf() {
-      return false;
+    setPrototypeOf(_t, p) {
+      return p === null;
     },
     isExtensible() {
       return Object.isExtensible(target);
@@ -1780,12 +1814,15 @@ fn make_deferred_namespace_binding(
     span: Span,
 ) -> Result<Stmt, Diagnostic> {
     let mut props = String::new();
+    let mut names = String::new();
     for (export_name, remote) in export_pairs {
         let key = js_object_key(export_name);
         props.push_str(&format!("{key}: {remote}, "));
+        let lit = export_name.replace('\\', "\\\\").replace('"', "\\\"");
+        names.push_str(&format!("\"{lit}\", "));
     }
     let src = format!(
-        "let {local} = __draconic_deferred_ns(function () {{ {eval_fn}(); return {{ {props} }}; }});"
+        "let {local} = __draconic_deferred_ns(function () {{ {eval_fn}(); return {{ {props} }}; }}, [{names}]);"
     );
     let mut body = parse(&src)?.body;
     let stmt = body.pop().ok_or_else(|| {
