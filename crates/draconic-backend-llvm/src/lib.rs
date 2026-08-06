@@ -27,8 +27,9 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   arrows) via Runtime Promise ABI — N06.03–N06.11
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
 /// - **ES expressions** (numeric arithmetic + comparison/equality + logical
-///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` over JS
-///   numbers/booleans) via Runtime prints — N08.01.01–N08.01.04.02
+///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
+///   conditional `?:` over JS numbers/booleans) via Runtime prints —
+///   N08.01.01–N08.01.04.03
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -58,7 +59,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         ES expressions (arithmetic/comparison/logical/bitwise/pow), empty hello)",
+         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional), empty hello)",
         Span::dummy(),
     )
 }
@@ -489,6 +490,49 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "8\n512\n18\n36\n8\n1\n9\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_conditional_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let t = true ? 1 : 2;
+            let f = false ? 1 : 2;
+            let nested = true ? false ? 3 : 4 : 5;
+            let right_assoc = false ? 1 : true ? 2 : 3;
+            let prec = 1 < 2 ? 10 : 20;
+            let group = (false ? 1 : 2) + 3;
+            let num = 0 ? 100 : 200;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr conditional must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("select i1"),
+            "should use select for ternary:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-conditional").expect("workdir");
+        let bin = dir.join("conditional");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "1\n2\n4\n2\n10\n5\n200\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

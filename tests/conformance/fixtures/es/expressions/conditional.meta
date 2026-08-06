@@ -1,4 +1,6 @@
 id: es/expressions/conditional
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\n2\n4\n2\n10\n5\n200\n
 js.check: if (t !== 1) process.exit(1); if (f !== 2) process.exit(2); if (nested !== 4) process.exit(3); if (right_assoc !== 2) process.exit(4); if (prec !== 10) process.exit(5); if (group !== 5) process.exit(6); if (num !== 200) process.exit(7);

@@ -1,5 +1,6 @@
 //! N08.01: emit native observations for ES expression Programs
-//! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`).
+//! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
+//! E01.04.03 conditional `?:`).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -9,11 +10,11 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.04.02 / N08.01.*):
+/// True when this module is a supported ES expression subset (E01.01–E01.04.03 / N08.01.*):
 /// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`/`~`,
 /// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), logical (`&&` `||`),
-/// bitwise (`&` `|` `^` `<<` `>>` `>>>`), exponentiation (`**`), grouping, and local refs.
-/// Value-preserving `&&`/`||` on numbers is included.
+/// bitwise (`&` `|` `^` `<<` `>>` `>>>`), exponentiation (`**`), conditional (`?:`), grouping,
+/// and local refs. Value-preserving `&&`/`||` on numbers is included.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -109,6 +110,17 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                 )
                 && expr_is_number_subset(left, by_id)
                 && expr_is_number_subset(right, by_id)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ty,
+        } => {
+            *ty == Type::Number
+                && (expr_is_boolean_subset(test, by_id) || expr_is_number_subset(test, by_id))
+                && expr_is_number_subset(consequent, by_id)
+                && expr_is_number_subset(alternate, by_id)
         }
         _ => false,
     }
@@ -359,7 +371,43 @@ impl<'a> Emitter<'a> {
                     _ => Err(diag("internal: non-arithmetic binary in number emit")),
                 }
             }
+            Expr::Conditional {
+                test,
+                consequent,
+                alternate,
+                ..
+            } => {
+                let cond = self.emit_to_boolean(test)?;
+                let c = self.emit_number_expr(consequent)?;
+                let a = self.emit_number_expr(alternate)?;
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {t} = select i1 {cond}, double {c}, double {a}"
+                )
+                .ok();
+                Ok(t)
+            }
             _ => Err(diag("internal: unsupported number expr in es_expr module")),
+        }
+    }
+
+    /// JS ToBoolean for number/boolean tests (ternary / value-preserving branches).
+    fn emit_to_boolean(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr.ty() {
+            Type::Boolean => self.emit_bool_expr(expr),
+            Type::Number => {
+                let n = self.emit_number_expr(expr)?;
+                let t = self.fresh();
+                // +0/-0/NaN falsy; nonzero truthy (`one` = ordered-and-unequal).
+                writeln!(
+                    self.body,
+                    "  {t} = fcmp one double {n}, 0.00000000000000000e+00"
+                )
+                .ok();
+                Ok(t)
+            }
+            _ => Err(diag("internal: ToBoolean expects number or boolean")),
         }
     }
 
