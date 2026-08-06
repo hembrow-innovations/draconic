@@ -1,6 +1,7 @@
 //! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
 mod es_eval;
+mod es_expr;
 mod es_promise;
 mod native_ints;
 
@@ -11,6 +12,7 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::Module;
 
 use es_eval::{emit_es_eval, is_es_eval_module};
+use es_expr::{emit_es_expr, is_es_expr_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
@@ -24,6 +26,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Promise / async** (constructor basics through async/await and async
 ///   arrows) via Runtime Promise ABI — N06.03–N06.11
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
+/// - **Numeric arithmetic** (`+` `-` `*` `/` `%`, unary `+`/`-`, grouping,
+///   local refs over JS numbers) via Runtime prints — N08.01.01
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -35,6 +39,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_eval_module(module) {
         return emit_es_eval(module);
+    }
+    if is_es_expr_module(module) {
+        return emit_es_expr(module);
     }
     if is_empty_program(module) {
         return Ok(emit_empty_hello());
@@ -49,7 +56,8 @@ fn is_empty_program(module: &Module) -> bool {
 fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
-         supported: native scalars/layouts, Promise/async subset, eval/Function fold, empty hello)",
+         supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
+         numeric arithmetic, empty hello)",
         Span::dummy(),
     )
 }
@@ -75,12 +83,14 @@ pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnost
 
     let work = work_dir("draconic-llvm-build")?;
     let ll_path = work.join("program.ll");
-    std::fs::write(&ll_path, llvm_ir).map_err(|e| {
-        Diagnostic::new(format!("write LLVM IR failed: {e}"), Span::dummy())
-    })?;
+    std::fs::write(&ll_path, llvm_ir)
+        .map_err(|e| Diagnostic::new(format!("write LLVM IR failed: {e}"), Span::dummy()))?;
 
     let rt_lib = draconic_runtime::build_runtime_static_lib(&work).map_err(|e| {
-        Diagnostic::new(format!("build runtime static lib failed: {e}"), Span::dummy())
+        Diagnostic::new(
+            format!("build runtime static lib failed: {e}"),
+            Span::dummy(),
+        )
     })?;
 
     if let Some(parent) = out_bin.parent() {
@@ -150,9 +160,8 @@ fn work_dir(prefix: &str) -> Result<PathBuf, Diagnostic> {
             .unwrap_or(0),
         N.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::create_dir_all(&dir).map_err(|e| {
-        Diagnostic::new(format!("temp dir failed: {e}"), Span::dummy())
-    })?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| Diagnostic::new(format!("temp dir failed: {e}"), Span::dummy()))?;
     Ok(dir)
 }
 
@@ -172,7 +181,10 @@ mod tests {
             ir.contains("draconic_rt_hello"),
             "IR must declare/call runtime hello:\n{ir}"
         );
-        assert!(ir.contains("define i32 @main"), "IR must define main:\n{ir}");
+        assert!(
+            ir.contains("define i32 @main"),
+            "IR must define main:\n{ir}"
+        );
         assert!(
             ir.contains("call void @draconic_rt_hello"),
             "main must call hello:\n{ir}"
@@ -200,7 +212,7 @@ mod tests {
 
     #[test]
     fn unsupported_js_module_errors() {
-        let err = emit_llvm_ir(&module_of("let x = 1;")).expect_err("must reject");
+        let err = emit_llvm_ir(&module_of("let s = \"hi\";")).expect_err("must reject");
         let msg = err.to_string();
         assert!(
             msg.contains("unsupported") || msg.contains("native target"),
@@ -209,6 +221,99 @@ mod tests {
         assert!(
             !msg.contains("draconic_rt_hello"),
             "error must not be a hello-stub success path:\n{msg}"
+        );
+    }
+
+    #[test]
+    fn es_expr_arithmetic_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let sum = 1 + 2;
+            let diff = 10 - 4;
+            let prod = 3 * 4;
+            let quot = 20 / 5;
+            let rem = 10 % 3;
+            let prec = 1 + 2 * 3;
+            let grouped = (1 + 2) * 3;
+            let unary_minus = -5;
+            let unary_plus = +7;
+            let chain = 1 + 2 + 3 - 4;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr arithmetic must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-arith").expect("workdir");
+        let bin = dir.join("arith");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "3\n6\n12\n4\n1\n7\n9\n-5\n7\n2\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_arithmetic_with_local_refs_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let a = 10;
+            let b = 3;
+            let sum = a + b;
+            let prod = a * b;
+            let div = a / b;
+            let rem = a % b;
+            let chain = a + b * 2 - 4;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "local-ref arithmetic must not use hello stub:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-arith-local").expect("workdir");
+        let bin = dir.join("arith_local");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "10\n3\n13\n30\n3.3333333333333335\n1\n12\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_non_numeric_unsupported() {
+        let err = emit_llvm_ir(&module_of(
+            r#"
+            let s = "hi";
+            let n = 1 + 2;
+            "#,
+        ))
+        .expect_err("string program must reject");
+        assert!(
+            err.to_string().contains("unsupported"),
+            "diagnostic should mention unsupported:\n{}",
+            err
         );
     }
 
@@ -894,10 +999,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(
-            stdout, "42\n8\n9\n1\n",
-            "stdout={stdout:?}\nir=\n{ir}"
-        );
+        assert_eq!(stdout, "42\n8\n9\n1\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]

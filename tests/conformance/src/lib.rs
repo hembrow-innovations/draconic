@@ -238,10 +238,7 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
                 ));
             }
             other => {
-                return Err(format!(
-                    "meta line {}: unknown key `{other}`",
-                    lineno + 1
-                ));
+                return Err(format!("meta line {}: unknown key `{other}`", lineno + 1));
             }
         }
     }
@@ -279,10 +276,7 @@ fn unescape(s: &str) -> String {
 }
 
 /// Compile a fixture entry through the Frontend (links static imports when needed).
-fn compile_module(
-    source_path: &Path,
-    _source: &str,
-) -> Result<draconic_frontend::Module, String> {
+fn compile_module(source_path: &Path, _source: &str) -> Result<draconic_frontend::Module, String> {
     compile_path(source_path).map_err(|d| format!("compile: {d}"))
 }
 

@@ -344,7 +344,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | T04 | done | compiler | Generics (functions, types) | `tests/conformance/types` |
 | T05 | done | compiler | Native types in the type system (`i32`, `i64`, …) | `tests/conformance/types/native` |
 | T06 | done | js | Dual-worlds boundary rules (JS value ↔ native) | `tests/conformance/types/dual` |
-| T07 | in_progress | compiler | Negative typechecking: reject ill-typed programs with diagnostics (not erase-only happy paths) | `tests/conformance/types` (reject fixtures) |
+| T07 | done | compiler | Negative typechecking: reject ill-typed programs with diagnostics (not erase-only happy paths) | `tests/conformance/types` (reject fixtures) |
 | T07.01 | done | compiler | Annotated call-site argument checking: reject wrong arity (too few required / too many without rest) and non-assignable argument types vs annotated params (incl. native + shape params); untyped/unannotated params stay permissive | `tests/conformance` fixtures `types/reject` |
 | T07.02 | done | compiler | Missing return in annotated non-void function (fall-off-end with a return type) → diagnostic | `tests/conformance` fixtures `types/reject` |
 | T07.03 | done | compiler | Unknown property on annotated shape: read `p.y` / write `p.y = v` when `y` not in shape → diagnostic (untyped objects stay dynamic) | `tests/conformance` fixtures `types/reject` |
@@ -384,6 +384,10 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N07.04 | done | native | LLVM indirect eval via Embed: `(0, eval)(s)` / `globalThis.eval(s)` global scope (not caller lexical); direct `eval` still lexical; real native observations for `es/eval/indirect_eval` | `tests/conformance` fixtures `es/eval/indirect_eval`, `crates/draconic-backend-llvm`, `crates/draconic-embed` |
 | N08 | todo | native | Real native observations for ES clusters still on B08 hello stub (not stub-green) | `tests/conformance` (update `native.stdout` off hello) |
 | N08.01 | todo | native | Real native observations: expressions (E01) — LLVM path asserts program results, not B08 hello | `tests/conformance` fixtures `es/expressions` |
+| N08.01.01 | done | native | Real native observations: numeric arithmetic (E01.01) — `es/expressions/arithmetic` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/arithmetic`, `crates/draconic-backend-llvm` |
+| N08.01.02 | todo | native | Real native observations: comparison & equality (E01.02) | `tests/conformance` fixtures `es/expressions` |
+| N08.01.03 | todo | native | Real native observations: logical (E01.03) | `tests/conformance` fixtures `es/expressions` |
+| N08.01.04 | todo | native | Real native observations: remaining §12–13 (E01.04) | `tests/conformance` fixtures `es/expressions` |
 | N08.02 | todo | native | Real native observations: statements (E02) | `tests/conformance` fixtures `es/statements` |
 | N08.03 | todo | native | Real native observations: functions (E03) | `tests/conformance` fixtures `es/functions` |
 | N08.04 | todo | native | Real native observations: objects (E04) | `tests/conformance` fixtures `es/objects` |

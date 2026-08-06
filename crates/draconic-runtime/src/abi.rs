@@ -343,11 +343,7 @@ pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
 ];
 
 /// Job queue ABI symbols (N06.01).
-pub const JOB_QUEUE_SYMBOLS: &[&str] = &[
-    JOB_ENQUEUE_SYMBOL,
-    JOB_DRAIN_SYMBOL,
-    JOB_PENDING_SYMBOL,
-];
+pub const JOB_QUEUE_SYMBOLS: &[&str] = &[JOB_ENQUEUE_SYMBOL, JOB_DRAIN_SYMBOL, JOB_PENDING_SYMBOL];
 
 /// Promise ABI symbols (N06.02–N06.10).
 pub const PROMISE_SYMBOLS: &[&str] = &[
@@ -379,6 +375,9 @@ pub const NATIVE_INT_DECLARES: &[AbiFn] = &[PRINT_I64, PRINT_U64, PRINT_F64, PRI
 
 /// Declares used by the eval/Function observation emitter.
 pub const ES_EVAL_DECLARES: &[AbiFn] = &[GC_INIT, PRINT_I64, PRINT_BOOL, PRINT_STR];
+
+/// Declares used by the numeric-arithmetic observation emitter (N08.01.01).
+pub const ES_EXPR_DECLARES: &[AbiFn] = &[PRINT_F64];
 
 /// Declares used by the Promise/async emitter.
 pub const ES_PROMISE_DECLARES: &[AbiFn] = &[
@@ -434,6 +433,7 @@ mod tests {
     fn emitter_declare_sets_are_stable() {
         assert!(llvm_declares(NATIVE_INT_DECLARES).contains(PRINT_I64_SYMBOL));
         assert!(llvm_declares(ES_EVAL_DECLARES).contains(GC_INIT_SYMBOL));
+        assert!(llvm_declares(ES_EXPR_DECLARES).contains(PRINT_F64_SYMBOL));
         assert!(llvm_declares(ES_PROMISE_DECLARES).contains(PROMISE_THEN_SYMBOL));
     }
 }
