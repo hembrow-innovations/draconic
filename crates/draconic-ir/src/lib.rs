@@ -582,7 +582,8 @@ pub fn lower(checked: &CheckedProgram) -> Module {
             || n.starts_with("__drac_pval_")
             || n.starts_with("__drac_pnext_")
             || n.starts_with("__drac_pcur_")
-            || n.starts_with("__drac_dstr_"))
+            || n.starts_with("__drac_dstr_")
+            || n.starts_with("__drac_sv_"))
         {
             continue;
         }
@@ -2259,6 +2260,130 @@ fn assert_derived_this(this_id: LocalId) -> Expr {
             "Must call super constructor in derived class before accessing 'this' or returning from it",
         )),
         alternate: Box::new(local_expr(this_id)),
+        ty: Type::Any,
+    }
+}
+
+/// `AssignOp` (compound) → matching `BinaryOp` for the read-modify-write (`Eq` is a no-op).
+fn assign_op_as_binary_op(op: AssignOp) -> BinaryOp {
+    match op {
+        AssignOp::Eq => BinaryOp::Comma,
+        AssignOp::AddEq => BinaryOp::Add,
+        AssignOp::SubEq => BinaryOp::Sub,
+        AssignOp::MulEq => BinaryOp::Mul,
+        AssignOp::DivEq => BinaryOp::Div,
+        AssignOp::RemEq => BinaryOp::Rem,
+        AssignOp::PowEq => BinaryOp::Pow,
+        AssignOp::ShlEq => BinaryOp::Shl,
+        AssignOp::ShrEq => BinaryOp::Shr,
+        AssignOp::UShrEq => BinaryOp::UShr,
+        AssignOp::BitAndEq => BinaryOp::BitAnd,
+        AssignOp::BitOrEq => BinaryOp::BitOr,
+        AssignOp::BitXorEq => BinaryOp::BitXor,
+        AssignOp::AndAndEq => BinaryOp::And,
+        AssignOp::OrOrEq => BinaryOp::Or,
+        AssignOp::NullishEq => BinaryOp::Nullish,
+    }
+}
+
+/// `super.x = v` / `super.x op= v` in a derived constructor (E19.86).
+///
+/// SuperProperty Set targets the superclass prototype with the derived `this` as
+/// receiver — setters and receiver fall-through (e.g. a module namespace from a
+/// returning super constructor) depend on the receiver, so the assignment desugars
+/// to `Reflect.set(base, key, value, this)`. Compound ops read first through
+/// `Reflect.get(base, key, this)`.
+fn lower_super_prop_assign(
+    checked: &CheckedProgram,
+    ctx: &mut LowerCtx,
+    property: Expr,
+    op: AssignOp,
+    value: &AstExpr,
+    super_class: Option<&AstExpr>,
+) -> Expr {
+    let super_id = ctx.derived_super.expect("derived_super for super assign");
+    let this_id = ctx.derived_this.expect("derived_this for super assign");
+    let base = parent_instance_super_base(local_expr(super_id));
+    let receiver = assert_derived_this(this_id);
+    let reflect_member = |method: &str| Expr::Member {
+        object: Box::new(Expr::IdentName {
+            name: "Reflect".into(),
+            ty: Type::Object,
+        }),
+        property: Box::new(Expr::String {
+            value: method.into(),
+            ty: Type::String,
+        }),
+        computed: false,
+        optional: false,
+        ty: Type::Function,
+    };
+    if matches!(op, AssignOp::Eq) {
+        let rhs = lower_expr(checked, ctx, value, super_class);
+        let set = Expr::Call {
+            callee: Box::new(reflect_member("set")),
+            args: vec![
+                Arg::Expr(base),
+                Arg::Expr(property),
+                Arg::Expr(rhs.clone()),
+                Arg::Expr(receiver),
+            ],
+            optional: false,
+            ty: Type::Boolean,
+        };
+        return Expr::Binary {
+            left: Box::new(set),
+            op: BinaryOp::Comma,
+            right: Box::new(rhs),
+            ty: Type::Any,
+        };
+    }
+    // Compound: (_sv = (Reflect.get(base, key, this) op v), Reflect.set(base, key, _sv, this), _sv)
+    let cur = Expr::Call {
+        callee: Box::new(reflect_member("get")),
+        args: vec![
+            Arg::Expr(base.clone()),
+            Arg::Expr(property.clone()),
+            Arg::Expr(receiver.clone()),
+        ],
+        optional: false,
+        ty: Type::Any,
+    };
+    let rhs = lower_expr(checked, ctx, value, super_class);
+    let combined = Expr::Binary {
+        left: Box::new(cur),
+        op: assign_op_as_binary_op(op),
+        right: Box::new(rhs),
+        ty: Type::Any,
+    };
+    let tmp_id = ctx.alloc_synthetic_local(format!("__drac_sv_{}", ctx.next_synth_id), Type::Any);
+    let tmp = local_expr(tmp_id);
+    let assign_tmp = Expr::Assign {
+        target: AssignTarget::Local(tmp_id),
+        op: AssignOp::Eq,
+        value: Box::new(combined),
+        ty: Type::Any,
+    };
+    let set = Expr::Call {
+        callee: Box::new(reflect_member("set")),
+        args: vec![
+            Arg::Expr(base),
+            Arg::Expr(property),
+            Arg::Expr(tmp.clone()),
+            Arg::Expr(receiver),
+        ],
+        optional: false,
+        ty: Type::Boolean,
+    };
+    Expr::Binary {
+        left: Box::new(Expr::Binary {
+            left: Box::new(assign_tmp),
+            op: BinaryOp::Comma,
+            right: Box::new(set),
+            ty: Type::Any,
+        }),
+        op: BinaryOp::Comma,
+        right: Box::new(tmp),
         ty: Type::Any,
     }
 }
@@ -5616,6 +5741,20 @@ fn lower_expr_hint(
                             other => lower_expr(checked, ctx, other, super_class),
                         }
                     };
+                    // `super.x = v` in a derived constructor — SetSuperProperty with the
+                    // derived `this` as receiver (E19.86); `super` cannot be emitted in a
+                    // plain constructor function.
+                    if matches!(object.as_ref(), AstExpr::Super { .. }) && ctx.derived_super.is_some()
+                    {
+                        return lower_super_prop_assign(
+                            checked,
+                            ctx,
+                            property,
+                            *op,
+                            value,
+                            super_class,
+                        );
+                    }
                     AssignTarget::Member {
                         object: Box::new(lower_expr(checked, ctx, object, super_class)),
                         property: Box::new(property),

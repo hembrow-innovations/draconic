@@ -24,7 +24,7 @@ fn main() {
             }
             Status::Fail => {
                 fail += 1;
-                let msg = r.message.replace('\n', " ").chars().take(160).collect::<String>();
+                let msg = r.message.replace('\n', " ");
                 println!("FAIL\t{rel}\t{msg}");
             }
             Status::Skip => {

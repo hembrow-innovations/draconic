@@ -329,7 +329,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.84.03 | done | js | Deferred JSON-module namespace: `import defer * as ns from "...json" with { type: "json" }` compiles; `default` = parsed JSON (`json-module.js`) | `tests/test262` (allowlist + parser/linker) |
 | E19.84.04 | done | js | Re-exported deferred namespace preserves deferred semantics: `export { ns }` of defer ns stays lazy; `@@toStringTag` + evaluation triggers (`reexport-deferred-ns-evaluation.js`) | `tests/test262` (allowlist + linker) |
 | E19.85 | done | js | `ArrayBuffer` immutable APIs: `.immutable`, `transferToImmutable`, `sliceToImmutable` | `tests/test262` (allowlist + runtime) |
-| E19.86 | todo | js | Module namespace internals residual: `[[Get]]`/`[[Set]]`/`[[HasProperty]]` / export-name string bindings | `crates/draconic-linker` / backend-js, `tests/test262` |
+| E19.86 | done | js | Module namespace internals residual: `[[Get]]`/`[[Set]]`/`[[HasProperty]]` / export-name string bindings | `crates/draconic-linker` / backend-js, `tests/test262` |
 | E19.87 | todo | js | Expand allowlist further after E19.82–E19.86 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |
 
 ---

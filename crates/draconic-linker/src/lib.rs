@@ -445,42 +445,42 @@ impl Loader {
             }
             let eval_name = (!eager.contains(from_id)).then(|| deferred_eval_fn_name(*from_id));
             let bind_span = span_gen.next();
-            deferred_ns_by_id.insert(
-                *from_id,
-                make_deferred_namespace_binding(
-                    &deferred_namespace_binding_name(*from_id),
-                    eval_name.as_deref(),
-                    &pairs,
-                    bind_span,
-                )?,
-            );
+            let mut stmt = make_deferred_namespace_binding(
+                &deferred_namespace_binding_name(*from_id),
+                eval_name.as_deref(),
+                &pairs,
+                bind_span,
+            )?;
+            // Synthetic per-module statements share spans; binder/IR key symbols
+            // by span, so every top-level stmt must get unique spans (E19.86).
+            uniqueify_stmt_spans(&mut stmt, &mut span_gen);
+            deferred_ns_by_id.insert(*from_id, stmt);
         }
 
-        // Build shared eager namespace objects once per target module.
-        // Emitted after that module's body (post-order) so export locals are initialized.
-        let mut shared_ns_by_id: HashMap<usize, Stmt> = HashMap::new();
-        for from_id in shared_ns_targets {
-            let resolved = self.collect_resolved_exports(from_id)?;
-            let props = namespace_object_props_resolved(&resolved, &mangled, &mut span_gen)?;
-            let bind_span = span_gen.next();
-            let obj_span = span_gen.next();
-            shared_ns_by_id.insert(
-                from_id,
-                Stmt::Let {
-                    kind: BindingKind::Let,
-                    binding: BindingPattern::Ident(Ident {
-                        name: shared_namespace_binding_name(from_id),
-                        span: bind_span,
-                    }),
-                    type_ann: None,
-                    init: Some(Expr::ObjectExpression {
-                        properties: props,
-                        span: obj_span,
-                    }),
-                    span: bind_span,
-                },
-            );
+        // E19.86: build shared eager namespace objects once per target module.
+        // Instantiated at the top of the linked program (before any module body) as
+        // spec-exotic Proxy objects, so import-site references never hit a TDZ on
+        // the namespace binding itself (E19.71 emitted `let __ns{id}` after the
+        // target module's body, which broke self-imports). Export values are read
+        // lazily through getter closures over the (mangled) export bindings, so
+        // `[[Get]]` of an uninitialized binding still throws ReferenceError and
+        // late-initialized bindings stay live.
+        let mut shared_ns_setup: Vec<(usize, Stmt)> = Vec::new();
+        for from_id in &shared_ns_targets {
+            let resolved = self.collect_resolved_exports(*from_id)?;
+            let span = span_gen.next();
+            let mut stmt = make_shared_namespace_binding(
+                &shared_namespace_binding_name(*from_id),
+                &resolved,
+                &mangled,
+                span,
+            )?;
+            // Synthetic per-module statements share spans; binder/IR key symbols
+            // by span, so every top-level stmt must get unique spans (E19.86).
+            uniqueify_stmt_spans(&mut stmt, &mut span_gen);
+            shared_ns_setup.push((*from_id, stmt));
         }
+        shared_ns_setup.sort_by_key(|(id, _)| *id);
 
         // modules are stored in post-order (deps before importers). Entry last.
         let mut order: Vec<usize> = (0..self.modules.len()).collect();
@@ -530,6 +530,17 @@ impl Loader {
                 linked_body.push(stmt);
             }
         }
+        // E19.86: instantiate eager module namespace objects up-front (before any
+        // module body). Getter closures read the export bindings lazily, so the
+        // namespace binding itself is never in TDZ at an import site.
+        if !shared_ns_targets.is_empty() {
+            for stmt in shared_namespace_helper_stmts()? {
+                linked_body.push(stmt);
+            }
+            for (_, stmt) in shared_ns_setup.into_iter() {
+                linked_body.push(stmt);
+            }
+        }
         // Emit deferred thunks before eager bodies (hoisted bindings + eval fns).
         for id in &order {
             if let Some(thunks) = deferred_thunks.remove(id) {
@@ -573,27 +584,9 @@ impl Loader {
                 end = sp.end.0;
             }
             linked_body.extend(body);
-            // Namespace object for this module after its exports are initialized.
-            if let Some(ns_stmt) = shared_ns_by_id.remove(&id) {
-                let sp = stmt_span_approx(&ns_stmt);
-                if linked_body.is_empty() {
-                    start = sp.start.0;
-                }
-                end = sp.end.0;
-                linked_body.push(ns_stmt);
-            }
         }
-        // Empty modules that are still namespace targets (no body stmts).
-        let mut leftover: Vec<_> = shared_ns_by_id.into_iter().collect();
-        leftover.sort_by_key(|(id, _)| *id);
-        for (_, ns_stmt) in leftover {
-            let sp = stmt_span_approx(&ns_stmt);
-            if linked_body.is_empty() {
-                start = sp.start.0;
-            }
-            end = sp.end.0;
-            linked_body.push(ns_stmt);
-        }
+        // (E19.86: eager namespace objects are instantiated up-front with the other
+        // namespace machinery, no longer emitted after each module body.)
 
         Ok(Program {
             body: linked_body,
@@ -681,6 +674,48 @@ impl Loader {
         Ok(unambiguous.get(name).cloned())
     }
 
+    /// Resolve a single named export through direct exports and named re-exports,
+    /// tolerating cycles: a named re-export into a module already being expanded
+    /// (self-import, or a star-re-export cycle) must still resolve its exact name
+    /// (E19.86). Star re-exports participate, but a star dep already on the chain
+    /// is skipped so the walk terminates. Ambiguity is not tracked here (the full
+    /// map via [`Self::collect_export_maps_rec`] governs ambiguous star collisions).
+    fn resolve_named_export(
+        &self,
+        module_id: usize,
+        name: &str,
+        chain: &mut HashSet<usize>,
+    ) -> Result<Option<(usize, String)>, Diagnostic> {
+        if !chain.insert(module_id) {
+            return Ok(None);
+        }
+        let module = &self.modules[module_id];
+        if let Some(local) = module.exports.get(name) {
+            return self.resolve_local_export_binding(module_id, local, chain);
+        }
+        if let Some(re) = module.named_reexports.iter().find(|r| r.exported == name) {
+            let dep_id = *self.ids.get(&re.from).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("module not loaded: {}", re.from.display()),
+                    Span::dummy(),
+                )
+            })?;
+            return self.resolve_named_export(dep_id, &re.imported, chain);
+        }
+        for dep_path in &module.star_reexports {
+            let dep_id = *self.ids.get(dep_path).ok_or_else(|| {
+                Diagnostic::new(
+                    format!("module not loaded: {}", dep_path.display()),
+                    Span::dummy(),
+                )
+            })?;
+            if let Some(binding) = self.resolve_named_export(dep_id, name, chain)? {
+                return Ok(Some(binding));
+            }
+        }
+        Ok(None)
+    }
+
     /// Unambiguous export names visible from `module_id` (GetModuleNamespace set).
     /// Ambiguous star collisions are omitted, not errors (E19.71).
     fn collect_resolved_exports(
@@ -765,7 +800,11 @@ impl Loader {
                     Span::dummy(),
                 )
             })?;
-            let resolved = self.resolve_export(dep_id, &re.imported, visiting)?;
+            // Named re-exports are exact name lookups — they must resolve even when
+            // the target module is mid-expansion (self-import / star cycle), which
+            // `collect_export_maps_rec`'s visiting set would otherwise short-circuit
+            // (E19.86).
+            let resolved = self.resolve_named_export(dep_id, &re.imported, &mut HashSet::new())?;
             if module.exports.contains_key(&re.exported) {
                 // Direct export already owns this name — skip (direct wins).
                 continue;
@@ -2333,6 +2372,107 @@ function __draconic_deferred_ns(evaluate, exportNames) {
     Ok(parse(src)?.body)
 }
 
+fn shared_namespace_helper_stmts() -> Result<Vec<Stmt>, Diagnostic> {
+    // E19.86: module namespace exotic object polyfill for eager namespaces. The
+    // linked program flattens ESM into plain scripts, so `import * as ns` must
+    // bind to an object that reproduces the spec [[ModuleNamespace]] MOP: null
+    // prototype, non-extensible, sorted ownKeys (Symbol.toStringTag last),
+    // non-configurable data descriptors, `[[Get]]` = GetBindingValue (throws
+    // ReferenceError on uninitialized bindings), `[[Set]]` = false, etc. Values
+    // are fetched through getter closures over the (mangled) export bindings so
+    // they stay live and honor binding TDZ. Parsed once per link that needs it.
+    let src = r#"
+function __draconic_make_ns(pairs, exportNames, toStringTag) {
+  let getters = Object.create(null);
+  for (let i = 0; i < pairs.length; i++) {
+    getters[pairs[i][0]] = pairs[i][1];
+  }
+  let names = exportNames.slice().sort();
+  let target = Object.create(null);
+  Object.defineProperty(target, Symbol.toStringTag, {
+    value: toStringTag,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+  for (let i = 0; i < names.length; i++) {
+    Object.defineProperty(target, names[i], {
+      value: undefined,
+      writable: true,
+      enumerable: true,
+      configurable: false,
+    });
+  }
+  Object.preventExtensions(target);
+  function hasName(p) {
+    return typeof p === "string" && Object.prototype.hasOwnProperty.call(getters, p);
+  }
+  return new Proxy(target, {
+    get(_t, p) {
+      if (p === Symbol.toStringTag) return toStringTag;
+      if (typeof p === "symbol") return undefined;
+      if (!hasName(p)) return undefined;
+      return getters[p]();
+    },
+    has(_t, p) {
+      if (p === Symbol.toStringTag) return true;
+      if (typeof p === "symbol") return false;
+      return hasName(p);
+    },
+    getOwnPropertyDescriptor(_t, p) {
+      if (p === Symbol.toStringTag) {
+        return { value: toStringTag, writable: false, enumerable: false, configurable: false };
+      }
+      if (typeof p === "symbol") return undefined;
+      if (!hasName(p)) return undefined;
+      return { value: getters[p](), writable: true, enumerable: true, configurable: false };
+    },
+    ownKeys() {
+      return names.concat([Symbol.toStringTag]);
+    },
+    defineProperty(_t, p, desc) {
+      if (typeof p === "symbol") {
+        if (p !== Symbol.toStringTag) return false;
+        if (desc.configurable === true) return false;
+        if (desc.writable === true) return false;
+        if (desc.enumerable === true) return false;
+        if ("value" in desc && desc.value !== toStringTag) return false;
+        return true;
+      }
+      if (!hasName(p)) return false;
+      let current = getters[p]();
+      if (desc.configurable === true) return false;
+      if (desc.enumerable === false) return false;
+      if (desc.get !== undefined || desc.set !== undefined) return false;
+      if (desc.writable === false) return false;
+      if ("value" in desc && desc.value !== current) return false;
+      return true;
+    },
+    deleteProperty(_t, p) {
+      if (typeof p === "symbol") return p !== Symbol.toStringTag;
+      return !hasName(p);
+    },
+    set() {
+      return false;
+    },
+    getPrototypeOf() {
+      return null;
+    },
+    setPrototypeOf(_t, p) {
+      return p === null;
+    },
+    isExtensible() {
+      return false;
+    },
+    preventExtensions() {
+      return true;
+    },
+  });
+}
+"#;
+    Ok(parse(src)?.body)
+}
+
 fn make_call_stmt(fn_name: &str, span: Span) -> Stmt {
     Stmt::Expression {
         expr: Expr::Call {
@@ -2374,6 +2514,39 @@ fn make_deferred_namespace_binding(
     let mut body = parse(&src)?.body;
     let stmt = body.pop().ok_or_else(|| {
         Diagnostic::new("deferred namespace binding parse produced no stmt", span)
+    })?;
+    Ok(stmt)
+}
+
+/// E19.86: build `let __ns{id} = __draconic_make_ns(pairs, names, "Module");`.
+/// Each pair is `[exportName, function () { return <final binding name>; }]`, so
+/// export values are read lazily (live bindings + TDZ ReferenceError) instead of
+/// being snapshotted at namespace creation.
+fn make_shared_namespace_binding(
+    local: &str,
+    resolved: &HashMap<String, (usize, String)>,
+    mangled: &[HashMap<String, String>],
+    span: Span,
+) -> Result<Stmt, Diagnostic> {
+    let mut names: Vec<String> = resolved.keys().cloned().collect();
+    names.sort();
+    let mut pairs: Vec<String> = Vec::with_capacity(names.len());
+    let mut names_lit: Vec<String> = Vec::with_capacity(names.len());
+    for export_name in &names {
+        let (def_id, local_in_exporter) = resolved.get(export_name).expect("key from map");
+        let remote = final_binding_name(mangled, *def_id, local_in_exporter)?;
+        let lit = export_name.replace('\\', "\\\\").replace('"', "\\\"");
+        pairs.push(format!("[\"{lit}\", function () {{ return {remote}; }}]"));
+        names_lit.push(format!("\"{lit}\""));
+    }
+    let src = format!(
+        "let {local} = __draconic_make_ns([{}], [{}], \"Module\");",
+        pairs.join(", "),
+        names_lit.join(", ")
+    );
+    let mut body = parse(&src)?.body;
+    let stmt = body.pop().ok_or_else(|| {
+        Diagnostic::new("shared namespace binding parse produced no stmt", span)
     })?;
     Ok(stmt)
 }
@@ -2588,38 +2761,6 @@ fn hoist_decl_to_assign(stmt: Stmt) -> Stmt {
         }
         other => other,
     }
-}
-
-fn namespace_object_props_resolved(
-    resolved: &HashMap<String, (usize, String)>,
-    mangled: &[HashMap<String, String>],
-    spans: &mut SyntheticSpans,
-) -> Result<Vec<ObjectProp>, Diagnostic> {
-    let mut names: Vec<_> = resolved.keys().cloned().collect();
-    names.sort();
-    let mut props = Vec::with_capacity(names.len());
-    for export_name in names {
-        let (def_id, local_in_exporter) = resolved.get(&export_name).expect("key from map");
-        let remote = final_binding_name(mangled, *def_id, local_in_exporter)?;
-        let key_span = spans.next();
-        let val_span = spans.next();
-        let prop_span = spans.next();
-        let key = Ident {
-            name: export_name,
-            span: key_span,
-        };
-        let value = Expr::Ident(Ident {
-            name: remote,
-            span: val_span,
-        });
-        props.push(ObjectProp::Property {
-            key: ObjectKey::Ident(key),
-            value,
-            shorthand: false,
-            span: prop_span,
-        });
-    }
-    Ok(props)
 }
 
 fn collect_decl_exports(
