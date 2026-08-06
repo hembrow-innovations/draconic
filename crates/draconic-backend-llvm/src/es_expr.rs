@@ -1,5 +1,5 @@
 //! N08.01: emit native observations for ES expression Programs
-//! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise).
+//! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -9,11 +9,11 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.04.01 / N08.01.*):
+/// True when this module is a supported ES expression subset (E01.01–E01.04.02 / N08.01.*):
 /// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`/`~`,
 /// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), logical (`&&` `||`),
-/// bitwise (`&` `|` `^` `<<` `>>` `>>>`), grouping, and local refs. Value-preserving `&&`/`||`
-/// on numbers is included.
+/// bitwise (`&` `|` `^` `<<` `>>` `>>>`), exponentiation (`**`), grouping, and local refs.
+/// Value-preserving `&&`/`||` on numbers is included.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -105,6 +105,7 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                         | BinaryOp::Shl
                         | BinaryOp::Shr
                         | BinaryOp::UShr
+                        | BinaryOp::Pow
                 )
                 && expr_is_number_subset(left, by_id)
                 && expr_is_number_subset(right, by_id)
@@ -183,6 +184,8 @@ impl<'a> Emitter<'a> {
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
+        // JS `**` → IEEE pow (Math.pow); intrinsic available without libm link flags.
+        writeln!(self.out, "declare double @llvm.pow.f64(double, double)").ok();
         writeln!(self.out).ok();
 
         for (id, slot) in user {
@@ -343,6 +346,16 @@ impl<'a> Emitter<'a> {
                     | BinaryOp::Shl
                     | BinaryOp::Shr
                     | BinaryOp::UShr => self.emit_bitwise_number(op, &l, &r),
+                    // JS `**` (Math.pow): IEEE floating pow on Number doubles.
+                    BinaryOp::Pow => {
+                        let t = self.fresh();
+                        writeln!(
+                            self.body,
+                            "  {t} = call double @llvm.pow.f64(double {l}, double {r})"
+                        )
+                        .ok();
+                        Ok(t)
+                    }
                     _ => Err(diag("internal: non-arithmetic binary in number emit")),
                 }
             }

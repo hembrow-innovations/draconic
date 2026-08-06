@@ -27,8 +27,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   arrows) via Runtime Promise ABI — N06.03–N06.11
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
 /// - **ES expressions** (numeric arithmetic + comparison/equality + logical
-///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` over JS
-///   numbers/booleans) via Runtime prints — N08.01.01–N08.01.04.01
+///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` over JS
+///   numbers/booleans) via Runtime prints — N08.01.01–N08.01.04.02
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -58,7 +58,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         ES expressions (arithmetic/comparison/logical/bitwise), empty hello)",
+         ES expressions (arithmetic/comparison/logical/bitwise/pow), empty hello)",
         Span::dummy(),
     )
 }
@@ -446,6 +446,49 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "1\n7\n4\n-1\n8\n-2\n1073741822\n1\n0\n15\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_exponentiation_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let pow = 2 ** 3;
+            let right_assoc = 2 ** 3 ** 2;
+            let prec = 2 * 3 ** 2;
+            let group = (2 * 3) ** 2;
+            let nested = 2 ** (1 + 2);
+            let zero = 5 ** 0;
+            let one = 9 ** 1;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr exponentiation must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("llvm.pow.f64"),
+            "should use pow intrinsic:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-exponentiation").expect("workdir");
+        let bin = dir.join("exponentiation");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "8\n512\n18\n36\n8\n1\n9\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
