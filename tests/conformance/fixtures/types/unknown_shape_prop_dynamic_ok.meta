@@ -1,0 +1,4 @@
+id: types/unknown_shape_prop_dynamic_ok
+targets: js
+js.exit: 0
+js.check: if (p.y !== 2) process.exit(1);

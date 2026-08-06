@@ -167,6 +167,10 @@ struct GenericAlias {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectShape {
     pub props: Vec<(String, Type)>,
+    /// True when the shape came from an explicit type annotation (`{ x: number }`).
+    /// Only strict shapes reject access to unknown properties (T07.03); inferred
+    /// object-literal and tuple shapes stay permissive so untyped JS is dynamic.
+    pub strict: bool,
 }
 
 /// Members of a union type (`Type::Union`).
@@ -3907,7 +3911,7 @@ impl<'a> Checker<'a> {
                                 Type::Any
                             }
                         } else if let Expr::Ident(id) = property.as_ref() {
-                            self.prop_type(obj_ty, &id.name).unwrap_or(Type::Any)
+                            self.member_prop_type(obj_ty, &id.name, id.span)?
                         } else {
                             Type::Any
                         };
@@ -4083,7 +4087,7 @@ impl<'a> Checker<'a> {
                                 Type::Any
                             }
                         } else if let Expr::Ident(id) = property.as_ref() {
-                            self.prop_type(obj_ty, &id.name).unwrap_or(Type::Any)
+                            self.member_prop_type(obj_ty, &id.name, id.span)?
                         } else {
                             Type::Any
                         };
@@ -4411,7 +4415,7 @@ impl<'a> Checker<'a> {
                     }
                 }
                 let ty = if structural {
-                    self.intern_shape(shape_props)
+                    self.intern_shape(shape_props, false)
                 } else {
                     Type::Object
                 };
@@ -4447,7 +4451,7 @@ impl<'a> Checker<'a> {
                         Type::Any
                     }
                 } else if let Expr::Ident(id) = property.as_ref() {
-                    self.prop_type(obj_ty, &id.name).unwrap_or(Type::Any)
+                    self.member_prop_type(obj_ty, &id.name, id.span)?
                 } else {
                     Type::Any
                 };
@@ -4530,9 +4534,9 @@ impl<'a> Checker<'a> {
         result
     }
 
-    fn intern_shape(&mut self, props: Vec<(String, Type)>) -> Type {
+    fn intern_shape(&mut self, props: Vec<(String, Type)>, strict: bool) -> Type {
         let id = self.shapes.len() as u32;
-        self.shapes.push(ObjectShape { props });
+        self.shapes.push(ObjectShape { props, strict });
         Type::Shape(id)
     }
 
@@ -4572,11 +4576,15 @@ impl<'a> Checker<'a> {
         }
         // Merge all object shapes into one structural type when possible.
         let mut shape_props: Option<Vec<(String, Type)>> = None;
+        // A merged shape is strict only when every contributing shape is strict,
+        // so inferred (permissive) shapes never make an annotated one reject.
+        let mut shape_strict = true;
         let mut rest = Vec::new();
         for m in out {
             match m {
                 Type::Shape(id) => {
                     if let Some(shape) = self.shapes.get(id as usize) {
+                        shape_strict = shape_strict && shape.strict;
                         let acc = shape_props.get_or_insert_with(Vec::new);
                         for (n, t) in &shape.props {
                             if let Some((_, existing)) = acc.iter_mut().find(|(en, _)| en == n) {
@@ -4591,7 +4599,7 @@ impl<'a> Checker<'a> {
             }
         }
         if let Some(props) = shape_props {
-            rest.push(self.intern_shape(props));
+            rest.push(self.intern_shape(props, shape_strict));
         }
         if rest.is_empty() {
             return Type::Any;
@@ -4653,6 +4661,59 @@ impl<'a> Checker<'a> {
                 None
             }
             _ => None,
+        }
+    }
+
+    /// T07.03: type of `obj.name`, rejecting access to a property absent from a
+    /// strict (annotated) shape. Untyped (`Any`/`Object`), inferred object-literal,
+    /// and tuple shapes stay dynamic (permissive), as do intersections with any
+    /// non-strict member.
+    fn member_prop_type(&self, obj: Type, name: &str, span: Span) -> Result<Type, Diagnostic> {
+        match obj {
+            Type::Shape(id) => {
+                let shape = self.shapes.get(id as usize);
+                if let Some((_, t)) = shape.and_then(|s| s.props.iter().find(|(n, _)| n == name)) {
+                    return Ok(*t);
+                }
+                if shape.is_some_and(|s| s.strict) {
+                    return Err(Self::unknown_property_diagnostic(obj, name, span, self));
+                }
+                Ok(Type::Any)
+            }
+            Type::Intersection(id) => {
+                let i = self.intersections.get(id as usize);
+                if let Some(t) = i.and_then(|i| i.members.iter().find_map(|m| self.prop_type(*m, name)))
+                {
+                    return Ok(t);
+                }
+                if i.is_some_and(|i| i.members.iter().all(|m| self.is_strict_member(*m))) {
+                    return Err(Self::unknown_property_diagnostic(obj, name, span, self));
+                }
+                Ok(Type::Any)
+            }
+            _ => Ok(Type::Any),
+        }
+    }
+
+    fn unknown_property_diagnostic(
+        obj: Type,
+        name: &str,
+        span: Span,
+        checker: &Self,
+    ) -> Diagnostic {
+        let obj_s = format_type_full(obj, &checker.shapes, &checker.unions, &checker.intersections);
+        Diagnostic::new(format!("unknown property `{name}` on type `{obj_s}`"), span)
+    }
+
+    /// Whether a type is entirely strict (annotated) shapes, recursing intersections.
+    fn is_strict_member(&self, ty: Type) -> bool {
+        match ty {
+            Type::Shape(id) => self.shapes.get(id as usize).is_some_and(|s| s.strict),
+            Type::Intersection(id) => self
+                .intersections
+                .get(id as usize)
+                .is_some_and(|i| i.members.iter().all(|m| self.is_strict_member(*m))),
+            _ => false,
         }
     }
 
@@ -4735,7 +4796,7 @@ impl<'a> Checker<'a> {
                     let ty = self.resolve_type_ann(&p.ty)?;
                     shape_props.push((p.name.clone(), ty));
                 }
-                Ok(self.intern_shape(shape_props))
+                Ok(self.intern_shape(shape_props, true))
             }
             TypeAnn::Pointer { inner, span } => {
                 let pointee = self.resolve_type_ann(inner)?;
@@ -4755,7 +4816,7 @@ impl<'a> Checker<'a> {
                     let ty = self.resolve_type_ann(el)?;
                     shape_props.push((i.to_string(), ty));
                 }
-                Ok(self.intern_shape(shape_props))
+                Ok(self.intern_shape(shape_props, false))
             }
             TypeAnn::Union { types, .. } => {
                 let mut members = Vec::with_capacity(types.len());

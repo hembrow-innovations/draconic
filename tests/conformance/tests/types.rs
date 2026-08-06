@@ -1247,3 +1247,90 @@ fn call_reject_fixtures_run() {
         }
     }
 }
+
+// --- T07.03: unknown property on annotated shape ---
+
+#[test]
+fn unknown_shape_prop_read_errors() {
+    let program = parse("let p: { x: number } = { x: 1 }; p.y;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("unknown property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn unknown_shape_prop_write_errors() {
+    let program = parse("let p: { x: number } = { x: 1 }; p.y = 1;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("unknown property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn unknown_shape_prop_update_errors() {
+    let program = parse("let p: { x: number } = { x: 1 }; p.y++;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("unknown property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn unknown_shape_prop_compound_assign_errors() {
+    let program = parse("let p: { x: number } = { x: 1 }; p.y += 1;").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("unknown property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn known_shape_prop_access_ok() {
+    let program = parse("let p: { x: number } = { x: 1 }; let n: number = p.x; p.x = 2;").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn untyped_object_unknown_prop_stays_dynamic() {
+    let program = parse("let p = { x: 1 }; p.y = 2; let n = p.y;").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn unknown_shape_prop_dynamic_ok_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/unknown_shape_prop_dynamic_ok"),
+        "missing types/unknown_shape_prop_dynamic_ok fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn unknown_shape_prop_dynamic_ok_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/unknown_shape_prop_dynamic_ok")
+        .expect("types/unknown_shape_prop_dynamic_ok");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
