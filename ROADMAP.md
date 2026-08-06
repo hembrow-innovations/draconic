@@ -387,7 +387,16 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.01.01 | done | native | Real native observations: numeric arithmetic (E01.01) — `es/expressions/arithmetic` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/arithmetic`, `crates/draconic-backend-llvm` |
 | N08.01.02 | done | native | Real native observations: comparison & equality (E01.02) — `es/expressions/comparison` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/comparison`, `crates/draconic-backend-llvm` |
 | N08.01.03 | done | native | Real native observations: logical (E01.03) — `es/expressions/logical` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/logical`, `crates/draconic-backend-llvm` |
-| N08.01.04 | todo | native | Real native observations: remaining §12–13 (E01.04) | `tests/conformance` fixtures `es/expressions` |
+| N08.01.04 | todo | native | Real native observations: remaining §12–13 (E01.04) (children below) | `tests/conformance` fixtures `es/expressions` |
+| N08.01.04.01 | done | native | Real native observations: bitwise (E01.04.01) — `es/expressions/bitwise` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/bitwise`, `crates/draconic-backend-llvm` |
+| N08.01.04.02 | todo | native | Real native observations: exponentiation (E01.04.02) | `tests/conformance` fixture `es/expressions/exponentiation`, `crates/draconic-backend-llvm` |
+| N08.01.04.03 | todo | native | Real native observations: conditional ternary (E01.04.03) | `tests/conformance` fixture `es/expressions/conditional`, `crates/draconic-backend-llvm` |
+| N08.01.04.04 | todo | native | Real native observations: assignment (E01.04.04) | `tests/conformance` fixture `es/expressions/assignment`, `crates/draconic-backend-llvm` |
+| N08.01.04.05 | todo | native | Real native observations: update ++/-- (E01.04.05) | `tests/conformance` fixture `es/expressions/update`, `crates/draconic-backend-llvm` |
+| N08.01.04.06 | todo | native | Real native observations: comma operator (E01.04.06) | `tests/conformance` fixture `es/expressions/comma`, `crates/draconic-backend-llvm` |
+| N08.01.04.07 | todo | native | Real native observations: unary keywords typeof/void/delete (E01.04.07) | `tests/conformance` fixture `es/expressions/unary_keywords`, `crates/draconic-backend-llvm` |
+| N08.01.04.08 | todo | native | Real native observations: compound assignment (E01.04.08) | `tests/conformance` fixture `es/expressions/compound_assignment`, `crates/draconic-backend-llvm` |
+| N08.01.04.09 | todo | native | Real native observations: nullish coalescing + logical assignment (E01.04.09) | `tests/conformance` fixture `es/expressions/nullish_logical_assign`, `crates/draconic-backend-llvm` |
 | N08.02 | todo | native | Real native observations: statements (E02) | `tests/conformance` fixtures `es/statements` |
 | N08.03 | todo | native | Real native observations: functions (E03) | `tests/conformance` fixtures `es/functions` |
 | N08.04 | todo | native | Real native observations: objects (E04) | `tests/conformance` fixtures `es/objects` |

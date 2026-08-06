@@ -1,5 +1,5 @@
 //! N08.01: emit native observations for ES expression Programs
-//! (E01.01 arithmetic, E01.02 comparison, E01.03 logical).
+//! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -9,10 +9,11 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.03 / N08.01.*):
-/// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`,
+/// True when this module is a supported ES expression subset (E01.01–E01.04.01 / N08.01.*):
+/// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`/`~`,
 /// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), logical (`&&` `||`),
-/// grouping, and local refs. Value-preserving `&&`/`||` on numbers is included.
+/// bitwise (`&` `|` `^` `<<` `>>` `>>>`), grouping, and local refs. Value-preserving `&&`/`||`
+/// on numbers is included.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -79,7 +80,7 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         }
         Expr::Unary { op, arg, ty } => {
             *ty == Type::Number
-                && matches!(op, UnaryOp::Minus | UnaryOp::Plus)
+                && matches!(op, UnaryOp::Minus | UnaryOp::Plus | UnaryOp::BitNot)
                 && expr_is_number_subset(arg, by_id)
         }
         Expr::Binary {
@@ -98,6 +99,12 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                         | BinaryOp::Rem
                         | BinaryOp::And
                         | BinaryOp::Or
+                        | BinaryOp::BitAnd
+                        | BinaryOp::BitOr
+                        | BinaryOp::BitXor
+                        | BinaryOp::Shl
+                        | BinaryOp::Shr
+                        | BinaryOp::UShr
                 )
                 && expr_is_number_subset(left, by_id)
                 && expr_is_number_subset(right, by_id)
@@ -271,6 +278,16 @@ impl<'a> Emitter<'a> {
                         writeln!(self.body, "  {t} = fneg double {a}").ok();
                         Ok(t)
                     }
+                    // JS `~`: ToInt32 then bitwise not; result as Number.
+                    UnaryOp::BitNot => {
+                        let i = self.fresh();
+                        writeln!(self.body, "  {i} = fptosi double {a} to i32").ok();
+                        let n = self.fresh();
+                        writeln!(self.body, "  {n} = xor i32 {i}, -1").ok();
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = sitofp i32 {n} to double").ok();
+                        Ok(t)
+                    }
                     _ => Err(diag("internal: non-arithmetic unary in es_expr module")),
                 }
             }
@@ -319,6 +336,13 @@ impl<'a> Emitter<'a> {
                         }
                         Ok(t)
                     }
+                    // JS bitwise on Numbers: ToInt32 (or ToUint32 for >>>), then int op.
+                    BinaryOp::BitAnd
+                    | BinaryOp::BitOr
+                    | BinaryOp::BitXor
+                    | BinaryOp::Shl
+                    | BinaryOp::Shr
+                    | BinaryOp::UShr => self.emit_bitwise_number(op, &l, &r),
                     _ => Err(diag("internal: non-arithmetic binary in number emit")),
                 }
             }
@@ -406,6 +430,61 @@ impl<'a> Emitter<'a> {
                 _ => Err(diag("internal: non-comparison binary in bool emit")),
             },
             _ => Err(diag("internal: unsupported bool expr in es_expr module")),
+        }
+    }
+
+    /// Emit JS bitwise op on two number SSA values (doubles). Shift count masked to 5 bits.
+    fn emit_bitwise_number(
+        &mut self,
+        op: &BinaryOp,
+        l: &str,
+        r: &str,
+    ) -> Result<String, Diagnostic> {
+        let li = self.fresh();
+        writeln!(self.body, "  {li} = fptosi double {l} to i32").ok();
+        let ri = self.fresh();
+        writeln!(self.body, "  {ri} = fptosi double {r} to i32").ok();
+        match op {
+            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
+                let inst = match op {
+                    BinaryOp::BitAnd => "and",
+                    BinaryOp::BitOr => "or",
+                    BinaryOp::BitXor => "xor",
+                    _ => unreachable!(),
+                };
+                let n = self.fresh();
+                writeln!(self.body, "  {n} = {inst} i32 {li}, {ri}").ok();
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = sitofp i32 {n} to double").ok();
+                Ok(t)
+            }
+            BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr => {
+                let shift = self.fresh();
+                writeln!(self.body, "  {shift} = and i32 {ri}, 31").ok();
+                let n = self.fresh();
+                match op {
+                    BinaryOp::Shl => {
+                        writeln!(self.body, "  {n} = shl i32 {li}, {shift}").ok();
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = sitofp i32 {n} to double").ok();
+                        Ok(t)
+                    }
+                    BinaryOp::Shr => {
+                        writeln!(self.body, "  {n} = ashr i32 {li}, {shift}").ok();
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = sitofp i32 {n} to double").ok();
+                        Ok(t)
+                    }
+                    BinaryOp::UShr => {
+                        writeln!(self.body, "  {n} = lshr i32 {li}, {shift}").ok();
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = uitofp i32 {n} to double").ok();
+                        Ok(t)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => Err(diag("internal: not a bitwise op")),
         }
     }
 
