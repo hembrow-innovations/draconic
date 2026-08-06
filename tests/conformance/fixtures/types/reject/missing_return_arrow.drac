@@ -1,0 +1,3 @@
+const f = (): number => {
+  let x = 1;
+};

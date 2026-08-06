@@ -1,0 +1,3 @@
+id: types/reject/missing_return
+targets: js
+js.error: missing return

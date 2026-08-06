@@ -686,6 +686,113 @@ fn body_has_use_strict(body: &Stmt) -> bool {
     }
 }
 
+/// `true` for the literal `true` expression (used by T07.02 loop reachability).
+fn is_literal_true(expr: &Expr) -> bool {
+    matches!(expr, Expr::Boolean { value: true, .. })
+}
+
+/// Whether `stmt` — the body of a loop — contains an unlabeled `break` that would
+/// exit that loop, i.e. a `break` not shadowed by an inner loop or switch.
+fn loop_body_has_escaping_break(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Block { body, .. } => body.iter().any(loop_body_has_escaping_break),
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            loop_body_has_escaping_break(consequent)
+                || alternate.as_deref().is_some_and(loop_body_has_escaping_break)
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            loop_body_has_escaping_break(block)
+                || handler.as_deref().is_some_and(loop_body_has_escaping_break)
+                || finalizer.as_deref().is_some_and(loop_body_has_escaping_break)
+        }
+        Stmt::Labeled { body, .. } => loop_body_has_escaping_break(body),
+        // A `break` inside these targets the inner construct, not the outer loop.
+        Stmt::While { .. }
+        | Stmt::DoWhile { .. }
+        | Stmt::For { .. }
+        | Stmt::ForIn { .. }
+        | Stmt::ForOf { .. }
+        | Stmt::Switch { .. } => false,
+        Stmt::Break { label, .. } => label.is_none(),
+        _ => false,
+    }
+}
+
+/// Whether control flow can never reach the end of `stmt` (always returns, throws,
+/// or loops forever). Conservative toward "terminates" to avoid false positives on
+/// valid code; used by the T07.02 missing-return check.
+fn stmt_cannot_fall_through(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { .. } | Stmt::Throw { .. } => true,
+        Stmt::Block { body, .. } => body.iter().any(stmt_cannot_fall_through),
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => match alternate {
+            Some(alt) => {
+                stmt_cannot_fall_through(consequent) && stmt_cannot_fall_through(alt)
+            }
+            None => false,
+        },
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            is_literal_true(test) && !loop_body_has_escaping_break(body)
+        }
+        Stmt::For { test, body, .. } => {
+            test.as_ref().is_none_or(is_literal_true) && !loop_body_has_escaping_break(body)
+        }
+        Stmt::Switch { cases, .. } => {
+            // A `default` must exist (a non-matching discriminant otherwise exits the
+            // switch) and the concatenated case bodies, in source order, must reach a
+            // terminating statement (case bodies fall through to the next case).
+            if !cases.iter().any(|c| c.test.is_none()) {
+                return false;
+            }
+            cases.iter().any(|c| c.body.iter().any(stmt_cannot_fall_through))
+        }
+        _ => false,
+    }
+}
+
+fn stmt_span(stmt: &Stmt) -> Span {
+    match stmt {
+        Stmt::Expression { span, .. }
+        | Stmt::Let { span, .. }
+        | Stmt::Empty { span }
+        | Stmt::Block { span, .. }
+        | Stmt::If { span, .. }
+        | Stmt::While { span, .. }
+        | Stmt::DoWhile { span, .. }
+        | Stmt::For { span, .. }
+        | Stmt::ForIn { span, .. }
+        | Stmt::ForOf { span, .. }
+        | Stmt::Break { span, .. }
+        | Stmt::Continue { span, .. }
+        | Stmt::Labeled { span, .. }
+        | Stmt::Switch { span, .. }
+        | Stmt::FunctionDeclaration { span, .. }
+        | Stmt::ClassDeclaration { span, .. }
+        | Stmt::Return { span, .. }
+        | Stmt::Throw { span, .. }
+        | Stmt::Try { span, .. }
+        | Stmt::With { span, .. }
+        | Stmt::ImportDeclaration { span, .. }
+        | Stmt::ExportNamedDeclaration { span, .. }
+        | Stmt::ExportDefaultDeclaration { span, .. }
+        | Stmt::ExportAllDeclaration { span, .. }
+        | Stmt::TypeAlias { span, .. } => *span,
+    }
+}
+
 /// Peel covering parentheses (E19.60 cover IdentifierReference).
 fn peel_parens(expr: &Expr) -> &Expr {
     let mut inner = expr;
@@ -3083,6 +3190,21 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// T07.02: reject an annotated non-void function whose body can fall off the end
+    /// without returning a value (e.g. `function f(): number { let x = 1; }`).
+    fn check_missing_return(&self, body: &Stmt, ret_ty: Type) -> Result<(), Diagnostic> {
+        // `any` accepts `undefined` (fall-off-end); `void` is not a Draconic annotation.
+        if ret_ty == Type::Any || stmt_cannot_fall_through(body) {
+            return Ok(());
+        }
+        Err(Diagnostic::new(
+            format!(
+                "missing return: function with return type `{ret_ty}` may fall off the end without returning a value"
+            ),
+            stmt_span(body),
+        ))
+    }
+
     fn check_stmt(
         &mut self,
         stmt: &Stmt,
@@ -3361,11 +3483,18 @@ impl<'a> Checker<'a> {
                 let prev_ret = self.expected_return;
                 self.in_async = *is_async;
                 self.in_generator = *is_generator;
-                self.expected_return = match return_type {
+                let ret_ty = match return_type {
                     Some(ann) => Some(self.resolve_type_ann(ann)?),
                     None => None,
                 };
-                let result = self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels);
+                self.expected_return = ret_ty;
+                let result = (|| {
+                    self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
+                    if let Some(ty) = ret_ty {
+                        self.check_missing_return(body, ty)?;
+                    }
+                    Ok(())
+                })();
                 self.in_async = prev_async;
                 self.in_generator = prev_generator;
                 self.expected_return = prev_ret;
@@ -4086,14 +4215,22 @@ impl<'a> Checker<'a> {
                 let prev_ret = self.expected_return;
                 self.in_async = *is_async;
                 self.in_generator = *is_generator;
-                self.expected_return = match return_type {
+                let ret_ty = match return_type {
                     Some(ann) => Some(self.resolve_type_ann(ann)?),
                     None => None,
                 };
-                self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                self.expected_return = ret_ty;
+                let result = (|| {
+                    self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
+                    if let Some(ty) = ret_ty {
+                        self.check_missing_return(body, ty)?;
+                    }
+                    Ok(())
+                })();
                 self.in_async = prev_async;
                 self.in_generator = prev_generator;
                 self.expected_return = prev_ret;
+                result?;
                 self.record(*span, Type::Function);
                 Type::Function
             }
@@ -4215,6 +4352,9 @@ impl<'a> Checker<'a> {
                     }
                     ArrowBody::Block(stmt) => {
                         self.check_stmt(stmt, 0, 0, 1, &mut inner_labels)?;
+                        if let Some(ty) = ret_ty {
+                            self.check_missing_return(stmt, ty)?;
+                        }
                     }
                 }
                 self.in_async = prev_async;
@@ -8148,5 +8288,175 @@ mod tests {
             walk_stmt(stmt, op, &mut found);
         }
         found.expect("binary op not found")
+    }
+
+    // --- T07.02: missing return in annotated non-void function ---
+
+    #[test]
+    fn check_missing_return_errors() {
+        let program = parse("function f(): number { let x = 1; }").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_missing_return_empty_body_errors() {
+        let program = parse("function f(): string {}").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_missing_return_if_without_else_errors() {
+        let program = parse("function f(x: boolean): number { if (x) { return 1; } }").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_missing_return_shape_errors() {
+        let program = parse("function f(): { x: number } {}").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_function_expression_missing_return_errors() {
+        let program = parse("let f = function (): number { let x = 1; };").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_arrow_block_missing_return_errors() {
+        let program = parse("let f = (): number => { let x = 1; };").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_return_ends_function_ok() {
+        let program = parse("function f(): number { return 1; }").unwrap();
+        check(program).expect("trailing return should typecheck");
+    }
+
+    #[test]
+    fn check_return_in_condition_then_tail_ok() {
+        let program = parse(
+            "function f(x: boolean): number { if (x) { return 1; } return 2; }",
+        )
+        .unwrap();
+        check(program).expect("return in if plus trailing return should typecheck");
+    }
+
+    #[test]
+    fn check_both_if_branches_return_ok() {
+        let program =
+            parse("function f(x: boolean): number { if (x) { return 1; } else { return 2; } }")
+                .unwrap();
+        check(program).expect("both if branches returning should typecheck");
+    }
+
+    #[test]
+    fn check_infinite_loop_ok() {
+        let program = parse("function f(): number { while (true) { let x = 1; } }").unwrap();
+        check(program).expect("infinite loop should satisfy return type");
+    }
+
+    #[test]
+    fn check_infinite_loop_with_inner_break_shadowed_ok() {
+        let program =
+            parse("function f(): number { while (true) { for (;;) { break; } } }").unwrap();
+        check(program).expect("inner break still inside nested loop should satisfy return type");
+    }
+
+    #[test]
+    fn check_infinite_loop_with_escaping_break_errors() {
+        let program = parse("function f(): number { while (true) { break; } }").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_throw_only_ok() {
+        let program = parse(r#"function f(): number { throw new Error("x"); }"#).unwrap();
+        check(program).expect("throw-only body should satisfy return type");
+    }
+
+    #[test]
+    fn check_any_return_fall_through_ok() {
+        let program = parse("function f(): any { let x = 1; }").unwrap();
+        check(program).expect("`any` return type should allow fall-off-end");
+    }
+
+    #[test]
+    fn check_unannotated_function_fall_through_ok() {
+        let program = parse("function f() { let x = 1; }").unwrap();
+        check(program).expect("unannotated function should allow fall-off-end");
+    }
+
+    #[test]
+    fn check_switch_all_cases_return_ok() {
+        let program = parse(
+            r#"
+            function f(x: number): number {
+              switch (x) {
+                case 1: return 1;
+                default: return 0;
+              }
+            }
+            "#,
+        )
+        .unwrap();
+        check(program).expect("switch with all cases returning should typecheck");
+    }
+
+    #[test]
+    fn check_switch_missing_default_errors() {
+        let program = parse(
+            r#"
+            function f(x: number): number {
+              switch (x) {
+                case 1: return 1;
+                case 2: return 2;
+              }
+            }
+            "#,
+        )
+        .unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("missing return"),
+            "unexpected: {}",
+            err.message
+        );
     }
 }

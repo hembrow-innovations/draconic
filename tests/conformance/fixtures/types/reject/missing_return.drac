@@ -1,0 +1,3 @@
+function f(): number {
+  let x = 1;
+}

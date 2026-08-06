@@ -346,7 +346,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | T06 | done | js | Dual-worlds boundary rules (JS value ↔ native) | `tests/conformance/types/dual` |
 | T07 | in_progress | compiler | Negative typechecking: reject ill-typed programs with diagnostics (not erase-only happy paths) | `tests/conformance/types` (reject fixtures) |
 | T07.01 | done | compiler | Annotated call-site argument checking: reject wrong arity (too few required / too many without rest) and non-assignable argument types vs annotated params (incl. native + shape params); untyped/unannotated params stay permissive | `tests/conformance` fixtures `types/reject` |
-| T07.02 | todo | compiler | Missing return in annotated non-void function (fall-off-end with a return type) → diagnostic | `tests/conformance` fixtures `types/reject` |
+| T07.02 | done | compiler | Missing return in annotated non-void function (fall-off-end with a return type) → diagnostic | `tests/conformance` fixtures `types/reject` |
 | T07.03 | todo | compiler | Unknown property on annotated shape: read `p.y` / write `p.y = v` when `y` not in shape → diagnostic (untyped objects stay dynamic) | `tests/conformance` fixtures `types/reject` |
 | T07.04 | todo | compiler | Call/`new` of an annotated non-callable value (e.g. `let x: number = 1; x()`) → diagnostic | `tests/conformance` fixtures `types/reject` |
 | T07.05 | todo | compiler | Object literal excess-property check vs annotated shape (e.g. `{a: 1, b: 2}` for `{a: number}`) → diagnostic | `tests/conformance` fixtures `types/reject` |
