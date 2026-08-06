@@ -26,8 +26,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Promise / async** (constructor basics through async/await and async
 ///   arrows) via Runtime Promise ABI — N06.03–N06.11
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
-/// - **ES expressions** (numeric arithmetic + comparison/equality over JS
-///   numbers/booleans) via Runtime prints — N08.01.01 / N08.01.02
+/// - **ES expressions** (numeric arithmetic + comparison/equality + logical
+///   `&&`/`||`/`!` over JS numbers/booleans) via Runtime prints — N08.01.01–N08.01.03
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -57,7 +57,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         ES expressions (arithmetic/comparison), empty hello)",
+         ES expressions (arithmetic/comparison/logical), empty hello)",
         Span::dummy(),
     )
 }
@@ -355,6 +355,54 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_logical_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let and_tt = true && true;
+            let and_tf = true && false;
+            let and_ft = false && true;
+            let or_ff = false || false;
+            let or_ft = false || true;
+            let or_tf = true || false;
+            let not_t = !true;
+            let not_f = !false;
+            let prec = !false && true || false;
+            let value_and = 1 && 2;
+            let value_or = 0 || 3;
+            let group = !(false || true);
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr logical must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bool"),
+            "should print bool results:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print number results for value-preserving &&/||:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-logical").expect("workdir");
+        let bin = dir.join("logical");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "true\nfalse\nfalse\nfalse\ntrue\ntrue\nfalse\ntrue\ntrue\n2\n3\nfalse\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

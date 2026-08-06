@@ -1,4 +1,5 @@
-//! N08.01: emit native observations for ES expression Programs (E01.01 arithmetic, E01.02 comparison).
+//! N08.01: emit native observations for ES expression Programs
+//! (E01.01 arithmetic, E01.02 comparison, E01.03 logical).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -8,9 +9,10 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64};
 
-/// True when this module is a supported ES expression subset (E01.01 / E01.02 / N08.01.*):
-/// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`,
-/// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), grouping, and local refs.
+/// True when this module is a supported ES expression subset (E01.01–E01.03 / N08.01.*):
+/// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`,
+/// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), logical (`&&` `||`),
+/// grouping, and local refs. Value-preserving `&&`/`||` on numbers is included.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -89,7 +91,13 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
             *ty == Type::Number
                 && matches!(
                     op,
-                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
+                    BinaryOp::Add
+                        | BinaryOp::Sub
+                        | BinaryOp::Mul
+                        | BinaryOp::Div
+                        | BinaryOp::Rem
+                        | BinaryOp::And
+                        | BinaryOp::Or
                 )
                 && expr_is_number_subset(left, by_id)
                 && expr_is_number_subset(right, by_id)
@@ -103,6 +111,9 @@ fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
         Expr::Boolean { ty, .. } => *ty == Type::Boolean,
         Expr::Local { id, ty } => {
             *ty == Type::Boolean && by_id.get(id).is_some_and(|l| l.ty == Type::Boolean)
+        }
+        Expr::Unary { op, arg, ty } => {
+            *ty == Type::Boolean && matches!(op, UnaryOp::Not) && expr_is_boolean_subset(arg, by_id)
         }
         Expr::Binary {
             left,
@@ -121,6 +132,9 @@ fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
                     (expr_is_number_subset(left, by_id) && expr_is_number_subset(right, by_id))
                         || (expr_is_boolean_subset(left, by_id)
                             && expr_is_boolean_subset(right, by_id))
+                }
+                BinaryOp::And | BinaryOp::Or => {
+                    expr_is_boolean_subset(left, by_id) && expr_is_boolean_subset(right, by_id)
                 }
                 _ => false,
             }
@@ -265,17 +279,48 @@ impl<'a> Emitter<'a> {
             } => {
                 let l = self.emit_number_expr(left)?;
                 let r = self.emit_number_expr(right)?;
-                let inst = match op {
-                    BinaryOp::Add => "fadd",
-                    BinaryOp::Sub => "fsub",
-                    BinaryOp::Mul => "fmul",
-                    BinaryOp::Div => "fdiv",
-                    BinaryOp::Rem => "frem",
-                    _ => return Err(diag("internal: non-arithmetic binary in number emit")),
-                };
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = {inst} double {l}, {r}").ok();
-                Ok(t)
+                match op {
+                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                        let inst = match op {
+                            BinaryOp::Add => "fadd",
+                            BinaryOp::Sub => "fsub",
+                            BinaryOp::Mul => "fmul",
+                            BinaryOp::Div => "fdiv",
+                            BinaryOp::Rem => "frem",
+                            _ => unreachable!(),
+                        };
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = {inst} double {l}, {r}").ok();
+                        Ok(t)
+                    }
+                    // Value-preserving JS && / || on numbers (ToBoolean via nonzero).
+                    BinaryOp::And | BinaryOp::Or => {
+                        let truthy = self.fresh();
+                        // +0/-0/NaN are falsy; `one` is ordered-and-unequal.
+                        writeln!(self.body, "  {truthy} = fcmp one double {l}, 0.00000000000000000e+00")
+                            .ok();
+                        let t = self.fresh();
+                        match op {
+                            BinaryOp::And => {
+                                writeln!(
+                                    self.body,
+                                    "  {t} = select i1 {truthy}, double {r}, double {l}"
+                                )
+                                .ok();
+                            }
+                            BinaryOp::Or => {
+                                writeln!(
+                                    self.body,
+                                    "  {t} = select i1 {truthy}, double {l}, double {r}"
+                                )
+                                .ok();
+                            }
+                            _ => unreachable!(),
+                        }
+                        Ok(t)
+                    }
+                    _ => Err(diag("internal: non-arithmetic binary in number emit")),
+                }
             }
             _ => Err(diag("internal: unsupported number expr in es_expr module")),
         }
@@ -297,6 +342,15 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = load i1, ptr {ptr}").ok();
                 Ok(t)
             }
+            Expr::Unary { op, arg, .. } => match op {
+                UnaryOp::Not => {
+                    let a = self.emit_bool_expr(arg)?;
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = xor i1 {a}, true").ok();
+                    Ok(t)
+                }
+                _ => Err(diag("internal: non-logical unary in bool emit")),
+            },
             Expr::Binary {
                 left, op, right, ..
             } => match op {
@@ -335,6 +389,18 @@ impl<'a> Emitter<'a> {
                     };
                     let t = self.fresh();
                     writeln!(self.body, "  {t} = icmp {pred} i1 {l}, {r}").ok();
+                    Ok(t)
+                }
+                BinaryOp::And | BinaryOp::Or => {
+                    let l = self.emit_bool_expr(left)?;
+                    let r = self.emit_bool_expr(right)?;
+                    let inst = match op {
+                        BinaryOp::And => "and",
+                        BinaryOp::Or => "or",
+                        _ => unreachable!(),
+                    };
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = {inst} i1 {l}, {r}").ok();
                     Ok(t)
                 }
                 _ => Err(diag("internal: non-comparison binary in bool emit")),
