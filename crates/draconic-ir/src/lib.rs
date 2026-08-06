@@ -1172,6 +1172,21 @@ fn class_eval_yield_await(
 
 /// Build class IIFE, preserving outer `yield`/`await` via `yield*` / `await` (E19.78).
 fn wrap_class_builder_iife(body: Vec<Stmt>, needs_yield: bool, needs_await: bool) -> Expr {
+    // Class code is strict (ECMA-262 §15.7). Inject a directive at the top of the
+    // builder so every function defined within (ctor, methods, accessors, static
+    // blocks, private helpers) is strict by containment — this is what keeps
+    // non-simple-param class functions strict, since they cannot carry their own
+    // directive (E19.87). Simple params: a directive is always legal here.
+    let mut body = body;
+    body.insert(
+        0,
+        Stmt::Expr {
+            expr: Expr::String {
+                value: "use strict".into(),
+                ty: Type::String,
+            },
+        },
+    );
     let call = Expr::Call {
         callee: Box::new(Expr::Function {
             name: None,
@@ -2154,17 +2169,33 @@ fn lower_object_prop_key(
     }
 }
 
+/// A parameter list is "simple" when every param is a plain identifier (no
+/// default, no rest, no destructuring). ECMA-262 §14.1.3: a function whose
+/// body contains a `"use strict"` directive must have a simple parameter list —
+/// injecting the directive into a non-simple-param function is a SyntaxError.
+fn params_are_simple(params: &[Param]) -> bool {
+    params.iter().all(|p| {
+        !p.rest && p.default.is_none() && matches!(p.pattern, Pattern::Local(_))
+    })
+}
+
 /// Class bodies are strict; method-form install is sloppy unless we inject a directive (E19.72).
-fn with_use_strict(mut body: Vec<Stmt>) -> Vec<Stmt> {
-    body.insert(
-        0,
-        Stmt::Expr {
-            expr: Expr::String {
-                value: "use strict".into(),
-                ty: Type::String,
+///
+/// The directive is only valid for simple parameter lists. For non-simple ones
+/// (E19.87) strictness comes from the enclosing strict class-builder IIFE
+/// (`wrap_class_builder_iife`) — function code contained in strict code is strict.
+fn with_use_strict(params: &[Param], mut body: Vec<Stmt>) -> Vec<Stmt> {
+    if params_are_simple(params) {
+        body.insert(
+            0,
+            Stmt::Expr {
+                expr: Expr::String {
+                    value: "use strict".into(),
+                    ty: Type::String,
+                },
             },
-        },
-    );
+        );
+    }
     body
 }
 
@@ -3099,7 +3130,7 @@ fn lower_class_local(
             optional: false,
             ty: Type::Any,
         };
-        let mut body = with_use_strict(vec![class_ctor_new_target_check()]);
+        let mut body = with_use_strict(&ctor_params, vec![class_ctor_new_target_check()]);
         body.push(Stmt::Declare {
             local: this_id,
             init: Some(reflect_construct),
@@ -3147,7 +3178,7 @@ fn lower_class_local(
         ctx.derived_ret_mode = None;
         ctx.derived_ret_val = None;
         // Class constructors must be called with `new` (E19.82). Directive first (strict).
-        let mut body = with_use_strict(vec![class_ctor_new_target_check()]);
+        let mut body = with_use_strict(&ctor_params, vec![class_ctor_new_target_check()]);
         body.push(Stmt::Declare {
             local: this_id,
             init: None,
@@ -3208,7 +3239,7 @@ fn lower_class_local(
             body = new_body;
         }
         // Class constructors: strict + must be called with `new` (E19.82).
-        let mut with_check = with_use_strict(vec![class_ctor_new_target_check()]);
+        let mut with_check = with_use_strict(&ctor_params, vec![class_ctor_new_target_check()]);
         with_check.extend(body);
         with_check
     };
@@ -3336,8 +3367,8 @@ fn lower_class_local(
         // SuperCall stays desugared only in constructors (super_class still passed there).
         let prev_object_super = ctx.object_super;
         ctx.object_super = true;
-        let method_body = with_use_strict(lower_fn_body(checked, ctx, body, None));
         let method_params = lower_params(checked, ctx, params, None);
+        let method_body = with_use_strict(&method_params, lower_fn_body(checked, ctx, body, None));
         ctx.object_super = prev_object_super;
         let method_fn = Expr::Function {
             name: None,
@@ -3393,8 +3424,8 @@ fn lower_class_local(
         }
         let prev_object_super = ctx.object_super;
         ctx.object_super = true;
-        let acc_body = with_use_strict(lower_fn_body(checked, ctx, body, None));
         let acc_params = lower_params(checked, ctx, params, None);
+        let acc_body = with_use_strict(&acc_params, lower_fn_body(checked, ctx, body, None));
         ctx.object_super = prev_object_super;
         let accessor_fn = Expr::Function {
             name: None,
@@ -3592,7 +3623,7 @@ fn lower_class_local(
             StaticInit::Block(body) => {
                 // Method-form on home with correct super base so `super.x` works (E19.72).
                 // `({ __proto__: Parent, __sb() { … } }).__sb.call(Class)`
-                let block_body = with_use_strict(lower_fn_body(checked, ctx, body, None));
+                let block_body = with_use_strict(&[], lower_fn_body(checked, ctx, body, None));
                 let method_fn = Expr::Function {
                     name: None,
                     params: Vec::new(),
@@ -3935,7 +3966,7 @@ fn call_method_with_home(home_proto: Expr, body: Vec<Stmt>, receiver: Expr) -> E
     let method_fn = Expr::Function {
         name: None,
         params: Vec::new(),
-        body: with_use_strict(body),
+        body: with_use_strict(&[], body),
         is_async: false,
         is_generator: false,
         is_arrow: false,
@@ -8197,6 +8228,75 @@ Module
         assert!(
             !dump.contains("this.#m") && !dump.contains("\"this.#m\""),
             "eval private access should be inlined/desugared, dump: {dump}"
+        );
+    }
+
+    #[test]
+    fn params_are_simple_classifies_param_lists() {
+        let p = |pat: Pattern, default: Option<Expr>, rest: bool| Param {
+            pattern: pat,
+            default,
+            rest,
+        };
+        let id = |n: u32| Pattern::Local(LocalId(n));
+        let num = || Expr::Number {
+            raw: "1".into(),
+            ty: Type::Number,
+        };
+        assert!(params_are_simple(&[p(id(0), None, false)]));
+        assert!(params_are_simple(&[p(id(0), None, false), p(id(1), None, false)]));
+        assert!(!params_are_simple(&[p(id(0), Some(num()), false)]), "default param");
+        assert!(!params_are_simple(&[p(id(0), None, true)]), "rest param");
+        assert!(!params_are_simple(&[p(Pattern::Array(vec![]), None, false)]), "destructured param");
+        assert!(!params_are_simple(&[p(Pattern::Object(vec![]), None, false)]), "object pattern param");
+    }
+
+    #[test]
+    fn with_use_strict_skips_directive_for_non_simple_params() {
+        let id = || LocalId(0);
+        let body = vec![Stmt::Declare {
+            local: id(),
+            init: None,
+            kind: BindingKind::Let,
+        }];
+        let num = || Expr::Number {
+            raw: "1".into(),
+            ty: Type::Number,
+        };
+        let simple = [Param {
+            pattern: Pattern::Local(id()),
+            default: None,
+            rest: false,
+        }];
+        let non_simple = [Param {
+            pattern: Pattern::Local(id()),
+            default: Some(num()),
+            rest: false,
+        }];
+        let simple_body = with_use_strict(&simple, body.clone());
+        assert!(
+            matches!(&simple_body[0], Stmt::Expr { expr: Expr::String { value, .. } } if value.to_string_lossy() == "use strict"),
+            "simple params: directive must be injected first: {simple_body:?}"
+        );
+        let non_simple_body = with_use_strict(&non_simple, body.clone());
+        assert!(
+            !matches!(&non_simple_body[0], Stmt::Expr { expr: Expr::String { value, .. } } if value.to_string_lossy() == "use strict"),
+            "non-simple params: directive must be skipped (E19.87): {non_simple_body:?}"
+        );
+    }
+
+    #[test]
+    fn class_method_default_param_emits_no_directive_in_method() {
+        // E19.87: a method with a default (non-simple) parameter list must not
+        // carry a "use strict" directive inside its own body (SyntaxError).
+        // `class C { m(a = 1) { … } }` lowers to: strict class-builder IIFE + strict
+        // constructor (both simple-param) and the method (non-simple, no directive).
+        let module = lower_src("class C { m(a = 1) { return a; } }");
+        let dump = dump_module(&module);
+        let directives = dump.matches("String \"use strict\"").count();
+        assert_eq!(
+            directives, 2,
+            "expected directives only in class-builder IIFE + ctor (simple params), got {directives}: {dump}"
         );
     }
 }

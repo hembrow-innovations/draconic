@@ -1,0 +1,72 @@
+// E19.87 regression: class methods / accessors / constructors with non-simple
+// parameter lists (default / rest / destructured) must not emit a "use strict"
+// directive inside the non-simple parameter list (Node SyntaxError), and the
+// class code must stay strict (class-builder IIFE is strict). E19.82 injected
+// the directive into every class body via with_use_strict.
+
+function assert(cond, label) {
+  if (cond !== true) {
+    throw new Error("class_non_simple_params: " + label);
+  }
+}
+
+// 1) Instance method with default param: binds default; detached call is strict
+//    (this not coerced to the global object).
+class M {
+  m(a = 23) {
+    return [a, this === undefined];
+  }
+}
+let m = M.prototype.m;
+m = m();
+assert(m[0] === 23, "method default param");
+assert(m[1] === true, "method detached this undefined (strict)");
+
+// 2) Static generator method with default + rest params.
+class G {
+  static *gen(a = 1, ...rest) {
+    yield a;
+    yield* rest;
+  }
+}
+let g = G.gen(undefined, 5, 6);
+assert(g.next().value === 1, "gen default param");
+assert(g.next().value === 5, "gen rest 1");
+assert(g.next().value === 6, "gen rest 2");
+assert(g.next().done === true, "gen done");
+
+// 3) Constructor with default + destructured params.
+class C {
+  constructor(x = 10, { y } = { y: 20 }) {
+    this.x = x;
+    this.y = y;
+  }
+}
+let c = new C();
+assert(c.x === 10, "ctor default param");
+assert(c.y === 20, "ctor destructured default param");
+
+// 4) Setter with destructured param (non-simple accessor parameter list).
+class S {
+  constructor() {
+    this.stored = null;
+  }
+  set point([x, y]) {
+    this.stored = x + ":" + y;
+  }
+}
+let s = new S();
+s.point = [1, 2];
+assert(s.stored === "1:2", "setter destructured param");
+
+// 5) Static async method with default param: detached call stays strict.
+class A {
+  static async a(x = 3) {
+    return [x, this === undefined];
+  }
+}
+let a = A.a;
+a().then((r) => {
+  assert(r[0] === 3, "async method default param");
+  assert(r[1] === true, "async method detached this undefined (strict)");
+});
