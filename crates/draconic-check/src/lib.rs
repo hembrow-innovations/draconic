@@ -142,6 +142,20 @@ pub struct GenericFnSig {
     pub return_type: Option<TypeAnn>,
 }
 
+/// Resolved signature for a non-generic annotated function (T07.01).
+/// Recorded for call-site argument checking: arity and per-param assignability.
+/// Only built when the function has at least one annotated parameter, so
+/// untyped (E19-era) JS stays fully permissive.
+#[derive(Debug, Clone)]
+struct FnSig {
+    /// Resolved type per parameter; `None` = unannotated (permissive).
+    param_types: Vec<Option<Type>>,
+    /// Number of annotated parameters without a default or rest that must be supplied.
+    required: usize,
+    /// Whether the final parameter is a rest param (extra args allowed).
+    has_rest: bool,
+}
+
 /// Generic type alias body (T04).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GenericAlias {
@@ -679,6 +693,17 @@ fn peel_parens(expr: &Expr) -> &Expr {
         inner = expr.as_ref();
     }
     inner
+}
+
+/// The formal parameters of a function expression / arrow value (peeling parens),
+/// if `expr` denotes one. Used to record call signatures for function bindings (T07.01).
+fn fn_params_of_expr(expr: &Expr) -> Option<&[Param]> {
+    match peel_parens(expr) {
+        Expr::FunctionExpression { params, .. } | Expr::ArrowFunction { params, .. } => {
+            Some(params)
+        }
+        _ => None,
+    }
 }
 
 /// Peel parens; if the core is Ident `eval`/`arguments`, return (name, span). E19.49.
@@ -2623,6 +2648,8 @@ struct Checker<'a> {
     /// True when the binding's type came from a type annotation (not inference).
     /// Untyped JS assignment may widen inferred bindings (E19.12 / E19.48).
     symbol_annotated: Vec<bool>,
+    /// Resolved call signatures for annotated functions (T07.01), parallel to `symbol_types`.
+    fn_sigs: Vec<Option<FnSig>>,
     expr_types: HashMap<Span, Type>,
     /// Structural object shapes (`Type::Shape` indices).
     shapes: Vec<ObjectShape>,
@@ -2680,6 +2707,7 @@ impl<'a> Checker<'a> {
             bound,
             symbol_types,
             symbol_annotated: vec![false; n],
+            fn_sigs: vec![None; n],
             expr_types: HashMap::new(),
             shapes: Vec::new(),
             unions: Vec::new(),
@@ -3103,6 +3131,22 @@ impl<'a> Checker<'a> {
                     (init_ty, false)
                 };
                 self.check_binding_pattern_annotated(binding, ty, annotated)?;
+                // T07.01: record a call signature when a simple ident binding is
+                // initialized with a function value (`let f = (a: number) => a;`).
+                if let (BindingPattern::Ident(name), Some(init)) = (binding, init) {
+                    if let Some(params) = fn_params_of_expr(init) {
+                        if let Some(sig) = self.fn_sig_from_params(params) {
+                            if let Some(sym) = self
+                                .bound
+                                .symbols()
+                                .iter()
+                                .find(|s| s.span == name.span)
+                            {
+                                self.fn_sigs[sym.id.0 as usize] = Some(sig);
+                            }
+                        }
+                    }
+                }
                 Ok(())
             }
             Stmt::Empty { .. } => Ok(()),
@@ -3303,6 +3347,13 @@ impl<'a> Checker<'a> {
                 }
                 // FunctionDeclaration formals: +Await only for async generators.
                 self.check_params_await_yield(params, *is_async && *is_generator, *is_generator)?;
+                // T07.01: record a call signature for non-generic annotated functions so
+                // call sites can check arity and argument types (generics use instantiate_generic_call).
+                if type_params.is_empty() {
+                    if let Some(sig) = self.fn_sig_from_params(params) {
+                        self.fn_sigs[id.0 as usize] = Some(sig);
+                    }
+                }
                 // Fresh label set inside functions (labels do not cross function boundaries).
                 let mut inner_labels = Vec::new();
                 let prev_async = self.in_async;
@@ -3942,6 +3993,14 @@ impl<'a> Checker<'a> {
                     match arg {
                         Arg::Expr(expr) | Arg::Spread(expr) => {
                             arg_tys.push(self.check_expr(expr)?);
+                        }
+                    }
+                }
+                // T07.01: annotated non-generic functions get call-site argument checking.
+                if let Expr::Ident(id) = peel_parens(callee) {
+                    if let Some(sym_id) = self.bound.resolve(id.span) {
+                        if let Some(sig) = self.fn_sigs[sym_id.0 as usize].as_ref() {
+                            self.check_call_sig(sig, args, &arg_tys, *span)?;
                         }
                     }
                 }
@@ -5112,6 +5171,83 @@ impl<'a> Checker<'a> {
         };
         let sym = self.bound.symbol(sym_id);
         sym.name == name && sym.span == Span::dummy()
+    }
+
+    /// Build a resolved call signature from a parameter list (T07.01).
+    /// Returns `None` when the function has no annotated parameters, so untyped
+    /// (E19-era) functions keep permissive call-site behavior.
+    fn fn_sig_from_params(&mut self, params: &[Param]) -> Option<FnSig> {
+        let mut param_types = Vec::with_capacity(params.len());
+        let mut required = 0usize;
+        let mut has_rest = false;
+        let mut any_annotated = false;
+        for p in params {
+            let ann = match &p.type_ann {
+                Some(ann) => {
+                    any_annotated = true;
+                    Some(self.resolve_type_ann(ann).ok()?)
+                }
+                None => None,
+            };
+            if p.rest {
+                has_rest = true;
+            } else if p.default.is_none() && ann.is_some() {
+                required += 1;
+            }
+            param_types.push(ann);
+        }
+        if !any_annotated {
+            return None;
+        }
+        Some(FnSig {
+            param_types,
+            required,
+            has_rest,
+        })
+    }
+
+    /// Check a call against a recorded annotated signature (T07.01): reject wrong
+    /// arity and non-assignable arguments. Unannotated params are skipped.
+    fn check_call_sig(
+        &self,
+        sig: &FnSig,
+        args: &[Arg],
+        arg_tys: &[Type],
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        // Spreads make arity unknowable statically; still type-check the leading args.
+        let has_spread = args.iter().any(|a| matches!(a, Arg::Spread(_)));
+        if !has_spread {
+            if arg_tys.len() < sig.required {
+                return Err(Diagnostic::new(
+                    format!(
+                        "expected at least {} argument(s), got {}",
+                        sig.required,
+                        arg_tys.len()
+                    ),
+                    span,
+                ));
+            }
+            if !sig.has_rest && arg_tys.len() > sig.param_types.len() {
+                return Err(Diagnostic::new(
+                    format!(
+                        "expected at most {} argument(s), got {}",
+                        sig.param_types.len(),
+                        arg_tys.len()
+                    ),
+                    span,
+                ));
+            }
+        }
+        for (i, want) in sig.param_types.iter().enumerate() {
+            let Some(want) = want else { continue };
+            let Some(Arg::Expr(expr)) = args.get(i) else {
+                continue;
+            };
+            let got = arg_tys.get(i).copied().unwrap_or(Type::Any);
+            self.require_assignable_expr(got, *want, expr)?;
+        }
+        Ok(())
     }
 
     fn check_unary(&self, op: UnaryOp, arg: Type, span: Span) -> Result<Type, Diagnostic> {

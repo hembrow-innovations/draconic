@@ -1083,3 +1083,167 @@ fn as_in_call_arg_and_return() {
     let checked = check(program).unwrap();
     assert_eq!(type_of(&checked, "r"), Type::Number);
 }
+
+// --- T07.01: annotated call-site argument checking ---
+
+#[test]
+fn call_too_few_required_args_errors() {
+    let program = parse("function f(a: number, b: number) {} f(1);").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("at least 2"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_too_many_args_errors() {
+    let program = parse("function f(a: number) {} f(1, 2);").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("at most 1"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_arg_type_mismatch_errors() {
+    let program = parse(r#"function f(a: number) {} f("x");"#).unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_native_param_mismatch_errors() {
+    let program = parse(r#"function f(a: i32) {} f("x");"#).unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_shape_param_missing_prop_errors() {
+    let program = parse("function f(a: { x: number }) {} f({});").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_shape_param_wrong_prop_type_errors() {
+    let program = parse(r#"function f(a: { x: number }) {} f({ x: "s" });"#).unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_default_params_allow_omission() {
+    let program = parse("function f(a: number, b: number = 2) {} f(1);").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn call_rest_allows_extra_args() {
+    let program = parse("function f(a: number, ...rest) {} f(1, 2, 3);").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn call_unannotated_function_permissive() {
+    let program = parse("function f(a) {} f(); f(1, 2, \"x\");").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn call_arrow_binding_arg_mismatch_errors() {
+    let program = parse(r#"let f = (a: number) => a; f("x");"#).unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not assignable"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_arrow_binding_arity_errors() {
+    let program = parse("let f = (a: number, b: number) => a + b; f(1);").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("at least 2"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_type_check_uses_annotated_params_only() {
+    let program = parse("function f(a: number, b) { return a; } f(1); f(1, \"x\");").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn call_annotated_call_ok_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/annotated_call_ok"),
+        "missing types/annotated_call_ok fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn call_annotated_call_ok_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/annotated_call_ok")
+        .expect("types/annotated_call_ok");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn call_reject_fixtures_run() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    for fixture in fixtures.iter().filter(|f| f.id.starts_with("types/reject")) {
+        assert!(
+            !fixture.targets.is_empty(),
+            "{}: no targets",
+            fixture.id
+        );
+        for r in run_fixture(fixture) {
+            assert!(
+                r.ok,
+                "{} @ {}: {}",
+                r.fixture_id,
+                r.target.as_str(),
+                r.message
+            );
+        }
+    }
+}

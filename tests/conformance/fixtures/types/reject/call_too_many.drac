@@ -1,0 +1,2 @@
+function f(a: number) {}
+f(1, 2);

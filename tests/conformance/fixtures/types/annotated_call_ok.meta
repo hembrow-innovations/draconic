@@ -1,0 +1,4 @@
+id: types/annotated_call_ok
+targets: js
+js.exit: 0
+js.check: if (n !== 3) process.exit(1); if (m !== 6) process.exit(1); if (d1 !== 3) process.exit(1); if (d2 !== 6) process.exit(1); if (r1 !== 1) process.exit(1); if (r2 !== 1) process.exit(1); if (s !== 1) process.exit(1);

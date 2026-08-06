@@ -1,0 +1,21 @@
+function add(a: number, b: number): number { return a + b; }
+let n: number = add(1, 2);
+let m: number = add(n, 3);
+function withDefault(a: number, b: number = 2): number { return a + b; }
+let d1: number = withDefault(1);
+let d2: number = withDefault(1, 5);
+function withRest(a: number, ...rest): number { return a; }
+let r1: number = withRest(1);
+let r2: number = withRest(1, 2, 3);
+function useShape(p: { x: number }): number { return p.x; }
+let s: number = useShape({ x: 1 });
+function loose(a) { return a; }
+loose();
+loose(1, 2, "x");
+if (n !== 3) process.exit(1);
+if (m !== 6) process.exit(1);
+if (d1 !== 3) process.exit(1);
+if (d2 !== 6) process.exit(1);
+if (r1 !== 1) process.exit(1);
+if (r2 !== 1) process.exit(1);
+if (s !== 1) process.exit(1);

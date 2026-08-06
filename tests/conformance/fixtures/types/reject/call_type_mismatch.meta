@@ -1,0 +1,3 @@
+id: types/reject/call_type_mismatch
+targets: js
+js.error: not assignable
