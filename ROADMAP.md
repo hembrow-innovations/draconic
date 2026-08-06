@@ -349,7 +349,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | T07.02 | done | compiler | Missing return in annotated non-void function (fall-off-end with a return type) → diagnostic | `tests/conformance` fixtures `types/reject` |
 | T07.03 | done | compiler | Unknown property on annotated shape: read `p.y` / write `p.y = v` when `y` not in shape → diagnostic (untyped objects stay dynamic) | `tests/conformance` fixtures `types/reject` |
 | T07.04 | done | compiler | Call/`new` of an annotated non-callable value (e.g. `let x: number = 1; x()`) → diagnostic | `tests/conformance` fixtures `types/reject` |
-| T07.05 | todo | compiler | Object literal excess-property check vs annotated shape (e.g. `{a: 1, b: 2}` for `{a: number}`) → diagnostic | `tests/conformance` fixtures `types/reject` |
+| T07.05 | done | compiler | Object literal excess-property check vs annotated shape (e.g. `{a: 1, b: 2}` for `{a: number}`) → diagnostic | `tests/conformance` fixtures `types/reject` |
 
 ---
 

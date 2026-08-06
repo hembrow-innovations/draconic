@@ -1446,3 +1446,133 @@ fn unknown_shape_prop_dynamic_ok_runs() {
         );
     }
 }
+
+// --- T07.05: object literal excess-property check vs annotated shape ---
+
+#[test]
+fn excess_prop_annotated_shape_errors() {
+    let program = parse("let p: { a: number } = { a: 1, b: 2 };").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("excess property") && err.message.contains("b"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn excess_prop_exact_match_ok() {
+    let program = parse("let p: { a: number } = { a: 1 };").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn excess_prop_via_type_alias_errors() {
+    let program = parse("type P = { a: number }; let p: P = { a: 1, b: 2 };").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("excess property") && err.message.contains("b"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn excess_prop_string_key_errors() {
+    let program = parse("let p: { a: number } = { a: 1, \"b\": 2 };").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("excess property") && err.message.contains("b"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn excess_prop_call_arg_errors() {
+    let program = parse("function f(a: { x: number }) {} f({ x: 1, y: 2 });").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("excess property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn excess_prop_return_errors() {
+    let program = parse("function f(): { x: number } { return { x: 1, y: 2 }; }").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("excess property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn excess_prop_assignment_errors() {
+    let program = parse("let p: { x: number } = { x: 1 }; p = { x: 1, y: 2 };").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("excess property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn excess_prop_nested_literal_errors() {
+    let program = parse("let p: { a: { x: number } } = { a: { x: 1, y: 2 } };").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("excess property") && err.message.contains("y"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn excess_prop_via_variable_ok() {
+    // Structural assignability from a variable is not a fresh literal; stays permissive.
+    let program = parse(
+        "let full: { x: number; y: number } = { x: 1, y: 2 }; let part: { x: number } = full;",
+    )
+    .unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn excess_prop_inferred_target_permissive() {
+    let program = parse("let a = { x: 1 }; let b = { x: 1, y: 2 };").unwrap();
+    check(program).unwrap();
+}
+
+#[test]
+fn excess_prop_ok_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/object_literal_excess_ok"),
+        "missing types/object_literal_excess_ok fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn excess_prop_ok_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/object_literal_excess_ok")
+        .expect("types/object_literal_excess_ok");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}

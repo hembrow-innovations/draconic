@@ -1,0 +1,2 @@
+type P = { a: number };
+let p: P = { a: 1, b: 2 };

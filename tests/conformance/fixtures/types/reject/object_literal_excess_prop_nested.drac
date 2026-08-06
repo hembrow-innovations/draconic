@@ -1,0 +1,1 @@
+let p: { a: { x: number } } = { a: { x: 1, y: 2 } };

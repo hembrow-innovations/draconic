@@ -3867,18 +3867,24 @@ impl<'a> Checker<'a> {
                         if !immutable {
                             if left_ty == Type::Any {
                                 self.symbol_types[sym.0 as usize] = result_ty;
-                            } else if !self.is_assignable(result_ty, left_ty) {
-                                // E19.12 / E19.48: untyped JS assign (simple + compound) may
-                                // replace an inferred binding type (ToNumber/ToString at runtime
-                                // for compound; plain store for simple). Annotated + native stay
-                                // strict (with number-literal contextual typing for natives).
-                                let annotated = self.symbol_annotated[sym.0 as usize];
-                                let native = matches!(left_ty, Type::Native(_) | Type::Ptr(_))
-                                    || matches!(result_ty, Type::Native(_) | Type::Ptr(_));
-                                if annotated || native {
-                                    self.require_assignable_expr(result_ty, left_ty, value)?;
-                                } else {
-                                    self.symbol_types[sym.0 as usize] = result_ty;
+                            } else {
+                                // T07.05: fresh object literal vs annotated strict shape.
+                                if let Some(diag) = self.excess_prop_diag(value, left_ty) {
+                                    return Err(diag);
+                                }
+                                if !self.is_assignable(result_ty, left_ty) {
+                                    // E19.12 / E19.48: untyped JS assign (simple + compound) may
+                                    // replace an inferred binding type (ToNumber/ToString at runtime
+                                    // for compound; plain store for simple). Annotated + native stay
+                                    // strict (with number-literal contextual typing for natives).
+                                    let annotated = self.symbol_annotated[sym.0 as usize];
+                                    let native = matches!(left_ty, Type::Native(_) | Type::Ptr(_))
+                                        || matches!(result_ty, Type::Native(_) | Type::Ptr(_));
+                                    if annotated || native {
+                                        self.require_assignable_expr(result_ty, left_ty, value)?;
+                                    } else {
+                                        self.symbol_types[sym.0 as usize] = result_ty;
+                                    }
                                 }
                             }
                         }
@@ -5085,6 +5091,11 @@ impl<'a> Checker<'a> {
         to: Type,
         from_expr: &Expr,
     ) -> Result<(), Diagnostic> {
+        // T07.05: a fresh object literal must not name properties absent from an
+        // annotated (strict) shape.
+        if let Some(diag) = self.excess_prop_diag(from_expr, to) {
+            return Err(diag);
+        }
         if self.is_assignable(from, to) {
             return Ok(());
         }
@@ -5135,6 +5146,62 @@ impl<'a> Checker<'a> {
             };
             self.expr_contextually_assignable_to(val, *want)
         })
+    }
+
+    /// Entry point for the T07.05 excess-property check: returns a diagnostic when
+    /// `from_expr` is a fresh object literal assigned to an annotated (strict) shape.
+    fn excess_prop_diag(&self, from_expr: &Expr, to: Type) -> Option<Diagnostic> {
+        if let (Expr::ObjectExpression { properties, .. }, Type::Shape(to_id)) = (from_expr, to) {
+            if let Some(to_shape) = self.shapes.get(to_id as usize) {
+                return self.object_literal_excess_diag(properties, to_shape);
+            }
+        }
+        None
+    }
+
+    /// Excess-property check (T07.05): a fresh object literal assigned to an annotated
+    /// (strict) shape must not name properties absent from that shape. Recurses into
+    /// nested object literals against nested strict shapes. Computed keys, spreads, and
+    /// accessors make the literal permissive (keys not statically known).
+    fn object_literal_excess_diag(
+        &self,
+        properties: &[ObjectProp],
+        to_shape: &ObjectShape,
+    ) -> Option<Diagnostic> {
+        if !to_shape.strict {
+            return None;
+        }
+        for prop in properties {
+            let ObjectProp::Property { key, value, span, .. } = prop else {
+                return None;
+            };
+            let name = match key {
+                ObjectKey::Ident(id) => id.name.clone(),
+                ObjectKey::String(s) => s.value.to_string_lossy(),
+                ObjectKey::Computed(_) => return None,
+            };
+            let Some(want) = to_shape
+                .props
+                .iter()
+                .find(|(n, _)| n == &name)
+                .map(|(_, t)| *t)
+            else {
+                return Some(Diagnostic::new(
+                    format!("object literal has excess property `{name}` not in annotated shape"),
+                    *span,
+                ));
+            };
+            if let (Expr::ObjectExpression { properties: inner, .. }, Type::Shape(inner_id)) =
+                (value, want)
+            {
+                if let Some(inner_shape) = self.shapes.get(inner_id as usize) {
+                    if let Some(diag) = self.object_literal_excess_diag(inner, inner_shape) {
+                        return Some(diag);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Array literal may assign to a tuple shape (`"0"`, `"1"`, …) by position (N03.02).

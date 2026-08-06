@@ -1,0 +1,13 @@
+type Point = { x: number; y: number };
+let p: Point = { x: 1, y: 2 };
+let q: { x: number } = p;
+let part: { x: number } = { x: 1 };
+let exact: { x: number; y: number } = { x: 1, y: 2 };
+function f(a: { x: number }): number {
+  return a.x;
+}
+let n: number = f({ x: 3 });
+let s: number = q.x;
+if (s !== 1) process.exit(1);
+if (n !== 3) process.exit(1);
+if (p.y !== 2) process.exit(1);
