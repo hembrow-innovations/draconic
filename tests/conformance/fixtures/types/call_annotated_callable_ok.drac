@@ -1,0 +1,9 @@
+let f: any = () => 1;
+let n: number = f();
+if (n !== 1) process.exit(1);
+function g(a: number): number { return a * 2; }
+let m: number = g(21);
+if (m !== 42) process.exit(1);
+class C { m() { return 7; } }
+let c = new C();
+if (c.m() !== 7) process.exit(1);

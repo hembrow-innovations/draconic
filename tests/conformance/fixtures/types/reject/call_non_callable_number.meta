@@ -1,0 +1,3 @@
+id: types/reject/call_non_callable_number
+targets: js
+js.error: is not callable

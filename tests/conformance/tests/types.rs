@@ -1248,6 +1248,118 @@ fn call_reject_fixtures_run() {
     }
 }
 
+// --- T07.04: call/`new` of an annotated non-callable value ---
+
+#[test]
+fn call_untyped_non_callable_ok_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/call_untyped_non_callable_ok"),
+        "missing types/call_untyped_non_callable_ok fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn call_untyped_non_callable_ok_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/call_untyped_non_callable_ok")
+        .expect("types/call_untyped_non_callable_ok");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn call_annotated_callable_ok_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/call_annotated_callable_ok"),
+        "missing types/call_annotated_callable_ok fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn call_annotated_callable_ok_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/call_annotated_callable_ok")
+        .expect("types/call_annotated_callable_ok");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn call_annotated_number_errors() {
+    let program = parse("let x: number = 1; x();").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not callable") && err.message.contains("number"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_annotated_shape_errors() {
+    let program = parse("let p: { x: number } = { x: 1 }; p();").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not callable") && err.message.contains("x"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn new_annotated_number_errors() {
+    let program = parse("let x: number = 1; new x();").unwrap();
+    let err = check(program).unwrap_err();
+    assert!(
+        err.message.contains("not constructable") && err.message.contains("number"),
+        "unexpected: {}",
+        err.message
+    );
+}
+
+#[test]
+fn call_untyped_number_ok() {
+    let program = parse("let x = 1; if (false) { x(); }").unwrap();
+    check(program).expect("untyped inferred number stays permissive when called");
+}
+
+#[test]
+fn call_annotated_function_ok() {
+    let program = parse("function g(a: number): number { return a * 2; } let m: number = g(21);")
+        .unwrap();
+    check(program).expect("annotated declared function is callable");
+}
+
+#[test]
+fn call_annotated_any_ok() {
+    let program = parse("let f: any = () => 1; let n: number = f();").unwrap();
+    check(program).expect("annotated `any` is callable");
+}
+
 // --- T07.03: unknown property on annotated shape ---
 
 #[test]

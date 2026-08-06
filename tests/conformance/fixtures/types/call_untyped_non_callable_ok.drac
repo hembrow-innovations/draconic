@@ -1,0 +1,20 @@
+let x = 1;
+if (false) {
+  x();
+}
+let s = "hi";
+if (false) {
+  s();
+}
+let b = true;
+if (false) {
+  b();
+}
+let p = { x: 1 };
+if (false) {
+  p();
+}
+let n = null;
+if (false) {
+  n();
+}

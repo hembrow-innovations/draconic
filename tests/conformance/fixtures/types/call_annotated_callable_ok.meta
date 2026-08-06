@@ -1,0 +1,4 @@
+id: types/call_annotated_callable_ok
+targets: js
+js.exit: 0
+js.check: if (n !== 1) process.exit(1); if (m !== 42) process.exit(1); if (c.m() !== 7) process.exit(1);

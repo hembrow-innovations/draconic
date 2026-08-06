@@ -4135,6 +4135,23 @@ impl<'a> Checker<'a> {
                         if let Some(sig) = self.fn_sigs[sym_id.0 as usize].as_ref() {
                             self.check_call_sig(sig, args, &arg_tys, *span)?;
                         }
+                        // T07.04: calling an annotated non-callable value (e.g.
+                        // `let x: number = 1; x()`) is a compile diagnostic. Untyped
+                        // /inferred JS values (E19.13/E19.59) stay permissive.
+                        if self.symbol_annotated[sym_id.0 as usize]
+                            && !self.type_is_callable(self.symbol_types[sym_id.0 as usize])
+                        {
+                            let callee_s = format_type_full(
+                                self.symbol_types[sym_id.0 as usize],
+                                &self.shapes,
+                                &self.unions,
+                                &self.intersections,
+                            );
+                            return Err(Diagnostic::new(
+                                format!("type `{callee_s}` is not callable"),
+                                *span,
+                            ));
+                        }
                     }
                 }
                 let result_ty = match callee_ty {
@@ -4173,6 +4190,26 @@ impl<'a> Checker<'a> {
                         format!("type `{callee_ty}` is not constructable"),
                         *span,
                     ));
+                }
+                // T07.04: `new` of an annotated non-constructable value (e.g.
+                // `let x: number = 1; new x()`) is a compile diagnostic.
+                if let Expr::Ident(id) = peel_parens(callee) {
+                    if let Some(sym_id) = self.bound.resolve(id.span) {
+                        if self.symbol_annotated[sym_id.0 as usize]
+                            && !self.type_is_callable(self.symbol_types[sym_id.0 as usize])
+                        {
+                            let callee_s = format_type_full(
+                                self.symbol_types[sym_id.0 as usize],
+                                &self.shapes,
+                                &self.unions,
+                                &self.intersections,
+                            );
+                            return Err(Diagnostic::new(
+                                format!("type `{callee_s}` is not constructable"),
+                                *span,
+                            ));
+                        }
+                    }
                 }
                 // Proxy(target, handler): result is callable when target is.
                 // Function(...): constructs a function from source strings.
@@ -5449,6 +5486,18 @@ impl<'a> Checker<'a> {
             self.require_assignable_expr(got, *want, expr)?;
         }
         Ok(())
+    }
+
+    /// T07.04: whether a JS value type has a call/construct surface. Only called for
+    /// annotated bindings; `Any`, un-annotated `Object`, and inferred (non-strict)
+    /// object-literal/tuple shapes stay permissive (runtime TypeError, E19.13/E19.59).
+    fn type_is_callable(&self, ty: Type) -> bool {
+        match ty {
+            Type::Function | Type::GenericFn(_) | Type::Any => true,
+            // Strict (annotated) shapes have no call signatures; inferred shapes stay permissive.
+            Type::Shape(id) => !self.shapes.get(id as usize).is_some_and(|s| s.strict),
+            _ => false,
+        }
     }
 
     fn check_unary(&self, op: UnaryOp, arg: Type, span: Span) -> Result<Type, Diagnostic> {
@@ -8519,5 +8568,142 @@ mod tests {
             "unexpected: {}",
             err.message
         );
+    }
+
+    // --- T07.04: call/`new` of an annotated non-callable value ---
+
+    #[test]
+    fn check_annotated_number_call_errors() {
+        let program = parse("let x: number = 1; x();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable") && err.message.contains("number"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_string_call_errors() {
+        let program = parse(r#"let s: string = "a"; s();"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable") && err.message.contains("string"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_boolean_call_errors() {
+        let program = parse("let b: boolean = true; b();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable") && err.message.contains("boolean"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_bigint_call_errors() {
+        let program = parse("let x: bigint = 1n; x();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable") && err.message.contains("bigint"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_shape_call_errors() {
+        let program = parse("let p: { x: number } = { x: 1 }; p();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable") && err.message.contains("{ x: number }"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_param_call_errors() {
+        let program = parse("function g(x: number) { x(); }").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable") && err.message.contains("number"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_alias_call_errors() {
+        let program = parse("type Num = number; let x: Num = 1; x();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable") && err.message.contains("number"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_number_new_errors() {
+        let program = parse("let x: number = 1; new x();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not constructable") && err.message.contains("number"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_shape_new_errors() {
+        let program = parse("let p: { x: number } = { x: 1 }; new p();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not constructable") && err.message.contains("{ x: number }"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_parenthesized_annotated_call_errors() {
+        let program = parse("let x: number = 1; (x)();").unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("not callable"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_annotated_any_call_ok() {
+        let program = parse("let x: any = 1; x();").unwrap();
+        check(program).expect("`any` stays permissive when called");
+    }
+
+    #[test]
+    fn check_annotated_callable_declared_fn_ok() {
+        let program = parse("function g(a: number): number { return a * 2; } let m: number = g(21);")
+            .unwrap();
+        check(program).expect("annotated declared function is callable");
+    }
+
+    #[test]
+    fn check_untyped_non_callable_call_ok() {
+        let program = parse("let x = 1; x(); let p = { a: 1 }; p();").unwrap();
+        check(program).expect("untyped JS stays permissive when calling non-callables");
+    }
+
+    #[test]
+    fn check_inferred_shape_call_ok() {
+        let program = parse("let p = { a: 1 }; p();").unwrap();
+        check(program).expect("inferred object-literal shape stays permissive when called");
     }
 }
