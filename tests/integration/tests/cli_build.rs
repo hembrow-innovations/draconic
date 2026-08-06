@@ -73,7 +73,7 @@ fn e2e_native_build_artifact_runs() {
 
 #[test]
 fn e2e_native_rejects_unsupported_js() {
-    let module = compile_module("let x = 1;");
+    let module = compile_module("let x = \"hi\";");
     let err = emit_llvm_ir(&module).expect_err("unsupported JS must fail");
     let msg = err.to_string();
     assert!(

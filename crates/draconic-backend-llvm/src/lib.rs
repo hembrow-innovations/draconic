@@ -26,8 +26,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Promise / async** (constructor basics through async/await and async
 ///   arrows) via Runtime Promise ABI — N06.03–N06.11
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
-/// - **Numeric arithmetic** (`+` `-` `*` `/` `%`, unary `+`/`-`, grouping,
-///   local refs over JS numbers) via Runtime prints — N08.01.01
+/// - **ES expressions** (numeric arithmetic + comparison/equality over JS
+///   numbers/booleans) via Runtime prints — N08.01.01 / N08.01.02
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -57,7 +57,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         numeric arithmetic, empty hello)",
+         ES expressions (arithmetic/comparison), empty hello)",
         Span::dummy(),
     )
 }
@@ -314,6 +314,48 @@ mod tests {
             err.to_string().contains("unsupported"),
             "diagnostic should mention unsupported:\n{}",
             err
+        );
+    }
+
+    #[test]
+    fn es_expr_comparison_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let lt = 1 < 2;
+            let lte = 2 <= 2;
+            let gt = 3 > 1;
+            let gte = 3 >= 3;
+            let eq_loose = 1 == 1;
+            let ne_loose = 1 != 2;
+            let eq_strict = 1 === 1;
+            let ne_strict = 1 !== 2;
+            let chain = 1 < 2 === true;
+            let falsey = 2 < 1;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr comparison must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bool"),
+            "should print bool results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-cmp").expect("workdir");
+        let bin = dir.join("cmp");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\n",
+            "stdout={stdout:?}\nir=\n{ir}"
         );
     }
 

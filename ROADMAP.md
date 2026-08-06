@@ -385,7 +385,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08 | todo | native | Real native observations for ES clusters still on B08 hello stub (not stub-green) | `tests/conformance` (update `native.stdout` off hello) |
 | N08.01 | todo | native | Real native observations: expressions (E01) — LLVM path asserts program results, not B08 hello | `tests/conformance` fixtures `es/expressions` |
 | N08.01.01 | done | native | Real native observations: numeric arithmetic (E01.01) — `es/expressions/arithmetic` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/arithmetic`, `crates/draconic-backend-llvm` |
-| N08.01.02 | todo | native | Real native observations: comparison & equality (E01.02) | `tests/conformance` fixtures `es/expressions` |
+| N08.01.02 | done | native | Real native observations: comparison & equality (E01.02) — `es/expressions/comparison` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/comparison`, `crates/draconic-backend-llvm` |
 | N08.01.03 | todo | native | Real native observations: logical (E01.03) | `tests/conformance` fixtures `es/expressions` |
 | N08.01.04 | todo | native | Real native observations: remaining §12–13 (E01.04) | `tests/conformance` fixtures `es/expressions` |
 | N08.02 | todo | native | Real native observations: statements (E02) | `tests/conformance` fixtures `es/statements` |

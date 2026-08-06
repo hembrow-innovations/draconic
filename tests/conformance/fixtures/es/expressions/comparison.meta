@@ -1,4 +1,6 @@
 id: es/expressions/comparison
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\n
 js.check: if (lt !== true) process.exit(1); if (lte !== true) process.exit(2); if (gt !== true) process.exit(3); if (gte !== true) process.exit(4); if (eq_loose !== true) process.exit(5); if (ne_loose !== true) process.exit(6); if (eq_strict !== true) process.exit(7); if (ne_strict !== true) process.exit(8); if (chain !== true) process.exit(9); if (falsey !== false) process.exit(10);
