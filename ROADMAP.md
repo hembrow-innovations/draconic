@@ -390,7 +390,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.01.04 | todo | native | Real native observations: remaining §12–13 (E01.04) (children below) | `tests/conformance` fixtures `es/expressions` |
 | N08.01.04.01 | done | native | Real native observations: bitwise (E01.04.01) — `es/expressions/bitwise` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/bitwise`, `crates/draconic-backend-llvm` |
 | N08.01.04.02 | done | native | Real native observations: exponentiation (E01.04.02) | `tests/conformance` fixture `es/expressions/exponentiation`, `crates/draconic-backend-llvm` |
-| N08.01.04.03 | in_progress | native | Real native observations: conditional ternary (E01.04.03) | `tests/conformance` fixture `es/expressions/conditional`, `crates/draconic-backend-llvm` |
+| N08.01.04.03 | done | native | Real native observations: conditional ternary (E01.04.03) — `es/expressions/conditional` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/conditional`, `crates/draconic-backend-llvm` |
 | N08.01.04.04 | todo | native | Real native observations: assignment (E01.04.04) | `tests/conformance` fixture `es/expressions/assignment`, `crates/draconic-backend-llvm` |
 | N08.01.04.05 | todo | native | Real native observations: update ++/-- (E01.04.05) | `tests/conformance` fixture `es/expressions/update`, `crates/draconic-backend-llvm` |
 | N08.01.04.06 | todo | native | Real native observations: comma operator (E01.04.06) | `tests/conformance` fixture `es/expressions/comma`, `crates/draconic-backend-llvm` |
