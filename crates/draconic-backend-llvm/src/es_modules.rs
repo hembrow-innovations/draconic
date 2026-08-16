@@ -1,9 +1,10 @@
 //! N08.11: native observations for linked ESM fixtures (E11).
 //!
 //! After the linker flattens static imports, module programs are ordinary IR with
-//! mangled `__mN_*` locals. Compile-time evaluation covers named/default/cyclic
-//! fixtures (number/string values, simple param calls, live `let` assign). Emits
-//! Runtime prints of entry top-level number/string locals (not mangled deps).
+//! mangled `__mN_*` locals. Compile-time evaluation covers named/default/namespace/
+//! cyclic fixtures (number/string values, simple param calls, live `let` assign,
+//! `import * as ns` via `__draconic_make_ns` pairs). Emits Runtime prints of entry
+//! top-level number/string locals (not mangled deps).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -11,7 +12,7 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
+    Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BYTES, PRINT_F64};
 
@@ -32,6 +33,12 @@ enum JsVal {
     Str(String),
     Undef,
     Fn(LocalId),
+    /// Function expression value (namespace getters, etc.).
+    FnExpr(FnRec),
+    /// Module namespace object: export name → getter (Fn / FnExpr).
+    Ns(HashMap<String, JsVal>),
+    /// Temporary array for `__draconic_make_ns` pair construction only.
+    Arr(Vec<JsVal>),
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +68,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 
     let mut env: HashMap<LocalId, JsVal> = HashMap::new();
     let mut functions: HashMap<LocalId, FnRec> = HashMap::new();
+    let mut make_ns: Option<LocalId> = None;
 
     // Hoist function decls (JS / linked module bodies).
     for stmt in &module.body {
@@ -82,10 +90,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 },
             );
             env.insert(*local, JsVal::Fn(*local));
+            if by_id.get(local).is_some_and(|l| l.name == "__draconic_make_ns") {
+                make_ns = Some(*local);
+            }
         }
     }
 
-    match eval_body(&module.body, &mut env, &functions) {
+    match eval_body(&module.body, &mut env, &functions, make_ns) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }
@@ -178,12 +189,19 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             }
         }
         Stmt::Function {
+            local,
             params,
             body,
             is_async: false,
             is_generator: false,
             ..
-        } => simple_param_ids(params).is_some() && body_ok(body, by_id),
+        } => {
+            // Namespace polyfill body is not CT-eval'd; pairs are interpreted at call.
+            if by_id.get(local).is_some_and(|l| l.name == "__draconic_make_ns") {
+                return simple_param_ids(params).is_some();
+            }
+            simple_param_ids(params).is_some() && body_ok(body, by_id)
+        }
         Stmt::Return { value } => match value {
             None => true,
             Some(e) => expr_ok(e, by_id),
@@ -239,6 +257,23 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                     _ => false,
                 })
         }
+        Expr::Member {
+            object,
+            property,
+            optional: false,
+            ..
+        } => expr_ok(object, by_id) && expr_ok(property, by_id),
+        Expr::Array { elements, .. } => elements.iter().all(|el| match el {
+            ArrayElement::Expr(e) => expr_ok(e, by_id),
+            _ => false,
+        }),
+        Expr::Function {
+            params,
+            body,
+            is_async: false,
+            is_generator: false,
+            ..
+        } => simple_param_ids(params).is_some() && body_ok(body, by_id),
         _ => false,
     }
 }
@@ -247,9 +282,10 @@ fn eval_body(
     body: &[Stmt],
     env: &mut HashMap<LocalId, JsVal>,
     functions: &HashMap<LocalId, FnRec>,
+    make_ns: Option<LocalId>,
 ) -> Result<Flow, ()> {
     for stmt in body {
-        match eval_stmt(stmt, env, functions)? {
+        match eval_stmt(stmt, env, functions, make_ns)? {
             Flow::Normal => {}
             other => return Ok(other),
         }
@@ -261,12 +297,13 @@ fn eval_stmt(
     stmt: &Stmt,
     env: &mut HashMap<LocalId, JsVal>,
     functions: &HashMap<LocalId, FnRec>,
+    make_ns: Option<LocalId>,
 ) -> Result<Flow, ()> {
     match stmt {
         Stmt::Function { .. } => Ok(Flow::Normal),
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => eval_expr(e, env, functions)?,
+                Some(e) => eval_expr(e, env, functions, make_ns)?,
                 None => JsVal::Undef,
             };
             env.insert(*local, v);
@@ -274,11 +311,11 @@ fn eval_stmt(
         }
         Stmt::Return { value } => match value {
             None => Ok(Flow::Return(JsVal::Undef)),
-            Some(e) => Ok(Flow::Return(eval_expr(e, env, functions)?)),
+            Some(e) => Ok(Flow::Return(eval_expr(e, env, functions, make_ns)?)),
         },
-        Stmt::Block { body } => eval_body(body, env, functions),
+        Stmt::Block { body } => eval_body(body, env, functions, make_ns),
         Stmt::Expr { expr } => {
-            eval_expr(expr, env, functions)?;
+            eval_expr(expr, env, functions, make_ns)?;
             Ok(Flow::Normal)
         }
         Stmt::If {
@@ -286,11 +323,11 @@ fn eval_stmt(
             consequent,
             alternate,
         } => {
-            let t = to_boolean(&eval_expr(test, env, functions)?);
+            let t = to_boolean(&eval_expr(test, env, functions, make_ns)?);
             if t {
-                eval_stmt(consequent, env, functions)
+                eval_stmt(consequent, env, functions, make_ns)
             } else if let Some(a) = alternate {
-                eval_stmt(a, env, functions)
+                eval_stmt(a, env, functions, make_ns)
             } else {
                 Ok(Flow::Normal)
             }
@@ -303,6 +340,7 @@ fn eval_expr(
     expr: &Expr,
     env: &mut HashMap<LocalId, JsVal>,
     functions: &HashMap<LocalId, FnRec>,
+    make_ns: Option<LocalId>,
 ) -> Result<JsVal, ()> {
     match expr {
         Expr::Number { raw, .. } => {
@@ -316,7 +354,7 @@ fn eval_expr(
         Expr::Local { id, .. } => env.get(id).cloned().ok_or(()),
         Expr::Unary { op, arg, .. } => {
             use draconic_ast::UnaryOp;
-            let v = eval_expr(arg, env, functions)?;
+            let v = eval_expr(arg, env, functions, make_ns)?;
             match op {
                 UnaryOp::Plus => Ok(JsVal::Num(to_number(&v))),
                 UnaryOp::Minus => Ok(JsVal::Num(-to_number(&v))),
@@ -327,8 +365,8 @@ fn eval_expr(
         Expr::Binary {
             left, op, right, ..
         } => {
-            let l = eval_expr(left, env, functions)?;
-            let r = eval_expr(right, env, functions)?;
+            let l = eval_expr(left, env, functions, make_ns)?;
+            let r = eval_expr(right, env, functions, make_ns)?;
             let ln = to_number(&l);
             let rn = to_number(&r);
             let n = match op {
@@ -347,9 +385,48 @@ fn eval_expr(
             value,
             ..
         } => {
-            let v = eval_expr(value, env, functions)?;
+            let v = eval_expr(value, env, functions, make_ns)?;
             env.insert(*id, v.clone());
             Ok(v)
+        }
+        Expr::Array { elements, .. } => {
+            let mut items = Vec::with_capacity(elements.len());
+            for el in elements {
+                match el {
+                    ArrayElement::Expr(e) => items.push(eval_expr(e, env, functions, make_ns)?),
+                    _ => return Err(()),
+                }
+            }
+            Ok(JsVal::Arr(items))
+        }
+        Expr::Function {
+            params,
+            body,
+            is_async: false,
+            is_generator: false,
+            ..
+        } => {
+            let param_ids = simple_param_ids(params).ok_or(())?;
+            Ok(JsVal::FnExpr(FnRec {
+                params: param_ids,
+                body: body.clone(),
+            }))
+        }
+        Expr::Member {
+            object,
+            property,
+            optional: false,
+            ..
+        } => {
+            let obj = eval_expr(object, env, functions, make_ns)?;
+            let key = prop_key(property, env, functions, make_ns)?;
+            match obj {
+                JsVal::Ns(map) => {
+                    let getter = map.get(&key).cloned().ok_or(())?;
+                    call_value(getter, &[], env, functions, make_ns)
+                }
+                _ => Err(()),
+            }
         }
         Expr::Call {
             callee,
@@ -357,31 +434,93 @@ fn eval_expr(
             optional: false,
             ..
         } => {
-            let c = eval_expr(callee, env, functions)?;
-            let JsVal::Fn(fid) = c else {
-                return Err(());
-            };
-            let frec = functions.get(&fid).ok_or(())?.clone();
-            if args.len() > frec.params.len() {
-                return Err(());
-            }
+            let c = eval_expr(callee, env, functions, make_ns)?;
             let mut arg_vals = Vec::with_capacity(args.len());
             for a in args {
                 match a {
-                    Arg::Expr(e) => arg_vals.push(eval_expr(e, env, functions)?),
+                    Arg::Expr(e) => arg_vals.push(eval_expr(e, env, functions, make_ns)?),
                     _ => return Err(()),
                 }
             }
-            for (i, pid) in frec.params.iter().enumerate() {
-                let v = arg_vals.get(i).cloned().unwrap_or(JsVal::Undef);
-                env.insert(*pid, v);
+            if let JsVal::Fn(fid) = &c {
+                if make_ns == Some(*fid) {
+                    return eval_make_ns(&arg_vals);
+                }
             }
-            match eval_body(&frec.body, env, functions)? {
-                Flow::Normal => Ok(JsVal::Undef),
-                Flow::Return(v) => Ok(v),
-            }
+            call_value(c, &arg_vals, env, functions, make_ns)
         }
         _ => Err(()),
+    }
+}
+
+fn prop_key(
+    property: &Expr,
+    env: &mut HashMap<LocalId, JsVal>,
+    functions: &HashMap<LocalId, FnRec>,
+    make_ns: Option<LocalId>,
+) -> Result<String, ()> {
+    match property {
+        Expr::String { value, .. } => Ok(value.to_string_lossy()),
+        other => match eval_expr(other, env, functions, make_ns)? {
+            JsVal::Str(s) => Ok(s),
+            JsVal::Num(n) if n.is_finite() && n.fract() == 0.0 => Ok(format!("{}", n as i64)),
+            _ => Err(()),
+        },
+    }
+}
+
+/// Build a namespace object from `__draconic_make_ns(pairs, names, tag)` args.
+/// Each pair is `[exportName, getterFn]`; getters run on property access (live bindings).
+fn eval_make_ns(args: &[JsVal]) -> Result<JsVal, ()> {
+    if args.len() < 1 {
+        return Err(());
+    }
+    let JsVal::Arr(pairs) = &args[0] else {
+        return Err(());
+    };
+    let mut map = HashMap::new();
+    for p in pairs {
+        let JsVal::Arr(kv) = p else {
+            return Err(());
+        };
+        if kv.len() != 2 {
+            return Err(());
+        }
+        let name = match &kv[0] {
+            JsVal::Str(s) => s.clone(),
+            _ => return Err(()),
+        };
+        match &kv[1] {
+            JsVal::Fn(_) | JsVal::FnExpr(_) => {}
+            _ => return Err(()),
+        }
+        map.insert(name, kv[1].clone());
+    }
+    Ok(JsVal::Ns(map))
+}
+
+fn call_value(
+    callee: JsVal,
+    arg_vals: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+    functions: &HashMap<LocalId, FnRec>,
+    make_ns: Option<LocalId>,
+) -> Result<JsVal, ()> {
+    let frec = match callee {
+        JsVal::Fn(fid) => functions.get(&fid).ok_or(())?.clone(),
+        JsVal::FnExpr(f) => f,
+        _ => return Err(()),
+    };
+    if arg_vals.len() > frec.params.len() {
+        return Err(());
+    }
+    for (i, pid) in frec.params.iter().enumerate() {
+        let v = arg_vals.get(i).cloned().unwrap_or(JsVal::Undef);
+        env.insert(*pid, v);
+    }
+    match eval_body(&frec.body, env, functions, make_ns)? {
+        Flow::Normal => Ok(JsVal::Undef),
+        Flow::Return(v) => Ok(v),
     }
 }
 
@@ -397,7 +536,7 @@ fn to_number(v: &JsVal) -> f64 {
             }
         }
         JsVal::Undef => f64::NAN,
-        JsVal::Fn(_) => f64::NAN,
+        JsVal::Fn(_) | JsVal::FnExpr(_) | JsVal::Ns(_) | JsVal::Arr(_) => f64::NAN,
     }
 }
 
@@ -406,7 +545,8 @@ fn to_boolean(v: &JsVal) -> bool {
         JsVal::Num(n) => *n != 0.0 && !n.is_nan(),
         JsVal::Str(s) => !s.is_empty(),
         JsVal::Undef => false,
-        JsVal::Fn(_) => true,
+        JsVal::Fn(_) | JsVal::FnExpr(_) | JsVal::Ns(_) => true,
+        JsVal::Arr(a) => !a.is_empty(),
     }
 }
 
@@ -482,7 +622,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.11 linked ESM modules)"
+            "; Draconic LLVM backend (N08.11 linked ESM modules, incl. namespace)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -521,3 +661,5 @@ impl Emitter {
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
+
+

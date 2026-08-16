@@ -460,7 +460,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.11 | in_progress | native | Real native observations: modules (E11) (children below) | `tests/conformance` fixtures `es/modules` |
 | N08.11.01 | done | native | Real native observations: named export + import (E11.01) — `es/modules/named_export_import` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/modules/named_export_import`, `crates/draconic-backend-llvm` |
 | N08.11.02 | done | native | Real native observations: default export + import (E11.02) — `es/modules/default_export_import` / `default_expr_import` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixtures `es/modules/default_*`, `crates/draconic-backend-llvm` |
-| N08.11.03 | todo | native | Real native observations: namespace import (E11.03) — `es/modules/namespace_import` | `tests/conformance` fixture `es/modules/namespace_import`, `crates/draconic-backend-llvm` |
+| N08.11.03 | done | native | Real native observations: namespace import (E11.03) — `es/modules/namespace_import` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/modules/namespace_import`, `crates/draconic-backend-llvm` |
 | N08.11.04 | todo | native | Real native observations: cyclic modules (E11.04) — `es/modules/cyclic_functions` / `cyclic_live` | `tests/conformance` fixtures `es/modules/cyclic_*`, `crates/draconic-backend-llvm` |
 | N08.12 | todo | native | Real native observations: generators (E13) | `tests/conformance` fixtures `es/generators` |
 | N08.13 | todo | native | Real native observations: proxies/Reflect (E14) | `tests/conformance` fixtures `es/proxies` |
