@@ -381,6 +381,40 @@ mod tests {
     }
 
     #[test]
+    fn es_numbers_number_literals_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/numbers/number_literals.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "number_literals must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-number-literals").expect("workdir");
+        let bin = dir.join("number_literals");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "42\n0\n3.1400000000000001\n0.5\n0.5\n5\n1000\n1000\n150\n200\n0.10000000000000001\n6.02e+23\n255\n255\n16\n10\n10\n15\n15\n1000\n1000000\n65535\n161\n1000.5\n10000000000\n36\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn es_expr_arithmetic_with_local_refs_prints() {
         let ir = emit_llvm_ir(&module_of(
             r#"

@@ -1,4 +1,6 @@
 id: es/numbers/number_literals
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 42\n0\n3.1400000000000001\n0.5\n0.5\n5\n1000\n1000\n150\n200\n0.10000000000000001\n6.02e+23\n255\n255\n16\n10\n10\n15\n15\n1000\n1000000\n65535\n161\n1000.5\n10000000000\n36\n
 js.check: if (dec !== 42) process.exit(1); if (zero !== 0) process.exit(2); if (f1 !== 3.14) process.exit(3); if (f2 !== 0.5) process.exit(4); if (f3 !== 0.5) process.exit(5); if (f4 !== 5.0) process.exit(6); if (sci1 !== 1000) process.exit(7); if (sci2 !== 1000) process.exit(8); if (sci3 !== 150) process.exit(9); if (sci4 !== 200) process.exit(10); if (sci5 !== 0.1) process.exit(11); if (sci6 !== 6.02e23) process.exit(12); if (hex1 !== 255) process.exit(13); if (hex2 !== 255) process.exit(14); if (hex3 !== 16) process.exit(15); if (bin1 !== 10) process.exit(16); if (bin2 !== 10) process.exit(17); if (oct1 !== 15) process.exit(18); if (oct2 !== 15) process.exit(19); if (sep1 !== 1000) process.exit(20); if (sep2 !== 1000000) process.exit(21); if (sep3 !== 0xFFFF) process.exit(22); if (sep4 !== 0b10100001) process.exit(23); if (sep5 !== 1000.5) process.exit(24); if (sep6 !== 1e10) process.exit(25); if (mix !== 16 + 2 + 8 + 10) process.exit(26); if (typeof dec !== "number") process.exit(27); if (typeof hex1 !== "number") process.exit(28); if (typeof sci1 !== "number") process.exit(29);

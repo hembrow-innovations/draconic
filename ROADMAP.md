@@ -440,7 +440,13 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.07.03 | done | native | Real native observations: unicode escapes (E07.03) — `es/strings/unicode_escapes` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/strings/unicode_escapes`, `crates/draconic-backend-llvm` |
 | N08.07.04 | done | native | Real native observations: tagged templates (E07.04) — `es/strings/tagged_template` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/strings/tagged_template`, `crates/draconic-backend-llvm` |
 | N08.07.05 | done | native | Real native observations: UTF-16 code-unit semantics (E07.05) — `es/strings/utf16_semantics` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/strings/utf16_semantics`, `crates/draconic-backend-llvm` |
-| N08.08 | todo | native | Real native observations: numbers/BigInt/Math (E08) | `tests/conformance` fixtures `es/numbers` |
+| N08.08 | todo | native | Real native observations: numbers/BigInt/Math (E08) (children below) | `tests/conformance` fixtures `es/numbers` |
+| N08.08.01 | done | native | Real native observations: number literals (E08.01) — `es/numbers/number_literals` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/numbers/number_literals`, `crates/draconic-backend-llvm` |
+| N08.08.02 | todo | native | Real native observations: BigInt integer literals + same-type arithmetic (E08.02) | `tests/conformance` fixture `es/numbers/bigint_literals`, `crates/draconic-backend-llvm` |
+| N08.08.03 | todo | native | Real native observations: BigInt comparison & bitwise (E08.03) | `tests/conformance` fixture `es/numbers/bigint_ops`, `crates/draconic-backend-llvm` |
+| N08.08.04 | todo | native | Real native observations: BigInt exponentiation (E08.04) | `tests/conformance` fixture `es/numbers/bigint_pow`, `crates/draconic-backend-llvm` |
+| N08.08.05 | todo | native | Real native observations: global `Math` (E08.05) | `tests/conformance` fixture `es/numbers/math_basics`, `crates/draconic-backend-llvm` |
+| N08.08.06 | todo | native | Real native observations: `NaN`/`Infinity`/`Number` (E08.06) | `tests/conformance` fixture `es/numbers/number_global`, `crates/draconic-backend-llvm` |
 | N08.09 | todo | native | Real native observations: symbols/equality/coercion (E09) | `tests/conformance` fixtures `es/values` |
 | N08.10 | todo | native | Real native observations: exceptions (E10) | `tests/conformance` fixtures `es/exceptions` |
 | N08.11 | todo | native | Real native observations: modules (E11) | `tests/conformance` fixtures `es/modules` |

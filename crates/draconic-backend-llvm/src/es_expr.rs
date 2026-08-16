@@ -18,6 +18,7 @@
 //! E07.02 untagged template literals (N08.07.02; cooked quasis + ToString interpolations),
 //! E07.03 unicode escapes `\x`/`\u`/`\u{}` cooked into strings; `.length` is UTF-16 units (N08.07.03),
 //! E07.05 UTF-16 code-unit semantics: index/concat/eq over WTF-8 storage (N08.07.05).
+//! E08.01 number literals: decimal/hex/bin/oct/separators/scientific (N08.08.01).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -32,12 +33,14 @@ use draconic_runtime::abi::{
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01–N08.07.05):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01 / N08.01.* / N08.02.01–N08.02.09 /
+/// N08.07.01–N08.07.05 / N08.08.01):
 /// top-level `let`/`const` declares over JS numbers, booleans, strings, undefined (`void`), and/or
 /// untyped `any` string/number slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
 /// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
 /// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`
 /// (incl. number ToString), untagged templates, unicode-escape string lits, UTF-16 index/length,
+/// number literals (decimal/hex/bin/oct/separators/scientific),
 /// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
 /// `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue` (unlabeled or labeled),
 /// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
@@ -2233,13 +2236,36 @@ fn expr_ty_is_string(expr: &Expr) -> bool {
     matches!(expr.ty(), Type::String)
 }
 
-/// Format a JS number literal as an LLVM `double` constant (decimal, round-trip safe).
+/// Format a JS number literal as an LLVM `double` constant (decimal/hex/bin/oct,
+/// numeric separators, round-trip safe). N08.08.01 / E08.01.
 fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
     let cleaned: String = raw.chars().filter(|c| *c != '_').collect();
-    let f: f64 = cleaned
-        .parse()
-        .map_err(|_| diag(format!("invalid number literal {raw}")))?;
+    let f = parse_js_number_literal(&cleaned)
+        .ok_or_else(|| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
+}
+
+/// Parse ECMAScript numeric literal text (no `_` separators) to `f64`.
+fn parse_js_number_literal(s: &str) -> Option<f64> {
+    if let Some(hex) = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+    {
+        return u64::from_str_radix(hex, 16).ok().map(|n| n as f64);
+    }
+    if let Some(bin) = s
+        .strip_prefix("0b")
+        .or_else(|| s.strip_prefix("0B"))
+    {
+        return u64::from_str_radix(bin, 2).ok().map(|n| n as f64);
+    }
+    if let Some(oct) = s
+        .strip_prefix("0o")
+        .or_else(|| s.strip_prefix("0O"))
+    {
+        return u64::from_str_radix(oct, 8).ok().map(|n| n as f64);
+    }
+    s.parse().ok()
 }
 
 fn escape_llvm_bytes(bytes: &[u8]) -> String {
