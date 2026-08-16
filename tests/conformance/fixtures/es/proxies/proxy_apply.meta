@@ -1,4 +1,6 @@
 id: es/proxies/proxy_apply
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 5\n2\n6\n7\n2\n21\n43\n
 js.check: if (passR !== 5) process.exit(1); if (r !== 21) process.exit(2); if (calls !== 2) process.exit(3); if (lastArg0 !== 6) process.exit(4); if (lastArg1 !== 7) process.exit(5); if (lastLen !== 2) process.exit(6); if (rm !== 43) process.exit(7); if (lastThis !== obj) process.exit(8);

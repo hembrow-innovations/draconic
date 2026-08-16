@@ -1,12 +1,12 @@
-//! N08.13.01–N08.13.04: native observations for Proxy basics + `set` + `has`/`in`
-//! + `delete`/`deleteProperty` (E14.01–E14.04).
+//! N08.13.01–N08.13.05: native observations for Proxy basics + `set` + `has`/`in`
+//! + `delete`/`deleteProperty` + `apply` (E14.01–E14.05).
 //!
 //! Compile-time evaluation of a small Proxy subset: `typeof Proxy`,
-//! `new Proxy(target, handler)`, empty-handler get/set/`in`/`delete` pass-through,
-//! `get`/`set`/`has`/`deleteProperty` traps (function props; free-var capture;
-//! string keys), member assign, `typeof` on proxies. Objects live on a heap so
-//! proxy targets share identity with outer locals. Emits Runtime prints of final
-//! top-level number/string/bool locals.
+//! `new Proxy(target, handler)`, empty-handler get/set/`in`/`delete`/call pass-through,
+//! `get`/`set`/`has`/`deleteProperty`/`apply` traps (function props; free-var capture;
+//! string keys), member assign, method calls (`obj.m()` thisArg), `typeof` on proxies.
+//! Objects live on a heap so proxy targets share identity with outer locals. Emits
+//! Runtime prints of final top-level number/string/bool locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -68,6 +68,8 @@ struct ProxyRec {
     has_trap: Option<usize>,
     /// Optional `deleteProperty` trap function index.
     delete_trap: Option<usize>,
+    /// Optional `apply` trap function index.
+    apply_trap: Option<usize>,
 }
 
 struct ModuleInfo {
@@ -498,6 +500,11 @@ fn eval_expr(
                         Some(_) => return Err(()),
                         None => None,
                     };
+                    let apply_trap = match handler.get("apply") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
                     let idx = proxies.len();
                     proxies.push(ProxyRec {
                         target,
@@ -505,6 +512,7 @@ fn eval_expr(
                         set_trap,
                         has_trap,
                         delete_trap,
+                        apply_trap,
                     });
                     Ok(JsVal::Proxy(idx))
                 }
@@ -517,7 +525,23 @@ fn eval_expr(
             optional: false,
             ..
         } => {
-            let c = eval_expr(callee, env, fns, objects, proxies)?;
+            let (c, this_arg) = match callee.as_ref() {
+                Expr::Member {
+                    object,
+                    property,
+                    optional: false,
+                    ..
+                } => {
+                    let obj = eval_expr(object, env, fns, objects, proxies)?;
+                    let key = eval_key(property, env, fns, objects, proxies)?;
+                    let f = proxy_or_object_get(&obj, &key, env, fns, objects, proxies)?;
+                    (f, obj)
+                }
+                _ => {
+                    let c = eval_expr(callee, env, fns, objects, proxies)?;
+                    (c, JsVal::Undef)
+                }
+            };
             let mut argv = Vec::new();
             for a in args {
                 match a {
@@ -525,10 +549,7 @@ fn eval_expr(
                     _ => return Err(()),
                 }
             }
-            match c {
-                JsVal::Fn(i) => call_fn(i, &argv, env, fns, objects, proxies),
-                _ => Err(()),
-            }
+            call_value(&c, this_arg, &argv, env, fns, objects, proxies)
         }
         Expr::Member {
             object,
@@ -606,10 +627,51 @@ fn eval_binary(op: &BinaryOp, l: &JsVal, r: &JsVal) -> Result<JsVal, ()> {
             (other, JsVal::Num(b)) => Ok(JsVal::Num(to_number(other)? + b)),
             _ => Err(()),
         },
+        BinaryOp::Mul => match (l, r) {
+            (JsVal::Num(a), JsVal::Num(b)) => Ok(JsVal::Num(a * b)),
+            (JsVal::Num(a), other) => Ok(JsVal::Num(a * to_number(other)?)),
+            (other, JsVal::Num(b)) => Ok(JsVal::Num(to_number(other)? * b)),
+            _ => Err(()),
+        },
         BinaryOp::EqEqEq => Ok(JsVal::Bool(strict_eq(l, r))),
         BinaryOp::NotEqEq => Ok(JsVal::Bool(!strict_eq(l, r))),
         BinaryOp::EqEq => Ok(JsVal::Bool(strict_eq(l, r))),
         BinaryOp::NotEq => Ok(JsVal::Bool(!strict_eq(l, r))),
+        _ => Err(()),
+    }
+}
+
+fn call_value(
+    callee: &JsVal,
+    this_arg: JsVal,
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<JsVal, ()> {
+    match callee {
+        JsVal::Fn(i) => call_fn(*i, args, env, fns, objects, proxies),
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.apply_trap {
+                let mut props = HashMap::new();
+                for (i, a) in args.iter().enumerate() {
+                    props.insert(i.to_string(), a.clone());
+                }
+                props.insert("length".into(), JsVal::Num(args.len() as f64));
+                let arr_idx = objects.len();
+                objects.push(ObjectRec { props });
+                let trap_args = vec![
+                    rec.target.clone(),
+                    this_arg,
+                    JsVal::Object(arr_idx),
+                ];
+                call_fn(trap_idx, &trap_args, env, fns, objects, proxies)
+            } else {
+                call_value(&rec.target, this_arg, args, env, fns, objects, proxies)
+            }
+        }
         _ => Err(()),
     }
 }
@@ -809,7 +871,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.04 Proxy deleteProperty)"
+            "; Draconic LLVM backend (N08.13.05 Proxy apply)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -916,6 +978,22 @@ mod tests {
         );
         assert!(
             ir.contains("true") || ir.contains("print") || ir.contains("keep"),
+            "should print observations:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn proxy_apply_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/proxies/proxy_apply.drac");
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("print") || ir.contains("5") || ir.contains("21"),
             "should print observations:\n{ir}"
         );
     }

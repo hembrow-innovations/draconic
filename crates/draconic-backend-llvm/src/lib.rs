@@ -102,6 +102,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Proxy set** (empty-handler set pass-through; `set` trap; assign result) — N08.13.02
 /// - **Proxy has/`in`** (empty-handler pass-through; `has` trap; plain `in`) — N08.13.03
 /// - **Proxy deleteProperty/`delete`** (empty-handler pass-through; trap; plain `delete`) — N08.13.04
+/// - **Proxy apply** (empty-handler call pass-through; `apply` trap; method `this`) — N08.13.05
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
