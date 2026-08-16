@@ -1,4 +1,6 @@
 id: es/modules/default_export_import
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 42\n42\ndef\n
 js.check: if (a !== 42) process.exit(1); if (b !== 42) process.exit(2); if (c !== "def") process.exit(3);
