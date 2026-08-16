@@ -1,29 +1,29 @@
 class Animal {
-  constructor(name) {
-    this.name = name;
+  constructor(id) {
+    this.id = id;
   }
   greet() {
-    return this.name;
+    return this.id;
   }
 }
 class Dog extends Animal {
-  constructor(name, age) {
-    super(name);
+  constructor(id, age) {
+    super(id);
     this.age = age;
   }
   info() {
-    return this.name;
+    return this.id;
   }
 }
-let d = new Dog("rex", 3);
-let a = d.name;
+let d = new Dog(1, 3);
+let a = d.id;
 let b = d.age;
 let c = d.greet();
 let e = d.info();
 class Cat extends Animal {
-  constructor(name) {
-    super(name);
+  constructor(id) {
+    super(id);
   }
 }
-let cat = new Cat("mia");
+let cat = new Cat(2);
 let f = cat.greet();

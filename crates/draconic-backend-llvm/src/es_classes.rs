@@ -1,11 +1,12 @@
-//! N08.05.01: native observations for ES class declarations (E05.01 /
-//! `es/classes/class_basic`).
+//! N08.05.01–N08.05.02: native observations for ES class declarations (E05.01 /
+//! `class_basic`) and class heritage (E05.02 / `class_extends`).
 //!
 //! Classes lower to builder IIFEs (`const C = (function(){ … return ctor })()`).
-//! This adapter recognizes that shape for base classes (no `extends` / fields /
-//! statics / private), extracts the constructor + prototype methods, and emits
-//! the same Runtime GC/object ABI as N08.04 (`new` + prototype chain + method
-//! call). Number locals are printed via `print_f64`.
+//! This adapter recognizes that shape for base and derived classes (no fields /
+//! statics / private), extracts the constructor + prototype methods + optional
+//! `extends` parent, and emits the Runtime GC/object ABI (`new` + prototype
+//! chain + `super()` as parent-ctor call + method call). Number locals print
+//! via `print_f64`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -44,6 +45,8 @@ struct FnInfo {
     idx: usize,
     params: Vec<LocalId>,
     body: Vec<Stmt>,
+    /// When set, this function is a derived constructor; `super(...)` calls this parent ctor.
+    parent_ctor_fn_idx: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -51,6 +54,8 @@ struct ClassInfo {
     ctor_fn_idx: usize,
     /// Prototype method name → function index.
     methods: Vec<(String, usize)>,
+    /// Parent class index in `ModuleInfo::classes` when `extends` is present.
+    parent: Option<usize>,
 }
 
 struct ModuleInfo {
@@ -75,7 +80,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
                 let init = init.as_ref()?;
-                if let Some(cls) = try_extract_class(init, *local, &by_id, &mut functions) {
+                if let Some(cls) =
+                    try_extract_class(init, *local, &by_id, &mut functions, &class_of, &classes)
+                {
                     saw_class = true;
                     let idx = classes.len();
                     class_of.insert(*local, idx);
@@ -119,6 +126,8 @@ fn try_extract_class(
     _binding: LocalId,
     by_id: &HashMap<LocalId, &Local>,
     functions: &mut Vec<FnInfo>,
+    class_of: &HashMap<LocalId, usize>,
+    classes: &[ClassInfo],
 ) -> Option<ClassInfo> {
     let Expr::Call {
         callee,
@@ -147,18 +156,33 @@ fn try_extract_class(
         return None;
     }
 
-    // Expect: "use strict"; const ctor = function…; defineProperty name/proto;
-    // (key decls + defineProperty methods)*; return ctor.
+    // Base: "use strict"; const ctor = function…; defineProperty…; methods; return.
+    // Derived: super binding + heritage checks + ctor with super() + setPrototypeOf.
     let mut ctor_local: Option<LocalId> = None;
     let mut ctor_fn_idx: Option<usize> = None;
     let mut methods: Vec<(String, usize)> = Vec::new();
     let mut pending_key: Option<String> = None;
+    let mut parent_idx: Option<usize> = None;
+    let mut parent_ctor_fn_idx: Option<usize> = None;
 
     for stmt in body {
         match stmt {
             Stmt::Expr {
                 expr: Expr::String { value, .. },
             } if value.to_string_lossy() == "use strict" => {}
+            // Derived: `let __drac_super_N = Parent`
+            Stmt::Declare {
+                init: Some(Expr::Local { id, .. }),
+                ..
+            } if ctor_local.is_none() && parent_idx.is_none() => {
+                let pidx = *class_of.get(id)?;
+                parent_idx = Some(pidx);
+                parent_ctor_fn_idx = Some(classes[pidx].ctor_fn_idx);
+            }
+            // Derived: bare `let __drac_sproto_N`
+            Stmt::Declare { init: None, .. } if ctor_local.is_none() => {}
+            // Derived: heritage IsConstructor / prototype checks
+            Stmt::If { .. } if ctor_local.is_none() => {}
             Stmt::Declare {
                 local,
                 init: Some(Expr::Function {
@@ -175,7 +199,11 @@ fn try_extract_class(
                     return None;
                 }
                 let param_ids = simple_param_ids(cparams, by_id)?;
-                let filtered = filter_ctor_body(cbody);
+                let filtered = if parent_idx.is_some() {
+                    filter_derived_ctor_body(cbody)
+                } else {
+                    filter_ctor_body(cbody)
+                };
                 if !method_body_ok(&filtered, by_id) {
                     return None;
                 }
@@ -184,6 +212,7 @@ fn try_extract_class(
                     idx,
                     params: param_ids,
                     body: filtered,
+                    parent_ctor_fn_idx,
                 });
                 ctor_local = Some(*local);
                 ctor_fn_idx = Some(idx);
@@ -201,11 +230,9 @@ fn try_extract_class(
                     ..
                 },
             } if is_object_define_property(def_callee) && def_args.len() == 3 => {
-                // name / prototype on the ctor itself — skip.
                 if is_define_on_ctor(def_args, ctor_local?) {
                     continue;
                 }
-                // Method install on ctor.prototype.
                 if !is_define_on_proto(def_args, ctor_local?) {
                     return None;
                 }
@@ -237,9 +264,18 @@ fn try_extract_class(
                     idx,
                     params: param_ids,
                     body: filtered,
+                    parent_ctor_fn_idx: None,
                 });
                 methods.push((key, idx));
             }
+            // Derived: Object.setPrototypeOf(ctor.prototype, sproto) / setPrototypeOf(ctor, super)
+            Stmt::Expr {
+                expr: Expr::Call {
+                    callee: sp_callee,
+                    args: sp_args,
+                    ..
+                },
+            } if is_object_set_prototype_of(sp_callee) && sp_args.len() == 2 => {}
             Stmt::Return {
                 value: Some(Expr::Local { id, .. }),
             } if Some(*id) == ctor_local => {}
@@ -250,7 +286,24 @@ fn try_extract_class(
     Some(ClassInfo {
         ctor_fn_idx: ctor_fn_idx?,
         methods,
+        parent: parent_idx,
     })
+}
+
+fn is_object_set_prototype_of(callee: &Expr) -> bool {
+    let Expr::Member {
+        object, property, ..
+    } = callee
+    else {
+        return false;
+    };
+    matches!(
+        (object.as_ref(), property.as_ref()),
+        (
+            Expr::IdentName { name, .. },
+            Expr::String { value, .. }
+        ) if name == "Object" && value.to_string_lossy() == "setPrototypeOf"
+    )
 }
 
 fn is_object_define_property(callee: &Expr) -> bool {
@@ -404,6 +457,157 @@ fn filter_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
         .collect()
 }
 
+/// Collapse derived-ctor IR (this-TDZ + Reflect.construct super IIFE) into:
+/// `super(args…); this.prop = …;`
+fn filter_derived_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
+    let mut out = Vec::new();
+    collect_derived_ctor_stmts(body, &mut out);
+    out
+}
+
+fn collect_derived_ctor_stmts(body: &[Stmt], out: &mut Vec<Stmt>) {
+    for stmt in body {
+        match stmt {
+            Stmt::Expr {
+                expr: Expr::String { value, .. },
+            } if value.to_string_lossy() == "use strict" => {}
+            Stmt::If { .. } | Stmt::Declare { .. } | Stmt::Return { .. } => {}
+            Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
+            Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
+            other => collect_derived_ctor_stmts_one(other, out),
+        }
+    }
+}
+
+fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
+    match stmt {
+        Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
+        Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
+        Stmt::Expr {
+            expr:
+                Expr::Call {
+                    callee,
+                    args,
+                    optional,
+                    ty,
+                },
+        } if !*optional && is_super_call_iife(callee) => {
+            let super_args: Vec<Arg> = args
+                .iter()
+                .filter_map(|a| match a {
+                    Arg::Expr(e) => Some(Arg::Expr(e.clone())),
+                    Arg::Spread(_) => None,
+                })
+                .collect();
+            if super_args.len() != args.len() {
+                return;
+            }
+            out.push(Stmt::Expr {
+                expr: Expr::Call {
+                    callee: Box::new(Expr::Super { ty: Type::Any }),
+                    args: super_args,
+                    optional: false,
+                    ty: ty.clone(),
+                },
+            });
+        }
+        Stmt::Expr {
+            expr:
+                Expr::Assign {
+                    target:
+                        AssignTarget::Member {
+                            object: _,
+                            property,
+                            computed,
+                        },
+                    op: AssignOp::Eq,
+                    value,
+                    ty,
+                },
+        } if matches!(property.as_ref(), Expr::String { .. }) => {
+            out.push(Stmt::Expr {
+                expr: Expr::Assign {
+                    target: AssignTarget::Member {
+                        object: Box::new(Expr::This { ty: Type::Any }),
+                        property: property.clone(),
+                        computed: *computed,
+                    },
+                    op: AssignOp::Eq,
+                    value: value.clone(),
+                    ty: ty.clone(),
+                },
+            });
+        }
+        _ => {}
+    }
+}
+
+fn is_super_call_iife(callee: &Expr) -> bool {
+    let Expr::Function {
+        body,
+        is_arrow: true,
+        ..
+    } = callee
+    else {
+        return false;
+    };
+    body.iter().any(stmt_has_reflect_construct)
+}
+
+fn stmt_has_reflect_construct(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Declare {
+            init: Some(expr), ..
+        }
+        | Stmt::Expr { expr }
+        | Stmt::Return { value: Some(expr) } => expr_has_reflect_construct(expr),
+        Stmt::Block { body } => body.iter().any(stmt_has_reflect_construct),
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            stmt_has_reflect_construct(consequent)
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_has_reflect_construct(a))
+        }
+        _ => false,
+    }
+}
+
+fn expr_has_reflect_construct(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { callee, .. } => {
+            if is_reflect_construct(callee) {
+                return true;
+            }
+            expr_has_reflect_construct(callee)
+        }
+        Expr::Member {
+            object, property, ..
+        } => expr_has_reflect_construct(object) || expr_has_reflect_construct(property),
+        Expr::Assign { value, .. } => expr_has_reflect_construct(value),
+        _ => false,
+    }
+}
+
+fn is_reflect_construct(callee: &Expr) -> bool {
+    let Expr::Member {
+        object, property, ..
+    } = callee
+    else {
+        return false;
+    };
+    matches!(
+        (object.as_ref(), property.as_ref()),
+        (
+            Expr::IdentName { name, .. },
+            Expr::String { value, .. }
+        ) if name == "Reflect" && value.to_string_lossy() == "construct"
+    )
+}
+
 fn filter_method_body(body: &[Stmt]) -> Vec<Stmt> {
     body.iter()
         .filter(|s| {
@@ -447,6 +651,18 @@ fn method_stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
         Stmt::Return { value: None } => true,
         Stmt::Return { value: Some(e) } => number_expr_ok_method(e, by_id),
         Stmt::Block { body } => body.iter().all(|s| method_stmt_ok(s, by_id)),
+        Stmt::Expr {
+            expr:
+                Expr::Call {
+                    callee: c,
+                    args,
+                    optional,
+                    ..
+                },
+        } if matches!(c.as_ref(), Expr::Super { .. }) && !*optional => args.iter().all(|a| match a {
+            Arg::Expr(e) => number_expr_ok_method(e, by_id),
+            Arg::Spread(_) => false,
+        }),
         Stmt::Expr {
             expr:
                 Expr::Assign {
@@ -687,6 +903,9 @@ struct Emitter<'a> {
     slot_of: HashMap<LocalId, SlotTy>,
     param_allocas: HashMap<LocalId, String>,
     this_ssa: Option<String>,
+    active_parent_ctor: Option<usize>,
+    /// Class binding local id for each class index (for parent ctor object load).
+    class_binding: HashMap<usize, LocalId>,
     str_globals: Vec<(String, String)>,
     tmp: usize,
     str_n: usize,
@@ -694,6 +913,10 @@ struct Emitter<'a> {
 
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
+        let mut class_binding = HashMap::new();
+        for (id, idx) in &info.class_of {
+            class_binding.insert(*idx, *id);
+        }
         Self {
             module,
             info,
@@ -703,6 +926,8 @@ impl<'a> Emitter<'a> {
             slot_of: HashMap::new(),
             param_allocas: HashMap::new(),
             this_ssa: None,
+            active_parent_ctor: None,
+            class_binding,
             str_globals: Vec::new(),
             tmp: 0,
             str_n: 0,
@@ -726,7 +951,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.05.01 ES class decl via Runtime ABI)"
+            "; Draconic LLVM backend (N08.05 ES class decl/heritage via Runtime ABI)"
         )
         .ok();
         writeln!(
@@ -819,8 +1044,10 @@ impl<'a> Emitter<'a> {
         let saved_this = self.this_ssa.take();
         let saved_params = std::mem::take(&mut self.param_allocas);
         let saved_allocas = std::mem::take(&mut self.allocas);
+        let saved_parent = self.active_parent_ctor.take();
 
         self.this_ssa = Some("%this".to_string());
+        self.active_parent_ctor = f.parent_ctor_fn_idx;
         for (i, pid) in f.params.iter().enumerate() {
             let ptr = format!("%p{}", pid.0);
             writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
@@ -851,6 +1078,7 @@ impl<'a> Emitter<'a> {
         self.this_ssa = saved_this;
         self.param_allocas = saved_params;
         self.allocas = saved_allocas;
+        self.active_parent_ctor = saved_parent;
         Ok(())
     }
 
@@ -875,9 +1103,62 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Stmt::Expr {
+                expr:
+                    Expr::Call {
+                        callee,
+                        args,
+                        optional,
+                        ..
+                    },
+            } if matches!(callee.as_ref(), Expr::Super { .. }) => {
+                if *optional {
+                    return Err(diag("es_classes: optional super call"));
+                }
+                self.emit_super_call(args)?;
+                Ok(())
+            }
             Stmt::Expr { expr } => self.emit_side_effect_expr(expr),
             _ => Err(diag("es_classes: unsupported method stmt")),
         }
+    }
+
+    fn emit_super_call(&mut self, args: &[Arg]) -> Result<(), Diagnostic> {
+        let parent = self
+            .active_parent_ctor
+            .ok_or_else(|| diag("es_classes: super() outside derived ctor"))?;
+        let this = self
+            .this_ssa
+            .clone()
+            .ok_or_else(|| diag("es_classes: super() without this"))?;
+        let mut arg_vals = Vec::new();
+        for a in args {
+            match a {
+                Arg::Expr(e) => arg_vals.push(self.emit_number_expr(e)?),
+                Arg::Spread(_) => {
+                    return Err(diag("es_classes: spread super args not supported"));
+                }
+            }
+        }
+        while arg_vals.len() < MAX_METHOD_ARGS {
+            arg_vals.push("0.00000000000000000e+00".to_string());
+        }
+        let mut call_args = format!("ptr {this}");
+        for v in &arg_vals {
+            write!(call_args, ", double {v}").ok();
+        }
+        let mut ty_params = String::from("ptr");
+        for _ in 0..MAX_METHOD_ARGS {
+            ty_params.push_str(", double");
+        }
+        let ret = self.fresh();
+        writeln!(
+            self.body,
+            "  {ret} = call double ({ty_params}) @m_fn_{parent}({call_args})"
+        )
+        .ok();
+        let _ = ret;
+        Ok(())
     }
 
     fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
@@ -914,7 +1195,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_class_ctor(&mut self, class_idx: usize) -> Result<String, Diagnostic> {
-        let cls = &self.info.classes[class_idx];
+        let cls = self.info.classes[class_idx].clone();
         let ctor = self.fresh();
         writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&ctor, "")).ok();
         let proto = self.fresh();
@@ -926,7 +1207,33 @@ impl<'a> Emitter<'a> {
             OBJECT_SET.call(&format!("ptr {ctor}, ptr {key}, ptr {proto}"))
         )
         .ok();
-        for (name, fn_idx) in &cls.methods.clone() {
+        if let Some(parent_idx) = cls.parent {
+            let parent_binding = *self
+                .class_binding
+                .get(&parent_idx)
+                .ok_or_else(|| diag("es_classes: parent class binding missing"))?;
+            let parent_ptr = self
+                .allocas
+                .get(&parent_binding)
+                .cloned()
+                .ok_or_else(|| diag("es_classes: parent class alloca missing"))?;
+            let parent_ctor = self.fresh();
+            writeln!(self.body, "  {parent_ctor} = load ptr, ptr {parent_ptr}").ok();
+            let parent_proto = self.fresh();
+            writeln!(
+                self.body,
+                "  {}",
+                OBJECT_GET.call_to(&parent_proto, &format!("ptr {parent_ctor}, ptr {key}"))
+            )
+            .ok();
+            writeln!(
+                self.body,
+                "  {}",
+                OBJECT_SET_PROTO.call(&format!("ptr {proto}, ptr {parent_proto}"))
+            )
+            .ok();
+        }
+        for (name, fn_idx) in &cls.methods {
             let mkey = self.string_const(name)?;
             let fptr = format!("@m_fn_{fn_idx}");
             writeln!(
@@ -1322,3 +1629,4 @@ fn escape_llvm_string(s: &str) -> String {
 fn diag(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(message, Span::dummy())
 }
+
