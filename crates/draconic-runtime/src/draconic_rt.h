@@ -18,6 +18,13 @@ void draconic_rt_print_bool(int8_t v);
 /* Print a NUL-terminated C string + newline (N06.03 observations). */
 void draconic_rt_print_str(const char *s);
 
+/* --- C-string helpers for ES expr native observations (N08.02.08 for-in/of) ---
+   Results are malloc-owned NUL-terminated C strings (leaked OK for short tests). */
+size_t draconic_rt_cstr_len(const char *s);
+char *draconic_rt_cstr_concat(const char *a, const char *b);
+char *draconic_rt_cstr_from_u64(uint64_t n);
+char *draconic_rt_cstr_from_code_unit(const char *s, size_t index);
+
 /* --- GC heap for JS values --- */
 typedef struct DraconicValue DraconicValue;
 

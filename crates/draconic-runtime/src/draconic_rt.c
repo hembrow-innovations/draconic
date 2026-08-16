@@ -37,6 +37,52 @@ void draconic_rt_print_str(const char *s) {
     puts(s);
 }
 
+/* N08.02.08: C-string helpers for for-in/of over strings + concat observations. */
+size_t draconic_rt_cstr_len(const char *s) {
+    return s ? strlen(s) : 0;
+}
+
+char *draconic_rt_cstr_concat(const char *a, const char *b) {
+    size_t la = a ? strlen(a) : 0;
+    size_t lb = b ? strlen(b) : 0;
+    char *out = (char *)malloc(la + lb + 1);
+    if (!out) {
+        abort();
+    }
+    if (la) {
+        memcpy(out, a, la);
+    }
+    if (lb) {
+        memcpy(out + la, b, lb);
+    }
+    out[la + lb] = '\0';
+    return out;
+}
+
+char *draconic_rt_cstr_from_u64(uint64_t n) {
+    char buf[32];
+    int len = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)n);
+    if (len < 0) {
+        abort();
+    }
+    char *out = (char *)malloc((size_t)len + 1);
+    if (!out) {
+        abort();
+    }
+    memcpy(out, buf, (size_t)len + 1);
+    return out;
+}
+
+char *draconic_rt_cstr_from_code_unit(const char *s, size_t index) {
+    char *out = (char *)malloc(2);
+    if (!out) {
+        abort();
+    }
+    out[0] = (s != NULL) ? s[index] : '\0';
+    out[1] = '\0';
+    return out;
+}
+
 /* --- GC hello (B09): tracing heap for JS strings and objects --- */
 
 typedef enum {

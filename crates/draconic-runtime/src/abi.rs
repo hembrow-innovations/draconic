@@ -86,6 +86,29 @@ pub const PRINT_STR: AbiFn = AbiFn {
     params: "ptr",
 };
 
+// --- C-string helpers (N08.02.08 for-in/of + string concat observations) ---
+
+pub const CSTR_LEN: AbiFn = AbiFn {
+    symbol: "draconic_rt_cstr_len",
+    ret: "i64",
+    params: "ptr",
+};
+pub const CSTR_CONCAT: AbiFn = AbiFn {
+    symbol: "draconic_rt_cstr_concat",
+    ret: "ptr",
+    params: "ptr, ptr",
+};
+pub const CSTR_FROM_U64: AbiFn = AbiFn {
+    symbol: "draconic_rt_cstr_from_u64",
+    ret: "ptr",
+    params: "i64",
+};
+pub const CSTR_FROM_CODE_UNIT: AbiFn = AbiFn {
+    symbol: "draconic_rt_cstr_from_code_unit",
+    ret: "ptr",
+    params: "ptr, i64",
+};
+
 // --- GC ---
 
 pub const GC_INIT: AbiFn = AbiFn {
@@ -376,8 +399,16 @@ pub const NATIVE_INT_DECLARES: &[AbiFn] = &[PRINT_I64, PRINT_U64, PRINT_F64, PRI
 /// Declares used by the eval/Function observation emitter.
 pub const ES_EVAL_DECLARES: &[AbiFn] = &[GC_INIT, PRINT_I64, PRINT_BOOL, PRINT_STR];
 
-/// Declares used by the ES expression observation emitter (N08.01.*).
-pub const ES_EXPR_DECLARES: &[AbiFn] = &[PRINT_F64, PRINT_BOOL, PRINT_STR];
+/// Declares used by the ES expression observation emitter (N08.01.* / N08.02.*).
+pub const ES_EXPR_DECLARES: &[AbiFn] = &[
+    PRINT_F64,
+    PRINT_BOOL,
+    PRINT_STR,
+    CSTR_LEN,
+    CSTR_CONCAT,
+    CSTR_FROM_U64,
+    CSTR_FROM_CODE_UNIT,
+];
 
 /// Declares used by the Promise/async emitter.
 pub const ES_PROMISE_DECLARES: &[AbiFn] = &[

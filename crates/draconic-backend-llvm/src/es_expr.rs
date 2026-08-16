@@ -1,6 +1,6 @@
-//! N08.01 + N08.02.01–N08.02.07: emit native observations for ES expression Programs,
-//! `if`/`else`, `while`, `do`/`while`, `for`, `break`/`continue` (incl. labeled), `switch`,
-//! and labeled statements
+//! N08.01 + N08.02.01–N08.02.08: emit native observations for ES expression Programs,
+//! `if`/`else`, `while`, `do`/`while`, `for`, `for-in`/`for-of` (strings), `break`/`continue`
+//! (incl. labeled), `switch`, and labeled statements
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
 //! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
@@ -11,7 +11,8 @@
 //! E02.04 `for` loops (`for (init; test; update)`; `let` init; omitted clauses; block bodies),
 //! E02.05 unlabeled `break` / `continue` in loops,
 //! E02.06 `switch` / `case` / `default` (number discriminant; fall-through; unlabeled `break`),
-//! E02.07 labeled statements + labeled `break` / `continue`.
+//! E02.07 labeled statements + labeled `break` / `continue`,
+//! E02.08 `for-in` / `for-of` over strings (`let`/assign binding; string concat `+`).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -20,16 +21,20 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp, UpdateOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
-use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
+use draconic_runtime::abi::{
+    llvm_declares, CSTR_CONCAT, CSTR_FROM_CODE_UNIT, CSTR_FROM_U64, CSTR_LEN, ES_EXPR_DECLARES,
+    PRINT_BOOL, PRINT_F64, PRINT_STR,
+};
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.07 / N08.01.* / N08.02.01–N08.02.07):
-/// top-level `let` declares over JS numbers, booleans, strings, and/or undefined (`void`) with
-/// arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical,
-/// bitwise, exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`,
-/// comma, grouping, local refs, `if`/`else`, `while`, `do`/`while`, `for` (incl. `let` init;
-/// block or expression bodies), `break`/`continue` (unlabeled or labeled) in loops, labeled
-/// statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
+/// (E01.* / E02.01–E02.08 / N08.01.* / N08.02.01–N08.02.08):
+/// top-level `let` declares over JS numbers, booleans, strings, undefined (`void`), and/or
+/// untyped `any` string slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
+/// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
+/// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`,
+/// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let` init; block or expression bodies),
+/// `for-in`/`for-of` over strings (`let`/assign left), `break`/`continue` (unlabeled or labeled),
+/// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
 /// fall-through; unlabeled `break`).
 /// Expression statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
@@ -98,6 +103,15 @@ fn slot_for_declare(
             }
             Some(SlotTy::Undefined)
         }
+        // Untyped / for-in-of bindings hold string values in this subset (N08.02.08).
+        Type::Any => {
+            if let Some(init) = init {
+                if !expr_is_string_subset(init, by_id) {
+                    return None;
+                }
+            }
+            Some(SlotTy::String)
+        }
         _ => None,
     }
 }
@@ -122,6 +136,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             | Stmt::While { .. }
             | Stmt::DoWhile { .. }
             | Stmt::For { .. }
+            | Stmt::ForIn { .. }
+            | Stmt::ForOf { .. }
             | Stmt::Switch { .. }
             | Stmt::Labeled { .. } => {
                 if !stmt_is_subset(stmt, &by_id) {
@@ -141,7 +157,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     })
 }
 
-/// Collect `for (let x = …)` locals into alloc slots (not observation prints).
+/// Collect `for (let x = …)` / `for (let k in/of …)` locals into alloc slots (not prints).
 fn collect_for_init_allocs(
     stmt: &Stmt,
     by_id: &HashMap<LocalId, &Local>,
@@ -159,6 +175,17 @@ fn collect_for_init_allocs(
                 } else {
                     collect_for_init_allocs(i, by_id, alloc_locals, seen)?;
                 }
+            }
+            collect_for_init_allocs(body, by_id, alloc_locals, seen)
+        }
+        Stmt::ForIn { left, body, .. } | Stmt::ForOf { left, body, .. } => {
+            if let Stmt::Declare { local, init, .. } = left.as_ref() {
+                let slot = slot_for_declare(*local, init, by_id)?;
+                if seen.insert(*local) {
+                    alloc_locals.push((*local, slot));
+                }
+            } else {
+                collect_for_init_allocs(left, by_id, alloc_locals, seen)?;
             }
             collect_for_init_allocs(body, by_id, alloc_locals, seen)
         }
@@ -195,11 +222,11 @@ fn collect_for_init_allocs(
     }
 }
 
-/// Nested statement subset for `if`/`else`/`while`/`do`/`while`/`for`/`switch`/labeled bodies
-/// and blocks.
-/// `for` init may introduce a nested `let` (number/boolean/string/undefined).
+/// Nested statement subset for control-flow bodies and blocks.
+/// `for` / `for-in` / `for-of` may introduce nested `let` bindings.
 /// Labeled statements + labeled/unlabeled `break`/`continue` (N08.02.07).
-/// `switch` discriminant and case tests are number subset only (this Loop).
+/// `for-in`/`for-of` iterate strings only this Loop (N08.02.08).
+/// `switch` discriminant and case tests are number subset only.
 fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
         Stmt::Expr { expr } => match expr.ty() {
@@ -207,6 +234,11 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             Type::Boolean => expr_is_boolean_subset(expr, by_id),
             Type::String => expr_is_string_subset(expr, by_id),
             Type::Null => expr_is_undefined_subset(expr, by_id),
+            // Assignment-form for-in/of left: bare local ref.
+            Type::Any => matches!(
+                expr,
+                Expr::Local { id, .. } if by_id.get(id).is_some_and(|l| l.ty == Type::Any)
+            ),
             _ => false,
         },
         Stmt::Block { body } => body.iter().all(|s| stmt_is_subset(s, by_id)),
@@ -257,6 +289,22 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
                 .unwrap_or(true);
             init_ok && test_ok && update_ok && stmt_is_subset(body, by_id)
         }
+        Stmt::ForIn { left, right, body } => {
+            for_in_of_left_ok(left, by_id)
+                && expr_is_string_subset(right, by_id)
+                && stmt_is_subset(body, by_id)
+        }
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            is_await,
+        } => {
+            !*is_await
+                && for_in_of_left_ok(left, by_id)
+                && expr_is_string_subset(right, by_id)
+                && stmt_is_subset(body, by_id)
+        }
         Stmt::Switch {
             discriminant,
             cases,
@@ -279,6 +327,19 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     }
 }
 
+fn for_in_of_left_ok(left: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match left {
+        Stmt::Declare { local, init, .. } => slot_for_declare(*local, init, by_id).is_some(),
+        Stmt::Expr {
+            expr: Expr::Local { id, ty },
+        } => {
+            (*ty == Type::Any || *ty == Type::String)
+                && by_id.get(id).is_some_and(|l| l.ty == *ty || l.ty == Type::Any)
+        }
+        _ => false,
+    }
+}
+
 /// Operand of `typeof` / `void` / `delete` in the supported subset.
 fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
@@ -287,8 +348,10 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
         Expr::Boolean { ty, .. } => *ty == Type::Boolean,
         Expr::Null { ty } => *ty == Type::Null,
         Expr::Local { id, ty } => {
-            matches!(ty, Type::Number | Type::String | Type::Boolean | Type::Null)
-                && by_id.get(id).is_some_and(|l| l.ty == *ty)
+            matches!(
+                ty,
+                Type::Number | Type::String | Type::Boolean | Type::Null | Type::Any
+            ) && by_id.get(id).is_some_and(|l| l.ty == *ty)
         }
         e if expr_is_number_subset(e, by_id) => true,
         e if expr_is_boolean_subset(e, by_id) => true,
@@ -302,7 +365,11 @@ fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
     match expr {
         Expr::String { ty, .. } => *ty == Type::String,
         Expr::Local { id, ty } => {
-            *ty == Type::String && by_id.get(id).is_some_and(|l| l.ty == Type::String)
+            (*ty == Type::String
+                && by_id
+                    .get(id)
+                    .is_some_and(|l| l.ty == Type::String || l.ty == Type::Any))
+                || (*ty == Type::Any && by_id.get(id).is_some_and(|l| l.ty == Type::Any))
         }
         Expr::Unary { op, arg, ty } => {
             *ty == Type::String
@@ -316,9 +383,16 @@ fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
             ty,
         } => {
             *ty == Type::String
-                && matches!(op, BinaryOp::Comma)
-                && expr_is_unary_keyword_arg(left, by_id)
-                && expr_is_string_subset(right, by_id)
+                && match op {
+                    BinaryOp::Comma => {
+                        expr_is_unary_keyword_arg(left, by_id) && expr_is_string_subset(right, by_id)
+                    }
+                    // String concat (N08.02.08 / supporting for-in-of fixtures).
+                    BinaryOp::Add => {
+                        expr_is_string_operand(left, by_id) && expr_is_string_operand(right, by_id)
+                    }
+                    _ => false,
+                }
         }
         Expr::Assign {
             target,
@@ -328,10 +402,25 @@ fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         } => {
             *ty == Type::String
                 && matches!(op, AssignOp::Eq)
-                && matches!(target, AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::String))
+                && matches!(
+                    target,
+                    AssignTarget::Local(id)
+                        if by_id.get(id).is_some_and(|l| {
+                            l.ty == Type::String || l.ty == Type::Any
+                        })
+                )
                 && expr_is_string_subset(value, by_id)
         }
         _ => false,
+    }
+}
+
+fn expr_is_string_operand(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::Local { id, ty } if *ty == Type::Any => {
+            by_id.get(id).is_some_and(|l| l.ty == Type::Any)
+        }
+        e => expr_is_string_subset(e, by_id),
     }
 }
 
@@ -661,7 +750,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.07 ES expressions + if/else/while/do-while/for/break/continue/switch/labeled via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.08 ES expressions + if/else/while/do-while/for/for-in/for-of/break/continue/switch/labeled via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -714,7 +803,12 @@ impl<'a> Emitter<'a> {
                     (SlotTy::Undefined, Some(init)) => {
                         self.emit_undefined_expr(init)?;
                     }
-                    // Uninitialized `let` — leave alloca undef until assigned.
+                    // Uninitialized string `let` (incl. any) — empty C string until assigned.
+                    (SlotTy::String, None) => {
+                        let v = self.string_const("")?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    }
+                    // Uninitialized number/bool/undefined — leave alloca undef until assigned.
                     (_, None) => {}
                 }
                 Ok(())
@@ -945,10 +1039,26 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "{end}:").ok();
                 Ok(())
             }
+            Stmt::ForIn { left, right, body } => {
+                self.emit_for_in_of(left, right, body, /* is_of */ false)
+            }
+            Stmt::ForOf {
+                left,
+                right,
+                body,
+                is_await,
+            } => {
+                if *is_await {
+                    return Err(diag("internal: for-await-of not in es_expr subset"));
+                }
+                self.emit_for_in_of(left, right, body, /* is_of */ true)
+            }
             Stmt::Labeled { label, body } => match body.as_ref() {
                 Stmt::While { .. }
                 | Stmt::DoWhile { .. }
                 | Stmt::For { .. }
+                | Stmt::ForIn { .. }
+                | Stmt::ForOf { .. }
                 | Stmt::Switch { .. }
                 | Stmt::Labeled { .. } => {
                     self.pending_names.push(label.clone());
@@ -1017,6 +1127,110 @@ impl<'a> Emitter<'a> {
             }
             _ => Err(diag("internal: unsupported stmt in es_expr module")),
         }
+    }
+
+    /// `for (let k in s)` / `for (let c of s)` over strings (N08.02.08).
+    fn emit_for_in_of(
+        &mut self,
+        left: &Stmt,
+        right: &Expr,
+        body: &Stmt,
+        is_of: bool,
+    ) -> Result<(), Diagnostic> {
+        let names = std::mem::take(&mut self.pending_names);
+        // Ensure for-in/of `let` binding has an alloca (also collected in classify).
+        if let Stmt::Declare { local, init, .. } = left {
+            if init.is_some() {
+                return Err(diag("internal: for-in/of left declare must not have init"));
+            }
+            if !self.allocas.contains_key(local) {
+                let ptr = format!("%l{}", local.0);
+                writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+                self.allocas.insert(*local, (ptr, SlotTy::String));
+            }
+        }
+        let s = self.emit_string_expr(right)?;
+        let idx_ptr = self.fresh();
+        writeln!(self.body, "  {idx_ptr} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 0, ptr {idx_ptr}").ok();
+        let head = self.fresh_label(if is_of { "forof_head" } else { "forin_head" });
+        let bod = self.fresh_label(if is_of { "forof_body" } else { "forin_body" });
+        let cont = self.fresh_label(if is_of { "forof_cont" } else { "forin_cont" });
+        let end = self.fresh_label(if is_of { "forof_end" } else { "forin_end" });
+        writeln!(self.body, "  br label %{head}").ok();
+        writeln!(self.body, "{head}:").ok();
+        let idx = self.fresh();
+        writeln!(self.body, "  {idx} = load i64, ptr {idx_ptr}").ok();
+        let len = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            CSTR_LEN.call_to(&len, &format!("ptr {s}"))
+        )
+        .ok();
+        let cmp = self.fresh();
+        writeln!(self.body, "  {cmp} = icmp ult i64 {idx}, {len}").ok();
+        writeln!(self.body, "  br i1 {cmp}, label %{bod}, label %{end}").ok();
+        writeln!(self.body, "{bod}:").ok();
+        let bound = if is_of {
+            let ch = self.fresh();
+            writeln!(
+                self.body,
+                "  {}",
+                CSTR_FROM_CODE_UNIT.call_to(&ch, &format!("ptr {s}, i64 {idx}"))
+            )
+            .ok();
+            ch
+        } else {
+            let key = self.fresh();
+            writeln!(
+                self.body,
+                "  {}",
+                CSTR_FROM_U64.call_to(&key, &format!("i64 {idx}"))
+            )
+            .ok();
+            key
+        };
+        self.store_for_in_of_left(left, &bound)?;
+        self.ctrls.push(CtrlFrame {
+            names,
+            break_label: end.clone(),
+            continue_label: Some(cont.clone()),
+        });
+        self.emit_stmt(body)?;
+        self.ctrls.pop();
+        if !self.body_ends_with_terminator() {
+            writeln!(self.body, "  br label %{cont}").ok();
+        }
+        writeln!(self.body, "{cont}:").ok();
+        let idx2 = self.fresh();
+        writeln!(self.body, "  {idx2} = load i64, ptr {idx_ptr}").ok();
+        let next = self.fresh();
+        writeln!(self.body, "  {next} = add i64 {idx2}, 1").ok();
+        writeln!(self.body, "  store i64 {next}, ptr {idx_ptr}").ok();
+        writeln!(self.body, "  br label %{head}").ok();
+        writeln!(self.body, "{end}:").ok();
+        Ok(())
+    }
+
+    fn store_for_in_of_left(&mut self, left: &Stmt, value: &str) -> Result<(), Diagnostic> {
+        let id = match left {
+            Stmt::Declare { local, .. } => *local,
+            Stmt::Expr {
+                expr: Expr::Local { id, .. },
+            } => *id,
+            _ => return Err(diag("internal: unsupported for-in/of left")),
+        };
+        let (ptr, slot) = self
+            .allocas
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| diag(format!("internal: unallocated for-in/of left %{}", id.0)))?;
+        if slot != SlotTy::String {
+            return Err(diag("internal: for-in/of left must be string slot"));
+        }
+        writeln!(self.body, "  store ptr {value}, ptr {ptr}").ok();
+        Ok(())
     }
 
     fn string_const(&mut self, s: &str) -> Result<String, Diagnostic> {
@@ -1097,9 +1311,9 @@ impl<'a> Emitter<'a> {
             Expr::String { .. } => Some("string"),
             Expr::Boolean { .. } => Some("boolean"),
             Expr::Null { .. } => Some("object"),
-            Expr::Local { id, .. } => match slot_of.get(id)? {
+            Expr::Local { id, .. } =>             match slot_of.get(id)? {
                 SlotTy::Number => Some("number"),
-                SlotTy::String => Some("string"),
+                SlotTy::String => Some("string"), // includes untyped any string slots
                 SlotTy::Boolean => Some("boolean"),
                 SlotTy::Undefined => Some("undefined"),
             },
@@ -1159,6 +1373,23 @@ impl<'a> Emitter<'a> {
                 self.emit_discard_arg(left)?;
                 self.emit_string_expr(right)
             }
+            Expr::Binary {
+                left,
+                op: BinaryOp::Add,
+                right,
+                ..
+            } => {
+                let l = self.emit_string_operand(left)?;
+                let r = self.emit_string_operand(right)?;
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    CSTR_CONCAT.call_to(&t, &format!("ptr {l}, ptr {r}"))
+                )
+                .ok();
+                Ok(t)
+            }
             Expr::Assign {
                 target,
                 op,
@@ -1184,6 +1415,26 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             _ => Err(diag("internal: unsupported string expr in es_expr module")),
+        }
+    }
+
+    /// String-producing operand for concat (string subset or `any` string slot).
+    fn emit_string_operand(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Local { id, ty: Type::Any } => {
+                let (ptr, slot) = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag(format!("internal: unallocated any local %{}", id.0)))?;
+                if slot != SlotTy::String {
+                    return Err(diag("internal: expected string slot for any local"));
+                }
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+                Ok(t)
+            }
+            e => self.emit_string_expr(e),
         }
     }
 

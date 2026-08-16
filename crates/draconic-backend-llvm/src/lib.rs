@@ -49,6 +49,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   unlabeled `break`) via Runtime prints — N08.02.06
 /// - **Labeled statements** + labeled `break` / `continue` via Runtime prints —
 ///   N08.02.07
+/// - **`for-in` / `for-of`** over strings (`let`/assign binding; string concat)
+///   via Runtime prints — N08.02.08
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -81,7 +83,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/break/continue/switch/labeled), empty hello)",
+          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), empty hello)",
         Span::dummy(),
     )
 }
@@ -197,6 +199,7 @@ mod tests {
     fn module_of(src: &str) -> Module {
         compile_source(src).expect("compile")
     }
+
 
     #[test]
     fn empty_program_emits_runtime_hello() {
@@ -961,6 +964,43 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "1\n5\n4\n1\n1\n2\n1\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_for_in_of_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/statements/for_in_of.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "for_in_of fixture must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("forin_") || ir.contains("forof_"),
+            "should lower for-in/for-of loops:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_cstr_concat")
+                && ir.contains("draconic_rt_cstr_from_u64")
+                && ir.contains("draconic_rt_cstr_from_code_unit"),
+            "should use cstr helpers:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-for-in-of").expect("workdir");
+        let bin = dir.join("for_in_of");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "ab\n01\nab\nx\n0\nx\nyz\nz\n01\n1\n2\n2\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
