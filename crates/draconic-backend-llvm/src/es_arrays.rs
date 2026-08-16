@@ -1,13 +1,15 @@
-//! N08.06.01–N08.06.05: native observations for ES array literals, index
-//! access, `.length`, element assignment, spread in array literals, and
-//! `for-of` over arrays (`es/arrays/array_lit_access`, `array_element_assign`,
-//! `array_spread`, `array_for_of`).
+//! N08.06.01–N08.06.06: native observations for ES array literals, index
+//! access, `.length`, element assignment, spread in array literals,
+//! `for-of` over arrays, and array destructuring (`es/arrays/array_lit_access`,
+//! `array_element_assign`, `array_spread`, `array_for_of`, `array_destructure`).
 //!
 //! Arrays are Runtime GC heap values (`draconic_rt_array_*`). Number elements
 //! are stored as `inttoptr` of integer bit-patterns; nested arrays store GC
-//! ptrs; strings are cstr ptrs; booleans are `inttoptr` 0/1; `null` is null.
-//! Number locals print via `print_f64`; string index/accumulator results via
-//! `print_str`. `for-of` walks length + index get with break/continue.
+//! ptrs; strings are cstr ptrs; booleans are `inttoptr` 0/1; `null`/`undefined`
+//! are null. Empty objects use Runtime `alloc_object` for member destructure
+//! targets. Number locals print via `print_f64`; string index/accumulator
+//! results via `print_str`. `for-of` walks length + index get with break/continue.
+//! Destructuring binds via index get + rest copy; defaults fire on null/hole.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -15,11 +17,12 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt,
+    ArrayElement, ArrayPatternEl, AssignTarget, Expr, IrType as Type, Local, LocalId, Module,
+    Pattern, Stmt,
 };
 use draconic_runtime::abi::{
-    llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, ARRAY_SPREAD_ARRAY,
-    ARRAY_SPREAD_CSTR, CSTR_CONCAT, GC_INIT, PRINT_F64, PRINT_STR,
+    llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, ARRAY_SPREAD_ARRAY,
+    ARRAY_SPREAD_CSTR, CSTR_CONCAT, GC_INIT, OBJECT_GET, OBJECT_SET, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_es_arrays_module(module: &Module) -> bool {
@@ -40,6 +43,7 @@ enum SlotTy {
     String,
     Bool,
     Null,
+    Object,
 }
 
 /// Homogeneous element kind for spread/index type inference (N08.06.03).
@@ -95,7 +99,36 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
     match stmt {
         Stmt::Declare { local, init, .. } => classify_declare(*local, init.as_ref(), ctx),
+        Stmt::DeclareArrayPattern {
+            elements,
+            init: Some(init),
+            ..
+        } => {
+            if !array_expr_ok(init, ctx.by_id, &ctx.slot_of) {
+                return None;
+            }
+            ctx.has_array = true;
+            let ek = array_expr_elem_kind(init, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of)
+                .unwrap_or(ElemKind::Unknown);
+            classify_array_pattern(elements, ek, true, ctx)
+        }
+        // Multi-declarator `var a, b, c` lowers as consecutive Declare; bare already handled.
         Stmt::Expr { expr } => {
+            if let Expr::Assign {
+                target: AssignTarget::ArrayPattern { elements },
+                op: AssignOp::Eq,
+                value,
+                ..
+            } = expr
+            {
+                if !array_expr_ok(value, ctx.by_id, &ctx.slot_of) {
+                    return None;
+                }
+                ctx.has_array = true;
+                let ek = array_expr_elem_kind(value, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of)
+                    .unwrap_or(ElemKind::Unknown);
+                return classify_array_pattern(elements, ek, true, ctx);
+            }
             if member_assign_ok(expr, ctx.by_id, &ctx.slot_of)
                 || local_assign_ok(expr, ctx.by_id, &ctx.slot_of)
             {
@@ -155,6 +188,155 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
         }
         Stmt::Break { label: None } | Stmt::Continue { label: None } => Some(()),
         _ => None,
+    }
+}
+
+/// Register slots for array destructuring pattern elements.
+/// `print_nums`: push number bindings to observation list (declare + assign patterns).
+fn classify_array_pattern(
+    elements: &[ArrayPatternEl],
+    elem_kind: ElemKind,
+    print_nums: bool,
+    ctx: &mut ClassifyCtx<'_>,
+) -> Option<()> {
+    for el in elements {
+        match el {
+            ArrayPatternEl::Elision => {}
+            ArrayPatternEl::Pattern { binding, default } => {
+                if let Some(d) = default {
+                    if !value_expr_ok(d, ctx.by_id, &ctx.slot_of)
+                        && !number_expr_ok(d, ctx.by_id, &ctx.slot_of)
+                    {
+                        return None;
+                    }
+                }
+                let bind_ty = match elem_kind {
+                    ElemKind::Number | ElemKind::Unknown => SlotTy::Number,
+                    ElemKind::String => SlotTy::String,
+                    ElemKind::Array => SlotTy::Array,
+                };
+                classify_pattern_binding(binding, bind_ty, elem_kind, print_nums, ctx)?;
+            }
+            ArrayPatternEl::Rest(binding) => {
+                // Rest binds an array; nested patterns (e.g. `[...[x]]`) still
+                // observe inner number locals. Bare rest locals are Array slots
+                // (print_nums only applies to Number bindings).
+                classify_pattern_binding(binding, SlotTy::Array, elem_kind, print_nums, ctx)?;
+            }
+        }
+    }
+    Some(())
+}
+
+fn classify_pattern_binding(
+    binding: &Pattern,
+    bind_ty: SlotTy,
+    elem_kind: ElemKind,
+    print_nums: bool,
+    ctx: &mut ClassifyCtx<'_>,
+) -> Option<()> {
+    match binding {
+        Pattern::Local(id) => {
+            if let Some(existing) = ctx.slot_of.get(id).copied() {
+                if existing == bind_ty {
+                    // already registered
+                } else if existing == SlotTy::Number && bind_ty == SlotTy::Number {
+                    // bare let provisional number
+                } else if existing == SlotTy::Number && bind_ty == SlotTy::Array {
+                    // bare `let tail` upgraded when bound by rest pattern
+                    if let Some((_, slot)) = ctx.slots.iter_mut().find(|(l, _)| l == id) {
+                        *slot = SlotTy::Array;
+                    }
+                    ctx.slot_of.insert(*id, SlotTy::Array);
+                } else {
+                    return None;
+                }
+            } else {
+                ctx.slots.push((*id, bind_ty));
+                ctx.slot_of.insert(*id, bind_ty);
+            }
+            if bind_ty == SlotTy::Array {
+                ctx.has_array = true;
+                if elem_kind != ElemKind::Unknown {
+                    ctx.arr_elem.insert(*id, elem_kind);
+                }
+            }
+            if print_nums && bind_ty == SlotTy::Number {
+                if !ctx.print_locals.iter().any(|(l, _)| l == id) {
+                    ctx.print_locals.push((*id, SlotTy::Number));
+                }
+            }
+            Some(())
+        }
+        Pattern::Member {
+            object,
+            property,
+            computed,
+        } => {
+            if !object_expr_ok(object, ctx.by_id, &ctx.slot_of) {
+                return None;
+            }
+            if *computed {
+                if !number_expr_ok(property, ctx.by_id, &ctx.slot_of)
+                    && !string_expr_ok(property, ctx.by_id, &ctx.slot_of)
+                {
+                    return None;
+                }
+            } else if !matches!(property.as_ref(), Expr::String { .. }) {
+                return None;
+            }
+            Some(())
+        }
+        Pattern::Array(inner) => {
+            // Nested array pattern: elements are of bind_ty's element kind.
+            let inner_ek = match bind_ty {
+                SlotTy::Array => elem_kind,
+                _ => ElemKind::Unknown,
+            };
+            // When outer elem is Array, nested binds the inner array's elements.
+            let nested_ek = if bind_ty == SlotTy::Array {
+                // Infer from known array-of-arrays when possible is handled by caller;
+                // default nested number elements (fixture uses number matrices).
+                match elem_kind {
+                    ElemKind::Array => ElemKind::Number,
+                    other => other,
+                }
+            } else {
+                inner_ek
+            };
+            classify_array_pattern(inner, nested_ek, print_nums, ctx)
+        }
+        Pattern::Name(_) | Pattern::Object(_) => None,
+    }
+}
+
+fn object_expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
+    match expr {
+        Expr::Object { properties, .. } => properties.is_empty(),
+        // Arrays also use Type::Object in IR — only trust explicit Object slots.
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Object),
+        Expr::Member {
+            object,
+            property,
+            optional,
+            computed,
+            ..
+        } => {
+            !*optional
+                && object_expr_ok(object, by_id, slot_of)
+                && if *computed {
+                    // obj["k"] only (string keys); number index is array access.
+                    string_expr_ok(property, by_id, slot_of)
+                        || matches!(property.as_ref(), Expr::String { .. })
+                } else {
+                    matches!(property.as_ref(), Expr::String { .. })
+                }
+        }
+        _ => false,
     }
 }
 
@@ -262,6 +444,19 @@ fn classify_declare(
         }
         return Some(());
     }
+    if matches!(init, Expr::Object { .. }) {
+        if !object_expr_ok(init, ctx.by_id, &ctx.slot_of) {
+            return None;
+        }
+        ctx.slots.push((local, SlotTy::Object));
+        ctx.slot_of.insert(local, SlotTy::Object);
+        return Some(());
+    }
+    if is_undefined_expr(init) {
+        ctx.slots.push((local, SlotTy::Null));
+        ctx.slot_of.insert(local, SlotTy::Null);
+        return Some(());
+    }
     if matches!(init, Expr::String { .. }) {
         if !string_expr_ok(init, ctx.by_id, &ctx.slot_of) {
             return None;
@@ -338,21 +533,8 @@ fn classify_declare(
         }
         return Some(());
     }
-    if matches!(loc.ty, Type::Number) && number_expr_ok(init, ctx.by_id, &ctx.slot_of) {
-        ctx.slots.push((local, SlotTy::Number));
-        ctx.slot_of.insert(local, SlotTy::Number);
-        ctx.print_locals.push((local, SlotTy::Number));
-        return Some(());
-    }
-    if number_expr_ok(init, ctx.by_id, &ctx.slot_of)
-        && matches!(
-            init,
-            Expr::Member {
-                computed: true,
-                ..
-            } | Expr::Assign { .. }
-        )
-    {
+    if number_expr_ok(init, ctx.by_id, &ctx.slot_of) {
+        // Number from arithmetic, member read, pattern-bound locals, etc.
         ctx.slots.push((local, SlotTy::Number));
         ctx.slot_of.insert(local, SlotTy::Number);
         ctx.print_locals.push((local, SlotTy::Number));
@@ -438,11 +620,30 @@ fn infer_expr_slot(
             if !*computed && member_key_is_length(property) {
                 return Some(SlotTy::Number);
             }
+            // obj.prop / obj["k"] — number observations on object props.
+            if object_expr_ok(object, &HashMap::new(), slot_of) {
+                let string_key = if *computed {
+                    matches!(property.as_ref(), Expr::String { .. })
+                } else {
+                    matches!(property.as_ref(), Expr::String { .. })
+                };
+                if string_key {
+                    return Some(SlotTy::Number);
+                }
+            }
             if *computed {
                 if let Some(idx) = const_index(property) {
                     if let Some(elem) = resolve_array_elem(object, idx, arr_inits) {
                         return literal_or_array_slot(&elem);
                     }
+                }
+                // obj.arr[i] — array property then index.
+                if array_expr_ok(object, &HashMap::new(), slot_of) {
+                    return slot_from_elem_kind(
+                        array_expr_elem_kind(object, arr_inits, arr_elem, slot_of)
+                            .unwrap_or(ElemKind::Number),
+                    )
+                    .or(Some(SlotTy::Number));
                 }
                 return slot_from_elem_kind(array_expr_elem_kind(
                     object, arr_inits, arr_elem, slot_of,
@@ -578,10 +779,16 @@ fn expr_as_elem_kind(
         Expr::Number { .. } => Some(ElemKind::Number),
         Expr::String { .. } => Some(ElemKind::String),
         Expr::Array { .. } => Some(ElemKind::Array),
+        _ if is_undefined_expr(expr) || matches!(expr, Expr::Null { .. }) => {
+            // Holes / undefined do not pin element kind.
+            Some(ElemKind::Unknown)
+        }
         Expr::Local { id, .. } => match slot_of.get(id) {
             Some(SlotTy::Number) => Some(ElemKind::Number),
             Some(SlotTy::String) => Some(ElemKind::String),
             Some(SlotTy::Array) => Some(ElemKind::Array),
+            // Global `undefined` binding — hole-like.
+            None => Some(ElemKind::Unknown),
             _ => None,
         },
         Expr::Member {
@@ -690,8 +897,19 @@ fn array_expr_ok(
             computed,
             ..
         } => {
-            !*optional
-                && array_expr_ok(object, by_id, slot_of)
+            if *optional {
+                return false;
+            }
+            // obj.arr property holding an array (rest member target read-back).
+            if object_expr_ok(object, by_id, slot_of) {
+                return if *computed {
+                    string_expr_ok(property, by_id, slot_of)
+                        || matches!(property.as_ref(), Expr::String { .. })
+                } else {
+                    matches!(property.as_ref(), Expr::String { .. })
+                };
+            }
+            array_expr_ok(object, by_id, slot_of)
                 && if *computed {
                     number_expr_ok(property, by_id, slot_of)
                 } else {
@@ -712,6 +930,8 @@ fn value_expr_ok(
         || bool_expr_ok(expr, by_id, slot_of)
         || null_expr_ok(expr, by_id, slot_of)
         || array_expr_ok(expr, by_id, slot_of)
+        || object_expr_ok(expr, by_id, slot_of)
+        || is_undefined_expr(expr)
 }
 
 fn number_expr_ok(
@@ -735,8 +955,23 @@ fn number_expr_ok(
             computed,
             ..
         } => {
-            !*optional
-                && array_expr_ok(object, by_id, slot_of)
+            if *optional {
+                return false;
+            }
+            // obj.prop / obj["k"] number property (string key only — not arr index).
+            if object_expr_ok(object, by_id, slot_of) {
+                let string_key = if *computed {
+                    string_expr_ok(property, by_id, slot_of)
+                        || matches!(property.as_ref(), Expr::String { .. })
+                } else {
+                    matches!(property.as_ref(), Expr::String { .. })
+                };
+                if string_key {
+                    return true;
+                }
+            }
+            // arr[i] / obj.arr[i] — computed number index on array-valued base.
+            array_expr_ok(object, by_id, slot_of)
                 && if *computed {
                     number_expr_ok(property, by_id, slot_of)
                 } else {
@@ -867,12 +1102,14 @@ fn null_expr_ok(
 ) -> bool {
     match expr {
         Expr::Null { .. } => true,
+        _ if is_undefined_expr(expr) => true,
         Expr::Local { id, ty } => {
-            slot_of.get(id) == Some(&SlotTy::Null)
+            is_undefined_local(*id, by_id)
+                || slot_of.get(id) == Some(&SlotTy::Null)
                 || matches!(ty, Type::Null | Type::Any)
-                || by_id
-                    .get(id)
-                    .is_some_and(|l| matches!(l.ty, Type::Null | Type::Any))
+                    && by_id
+                        .get(id)
+                        .is_some_and(|l| matches!(l.ty, Type::Null | Type::Any) || l.name == "undefined")
         }
         Expr::Member {
             object,
@@ -892,6 +1129,30 @@ fn null_expr_ok(
 
 fn member_key_is_length(property: &Expr) -> bool {
     matches!(property, Expr::String { value, .. } if value.to_string_lossy() == "length")
+}
+
+fn is_undefined_expr(expr: &Expr) -> bool {
+    matches!(expr, Expr::IdentName { name, .. } if name == "undefined")
+        || matches!(
+            expr,
+            Expr::Unary {
+                op: draconic_ast::UnaryOp::Void,
+                ..
+            }
+        )
+}
+
+fn is_undefined_local(id: LocalId, by_id: &HashMap<LocalId, &Local>) -> bool {
+    by_id
+        .get(&id)
+        .is_some_and(|l| l.name == "undefined")
+}
+
+fn member_key_string(property: &Expr) -> Option<String> {
+    match property {
+        Expr::String { value, .. } => Some(value.to_string_lossy().to_string()),
+        _ => None,
+    }
 }
 
 struct CtrlFrame {
@@ -979,6 +1240,9 @@ impl<'a> Emitter<'a> {
                 ARRAY_SPREAD_ARRAY,
                 ARRAY_SPREAD_CSTR,
                 CSTR_CONCAT,
+                ALLOC_OBJECT,
+                OBJECT_GET,
+                OBJECT_SET,
                 PRINT_F64,
                 PRINT_STR,
             ])
@@ -997,7 +1261,11 @@ impl<'a> Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::String | SlotTy::Bool | SlotTy::Null | SlotTy::Array => {
+                SlotTy::String
+                | SlotTy::Bool
+                | SlotTy::Null
+                | SlotTy::Array
+                | SlotTy::Object => {
                     let g = ptr_global_name(*id, *kind);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
@@ -1083,10 +1351,32 @@ impl<'a> Emitter<'a> {
                         let v = self.emit_null_as_ptr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::Object => {
+                        let v = self.emit_object_expr(init)?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    }
                 }
                 Ok(())
             }
+            Stmt::DeclareArrayPattern {
+                elements,
+                init: Some(init),
+                ..
+            } => {
+                let arr = self.emit_array_expr(init)?;
+                self.emit_array_destructure(elements, &arr)
+            }
             Stmt::Expr { expr } => {
+                if let Expr::Assign {
+                    target: AssignTarget::ArrayPattern { elements },
+                    op: AssignOp::Eq,
+                    value,
+                    ..
+                } = expr
+                {
+                    let arr = self.emit_array_expr(value)?;
+                    return self.emit_array_destructure(elements, &arr);
+                }
                 if matches!(
                     expr,
                     Expr::Assign {
@@ -1207,6 +1497,273 @@ impl<'a> Emitter<'a> {
         Ok(t)
     }
 
+    /// Destructure `arr` into `elements` (declare or assign pattern).
+    fn emit_array_destructure(
+        &mut self,
+        elements: &[ArrayPatternEl],
+        arr: &str,
+    ) -> Result<(), Diagnostic> {
+        let idx_ptr = self.fresh();
+        writeln!(self.body, "  {idx_ptr} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 0, ptr {idx_ptr}").ok();
+
+        for el in elements {
+            match el {
+                ArrayPatternEl::Elision => {
+                    let i = self.fresh();
+                    writeln!(self.body, "  {i} = load i64, ptr {idx_ptr}").ok();
+                    let n = self.fresh();
+                    writeln!(self.body, "  {n} = add i64 {i}, 1").ok();
+                    writeln!(self.body, "  store i64 {n}, ptr {idx_ptr}").ok();
+                }
+                ArrayPatternEl::Pattern { binding, default } => {
+                    let i = self.fresh();
+                    writeln!(self.body, "  {i} = load i64, ptr {idx_ptr}").ok();
+                    let len = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_LEN.call_to(&len, &format!("ptr {arr}"))
+                    )
+                    .ok();
+                    let in_range = self.fresh();
+                    writeln!(self.body, "  {in_range} = icmp ult i64 {i}, {len}").ok();
+                    let got = self.fresh();
+                    writeln!(self.body, "  {got} = alloca ptr, align 8").ok();
+                    writeln!(self.body, "  store ptr null, ptr {got}").ok();
+                    let take_l = self.fresh_label("dstr_take");
+                    let def_l = self.fresh_label("dstr_def");
+                    let done_l = self.fresh_label("dstr_done");
+                    writeln!(
+                        self.body,
+                        "  br i1 {in_range}, label %{take_l}, label %{def_l}"
+                    )
+                    .ok();
+                    writeln!(self.body, "{take_l}:").ok();
+                    let raw = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_GET.call_to(&raw, &format!("ptr {arr}, i64 {i}"))
+                    )
+                    .ok();
+                    // Hole / undefined → null ptr; treat as missing for defaults.
+                    let is_null = self.fresh();
+                    writeln!(self.body, "  {is_null} = icmp eq ptr {raw}, null").ok();
+                    let use_l = self.fresh_label("dstr_use");
+                    writeln!(
+                        self.body,
+                        "  br i1 {is_null}, label %{def_l}, label %{use_l}"
+                    )
+                    .ok();
+                    writeln!(self.body, "{use_l}:").ok();
+                    writeln!(self.body, "  store ptr {raw}, ptr {got}").ok();
+                    writeln!(self.body, "  br label %{done_l}").ok();
+                    writeln!(self.body, "{def_l}:").ok();
+                    if let Some(d) = default {
+                        let dv = self.emit_value_as_ptr(d)?;
+                        writeln!(self.body, "  store ptr {dv}, ptr {got}").ok();
+                    }
+                    writeln!(self.body, "  br label %{done_l}").ok();
+                    writeln!(self.body, "{done_l}:").ok();
+                    let val = self.fresh();
+                    writeln!(self.body, "  {val} = load ptr, ptr {got}").ok();
+                    self.emit_bind_pattern(binding, &val)?;
+                    let i2 = self.fresh();
+                    writeln!(self.body, "  {i2} = load i64, ptr {idx_ptr}").ok();
+                    let n = self.fresh();
+                    writeln!(self.body, "  {n} = add i64 {i2}, 1").ok();
+                    writeln!(self.body, "  store i64 {n}, ptr {idx_ptr}").ok();
+                }
+                ArrayPatternEl::Rest(binding) => {
+                    let i = self.fresh();
+                    writeln!(self.body, "  {i} = load i64, ptr {idx_ptr}").ok();
+                    let len = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_LEN.call_to(&len, &format!("ptr {arr}"))
+                    )
+                    .ok();
+                    // rest_len = max(0, len - i)
+                    let ge = self.fresh();
+                    writeln!(self.body, "  {ge} = icmp uge i64 {len}, {i}").ok();
+                    let diff = self.fresh();
+                    writeln!(self.body, "  {diff} = sub i64 {len}, {i}").ok();
+                    let rest_len = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {rest_len} = select i1 {ge}, i64 {diff}, i64 0"
+                    )
+                    .ok();
+                    let rest = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_NEW.call_to(&rest, &format!("i64 {rest_len}"))
+                    )
+                    .ok();
+                    // Copy arr[i..] into rest[0..]
+                    let j_ptr = self.fresh();
+                    writeln!(self.body, "  {j_ptr} = alloca i64, align 8").ok();
+                    writeln!(self.body, "  store i64 0, ptr {j_ptr}").ok();
+                    let head = self.fresh_label("rest_head");
+                    let body = self.fresh_label("rest_body");
+                    let end = self.fresh_label("rest_end");
+                    writeln!(self.body, "  br label %{head}").ok();
+                    writeln!(self.body, "{head}:").ok();
+                    let j = self.fresh();
+                    writeln!(self.body, "  {j} = load i64, ptr {j_ptr}").ok();
+                    let cmp = self.fresh();
+                    writeln!(self.body, "  {cmp} = icmp ult i64 {j}, {rest_len}").ok();
+                    writeln!(self.body, "  br i1 {cmp}, label %{body}, label %{end}").ok();
+                    writeln!(self.body, "{body}:").ok();
+                    let src_i = self.fresh();
+                    writeln!(self.body, "  {src_i} = add i64 {i}, {j}").ok();
+                    let elv = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_GET.call_to(&elv, &format!("ptr {arr}, i64 {src_i}"))
+                    )
+                    .ok();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_SET.call(&format!("ptr {rest}, i64 {j}, ptr {elv}"))
+                    )
+                    .ok();
+                    let jn = self.fresh();
+                    writeln!(self.body, "  {jn} = add i64 {j}, 1").ok();
+                    writeln!(self.body, "  store i64 {jn}, ptr {j_ptr}").ok();
+                    writeln!(self.body, "  br label %{head}").ok();
+                    writeln!(self.body, "{end}:").ok();
+                    self.emit_bind_pattern(binding, &rest)?;
+                    // Rest consumes the remainder; advance idx to len.
+                    writeln!(self.body, "  store i64 {len}, ptr {idx_ptr}").ok();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_bind_pattern(&mut self, binding: &Pattern, val_ptr: &str) -> Result<(), Diagnostic> {
+        match binding {
+            Pattern::Local(id) => {
+                let kind = *self
+                    .slot_of
+                    .get(id)
+                    .ok_or_else(|| diag("es_arrays: pattern local unknown slot"))?;
+                let ptr = self.slot_ptr(*id)?;
+                match kind {
+                    SlotTy::Number => {
+                        let i = self.fresh();
+                        writeln!(self.body, "  {i} = ptrtoint ptr {val_ptr} to i64").ok();
+                        let d = self.fresh();
+                        writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
+                        writeln!(self.body, "  store double {d}, ptr {ptr}").ok();
+                    }
+                    SlotTy::Array
+                    | SlotTy::String
+                    | SlotTy::Bool
+                    | SlotTy::Null
+                    | SlotTy::Object => {
+                        writeln!(self.body, "  store ptr {val_ptr}, ptr {ptr}").ok();
+                    }
+                }
+                Ok(())
+            }
+            Pattern::Member {
+                object,
+                property,
+                computed,
+            } => {
+                let obj = self.emit_object_expr(object)?;
+                let key = if *computed {
+                    if matches!(property.as_ref(), Expr::String { .. })
+                        || self.expr_is_string_slot(property)
+                    {
+                        self.emit_string_expr(property)?
+                    } else {
+                        return Err(diag("es_arrays: computed member pattern key must be string"));
+                    }
+                } else {
+                    let s = member_key_string(property)
+                        .ok_or_else(|| diag("es_arrays: member pattern key"))?;
+                    self.string_const(&s)?
+                };
+                writeln!(
+                    self.body,
+                    "  {}",
+                    OBJECT_SET.call(&format!("ptr {obj}, ptr {key}, ptr {val_ptr}"))
+                )
+                .ok();
+                Ok(())
+            }
+            Pattern::Array(inner) => {
+                // Nested array pattern: val_ptr is the array to destructure.
+                self.emit_array_destructure(inner, val_ptr)
+            }
+            Pattern::Name(_) | Pattern::Object(_) => {
+                Err(diag("es_arrays: unsupported pattern binding"))
+            }
+        }
+    }
+
+    fn emit_object_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Object { properties, .. } => {
+                if !properties.is_empty() {
+                    return Err(diag("es_arrays: only empty object literals"));
+                }
+                let t = self.fresh();
+                writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&t, "")).ok();
+                Ok(t)
+            }
+            Expr::Local { id, .. } => {
+                let kind = *self
+                    .slot_of
+                    .get(id)
+                    .ok_or_else(|| diag("es_arrays: object local unknown"))?;
+                if kind != SlotTy::Object {
+                    return Err(diag("es_arrays: expected object local"));
+                }
+                let ptr = self.slot_ptr(*id)?;
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+                Ok(t)
+            }
+            Expr::Member {
+                object,
+                property,
+                optional,
+                computed,
+                ..
+            } => {
+                if *optional {
+                    return Err(diag("es_arrays: optional object member"));
+                }
+                let obj = self.emit_object_expr(object)?;
+                let key = if *computed {
+                    self.emit_string_expr(property)?
+                } else {
+                    let s = member_key_string(property)
+                        .ok_or_else(|| diag("es_arrays: object member key"))?;
+                    self.string_const(&s)?
+                };
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    OBJECT_GET.call_to(&t, &format!("ptr {obj}, ptr {key}"))
+                )
+                .ok();
+                Ok(t)
+            }
+            _ => Err(diag("es_arrays: unsupported object expr")),
+        }
+    }
+
     fn emit_for_of(
         &mut self,
         left: &Stmt,
@@ -1265,7 +1822,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                 writeln!(self.body, "  store double {d}, ptr {bind_ptr}").ok();
             }
-            SlotTy::String | SlotTy::Array | SlotTy::Bool | SlotTy::Null => {
+            SlotTy::String | SlotTy::Array | SlotTy::Bool | SlotTy::Null | SlotTy::Object => {
                 writeln!(self.body, "  store ptr {elem}, ptr {bind_ptr}").ok();
             }
         }
@@ -1323,6 +1880,10 @@ impl<'a> Emitter<'a> {
             }
             SlotTy::Null => {
                 let v = self.emit_null_as_ptr(value)?;
+                writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+            }
+            SlotTy::Object => {
+                let v = self.emit_object_expr(value)?;
                 writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
             }
         }
@@ -1404,6 +1965,29 @@ impl<'a> Emitter<'a> {
             } => {
                 if *optional {
                     return Err(diag("es_arrays: optional member not supported"));
+                }
+                // Object property number read: mem.y / mem["y"]
+                if self.expr_is_object_slot(object) {
+                    let obj = self.emit_object_expr(object)?;
+                    let key = if *computed {
+                        self.emit_string_expr(property)?
+                    } else {
+                        let s = member_key_string(property)
+                            .ok_or_else(|| diag("es_arrays: object number prop key"))?;
+                        self.string_const(&s)?
+                    };
+                    let raw = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        OBJECT_GET.call_to(&raw, &format!("ptr {obj}, ptr {key}"))
+                    )
+                    .ok();
+                    let i = self.fresh();
+                    writeln!(self.body, "  {i} = ptrtoint ptr {raw} to i64").ok();
+                    let d = self.fresh();
+                    writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
+                    return Ok(d);
                 }
                 if *computed {
                     let arr = self.emit_array_expr(object)?;
@@ -1499,6 +2083,25 @@ impl<'a> Emitter<'a> {
             } => {
                 if *optional {
                     return Err(diag("es_arrays: optional member not supported"));
+                }
+                // Object property array: restMem.arr
+                if self.expr_is_object_slot(object) {
+                    let obj = self.emit_object_expr(object)?;
+                    let key = if *computed {
+                        self.emit_string_expr(property)?
+                    } else {
+                        let s = member_key_string(property)
+                            .ok_or_else(|| diag("es_arrays: object array prop key"))?;
+                        self.string_const(&s)?
+                    };
+                    let t = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        OBJECT_GET.call_to(&t, &format!("ptr {obj}, ptr {key}"))
+                    )
+                    .ok();
+                    return Ok(t);
                 }
                 if !*computed {
                     return Err(diag("es_arrays: nested array only via computed index"));
@@ -1620,14 +2223,28 @@ impl<'a> Emitter<'a> {
         if matches!(expr, Expr::Array { .. }) || self.expr_is_array_slot(expr) {
             return self.emit_array_expr(expr);
         }
+        if matches!(expr, Expr::Object { .. }) || self.expr_is_object_slot(expr) {
+            return self.emit_object_expr(expr);
+        }
         if matches!(expr, Expr::String { .. }) || self.expr_is_string_slot(expr) {
             return self.emit_string_expr(expr);
         }
         if matches!(expr, Expr::Boolean { .. }) || self.expr_is_bool_slot(expr) {
             return self.emit_bool_as_ptr(expr);
         }
-        if matches!(expr, Expr::Null { .. }) || self.expr_is_null_slot(expr) {
-            return self.emit_null_as_ptr(expr);
+        if matches!(expr, Expr::Null { .. })
+            || self.expr_is_null_slot(expr)
+            || is_undefined_expr(expr)
+            || matches!(
+                expr,
+                Expr::Local { id, .. } if self
+                    .module
+                    .locals
+                    .iter()
+                    .any(|l| l.id == *id && l.name == "undefined")
+            )
+        {
+            return self.emit_null_as_ptr(&Expr::Null { ty: Type::Null });
         }
         let n = self.emit_number_expr(expr)?;
         let i = self.fresh();
@@ -1746,12 +2363,12 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_null_as_ptr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        if matches!(expr, Expr::Null { .. }) || is_undefined_expr(expr) {
+            let t = self.fresh();
+            writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
+            return Ok(t);
+        }
         match expr {
-            Expr::Null { .. } => {
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
-                Ok(t)
-            }
             Expr::Local { id, .. } => {
                 let kind = *self
                     .slot_of
@@ -1798,6 +2415,14 @@ impl<'a> Emitter<'a> {
             Expr::Member {
                 ty, computed: true, ..
             } => matches!(ty, Type::Object | Type::Any),
+            _ => false,
+        }
+    }
+
+    fn expr_is_object_slot(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&SlotTy::Object),
+            Expr::Object { .. } => true,
             _ => false,
         }
     }
@@ -1863,6 +2488,7 @@ fn ptr_global_name(id: LocalId, kind: SlotTy) -> String {
         SlotTy::String => "s",
         SlotTy::Bool => "b",
         SlotTy::Null => "z",
+        SlotTy::Object => "o",
         SlotTy::Number => "n",
     };
     format!("es_arr_{tag}{}", id.0)

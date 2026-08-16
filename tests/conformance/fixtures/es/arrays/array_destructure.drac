@@ -32,3 +32,7 @@ let nestedRest;
 [...[nestedRest]] = [7, 8, 9];
 let restMem = {};
 [...restMem.arr] = [1, 2];
+// Native observations (member/rest targets):
+let memY = mem.y;
+let ra0 = restMem.arr[0];
+let ra1 = restMem.arr[1];

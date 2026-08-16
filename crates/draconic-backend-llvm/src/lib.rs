@@ -68,7 +68,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   number props) via Runtime GC/object ABI — N08.04.01–N08.04.02
 /// - **Class declarations** (base + `extends`/`super()` + instance/static methods;
 ///   `super.m(…)`; `new`; prototype chain) via Runtime GC/object ABI — N08.05.01–N08.05.04
-/// - **Array literals** + index access + `.length` via Runtime array ABI — N08.06.01
+/// - **Array literals** + index access + `.length` + destructuring via Runtime
+///   array ABI — N08.06.01–N08.06.06
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -936,6 +937,40 @@ mod tests {
         assert_eq!(
             stdout,
             "6\n0\nab\n60\n15\n5\n3\n5\n6\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_arrays_destructure_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/arrays/array_destructure.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(src.as_str())).expect("emit array_destructure");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_arrays destructure must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_array_get") && ir.contains("draconic_rt_array_new"),
+            "es_arrays destructure must use array ABI:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-arrays-destructure").expect("workdir");
+        let bin = dir.join("array_destructure");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "1\n2\n3\n1\n2\n3\n4\n2\n10\n20\n30\n60\n7\n8\n15\n100\n200\n300\n2\n5\n6\n11\n2\n12\n13\n1\n3\n7\n4\n1\n2\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
