@@ -141,6 +141,14 @@ DraconicValue *draconic_rt_promise_any(DraconicValue *arr);
        fulfilled Promise (PromiseResolve of a non-thenable). --- */
 DraconicValue *draconic_rt_promise_await(void *value);
 
+/* --- JS Symbol (N08.09.01): unique i64 ids; Symbol.for registry --- */
+/* Fresh unique symbol (description ignored for identity). */
+int64_t draconic_rt_symbol_new(void);
+/* Global registry: same key → same id. */
+int64_t draconic_rt_symbol_for(const char *key, size_t key_len);
+/* keyFor: malloc'd key bytes + *out_len; NULL if not from Symbol.for. */
+char *draconic_rt_symbol_key_for(int64_t id, size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

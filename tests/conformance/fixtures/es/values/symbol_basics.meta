@@ -1,4 +1,6 @@
 id: es/values/symbol_basics
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: symbol\nsymbol\ntrue\ntrue\nshared\nfunction\nfunction\nfunction\n
 js.check: if (t !== "symbol") process.exit(1); if (u !== "symbol") process.exit(2); if (uniq !== true) process.exit(3); if (same !== true) process.exit(4); if (key !== "shared") process.exit(5); if (tf !== "function") process.exit(6); if (tfor !== "function") process.exit(7); if (tkey !== "function") process.exit(8); if (typeof s !== "symbol") process.exit(9); if (Symbol() === Symbol()) process.exit(10);

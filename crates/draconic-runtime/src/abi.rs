@@ -343,6 +343,33 @@ pub const PROMISE_AWAIT: AbiFn = AbiFn {
     params: "ptr",
 };
 
+// --- JS Symbol (N08.09.01) ---
+
+pub const SYMBOL_NEW: AbiFn = AbiFn {
+    symbol: "draconic_rt_symbol_new",
+    ret: "i64",
+    params: "",
+};
+pub const SYMBOL_FOR: AbiFn = AbiFn {
+    symbol: "draconic_rt_symbol_for",
+    ret: "i64",
+    params: "ptr, i64",
+};
+pub const SYMBOL_KEY_FOR: AbiFn = AbiFn {
+    symbol: "draconic_rt_symbol_key_for",
+    ret: "ptr",
+    params: "i64, ptr",
+};
+
+/// Declares used by the ES values / Symbol observation emitter (N08.09.01).
+pub const ES_VALUES_DECLARES: &[AbiFn] = &[
+    PRINT_BOOL,
+    PRINT_BYTES,
+    SYMBOL_NEW,
+    SYMBOL_FOR,
+    SYMBOL_KEY_FOR,
+];
+
 // --- Symbol-name aliases (single source: AbiFn.symbol) ---
 
 pub const HELLO_SYMBOL: &str = HELLO.symbol;

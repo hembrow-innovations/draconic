@@ -10,6 +10,7 @@ mod es_nullish;
 mod es_objects;
 mod es_promise;
 mod es_tagged_template;
+mod es_values;
 mod native_ints;
 
 use std::path::{Path, PathBuf};
@@ -28,6 +29,7 @@ use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
+use es_values::{emit_es_values, is_es_values_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
 /// Emit LLVM IR text for a shared IR module.
@@ -77,6 +79,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Untagged templates** — N08.07.02
 /// - **Unicode escapes** (`\x`/`\u`/`\u{}`) + UTF-16 `.length` — N08.07.03
 /// - **Tagged templates** `` tag`…` `` (quasi array + interps; method/call tags) — N08.07.04
+/// - **Symbol basics** (`Symbol()` / `Symbol.for` / `Symbol.keyFor` / typeof / `===`) — N08.09.01
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -91,6 +94,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_nullish_module(module) {
         return emit_es_nullish(module);
+    }
+    if is_es_values_module(module) {
+        return emit_es_values(module);
     }
     if is_es_call_spread_module(module) {
         return emit_es_call_spread(module);
@@ -570,6 +576,44 @@ mod tests {
         assert_eq!(
             stdout,
             "true\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nfunction\nnumber\nnumber\ntrue\ntrue\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_values_symbol_basics_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/values/symbol_basics.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "symbol_basics must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_symbol_new") && ir.contains("draconic_rt_symbol_for"),
+            "should lower Symbol / Symbol.for:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_symbol_key_for"),
+            "should lower Symbol.keyFor:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-symbol-basics").expect("workdir");
+        let bin = dir.join("symbol_basics");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "symbol\nsymbol\ntrue\ntrue\nshared\nfunction\nfunction\nfunction\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

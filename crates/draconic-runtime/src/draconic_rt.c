@@ -1555,3 +1555,68 @@ DraconicValue *draconic_rt_promise_await(void *value) {
     draconic_rt_promise_resolve(p, value);
     return p;
 }
+
+/* --- JS Symbol (N08.09.01) --- */
+
+typedef struct DraconicSymbolReg {
+    char *key;
+    size_t key_len;
+    int64_t id;
+    struct DraconicSymbolReg *next;
+} DraconicSymbolReg;
+
+static int64_t g_symbol_next = 1;
+static DraconicSymbolReg *g_symbol_registry = NULL;
+
+int64_t draconic_rt_symbol_new(void) {
+    return g_symbol_next++;
+}
+
+int64_t draconic_rt_symbol_for(const char *key, size_t key_len) {
+    const char *k = key ? key : "";
+    for (DraconicSymbolReg *e = g_symbol_registry; e; e = e->next) {
+        if (e->key_len == key_len && (key_len == 0 || memcmp(e->key, k, key_len) == 0)) {
+            return e->id;
+        }
+    }
+    DraconicSymbolReg *e = (DraconicSymbolReg *)calloc(1, sizeof(DraconicSymbolReg));
+    if (!e) {
+        abort();
+    }
+    e->key = (char *)malloc(key_len + 1);
+    if (!e->key) {
+        abort();
+    }
+    if (key_len) {
+        memcpy(e->key, k, key_len);
+    }
+    e->key[key_len] = '\0';
+    e->key_len = key_len;
+    e->id = g_symbol_next++;
+    e->next = g_symbol_registry;
+    g_symbol_registry = e;
+    return e->id;
+}
+
+char *draconic_rt_symbol_key_for(int64_t id, size_t *out_len) {
+    for (DraconicSymbolReg *e = g_symbol_registry; e; e = e->next) {
+        if (e->id == id) {
+            char *out = (char *)malloc(e->key_len + 1);
+            if (!out) {
+                abort();
+            }
+            if (e->key_len) {
+                memcpy(out, e->key, e->key_len);
+            }
+            out[e->key_len] = '\0';
+            if (out_len) {
+                *out_len = e->key_len;
+            }
+            return out;
+        }
+    }
+    if (out_len) {
+        *out_len = 0;
+    }
+    return NULL;
+}
