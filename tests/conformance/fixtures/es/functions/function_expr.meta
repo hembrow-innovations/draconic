@@ -1,4 +1,6 @@
 id: es/functions/function_expr
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 42\n3\n42\n120\n17\n
 js.check: if (a !== 42) process.exit(1); if (b !== 3) process.exit(1); if (c !== 42) process.exit(1); if (d !== 120) process.exit(1); if (e !== 17) process.exit(1);

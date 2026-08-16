@@ -53,8 +53,9 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   N08.02.07
 /// - **`for-in` / `for-of`** over strings (`let`/assign binding; string concat)
 ///   via Runtime prints — N08.02.08
-/// - **Function declaration** + `return` + call (simple ident params) + nested
-///   decls with free-variable capture via Runtime prints — N08.03.01–N08.03.03
+/// - **Function declaration/expression** + `return` + call (simple ident params) +
+///   nested decls with free-variable capture + IIFE/named/higher-order via Runtime
+///   prints — N08.03.01–N08.03.04
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -90,7 +91,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/return/call (simple params, nested+capture), empty hello)",
+          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/return/call (simple params, nested+capture, IIFE/named/HOF), empty hello)",
         Span::dummy(),
     )
 }
