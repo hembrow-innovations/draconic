@@ -1,6 +1,7 @@
 //! N08.01: emit native observations for ES expression Programs
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
-//! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`).
+//! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
+//! E01.04.06 comma `,`).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -10,12 +11,13 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.04.05 / N08.01.*):
+/// True when this module is a supported ES expression subset (E01.01–E01.04.06 / N08.01.*):
 /// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`/`~`,
 /// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), logical (`&&` `||`),
 /// bitwise (`&` `|` `^` `<<` `>>` `>>>`), exponentiation (`**`), conditional (`?:`), simple
-/// assignment (`=` to locals), prefix/postfix `++`/`--` on number locals, grouping, and local refs.
-/// Expression statements may be assigns or updates. Value-preserving `&&`/`||` on numbers is included.
+/// assignment (`=` to locals), prefix/postfix `++`/`--` on number locals, comma (`,`), grouping,
+/// and local refs. Expression statements may be assigns or updates. Value-preserving `&&`/`||`
+/// on numbers is included.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -128,6 +130,7 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                         | BinaryOp::Shr
                         | BinaryOp::UShr
                         | BinaryOp::Pow
+                        | BinaryOp::Comma
                 )
                 && expr_is_number_subset(left, by_id)
                 && expr_is_number_subset(right, by_id)
@@ -434,6 +437,8 @@ impl<'a> Emitter<'a> {
                         .ok();
                         Ok(t)
                     }
+                    // Comma: evaluate LHS for effects, yield RHS (left already emitted above).
+                    BinaryOp::Comma => Ok(r),
                     _ => Err(diag("internal: non-arithmetic binary in number emit")),
                 }
             }
