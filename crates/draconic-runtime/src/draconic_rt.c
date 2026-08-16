@@ -83,84 +83,252 @@ char *draconic_rt_cstr_from_code_unit(const char *s, size_t index) {
     return out;
 }
 
-void draconic_rt_print_bytes(const char *s, size_t len) {
-    if (s && len) {
-        fwrite(s, 1, len, stdout);
-    }
-    fputc('\n', stdout);
-}
+/* --- WTF-8 / UTF-16 helpers (N08.07.05) --- */
 
-char *draconic_rt_cstr_concat_n(const char *a, size_t la, const char *b, size_t lb) {
-    char *out = (char *)malloc(la + lb + 1);
-    if (!out) {
-        abort();
-    }
-    if (la && a) {
-        memcpy(out, a, la);
-    }
-    if (lb && b) {
-        memcpy(out + la, b, lb);
-    }
-    out[la + lb] = '\0';
-    return out;
-}
-
-char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index) {
-    char *out = (char *)malloc(2);
-    if (!out) {
-        abort();
-    }
-    if (s && index < len) {
-        out[0] = s[index];
-    } else {
-        out[0] = '\0';
-    }
-    out[1] = '\0';
-    return out;
-}
-
-int draconic_rt_cstr_eq_n(const char *a, size_t la, const char *b, size_t lb) {
-    if (la != lb) {
-        return 0;
-    }
-    if (la == 0) {
-        return 1;
-    }
-    if (!a || !b) {
-        return a == b;
-    }
-    return memcmp(a, b, la) == 0;
-}
-
-size_t draconic_rt_utf16_len(const char *s, size_t byte_len) {
-    size_t units = 0;
+static size_t jsstr_decode_units(const char *s, size_t byte_len, uint16_t *out, size_t out_cap) {
+    size_t n = 0;
     size_t i = 0;
     if (!s) {
         return 0;
     }
     while (i < byte_len) {
         unsigned char c = (unsigned char)s[i];
+        uint32_t cp;
+        size_t adv;
         if (c < 0x80u) {
-            units += 1;
-            i += 1;
-        } else if ((c & 0xE0u) == 0xC0u) {
-            /* 2-byte UTF-8 → one BMP code unit */
-            units += 1;
-            i += (i + 1 < byte_len) ? 2 : 1;
-        } else if ((c & 0xF0u) == 0xE0u) {
-            /* 3-byte UTF-8 → one BMP code unit */
-            units += 1;
-            i += (i + 2 < byte_len) ? 3 : 1;
-        } else if ((c & 0xF8u) == 0xF0u) {
-            /* 4-byte UTF-8 → surrogate pair (two UTF-16 units) */
-            units += 2;
-            i += (i + 3 < byte_len) ? 4 : 1;
+            cp = c;
+            adv = 1;
+        } else if ((c & 0xE0u) == 0xC0u && i + 1 < byte_len) {
+            cp = ((uint32_t)(c & 0x1Fu) << 6) | (uint32_t)((unsigned char)s[i + 1] & 0x3Fu);
+            adv = 2;
+        } else if ((c & 0xF0u) == 0xE0u && i + 2 < byte_len) {
+            cp = ((uint32_t)(c & 0x0Fu) << 12) | ((uint32_t)((unsigned char)s[i + 1] & 0x3Fu) << 6) |
+                 (uint32_t)((unsigned char)s[i + 2] & 0x3Fu);
+            adv = 3;
+        } else if ((c & 0xF8u) == 0xF0u && i + 3 < byte_len) {
+            cp = ((uint32_t)(c & 0x07u) << 18) | ((uint32_t)((unsigned char)s[i + 1] & 0x3Fu) << 12) |
+                 ((uint32_t)((unsigned char)s[i + 2] & 0x3Fu) << 6) |
+                 (uint32_t)((unsigned char)s[i + 3] & 0x3Fu);
+            adv = 4;
         } else {
-            units += 1;
-            i += 1;
+            cp = 0xFFFDu;
+            adv = 1;
+        }
+        i += adv;
+        if (cp <= 0xFFFFu) {
+            if (out && n < out_cap) {
+                out[n] = (uint16_t)cp;
+            }
+            n += 1;
+        } else if (cp <= 0x10FFFFu) {
+            uint32_t c2 = cp - 0x10000u;
+            if (out && n + 1 < out_cap) {
+                out[n] = (uint16_t)(0xD800u + (c2 >> 10));
+                out[n + 1] = (uint16_t)(0xDC00u + (c2 & 0x3FFu));
+            }
+            n += 2;
+        } else {
+            if (out && n < out_cap) {
+                out[n] = 0xFFFDu;
+            }
+            n += 1;
         }
     }
-    return units;
+    return n;
+}
+
+static size_t jsstr_encode_unit(uint16_t u, unsigned char *out) {
+    if (u < 0x80u) {
+        out[0] = (unsigned char)u;
+        return 1;
+    }
+    if (u < 0x800u) {
+        out[0] = (unsigned char)(0xC0u | (u >> 6));
+        out[1] = (unsigned char)(0x80u | (u & 0x3Fu));
+        return 2;
+    }
+    /* BMP incl. unpaired surrogates (WTF-8). */
+    out[0] = (unsigned char)(0xE0u | (u >> 12));
+    out[1] = (unsigned char)(0x80u | ((u >> 6) & 0x3Fu));
+    out[2] = (unsigned char)(0x80u | (u & 0x3Fu));
+    return 3;
+}
+
+static size_t jsstr_encode_units(const uint16_t *units, size_t n, unsigned char *out) {
+    size_t o = 0;
+    size_t i = 0;
+    while (i < n) {
+        uint16_t u = units[i];
+        if (u >= 0xD800u && u <= 0xDBFFu && i + 1 < n) {
+            uint16_t v = units[i + 1];
+            if (v >= 0xDC00u && v <= 0xDFFFu) {
+                uint32_t cp = 0x10000u + (((uint32_t)(u - 0xD800u) << 10) | (uint32_t)(v - 0xDC00u));
+                out[o++] = (unsigned char)(0xF0u | (cp >> 18));
+                out[o++] = (unsigned char)(0x80u | ((cp >> 12) & 0x3Fu));
+                out[o++] = (unsigned char)(0x80u | ((cp >> 6) & 0x3Fu));
+                out[o++] = (unsigned char)(0x80u | (cp & 0x3Fu));
+                i += 2;
+                continue;
+            }
+        }
+        o += jsstr_encode_unit(u, out + o);
+        i += 1;
+    }
+    return o;
+}
+
+static size_t jsstr_encode_units_len(const uint16_t *units, size_t n) {
+    size_t o = 0;
+    size_t i = 0;
+    while (i < n) {
+        uint16_t u = units[i];
+        if (u >= 0xD800u && u <= 0xDBFFu && i + 1 < n) {
+            uint16_t v = units[i + 1];
+            if (v >= 0xDC00u && v <= 0xDFFFu) {
+                o += 4;
+                i += 2;
+                continue;
+            }
+        }
+        if (u < 0x80u) {
+            o += 1;
+        } else if (u < 0x800u) {
+            o += 2;
+        } else {
+            o += 3;
+        }
+        i += 1;
+    }
+    return o;
+}
+
+void draconic_rt_print_bytes(const char *s, size_t len) {
+    /* Lossy UTF-8: unpaired surrogates → U+FFFD (matches Node stdout). */
+    size_t nu = jsstr_decode_units(s, len, NULL, 0);
+    uint16_t *units = NULL;
+    if (nu) {
+        units = (uint16_t *)malloc(nu * sizeof(uint16_t));
+        if (!units) {
+            abort();
+        }
+        jsstr_decode_units(s, len, units, nu);
+    }
+    size_t i = 0;
+    while (i < nu) {
+        uint16_t u = units[i];
+        if (u >= 0xD800u && u <= 0xDBFFu && i + 1 < nu) {
+            uint16_t v = units[i + 1];
+            if (v >= 0xDC00u && v <= 0xDFFFu) {
+                uint32_t cp = 0x10000u + (((uint32_t)(u - 0xD800u) << 10) | (uint32_t)(v - 0xDC00u));
+                unsigned char buf[4];
+                buf[0] = (unsigned char)(0xF0u | (cp >> 18));
+                buf[1] = (unsigned char)(0x80u | ((cp >> 12) & 0x3Fu));
+                buf[2] = (unsigned char)(0x80u | ((cp >> 6) & 0x3Fu));
+                buf[3] = (unsigned char)(0x80u | (cp & 0x3Fu));
+                fwrite(buf, 1, 4, stdout);
+                i += 2;
+                continue;
+            }
+        }
+        if (u >= 0xD800u && u <= 0xDFFFu) {
+            /* U+FFFD */
+            fputs("\xEF\xBF\xBD", stdout);
+        } else {
+            unsigned char buf[3];
+            size_t n = jsstr_encode_unit(u, buf);
+            fwrite(buf, 1, n, stdout);
+        }
+        i += 1;
+    }
+    free(units);
+    fputc('\n', stdout);
+}
+
+char *draconic_rt_cstr_concat_n(const char *a, size_t la, const char *b, size_t lb, size_t *out_len) {
+    size_t na = jsstr_decode_units(a, la, NULL, 0);
+    size_t nb = jsstr_decode_units(b, lb, NULL, 0);
+    size_t n = na + nb;
+    uint16_t *units = (uint16_t *)malloc((n ? n : 1) * sizeof(uint16_t));
+    if (!units) {
+        abort();
+    }
+    if (na) {
+        jsstr_decode_units(a, la, units, na);
+    }
+    if (nb) {
+        jsstr_decode_units(b, lb, units + na, nb);
+    }
+    size_t blen = jsstr_encode_units_len(units, n);
+    char *out = (char *)malloc(blen + 1);
+    if (!out) {
+        abort();
+    }
+    jsstr_encode_units(units, n, (unsigned char *)out);
+    out[blen] = '\0';
+    free(units);
+    if (out_len) {
+        *out_len = blen;
+    }
+    return out;
+}
+
+char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index, size_t *out_len) {
+    size_t nu = jsstr_decode_units(s, len, NULL, 0);
+    if (index >= nu) {
+        char *out = (char *)malloc(1);
+        if (!out) {
+            abort();
+        }
+        out[0] = '\0';
+        if (out_len) {
+            *out_len = 0;
+        }
+        return out;
+    }
+    uint16_t *units = (uint16_t *)malloc(nu * sizeof(uint16_t));
+    if (!units) {
+        abort();
+    }
+    jsstr_decode_units(s, len, units, nu);
+    unsigned char buf[3];
+    size_t blen = jsstr_encode_unit(units[index], buf);
+    free(units);
+    char *out = (char *)malloc(blen + 1);
+    if (!out) {
+        abort();
+    }
+    memcpy(out, buf, blen);
+    out[blen] = '\0';
+    if (out_len) {
+        *out_len = blen;
+    }
+    return out;
+}
+
+int draconic_rt_cstr_eq_n(const char *a, size_t la, const char *b, size_t lb) {
+    size_t na = jsstr_decode_units(a, la, NULL, 0);
+    size_t nb = jsstr_decode_units(b, lb, NULL, 0);
+    if (na != nb) {
+        return 0;
+    }
+    if (na == 0) {
+        return 1;
+    }
+    uint16_t *ua = (uint16_t *)malloc(na * sizeof(uint16_t));
+    uint16_t *ub = (uint16_t *)malloc(nb * sizeof(uint16_t));
+    if (!ua || !ub) {
+        abort();
+    }
+    jsstr_decode_units(a, la, ua, na);
+    jsstr_decode_units(b, lb, ub, nb);
+    int eq = memcmp(ua, ub, na * sizeof(uint16_t)) == 0;
+    free(ua);
+    free(ub);
+    return eq;
+}
+
+size_t draconic_rt_utf16_len(const char *s, size_t byte_len) {
+    return jsstr_decode_units(s, byte_len, NULL, 0);
 }
 
 /* --- GC hello (B09): tracing heap for JS strings and objects --- */

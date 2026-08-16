@@ -116,12 +116,12 @@ pub const PRINT_BYTES: AbiFn = AbiFn {
 pub const CSTR_CONCAT_N: AbiFn = AbiFn {
     symbol: "draconic_rt_cstr_concat_n",
     ret: "ptr",
-    params: "ptr, i64, ptr, i64",
+    params: "ptr, i64, ptr, i64, ptr",
 };
 pub const CSTR_FROM_CODE_UNIT_N: AbiFn = AbiFn {
     symbol: "draconic_rt_cstr_from_code_unit_n",
     ret: "ptr",
-    params: "ptr, i64, i64",
+    params: "ptr, i64, i64, ptr",
 };
 pub const CSTR_EQ_N: AbiFn = AbiFn {
     symbol: "draconic_rt_cstr_eq_n",

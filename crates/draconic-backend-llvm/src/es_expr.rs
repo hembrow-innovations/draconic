@@ -16,13 +16,14 @@
 //! E02.09 `const` declarations (required init; `for`/`for-of`/`for-in` binding),
 //! E07.01 string lit + concat (incl. number ToString) + `.length` + index (N08.07.01),
 //! E07.02 untagged template literals (N08.07.02; cooked quasis + ToString interpolations),
-//! E07.03 unicode escapes `\x`/`\u`/`\u{}` cooked into strings; `.length` is UTF-16 units (N08.07.03).
+//! E07.03 unicode escapes `\x`/`\u`/`\u{}` cooked into strings; `.length` is UTF-16 units (N08.07.03),
+//! E07.05 UTF-16 code-unit semantics: index/concat/eq over WTF-8 storage (N08.07.05).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::{AssignOp, BinaryOp, UnaryOp, UpdateOp};
+use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp, UpdateOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{
@@ -31,12 +32,12 @@ use draconic_runtime::abi::{
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.03 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01–N08.07.03):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01–N08.07.05):
 /// top-level `let`/`const` declares over JS numbers, booleans, strings, undefined (`void`), and/or
 /// untyped `any` string/number slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
 /// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
 /// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`
-/// (incl. number ToString), untagged templates, unicode-escape string lits, string `.length` / index,
+/// (incl. number ToString), untagged templates, unicode-escape string lits, UTF-16 index/length,
 /// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
 /// `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue` (unlabeled or labeled),
 /// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
@@ -698,8 +699,8 @@ struct Emitter<'a> {
     allocas: HashMap<LocalId, (String, SlotTy)>,
     /// string local id → length alloca ptr name (`i64`)
     string_lens: HashMap<LocalId, String>,
-    /// string content → global name (e.g. `.str.0`)
-    str_globals: HashMap<String, String>,
+    /// WTF-8 string content → global name (e.g. `.str.0`)
+    str_globals: HashMap<Vec<u8>, String>,
     out: String,
     body: String,
     tmp: u32,
@@ -842,7 +843,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02/N08.07.01–N08.07.03 ES expressions + control + strings via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02/N08.07.01–N08.07.05 ES expressions + control + strings via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -852,7 +853,7 @@ impl<'a> Emitter<'a> {
 
         for (content, gname) in &self.str_globals {
             let n = content.len() + 1;
-            let esc = escape_llvm_string(content);
+            let esc = escape_llvm_bytes(content);
             writeln!(
                 self.out,
                 "@{gname} = private unnamed_addr constant [{n} x i8] c\"{esc}\\00\", align 1"
@@ -1256,25 +1257,39 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "{head}:").ok();
         let idx = self.fresh();
         writeln!(self.body, "  {idx} = load i64, ptr {idx_ptr}").ok();
-        let len = s.len.clone();
+        // N08.07.05: for-in/of over strings iterates UTF-16 code units.
+        let units = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            UTF16_LEN.call_to(&units, &format!("ptr {}, i64 {}", s.data, s.len))
+        )
+        .ok();
         let cmp = self.fresh();
-        writeln!(self.body, "  {cmp} = icmp ult i64 {idx}, {len}").ok();
+        writeln!(self.body, "  {cmp} = icmp ult i64 {idx}, {units}").ok();
         writeln!(self.body, "  br i1 {cmp}, label %{bod}, label %{end}").ok();
         writeln!(self.body, "{bod}:").ok();
         let bound = if is_of {
+            let out_len_ptr = self.fresh();
+            writeln!(self.body, "  {out_len_ptr} = alloca i64, align 8").ok();
             let ch = self.fresh();
             writeln!(
                 self.body,
                 "  {}",
                 CSTR_FROM_CODE_UNIT_N.call_to(
                     &ch,
-                    &format!("ptr {}, i64 {}, i64 {idx}", s.data, s.len)
+                    &format!(
+                        "ptr {}, i64 {}, i64 {idx}, ptr {out_len_ptr}",
+                        s.data, s.len
+                    )
                 )
             )
             .ok();
+            let ch_len = self.fresh();
+            writeln!(self.body, "  {ch_len} = load i64, ptr {out_len_ptr}").ok();
             StrVal {
                 data: ch,
-                len: "1".into(),
+                len: ch_len,
             }
         } else {
             let key = self.fresh();
@@ -1370,15 +1385,24 @@ impl<'a> Emitter<'a> {
     }
 
     fn string_const(&mut self, s: &str) -> Result<StrVal, Diagnostic> {
-        let gname = if let Some(g) = self.str_globals.get(s) {
+        self.string_const_bytes(s.as_bytes())
+    }
+
+    fn string_const_js(&mut self, value: &JsString) -> Result<StrVal, Diagnostic> {
+        let bytes = jsstring_to_wtf8(value);
+        self.string_const_bytes(&bytes)
+    }
+
+    fn string_const_bytes(&mut self, bytes: &[u8]) -> Result<StrVal, Diagnostic> {
+        let gname = if let Some(g) = self.str_globals.get(bytes) {
             g.clone()
         } else {
             let g = format!(".str.{}", self.str_globals.len());
-            self.str_globals.insert(s.to_string(), g.clone());
+            self.str_globals.insert(bytes.to_vec(), g.clone());
             g
         };
         let t = self.fresh();
-        let n = s.len() + 1;
+        let n = bytes.len() + 1;
         writeln!(
             self.body,
             "  {t} = getelementptr inbounds [{n} x i8], ptr @{gname}, i64 0, i64 0"
@@ -1386,7 +1410,7 @@ impl<'a> Emitter<'a> {
         .ok();
         Ok(StrVal {
             data: t,
-            len: format!("{}", s.len()),
+            len: format!("{}", bytes.len()),
         })
     }
 
@@ -1474,10 +1498,7 @@ impl<'a> Emitter<'a> {
 
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<StrVal, Diagnostic> {
         match expr {
-            Expr::String { value, .. } => {
-                let s = value.to_string_lossy();
-                self.string_const(&s)
-            }
+            Expr::String { value, .. } => self.string_const_js(value),
             // N08.07.02: `` `a${x}b` `` → concat cooked quasis with ToString(expressions).
             Expr::Template {
                 quasis,
@@ -1490,11 +1511,11 @@ impl<'a> Emitter<'a> {
                 if quasis.len() != expressions.len() + 1 {
                     return Err(diag("internal: template quasis/expressions length mismatch"));
                 }
-                let mut acc = self.string_const(&quasis[0].to_string_lossy())?;
+                let mut acc = self.string_const_js(&quasis[0])?;
                 for (i, e) in expressions.iter().enumerate() {
                     let mid = self.emit_concat_operand(e)?;
                     acc = self.emit_concat_strvals(&acc, &mid)?;
-                    let q = self.string_const(&quasis[i + 1].to_string_lossy())?;
+                    let q = self.string_const_js(&quasis[i + 1])?;
                     acc = self.emit_concat_strvals(&acc, &q)?;
                 }
                 Ok(acc)
@@ -1538,28 +1559,31 @@ impl<'a> Emitter<'a> {
                 optional: false,
                 ..
             } => {
+                // N08.07.05: `s[i]` indexes UTF-16 code units; result is one-unit WTF-8.
                 let s = self.emit_string_expr(object)?;
                 let idx_f = self.emit_number_expr(property)?;
                 let idx = self.fresh();
                 writeln!(self.body, "  {idx} = fptoui double {idx_f} to i64").ok();
+                let out_len_ptr = self.fresh();
+                writeln!(self.body, "  {out_len_ptr} = alloca i64, align 8").ok();
                 let ch = self.fresh();
                 writeln!(
                     self.body,
                     "  {}",
                     CSTR_FROM_CODE_UNIT_N.call_to(
                         &ch,
-                        &format!("ptr {}, i64 {}, i64 {idx}", s.data, s.len)
+                        &format!(
+                            "ptr {}, i64 {}, i64 {idx}, ptr {out_len_ptr}",
+                            s.data, s.len
+                        )
                     )
                 )
                 .ok();
-                // OOB → empty string (len 0); in-bounds → one code unit.
-                let in_b = self.fresh();
-                writeln!(self.body, "  {in_b} = icmp ult i64 {idx}, {}", s.len).ok();
-                let one = self.fresh();
-                writeln!(self.body, "  {one} = select i1 {in_b}, i64 1, i64 0").ok();
+                let ch_len = self.fresh();
+                writeln!(self.body, "  {ch_len} = load i64, ptr {out_len_ptr}").ok();
                 Ok(StrVal {
                     data: ch,
-                    len: one,
+                    len: ch_len,
                 })
             }
             Expr::Assign {
@@ -1591,6 +1615,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_concat_strvals(&mut self, left: &StrVal, right: &StrVal) -> Result<StrVal, Diagnostic> {
+        // N08.07.05: concat UTF-16 units then re-encode WTF-8 (*out_len).
+        let out_len_ptr = self.fresh();
+        writeln!(self.body, "  {out_len_ptr} = alloca i64, align 8").ok();
         let t = self.fresh();
         writeln!(
             self.body,
@@ -1598,19 +1625,14 @@ impl<'a> Emitter<'a> {
             CSTR_CONCAT_N.call_to(
                 &t,
                 &format!(
-                    "ptr {}, i64 {}, ptr {}, i64 {}",
+                    "ptr {}, i64 {}, ptr {}, i64 {}, ptr {out_len_ptr}",
                     left.data, left.len, right.data, right.len
                 )
             )
         )
         .ok();
         let n = self.fresh();
-        writeln!(
-            self.body,
-            "  {n} = add i64 {}, {}",
-            left.len, right.len
-        )
-        .ok();
+        writeln!(self.body, "  {n} = load i64, ptr {out_len_ptr}").ok();
         Ok(StrVal { data: t, len: n })
     }
 
@@ -2220,15 +2242,49 @@ fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
     Ok(format!("{f:.17e}"))
 }
 
-fn escape_llvm_string(s: &str) -> String {
+fn escape_llvm_bytes(bytes: &[u8]) -> String {
     let mut out = String::new();
-    for b in s.bytes() {
-        match b {
+    for b in bytes {
+        match *b {
             b'\\' => out.push_str("\\\\"),
             b'"' => out.push_str("\\22"),
             c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
             c => out.push_str(&format!("\\{c:02X}")),
         }
+    }
+    out
+}
+
+/// Encode JS UTF-16 code units as WTF-8 (UTF-8 + unpaired surrogates as 3-byte sequences).
+fn jsstring_to_wtf8(value: &JsString) -> Vec<u8> {
+    let units = value.units();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < units.len() {
+        let u = units[i];
+        if (0xD800..=0xDBFF).contains(&u) && i + 1 < units.len() {
+            let v = units[i + 1];
+            if (0xDC00..=0xDFFF).contains(&v) {
+                let cp = 0x10000 + (((u as u32) - 0xD800) << 10) + ((v as u32) - 0xDC00);
+                out.push(0xF0 | (cp >> 18) as u8);
+                out.push(0x80 | ((cp >> 12) & 0x3F) as u8);
+                out.push(0x80 | ((cp >> 6) & 0x3F) as u8);
+                out.push(0x80 | (cp & 0x3F) as u8);
+                i += 2;
+                continue;
+            }
+        }
+        if u < 0x80 {
+            out.push(u as u8);
+        } else if u < 0x800 {
+            out.push(0xC0 | (u >> 6) as u8);
+            out.push(0x80 | (u & 0x3F) as u8);
+        } else {
+            out.push(0xE0 | (u >> 12) as u8);
+            out.push(0x80 | ((u >> 6) & 0x3F) as u8);
+            out.push(0x80 | (u & 0x3F) as u8);
+        }
+        i += 1;
     }
     out
 }
