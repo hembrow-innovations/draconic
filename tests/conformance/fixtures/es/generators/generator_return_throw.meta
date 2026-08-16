@@ -1,4 +1,6 @@
 id: es/generators/generator_return_throw
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\nfalse\n99\ntrue\nundefined\ntrue\n7\ntrue\ntrue\n1\nfalse\n105\nfalse\n0\ntrue\n1\n42\ntrue\n1\nfalse\n50\ntrue\ntrue\n
 js.check: if (rv1 !== 1) process.exit(1); if (rd1 !== false) process.exit(2); if (retv !== 99) process.exit(3); if (retd !== true) process.exit(4); if (rv2 !== undefined) process.exit(5); if (rd2 !== true) process.exit(6); if (ev1 !== 7) process.exit(7); if (ed1 !== true) process.exit(8); if (ed2 !== true) process.exit(9); if (cv1 !== 1) process.exit(10); if (cd1 !== false) process.exit(11); if (cv2 !== 105) process.exit(12); if (cd2 !== false) process.exit(13); if (cv3 !== 0) process.exit(14); if (cd3 !== true) process.exit(15); if (threw !== 1) process.exit(16); if (reason !== 42) process.exit(17); if (ud2 !== true) process.exit(18); if (fv1 !== 1) process.exit(19); if (fd1 !== false) process.exit(20); if (fretv !== 50) process.exit(21); if (fretd !== true) process.exit(22); if (fd2 !== true) process.exit(23);

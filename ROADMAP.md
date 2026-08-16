@@ -463,7 +463,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.11.02 | done | native | Real native observations: default export + import (E11.02) — `es/modules/default_export_import` / `default_expr_import` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixtures `es/modules/default_*`, `crates/draconic-backend-llvm` |
 | N08.11.03 | done | native | Real native observations: namespace import (E11.03) — `es/modules/namespace_import` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/modules/namespace_import`, `crates/draconic-backend-llvm` |
 | N08.11.04 | done | native | Real native observations: cyclic modules (E11.04) — `es/modules/cyclic_functions` / `cyclic_live` | `tests/conformance` fixtures `es/modules/cyclic_*`, `crates/draconic-backend-llvm` |
-| N08.12 | todo | native | Real native observations: generators (E13) (children below) | `tests/conformance` fixtures `es/generators` |
+| N08.12 | done | native | Real native observations: generators (E13) (children below) | `tests/conformance` fixtures `es/generators` |
 | N08.12.01 | done | native | Real native observations: generator decl + yield + return (E13.01) — `es/generators/basic_yield` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/generators/basic_yield`, `crates/draconic-backend-llvm` |
 | N08.12.02 | done | native | Real native observations: yield expression RHS (E13.02) — `es/generators/yield_expr` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/generators/yield_expr`, `crates/draconic-backend-llvm` |
 | N08.12.03 | done | native | Real native observations: yield resume `.next(arg)` (E13.03) | `tests/conformance` fixture `es/generators/yield_resume`, `crates/draconic-backend-llvm` |
@@ -471,7 +471,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.12.05 | done | native | Real native observations: generator expressions (E13.05) | `tests/conformance` fixture `es/generators/generator_expr`, `crates/draconic-backend-llvm` |
 | N08.12.06 | done | native | Real native observations: generator methods (E13.06) | `tests/conformance` fixture `es/generators/generator_methods`, `crates/draconic-backend-llvm` |
 | N08.12.07 | done | native | Real native observations: `for-of` over generators (E13.07) — `es/generators/generator_for_of` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/generators/generator_for_of`, `crates/draconic-backend-llvm` |
-| N08.12.08 | todo | native | Real native observations: generator `.return`/`.throw` (E13.08) | `tests/conformance` fixture `es/generators/generator_return_throw`, `crates/draconic-backend-llvm` |
+| N08.12.08 | done | native | Real native observations: generator `.return`/`.throw` (E13.08) | `tests/conformance` fixture `es/generators/generator_return_throw`, `crates/draconic-backend-llvm` |
 | N08.13 | todo | native | Real native observations: proxies/Reflect (E14) | `tests/conformance` fixtures `es/proxies` |
 | N08.14 | todo | native | Real native observations: builtins surface (E15) | `tests/conformance` fixtures `es/builtins` |
 | N08.15 | todo | native | Real native observations: legacy `with` (E17) | `tests/conformance` fixtures `es/legacy` |

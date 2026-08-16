@@ -1,15 +1,16 @@
-//! N08.12.01–N08.12.07: native observations for generator function declaration +
+//! N08.12.01–N08.12.08: native observations for generator function declaration +
 //! expression + methods (object/class/static) + `yield` / `yield*` / `return` +
-//! `.next()` / `.next(arg)` → `{value, done}` + `for-of` over generators (E13.01–E13.07).
+//! `.next()` / `.next(arg)` / `.return(arg)` / `.throw(arg)` → `{value, done}` +
+//! `for-of` over generators (E13.01–E13.08).
 //!
 //! Compile-time evaluation of a small generator subset: generator decls and
 //! `function*` expressions (incl. named + IIFE) with simple ident params,
 //! object/class generator methods (`*m()` / `static *m()`), `this` prop reads
 //! in methods, `yield` of number/string/binary/local/GenFn/`void 0` (bare yield),
 //! `let x = yield …` resume binding, `yield*` of generators/arrays (incl.
-//! completion value), `return` of same, iterator `.next()` / `.next(arg)`,
-//! property reads `.value` / `.done`, and top-level `for-of` over generators
-//! (let/const/assign binding, nested for-of over yielded arrays, break/continue).
+//! completion value), `return` of same, iterator `.next()` / `.return()` /
+//! `.throw()`, try/catch/finally in generator bodies, property reads `.value` /
+//! `.done`, and top-level `for-of` / `try` over generators.
 //! Emits Runtime prints of final top-level number/boolean/string/undefined locals.
 
 use std::collections::HashMap;
@@ -63,12 +64,20 @@ enum JsVal {
     },
 }
 
-/// Loop control from break/continue inside for-of bodies.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Loop control from break/continue inside for-of bodies; throw for `.throw` / try.
+#[derive(Clone, Debug)]
 enum Flow {
     Next,
     Break,
     Continue,
+    Throw(JsVal),
+}
+
+/// Eval failure: unsupported shape, or a JS exception to propagate.
+#[derive(Clone, Debug)]
+enum Ev {
+    U,
+    Throw(JsVal),
 }
 
 #[derive(Clone, Debug)]
@@ -91,6 +100,24 @@ enum YieldStarState {
     },
 }
 
+/// Where execution sits inside a `try` when suspended or unwinding.
+#[derive(Clone, Debug)]
+struct TryCtx {
+    /// Index of the `Stmt::Try` in the generator body.
+    try_pc: usize,
+    /// 0 = try block, 1 = catch handler, 2 = finally.
+    region: u8,
+    /// PC within the active region body.
+    pc: usize,
+    handler_param: Option<LocalId>,
+    has_handler: bool,
+    has_finally: bool,
+    /// Completion to apply after finally (`return` value from `.return`).
+    pending_return: Option<JsVal>,
+    /// Exception to rethrow after finally.
+    pending_throw: Option<JsVal>,
+}
+
 /// Suspended generator: body + program counter + param env + done flag.
 struct GenInst {
     /// Index into `gen_fns`.
@@ -107,6 +134,8 @@ struct GenInst {
     this_val: Option<JsVal>,
     /// Active `yield*` when suspended mid-delegate.
     yield_star: Option<YieldStarState>,
+    /// Nested try state when suspended inside try/catch/finally.
+    try_ctx: Option<TryCtx>,
 }
 
 struct ModuleInfo {
@@ -120,7 +149,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if !module_has_generator(&module.body) {
         return None;
     }
-    // Top-level shape only; detailed acceptance is eval success (methods/class/for-of).
+    // Top-level shape only; detailed acceptance is eval success (methods/class/for-of/try).
     if !module.body.iter().all(|s| {
         matches!(
             s,
@@ -130,6 +159,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 | Stmt::ForOf { .. }
                 | Stmt::Block { .. }
                 | Stmt::If { .. }
+                | Stmt::Try { .. }
         )
     }) {
         return None;
@@ -311,7 +341,7 @@ fn eval_body(
     for stmt in body {
         match eval_stmt(stmt, env, gen_fns, fn_bind, gens)? {
             Flow::Next => {}
-            Flow::Break | Flow::Continue => return Err(()),
+            Flow::Break | Flow::Continue | Flow::Throw(_) => return Err(()),
         }
     }
     Ok(())
@@ -328,7 +358,11 @@ fn eval_stmt(
         Stmt::Function { .. } => Ok(Flow::Next),
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
+                Some(e) => match eval_expr(e, env, gen_fns, fn_bind, gens) {
+                    Ok(v) => v,
+                    Err(Ev::Throw(exc)) => return Ok(Flow::Throw(exc)),
+                    Err(Ev::U) => return Err(()),
+                },
                 None => JsVal::Undef,
             };
             if let JsVal::GenFn(idx) = &v {
@@ -337,17 +371,22 @@ fn eval_stmt(
             env.insert(*local, v);
             Ok(Flow::Next)
         }
-        Stmt::Expr { expr } => {
-            eval_expr(expr, env, gen_fns, fn_bind, gens)?;
-            Ok(Flow::Next)
-        }
+        Stmt::Expr { expr } => match eval_expr(expr, env, gen_fns, fn_bind, gens) {
+            Ok(_) => Ok(Flow::Next),
+            Err(Ev::Throw(exc)) => Ok(Flow::Throw(exc)),
+            Err(Ev::U) => Err(()),
+        },
         Stmt::Block { body } => eval_block(body, env, gen_fns, fn_bind, gens),
         Stmt::If {
             test,
             consequent,
             alternate,
         } => {
-            let t = eval_expr(test, env, gen_fns, fn_bind, gens)?;
+            let t = match eval_expr(test, env, gen_fns, fn_bind, gens) {
+                Ok(v) => v,
+                Err(Ev::Throw(exc)) => return Ok(Flow::Throw(exc)),
+                Err(Ev::U) => return Err(()),
+            };
             if is_truthy(&t) {
                 eval_stmt(consequent, env, gen_fns, fn_bind, gens)
             } else if let Some(alt) = alternate {
@@ -366,6 +405,35 @@ fn eval_stmt(
         } => {
             eval_for_of(left, right, body, env, gen_fns, fn_bind, gens)?;
             Ok(Flow::Next)
+        }
+        Stmt::Try {
+            block,
+            handler_param,
+            handler,
+            finalizer,
+        } => {
+            let mut completion = match eval_block(block, env, gen_fns, fn_bind, gens)? {
+                Flow::Throw(exc) => {
+                    if let Some(handler) = handler {
+                        if let Some(Pattern::Local(pid)) = handler_param {
+                            env.insert(*pid, exc);
+                        } else if handler_param.is_some() {
+                            return Err(());
+                        }
+                        eval_block(handler, env, gen_fns, fn_bind, gens)?
+                    } else {
+                        Flow::Throw(exc)
+                    }
+                }
+                other => other,
+            };
+            if let Some(fin) = finalizer {
+                match eval_block(fin, env, gen_fns, fn_bind, gens)? {
+                    Flow::Next => {}
+                    abrupt => completion = abrupt,
+                }
+            }
+            Ok(completion)
         }
         _ => Err(()),
     }
@@ -426,16 +494,22 @@ fn eval_for_of(
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<(), ()> {
-    let iterable = eval_expr(right, env, gen_fns, fn_bind, gens)?;
+    let iterable = match eval_expr(right, env, gen_fns, fn_bind, gens) {
+        Ok(v) => v,
+        Err(_) => return Err(()),
+    };
     match iterable {
         JsVal::GenInst(idx) => loop {
-            let r = gen_next(
+            let r = match gen_next(
                 &JsVal::GenInst(idx),
                 JsVal::Undef,
                 gen_fns,
                 fn_bind,
                 gens,
-            )?;
+            ) {
+                Ok(v) => v,
+                Err(_) => return Err(()),
+            };
             let JsVal::Result { value, done } = r else {
                 return Err(());
             };
@@ -446,6 +520,7 @@ fn eval_for_of(
             match eval_stmt(body, env, gen_fns, fn_bind, gens)? {
                 Flow::Next | Flow::Continue => {}
                 Flow::Break => break,
+                Flow::Throw(_) => return Err(()),
             }
         },
         JsVal::Array(elems) => {
@@ -454,6 +529,7 @@ fn eval_for_of(
                 match eval_stmt(body, env, gen_fns, fn_bind, gens)? {
                     Flow::Next | Flow::Continue => {}
                     Flow::Break => break,
+                    Flow::Throw(_) => return Err(()),
                 }
             }
         }
@@ -468,8 +544,8 @@ fn register_gen_fn_expr(
     body: &[Stmt],
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
-) -> Result<JsVal, ()> {
-    let param_ids = simple_param_locals(params).ok_or(())?;
+) -> Result<JsVal, Ev> {
+    let param_ids = simple_param_locals(params).ok_or(Ev::U)?;
     let idx = gen_fns.len();
     gen_fns.push(GenFnRec {
         params: param_ids,
@@ -488,16 +564,16 @@ fn eval_expr(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<JsVal, ()> {
+) -> Result<JsVal, Ev> {
     match expr {
         Expr::Number { raw, .. } => {
-            let n: f64 = raw.parse().map_err(|_| ())?;
+            let n: f64 = raw.parse().map_err(|_| Ev::U)?;
             Ok(JsVal::Num(n))
         }
         Expr::Boolean { value, .. } => Ok(JsVal::Bool(*value)),
         Expr::String { value, .. } => Ok(JsVal::Str(value.to_string_lossy())),
-        Expr::Local { id, .. } => env.get(id).cloned().ok_or(()),
-        Expr::This { .. } => Err(()),
+        Expr::Local { id, .. } => env.get(id).cloned().ok_or(Ev::U),
+        Expr::This { .. } => Err(Ev::U),
         Expr::Unary {
             op: UnaryOp::Void, ..
         } => Ok(JsVal::Undef),
@@ -508,7 +584,7 @@ fn eval_expr(
                     ArrayElement::Expr(e) => {
                         vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?)
                     }
-                    _ => return Err(()),
+                    _ => return Err(Ev::U),
                 }
             }
             Ok(JsVal::Array(vals))
@@ -591,7 +667,7 @@ fn eval_expr(
             let prop = prop_name(property)?;
             lookup_prop(&obj, &prop)
         }
-        _ => Err(()),
+        _ => Err(Ev::U),
     }
 }
 
@@ -602,7 +678,7 @@ fn eval_call(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<JsVal, ()> {
+) -> Result<JsVal, Ev> {
     // Method call: `it.next()` / `obj.m(args)` / `C.sgen(args)`.
     if let Expr::Member {
         object,
@@ -619,12 +695,38 @@ fn eval_call(
             } else if args.len() == 1 {
                 match &args[0] {
                     Arg::Expr(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
-                    _ => return Err(()),
+                    _ => return Err(Ev::U),
                 }
             } else {
-                return Err(());
+                return Err(Ev::U);
             };
             return gen_next(&obj, resume, gen_fns, fn_bind, gens);
+        }
+        if prop == "return" {
+            let val = if args.is_empty() {
+                JsVal::Undef
+            } else if args.len() == 1 {
+                match &args[0] {
+                    Arg::Expr(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
+                    _ => return Err(Ev::U),
+                }
+            } else {
+                return Err(Ev::U);
+            };
+            return gen_return(&obj, val, gen_fns, fn_bind, gens);
+        }
+        if prop == "throw" {
+            let val = if args.is_empty() {
+                JsVal::Undef
+            } else if args.len() == 1 {
+                match &args[0] {
+                    Arg::Expr(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
+                    _ => return Err(Ev::U),
+                }
+            } else {
+                return Err(Ev::U);
+            };
+            return gen_throw(&obj, val, gen_fns, fn_bind, gens);
         }
         let method = lookup_prop(&obj, &prop)?;
         let this_val = match &obj {
@@ -645,15 +747,15 @@ fn eval_object_lit(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<JsVal, ()> {
+) -> Result<JsVal, Ev> {
     let mut props = HashMap::new();
     let methods = HashMap::new();
     for p in properties {
         let ObjectProp::Property { key, value } = p else {
-            return Err(());
+            return Err(Ev::U);
         };
         let ObjectPropKey::Static(k) = key else {
-            return Err(());
+            return Err(Ev::U);
         };
         let name = k.to_string_lossy();
         let v = eval_expr(value, env, gen_fns, fn_bind, gens)?;
@@ -662,12 +764,12 @@ fn eval_object_lit(
     Ok(JsVal::Object { props, methods })
 }
 
-fn lookup_prop(obj: &JsVal, prop: &str) -> Result<JsVal, ()> {
+fn lookup_prop(obj: &JsVal, prop: &str) -> Result<JsVal, Ev> {
     match obj {
         JsVal::Result { value, done } => match prop {
             "value" => Ok(*value.clone()),
             "done" => Ok(JsVal::Bool(*done)),
-            _ => Err(()),
+            _ => Err(Ev::U),
         },
         JsVal::Object { props, methods } => {
             if let Some(v) = props.get(prop) {
@@ -676,15 +778,15 @@ fn lookup_prop(obj: &JsVal, prop: &str) -> Result<JsVal, ()> {
             if let Some(&fid) = methods.get(prop) {
                 return Ok(JsVal::GenFn(fid));
             }
-            Err(())
+            Err(Ev::U)
         }
         JsVal::Class { statics, .. } => {
             if let Some(&fid) = statics.get(prop) {
                 return Ok(JsVal::GenFn(fid));
             }
-            Err(())
+            Err(Ev::U)
         }
-        _ => Err(()),
+        _ => Err(Ev::U),
     }
 }
 
@@ -695,7 +797,7 @@ fn eval_new(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<JsVal, ()> {
+) -> Result<JsVal, Ev> {
     let JsVal::Class {
         methods,
         ctor_params,
@@ -703,16 +805,16 @@ fn eval_new(
         ..
     } = callee
     else {
-        return Err(());
+        return Err(Ev::U);
     };
     if args.len() > ctor_params.len() {
-        return Err(());
+        return Err(Ev::U);
     }
     let mut arg_vals = Vec::new();
     for a in args {
         match a {
             Arg::Expr(e) => arg_vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?),
-            _ => return Err(()),
+            _ => return Err(Ev::U),
         }
     }
     let mut param_env = HashMap::new();
@@ -877,7 +979,7 @@ fn extract_ctor_assigns(body: &[Stmt]) -> Result<Vec<(String, LocalId)>, ()> {
                 if !matches!(object.as_ref(), Expr::This { .. }) {
                     return Err(());
                 }
-                let prop = prop_name(property)?;
+                let prop = prop_name(property).map_err(|_| ())?;
                 let Expr::Local { id, .. } = value.as_ref() else {
                     return Err(());
                 };
@@ -1031,22 +1133,22 @@ fn spawn_gen_call(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<JsVal, ()> {
+) -> Result<JsVal, Ev> {
     let JsVal::GenFn(fid) = callee else {
-        return Err(());
+        return Err(Ev::U);
     };
     if fid >= gen_fns.len() {
-        return Err(());
+        return Err(Ev::U);
     }
     let n_params = gen_fns[fid].params.len();
     if args.len() > n_params {
-        return Err(());
+        return Err(Ev::U);
     }
     let mut arg_vals = Vec::new();
     for a in args {
         match a {
             Arg::Expr(e) => arg_vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?),
-            _ => return Err(()),
+            _ => return Err(Ev::U),
         }
     }
     spawn_gen_vals(
@@ -1059,21 +1161,21 @@ fn spawn_gen_call(
     )
 }
 
-fn bin_val(op: &BinaryOp, left: &JsVal, right: &JsVal) -> Result<JsVal, ()> {
+fn bin_val(op: &BinaryOp, left: &JsVal, right: &JsVal) -> Result<JsVal, Ev> {
     match op {
         BinaryOp::Add => match (left, right) {
             (JsVal::Num(a), JsVal::Num(b)) => Ok(JsVal::Num(a + b)),
             (JsVal::Str(a), JsVal::Str(b)) => Ok(JsVal::Str(format!("{a}{b}"))),
             (JsVal::Str(a), JsVal::Num(b)) => Ok(JsVal::Str(format!("{a}{b}"))),
             (JsVal::Num(a), JsVal::Str(b)) => Ok(JsVal::Str(format!("{a}{b}"))),
-            _ => Err(()),
+            _ => Err(Ev::U),
         },
         BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
             let JsVal::Num(a) = left else {
-                return Err(());
+                return Err(Ev::U);
             };
             let JsVal::Num(b) = right else {
-                return Err(());
+                return Err(Ev::U);
             };
             let n = match op {
                 BinaryOp::Sub => a - b,
@@ -1086,7 +1188,7 @@ fn bin_val(op: &BinaryOp, left: &JsVal, right: &JsVal) -> Result<JsVal, ()> {
         }
         BinaryOp::EqEqEq => Ok(JsVal::Bool(strict_eq(left, right))),
         BinaryOp::NotEqEq => Ok(JsVal::Bool(!strict_eq(left, right))),
-        _ => Err(()),
+        _ => Err(Ev::U),
     }
 }
 
@@ -1100,10 +1202,21 @@ fn strict_eq(left: &JsVal, right: &JsVal) -> bool {
     }
 }
 
-fn prop_name(expr: &Expr) -> Result<String, ()> {
+fn prop_name(expr: &Expr) -> Result<String, Ev> {
     match expr {
         Expr::String { value, .. } => Ok(value.to_string_lossy()),
-        _ => Err(()),
+        _ => Err(Ev::U),
+    }
+}
+
+fn map_in_gen<T>(r: Result<T, ()>) -> Result<T, Ev> {
+    r.map_err(|_| Ev::U)
+}
+
+fn iter_result(value: JsVal, done: bool) -> JsVal {
+    JsVal::Result {
+        value: Box::new(value),
+        done,
     }
 }
 
@@ -1115,18 +1228,15 @@ fn gen_next(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<JsVal, ()> {
+) -> Result<JsVal, Ev> {
     let JsVal::GenInst(idx) = obj else {
-        return Err(());
+        return Err(Ev::U);
     };
     if *idx >= gens.len() {
-        return Err(());
+        return Err(Ev::U);
     }
     if gens[*idx].done {
-        return Ok(JsVal::Result {
-            value: Box::new(JsVal::Undef),
-            done: true,
-        });
+        return Ok(iter_result(JsVal::Undef, true));
     }
 
     let mut inject: Option<JsVal> = if !gens[*idx].started {
@@ -1139,139 +1249,395 @@ fn gen_next(
         Some(JsVal::Undef)
     };
 
+    gen_continue(*idx, &mut inject, gen_fns, fn_bind, gens)
+}
+
+/// Generator.prototype.return(value)
+fn gen_return(
+    obj: &JsVal,
+    value: JsVal,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, Ev> {
+    let JsVal::GenInst(idx) = obj else {
+        return Err(Ev::U);
+    };
+    if *idx >= gens.len() {
+        return Err(Ev::U);
+    }
+    if gens[*idx].done {
+        return Ok(iter_result(value, true));
+    }
+    if !gens[*idx].started {
+        gens[*idx].started = true;
+        gens[*idx].done = true;
+        return Ok(iter_result(value, true));
+    }
+    gens[*idx].suspended = false;
+    gens[*idx].yield_star = None;
+
+    // Unwind through try: run finally if present, else close with value.
+    if let Some(ctx) = gens[*idx].try_ctx.as_mut() {
+        if ctx.has_finally && ctx.region != 2 {
+            ctx.pending_return = Some(value);
+            ctx.region = 2;
+            ctx.pc = 0;
+            let mut inject = None;
+            return gen_continue(*idx, &mut inject, gen_fns, fn_bind, gens);
+        }
+    }
+    gens[*idx].try_ctx = None;
+    gens[*idx].done = true;
+    Ok(iter_result(value, true))
+}
+
+/// Generator.prototype.throw(exception)
+fn gen_throw(
+    obj: &JsVal,
+    value: JsVal,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, Ev> {
+    let JsVal::GenInst(idx) = obj else {
+        return Err(Ev::U);
+    };
+    if *idx >= gens.len() {
+        return Err(Ev::U);
+    }
+    if gens[*idx].done {
+        return Err(Ev::Throw(value));
+    }
+    if !gens[*idx].started {
+        gens[*idx].started = true;
+        gens[*idx].done = true;
+        return Err(Ev::Throw(value));
+    }
+    gens[*idx].suspended = false;
+    gens[*idx].yield_star = None;
+
+    if let Some(ctx) = gens[*idx].try_ctx.clone() {
+        if ctx.region == 0 && ctx.has_handler {
+            if let Some(pid) = ctx.handler_param {
+                gens[*idx].env.insert(pid, value);
+            }
+            if let Some(c) = gens[*idx].try_ctx.as_mut() {
+                c.region = 1;
+                c.pc = 0;
+            }
+            let mut inject = None;
+            return gen_continue(*idx, &mut inject, gen_fns, fn_bind, gens);
+        }
+        if ctx.has_finally && ctx.region != 2 {
+            if let Some(c) = gens[*idx].try_ctx.as_mut() {
+                c.pending_throw = Some(value);
+                c.region = 2;
+                c.pc = 0;
+            }
+            let mut inject = None;
+            return gen_continue(*idx, &mut inject, gen_fns, fn_bind, gens);
+        }
+    }
+    gens[*idx].try_ctx = None;
+    gens[*idx].done = true;
+    Err(Ev::Throw(value))
+}
+
+fn gen_continue(
+    idx: usize,
+    inject: &mut Option<JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, Ev> {
     // Active yield* first.
-    if gens[*idx].yield_star.is_some() {
-        match step_yield_star(
-            *idx,
+    if gens[idx].yield_star.is_some() {
+        match map_in_gen(step_yield_star(
+            idx,
             inject.take().unwrap_or(JsVal::Undef),
             gen_fns,
             fn_bind,
             gens,
-        )? {
+        ))? {
             Step::Yield(v) => return Ok(v),
             Step::Continue => {}
         }
     }
 
-    let fn_id = gens[*idx].fn_id;
+    let fn_id = gens[idx].fn_id;
     if fn_id >= gen_fns.len() {
-        return Err(());
+        return Err(Ev::U);
     }
     let body = gen_fns[fn_id].body.clone();
 
     loop {
-        let pc = gens[*idx].pc;
+        // Nested try/catch/finally execution.
+        if gens[idx].try_ctx.is_some() {
+            match step_try_region(idx, inject, &body, gen_fns, fn_bind, gens)? {
+                Some(v) => return Ok(v),
+                None => continue,
+            }
+        }
+
+        let pc = gens[idx].pc;
         if pc >= body.len() {
-            gens[*idx].done = true;
-            return Ok(JsVal::Result {
-                value: Box::new(JsVal::Undef),
-                done: true,
-            });
+            gens[idx].done = true;
+            return Ok(iter_result(JsVal::Undef, true));
         }
 
         match &body[pc] {
-            Stmt::Expr {
-                expr:
-                    Expr::Unary {
-                        op: UnaryOp::Yield,
-                        arg,
-                        ..
-                    },
+            Stmt::Try {
+                block: _,
+                handler_param,
+                handler,
+                finalizer,
             } => {
-                if let Some(_v) = inject.take() {
-                    gens[*idx].pc = pc + 1;
-                    continue;
-                }
-                let yv = eval_in_gen(arg, *idx, gen_fns, fn_bind, gens)?;
-                gens[*idx].suspended = true;
-                return Ok(JsVal::Result {
-                    value: Box::new(yv),
-                    done: false,
-                });
-            }
-            Stmt::Expr {
-                expr:
-                    Expr::Unary {
-                        op: UnaryOp::YieldStar,
-                        arg,
-                        ..
-                    },
-            } => {
-                if inject.is_some() {
-                    // Completing a prior bare yield into this stmt shouldn't happen
-                    // for yield*; inject only applies when suspended on this stmt.
-                    inject.take();
-                }
-                start_yield_star(*idx, arg, None, gen_fns, fn_bind, gens)?;
-                match step_yield_star(*idx, JsVal::Undef, gen_fns, fn_bind, gens)? {
-                    Step::Yield(v) => return Ok(v),
-                    Step::Continue => continue,
-                }
-            }
-            Stmt::Declare {
-                local,
-                init:
-                    Some(Expr::Unary {
-                        op: UnaryOp::Yield,
-                        arg,
-                        ..
-                    }),
-                ..
-            } => {
-                if let Some(v) = inject.take() {
-                    gens[*idx].env.insert(*local, v);
-                    gens[*idx].pc = pc + 1;
-                    continue;
-                }
-                let yv = eval_in_gen(arg, *idx, gen_fns, fn_bind, gens)?;
-                gens[*idx].suspended = true;
-                return Ok(JsVal::Result {
-                    value: Box::new(yv),
-                    done: false,
-                });
-            }
-            Stmt::Declare {
-                local,
-                init:
-                    Some(Expr::Unary {
-                        op: UnaryOp::YieldStar,
-                        arg,
-                        ..
-                    }),
-                ..
-            } => {
-                if inject.is_some() {
-                    inject.take();
-                }
-                let bind = Some(*local);
-                start_yield_star(*idx, arg, bind, gen_fns, fn_bind, gens)?;
-                match step_yield_star(*idx, JsVal::Undef, gen_fns, fn_bind, gens)? {
-                    Step::Yield(v) => return Ok(v),
-                    Step::Continue => continue,
-                }
-            }
-            Stmt::Declare { local, init, .. } => {
-                let v = match init {
-                    None => JsVal::Undef,
-                    Some(e) => eval_in_gen(e, *idx, gen_fns, fn_bind, gens)?,
+                let hp = match handler_param {
+                    None => None,
+                    Some(Pattern::Local(id)) => Some(*id),
+                    Some(_) => return Err(Ev::U),
                 };
-                gens[*idx].env.insert(*local, v);
-                gens[*idx].pc = pc + 1;
-            }
-            Stmt::Return { value } => {
-                let v = match value {
-                    None => JsVal::Undef,
-                    Some(e) => eval_in_gen(e, *idx, gen_fns, fn_bind, gens)?,
-                };
-                gens[*idx].pc = body.len();
-                gens[*idx].done = true;
-                return Ok(JsVal::Result {
-                    value: Box::new(v),
-                    done: true,
+                gens[idx].try_ctx = Some(TryCtx {
+                    try_pc: pc,
+                    region: 0,
+                    pc: 0,
+                    handler_param: hp,
+                    has_handler: handler.is_some(),
+                    has_finally: finalizer.is_some(),
+                    pending_return: None,
+                    pending_throw: None,
                 });
+                // do not advance outer pc yet
             }
-            _ => return Err(()),
+            other => match exec_gen_stmt(idx, other, inject, true, gen_fns, fn_bind, gens)? {
+                ExecOut::Yield(v) => return Ok(v),
+                ExecOut::Done(v) => return Ok(v),
+                ExecOut::Advanced => {
+                    gens[idx].pc = pc + 1;
+                }
+                ExecOut::Stay => {}
+            },
         }
+    }
+}
+
+enum ExecOut {
+    Yield(JsVal),
+    Done(JsVal),
+    Advanced,
+    Stay,
+}
+
+/// Execute one generator statement. `advance_outer` unused for nest (caller advances nest pc).
+fn exec_gen_stmt(
+    idx: usize,
+    stmt: &Stmt,
+    inject: &mut Option<JsVal>,
+    _advance_outer: bool,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<ExecOut, Ev> {
+    match stmt {
+        Stmt::Expr {
+            expr:
+                Expr::Unary {
+                    op: UnaryOp::Yield,
+                    arg,
+                    ..
+                },
+        } => {
+            if let Some(_v) = inject.take() {
+                return Ok(ExecOut::Advanced);
+            }
+            let yv = map_in_gen(eval_in_gen(arg, idx, gen_fns, fn_bind, gens))?;
+            gens[idx].suspended = true;
+            Ok(ExecOut::Yield(iter_result(yv, false)))
+        }
+        Stmt::Expr {
+            expr:
+                Expr::Unary {
+                    op: UnaryOp::YieldStar,
+                    arg,
+                    ..
+                },
+        } => {
+            if inject.is_some() {
+                inject.take();
+            }
+            map_in_gen(start_yield_star(idx, arg, None, gen_fns, fn_bind, gens))?;
+            match map_in_gen(step_yield_star(idx, JsVal::Undef, gen_fns, fn_bind, gens))? {
+                Step::Yield(v) => Ok(ExecOut::Yield(v)),
+                Step::Continue => Ok(ExecOut::Stay),
+            }
+        }
+        Stmt::Declare {
+            local,
+            init:
+                Some(Expr::Unary {
+                    op: UnaryOp::Yield,
+                    arg,
+                    ..
+                }),
+            ..
+        } => {
+            if let Some(v) = inject.take() {
+                gens[idx].env.insert(*local, v);
+                return Ok(ExecOut::Advanced);
+            }
+            let yv = map_in_gen(eval_in_gen(arg, idx, gen_fns, fn_bind, gens))?;
+            gens[idx].suspended = true;
+            Ok(ExecOut::Yield(iter_result(yv, false)))
+        }
+        Stmt::Declare {
+            local,
+            init:
+                Some(Expr::Unary {
+                    op: UnaryOp::YieldStar,
+                    arg,
+                    ..
+                }),
+            ..
+        } => {
+            if inject.is_some() {
+                inject.take();
+            }
+            let bind = Some(*local);
+            map_in_gen(start_yield_star(idx, arg, bind, gen_fns, fn_bind, gens))?;
+            match map_in_gen(step_yield_star(idx, JsVal::Undef, gen_fns, fn_bind, gens))? {
+                Step::Yield(v) => Ok(ExecOut::Yield(v)),
+                Step::Continue => Ok(ExecOut::Stay),
+            }
+        }
+        Stmt::Declare { local, init, .. } => {
+            let v = match init {
+                None => JsVal::Undef,
+                Some(e) => map_in_gen(eval_in_gen(e, idx, gen_fns, fn_bind, gens))?,
+            };
+            gens[idx].env.insert(*local, v);
+            Ok(ExecOut::Advanced)
+        }
+        Stmt::Return { value } => {
+            let v = match value {
+                None => JsVal::Undef,
+                Some(e) => map_in_gen(eval_in_gen(e, idx, gen_fns, fn_bind, gens))?,
+            };
+            // If inside try with finally, run finally before completing.
+            if let Some(ctx) = gens[idx].try_ctx.as_mut() {
+                if ctx.has_finally && ctx.region != 2 {
+                    ctx.pending_return = Some(v);
+                    ctx.region = 2;
+                    ctx.pc = 0;
+                    return Ok(ExecOut::Stay);
+                }
+            }
+            gens[idx].try_ctx = None;
+            gens[idx].done = true;
+            Ok(ExecOut::Done(iter_result(v, true)))
+        }
+        Stmt::Expr { expr } => {
+            map_in_gen(eval_in_gen(expr, idx, gen_fns, fn_bind, gens))?;
+            Ok(ExecOut::Advanced)
+        }
+        Stmt::Block { body } => {
+            // Flatten one level: not expected as nested block PC; unsupported multi-stmt block
+            // without its own PC — only empty or single-pass via sequential not supported.
+            let _ = body;
+            Err(Ev::U)
+        }
+        _ => Err(Ev::U),
+    }
+}
+
+/// Step inside active try_ctx. `Some(v)` = yield/done result; `None` = keep looping.
+fn step_try_region(
+    idx: usize,
+    inject: &mut Option<JsVal>,
+    body: &[Stmt],
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<Option<JsVal>, Ev> {
+    let ctx = gens[idx].try_ctx.clone().ok_or(Ev::U)?;
+    let try_pc = ctx.try_pc;
+    if try_pc >= body.len() {
+        return Err(Ev::U);
+    }
+    let Stmt::Try {
+        block,
+        handler,
+        finalizer,
+        ..
+    } = &body[try_pc]
+    else {
+        return Err(Ev::U);
+    };
+
+    let region_body: &[Stmt] = match ctx.region {
+        0 => block.as_slice(),
+        1 => handler.as_ref().map(|h| h.as_slice()).unwrap_or(&[]),
+        2 => finalizer.as_ref().map(|f| f.as_slice()).unwrap_or(&[]),
+        _ => return Err(Ev::U),
+    };
+
+    if ctx.pc >= region_body.len() {
+        // Region finished.
+        match ctx.region {
+            0 => {
+                if ctx.has_finally {
+                    if let Some(c) = gens[idx].try_ctx.as_mut() {
+                        c.region = 2;
+                        c.pc = 0;
+                    }
+                } else {
+                    gens[idx].try_ctx = None;
+                    gens[idx].pc = try_pc + 1;
+                }
+                return Ok(None);
+            }
+            1 => {
+                if ctx.has_finally {
+                    if let Some(c) = gens[idx].try_ctx.as_mut() {
+                        c.region = 2;
+                        c.pc = 0;
+                    }
+                } else {
+                    gens[idx].try_ctx = None;
+                    gens[idx].pc = try_pc + 1;
+                }
+                return Ok(None);
+            }
+            2 => {
+                let pending_return = ctx.pending_return.clone();
+                let pending_throw = ctx.pending_throw.clone();
+                gens[idx].try_ctx = None;
+                if let Some(v) = pending_return {
+                    gens[idx].done = true;
+                    return Ok(Some(iter_result(v, true)));
+                }
+                if let Some(t) = pending_throw {
+                    gens[idx].done = true;
+                    return Err(Ev::Throw(t));
+                }
+                gens[idx].pc = try_pc + 1;
+                return Ok(None);
+            }
+            _ => return Err(Ev::U),
+        }
+    }
+
+    let stmt = &region_body[ctx.pc];
+    match exec_gen_stmt(idx, stmt, inject, false, gen_fns, fn_bind, gens)? {
+        ExecOut::Yield(v) => Ok(Some(v)),
+        ExecOut::Done(v) => Ok(Some(v)),
+        ExecOut::Advanced => {
+            if let Some(c) = gens[idx].try_ctx.as_mut() {
+                c.pc += 1;
+            }
+            Ok(None)
+        }
+        ExecOut::Stay => Ok(None),
     }
 }
 
@@ -1297,7 +1663,11 @@ fn start_yield_star(
             bind,
         },
         JsVal::GenFn(fid) => {
-            let inst = spawn_gen_vals(JsVal::GenFn(fid), &[], None, gen_fns, fn_bind, gens)?;
+            let inst = match spawn_gen_vals(JsVal::GenFn(fid), &[], None, gen_fns, fn_bind, gens)
+            {
+                Ok(v) => v,
+                Err(_) => return Err(()),
+            };
             let JsVal::GenInst(i) = inst else {
                 return Err(());
             };
@@ -1319,7 +1689,10 @@ fn step_yield_star(
     let state = gens[outer_idx].yield_star.take().ok_or(())?;
     match state {
         YieldStarState::Gen { idx: inner, bind } => {
-            let r = gen_next(&JsVal::GenInst(inner), resume, gen_fns, fn_bind, gens)?;
+            let r = match gen_next(&JsVal::GenInst(inner), resume, gen_fns, fn_bind, gens) {
+                Ok(v) => v,
+                Err(_) => return Err(()),
+            };
             match r {
                 JsVal::Result { value, done: false } => {
                     gens[outer_idx].yield_star = Some(YieldStarState::Gen { idx: inner, bind });
@@ -1411,7 +1784,7 @@ fn eval_in_gen(
         } => {
             let l = eval_in_gen(left, gen_idx, gen_fns, fn_bind, gens)?;
             let r = eval_in_gen(right, gen_idx, gen_fns, fn_bind, gens)?;
-            bin_val(op, &l, &r)
+            bin_val(op, &l, &r).map_err(|_| ())
         }
         Expr::Member {
             object,
@@ -1420,8 +1793,8 @@ fn eval_in_gen(
             ..
         } => {
             let obj = eval_in_gen(object, gen_idx, gen_fns, fn_bind, gens)?;
-            let prop = prop_name(property)?;
-            lookup_prop(&obj, &prop)
+            let prop = prop_name(property).map_err(|_| ())?;
+            lookup_prop(&obj, &prop).map_err(|_| ())
         }
         Expr::Function {
             name,
@@ -1431,7 +1804,7 @@ fn eval_in_gen(
             is_generator: true,
             is_arrow: false,
             ..
-        } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind),
+        } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind).map_err(|_| ()),
         Expr::Call {
             callee,
             args,
@@ -1449,7 +1822,7 @@ fn eval_in_gen(
                     is_generator: true,
                     is_arrow: false,
                     ..
-                } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind)?,
+                } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind).map_err(|_| ())?,
                 _ => return Err(()),
             };
             // Build args using gen env.
@@ -1462,7 +1835,7 @@ fn eval_in_gen(
                     _ => return Err(()),
                 }
             }
-            spawn_gen_vals(c, &arg_vals, None, gen_fns, fn_bind, gens)
+            spawn_gen_vals(c, &arg_vals, None, gen_fns, fn_bind, gens).map_err(|_| ())
         }
         _ => Err(()),
     }
@@ -1475,16 +1848,16 @@ fn spawn_gen_vals(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<JsVal, ()> {
+) -> Result<JsVal, Ev> {
     let JsVal::GenFn(fid) = callee else {
-        return Err(());
+        return Err(Ev::U);
     };
     if fid >= gen_fns.len() {
-        return Err(());
+        return Err(Ev::U);
     }
     let n_params = gen_fns[fid].params.len();
     if args.len() > n_params {
-        return Err(());
+        return Err(Ev::U);
     }
     let params = gen_fns[fid].params.clone();
     let name = gen_fns[fid].name;
@@ -1515,6 +1888,7 @@ fn spawn_gen_vals(
         env: gen_env,
         this_val,
         yield_star: None,
+        try_ctx: None,
     });
     Ok(JsVal::GenInst(idx))
 }
@@ -1593,7 +1967,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.12.07 generators for-of)"
+            "; Draconic LLVM backend (N08.12.08 generators return/throw)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();

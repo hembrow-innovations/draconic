@@ -95,7 +95,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **ToPrimitive** (`valueOf`/`toString` hooks in `+` and `==`) — N08.09.04
 /// - **Exceptions** (`throw` + bare `try`/`catch`; catch binding; nested; throw from fn) — N08.10.01
 /// - **Linked ESM modules** (named/default/cyclic flatten; number/string observations) — N08.11
-/// - **Generators** (function* + yield/yield* + return + `.next()` + for-of) — N08.12.01–N08.12.07
+/// - **Generators** (function* + yield/yield* + return/throw + `.next()` + for-of) — N08.12.01–N08.12.08
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
