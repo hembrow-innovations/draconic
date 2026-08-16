@@ -21,6 +21,7 @@
 //! E08.01 number literals: decimal/hex/bin/oct/separators/scientific (N08.08.01).
 //! E08.02 BigInt integer literals + same-type arithmetic (N08.08.02; i64-range values).
 //! E08.03 BigInt comparison & bitwise: `<` `<=` `>` `>=` `==` `!=` `===` `!==` `&` `|` `^` `~` `<<` `>>` (N08.08.03; no `>>>`).
+//! E08.04 BigInt exponentiation: `**` (right-associative) and `**=` (same-type BigInt; non-neg exp; N08.08.04).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -35,8 +36,8 @@ use draconic_runtime::abi::{
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.03 / N08.01.* / N08.02.01–N08.02.09 /
-/// N08.07.01–N08.07.05 / N08.08.01–N08.08.03):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.04 / N08.01.* / N08.02.01–N08.02.09 /
+/// N08.07.01–N08.07.05 / N08.08.01–N08.08.04):
 /// top-level `let`/`const` declares over JS numbers, BigInts (i64-range), booleans, strings,
 /// undefined (`void`), and/or untyped `any` string/number slots with arithmetic, unary
 /// `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical, bitwise,
@@ -45,6 +46,7 @@ use draconic_runtime::abi::{
 /// unicode-escape string lits, UTF-16 index/length, number literals
 /// (decimal/hex/bin/oct/separators/scientific), BigInt literals + same-type `+` `-` `*` `/` `%`
 /// unary `-`/`~`, comparison/equality, bitwise `&` `|` `^` `<<` `>>` (no `>>>`),
+/// BigInt `**` / `**=` (non-negative exponents; values fit i64),
 /// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or
 /// expression bodies), `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue`
 /// (unlabeled or labeled), labeled statements (incl. labeled blocks), and `switch`/`case`/`default`
@@ -258,6 +260,7 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
         Stmt::Expr { expr } => match expr.ty() {
             Type::Number => expr_is_number_subset(expr, by_id),
+            Type::BigInt => expr_is_bigint_subset(expr, by_id),
             Type::Boolean => expr_is_boolean_subset(expr, by_id),
             Type::String => expr_is_string_subset(expr, by_id),
             Type::Null => expr_is_undefined_subset(expr, by_id),
@@ -395,9 +398,9 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
     }
 }
 
-/// Same-type BigInt subset (E08.02–E08.03 / N08.08.02–N08.08.03): literals, unary `-`/`~`,
-/// `+` `-` `*` `/` `%`, bitwise `&` `|` `^` `<<` `>>` (no `>>>`), locals.
-/// Values must fit signed i64 at emit.
+/// Same-type BigInt subset (E08.02–E08.04 / N08.08.02–N08.08.04): literals, unary `-`/`~`,
+/// `+` `-` `*` `/` `%`, bitwise `&` `|` `^` `<<` `>>` (no `>>>`), `**` / `**=`, locals.
+/// Values must fit signed i64 at emit; `**` exponents non-negative in fixtures.
 fn expr_is_bigint_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::BigInt { ty, .. } => *ty == Type::BigInt,
@@ -428,6 +431,7 @@ fn expr_is_bigint_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                         | BinaryOp::BitXor
                         | BinaryOp::Shl
                         | BinaryOp::Shr
+                        | BinaryOp::Pow
                         | BinaryOp::Comma
                 )
                 && expr_is_bigint_subset(left, by_id)
@@ -440,7 +444,7 @@ fn expr_is_bigint_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
             ty,
         } => {
             *ty == Type::BigInt
-                && matches!(op, AssignOp::Eq)
+                && matches!(op, AssignOp::Eq | AssignOp::PowEq)
                 && matches!(
                     target,
                     AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::BigInt)
@@ -1010,6 +1014,10 @@ impl<'a> Emitter<'a> {
             Stmt::Expr { expr } => match expr.ty() {
                 Type::Number => {
                     let _ = self.emit_number_expr(expr)?;
+                    Ok(())
+                }
+                Type::BigInt => {
+                    let _ = self.emit_bigint_expr(expr)?;
                     Ok(())
                 }
                 Type::Boolean => {
@@ -1611,7 +1619,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// Emit a BigInt expression as signed i64 SSA (N08.08.02–N08.08.03).
+    /// Emit a BigInt expression as signed i64 SSA (N08.08.02–N08.08.04).
     fn emit_bigint_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::BigInt { raw, .. } => Ok(format_bigint_const(raw)?),
@@ -1686,6 +1694,8 @@ impl<'a> Emitter<'a> {
                         writeln!(self.body, "  {t} = ashr i64 {l}, {r}").ok();
                         Ok(t)
                     }
+                    // N08.08.04: BigInt `**` binary exponentiation (non-neg exp; 0**0 → 1).
+                    BinaryOp::Pow => self.emit_bigint_pow(&l, &r),
                     BinaryOp::Comma => Ok(r),
                     _ => Err(diag("internal: non-arithmetic binary in bigint emit")),
                 }
@@ -1699,9 +1709,6 @@ impl<'a> Emitter<'a> {
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
-                if !matches!(op, AssignOp::Eq) {
-                    return Err(diag("internal: only simple = for bigint assign"));
-                }
                 let (ptr, slot) = self
                     .allocas
                     .get(id)
@@ -1710,12 +1717,91 @@ impl<'a> Emitter<'a> {
                 if slot != SlotTy::BigInt {
                     return Err(diag("internal: expected bigint assign local"));
                 }
-                let v = self.emit_bigint_expr(value)?;
-                writeln!(self.body, "  store i64 {v}, ptr {ptr}").ok();
-                Ok(v)
+                match op {
+                    AssignOp::Eq => {
+                        let v = self.emit_bigint_expr(value)?;
+                        writeln!(self.body, "  store i64 {v}, ptr {ptr}").ok();
+                        Ok(v)
+                    }
+                    // ES order: GetValue(lhs) then evaluate RHS, then pow and PutValue.
+                    AssignOp::PowEq => {
+                        let cur = self.fresh();
+                        writeln!(self.body, "  {cur} = load i64, ptr {ptr}").ok();
+                        let r = self.emit_bigint_expr(value)?;
+                        let v = self.emit_bigint_pow(&cur, &r)?;
+                        writeln!(self.body, "  store i64 {v}, ptr {ptr}").ok();
+                        Ok(v)
+                    }
+                    _ => Err(diag("internal: unsupported bigint assign op")),
+                }
             }
             _ => Err(diag("internal: unsupported bigint expr in es_expr")),
         }
+    }
+
+    /// Integer binary exponentiation for JS BigInt `**` / `**=` (N08.08.04).
+    /// Exponent must be non-negative (fixtures); any base ** 0n → 1n, including 0n ** 0n.
+    fn emit_bigint_pow(&mut self, base: &str, exp: &str) -> Result<String, Diagnostic> {
+        let res_a = self.fresh();
+        let base_a = self.fresh();
+        let exp_a = self.fresh();
+        writeln!(self.body, "  {res_a} = alloca i64, align 8").ok();
+        writeln!(self.body, "  {base_a} = alloca i64, align 8").ok();
+        writeln!(self.body, "  {exp_a} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 1, ptr {res_a}").ok();
+        writeln!(self.body, "  store i64 {base}, ptr {base_a}").ok();
+        writeln!(self.body, "  store i64 {exp}, ptr {exp_a}").ok();
+
+        let head = self.fresh_label("bipow_head");
+        let body = self.fresh_label("bipow_body");
+        let odd = self.fresh_label("bipow_odd");
+        let after = self.fresh_label("bipow_after");
+        let end = self.fresh_label("bipow_end");
+
+        writeln!(self.body, "  br label %{head}").ok();
+        writeln!(self.body, "{head}:").ok();
+        let e0 = self.fresh();
+        writeln!(self.body, "  {e0} = load i64, ptr {exp_a}").ok();
+        let cont = self.fresh();
+        writeln!(self.body, "  {cont} = icmp sgt i64 {e0}, 0").ok();
+        writeln!(self.body, "  br i1 {cont}, label %{body}, label %{end}").ok();
+
+        writeln!(self.body, "{body}:").ok();
+        let e1 = self.fresh();
+        writeln!(self.body, "  {e1} = load i64, ptr {exp_a}").ok();
+        let bit = self.fresh();
+        writeln!(self.body, "  {bit} = and i64 {e1}, 1").ok();
+        let is_odd = self.fresh();
+        writeln!(self.body, "  {is_odd} = icmp ne i64 {bit}, 0").ok();
+        writeln!(self.body, "  br i1 {is_odd}, label %{odd}, label %{after}").ok();
+
+        writeln!(self.body, "{odd}:").ok();
+        let r0 = self.fresh();
+        let b0 = self.fresh();
+        writeln!(self.body, "  {r0} = load i64, ptr {res_a}").ok();
+        writeln!(self.body, "  {b0} = load i64, ptr {base_a}").ok();
+        let r1 = self.fresh();
+        writeln!(self.body, "  {r1} = mul i64 {r0}, {b0}").ok();
+        writeln!(self.body, "  store i64 {r1}, ptr {res_a}").ok();
+        writeln!(self.body, "  br label %{after}").ok();
+
+        writeln!(self.body, "{after}:").ok();
+        let b1 = self.fresh();
+        writeln!(self.body, "  {b1} = load i64, ptr {base_a}").ok();
+        let bsq = self.fresh();
+        writeln!(self.body, "  {bsq} = mul i64 {b1}, {b1}").ok();
+        writeln!(self.body, "  store i64 {bsq}, ptr {base_a}").ok();
+        let e2 = self.fresh();
+        writeln!(self.body, "  {e2} = load i64, ptr {exp_a}").ok();
+        let e3 = self.fresh();
+        writeln!(self.body, "  {e3} = ashr i64 {e2}, 1").ok();
+        writeln!(self.body, "  store i64 {e3}, ptr {exp_a}").ok();
+        writeln!(self.body, "  br label %{head}").ok();
+
+        writeln!(self.body, "{end}:").ok();
+        let out = self.fresh();
+        writeln!(self.body, "  {out} = load i64, ptr {res_a}").ok();
+        Ok(out)
     }
 
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<StrVal, Diagnostic> {
