@@ -1,10 +1,11 @@
-//! N08.03.01–N08.03.04: native observations for ES function declarations +
-//! expressions (simple ident params) — E03.01–E03.04 /
-//! `es/functions/decl_return_call`, `params_call`, `nested_capture`, `function_expr`.
+//! N08.03.01–N08.03.05: native observations for ES function declarations,
+//! expressions, and arrows (simple ident params) — E03.01–E03.05 /
+//! `es/functions/decl_return_call`, `params_call`, `nested_capture`,
+//! `function_expr`, `arrow`.
 //!
 //! Nested/non-escaping decls use extra by-value capture params. Function
-//! expressions are first-class as fn-id doubles; returned closures stash
-//! captures in a small return buffer for immediate call (`make(10)(7)`).
+//! expressions and arrows are first-class as fn-id doubles; returned closures
+//! stash captures in a small return buffer for immediate call (`make(10)(7)`).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -217,10 +218,9 @@ fn collect_expr_fns(
             body,
             is_async,
             is_generator,
-            is_arrow,
             ..
         } => {
-            if *is_async || *is_generator || *is_arrow {
+            if *is_async || *is_generator {
                 return None;
             }
             let param_ids = simple_param_locals(params, by_id)?;
@@ -534,14 +534,12 @@ fn fn_body_ok(
             Expr::Function {
                 is_async,
                 is_generator,
-                is_arrow,
                 params,
                 body,
                 ..
             } => {
                 !*is_async
                     && !*is_generator
-                    && !*is_arrow
                     && simple_param_locals(params, by_id).is_some()
                     && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
             }
@@ -560,14 +558,12 @@ fn fn_body_ok(
                 Some(Expr::Function {
                     is_async,
                     is_generator,
-                    is_arrow,
                     params,
                     body,
                     ..
                 }) => {
                     !*is_async
                         && !*is_generator
-                        && !*is_arrow
                         && simple_param_locals(params, by_id).is_some()
                         && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
                 }
@@ -697,13 +693,11 @@ fn number_expr_ok(
                     params,
                     is_async,
                     is_generator,
-                    is_arrow,
                     body,
                     ..
                 } => {
                     !*is_async
                         && !*is_generator
-                        && !*is_arrow
                         && simple_param_locals(params, by_id)
                             .is_some_and(|p| p.len() == args.len())
                         && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
@@ -856,7 +850,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.03.04 ES functions + function expressions via Runtime ABI)"
+            "; Draconic LLVM backend (N08.03.05 ES functions + expressions + arrows via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(&[PRINT_F64])).ok();
