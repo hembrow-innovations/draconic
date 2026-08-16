@@ -1,5 +1,6 @@
-//! N08.01 + N08.02.01–N08.02.06: emit native observations for ES expression Programs,
-//! `if`/`else`, `while`, `do`/`while`, `for`, unlabeled `break`/`continue`, and `switch`
+//! N08.01 + N08.02.01–N08.02.07: emit native observations for ES expression Programs,
+//! `if`/`else`, `while`, `do`/`while`, `for`, `break`/`continue` (incl. labeled), `switch`,
+//! and labeled statements
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
 //! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
@@ -9,7 +10,8 @@
 //! E02.03 `do` / `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
 //! E02.04 `for` loops (`for (init; test; update)`; `let` init; omitted clauses; block bodies),
 //! E02.05 unlabeled `break` / `continue` in loops,
-//! E02.06 `switch` / `case` / `default` (number discriminant; fall-through; unlabeled `break`).
+//! E02.06 `switch` / `case` / `default` (number discriminant; fall-through; unlabeled `break`),
+//! E02.07 labeled statements + labeled `break` / `continue`.
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -21,13 +23,14 @@ use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, St
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.06 / N08.01.* / N08.02.01–N08.02.06):
+/// (E01.* / E02.01–E02.07 / N08.01.* / N08.02.01–N08.02.07):
 /// top-level `let` declares over JS numbers, booleans, strings, and/or undefined (`void`) with
 /// arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical,
 /// bitwise, exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`,
 /// comma, grouping, local refs, `if`/`else`, `while`, `do`/`while`, `for` (incl. `let` init;
-/// block or expression bodies), unlabeled `break`/`continue` in loops, and `switch`/`case`/
-/// `default` (number discriminant; fall-through; unlabeled `break`).
+/// block or expression bodies), `break`/`continue` (unlabeled or labeled) in loops, labeled
+/// statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
+/// fall-through; unlabeled `break`).
 /// Expression statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -119,7 +122,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             | Stmt::While { .. }
             | Stmt::DoWhile { .. }
             | Stmt::For { .. }
-            | Stmt::Switch { .. } => {
+            | Stmt::Switch { .. }
+            | Stmt::Labeled { .. } => {
                 if !stmt_is_subset(stmt, &by_id) {
                     return None;
                 }
@@ -186,13 +190,15 @@ fn collect_for_init_allocs(
             }
             Some(())
         }
+        Stmt::Labeled { body, .. } => collect_for_init_allocs(body, by_id, alloc_locals, seen),
         _ => Some(()),
     }
 }
 
-/// Nested statement subset for `if`/`else`/`while`/`do`/`while`/`for`/`switch` bodies and blocks.
+/// Nested statement subset for `if`/`else`/`while`/`do`/`while`/`for`/`switch`/labeled bodies
+/// and blocks.
 /// `for` init may introduce a nested `let` (number/boolean/string/undefined).
-/// Unlabeled `break`/`continue` only (labeled → later N08.02.07).
+/// Labeled statements + labeled/unlabeled `break`/`continue` (N08.02.07).
 /// `switch` discriminant and case tests are number subset only (this Loop).
 fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
@@ -267,7 +273,8 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
                 test_ok && c.body.iter().all(|s| stmt_is_subset(s, by_id))
             })
         }
-        Stmt::Break { label: None } | Stmt::Continue { label: None } => true,
+        Stmt::Labeled { body, .. } => stmt_is_subset(body, by_id),
+        Stmt::Break { .. } | Stmt::Continue { .. } => true,
         _ => false,
     }
 }
@@ -519,9 +526,10 @@ fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
     }
 }
 
-/// Innermost targets for unlabeled `break` / `continue`.
-/// `continue_label` is `None` for `switch` (break only; continue walks outer frames).
+/// Targets for `break` / `continue` (unlabeled = innermost; labeled = matching `names`).
+/// `continue_label` is `None` for `switch` and labeled non-iteration statements.
 struct CtrlFrame {
+    names: Vec<String>,
     break_label: String,
     continue_label: Option<String>,
 }
@@ -536,6 +544,8 @@ struct Emitter<'a> {
     body: String,
     tmp: u32,
     ctrls: Vec<CtrlFrame>,
+    /// Labels from enclosing `label:` wrappers applied to the next loop/frame.
+    pending_names: Vec<String>,
 }
 
 impl<'a> Emitter<'a> {
@@ -548,6 +558,7 @@ impl<'a> Emitter<'a> {
             body: String::new(),
             tmp: 0,
             ctrls: Vec::new(),
+            pending_names: Vec::new(),
         }
     }
 
@@ -650,7 +661,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.06 ES expressions + if/else/while/do-while/for/break/continue/switch via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.07 ES expressions + if/else/while/do-while/for/break/continue/switch/labeled via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -771,6 +782,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::While { test, body } => {
+                let names = std::mem::take(&mut self.pending_names);
                 let head = self.fresh_label("while_head");
                 let bod = self.fresh_label("while_body");
                 let end = self.fresh_label("while_end");
@@ -780,6 +792,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  br i1 {cond}, label %{bod}, label %{end}").ok();
                 writeln!(self.body, "{bod}:").ok();
                 self.ctrls.push(CtrlFrame {
+                    names,
                     break_label: end.clone(),
                     continue_label: Some(head.clone()),
                 });
@@ -792,12 +805,14 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::DoWhile { body, test } => {
+                let names = std::mem::take(&mut self.pending_names);
                 let bod = self.fresh_label("do_body");
                 let head = self.fresh_label("do_test");
                 let end = self.fresh_label("do_end");
                 writeln!(self.body, "  br label %{bod}").ok();
                 writeln!(self.body, "{bod}:").ok();
                 self.ctrls.push(CtrlFrame {
+                    names,
                     break_label: end.clone(),
                     continue_label: Some(head.clone()),
                 });
@@ -818,6 +833,7 @@ impl<'a> Emitter<'a> {
                 update,
                 body,
             } => {
+                let names = std::mem::take(&mut self.pending_names);
                 if let Some(i) = init {
                     self.emit_stmt(i)?;
                 }
@@ -835,6 +851,7 @@ impl<'a> Emitter<'a> {
                 }
                 writeln!(self.body, "{bod}:").ok();
                 self.ctrls.push(CtrlFrame {
+                    names,
                     break_label: end.clone(),
                     continue_label: Some(upd.clone()),
                 });
@@ -871,6 +888,7 @@ impl<'a> Emitter<'a> {
                 discriminant,
                 cases,
             } => {
+                let names = std::mem::take(&mut self.pending_names);
                 let disc = self.emit_number_expr(discriminant)?;
                 let end = self.fresh_label("switch_end");
                 let case_labels: Vec<String> = (0..cases.len())
@@ -903,6 +921,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  br label %{default_target}").ok();
 
                 self.ctrls.push(CtrlFrame {
+                    names,
                     break_label: end.clone(),
                     continue_label: None,
                 });
@@ -926,12 +945,50 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "{end}:").ok();
                 Ok(())
             }
+            Stmt::Labeled { label, body } => match body.as_ref() {
+                Stmt::While { .. }
+                | Stmt::DoWhile { .. }
+                | Stmt::For { .. }
+                | Stmt::Switch { .. }
+                | Stmt::Labeled { .. } => {
+                    self.pending_names.push(label.clone());
+                    self.emit_stmt(body)
+                }
+                _ => {
+                    let end = self.fresh_label("lbl_end");
+                    let mut names = std::mem::take(&mut self.pending_names);
+                    names.push(label.clone());
+                    self.ctrls.push(CtrlFrame {
+                        names,
+                        break_label: end.clone(),
+                        continue_label: None,
+                    });
+                    self.emit_stmt(body)?;
+                    self.ctrls.pop();
+                    if !self.body_ends_with_terminator() {
+                        writeln!(self.body, "  br label %{end}").ok();
+                    }
+                    writeln!(self.body, "{end}:").ok();
+                    Ok(())
+                }
+            },
             Stmt::Break { label: None } => {
                 let frame = self
                     .ctrls
                     .last()
                     .ok_or_else(|| diag("internal: break outside loop/switch in es_expr"))?;
                 let end = frame.break_label.clone();
+                writeln!(self.body, "  br label %{end}").ok();
+                Ok(())
+            }
+            Stmt::Break { label: Some(name) } => {
+                let end = self
+                    .ctrls
+                    .iter()
+                    .rev()
+                    .find(|f| f.names.iter().any(|n| n == name))
+                    .map(|f| f.break_label.clone())
+                    .ok_or_else(|| diag("internal: labeled break target missing in es_expr"))?;
                 writeln!(self.body, "  br label %{end}").ok();
                 Ok(())
             }
@@ -942,6 +999,19 @@ impl<'a> Emitter<'a> {
                     .rev()
                     .find_map(|f| f.continue_label.clone())
                     .ok_or_else(|| diag("internal: continue outside loop in es_expr"))?;
+                writeln!(self.body, "  br label %{cont}").ok();
+                Ok(())
+            }
+            Stmt::Continue { label: Some(name) } => {
+                let cont = self
+                    .ctrls
+                    .iter()
+                    .rev()
+                    .find(|f| f.names.iter().any(|n| n == name))
+                    .and_then(|f| f.continue_label.clone())
+                    .ok_or_else(|| {
+                        diag("internal: labeled continue target missing or not iteration")
+                    })?;
                 writeln!(self.body, "  br label %{cont}").ok();
                 Ok(())
             }

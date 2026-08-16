@@ -1,4 +1,6 @@
 id: es/statements/labeled
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\n5\n4\n1\n1\n2\n1\n
 js.check: if (a !== 1) process.exit(1); if (b !== 5) process.exit(2); if (c !== 4) process.exit(3); if (d !== 1) process.exit(4); if (e !== 1) process.exit(5); if (f !== 2) process.exit(6); if (g !== 1) process.exit(7);
