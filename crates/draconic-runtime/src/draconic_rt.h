@@ -108,7 +108,11 @@ DraconicValue *draconic_rt_promise_race(DraconicValue *arr);
 
 /* --- Plain object props (N06.08; keys are NUL-terminated C strings) --- */
 void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value);
+/* N08.04.05: [[Get]] walks [[Prototype]] when key is missing on own props. */
 void *draconic_rt_object_get(DraconicValue *obj, const char *key);
+/* N08.04.05: set/get ordinary object [[Prototype]] (nullable). */
+void draconic_rt_object_set_proto(DraconicValue *obj, DraconicValue *proto);
+DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj);
 
 /* --- Promise.allSettled (N06.08): array of promises/values →
        promise of [{status,value|reason}, …] --- */

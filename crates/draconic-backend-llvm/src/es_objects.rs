@@ -1,15 +1,16 @@
-//! N08.04.01–N08.04.04: native observations for ES object literals, property
-//! access, simple property assignment, method call + `this`, and `new`
-//! constructors (E04.01–E04.04 / `es/objects/object_lit_access`,
-//! `property_assign`, `this_method`, `new_ctor`).
+//! N08.04.01–N08.04.05: native observations for ES object literals, property
+//! access, simple property assignment, method call + `this`, `new`
+//! constructors, and prototypes (E04.01–E04.05 / `es/objects/*` incl. `prototype`).
 //!
 //! Object values are Runtime GC heap ptrs; number props are stored as
 //! `inttoptr` of integer bit-patterns (fixture uses small integers). Nested
 //! objects store GC ptrs. Function-valued props and constructors store LLVM
 //! method fn ptrs. Method/ctor calls use a uniform signature
-//! `double (ptr this, double a0..a3)`. `new C(args)` allocates an object, calls
-//! the ctor with that `this`, and yields the instance. Number locals from
-//! member reads / method returns are printed via `print_f64`.
+//! `double (ptr this, double a0..a3)`. Function decls are ctor objects with a
+//! `.prototype` own prop; `new C(args)` allocates an instance, sets
+//! `[[Prototype]]` from `C.prototype`, calls the ctor, and yields the instance.
+//! Runtime `object_get` walks the prototype chain so inherited methods resolve.
+//! Number locals from member reads / method returns are printed via `print_f64`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -21,7 +22,7 @@ use draconic_ir::{
     Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{
-    llvm_declares, ALLOC_OBJECT, GC_INIT, OBJECT_GET, OBJECT_SET, PRINT_F64,
+    llvm_declares, ALLOC_OBJECT, GC_INIT, OBJECT_GET, OBJECT_SET, OBJECT_SET_PROTO, PRINT_F64,
 };
 
 /// Max fixed args for method/ctor calling convention (fixtures use ≤2).
@@ -77,8 +78,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 
     for stmt in &module.body {
         match stmt {
-            Stmt::Function { .. } => {
-                // Binding recorded in collect; nothing to allocate for the name.
+            Stmt::Function { local, .. } => {
+                // N08.04.05: ctor binding is a heap object with `.prototype`.
+                has_object = true;
+                slots.push((*local, SlotTy::Object));
             }
             Stmt::Declare { local, init, .. } => {
                 let loc = by_id.get(local)?;
@@ -100,7 +103,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 }
             }
             Stmt::Expr { expr } => {
-                if !member_assign_ok(expr, &by_id, &functions, &fn_binding) {
+                if !member_assign_ok(expr, &by_id, &functions, &fn_binding)
+                    && !number_expr_ok(expr, &by_id, &functions, &fn_binding)
+                {
                     return None;
                 }
             }
@@ -283,7 +288,7 @@ fn find_fn_idx(params: &[Param], body: &[Stmt], functions: &[FnInfo]) -> Option<
 }
 
 fn is_object_slot_ty(ty: &Type) -> bool {
-    matches!(ty, Type::Object | Type::Shape(_))
+    matches!(ty, Type::Object | Type::Shape(_) | Type::Function)
 }
 
 fn is_number_slot_ty(ty: &Type) -> bool {
@@ -344,7 +349,9 @@ fn member_assign_ok(
         } => {
             object_expr_ok(object, by_id, functions, fn_binding)
                 && member_key_ok(property)
-                && number_expr_ok(value, by_id, functions, fn_binding)
+                && (number_expr_ok(value, by_id, functions, fn_binding)
+                    || function_expr_ok(value, by_id, functions, fn_binding)
+                    || object_expr_ok(value, by_id, functions, fn_binding))
         }
         _ => false,
     }
@@ -382,10 +389,13 @@ fn object_expr_ok(
             true
         }
         Expr::Local { id, ty } => {
-            is_object_slot_ty(ty)
-                || by_id
-                    .get(id)
-                    .is_some_and(|l| is_object_slot_ty(&l.ty) || matches!(l.ty, Type::Any))
+            fn_binding.contains_key(id)
+                || is_object_slot_ty(ty)
+                || by_id.get(id).is_some_and(|l| {
+                    is_object_slot_ty(&l.ty)
+                        || matches!(l.ty, Type::Any | Type::Function)
+                        || fn_binding.contains_key(id)
+                })
         }
         Expr::Member {
             object,
@@ -669,13 +679,20 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.04 ES objects + new via Runtime ABI)"
+            "; Draconic LLVM backend (N08.04 ES objects + new/prototype via Runtime ABI)"
         )
         .ok();
         writeln!(
             self.out,
             "{}",
-            llvm_declares(&[GC_INIT, ALLOC_OBJECT, OBJECT_SET, OBJECT_GET, PRINT_F64])
+            llvm_declares(&[
+                GC_INIT,
+                ALLOC_OBJECT,
+                OBJECT_SET,
+                OBJECT_GET,
+                OBJECT_SET_PROTO,
+                PRINT_F64,
+            ])
         )
         .ok();
         writeln!(self.out).ok();
@@ -818,7 +835,27 @@ impl<'a> Emitter<'a> {
 
     fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
-            Stmt::Function { .. } => Ok(()),
+            Stmt::Function { local, .. } => {
+                // Ctor object with empty `.prototype` (N08.04.05).
+                let ctor = self.fresh();
+                writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&ctor, "")).ok();
+                let proto = self.fresh();
+                writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&proto, "")).ok();
+                let key = self.string_const("prototype")?;
+                writeln!(
+                    self.body,
+                    "  {}",
+                    OBJECT_SET.call(&format!("ptr {ctor}, ptr {key}, ptr {proto}"))
+                )
+                .ok();
+                let ptr = self
+                    .allocas
+                    .get(local)
+                    .cloned()
+                    .ok_or_else(|| diag("es_objects: function binding missing alloca"))?;
+                writeln!(self.body, "  store ptr {ctor}, ptr {ptr}").ok();
+                Ok(())
+            }
             Stmt::Declare { local, init, .. } => {
                 let Some(init) = init else {
                     return Ok(());
@@ -866,6 +903,9 @@ impl<'a> Emitter<'a> {
                     let idx = find_fn_idx(params, body, &self.info.functions)
                         .ok_or_else(|| diag("es_objects: unknown method FunctionExpr"))?;
                     format!("@m_fn_{idx}")
+                } else if object_value_is_object(value) || matches!(value.as_ref(), Expr::New { .. })
+                {
+                    self.emit_object_expr(value)?
                 } else {
                     let n = self.emit_number_expr(value)?;
                     let i = self.fresh();
@@ -1055,8 +1095,33 @@ impl<'a> Emitter<'a> {
             .fn_binding
             .get(id)
             .ok_or_else(|| diag("es_objects: unknown constructor"))?;
+        // N08.04.05: instance.[[Prototype]] = C.prototype
+        let ctor = {
+            let ptr = self
+                .allocas
+                .get(id)
+                .cloned()
+                .ok_or_else(|| diag("es_objects: ctor binding missing alloca"))?;
+            let t = self.fresh();
+            writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+            t
+        };
+        let proto_key = self.string_const("prototype")?;
+        let proto = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            OBJECT_GET.call_to(&proto, &format!("ptr {ctor}, ptr {proto_key}"))
+        )
+        .ok();
         let obj = self.fresh();
         writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&obj, "")).ok();
+        writeln!(
+            self.body,
+            "  {}",
+            OBJECT_SET_PROTO.call(&format!("ptr {obj}, ptr {proto}"))
+        )
+        .ok();
 
         let mut arg_vals = Vec::new();
         for a in args {
@@ -1142,17 +1207,26 @@ impl<'a> Emitter<'a> {
                 Ok(obj)
             }
             Expr::Local { id, .. } => {
-                let kind = *self
-                    .slot_of
-                    .get(id)
-                    .ok_or_else(|| diag("es_objects: object local unknown"))?;
-                if kind != SlotTy::Object {
-                    return Err(diag("es_objects: expected object local"));
+                if let Some(kind) = self.slot_of.get(id).copied() {
+                    if kind != SlotTy::Object {
+                        return Err(diag("es_objects: expected object local"));
+                    }
+                    let ptr = self.allocas.get(id).cloned().unwrap();
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+                    return Ok(t);
                 }
-                let ptr = self.allocas.get(id).cloned().unwrap();
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
-                Ok(t)
+                if self.info.fn_binding.contains_key(id) {
+                    let ptr = self
+                        .allocas
+                        .get(id)
+                        .cloned()
+                        .ok_or_else(|| diag("es_objects: fn object local unknown"))?;
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+                    return Ok(t);
+                }
+                Err(diag("es_objects: object local unknown"))
             }
             Expr::Member {
                 object,
@@ -1208,7 +1282,8 @@ impl<'a> Emitter<'a> {
 fn object_value_is_object(expr: &Expr) -> bool {
     match expr {
         Expr::Object { .. } | Expr::New { .. } => true,
-        Expr::Member { ty, .. } | Expr::Local { ty, .. } => is_object_slot_ty(ty),
+        Expr::Member { ty, .. } => is_object_slot_ty(ty),
+        Expr::Local { ty, .. } => is_object_slot_ty(ty) || matches!(ty, Type::Function),
         _ => false,
     }
 }

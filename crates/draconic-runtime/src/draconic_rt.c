@@ -123,6 +123,7 @@ struct DraconicValue {
         } string;
         struct {
             DraconicProp *props; /* N06.08 own properties */
+            struct DraconicValue *proto; /* N08.04.05 [[Prototype]]; nullable */
         } object;
         struct {
             int state; /* DRACONIC_PROMISE_* */
@@ -178,6 +179,7 @@ static void free_value(DraconicValue *v) {
     } else if (v->tag == DRACONIC_TAG_OBJECT) {
         free_props(v->as.object.props);
         v->as.object.props = NULL;
+        v->as.object.proto = NULL;
     } else if (v->tag == DRACONIC_TAG_PROMISE) {
         free_promise_reactions(v->as.promise.reactions_head);
         v->as.promise.reactions_head = NULL;
@@ -278,7 +280,13 @@ static void mark_value(DraconicValue *v) {
         return;
     }
     v->marked = 1;
-    if (v->tag == DRACONIC_TAG_PROMISE) {
+    if (v->tag == DRACONIC_TAG_OBJECT) {
+        /* N08.04.05: keep [[Prototype]] live; own props may hold GC ptrs. */
+        mark_value(v->as.object.proto);
+        for (DraconicProp *p = v->as.object.props; p; p = p->next) {
+            mark_value((DraconicValue *)p->value);
+        }
+    } else if (v->tag == DRACONIC_TAG_PROMISE) {
         DraconicPromiseReaction *r = v->as.promise.reactions_head;
         while (r) {
             mark_value(r->derived);
@@ -982,12 +990,32 @@ void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
     if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
         return NULL;
     }
-    for (DraconicProp *p = obj->as.object.props; p; p = p->next) {
-        if (strcmp(p->key, key) == 0) {
-            return p->value;
+    /* N08.04.05: ordinary [[Get]] walks [[Prototype]] for missing own keys. */
+    for (DraconicValue *cur = obj; cur && cur->tag == DRACONIC_TAG_OBJECT; cur = cur->as.object.proto) {
+        for (DraconicProp *p = cur->as.object.props; p; p = p->next) {
+            if (strcmp(p->key, key) == 0) {
+                return p->value;
+            }
         }
     }
     return NULL;
+}
+
+void draconic_rt_object_set_proto(DraconicValue *obj, DraconicValue *proto) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT) {
+        return;
+    }
+    if (proto && proto->tag != DRACONIC_TAG_OBJECT) {
+        return;
+    }
+    obj->as.object.proto = proto;
+}
+
+DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT) {
+        return NULL;
+    }
+    return obj->as.object.proto;
 }
 
 /* --- Promise.allSettled (N06.08) --- */

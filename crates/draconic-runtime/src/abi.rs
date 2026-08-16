@@ -282,6 +282,16 @@ pub const OBJECT_SET: AbiFn = AbiFn {
     ret: "void",
     params: "ptr, ptr, ptr",
 };
+pub const OBJECT_SET_PROTO: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_set_proto",
+    ret: "void",
+    params: "ptr, ptr",
+};
+pub const OBJECT_GET_PROTO: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_get_proto",
+    ret: "ptr",
+    params: "ptr",
+};
 pub const PROMISE_ALL_SETTLED: AbiFn = AbiFn {
     symbol: "draconic_rt_promise_all_settled",
     ret: "ptr",
@@ -339,6 +349,8 @@ pub const PROMISE_ALL_SYMBOL: &str = PROMISE_ALL.symbol;
 pub const PROMISE_RACE_SYMBOL: &str = PROMISE_RACE.symbol;
 pub const OBJECT_GET_SYMBOL: &str = OBJECT_GET.symbol;
 pub const OBJECT_SET_SYMBOL: &str = OBJECT_SET.symbol;
+pub const OBJECT_SET_PROTO_SYMBOL: &str = OBJECT_SET_PROTO.symbol;
+pub const OBJECT_GET_PROTO_SYMBOL: &str = OBJECT_GET_PROTO.symbol;
 pub const PROMISE_ALL_SETTLED_SYMBOL: &str = PROMISE_ALL_SETTLED.symbol;
 pub const PROMISE_ANY_SYMBOL: &str = PROMISE_ANY.symbol;
 pub const PROMISE_AWAIT_SYMBOL: &str = PROMISE_AWAIT.symbol;
@@ -388,6 +400,8 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     PROMISE_RACE_SYMBOL,
     OBJECT_GET_SYMBOL,
     OBJECT_SET_SYMBOL,
+    OBJECT_SET_PROTO_SYMBOL,
+    OBJECT_GET_PROTO_SYMBOL,
     PROMISE_ALL_SETTLED_SYMBOL,
     PROMISE_ANY_SYMBOL,
     PROMISE_AWAIT_SYMBOL,

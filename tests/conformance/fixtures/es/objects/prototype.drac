@@ -15,19 +15,19 @@ p.scale(3);
 let b = p.x;
 let c = p.y;
 let d = p.sum();
-function Animal(name) {
-  this.name = name;
+function Animal(id) {
+  this.id = id;
 }
 Animal.prototype.greet = function () {
-  return this.name;
+  return this.id;
 };
-function Dog(name) {
-  this.name = name;
+function Dog(id) {
+  this.id = id;
 }
-Dog.prototype = new Animal("proto");
+Dog.prototype = new Animal(0);
 Dog.prototype.bark = function () {
-  return this.name;
+  return this.id;
 };
-let dog = new Dog("rex");
+let dog = new Dog(7);
 let e = dog.bark();
 let f = dog.greet();

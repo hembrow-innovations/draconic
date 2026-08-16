@@ -524,6 +524,46 @@ mod tests {
     }
 
     #[test]
+    fn es_objects_prototype_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/objects/prototype.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit prototype");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_objects must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_object_set_proto"),
+            "es_objects prototype must set [[Prototype]]:\n{ir}"
+        );
+        assert!(
+            ir.contains("define double @m_fn_"),
+            "es_objects must emit prototype methods:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-objects-proto").expect("workdir");
+        let bin = dir.join("prototype");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "3\n3\n6\n9\n7\n7\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn es_expr_string_literal_prints() {
         let ir = emit_llvm_ir(&module_of(
             r#"
