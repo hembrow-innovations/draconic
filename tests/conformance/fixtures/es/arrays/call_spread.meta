@@ -1,4 +1,6 @@
 id: es/arrays/call_spread
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 6\n60\n6\n6\n6\nxyz\n7\n8\n1\n2\n15\n
 js.check: if (a !== 6) process.exit(1); if (b !== 60) process.exit(1); if (c !== 6) process.exit(1); if (d !== 6) process.exit(1); if (e !== 6) process.exit(1); if (f !== "xyz") process.exit(1); if (ix !== 7) process.exit(1); if (iy !== 8) process.exit(1); if (gx !== 1) process.exit(1); if (gy !== 2) process.exit(1); if (h !== 15) process.exit(1);

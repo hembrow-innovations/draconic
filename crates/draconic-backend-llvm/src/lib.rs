@@ -1,6 +1,7 @@
 //! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
 mod es_arrays;
+mod es_call_spread;
 mod es_classes;
 mod es_eval;
 mod es_expr;
@@ -17,6 +18,7 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::Module;
 
 use es_arrays::{emit_es_arrays, is_es_arrays_module};
+use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
@@ -81,6 +83,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_nullish_module(module) {
         return emit_es_nullish(module);
+    }
+    if is_es_call_spread_module(module) {
+        return emit_es_call_spread(module);
     }
     if is_es_functions_module(module) {
         return emit_es_functions(module);
@@ -894,6 +899,42 @@ mod tests {
         assert_eq!(
             stdout,
             "1\n2\n2\n1\n2\n3\n3\n0\n1\n2\n3\n4\n10\n1\n2\n3\n1\n2\n99\n7\n0\n5\n1\n1\n2\n3\n3\na\nb\n2\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_call_spread_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/arrays/call_spread.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit call_spread");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "call_spread must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("cs_fn_") || ir.contains("call double"),
+            "call_spread must emit calls:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-call-spread").expect("workdir");
+        let bin = dir.join("call_spread");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "6\n60\n6\n6\n6\nxyz\n7\n8\n1\n2\n15\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -2678,5 +2719,4 @@ mod tests {
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
-
 }
