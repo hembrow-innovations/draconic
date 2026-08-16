@@ -1,5 +1,6 @@
-//! N08.06.01: native observations for ES array literals + index access +
-//! `.length` (E06.01 / `es/arrays/array_lit_access`).
+//! N08.06.01–N08.06.02: native observations for ES array literals, index
+//! access, `.length`, and element assignment (`es/arrays/array_lit_access`,
+//! `es/arrays/array_element_assign`).
 //!
 //! Arrays are Runtime GC heap values (`draconic_rt_array_*`). Number elements
 //! are stored as `inttoptr` of integer bit-patterns; nested arrays store GC
@@ -9,9 +10,10 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use draconic_ast::AssignOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    ArrayElement, Expr, IrType as Type, Local, LocalId, Module, Stmt,
+    ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt,
 };
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, PRINT_F64,
@@ -95,13 +97,18 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                         Expr::Member {
                             computed: true,
                             ..
-                        }
+                        } | Expr::Assign { .. }
                     )
                 {
-                    // Dynamic computed index with Any type — treat as number (dyn).
+                    // Dynamic computed index or assign-as-value with Any type.
                     slots.push((*local, SlotTy::Number));
                     number_locals.push(*local);
                 } else {
+                    return None;
+                }
+            }
+            Stmt::Expr { expr } => {
+                if !member_assign_ok(expr, &by_id) {
                     return None;
                 }
             }
@@ -280,6 +287,37 @@ fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                     member_key_is_length(property)
                 }
         }
+        Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object,
+                    property,
+                    computed: true,
+                    ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => array_expr_ok(object, by_id) && number_expr_ok(property, by_id) && number_expr_ok(value, by_id),
+        _ => false,
+    }
+}
+
+/// `a[i] = v` / `nested[0][0] = v` as a statement expression (N08.06.02).
+fn member_assign_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object,
+                    property,
+                    computed: true,
+                    ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => array_expr_ok(object, by_id) && number_expr_ok(property, by_id) && value_expr_ok(value, by_id),
         _ => false,
     }
 }
@@ -394,7 +432,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.06.01 ES arrays via Runtime ABI)"
+            "; Draconic LLVM backend (N08.06 ES arrays via Runtime ABI)"
         )
         .ok();
         writeln!(
@@ -502,7 +540,61 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Stmt::Expr { expr } => {
+                let _ = self.emit_member_assign(expr, false)?;
+                Ok(())
+            }
             _ => Err(diag("es_arrays: unsupported stmt")),
+        }
+    }
+
+    /// Emit `a[i] = v` (or nested). When `yield_number`, returns the RHS as double.
+    fn emit_member_assign(
+        &mut self,
+        expr: &Expr,
+        yield_number: bool,
+    ) -> Result<String, Diagnostic> {
+        let Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object,
+                    property,
+                    computed: true,
+                    ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } = expr
+        else {
+            return Err(diag("es_arrays: expected computed member assign"));
+        };
+        let arr = self.emit_array_expr(object)?;
+        let idx_d = self.emit_number_expr(property)?;
+        let idx_i = self.fresh();
+        writeln!(self.body, "  {idx_i} = fptosi double {idx_d} to i64").ok();
+        if yield_number {
+            let n = self.emit_number_expr(value)?;
+            let i = self.fresh();
+            writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
+            let p = self.fresh();
+            writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
+            writeln!(
+                self.body,
+                "  {}",
+                ARRAY_SET.call(&format!("ptr {arr}, i64 {idx_i}, ptr {p}"))
+            )
+            .ok();
+            Ok(n)
+        } else {
+            let v = self.emit_value_as_ptr(value)?;
+            writeln!(
+                self.body,
+                "  {}",
+                ARRAY_SET.call(&format!("ptr {arr}, i64 {idx_i}, ptr {v}"))
+            )
+            .ok();
+            Ok(String::new())
         }
     }
 
@@ -565,6 +657,7 @@ impl<'a> Emitter<'a> {
                     Err(diag("es_arrays: only .length or computed index on arrays"))
                 }
             }
+            Expr::Assign { .. } => self.emit_member_assign(expr, true),
             _ => Err(diag("es_arrays: unsupported number expr")),
         }
     }

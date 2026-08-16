@@ -821,6 +821,46 @@ mod tests {
     }
 
     #[test]
+    fn es_arrays_element_assign_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/arrays/array_element_assign.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit array_element_assign");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_arrays assign must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_array_set"),
+            "es_arrays assign must set elements:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_array_get"),
+            "es_arrays assign must get elements:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-arrays-assign").expect("workdir");
+        let bin = dir.join("array_element_assign");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "10\n2\n20\n2\n30\n40\n40\n7\n1\n9\n3\n5\n6\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn es_expr_string_literal_prints() {
         let ir = emit_llvm_ir(&module_of(
             r#"

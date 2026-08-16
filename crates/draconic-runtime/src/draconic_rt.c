@@ -756,8 +756,22 @@ void *draconic_rt_array_get(DraconicValue *a, size_t index) {
 }
 
 void draconic_rt_array_set(DraconicValue *a, size_t index, void *value) {
-    if (!a || a->tag != DRACONIC_TAG_ARRAY || index >= a->as.array.len) {
+    if (!a || a->tag != DRACONIC_TAG_ARRAY) {
         return;
+    }
+    /* JS: assign beyond length grows the array (holes are NULL). */
+    if (index >= a->as.array.len) {
+        size_t new_len = index + 1;
+        void **elems = (void **)realloc(a->as.array.elems, new_len * sizeof(void *));
+        if (!elems) {
+            fprintf(stderr, "draconic_rt: array_set OOM\n");
+            abort();
+        }
+        for (size_t i = a->as.array.len; i < new_len; i++) {
+            elems[i] = NULL;
+        }
+        a->as.array.elems = elems;
+        a->as.array.len = new_len;
     }
     a->as.array.elems[index] = value;
 }
