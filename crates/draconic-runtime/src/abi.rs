@@ -317,6 +317,17 @@ pub const OBJECT_SET: AbiFn = AbiFn {
     ret: "void",
     params: "ptr, ptr, ptr",
 };
+/// N08.09.02: get/set own props keyed by Symbol id (i64).
+pub const OBJECT_GET_BY_SYMBOL: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_get_symbol",
+    ret: "ptr",
+    params: "ptr, i64",
+};
+pub const OBJECT_SET_BY_SYMBOL: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_set_symbol",
+    ret: "void",
+    params: "ptr, i64, ptr",
+};
 pub const OBJECT_SET_PROTO: AbiFn = AbiFn {
     symbol: "draconic_rt_object_set_proto",
     ret: "void",
@@ -361,10 +372,17 @@ pub const SYMBOL_KEY_FOR: AbiFn = AbiFn {
     params: "i64, ptr",
 };
 
-/// Declares used by the ES values / Symbol observation emitter (N08.09.01).
+/// Declares used by the ES values / Symbol observation emitter (N08.09.01–N08.09.02).
 pub const ES_VALUES_DECLARES: &[AbiFn] = &[
     PRINT_BOOL,
     PRINT_BYTES,
+    PRINT_F64,
+    GC_INIT,
+    ALLOC_OBJECT,
+    OBJECT_GET,
+    OBJECT_SET,
+    OBJECT_GET_BY_SYMBOL,
+    OBJECT_SET_BY_SYMBOL,
     SYMBOL_NEW,
     SYMBOL_FOR,
     SYMBOL_KEY_FOR,
@@ -413,6 +431,8 @@ pub const PROMISE_ALL_SYMBOL: &str = PROMISE_ALL.symbol;
 pub const PROMISE_RACE_SYMBOL: &str = PROMISE_RACE.symbol;
 pub const OBJECT_GET_SYMBOL: &str = OBJECT_GET.symbol;
 pub const OBJECT_SET_SYMBOL: &str = OBJECT_SET.symbol;
+pub const OBJECT_GET_BY_SYMBOL_SYMBOL: &str = OBJECT_GET_BY_SYMBOL.symbol;
+pub const OBJECT_SET_BY_SYMBOL_SYMBOL: &str = OBJECT_SET_BY_SYMBOL.symbol;
 pub const OBJECT_SET_PROTO_SYMBOL: &str = OBJECT_SET_PROTO.symbol;
 pub const OBJECT_GET_PROTO_SYMBOL: &str = OBJECT_GET_PROTO.symbol;
 pub const PROMISE_ALL_SETTLED_SYMBOL: &str = PROMISE_ALL_SETTLED.symbol;

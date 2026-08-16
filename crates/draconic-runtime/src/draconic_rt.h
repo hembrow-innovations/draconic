@@ -125,6 +125,9 @@ DraconicValue *draconic_rt_promise_race(DraconicValue *arr);
 void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value);
 /* N08.04.05: [[Get]] walks [[Prototype]] when key is missing on own props. */
 void *draconic_rt_object_get(DraconicValue *obj, const char *key);
+/* N08.09.02: symbol-keyed own props (i64 Symbol id; no string collision). */
+void draconic_rt_object_set_symbol(DraconicValue *obj, int64_t sym, void *value);
+void *draconic_rt_object_get_symbol(DraconicValue *obj, int64_t sym);
 /* N08.04.05: set/get ordinary object [[Prototype]] (nullable). */
 void draconic_rt_object_set_proto(DraconicValue *obj, DraconicValue *proto);
 DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj);

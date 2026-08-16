@@ -80,6 +80,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Unicode escapes** (`\x`/`\u`/`\u{}`) + UTF-16 `.length` — N08.07.03
 /// - **Tagged templates** `` tag`…` `` (quasi array + interps; method/call tags) — N08.07.04
 /// - **Symbol basics** (`Symbol()` / `Symbol.for` / `Symbol.keyFor` / typeof / `===`) — N08.09.01
+/// - **Symbol property keys** (computed/get/set; no string collision) — N08.09.02
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -614,6 +615,45 @@ mod tests {
         assert_eq!(
             stdout,
             "symbol\nsymbol\ntrue\ntrue\nshared\nfunction\nfunction\nfunction\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_values_symbol_property_keys_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/values/symbol_property_keys.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "symbol_property_keys must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_object_set_symbol")
+                && ir.contains("draconic_rt_object_get_symbol"),
+            "should lower symbol-keyed get/set:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_alloc_object"),
+            "should alloc objects:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-symbol-property-keys").expect("workdir");
+        let bin = dir.join("symbol_property_keys");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "1\nundefined\n2\nundefined\n3\n3\nundefined\n4\nundefined\n5\n6\n7\n6\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -3190,6 +3230,7 @@ mod tests {
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
+
 }
 
 

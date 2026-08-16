@@ -1,4 +1,6 @@
 id: es/values/symbol_property_keys
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\nundefined\n2\nundefined\n3\n3\nundefined\n4\nundefined\n5\n6\n7\n6\n
 js.check: if (a !== 1) process.exit(1); if (missT !== "undefined") process.exit(2); if (b !== 2) process.exit(3); if (pMissT !== "undefined") process.exit(4); if (c !== 3) process.exit(5); if (d !== 3) process.exit(6); if (qMissT !== "undefined") process.exit(7); if (e !== 4) process.exit(8); if (rMissT !== "undefined") process.exit(9); if (g !== 5) process.exit(10); if (h !== 6) process.exit(11); if (g2 !== 7) process.exit(12); if (h2 !== 6) process.exit(13);

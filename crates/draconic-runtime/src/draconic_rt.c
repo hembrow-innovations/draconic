@@ -353,9 +353,11 @@ struct DraconicPromiseReaction {
     DraconicPromiseReaction *next;
 };
 
-/* N06.08: simple string-key property list (keys heap-owned C strings). */
+/* N06.08: property list — string keys (heap C strings) or symbol keys (i64 id).
+ * String props: key != NULL, symbol_id unused. Symbol props: key == NULL. */
 struct DraconicProp {
     char *key;
+    int64_t symbol_id;
     void *value;
     DraconicProp *next;
 };
@@ -414,7 +416,9 @@ static void free_promise_reactions(DraconicPromiseReaction *head) {
 static void free_props(DraconicProp *head) {
     while (head) {
         DraconicProp *next = head->next;
-        free(head->key);
+        if (head->key) {
+            free(head->key);
+        }
         free(head);
         head = next;
     }
@@ -1251,7 +1255,7 @@ void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value) {
         return;
     }
     for (DraconicProp *p = obj->as.object.props; p; p = p->next) {
-        if (strcmp(p->key, key) == 0) {
+        if (p->key && strcmp(p->key, key) == 0) {
             p->value = value;
             return;
         }
@@ -1269,6 +1273,7 @@ void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value) {
         abort();
     }
     memcpy(prop->key, key, klen + 1);
+    prop->symbol_id = 0;
     prop->value = value;
     prop->next = obj->as.object.props;
     obj->as.object.props = prop;
@@ -1281,7 +1286,43 @@ void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
     /* N08.04.05: ordinary [[Get]] walks [[Prototype]] for missing own keys. */
     for (DraconicValue *cur = obj; cur && cur->tag == DRACONIC_TAG_OBJECT; cur = cur->as.object.proto) {
         for (DraconicProp *p = cur->as.object.props; p; p = p->next) {
-            if (strcmp(p->key, key) == 0) {
+            if (p->key && strcmp(p->key, key) == 0) {
+                return p->value;
+            }
+        }
+    }
+    return NULL;
+}
+
+void draconic_rt_object_set_symbol(DraconicValue *obj, int64_t sym, void *value) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || sym == 0) {
+        return;
+    }
+    for (DraconicProp *p = obj->as.object.props; p; p = p->next) {
+        if (!p->key && p->symbol_id == sym) {
+            p->value = value;
+            return;
+        }
+    }
+    DraconicProp *prop = (DraconicProp *)calloc(1, sizeof(DraconicProp));
+    if (!prop) {
+        fprintf(stderr, "draconic_rt: object_set_symbol OOM\n");
+        abort();
+    }
+    prop->key = NULL;
+    prop->symbol_id = sym;
+    prop->value = value;
+    prop->next = obj->as.object.props;
+    obj->as.object.props = prop;
+}
+
+void *draconic_rt_object_get_symbol(DraconicValue *obj, int64_t sym) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || sym == 0) {
+        return NULL;
+    }
+    for (DraconicValue *cur = obj; cur && cur->tag == DRACONIC_TAG_OBJECT; cur = cur->as.object.proto) {
+        for (DraconicProp *p = cur->as.object.props; p; p = p->next) {
+            if (!p->key && p->symbol_id == sym) {
                 return p->value;
             }
         }
