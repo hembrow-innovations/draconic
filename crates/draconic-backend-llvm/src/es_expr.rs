@@ -1,20 +1,21 @@
 //! N08.01: emit native observations for ES expression Programs
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
-//! E01.04.03 conditional `?:`).
+//! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::{BinaryOp, UnaryOp};
+use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, Stmt};
+use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.04.03 / N08.01.*):
+/// True when this module is a supported ES expression subset (E01.01–E01.04.04 / N08.01.*):
 /// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`/`~`,
 /// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), logical (`&&` `||`),
-/// bitwise (`&` `|` `^` `<<` `>>` `>>>`), exponentiation (`**`), conditional (`?:`), grouping,
-/// and local refs. Value-preserving `&&`/`||` on numbers is included.
+/// bitwise (`&` `|` `^` `<<` `>>` `>>>`), exponentiation (`**`), conditional (`?:`), simple
+/// assignment (`=` to locals), grouping, and local refs. Expression statements may be assigns.
+/// Value-preserving `&&`/`||` on numbers is included.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -40,32 +41,52 @@ struct ModuleInfo {
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut user_locals = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for stmt in &module.body {
-        let Stmt::Declare {
-            local,
-            init: Some(init),
-            ..
-        } = stmt
-        else {
-            return None;
-        };
-        let loc = by_id.get(local)?;
-        let slot = match loc.ty {
-            Type::Number => {
-                if !expr_is_number_subset(init, &by_id) {
-                    return None;
+        match stmt {
+            Stmt::Declare { local, init, .. } => {
+                let loc = by_id.get(local)?;
+                let slot = match loc.ty {
+                    Type::Number => {
+                        if let Some(init) = init {
+                            if !expr_is_number_subset(init, &by_id) {
+                                return None;
+                            }
+                        }
+                        SlotTy::Number
+                    }
+                    Type::Boolean => {
+                        if let Some(init) = init {
+                            if !expr_is_boolean_subset(init, &by_id) {
+                                return None;
+                            }
+                        }
+                        SlotTy::Boolean
+                    }
+                    _ => return None,
+                };
+                if seen.insert(*local) {
+                    user_locals.push((*local, slot));
                 }
-                SlotTy::Number
             }
-            Type::Boolean => {
-                if !expr_is_boolean_subset(init, &by_id) {
-                    return None;
+            Stmt::Expr { expr } => {
+                // Side-effect statements: assignment (and nested assigns) only.
+                match expr.ty() {
+                    Type::Number => {
+                        if !expr_is_number_subset(expr, &by_id) {
+                            return None;
+                        }
+                    }
+                    Type::Boolean => {
+                        if !expr_is_boolean_subset(expr, &by_id) {
+                            return None;
+                        }
+                    }
+                    _ => return None,
                 }
-                SlotTy::Boolean
             }
             _ => return None,
-        };
-        user_locals.push((*local, slot));
+        }
     }
     if user_locals.is_empty() {
         return None;
@@ -122,6 +143,17 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                 && expr_is_number_subset(consequent, by_id)
                 && expr_is_number_subset(alternate, by_id)
         }
+        Expr::Assign {
+            target,
+            op,
+            value,
+            ty,
+        } => {
+            *ty == Type::Number
+                && matches!(op, AssignOp::Eq)
+                && matches!(target, AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::Number))
+                && expr_is_number_subset(value, by_id)
+        }
         _ => false,
     }
 }
@@ -158,6 +190,17 @@ fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
                 }
                 _ => false,
             }
+        }
+        Expr::Assign {
+            target,
+            op,
+            value,
+            ty,
+        } => {
+            *ty == Type::Boolean
+                && matches!(op, AssignOp::Eq)
+                && matches!(target, AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::Boolean))
+                && expr_is_boolean_subset(value, by_id)
         }
         _ => false,
     }
@@ -214,26 +257,38 @@ impl<'a> Emitter<'a> {
         }
 
         for stmt in &self.module.body {
-            let Stmt::Declare { local, init, .. } = stmt else {
-                return Err(diag("internal: non-declare in es_expr module"));
-            };
-            let Some(init) = init else {
-                return Err(diag("internal: declare without init in es_expr module"));
-            };
-            let (ptr, slot) = self
-                .allocas
-                .get(local)
-                .cloned()
-                .ok_or_else(|| diag("internal: missing alloca"))?;
-            match slot {
-                SlotTy::Number => {
-                    let v = self.emit_number_expr(init)?;
-                    writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+            match stmt {
+                Stmt::Declare { local, init, .. } => {
+                    let (ptr, slot) = self
+                        .allocas
+                        .get(local)
+                        .cloned()
+                        .ok_or_else(|| diag("internal: missing alloca"))?;
+                    match (slot, init) {
+                        (SlotTy::Number, Some(init)) => {
+                            let v = self.emit_number_expr(init)?;
+                            writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                        }
+                        (SlotTy::Boolean, Some(init)) => {
+                            let v = self.emit_bool_expr(init)?;
+                            writeln!(self.body, "  store i1 {v}, ptr {ptr}").ok();
+                        }
+                        // Uninitialized `let` — leave alloca undef until assigned.
+                        (_, None) => {}
+                    }
                 }
-                SlotTy::Boolean => {
-                    let v = self.emit_bool_expr(init)?;
-                    writeln!(self.body, "  store i1 {v}, ptr {ptr}").ok();
-                }
+                Stmt::Expr { expr } => match expr.ty() {
+                    Type::Number => {
+                        let _ = self.emit_number_expr(expr)?;
+                    }
+                    Type::Boolean => {
+                        let _ = self.emit_bool_expr(expr)?;
+                    }
+                    _ => {
+                        return Err(diag("internal: non number/bool expr stmt in es_expr module"))
+                    }
+                },
+                _ => return Err(diag("internal: unsupported stmt in es_expr module")),
             }
         }
 
@@ -388,6 +443,30 @@ impl<'a> Emitter<'a> {
                 .ok();
                 Ok(t)
             }
+            Expr::Assign {
+                target,
+                op,
+                value,
+                ..
+            } => {
+                if !matches!(op, AssignOp::Eq) {
+                    return Err(diag("internal: only simple = in es_expr number assign"));
+                }
+                let AssignTarget::Local(id) = target else {
+                    return Err(diag("internal: only local assign in es_expr"));
+                };
+                let (ptr, slot) = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
+                if slot != SlotTy::Number {
+                    return Err(diag("internal: expected number assign target"));
+                }
+                let v = self.emit_number_expr(value)?;
+                writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                Ok(v)
+            }
             _ => Err(diag("internal: unsupported number expr in es_expr module")),
         }
     }
@@ -490,6 +569,30 @@ impl<'a> Emitter<'a> {
                 }
                 _ => Err(diag("internal: non-comparison binary in bool emit")),
             },
+            Expr::Assign {
+                target,
+                op,
+                value,
+                ..
+            } => {
+                if !matches!(op, AssignOp::Eq) {
+                    return Err(diag("internal: only simple = in es_expr bool assign"));
+                }
+                let AssignTarget::Local(id) = target else {
+                    return Err(diag("internal: only local assign in es_expr"));
+                };
+                let (ptr, slot) = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
+                if slot != SlotTy::Boolean {
+                    return Err(diag("internal: expected boolean assign target"));
+                }
+                let v = self.emit_bool_expr(value)?;
+                writeln!(self.body, "  store i1 {v}, ptr {ptr}").ok();
+                Ok(v)
+            }
             _ => Err(diag("internal: unsupported bool expr in es_expr module")),
         }
     }

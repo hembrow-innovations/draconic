@@ -1,8 +1,8 @@
-let x;
+let x = 0;
 x = 1;
-let y;
+let y = 0;
 y = x = 2;
 let z = 0;
 z = true ? 3 : 4;
-let w;
+let w = 0;
 w = false ? 5 : w = 6;

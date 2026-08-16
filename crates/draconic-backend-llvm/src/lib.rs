@@ -28,8 +28,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
 /// - **ES expressions** (numeric arithmetic + comparison/equality + logical
 ///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
-///   conditional `?:` over JS numbers/booleans) via Runtime prints —
-///   N08.01.01–N08.01.04.03
+///   conditional `?:` + simple `=` assignment over JS numbers/booleans) via
+///   Runtime prints — N08.01.01–N08.01.04.04
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -59,7 +59,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional), empty hello)",
+         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign), empty hello)",
         Span::dummy(),
     )
 }
@@ -533,6 +533,50 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "1\n2\n4\n2\n10\n5\n200\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_assignment_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let x = 0;
+            x = 1;
+            let y = 0;
+            y = x = 2;
+            let z = 0;
+            z = true ? 3 : 4;
+            let w = 0;
+            w = false ? 5 : w = 6;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr assignment must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("store double"),
+            "should store assigned values:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-assignment").expect("workdir");
+        let bin = dir.join("assignment");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "2\n2\n3\n6\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
