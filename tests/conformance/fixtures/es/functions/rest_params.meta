@@ -1,4 +1,6 @@
 id: es/functions/rest_params
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 0\n1\n6\n12\n7\n2\n9\n0\n
 js.check: if (a !== 0) process.exit(1); if (b !== 1) process.exit(1); if (c !== 6) process.exit(1); if (d !== 12) process.exit(1); if (e !== 7) process.exit(1); if (f !== 2) process.exit(1); if (g !== 9) process.exit(1); if (h !== 0) process.exit(1);

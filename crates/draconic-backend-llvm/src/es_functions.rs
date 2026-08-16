@@ -1,21 +1,28 @@
-//! N08.03.01–N08.03.06: native observations for ES function declarations,
-//! expressions, and arrows (simple ident params + defaults) — E03.01–E03.06 /
+//! N08.03.01–N08.03.07: native observations for ES function declarations,
+//! expressions, and arrows (simple ident params + defaults + rest) — E03.01–E03.07 /
 //! `es/functions/decl_return_call`, `params_call`, `nested_capture`,
-//! `function_expr`, `arrow`, `default_params`.
+//! `function_expr`, `arrow`, `default_params`, `rest_params`.
 //!
 //! Nested/non-escaping decls use extra by-value capture params. Function
 //! expressions and arrows are first-class as fn-id doubles; returned closures
 //! stash captures in a small return buffer for immediate call (`make(10)(7)`).
 //! Missing/undefined args use a NaN payload sentinel; callee applies defaults.
+//! Rest params pack trailing args into a stack buffer of doubles; `for-of` over
+//! the rest local iterates that buffer (no full JS array heap).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
+use draconic_ast::AssignOp;
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{Arg, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt};
+use draconic_ir::{
+    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt,
+};
 use draconic_runtime::abi::{llvm_declares, PRINT_F64};
 
 const MAX_CAPS: usize = 8;
+/// Max trailing rest arguments packed into the stack buffer (fixture uses ≤3).
+const MAX_REST: usize = 8;
 /// qNaN payload marking JS `undefined` for default-parameter application.
 const UNDEF_BITS: u64 = 0x7FF8_0000_0000_0001;
 
@@ -34,9 +41,12 @@ pub(crate) fn emit_es_functions(module: &Module) -> Result<String, Diagnostic> {
 struct FnInfo {
     /// Stable index → LLVM name `d_fn_{idx}`.
     idx: usize,
+    /// Fixed (non-rest) params only.
     params: Vec<LocalId>,
     /// Parallel to `params`; `Some` → apply when arg missing/undefined.
     defaults: Vec<Option<Expr>>,
+    /// Last param `...rest` local, if any.
+    rest: Option<LocalId>,
     captures: Vec<LocalId>,
     body: Vec<Stmt>,
     /// Named function expression recursive binding.
@@ -72,7 +82,18 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     }
 
     for f in &functions {
-        if !fn_body_ok(&f.body, &by_id, &fn_arities, &functions, &fn_binding) {
+        let mut rest_locals = HashSet::new();
+        if let Some(r) = f.rest {
+            rest_locals.insert(r);
+        }
+        if !fn_body_ok(
+            &f.body,
+            &by_id,
+            &fn_arities,
+            &functions,
+            &fn_binding,
+            &rest_locals,
+        ) {
             return None;
         }
         for d in &f.defaults {
@@ -148,11 +169,11 @@ fn collect_all_functions(
                 if *is_async || *is_generator {
                     return None;
                 }
-                let (param_ids, defaults) = simple_params(params, by_id)?;
+                let (param_ids, defaults, rest) = simple_params(params, by_id)?;
                 // Nested first.
                 collect_all_functions(body, by_id, out, fn_binding)?;
                 collect_exprs_in_body(body, by_id, out, fn_binding)?;
-                let idx = push_fn(None, param_ids, defaults, body, by_id, out)?;
+                let idx = push_fn(None, param_ids, defaults, rest, body, by_id, out)?;
                 fn_binding.insert(*local, idx);
             }
             Stmt::Declare { local, init, .. } => {
@@ -211,6 +232,20 @@ fn collect_exprs_in_body(
                 }
             }
             Stmt::Function { .. } => {}
+            Stmt::ForOf {
+                left,
+                right,
+                body,
+                is_await,
+            } => {
+                if *is_await {
+                    return None;
+                }
+                collect_expr_fns(right, by_id, out, fn_binding)?;
+                collect_exprs_in_body(std::slice::from_ref(left), by_id, out, fn_binding)?;
+                collect_exprs_in_body(std::slice::from_ref(body), by_id, out, fn_binding)?;
+            }
+            Stmt::Expr { expr } => collect_expr_fns(expr, by_id, out, fn_binding)?,
             _ => {}
         }
     }
@@ -235,10 +270,10 @@ fn collect_expr_fns(
             if *is_async || *is_generator {
                 return None;
             }
-            let (param_ids, defaults) = simple_params(params, by_id)?;
+            let (param_ids, defaults, rest) = simple_params(params, by_id)?;
             collect_all_functions(body, by_id, out, fn_binding)?;
             collect_exprs_in_body(body, by_id, out, fn_binding)?;
-            let idx = push_fn(*name, param_ids, defaults, body, by_id, out)?;
+            let idx = push_fn(*name, param_ids, defaults, rest, body, by_id, out)?;
             if let Some(n) = name {
                 fn_binding.insert(*n, idx);
             }
@@ -249,6 +284,7 @@ fn collect_expr_fns(
             collect_expr_fns(left, by_id, out, fn_binding)?;
             collect_expr_fns(right, by_id, out, fn_binding)
         }
+        Expr::Assign { value, .. } => collect_expr_fns(value, by_id, out, fn_binding),
         Expr::Call { callee, args, .. } => {
             collect_expr_fns(callee, by_id, out, fn_binding)?;
             for a in args {
@@ -274,31 +310,41 @@ fn find_fn_idx_by_param_patterns(params: &[Param], out: &[FnInfo]) -> Option<usi
     if ids.len() != params.len() {
         return None;
     }
-    out.iter().find(|f| f.params == ids).map(|f| f.idx)
+    out.iter()
+        .find(|f| {
+            let mut all = f.params.clone();
+            if let Some(r) = f.rest {
+                all.push(r);
+            }
+            all == ids
+        })
+        .map(|f| f.idx)
 }
 
 fn push_fn(
     name_local: Option<LocalId>,
     params: Vec<LocalId>,
     defaults: Vec<Option<Expr>>,
+    rest: Option<LocalId>,
     body: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
     out: &mut Vec<FnInfo>,
 ) -> Option<usize> {
-    let bound = bound_in_fn(&params, body);
+    let bound = bound_in_fn(&params, rest, body);
     if let Some(n) = name_local {
         // name is bound inside the function for recursion
         let mut bound = bound.clone();
         bound.insert(n);
-        return push_fn_with_bound(name_local, params, defaults, body, by_id, &bound, out);
+        return push_fn_with_bound(name_local, params, defaults, rest, body, by_id, &bound, out);
     }
-    push_fn_with_bound(name_local, params, defaults, body, by_id, &bound, out)
+    push_fn_with_bound(name_local, params, defaults, rest, body, by_id, &bound, out)
 }
 
 fn push_fn_with_bound(
     name_local: Option<LocalId>,
     params: Vec<LocalId>,
     defaults: Vec<Option<Expr>>,
+    rest: Option<LocalId>,
     body: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
     bound: &HashSet<LocalId>,
@@ -333,6 +379,7 @@ fn push_fn_with_bound(
         idx,
         params,
         defaults,
+        rest,
         captures,
         body: body.to_vec(),
         name_local,
@@ -340,8 +387,11 @@ fn push_fn_with_bound(
     Some(idx)
 }
 
-fn bound_in_fn(params: &[LocalId], body: &[Stmt]) -> HashSet<LocalId> {
+fn bound_in_fn(params: &[LocalId], rest: Option<LocalId>, body: &[Stmt]) -> HashSet<LocalId> {
     let mut bound: HashSet<LocalId> = params.iter().copied().collect();
+    if let Some(r) = rest {
+        bound.insert(r);
+    }
     collect_bound_in_body(body, &mut bound);
     bound
 }
@@ -365,6 +415,10 @@ fn collect_bound_in_body(body: &[Stmt], bound: &mut HashSet<LocalId>) {
                 if let Some(a) = alternate {
                     collect_bound_in_body(std::slice::from_ref(a), bound);
                 }
+            }
+            Stmt::ForOf { left, body, .. } | Stmt::ForIn { left, body, .. } => {
+                collect_bound_in_body(std::slice::from_ref(left), bound);
+                collect_bound_in_body(std::slice::from_ref(body), bound);
             }
             _ => {}
         }
@@ -392,6 +446,20 @@ fn collect_free_in_body(body: &[Stmt], bound: &HashSet<LocalId>, free: &mut Hash
                     collect_free_in_body(std::slice::from_ref(a), bound, free);
                 }
             }
+            Stmt::ForOf {
+                left,
+                right,
+                body,
+                is_await,
+            } => {
+                if *is_await {
+                    continue;
+                }
+                collect_free_in_expr(right, bound, free);
+                collect_free_in_body(std::slice::from_ref(left), bound, free);
+                collect_free_in_body(std::slice::from_ref(body), bound, free);
+            }
+            Stmt::Expr { expr } => collect_free_in_expr(expr, bound, free),
             Stmt::Function { .. } => {}
             _ => {}
         }
@@ -410,6 +478,7 @@ fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSe
             collect_free_in_expr(left, bound, free);
             collect_free_in_expr(right, bound, free);
         }
+        Expr::Assign { value, .. } => collect_free_in_expr(value, bound, free),
         Expr::Call { callee, args, .. } => {
             collect_free_in_expr(callee, bound, free);
             for a in args {
@@ -424,16 +493,19 @@ fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSe
             body,
             ..
         } => {
-            let mut nested_bound = bound_in_fn(
-                &params
-                    .iter()
-                    .filter_map(|p| match &p.pattern {
-                        Pattern::Local(id) => Some(*id),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>(),
-                body,
-            );
+            let fixed: Vec<LocalId> = params
+                .iter()
+                .filter(|p| !p.rest)
+                .filter_map(|p| match &p.pattern {
+                    Pattern::Local(id) => Some(*id),
+                    _ => None,
+                })
+                .collect();
+            let rest = params.iter().find(|p| p.rest).and_then(|p| match &p.pattern {
+                Pattern::Local(id) => Some(*id),
+                _ => None,
+            });
+            let mut nested_bound = bound_in_fn(&fixed, rest, body);
             if let Some(n) = name {
                 nested_bound.insert(*n);
             }
@@ -466,8 +538,8 @@ fn collect_nested_free_through(
             if *is_async || *is_generator {
                 return None;
             }
-            let (param_ids, _) = simple_params(params, by_id)?;
-            let nested_bound = bound_in_fn(&param_ids, body);
+            let (param_ids, _, rest) = simple_params(params, by_id)?;
+            let nested_bound = bound_in_fn(&param_ids, rest, body);
             let mut nested_free = HashSet::new();
             collect_free_in_body(body, &nested_bound, &mut nested_free);
             for s in body {
@@ -497,6 +569,10 @@ fn collect_nested_free_through(
             }
             Some(())
         }
+        Stmt::ForOf { left, body, .. } => {
+            collect_nested_free_through(left, outer_bound, by_id, free)?;
+            collect_nested_free_through(body, outer_bound, by_id, free)
+        }
         _ => Some(()),
     }
 }
@@ -504,13 +580,11 @@ fn collect_nested_free_through(
 fn simple_params(
     params: &[Param],
     by_id: &HashMap<LocalId, &Local>,
-) -> Option<(Vec<LocalId>, Vec<Option<Expr>>)> {
+) -> Option<(Vec<LocalId>, Vec<Option<Expr>>, Option<LocalId>)> {
     let mut ids = Vec::with_capacity(params.len());
     let mut defaults = Vec::with_capacity(params.len());
-    for p in params {
-        if p.rest {
-            return None;
-        }
+    let mut rest = None;
+    for (i, p) in params.iter().enumerate() {
         let Pattern::Local(id) = &p.pattern else {
             return None;
         };
@@ -518,24 +592,45 @@ fn simple_params(
         if !matches!(loc.ty, Type::Number | Type::Any) {
             return None;
         }
-        ids.push(*id);
-        defaults.push(p.default.clone());
+        if p.rest {
+            if i != params.len() - 1 || p.default.is_some() || rest.is_some() {
+                return None;
+            }
+            rest = Some(*id);
+        } else {
+            ids.push(*id);
+            defaults.push(p.default.clone());
+        }
     }
-    Some((ids, defaults))
+    Some((ids, defaults, rest))
 }
 
 fn call_arity_ok(f: &FnInfo, args_len: usize) -> bool {
-    if args_len > f.params.len() {
-        return false;
+    if f.rest.is_some() {
+        if args_len >= f.params.len() {
+            args_len - f.params.len() <= MAX_REST
+        } else {
+            f.defaults[args_len..].iter().all(|d| d.is_some())
+        }
+    } else if args_len > f.params.len() {
+        false
+    } else {
+        f.defaults[args_len..].iter().all(|d| d.is_some())
     }
-    f.defaults[args_len..].iter().all(|d| d.is_some())
 }
 
-fn call_arity_ok_params(defaults: &[Option<Expr>], args_len: usize) -> bool {
-    if args_len > defaults.len() {
-        return false;
+fn call_arity_ok_params(defaults: &[Option<Expr>], has_rest: bool, args_len: usize) -> bool {
+    if has_rest {
+        if args_len >= defaults.len() {
+            args_len - defaults.len() <= MAX_REST
+        } else {
+            defaults[args_len..].iter().all(|d| d.is_some())
+        }
+    } else if args_len > defaults.len() {
+        false
+    } else {
+        defaults[args_len..].iter().all(|d| d.is_some())
     }
-    defaults[args_len..].iter().all(|d| d.is_some())
 }
 
 fn undef_double_const() -> String {
@@ -562,12 +657,25 @@ fn body_returns_fn(body: &[Stmt]) -> bool {
     })
 }
 
+fn nested_rest_locals(
+    params: &[Param],
+    by_id: &HashMap<LocalId, &Local>,
+) -> Option<HashSet<LocalId>> {
+    let (_, _, rest) = simple_params(params, by_id)?;
+    let mut s = HashSet::new();
+    if let Some(r) = rest {
+        s.insert(r);
+    }
+    Some(s)
+}
+
 fn fn_body_ok(
     body: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
     fn_arities: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
+    rest_locals: &HashSet<LocalId>,
 ) -> bool {
     body.iter().all(|s| match s {
         Stmt::Return { value: Some(v) } => match v {
@@ -581,12 +689,16 @@ fn fn_body_ok(
                 !*is_async
                     && !*is_generator
                     && simple_params(params, by_id).is_some()
-                    && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
+                    && nested_rest_locals(params, by_id).is_some_and(|rl| {
+                        fn_body_ok(body, by_id, fn_arities, functions, fn_binding, &rl)
+                    })
             }
             _ => number_expr_ok(v, by_id, fn_arities, functions, fn_binding),
         },
         Stmt::Return { value: None } => false,
-        Stmt::Block { body } => fn_body_ok(body, by_id, fn_arities, functions, fn_binding),
+        Stmt::Block { body } => {
+            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, rest_locals)
+        }
         Stmt::Declare { local, init, .. } => {
             let Some(loc) = by_id.get(local) else {
                 return false;
@@ -605,7 +717,9 @@ fn fn_body_ok(
                     !*is_async
                         && !*is_generator
                         && simple_params(params, by_id).is_some()
-                        && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
+                        && nested_rest_locals(params, by_id).is_some_and(|rl| {
+                            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, &rl)
+                        })
                 }
                 Some(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding),
                 None => true,
@@ -622,7 +736,9 @@ fn fn_body_ok(
                 return false;
             }
             simple_params(params, by_id).is_some()
-                && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
+                && nested_rest_locals(params, by_id).is_some_and(|rl| {
+                    fn_body_ok(body, by_id, fn_arities, functions, fn_binding, &rl)
+                })
         }
         Stmt::If {
             test,
@@ -636,6 +752,7 @@ fn fn_body_ok(
                     fn_arities,
                     functions,
                     fn_binding,
+                    rest_locals,
                 )
                 && alternate.as_ref().is_none_or(|a| {
                     fn_body_ok(
@@ -644,9 +761,49 @@ fn fn_body_ok(
                         fn_arities,
                         functions,
                         fn_binding,
+                        rest_locals,
                     )
                 })
         }
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            is_await,
+        } => {
+            if *is_await {
+                return false;
+            }
+            let Expr::Local { id, .. } = right else {
+                return false;
+            };
+            if !rest_locals.contains(id) {
+                return false;
+            }
+            matches!(
+                left.as_ref(),
+                Stmt::Declare {
+                    init: None,
+                    ..
+                }
+            ) && fn_body_ok(
+                std::slice::from_ref(body),
+                by_id,
+                fn_arities,
+                functions,
+                fn_binding,
+                rest_locals,
+            )
+        }
+        Stmt::Expr { expr } => match expr {
+            Expr::Assign {
+                target: AssignTarget::Local(_),
+                op: AssignOp::Eq,
+                value,
+                ..
+            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding),
+            _ => false,
+        },
         _ => false,
     })
 }
@@ -687,6 +844,9 @@ fn number_expr_ok(
         Expr::Number { .. } => true,
         Expr::Local { id, ty } => {
             if fn_arities.contains_key(id) {
+                return false;
+            }
+            if functions.iter().any(|f| f.rest == Some(*id)) {
                 return false;
             }
             matches!(ty, Type::Number | Type::Any)
@@ -747,10 +907,19 @@ fn number_expr_ok(
                 } => {
                     !*is_async
                         && !*is_generator
-                        && simple_params(params, by_id).is_some_and(|(_, defaults)| {
-                            call_arity_ok_params(&defaults, args.len())
+                        && simple_params(params, by_id).is_some_and(|(_, defaults, rest)| {
+                            call_arity_ok_params(&defaults, rest.is_some(), args.len())
+                                && nested_rest_locals(params, by_id).is_some_and(|rl| {
+                                    fn_body_ok(
+                                        body,
+                                        by_id,
+                                        fn_arities,
+                                        functions,
+                                        fn_binding,
+                                        &rl,
+                                    )
+                                })
                         })
-                        && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
                 }
                 Expr::Call {
                     callee: inner,
@@ -831,6 +1000,8 @@ struct Emitter<'a> {
     /// fn idx → LLVM name
     fn_names: HashMap<usize, String>,
     allocas: HashMap<LocalId, String>,
+    /// Rest local → (buf ptr alloca, len i64 alloca).
+    rest_slots: HashMap<LocalId, (String, String)>,
     out: String,
     body: String,
     tmp: u32,
@@ -848,6 +1019,7 @@ impl<'a> Emitter<'a> {
             info,
             fn_names,
             allocas: HashMap::new(),
+            rest_slots: HashMap::new(),
             out: String::new(),
             body: String::new(),
             tmp: 0,
@@ -874,7 +1046,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.03.06 ES functions + defaults via Runtime ABI)"
+            "; Draconic LLVM backend (N08.03.07 ES functions + defaults/rest via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(&[PRINT_F64])).ok();
@@ -894,6 +1066,7 @@ impl<'a> Emitter<'a> {
         self.tmp = 0;
         self.label = 0;
         self.allocas.clear();
+        self.rest_slots.clear();
 
         writeln!(self.out, "define i32 @main() {{").ok();
         writeln!(self.out, "entry:").ok();
@@ -937,14 +1110,20 @@ impl<'a> Emitter<'a> {
         let saved_tmp = self.tmp;
         let saved_label = self.label;
         let saved_allocas = std::mem::take(&mut self.allocas);
+        let saved_rest = std::mem::take(&mut self.rest_slots);
 
         self.tmp = 0;
         self.label = 0;
         self.allocas.clear();
+        self.rest_slots.clear();
 
         let mut sig_parts = Vec::new();
         for (i, _) in f.params.iter().enumerate() {
             sig_parts.push(format!("double %p{i}"));
+        }
+        if f.rest.is_some() {
+            sig_parts.push("ptr %rest_buf".into());
+            sig_parts.push("i64 %rest_len".into());
         }
         for (i, _) in f.captures.iter().enumerate() {
             sig_parts.push(format!("double %c{i}"));
@@ -957,6 +1136,15 @@ impl<'a> Emitter<'a> {
             self.allocas.insert(*pid, ptr.clone());
             writeln!(entry, "  {ptr} = alloca double, align 8").ok();
             writeln!(entry, "  store double %p{i}, ptr {ptr}").ok();
+        }
+        if let Some(rid) = f.rest {
+            let buf_slot = format!("%rest_buf_slot{}", rid.0);
+            let len_slot = format!("%rest_len_slot{}", rid.0);
+            writeln!(entry, "  {buf_slot} = alloca ptr, align 8").ok();
+            writeln!(entry, "  {len_slot} = alloca i64, align 8").ok();
+            writeln!(entry, "  store ptr %rest_buf, ptr {buf_slot}").ok();
+            writeln!(entry, "  store i64 %rest_len, ptr {len_slot}").ok();
+            self.rest_slots.insert(rid, (buf_slot, len_slot));
         }
         for (i, cid) in f.captures.iter().enumerate() {
             let ptr = format!("%l{}", cid.0);
@@ -993,6 +1181,7 @@ impl<'a> Emitter<'a> {
         self.tmp = saved_tmp;
         self.label = saved_label;
         self.allocas = saved_allocas;
+        self.rest_slots = saved_rest;
         Ok(())
     }
 
@@ -1115,8 +1304,107 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "{end_l}:").ok();
                 Ok(())
             }
+            Stmt::ForOf {
+                left,
+                right,
+                body,
+                is_await,
+            } => {
+                if *is_await {
+                    return Err(diag("es_functions: for-await-of not supported"));
+                }
+                self.emit_for_of_rest(left, right, body)
+            }
+            Stmt::Expr { expr } => match expr {
+                Expr::Assign {
+                    target: AssignTarget::Local(id),
+                    op: AssignOp::Eq,
+                    value,
+                    ..
+                } => {
+                    let ptr = self
+                        .allocas
+                        .get(id)
+                        .cloned()
+                        .ok_or_else(|| diag("es_functions: assign missing alloca"))?;
+                    let v = self.emit_number_expr(value)?;
+                    writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    Ok(())
+                }
+                _ => Err(diag("es_functions: unsupported expr stmt")),
+            },
             _ => Err(diag("es_functions: unsupported stmt in function body")),
         }
+    }
+
+    fn emit_for_of_rest(
+        &mut self,
+        left: &Stmt,
+        right: &Expr,
+        body: &Stmt,
+    ) -> Result<(), Diagnostic> {
+        let Expr::Local { id: rest_id, .. } = right else {
+            return Err(diag("es_functions: for-of right must be rest local"));
+        };
+        let (buf_slot, len_slot) = self
+            .rest_slots
+            .get(rest_id)
+            .cloned()
+            .ok_or_else(|| diag("es_functions: for-of rest slot missing"))?;
+        let Stmt::Declare {
+            local: bind_id,
+            init: None,
+            ..
+        } = left
+        else {
+            return Err(diag("es_functions: for-of left must be bare let binding"));
+        };
+        let bind_ptr = format!("%l{}", bind_id.0);
+        self.allocas.insert(*bind_id, bind_ptr.clone());
+        writeln!(self.body, "  {bind_ptr} = alloca double, align 8").ok();
+
+        let buf = self.fresh();
+        let len = self.fresh();
+        writeln!(self.body, "  {buf} = load ptr, ptr {buf_slot}").ok();
+        writeln!(self.body, "  {len} = load i64, ptr {len_slot}").ok();
+        let idx_ptr = self.fresh();
+        writeln!(self.body, "  {idx_ptr} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 0, ptr {idx_ptr}").ok();
+
+        let head = self.fresh_label("forof_head");
+        let bod = self.fresh_label("forof_body");
+        let cont = self.fresh_label("forof_cont");
+        let end = self.fresh_label("forof_end");
+        writeln!(self.body, "  br label %{head}").ok();
+        writeln!(self.body, "{head}:").ok();
+        let idx = self.fresh();
+        writeln!(self.body, "  {idx} = load i64, ptr {idx_ptr}").ok();
+        let cmp = self.fresh();
+        writeln!(self.body, "  {cmp} = icmp ult i64 {idx}, {len}").ok();
+        writeln!(self.body, "  br i1 {cmp}, label %{bod}, label %{end}").ok();
+        writeln!(self.body, "{bod}:").ok();
+        let gep = self.fresh();
+        writeln!(
+            self.body,
+            "  {gep} = getelementptr inbounds double, ptr {buf}, i64 {idx}"
+        )
+        .ok();
+        let elem = self.fresh();
+        writeln!(self.body, "  {elem} = load double, ptr {gep}").ok();
+        writeln!(self.body, "  store double {elem}, ptr {bind_ptr}").ok();
+        self.emit_fn_stmt(body)?;
+        if !self.body_ends_with_terminator() {
+            writeln!(self.body, "  br label %{cont}").ok();
+        }
+        writeln!(self.body, "{cont}:").ok();
+        let idx2 = self.fresh();
+        writeln!(self.body, "  {idx2} = load i64, ptr {idx_ptr}").ok();
+        let next = self.fresh();
+        writeln!(self.body, "  {next} = add i64 {idx2}, 1").ok();
+        writeln!(self.body, "  store i64 {next}, ptr {idx_ptr}").ok();
+        writeln!(self.body, "  br label %{head}").ok();
+        writeln!(self.body, "{end}:").ok();
+        Ok(())
     }
 
     fn emit_return_fn(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
@@ -1327,29 +1615,25 @@ impl<'a> Emitter<'a> {
                     }
                     _ => return Err(diag("es_functions: unsupported higher-order callee")),
                 };
-                // Pad defaults, then load captures from return buffer.
-                let f = &self.info.functions[idx];
-                if !call_arity_ok(f, arg_vals.len()) {
-                    return Err(diag("es_functions: higher-order call arity mismatch"));
+                    // Pad defaults / pack rest, then load captures from return buffer.
+                    let f = &self.info.functions[idx];
+                    if !call_arity_ok(f, arg_vals.len()) {
+                        return Err(diag("es_functions: higher-order call arity mismatch"));
+                    }
+                    let mut caps = Vec::new();
+                    for i in 0..f.captures.len() {
+                        let gep = self.fresh();
+                        writeln!(
+                            self.body,
+                            "  {gep} = getelementptr inbounds [{MAX_CAPS} x double], ptr @es_ret_cap, i64 0, i64 {i}"
+                        )
+                        .ok();
+                        let c = self.fresh();
+                        writeln!(self.body, "  {c} = load double, ptr {gep}").ok();
+                        caps.push(c);
+                    }
+                    self.emit_call_args(idx, &arg_vals, &caps)
                 }
-                let mut full_args = arg_vals;
-                let undef = undef_double_const();
-                while full_args.len() < f.params.len() {
-                    full_args.push(undef.clone());
-                }
-                for i in 0..f.captures.len() {
-                    let gep = self.fresh();
-                    writeln!(
-                        self.body,
-                        "  {gep} = getelementptr inbounds [{MAX_CAPS} x double], ptr @es_ret_cap, i64 0, i64 {i}"
-                    )
-                    .ok();
-                    let c = self.fresh();
-                    writeln!(self.body, "  {c} = load double, ptr {gep}").ok();
-                    full_args.push(c);
-                }
-                self.emit_call_with_padded_args(idx, full_args)
-            }
             _ => Err(diag("es_functions: unsupported call callee")),
         }
     }
@@ -1359,12 +1643,8 @@ impl<'a> Emitter<'a> {
         if !call_arity_ok(f, arg_vals.len()) {
             return Err(diag("es_functions: call arity mismatch"));
         }
-        let mut all = arg_vals.to_vec();
-        let undef = undef_double_const();
-        while all.len() < f.params.len() {
-            all.push(undef.clone());
-        }
-        for cid in &f.captures {
+        let mut caps = Vec::new();
+        for cid in &f.captures.clone() {
             let ptr = self.allocas.get(cid).cloned().ok_or_else(|| {
                 diag(format!(
                     "es_functions: capture local %{} not in caller frame",
@@ -1373,31 +1653,72 @@ impl<'a> Emitter<'a> {
             })?;
             let t = self.fresh();
             writeln!(self.body, "  {t} = load double, ptr {ptr}").ok();
-            all.push(t);
+            caps.push(t);
         }
-        self.emit_call_with_padded_args(idx, all)
+        self.emit_call_args(idx, arg_vals, &caps)
     }
 
-    fn emit_call_with_padded_args(
+    /// Build fixed params (pad defaults), optional rest buffer, then captures.
+    fn emit_call_args(
         &mut self,
         idx: usize,
-        all: Vec<String>,
+        arg_vals: &[String],
+        caps: &[String],
     ) -> Result<String, Diagnostic> {
         let f = &self.info.functions[idx];
-        let expected = f.params.len() + f.captures.len();
-        if all.len() != expected {
-            return Err(diag("es_functions: internal call arg count"));
+        let n_fixed = f.params.len();
+        let undef = undef_double_const();
+        let mut fixed: Vec<String> = arg_vals.iter().take(n_fixed).cloned().collect();
+        while fixed.len() < n_fixed {
+            fixed.push(undef.clone());
         }
+
+        let mut call_parts: Vec<String> = fixed.iter().map(|v| format!("double {v}")).collect();
+
+        if f.rest.is_some() {
+            let rest_vals: Vec<&String> = arg_vals.iter().skip(n_fixed).collect();
+            let rest_len = rest_vals.len();
+            if rest_len > MAX_REST {
+                return Err(diag("es_functions: too many rest args"));
+            }
+            let buf = self.fresh();
+            writeln!(
+                self.body,
+                "  {buf} = alloca [{MAX_REST} x double], align 8"
+            )
+            .ok();
+            for (i, v) in rest_vals.iter().enumerate() {
+                let gep = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {gep} = getelementptr inbounds [{MAX_REST} x double], ptr {buf}, i64 0, i64 {i}"
+                )
+                .ok();
+                writeln!(self.body, "  store double {v}, ptr {gep}").ok();
+            }
+            let buf_ptr = self.fresh();
+            writeln!(
+                self.body,
+                "  {buf_ptr} = getelementptr inbounds [{MAX_REST} x double], ptr {buf}, i64 0, i64 0"
+            )
+            .ok();
+            call_parts.push(format!("ptr {buf_ptr}"));
+            call_parts.push(format!("i64 {rest_len}"));
+        }
+
+        for c in caps {
+            call_parts.push(format!("double {c}"));
+        }
+
         let fn_name = self.fn_names.get(&idx).cloned().unwrap();
         let t = self.fresh();
-        if all.is_empty() {
+        if call_parts.is_empty() {
             writeln!(self.body, "  {t} = call double @{fn_name}()").ok();
         } else {
-            let parts: Vec<String> = all.iter().map(|v| format!("double {v}")).collect();
             writeln!(
                 self.body,
                 "  {t} = call double @{fn_name}({})",
-                parts.join(", ")
+                call_parts.join(", ")
             )
             .ok();
         }
