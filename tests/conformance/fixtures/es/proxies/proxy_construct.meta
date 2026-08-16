@@ -1,4 +1,6 @@
 id: es/proxies/proxy_construct
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 5\n1\n4\n5\n2\n20\n1\n
 js.check: if (passSum !== 5) process.exit(1); if (rx !== 20) process.exit(2); if (re !== 1) process.exit(3); if (calls !== 1) process.exit(4); if (lastArg0 !== 4) process.exit(5); if (lastArg1 !== 5) process.exit(6); if (lastLen !== 2) process.exit(7); if (lastNewTarget !== P) process.exit(8); if (!(passInst instanceof Target)) process.exit(9); if (!(r instanceof P)) process.exit(10);

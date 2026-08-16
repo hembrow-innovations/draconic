@@ -103,6 +103,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Proxy has/`in`** (empty-handler pass-through; `has` trap; plain `in`) — N08.13.03
 /// - **Proxy deleteProperty/`delete`** (empty-handler pass-through; trap; plain `delete`) — N08.13.04
 /// - **Proxy apply** (empty-handler call pass-through; `apply` trap; method `this`) — N08.13.05
+/// - **Proxy construct** (empty-handler `new` pass-through; `construct` trap; ctor `this`) — N08.13.06
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -174,7 +175,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
            supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-            ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, ES generators (function*/yield/next/for-of), ES Proxy basics, linked ESM modules (named/default/namespace/cyclic), empty hello)",
+            ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, ES generators (function*/yield/next/for-of), ES Proxy basics/set/has/delete/apply/construct, linked ESM modules (named/default/namespace/cyclic), empty hello)",
         Span::dummy(),
     )
 }
