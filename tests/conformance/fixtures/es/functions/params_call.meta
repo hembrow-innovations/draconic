@@ -1,4 +1,6 @@
 id: es/functions/params_call
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 42\n3\n17\n3\n11\n
 js.check: if (a !== 42) process.exit(1); if (b !== 3) process.exit(1); if (c !== 17) process.exit(1); if (d !== 3) process.exit(1); if (e !== 11) process.exit(1);

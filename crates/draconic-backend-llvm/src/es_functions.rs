@@ -1,15 +1,17 @@
-//! N08.03.01: emit native observations for ES function declaration + return + call
-//! (no params) — E03.01 / `es/functions/decl_return_call`.
+//! N08.03.01–N08.03.02: emit native observations for ES function declaration +
+//! return + call (simple ident params) — E03.01–E03.02 /
+//! `es/functions/decl_return_call`, `es/functions/params_call`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, Param, Stmt};
+use draconic_ir::{Arg, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt};
 use draconic_runtime::abi::{llvm_declares, PRINT_F64};
 
-/// True when this module is the supported ES function subset (E03.01 / N08.03.01):
-/// top-level `function f() { return <number>; }` + `let x = f()` (number/any slot).
+/// True when this module is the supported ES function subset (E03.01–E03.02 /
+/// N08.03.01–N08.03.02): top-level `function f(a, b) { return <number>; }` +
+/// `let x = f(...)` (number/any slots; simple ident params only).
 pub(crate) fn is_es_functions_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -21,9 +23,15 @@ pub(crate) fn emit_es_functions(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+struct FnInfo {
+    local: LocalId,
+    /// Simple ident param locals (order).
+    params: Vec<LocalId>,
+    body: Vec<Stmt>,
+}
+
 struct ModuleInfo {
-    /// Function local → body (no params; number return).
-    functions: Vec<(LocalId, Vec<Stmt>)>,
+    functions: Vec<FnInfo>,
     /// Top-level user locals to print (declare order).
     user_locals: Vec<LocalId>,
 }
@@ -31,7 +39,7 @@ struct ModuleInfo {
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut functions = Vec::new();
-    let mut fn_ids = std::collections::HashSet::new();
+    let mut fn_arities: HashMap<LocalId, usize> = HashMap::new();
     let mut user_locals = Vec::new();
     let mut has_fn = false;
 
@@ -47,22 +55,24 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 if *is_async || *is_generator {
                     return None;
                 }
-                if !params_ok(params) {
-                    return None;
-                }
-                if !fn_body_ok(body, &by_id, &fn_ids) {
+                let param_ids = simple_param_locals(params, &by_id)?;
+                if !fn_body_ok(body, &by_id, &fn_arities) {
                     return None;
                 }
                 has_fn = true;
-                fn_ids.insert(*local);
-                functions.push((*local, body.clone()));
+                fn_arities.insert(*local, param_ids.len());
+                functions.push(FnInfo {
+                    local: *local,
+                    params: param_ids,
+                    body: body.clone(),
+                });
             }
             Stmt::Declare { local, init, .. } => {
                 let loc = by_id.get(local)?;
                 match loc.ty {
                     Type::Number | Type::Any => {
                         let init = init.as_ref()?;
-                        if !number_expr_ok(init, &by_id, &fn_ids) {
+                        if !number_expr_ok(init, &by_id, &fn_arities) {
                             return None;
                         }
                         user_locals.push(*local);
@@ -83,20 +93,37 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     })
 }
 
-fn params_ok(params: &[Param]) -> bool {
-    // N08.03.01: no parameters.
-    params.is_empty()
+/// N08.03.02: simple ident params only (no default, rest, or destructure).
+fn simple_param_locals(
+    params: &[Param],
+    by_id: &HashMap<LocalId, &Local>,
+) -> Option<Vec<LocalId>> {
+    let mut out = Vec::with_capacity(params.len());
+    for p in params {
+        if p.rest || p.default.is_some() {
+            return None;
+        }
+        let Pattern::Local(id) = &p.pattern else {
+            return None;
+        };
+        let loc = by_id.get(id)?;
+        if !matches!(loc.ty, Type::Number | Type::Any) {
+            return None;
+        }
+        out.push(*id);
+    }
+    Some(out)
 }
 
 fn fn_body_ok(
     body: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
-    fn_ids: &std::collections::HashSet<LocalId>,
+    fn_arities: &HashMap<LocalId, usize>,
 ) -> bool {
     body.iter().all(|s| match s {
-        Stmt::Return { value: Some(v) } => number_expr_ok(v, by_id, fn_ids),
+        Stmt::Return { value: Some(v) } => number_expr_ok(v, by_id, fn_arities),
         Stmt::Return { value: None } => false,
-        Stmt::Block { body } => fn_body_ok(body, by_id, fn_ids),
+        Stmt::Block { body } => fn_body_ok(body, by_id, fn_arities),
         _ => false,
     })
 }
@@ -104,7 +131,7 @@ fn fn_body_ok(
 fn number_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    fn_ids: &std::collections::HashSet<LocalId>,
+    fn_arities: &HashMap<LocalId, usize>,
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
@@ -118,7 +145,7 @@ fn number_expr_ok(
             op: draconic_ast::UnaryOp::Plus | draconic_ast::UnaryOp::Minus,
             arg,
             ..
-        } => number_expr_ok(arg, by_id, fn_ids),
+        } => number_expr_ok(arg, by_id, fn_arities),
         Expr::Binary {
             left,
             op,
@@ -127,8 +154,8 @@ fn number_expr_ok(
         } => {
             use draconic_ast::BinaryOp::*;
             matches!(op, Add | Sub | Mul | Div | Rem)
-                && number_expr_ok(left, by_id, fn_ids)
-                && number_expr_ok(right, by_id, fn_ids)
+                && number_expr_ok(left, by_id, fn_arities)
+                && number_expr_ok(right, by_id, fn_arities)
         }
         Expr::Call {
             callee,
@@ -136,11 +163,17 @@ fn number_expr_ok(
             optional,
             ..
         } => {
-            if *optional || !args.is_empty() {
+            if *optional {
+                return false;
+            }
+            if !args.iter().all(|a| match a {
+                Arg::Expr(e) => number_expr_ok(e, by_id, fn_arities),
+                Arg::Spread(_) => false,
+            }) {
                 return false;
             }
             match callee.as_ref() {
-                Expr::Local { id, .. } => fn_ids.contains(id),
+                Expr::Local { id, .. } => fn_arities.get(id).is_some_and(|n| *n == args.len()),
                 _ => false,
             }
         }
@@ -151,6 +184,8 @@ fn number_expr_ok(
 struct Emitter<'a> {
     module: &'a Module,
     fn_names: HashMap<LocalId, String>,
+    /// Function local → param locals (for call arity / signature).
+    fn_params: HashMap<LocalId, Vec<LocalId>>,
     allocas: HashMap<LocalId, String>,
     out: String,
     body: String,
@@ -178,6 +213,7 @@ impl<'a> Emitter<'a> {
         Self {
             module,
             fn_names,
+            fn_params: HashMap::new(),
             allocas: HashMap::new(),
             out: String::new(),
             body: String::new(),
@@ -198,14 +234,18 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.03.01 ES function decl/return/call via Runtime ABI)"
+            "; Draconic LLVM backend (N08.03.02 ES function params/call via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(&[PRINT_F64])).ok();
         writeln!(self.out).ok();
 
-        for (local, body) in &info.functions {
-            self.emit_function(*local, body)?;
+        for f in &info.functions {
+            self.fn_params.insert(f.local, f.params.clone());
+        }
+
+        for f in &info.functions {
+            self.emit_function(f)?;
         }
 
         self.body.clear();
@@ -245,10 +285,10 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn emit_function(&mut self, local: LocalId, body: &[Stmt]) -> Result<(), Diagnostic> {
+    fn emit_function(&mut self, f: &FnInfo) -> Result<(), Diagnostic> {
         let fn_name = self
             .fn_names
-            .get(&local)
+            .get(&f.local)
             .cloned()
             .ok_or_else(|| diag("internal: missing function name"))?;
 
@@ -259,15 +299,32 @@ impl<'a> Emitter<'a> {
         self.tmp = 0;
         self.allocas.clear();
 
-        for stmt in body {
+        // Param signature: double %p0, double %p1, ...
+        let mut sig_parts = Vec::new();
+        for (i, _) in f.params.iter().enumerate() {
+            sig_parts.push(format!("double %p{i}"));
+        }
+        let sig = sig_parts.join(", ");
+
+        // Entry: alloca + store each param, then body.
+        let mut entry = String::new();
+        for (i, pid) in f.params.iter().enumerate() {
+            let ptr = format!("%l{}", pid.0);
+            self.allocas.insert(*pid, ptr.clone());
+            writeln!(entry, "  {ptr} = alloca double, align 8").ok();
+            writeln!(entry, "  store double %p{i}, ptr {ptr}").ok();
+        }
+
+        for stmt in &f.body {
             self.emit_fn_stmt(stmt)?;
         }
         if !self.body_ends_with_terminator() {
             writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
         }
 
-        writeln!(self.out, "define double @{fn_name}() {{").ok();
+        writeln!(self.out, "define double @{fn_name}({sig}) {{").ok();
         writeln!(self.out, "entry:").ok();
+        write!(self.out, "{entry}").ok();
         write!(self.out, "{}", self.body).ok();
         writeln!(self.out, "}}").ok();
         writeln!(self.out).ok();
@@ -384,9 +441,6 @@ impl<'a> Emitter<'a> {
                 if *optional {
                     return Err(diag("es_functions: optional call not supported"));
                 }
-                if !args.is_empty() {
-                    return Err(diag("es_functions: only zero-arg calls supported"));
-                }
                 let Expr::Local { id, .. } = callee.as_ref() else {
                     return Err(diag("es_functions: only direct function calls supported"));
                 };
@@ -395,8 +449,38 @@ impl<'a> Emitter<'a> {
                     .get(id)
                     .cloned()
                     .ok_or_else(|| diag("es_functions: call to unknown function"))?;
+                let expected = self
+                    .fn_params
+                    .get(id)
+                    .map(|p| p.len())
+                    .ok_or_else(|| diag("es_functions: call to unknown function"))?;
+                if args.len() != expected {
+                    return Err(diag("es_functions: call arity mismatch"));
+                }
+                let mut arg_vals = Vec::with_capacity(args.len());
+                for a in args {
+                    match a {
+                        Arg::Expr(e) => arg_vals.push(self.emit_number_expr(e)?),
+                        Arg::Spread(_) => {
+                            return Err(diag("es_functions: spread args not supported"));
+                        }
+                    }
+                }
                 let t = self.fresh();
-                writeln!(self.body, "  {t} = call double @{fn_name}()").ok();
+                if arg_vals.is_empty() {
+                    writeln!(self.body, "  {t} = call double @{fn_name}()").ok();
+                } else {
+                    let parts: Vec<String> = arg_vals
+                        .iter()
+                        .map(|v| format!("double {v}"))
+                        .collect();
+                    writeln!(
+                        self.body,
+                        "  {t} = call double @{fn_name}({})",
+                        parts.join(", ")
+                    )
+                    .ok();
+                }
                 Ok(t)
             }
             _ => Err(diag("es_functions: unsupported number expr")),
