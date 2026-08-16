@@ -1,9 +1,10 @@
-//! N08.13.01: native observations for Proxy constructor basics (E14.01).
+//! N08.13.01–N08.13.02: native observations for Proxy basics + `set` (E14.01–E14.02).
 //!
 //! Compile-time evaluation of a small Proxy subset: `typeof Proxy`,
-//! `new Proxy(target, handler)`, empty-handler pass-through get, `get` trap
-//! (function prop; free-var capture; string keys), `typeof` on proxies.
-//! Emits Runtime prints of final top-level number/string locals.
+//! `new Proxy(target, handler)`, empty-handler get/set pass-through, `get`/`set`
+//! traps (function props; free-var capture; string keys), member assign,
+//! `typeof` on proxies. Objects live on a heap so proxy targets share identity
+//! with outer locals. Emits Runtime prints of final top-level number/string locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -35,8 +36,8 @@ enum JsVal {
     Undef,
     /// Builtin `Proxy` constructor.
     ProxyCtor,
-    /// Plain object: own string-keyed props.
-    Object { props: HashMap<String, JsVal> },
+    /// Plain object (index into object heap).
+    Object(usize),
     /// Function value (index into `fns`).
     Fn(usize),
     /// Proxy instance (index into `proxies`).
@@ -50,10 +51,17 @@ struct FnRec {
 }
 
 #[derive(Clone, Debug)]
+struct ObjectRec {
+    props: HashMap<String, JsVal>,
+}
+
+#[derive(Clone, Debug)]
 struct ProxyRec {
-    target: Box<JsVal>,
+    target: JsVal,
     /// Optional `get` trap function index.
     get_trap: Option<usize>,
+    /// Optional `set` trap function index.
+    set_trap: Option<usize>,
 }
 
 struct ModuleInfo {
@@ -94,9 +102,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     }
 
     let mut fns: Vec<FnRec> = Vec::new();
+    let mut objects: Vec<ObjectRec> = Vec::new();
     let mut proxies: Vec<ProxyRec> = Vec::new();
 
-    if eval_body(&module.body, &mut env, &mut fns, &mut proxies).is_err() {
+    if eval_body(&module.body, &mut env, &mut fns, &mut objects, &mut proxies).is_err() {
         return None;
     }
 
@@ -120,7 +129,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 {
                     // skip undefined for print unless we need it
                 }
-                Some(JsVal::Object { .. } | JsVal::Proxy(_) | JsVal::Fn(_) | JsVal::ProxyCtor) => {}
+                Some(
+                    JsVal::Object(_) | JsVal::Proxy(_) | JsVal::Fn(_) | JsVal::ProxyCtor,
+                ) => {}
                 None => return None,
                 _ => {}
             }
@@ -194,8 +205,21 @@ fn expr_has_proxy(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             ObjectProp::Spread(e) => expr_has_proxy(e, by_id),
         }),
         Expr::Function { body, .. } => body.iter().any(|s| stmt_has_proxy(s, by_id)),
-        Expr::Assign { value, .. } => expr_has_proxy(value, by_id),
+        Expr::Assign { target, value, .. } => {
+            assign_target_has_proxy(target, by_id) || expr_has_proxy(value, by_id)
+        }
         _ => false,
+    }
+}
+
+fn assign_target_has_proxy(target: &AssignTarget, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match target {
+        AssignTarget::Local(_) | AssignTarget::Name(_) => false,
+        AssignTarget::Member {
+            object, property, ..
+        } => expr_has_proxy(object, by_id) || expr_has_proxy(property, by_id),
+        AssignTarget::Deref(e) => expr_has_proxy(e, by_id),
+        AssignTarget::ArrayPattern { .. } | AssignTarget::ObjectPattern { .. } => false,
     }
 }
 
@@ -203,10 +227,11 @@ fn eval_body(
     body: &[Stmt],
     env: &mut HashMap<LocalId, JsVal>,
     fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
     proxies: &mut Vec<ProxyRec>,
 ) -> Result<(), ()> {
     for stmt in body {
-        eval_stmt(stmt, env, fns, proxies)?;
+        eval_stmt(stmt, env, fns, objects, proxies)?;
     }
     Ok(())
 }
@@ -215,25 +240,26 @@ fn eval_stmt(
     stmt: &Stmt,
     env: &mut HashMap<LocalId, JsVal>,
     fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
     proxies: &mut Vec<ProxyRec>,
 ) -> Result<Option<JsVal>, ()> {
     match stmt {
         Stmt::Function { .. } => Ok(None),
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => eval_expr(e, env, fns, proxies)?,
+                Some(e) => eval_expr(e, env, fns, objects, proxies)?,
                 None => JsVal::Undef,
             };
             env.insert(*local, v);
             Ok(None)
         }
         Stmt::Expr { expr } => {
-            eval_expr(expr, env, fns, proxies)?;
+            eval_expr(expr, env, fns, objects, proxies)?;
             Ok(None)
         }
         Stmt::Block { body } => {
             for s in body {
-                if let Some(v) = eval_stmt(s, env, fns, proxies)? {
+                if let Some(v) = eval_stmt(s, env, fns, objects, proxies)? {
                     return Ok(Some(v));
                 }
             }
@@ -244,18 +270,18 @@ fn eval_stmt(
             consequent,
             alternate,
         } => {
-            let t = eval_expr(test, env, fns, proxies)?;
+            let t = eval_expr(test, env, fns, objects, proxies)?;
             if is_truthy(&t) {
-                eval_stmt(consequent, env, fns, proxies)
+                eval_stmt(consequent, env, fns, objects, proxies)
             } else if let Some(alt) = alternate {
-                eval_stmt(alt, env, fns, proxies)
+                eval_stmt(alt, env, fns, objects, proxies)
             } else {
                 Ok(None)
             }
         }
         Stmt::Return { value } => {
             let v = match value {
-                Some(e) => eval_expr(e, env, fns, proxies)?,
+                Some(e) => eval_expr(e, env, fns, objects, proxies)?,
                 None => JsVal::Undef,
             };
             Ok(Some(v))
@@ -303,6 +329,7 @@ fn call_fn(
     args: &[JsVal],
     env: &mut HashMap<LocalId, JsVal>,
     fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
     proxies: &mut Vec<ProxyRec>,
 ) -> Result<JsVal, ()> {
     let rec = fns.get(idx).ok_or(())?.clone();
@@ -312,17 +339,35 @@ fn call_fn(
         env.insert(*pid, v);
     }
     for stmt in &rec.body {
-        if let Some(v) = eval_stmt(stmt, env, fns, proxies)? {
+        if let Some(v) = eval_stmt(stmt, env, fns, objects, proxies)? {
             return Ok(v);
         }
     }
     Ok(JsVal::Undef)
 }
 
+fn eval_key(
+    expr: &Expr,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<String, ()> {
+    match expr {
+        Expr::String { value, .. } => Ok(js_string_to_utf8(value)),
+        e => match eval_expr(e, env, fns, objects, proxies)? {
+            JsVal::Str(s) => Ok(s),
+            JsVal::Num(n) => Ok(format!("{}", n as i64)),
+            _ => Err(()),
+        },
+    }
+}
+
 fn eval_expr(
     expr: &Expr,
     env: &mut HashMap<LocalId, JsVal>,
     fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
     proxies: &mut Vec<ProxyRec>,
 ) -> Result<JsVal, ()> {
     match expr {
@@ -338,7 +383,7 @@ fn eval_expr(
             arg,
             ..
         } => {
-            let v = eval_expr(arg, env, fns, proxies)?;
+            let v = eval_expr(arg, env, fns, objects, proxies)?;
             Ok(JsVal::Str(typeof_str(&v)))
         }
         Expr::Binary {
@@ -347,8 +392,8 @@ fn eval_expr(
             right,
             ..
         } => {
-            let l = eval_expr(left, env, fns, proxies)?;
-            let r = eval_expr(right, env, fns, proxies)?;
+            let l = eval_expr(left, env, fns, objects, proxies)?;
+            let r = eval_expr(right, env, fns, objects, proxies)?;
             eval_binary(op, &l, &r)
         }
         Expr::Object { properties, .. } => {
@@ -358,19 +403,19 @@ fn eval_expr(
                     ObjectProp::Property { key, value } => {
                         let k = match key {
                             ObjectPropKey::Static(s) => js_string_to_utf8(s),
-                            ObjectPropKey::Computed(e) => match eval_expr(e, env, fns, proxies)? {
-                                JsVal::Str(s) => s,
-                                JsVal::Num(n) => format!("{}", n as i64),
-                                _ => return Err(()),
-                            },
+                            ObjectPropKey::Computed(e) => {
+                                eval_key(e, env, fns, objects, proxies)?
+                            }
                         };
-                        let v = eval_expr(value, env, fns, proxies)?;
+                        let v = eval_expr(value, env, fns, objects, proxies)?;
                         props.insert(k, v);
                     }
                     _ => return Err(()),
                 }
             }
-            Ok(JsVal::Object { props })
+            let idx = objects.len();
+            objects.push(ObjectRec { props });
+            Ok(JsVal::Object(idx))
         }
         Expr::Function {
             params,
@@ -380,11 +425,11 @@ fn eval_expr(
             ..
         } => register_fn(params, body, fns),
         Expr::New { callee, args, .. } => {
-            let c = eval_expr(callee, env, fns, proxies)?;
+            let c = eval_expr(callee, env, fns, objects, proxies)?;
             let mut argv = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => argv.push(eval_expr(e, env, fns, proxies)?),
+                    Arg::Expr(e) => argv.push(eval_expr(e, env, fns, objects, proxies)?),
                     _ => return Err(()),
                 }
             }
@@ -395,7 +440,7 @@ fn eval_expr(
                     }
                     let target = argv[0].clone();
                     let handler = match &argv[1] {
-                        JsVal::Object { props } => props,
+                        JsVal::Object(i) => objects.get(*i).ok_or(())?.props.clone(),
                         _ => return Err(()),
                     };
                     let get_trap = match handler.get("get") {
@@ -403,10 +448,16 @@ fn eval_expr(
                         Some(_) => return Err(()),
                         None => None,
                     };
+                    let set_trap = match handler.get("set") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
                     let idx = proxies.len();
                     proxies.push(ProxyRec {
-                        target: Box::new(target),
+                        target,
                         get_trap,
+                        set_trap,
                     });
                     Ok(JsVal::Proxy(idx))
                 }
@@ -419,16 +470,16 @@ fn eval_expr(
             optional: false,
             ..
         } => {
-            let c = eval_expr(callee, env, fns, proxies)?;
+            let c = eval_expr(callee, env, fns, objects, proxies)?;
             let mut argv = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => argv.push(eval_expr(e, env, fns, proxies)?),
+                    Arg::Expr(e) => argv.push(eval_expr(e, env, fns, objects, proxies)?),
                     _ => return Err(()),
                 }
             }
             match c {
-                JsVal::Fn(i) => call_fn(i, &argv, env, fns, proxies),
+                JsVal::Fn(i) => call_fn(i, &argv, env, fns, objects, proxies),
                 _ => Err(()),
             }
         }
@@ -438,16 +489,9 @@ fn eval_expr(
             optional: false,
             ..
         } => {
-            let obj = eval_expr(object, env, fns, proxies)?;
-            let key = match property.as_ref() {
-                Expr::String { value, .. } => js_string_to_utf8(value),
-                e => match eval_expr(e, env, fns, proxies)? {
-                    JsVal::Str(s) => s,
-                    JsVal::Num(n) => format!("{}", n as i64),
-                    _ => return Err(()),
-                },
-            };
-            proxy_or_object_get(&obj, &key, env, fns, proxies)
+            let obj = eval_expr(object, env, fns, objects, proxies)?;
+            let key = eval_key(property, env, fns, objects, proxies)?;
+            proxy_or_object_get(&obj, &key, env, fns, objects, proxies)
         }
         Expr::Assign {
             target: AssignTarget::Local(id),
@@ -455,7 +499,7 @@ fn eval_expr(
             value,
             ..
         } => {
-            let v = eval_expr(value, env, fns, proxies)?;
+            let v = eval_expr(value, env, fns, objects, proxies)?;
             env.insert(*id, v.clone());
             Ok(v)
         }
@@ -466,12 +510,30 @@ fn eval_expr(
             ..
         } => {
             let cur = env.get(id).cloned().ok_or(())?;
-            let rhs = eval_expr(value, env, fns, proxies)?;
+            let rhs = eval_expr(value, env, fns, objects, proxies)?;
             let v = match op {
                 AssignOp::AddEq => eval_binary(&BinaryOp::Add, &cur, &rhs)?,
                 _ => return Err(()),
             };
             env.insert(*id, v.clone());
+            Ok(v)
+        }
+        Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object,
+                    property,
+                    ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => {
+            let obj = eval_expr(object, env, fns, objects, proxies)?;
+            let key = eval_key(property, env, fns, objects, proxies)?;
+            let v = eval_expr(value, env, fns, objects, proxies)?;
+            proxy_or_object_set(&obj, &key, &v, env, fns, objects, proxies)?;
+            // Assignment expression result is the RHS (ECMA-262).
             Ok(v)
         }
         _ => Err(()),
@@ -485,7 +547,7 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Str(_) => "string".into(),
         JsVal::Undef => "undefined".into(),
         JsVal::ProxyCtor | JsVal::Fn(_) => "function".into(),
-        JsVal::Object { .. } | JsVal::Proxy(_) => "object".into(),
+        JsVal::Object(_) | JsVal::Proxy(_) => "object".into(),
     }
 }
 
@@ -530,17 +592,54 @@ fn proxy_or_object_get(
     key: &str,
     env: &mut HashMap<LocalId, JsVal>,
     fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
     proxies: &mut Vec<ProxyRec>,
 ) -> Result<JsVal, ()> {
     match obj {
-        JsVal::Object { props } => Ok(props.get(key).cloned().unwrap_or(JsVal::Undef)),
+        JsVal::Object(idx) => {
+            let props = &objects.get(*idx).ok_or(())?.props;
+            Ok(props.get(key).cloned().unwrap_or(JsVal::Undef))
+        }
         JsVal::Proxy(idx) => {
             let rec = proxies.get(*idx).ok_or(())?.clone();
             if let Some(trap_idx) = rec.get_trap {
-                let args = vec![(*rec.target).clone(), JsVal::Str(key.to_string())];
-                call_fn(trap_idx, &args, env, fns, proxies)
+                let args = vec![rec.target.clone(), JsVal::Str(key.to_string())];
+                call_fn(trap_idx, &args, env, fns, objects, proxies)
             } else {
-                proxy_or_object_get(rec.target.as_ref(), key, env, fns, proxies)
+                proxy_or_object_get(&rec.target, key, env, fns, objects, proxies)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+fn proxy_or_object_set(
+    obj: &JsVal,
+    key: &str,
+    value: &JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<(), ()> {
+    match obj {
+        JsVal::Object(idx) => {
+            let rec = objects.get_mut(*idx).ok_or(())?;
+            rec.props.insert(key.to_string(), value.clone());
+            Ok(())
+        }
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.set_trap {
+                let args = vec![
+                    rec.target.clone(),
+                    JsVal::Str(key.to_string()),
+                    value.clone(),
+                ];
+                let _ = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
+                Ok(())
+            } else {
+                proxy_or_object_set(&rec.target, key, value, env, fns, objects, proxies)
             }
         }
         _ => Err(()),
@@ -598,7 +697,6 @@ impl Emitter {
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {name}"))).ok();
                 }
                 JsVal::Bool(b) => {
-                    // print as number 0/1 not needed for basics; use str
                     let s = if *b { "true" } else { "false" };
                     let name = self.string_const(s);
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {name}"))).ok();
@@ -609,7 +707,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.01 Proxy basics)"
+            "; Draconic LLVM backend (N08.13.02 Proxy set)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -668,6 +766,22 @@ mod tests {
         );
         assert!(
             ir.contains("function") || ir.contains("print"),
+            "should print observations:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn proxy_set_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/proxies/proxy_set.drac");
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("print") || ir.contains("2"),
             "should print observations:\n{ir}"
         );
     }

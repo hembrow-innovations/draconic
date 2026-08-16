@@ -1,4 +1,6 @@
 id: es/proxies/proxy_set
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 2\n3\n2\n3\n3\nz\n40\n21\n30\n40\n40\n
 js.check: if (g1 !== 2) process.exit(1); if (g2 !== 3) process.exit(2); if (t1 !== 2) process.exit(3); if (t2 !== 3) process.exit(4); if (writes !== 3) process.exit(5); if (lastKey !== "z") process.exit(6); if (lastVal !== 40) process.exit(7); if (gx !== 21) process.exit(8); if (gy !== 30) process.exit(9); if (assignResult !== 40) process.exit(10); if (gz !== 40) process.exit(11);
