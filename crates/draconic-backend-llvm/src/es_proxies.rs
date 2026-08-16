@@ -1,10 +1,12 @@
-//! N08.13.01–N08.13.02: native observations for Proxy basics + `set` (E14.01–E14.02).
+//! N08.13.01–N08.13.03: native observations for Proxy basics + `set` + `has`/`in`
+//! (E14.01–E14.03).
 //!
 //! Compile-time evaluation of a small Proxy subset: `typeof Proxy`,
-//! `new Proxy(target, handler)`, empty-handler get/set pass-through, `get`/`set`
-//! traps (function props; free-var capture; string keys), member assign,
-//! `typeof` on proxies. Objects live on a heap so proxy targets share identity
-//! with outer locals. Emits Runtime prints of final top-level number/string locals.
+//! `new Proxy(target, handler)`, empty-handler get/set/`in` pass-through,
+//! `get`/`set`/`has` traps (function props; free-var capture; string keys),
+//! member assign, `typeof` on proxies. Objects live on a heap so proxy targets
+//! share identity with outer locals. Emits Runtime prints of final top-level
+//! number/string/bool locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -62,6 +64,8 @@ struct ProxyRec {
     get_trap: Option<usize>,
     /// Optional `set` trap function index.
     set_trap: Option<usize>,
+    /// Optional `has` trap function index.
+    has_trap: Option<usize>,
 }
 
 struct ModuleInfo {
@@ -388,6 +392,17 @@ fn eval_expr(
         }
         Expr::Binary {
             left,
+            op: BinaryOp::In,
+            right,
+            ..
+        } => {
+            let key = eval_key(left, env, fns, objects, proxies)?;
+            let obj = eval_expr(right, env, fns, objects, proxies)?;
+            let has = proxy_or_object_has(&obj, &key, env, fns, objects, proxies)?;
+            Ok(JsVal::Bool(has))
+        }
+        Expr::Binary {
+            left,
             op,
             right,
             ..
@@ -453,11 +468,17 @@ fn eval_expr(
                         Some(_) => return Err(()),
                         None => None,
                     };
+                    let has_trap = match handler.get("has") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
                     let idx = proxies.len();
                     proxies.push(ProxyRec {
                         target,
                         get_trap,
                         set_trap,
+                        has_trap,
                     });
                     Ok(JsVal::Proxy(idx))
                 }
@@ -646,6 +667,33 @@ fn proxy_or_object_set(
     }
 }
 
+fn proxy_or_object_has(
+    obj: &JsVal,
+    key: &str,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<bool, ()> {
+    match obj {
+        JsVal::Object(idx) => {
+            let props = &objects.get(*idx).ok_or(())?.props;
+            Ok(props.contains_key(key))
+        }
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.has_trap {
+                let args = vec![rec.target.clone(), JsVal::Str(key.to_string())];
+                let v = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
+                Ok(is_truthy(&v))
+            } else {
+                proxy_or_object_has(&rec.target, key, env, fns, objects, proxies)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
 impl Emitter {
     fn new() -> Self {
         Self {
@@ -707,7 +755,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.02 Proxy set)"
+            "; Draconic LLVM backend (N08.13.03 Proxy has/in)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -782,6 +830,22 @@ mod tests {
         );
         assert!(
             ir.contains("print") || ir.contains("2"),
+            "should print observations:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn proxy_has_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/proxies/proxy_has.drac");
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("true") || ir.contains("print"),
             "should print observations:\n{ir}"
         );
     }

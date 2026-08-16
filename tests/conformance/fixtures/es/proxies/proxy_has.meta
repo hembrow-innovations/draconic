@@ -1,4 +1,6 @@
 id: es/proxies/proxy_has
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: true\nfalse\ntrue\nfalse\n3\nhidden\ntrue\nfalse\ntrue\n
 js.check: if (plainInA !== true) process.exit(1); if (plainInC !== false) process.exit(2); if (passA !== true) process.exit(3); if (passC !== false) process.exit(4); if (hx !== true) process.exit(5); if (hy !== false) process.exit(6); if (hh !== true) process.exit(7); if (checks !== 3) process.exit(8); if (lastKey !== "hidden") process.exit(9);
