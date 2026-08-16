@@ -490,6 +490,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.14 | todo | native | Real native observations: builtins surface (E15) (children below) | `tests/conformance` fixtures `es/builtins` |
 | N08.14.01 | done | native | Real native observations: global object basics (E15.01) — `es/builtins/global_basics` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/builtins/global_basics`, `crates/draconic-backend-llvm` |
 | N08.14.02 | done | native | Real native observations: Error constructors (E15.02) — `es/builtins/error_ctors` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/builtins/error_ctors`, `crates/draconic-backend-llvm` |
+| N08.14.03 | done | native | Real native observations: global functions (E15.03) — `es/builtins/global_functions` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/builtins/global_functions`, `crates/draconic-backend-llvm` |
 | N08.15 | todo | native | Real native observations: legacy `with` (E17) | `tests/conformance` fixtures `es/legacy` |
 | N08.16 | todo | native | Real native observations: annex-b / late ES (E18 children) | `tests/conformance` fixtures `es/annex-b` |
 | N08.17 | todo | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |

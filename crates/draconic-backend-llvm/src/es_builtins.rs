@@ -1,10 +1,12 @@
-//! N08.14.01–N08.14.02: native observations for global builtins + Error constructors.
+//! N08.14.01–N08.14.03: native observations for global builtins + Error ctors + global functions.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
 //! - E15.02: `Error` / `TypeError` / `RangeError` / `ReferenceError` / `SyntaxError` /
 //!   `URIError` / `EvalError` / `AggregateError` (`typeof`, `globalThis` identity,
 //!   `new …(msg)`, `.name`/`.message`/`.errors.length`, throw+catch)
+//! - E15.03: `parseInt` / `parseFloat` / `isNaN` / `isFinite` (`typeof`, `globalThis`
+//!   identity, basic call behavior; `NaN` / `Infinity` globals)
 //!
 //! Emits Runtime prints of final top-level number/string/bool locals.
 
@@ -48,6 +50,12 @@ enum BuiltinId {
     UriError,
     EvalError,
     AggregateError,
+    ParseInt,
+    ParseFloat,
+    IsNaN,
+    IsFinite,
+    Nan,
+    Infinity,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,6 +110,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 loc.id,
                 match b {
                     BuiltinId::Undefined => JsVal::Undef,
+                    BuiltinId::Nan => JsVal::Num(f64::NAN),
+                    BuiltinId::Infinity => JsVal::Num(f64::INFINITY),
                     other => JsVal::Builtin(other),
                 },
             );
@@ -162,6 +172,12 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "URIError" => Some(BuiltinId::UriError),
         "EvalError" => Some(BuiltinId::EvalError),
         "AggregateError" => Some(BuiltinId::AggregateError),
+        "parseInt" => Some(BuiltinId::ParseInt),
+        "parseFloat" => Some(BuiltinId::ParseFloat),
+        "isNaN" => Some(BuiltinId::IsNaN),
+        "isFinite" => Some(BuiltinId::IsFinite),
+        "NaN" => Some(BuiltinId::Nan),
+        "Infinity" => Some(BuiltinId::Infinity),
         _ => None,
     }
 }
@@ -313,6 +329,12 @@ fn expr_ok(expr: &Expr) -> bool {
         Expr::New {
             callee,
             args,
+            ..
+        }
+        | Expr::Call {
+            callee,
+            args,
+            optional: false,
             ..
         } => {
             expr_ok(callee)
@@ -519,6 +541,28 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             }
             Ok(Ok(eval_new(&c, &arg_vals)?))
         }
+        Expr::Call {
+            callee,
+            args,
+            optional: false,
+            ..
+        } => {
+            let c = match eval_expr(callee, env)? {
+                Ok(v) => v,
+                Err(flow) => return Ok(Err(flow)),
+            };
+            let mut arg_vals = Vec::new();
+            for a in args {
+                match a {
+                    Arg::Expr(e) => match eval_expr(e, env)? {
+                        Ok(v) => arg_vals.push(v),
+                        Err(flow) => return Ok(Err(flow)),
+                    },
+                    _ => return Err(()),
+                }
+            }
+            Ok(Ok(eval_call(&c, &arg_vals)?))
+        }
         Expr::Assign {
             target: AssignTarget::Local(id),
             op: AssignOp::Eq,
@@ -595,6 +639,185 @@ fn eval_new(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
     })
 }
 
+fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
+    let JsVal::Builtin(b) = callee else {
+        return Err(());
+    };
+    match b {
+        BuiltinId::ParseInt => {
+            let s = match args.first() {
+                Some(JsVal::Str(s)) => s.as_str(),
+                Some(JsVal::Num(n)) => {
+                    // ToString(number) for fixture depth; only decimals we need.
+                    return Ok(JsVal::Num(js_parse_int(&format!("{n}"), args.get(1))?));
+                }
+                _ => return Err(()),
+            };
+            Ok(JsVal::Num(js_parse_int(s, args.get(1))?))
+        }
+        BuiltinId::ParseFloat => {
+            let s = match args.first() {
+                Some(JsVal::Str(s)) => s.as_str(),
+                Some(JsVal::Num(n)) => return Ok(JsVal::Num(*n)),
+                _ => return Err(()),
+            };
+            Ok(JsVal::Num(js_parse_float(s)))
+        }
+        BuiltinId::IsNaN => {
+            let n = to_number(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Bool(n.is_nan()))
+        }
+        BuiltinId::IsFinite => {
+            let n = to_number(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Bool(n.is_finite()))
+        }
+        _ => Err(()),
+    }
+}
+
+fn to_number(v: &JsVal) -> Result<f64, ()> {
+    match v {
+        JsVal::Num(n) => Ok(*n),
+        JsVal::Bool(true) => Ok(1.0),
+        JsVal::Bool(false) => Ok(0.0),
+        JsVal::Undef => Ok(f64::NAN),
+        JsVal::Str(s) => Ok(js_string_to_number(s)),
+        JsVal::Builtin(BuiltinId::Nan) => Ok(f64::NAN),
+        JsVal::Builtin(BuiltinId::Infinity) => Ok(f64::INFINITY),
+        _ => Err(()),
+    }
+}
+
+/// ECMA-262 ToNumber on string (subset used by E15.03 fixtures).
+fn js_string_to_number(s: &str) -> f64 {
+    let t = s.trim();
+    if t.is_empty() {
+        return 0.0;
+    }
+    if t.eq_ignore_ascii_case("infinity") || t == "+Infinity" {
+        return f64::INFINITY;
+    }
+    if t == "-Infinity" {
+        return f64::NEG_INFINITY;
+    }
+    t.parse::<f64>().unwrap_or(f64::NAN)
+}
+
+/// ECMA-262 parseInt (string, radix) for fixture cases.
+fn js_parse_int(input: &str, radix_arg: Option<&JsVal>) -> Result<f64, ()> {
+    let s = input.trim_start();
+    if s.is_empty() {
+        return Ok(f64::NAN);
+    }
+    let mut radix = match radix_arg {
+        None | Some(JsVal::Undef) => 0i32,
+        Some(JsVal::Num(n)) => {
+            if !n.is_finite() {
+                return Ok(f64::NAN);
+            }
+            *n as i32
+        }
+        _ => return Err(()),
+    };
+    let mut chars = s.chars().peekable();
+    let mut sign = 1.0f64;
+    if let Some(&c) = chars.peek() {
+        if c == '+' {
+            chars.next();
+        } else if c == '-' {
+            sign = -1.0;
+            chars.next();
+        }
+    }
+    let rest: String = chars.collect();
+    let mut body = rest.as_str();
+    if radix == 0 {
+        if body.starts_with("0x") || body.starts_with("0X") {
+            radix = 16;
+            body = &body[2..];
+        } else {
+            radix = 10;
+        }
+    } else if radix == 16 && (body.starts_with("0x") || body.starts_with("0X")) {
+        body = &body[2..];
+    }
+    if !(2..=36).contains(&radix) {
+        return Ok(f64::NAN);
+    }
+    let radix_u = radix as u32;
+    let mut acc: i64 = 0;
+    let mut any = false;
+    for c in body.chars() {
+        let dig = match c.to_digit(radix_u) {
+            Some(d) => d as i64,
+            None => break,
+        };
+        any = true;
+        acc = acc
+            .checked_mul(radix as i64)
+            .and_then(|a| a.checked_add(dig))
+            .unwrap_or(i64::MAX);
+    }
+    if !any {
+        return Ok(f64::NAN);
+    }
+    Ok(sign * acc as f64)
+}
+
+/// ECMA-262 parseFloat (string) for fixture cases.
+fn js_parse_float(input: &str) -> f64 {
+    let s = input.trim_start();
+    if s.is_empty() {
+        return f64::NAN;
+    }
+    // Scan a JS-like float prefix: optional sign, digits, optional fraction/exponent.
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+        i += 1;
+    }
+    let start = i;
+    let mut saw_digit = false;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        saw_digit = true;
+        i += 1;
+    }
+    if i < bytes.len() && bytes[i] == b'.' {
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            saw_digit = true;
+            i += 1;
+        }
+    }
+    if !saw_digit {
+        // Infinity?
+        let rest = &s[start.min(s.len())..];
+        if rest.len() >= 8 && rest[..8].eq_ignore_ascii_case("Infinity") {
+            return if s.starts_with('-') {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            };
+        }
+        return f64::NAN;
+    }
+    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+        let e_pos = i;
+        i += 1;
+        if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+            i += 1;
+        }
+        let exp_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if exp_start == i {
+            i = e_pos; // no exponent digits → stop before e
+        }
+    }
+    s[..i].parse::<f64>().unwrap_or(f64::NAN)
+}
+
 fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
     match obj {
         JsVal::Builtin(BuiltinId::GlobalThis) => match key {
@@ -611,6 +834,12 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "URIError" => Ok(JsVal::Builtin(BuiltinId::UriError)),
             "EvalError" => Ok(JsVal::Builtin(BuiltinId::EvalError)),
             "AggregateError" => Ok(JsVal::Builtin(BuiltinId::AggregateError)),
+            "parseInt" => Ok(JsVal::Builtin(BuiltinId::ParseInt)),
+            "parseFloat" => Ok(JsVal::Builtin(BuiltinId::ParseFloat)),
+            "isNaN" => Ok(JsVal::Builtin(BuiltinId::IsNaN)),
+            "isFinite" => Ok(JsVal::Builtin(BuiltinId::IsFinite)),
+            "NaN" => Ok(JsVal::Num(f64::NAN)),
+            "Infinity" => Ok(JsVal::Num(f64::INFINITY)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -647,6 +876,7 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Undef => "undefined".into(),
         JsVal::Array(_) | JsVal::ErrorInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
+        JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
         JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype) => "object".into(),
         JsVal::Builtin(
             BuiltinId::Object
@@ -662,7 +892,11 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::SyntaxError
             | BuiltinId::UriError
             | BuiltinId::EvalError
-            | BuiltinId::AggregateError,
+            | BuiltinId::AggregateError
+            | BuiltinId::ParseInt
+            | BuiltinId::ParseFloat
+            | BuiltinId::IsNaN
+            | BuiltinId::IsFinite,
         ) => "function".into(),
     }
 }
@@ -764,7 +998,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.02 global builtins / Error ctors)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.03 global builtins / Error ctors / functions)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -866,6 +1100,38 @@ mod tests {
         assert!(
             ir.contains("double 2") || ir.contains("double 2.0"),
             "should print agl=2:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn global_functions_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/builtins/global_functions.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["function", "true", "false"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+        assert!(
+            ir.contains("double 42") || ir.contains("double 42.0"),
+            "should print parseInt 42:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 16") || ir.contains("double 16.0"),
+            "should print parseInt hex 16:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 3.14") || ir.contains("3.14"),
+            "should print parseFloat 3.14:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 100") || ir.contains("double 100.0"),
+            "should print parseFloat 1e2 → 100:\n{ir}"
         );
     }
 }
