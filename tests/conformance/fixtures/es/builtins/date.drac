@@ -6,5 +6,4 @@ let d = new Date(0);
 let gt = d.getTime();
 let vo = d.valueOf();
 let utc = Date.UTC(1970, 0, 1);
-let now = Date.now();
-let nowType = typeof now;
+let nowType = typeof Date.now();

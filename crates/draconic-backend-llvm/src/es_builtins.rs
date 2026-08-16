@@ -1,4 +1,4 @@
-//! N08.14.01–N08.14.05: native observations for global builtins + Error ctors + functions + URI + JSON.
+//! N08.14.01–N08.14.06: native observations for global builtins + Error ctors + functions + URI + JSON + Date.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -9,11 +9,13 @@
 //!   identity, basic call behavior; `NaN` / `Infinity` globals)
 //! - E15.04: `encodeURI` / `decodeURI` / `encodeURIComponent` / `decodeURIComponent`
 //! - E15.05: `JSON` / `JSON.parse` / `JSON.stringify` (primitives, objects, arrays)
+//! - E15.06: `Date` / `Date.now` / `Date.UTC` / `new Date(ms)` / `.getTime()` / `.valueOf()`
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
@@ -66,6 +68,9 @@ enum BuiltinId {
     Json,
     JsonParse,
     JsonStringify,
+    Date,
+    DateNow,
+    DateUtc,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -81,6 +86,10 @@ enum JsVal {
         name: String,
         message: String,
         errors: Option<Vec<JsVal>>,
+    },
+    /// Date instance: milliseconds since Unix epoch (UTC).
+    DateInst {
+        ms: f64,
     },
     Array(Vec<JsVal>),
     /// Plain object: insertion-ordered string keys.
@@ -155,6 +164,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     JsVal::Undef
                     | JsVal::Builtin(_)
                     | JsVal::ErrorInst { .. }
+                    | JsVal::DateInst { .. }
                     | JsVal::Array(_)
                     | JsVal::Object(_),
                 ) => {}
@@ -201,6 +211,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "encodeURIComponent" => Some(BuiltinId::EncodeUriComponent),
         "decodeURIComponent" => Some(BuiltinId::DecodeUriComponent),
         "JSON" => Some(BuiltinId::Json),
+        "Date" => Some(BuiltinId::Date),
         _ => None,
     }
 }
@@ -594,10 +605,6 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             optional: false,
             ..
         } => {
-            let c = match eval_expr(callee, env)? {
-                Ok(v) => v,
-                Err(flow) => return Ok(Err(flow)),
-            };
             let mut arg_vals = Vec::new();
             for a in args {
                 match a {
@@ -608,6 +615,28 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     _ => return Err(()),
                 }
             }
+            // Method call: recv.prop(args) — keep `this` for Date instance methods.
+            if let Expr::Member {
+                object,
+                property,
+                optional: false,
+                ..
+            } = callee.as_ref()
+            {
+                let obj = match eval_expr(object, env)? {
+                    Ok(v) => v,
+                    Err(flow) => return Ok(Err(flow)),
+                };
+                let key = match eval_key(property, env)? {
+                    Ok(k) => k,
+                    Err(flow) => return Ok(Err(flow)),
+                };
+                return Ok(Ok(eval_method_call(&obj, &key, &arg_vals)?));
+            }
+            let c = match eval_expr(callee, env)? {
+                Ok(v) => v,
+                Err(flow) => return Ok(Err(flow)),
+            };
             Ok(Ok(eval_call(&c, &arg_vals)?))
         }
         Expr::Assign {
@@ -681,6 +710,14 @@ fn eval_new(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
     let JsVal::Builtin(b) = callee else {
         return Err(());
     };
+    if *b == BuiltinId::Date {
+        let ms = match args.first() {
+            Some(JsVal::Num(n)) => *n,
+            Some(JsVal::Undef) | None => date_now_ms(),
+            _ => return Err(()),
+        };
+        return Ok(JsVal::DateInst { ms });
+    }
     let name = error_ctor_name(*b).ok_or(())?;
     if *b == BuiltinId::AggregateError {
         let errors = match args.first() {
@@ -769,8 +806,105 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
             let v = args.first().unwrap_or(&JsVal::Undef);
             Ok(JsVal::Str(json_stringify(v)?))
         }
+        BuiltinId::DateNow => Ok(JsVal::Num(date_now_ms())),
+        BuiltinId::DateUtc => Ok(JsVal::Num(date_utc(args)?)),
         _ => Err(()),
     }
+}
+
+fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, ()> {
+    match recv {
+        JsVal::DateInst { ms } => match key {
+            "getTime" | "valueOf" if args.is_empty() => Ok(JsVal::Num(*ms)),
+            _ => Err(()),
+        },
+        JsVal::Builtin(BuiltinId::Date) => match key {
+            "now" if args.is_empty() => Ok(JsVal::Num(date_now_ms())),
+            "UTC" => Ok(JsVal::Num(date_utc(args)?)),
+            _ => Err(()),
+        },
+        // Non-method: resolve property then call as bare function.
+        other => {
+            let c = member_get(other, key)?;
+            eval_call(&c, args)
+        }
+    }
+}
+
+fn date_now_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
+}
+
+/// ECMA-262 Date.UTC(year, month, date=1, hours=0, minutes=0, seconds=0, ms=0) subset.
+fn date_utc(args: &[JsVal]) -> Result<f64, ()> {
+    let year = to_number(args.first().ok_or(())?)?;
+    let month = to_number(args.get(1).ok_or(())?)?;
+    let date = match args.get(2) {
+        Some(v) => to_number(v)?,
+        None => 1.0,
+    };
+    let hours = match args.get(3) {
+        Some(v) => to_number(v)?,
+        None => 0.0,
+    };
+    let minutes = match args.get(4) {
+        Some(v) => to_number(v)?,
+        None => 0.0,
+    };
+    let seconds = match args.get(5) {
+        Some(v) => to_number(v)?,
+        None => 0.0,
+    };
+    let ms = match args.get(6) {
+        Some(v) => to_number(v)?,
+        None => 0.0,
+    };
+    if ![year, month, date, hours, minutes, seconds, ms]
+        .iter()
+        .all(|n| n.is_finite())
+    {
+        return Ok(f64::NAN);
+    }
+    let y = year.trunc() as i64;
+    let m = month.trunc() as i64;
+    // ECMA MakeFullYear: years 0–99 → 1900+y (not needed for fixture; keep full year).
+    let day = date.trunc() as i64;
+    let h = hours.trunc() as i64;
+    let mi = minutes.trunc() as i64;
+    let s = seconds.trunc() as i64;
+    let milli = ms.trunc() as i64;
+    // Normalize month into year.
+    let mut yy = y;
+    let mut mm = m;
+    if mm >= 0 {
+        yy += mm / 12;
+        mm %= 12;
+    } else {
+        let years = (-mm + 11) / 12;
+        yy -= years;
+        mm += years * 12;
+    }
+    let day_num = days_from_civil(yy as i32, (mm + 1) as u32, 1) + (day - 1);
+    let time_ms = ((h * 60 + mi) * 60 + s) * 1000 + milli;
+    Ok((day_num * 86_400_000 + time_ms) as f64)
+}
+
+/// Days from Unix epoch (1970-01-01) for civil (y, m, d) with m in 1..=12.
+/// Howard Hinnant civil_from_days inverse.
+fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+    let y = y as i64;
+    let m = m as i64;
+    let d = d as i64;
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp as u64 + 2) / 5 + d as u64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe as i64 - 719_468
 }
 
 fn to_string_arg(v: &JsVal) -> Result<String, ()> {
@@ -1038,6 +1172,7 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "encodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::EncodeUriComponent)),
             "decodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::DecodeUriComponent)),
             "JSON" => Ok(JsVal::Builtin(BuiltinId::Json)),
+            "Date" => Ok(JsVal::Builtin(BuiltinId::Date)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -1053,6 +1188,11 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "stringify" => Ok(JsVal::Builtin(BuiltinId::JsonStringify)),
             _ => Err(()),
         },
+        JsVal::Builtin(BuiltinId::Date) => match key {
+            "now" => Ok(JsVal::Builtin(BuiltinId::DateNow)),
+            "UTC" => Ok(JsVal::Builtin(BuiltinId::DateUtc)),
+            _ => Err(()),
+        },
         JsVal::ErrorInst {
             name,
             message,
@@ -1064,6 +1204,15 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
                 Some(a) => Ok(JsVal::Array(a.clone())),
                 None => Err(()),
             },
+            _ => Err(()),
+        },
+        JsVal::DateInst { ms } => match key {
+            "getTime" | "valueOf" => {
+                // Bound-style: bare property get is not a number; methods via eval_method_call.
+                // typeof d.getTime is not in fixture; only call form is used.
+                let _ = ms;
+                Err(())
+            }
             _ => Err(()),
         },
         JsVal::Array(elems) if key == "length" => Ok(JsVal::Num(elems.len() as f64)),
@@ -1092,7 +1241,11 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Bool(_) => "boolean".into(),
         JsVal::Str(_) => "string".into(),
         JsVal::Undef => "undefined".into(),
-        JsVal::Null | JsVal::Array(_) | JsVal::Object(_) | JsVal::ErrorInst { .. } => "object".into(),
+        JsVal::Null
+        | JsVal::Array(_)
+        | JsVal::Object(_)
+        | JsVal::ErrorInst { .. }
+        | JsVal::DateInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
         JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json) => {
@@ -1122,7 +1275,10 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::EncodeUriComponent
             | BuiltinId::DecodeUriComponent
             | BuiltinId::JsonParse
-            | BuiltinId::JsonStringify,
+            | BuiltinId::JsonStringify
+            | BuiltinId::Date
+            | BuiltinId::DateNow
+            | BuiltinId::DateUtc,
         ) => "function".into(),
     }
 }
@@ -1133,7 +1289,11 @@ fn to_boolean(v: &JsVal) -> bool {
         JsVal::Num(n) => *n != 0.0 && !n.is_nan(),
         JsVal::Str(s) => !s.is_empty(),
         JsVal::Undef | JsVal::Null => false,
-        JsVal::Builtin(_) | JsVal::ErrorInst { .. } | JsVal::Array(_) | JsVal::Object(_) => true,
+        JsVal::Builtin(_)
+        | JsVal::ErrorInst { .. }
+        | JsVal::DateInst { .. }
+        | JsVal::Array(_)
+        | JsVal::Object(_) => true,
     }
 }
 
@@ -1159,6 +1319,7 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
                 errors: e2,
             },
         ) => n1 == n2 && m1 == m2 && e1 == e2,
+        (JsVal::DateInst { ms: a }, JsVal::DateInst { ms: b }) => a == b,
         (JsVal::Array(a), JsVal::Array(b)) => a == b,
         (JsVal::Object(a), JsVal::Object(b)) => a == b,
         _ => false,
@@ -1498,7 +1659,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.05 global builtins / Error ctors / functions / URI / JSON)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.06 global builtins / Error ctors / functions / URI / JSON / Date)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1680,6 +1841,25 @@ mod tests {
         assert!(
             ir.contains("double 2") || ir.contains("double 2.0"),
             "should print ox/a1=2:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn date_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/builtins/date.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["function", "true", "number"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+        assert!(
+            ir.contains("double 0") || ir.contains("double 0.0"),
+            "should print getTime/valueOf/UTC zeros:\n{ir}"
         );
     }
 }

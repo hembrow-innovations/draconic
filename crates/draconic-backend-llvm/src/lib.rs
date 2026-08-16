@@ -112,6 +112,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Global functions** (`parseInt`/`parseFloat`/`isNaN`/`isFinite`) — N08.14.03
 /// - **URI encode/decode** (`encodeURI`/`decodeURI`/`encodeURIComponent`/`decodeURIComponent`) — N08.14.04
 /// - **JSON** (`JSON`/`JSON.parse`/`JSON.stringify` basics) — N08.14.05
+/// - **Date** (`Date`/`Date.now`/`Date.UTC`/`new Date(ms)`/`.getTime`/`.valueOf`) — N08.14.06
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
