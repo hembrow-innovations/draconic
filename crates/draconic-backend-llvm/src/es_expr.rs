@@ -1,7 +1,8 @@
 //! N08.01: emit native observations for ES expression Programs
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
-//! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`).
+//! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
+//! E01.04.08 compound assignment `+=` `-=` `*=` `/=` `%=` `**=` `<<=` `>>=` `>>>=` `&=` `^=` `|=`).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -11,11 +12,11 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.04.07 / N08.01.*):
+/// True when this module is a supported ES expression subset (E01.01–E01.04.08 / N08.01.*):
 /// top-level `let` declares over JS numbers, booleans, strings, and/or undefined (`void`) with
 /// arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical,
-/// bitwise, exponentiation, conditional, simple assignment, prefix/postfix `++`/`--`, comma,
-/// grouping, and local refs. Expression statements may be assigns or updates.
+/// bitwise, exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`,
+/// comma, grouping, and local refs. Expression statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -271,7 +272,7 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
             ty,
         } => {
             *ty == Type::Number
-                && matches!(op, AssignOp::Eq)
+                && is_number_assign_op(*op)
                 && matches!(target, AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::Number))
                 && expr_is_number_subset(value, by_id)
         }
@@ -288,6 +289,26 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         }
         _ => false,
     }
+}
+
+/// Simple `=` plus numeric compound ops (not logical `&&=`/`||=`/`??=` — N08.01.04.09).
+fn is_number_assign_op(op: AssignOp) -> bool {
+    matches!(
+        op,
+        AssignOp::Eq
+            | AssignOp::AddEq
+            | AssignOp::SubEq
+            | AssignOp::MulEq
+            | AssignOp::DivEq
+            | AssignOp::RemEq
+            | AssignOp::PowEq
+            | AssignOp::ShlEq
+            | AssignOp::ShrEq
+            | AssignOp::UShrEq
+            | AssignOp::BitAndEq
+            | AssignOp::BitOrEq
+            | AssignOp::BitXorEq
+    )
 }
 
 fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
@@ -869,9 +890,6 @@ impl<'a> Emitter<'a> {
                 value,
                 ..
             } => {
-                if !matches!(op, AssignOp::Eq) {
-                    return Err(diag("internal: only simple = in es_expr number assign"));
-                }
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
@@ -883,7 +901,67 @@ impl<'a> Emitter<'a> {
                 if slot != SlotTy::Number {
                     return Err(diag("internal: expected number assign target"));
                 }
-                let v = self.emit_number_expr(value)?;
+                if matches!(op, AssignOp::Eq) {
+                    let v = self.emit_number_expr(value)?;
+                    writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    return Ok(v);
+                }
+                if !is_number_assign_op(*op) {
+                    return Err(diag(
+                        "internal: unsupported assign op in es_expr number assign",
+                    ));
+                }
+                // ES order: GetValue(lhs) then evaluate RHS, then apply op and PutValue.
+                let cur = self.fresh();
+                writeln!(self.body, "  {cur} = load double, ptr {ptr}").ok();
+                let r = self.emit_number_expr(value)?;
+                let v = match op {
+                    AssignOp::AddEq | AssignOp::SubEq | AssignOp::MulEq | AssignOp::DivEq
+                    | AssignOp::RemEq => {
+                        let inst = match op {
+                            AssignOp::AddEq => "fadd",
+                            AssignOp::SubEq => "fsub",
+                            AssignOp::MulEq => "fmul",
+                            AssignOp::DivEq => "fdiv",
+                            AssignOp::RemEq => "frem",
+                            _ => unreachable!(),
+                        };
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = {inst} double {cur}, {r}").ok();
+                        t
+                    }
+                    AssignOp::PowEq => {
+                        let t = self.fresh();
+                        writeln!(
+                            self.body,
+                            "  {t} = call double @llvm.pow.f64(double {cur}, double {r})"
+                        )
+                        .ok();
+                        t
+                    }
+                    AssignOp::BitAndEq
+                    | AssignOp::BitOrEq
+                    | AssignOp::BitXorEq
+                    | AssignOp::ShlEq
+                    | AssignOp::ShrEq
+                    | AssignOp::UShrEq => {
+                        let bop = match op {
+                            AssignOp::BitAndEq => BinaryOp::BitAnd,
+                            AssignOp::BitOrEq => BinaryOp::BitOr,
+                            AssignOp::BitXorEq => BinaryOp::BitXor,
+                            AssignOp::ShlEq => BinaryOp::Shl,
+                            AssignOp::ShrEq => BinaryOp::Shr,
+                            AssignOp::UShrEq => BinaryOp::UShr,
+                            _ => unreachable!(),
+                        };
+                        self.emit_bitwise_number(&bop, &cur, &r)?
+                    }
+                    _ => {
+                        return Err(diag(
+                            "internal: unsupported compound assign in es_expr number assign",
+                        ))
+                    }
+                };
                 writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                 Ok(v)
             }

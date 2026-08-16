@@ -28,9 +28,9 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
 /// - **ES expressions** (numeric arithmetic + comparison/equality + logical
 ///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
-///   conditional `?:` + simple `=` assignment + prefix/postfix `++`/`--` +
+///   conditional `?:` + simple/compound assignment + prefix/postfix `++`/`--` +
 ///   comma `,` + unary keywords `typeof`/`void`/`delete` over JS
-///   numbers/booleans/strings/undefined) via Runtime prints — N08.01.01–N08.01.04.07
+///   numbers/booleans/strings/undefined) via Runtime prints — N08.01.01–N08.01.04.08
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -60,7 +60,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/update/comma/typeof/void/delete), empty hello)",
+         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete), empty hello)",
         Span::dummy(),
     )
 }
@@ -697,6 +697,65 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "2\n2\n0\n0\n2\n1\n0\n1\n5\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_compound_assignment_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let a = 10;
+            a += 5;
+            let b = 10;
+            b -= 3;
+            let c = 4;
+            c *= 3;
+            let d = 20;
+            d /= 4;
+            let e = 17;
+            e %= 5;
+            let f = 2;
+            f **= 3;
+            let g = 1;
+            g <<= 3;
+            let h = 16;
+            h >>= 2;
+            let i = -8;
+            i >>>= 1;
+            let j = 15;
+            j &= 9;
+            let k = 12;
+            k ^= 5;
+            let l = 8;
+            l |= 3;
+            let m = 1;
+            let n = 2;
+            m += n += 3;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr compound assignment must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-compound-assignment").expect("workdir");
+        let bin = dir.join("compound_assignment");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "15\n7\n12\n5\n2\n8\n8\n4\n2147483644\n9\n9\n11\n6\n5\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
