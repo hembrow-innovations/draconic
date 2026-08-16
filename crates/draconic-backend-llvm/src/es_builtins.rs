@@ -1,4 +1,4 @@
-//! N08.14.01–N08.14.04: native observations for global builtins + Error ctors + functions + URI.
+//! N08.14.01–N08.14.05: native observations for global builtins + Error ctors + functions + URI + JSON.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -8,8 +8,9 @@
 //! - E15.03: `parseInt` / `parseFloat` / `isNaN` / `isFinite` (`typeof`, `globalThis`
 //!   identity, basic call behavior; `NaN` / `Infinity` globals)
 //! - E15.04: `encodeURI` / `decodeURI` / `encodeURIComponent` / `decodeURIComponent`
+//! - E15.05: `JSON` / `JSON.parse` / `JSON.stringify` (primitives, objects, arrays)
 //!
-//! Emits Runtime prints of final top-level number/string/bool locals.
+//! Emits Runtime prints of final top-level number/string/bool/null locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -17,7 +18,8 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
+    Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp,
+    ObjectPropKey, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
@@ -61,6 +63,9 @@ enum BuiltinId {
     DecodeUri,
     EncodeUriComponent,
     DecodeUriComponent,
+    Json,
+    JsonParse,
+    JsonStringify,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,6 +74,7 @@ enum JsVal {
     Bool(bool),
     Str(String),
     Undef,
+    Null,
     Builtin(BuiltinId),
     /// Error instance: name, message, optional AggregateError `.errors` array.
     ErrorInst {
@@ -77,6 +83,8 @@ enum JsVal {
         errors: Option<Vec<JsVal>>,
     },
     Array(Vec<JsVal>),
+    /// Plain object: insertion-ordered string keys.
+    Object(Vec<(String, JsVal)>),
 }
 
 struct ModuleInfo {
@@ -134,17 +142,22 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         if let Stmt::Declare { local, .. } = stmt {
             let loc = by_id.get(local)?;
             match env.get(local) {
-                Some(v @ (JsVal::Num(_) | JsVal::Str(_) | JsVal::Bool(_))) => {
+                Some(v @ (JsVal::Num(_) | JsVal::Str(_) | JsVal::Bool(_) | JsVal::Null)) => {
                     if matches!(
                         loc.ty,
-                        Type::Number | Type::Any | Type::Boolean | Type::String
+                        Type::Number | Type::Any | Type::Boolean | Type::String | Type::Null
                     ) {
                         user_locals.push(*local);
                         values.insert(*local, v.clone());
                     }
                 }
-                Some(JsVal::Undef | JsVal::Builtin(_) | JsVal::ErrorInst { .. } | JsVal::Array(_)) => {
-                }
+                Some(
+                    JsVal::Undef
+                    | JsVal::Builtin(_)
+                    | JsVal::ErrorInst { .. }
+                    | JsVal::Array(_)
+                    | JsVal::Object(_),
+                ) => {}
                 None => return None,
             }
         }
@@ -187,6 +200,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "decodeURI" => Some(BuiltinId::DecodeUri),
         "encodeURIComponent" => Some(BuiltinId::EncodeUriComponent),
         "decodeURIComponent" => Some(BuiltinId::DecodeUriComponent),
+        "JSON" => Some(BuiltinId::Json),
         _ => None,
     }
 }
@@ -267,6 +281,22 @@ fn expr_has_builtin_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bo
             ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_has_builtin_surface(e, by_id),
             ArrayElement::Elision => false,
         }),
+        Expr::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { key, value } => {
+                (match key {
+                    ObjectPropKey::Static(_) => false,
+                    ObjectPropKey::Computed(e) => expr_has_builtin_surface(e, by_id),
+                }) || expr_has_builtin_surface(value, by_id)
+            }
+            ObjectProp::Accessor { key, value, .. } => {
+                (match key {
+                    ObjectPropKey::Static(_) => false,
+                    ObjectPropKey::Computed(e) => expr_has_builtin_surface(e, by_id),
+                }) || expr_has_builtin_surface(value, by_id)
+            }
+            ObjectProp::Spread(e) => expr_has_builtin_surface(e, by_id),
+        }),
+        Expr::Null { .. } => false,
         _ => false,
     }
 }
@@ -304,7 +334,7 @@ fn stmt_ok(stmt: &Stmt) -> bool {
 
 fn expr_ok(expr: &Expr) -> bool {
     match expr {
-        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } => true,
+        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => true,
         Expr::Local { .. } => true,
         Expr::Unary {
             op: UnaryOp::TypeOf | UnaryOp::Minus | UnaryOp::Plus,
@@ -362,6 +392,13 @@ fn expr_ok(expr: &Expr) -> bool {
             ArrayElement::Expr(e) => expr_ok(e),
             ArrayElement::Elision => true,
             ArrayElement::Spread(_) => false,
+        }),
+        Expr::Object { properties, .. } => properties.iter().all(|p| match p {
+            ObjectProp::Property {
+                key: ObjectPropKey::Static(_),
+                value,
+            } => expr_ok(value),
+            _ => false,
         }),
         _ => false,
     }
@@ -439,6 +476,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         }
         Expr::Boolean { value, .. } => Ok(Ok(JsVal::Bool(*value))),
         Expr::String { value, .. } => Ok(Ok(JsVal::Str(js_string_to_utf8(value)))),
+        Expr::Null { .. } => Ok(Ok(JsVal::Null)),
         Expr::Local { id, .. } => {
             let v = env.get(id).cloned().ok_or(())?;
             Ok(Ok(v))
@@ -599,6 +637,30 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             }
             Ok(Ok(JsVal::Array(out)))
         }
+        Expr::Object { properties, .. } => {
+            let mut props = Vec::new();
+            for p in properties {
+                match p {
+                    ObjectProp::Property {
+                        key: ObjectPropKey::Static(k),
+                        value,
+                    } => {
+                        let v = match eval_expr(value, env)? {
+                            Ok(v) => v,
+                            Err(flow) => return Ok(Err(flow)),
+                        };
+                        let key = js_string_to_utf8(k);
+                        if let Some((_, slot)) = props.iter_mut().find(|(n, _)| n == &key) {
+                            *slot = v;
+                        } else {
+                            props.push((key, v));
+                        }
+                    }
+                    _ => return Err(()),
+                }
+            }
+            Ok(Ok(JsVal::Object(props)))
+        }
         _ => Err(()),
     }
 }
@@ -695,6 +757,17 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
         BuiltinId::DecodeUriComponent => {
             let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
             Ok(JsVal::Str(js_decode_uri(&s, true)?))
+        }
+        BuiltinId::JsonParse => {
+            let s = match args.first() {
+                Some(JsVal::Str(s)) => s.as_str(),
+                _ => return Err(()),
+            };
+            json_parse(s)
+        }
+        BuiltinId::JsonStringify => {
+            let v = args.first().unwrap_or(&JsVal::Undef);
+            Ok(JsVal::Str(json_stringify(v)?))
         }
         _ => Err(()),
     }
@@ -964,6 +1037,7 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "decodeURI" => Ok(JsVal::Builtin(BuiltinId::DecodeUri)),
             "encodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::EncodeUriComponent)),
             "decodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::DecodeUriComponent)),
+            "JSON" => Ok(JsVal::Builtin(BuiltinId::Json)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -974,6 +1048,11 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
         JsVal::Builtin(BuiltinId::Array) if key == "isArray" => {
             Ok(JsVal::Builtin(BuiltinId::ArrayIsArray))
         }
+        JsVal::Builtin(BuiltinId::Json) => match key {
+            "parse" => Ok(JsVal::Builtin(BuiltinId::JsonParse)),
+            "stringify" => Ok(JsVal::Builtin(BuiltinId::JsonStringify)),
+            _ => Err(()),
+        },
         JsVal::ErrorInst {
             name,
             message,
@@ -988,6 +1067,21 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             _ => Err(()),
         },
         JsVal::Array(elems) if key == "length" => Ok(JsVal::Num(elems.len() as f64)),
+        JsVal::Array(elems) => {
+            if let Ok(idx) = key.parse::<usize>() {
+                Ok(elems.get(idx).cloned().unwrap_or(JsVal::Undef))
+            } else {
+                Err(())
+            }
+        }
+        JsVal::Object(props) => {
+            for (k, v) in props {
+                if k == key {
+                    return Ok(v.clone());
+                }
+            }
+            Err(())
+        }
         _ => Err(()),
     }
 }
@@ -998,10 +1092,12 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Bool(_) => "boolean".into(),
         JsVal::Str(_) => "string".into(),
         JsVal::Undef => "undefined".into(),
-        JsVal::Array(_) | JsVal::ErrorInst { .. } => "object".into(),
+        JsVal::Null | JsVal::Array(_) | JsVal::Object(_) | JsVal::ErrorInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
-        JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype) => "object".into(),
+        JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json) => {
+            "object".into()
+        }
         JsVal::Builtin(
             BuiltinId::Object
             | BuiltinId::Function
@@ -1024,7 +1120,9 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::EncodeUri
             | BuiltinId::DecodeUri
             | BuiltinId::EncodeUriComponent
-            | BuiltinId::DecodeUriComponent,
+            | BuiltinId::DecodeUriComponent
+            | BuiltinId::JsonParse
+            | BuiltinId::JsonStringify,
         ) => "function".into(),
     }
 }
@@ -1034,8 +1132,8 @@ fn to_boolean(v: &JsVal) -> bool {
         JsVal::Bool(b) => *b,
         JsVal::Num(n) => *n != 0.0 && !n.is_nan(),
         JsVal::Str(s) => !s.is_empty(),
-        JsVal::Undef => false,
-        JsVal::Builtin(_) | JsVal::ErrorInst { .. } | JsVal::Array(_) => true,
+        JsVal::Undef | JsVal::Null => false,
+        JsVal::Builtin(_) | JsVal::ErrorInst { .. } | JsVal::Array(_) | JsVal::Object(_) => true,
     }
 }
 
@@ -1045,6 +1143,7 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
         (JsVal::Bool(a), JsVal::Bool(b)) => a == b,
         (JsVal::Str(a), JsVal::Str(b)) => a == b,
         (JsVal::Undef, JsVal::Undef) => true,
+        (JsVal::Null, JsVal::Null) => true,
         (JsVal::Builtin(a), JsVal::Builtin(b)) => a == b,
         (JsVal::Undef, JsVal::Builtin(BuiltinId::Undefined))
         | (JsVal::Builtin(BuiltinId::Undefined), JsVal::Undef) => true,
@@ -1061,8 +1160,277 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
             },
         ) => n1 == n2 && m1 == m2 && e1 == e2,
         (JsVal::Array(a), JsVal::Array(b)) => a == b,
+        (JsVal::Object(a), JsVal::Object(b)) => a == b,
         _ => false,
     }
+}
+
+/// Minimal JSON.parse for E15.05 fixture depth (null/bool/number/string/array/object).
+fn json_parse(input: &str) -> Result<JsVal, ()> {
+    let mut p = JsonParser {
+        bytes: input.as_bytes(),
+        i: 0,
+    };
+    p.skip_ws();
+    let v = p.parse_value()?;
+    p.skip_ws();
+    if p.i != p.bytes.len() {
+        return Err(());
+    }
+    Ok(v)
+}
+
+struct JsonParser<'a> {
+    bytes: &'a [u8],
+    i: usize,
+}
+
+impl<'a> JsonParser<'a> {
+    fn skip_ws(&mut self) {
+        while self.i < self.bytes.len() && matches!(self.bytes[self.i], b' ' | b'\t' | b'\n' | b'\r')
+        {
+            self.i += 1;
+        }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.i).copied()
+    }
+
+    fn bump(&mut self) -> Result<u8, ()> {
+        let b = self.peek().ok_or(())?;
+        self.i += 1;
+        Ok(b)
+    }
+
+    fn expect(&mut self, b: u8) -> Result<(), ()> {
+        if self.bump()? == b {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn parse_value(&mut self) -> Result<JsVal, ()> {
+        self.skip_ws();
+        match self.peek().ok_or(())? {
+            b'n' => self.parse_lit(b"null", JsVal::Null),
+            b't' => self.parse_lit(b"true", JsVal::Bool(true)),
+            b'f' => self.parse_lit(b"false", JsVal::Bool(false)),
+            b'"' => Ok(JsVal::Str(self.parse_string()?)),
+            b'[' => self.parse_array(),
+            b'{' => self.parse_object(),
+            b'-' | b'0'..=b'9' => self.parse_number(),
+            _ => Err(()),
+        }
+    }
+
+    fn parse_lit(&mut self, lit: &[u8], v: JsVal) -> Result<JsVal, ()> {
+        for &b in lit {
+            self.expect(b)?;
+        }
+        Ok(v)
+    }
+
+    fn parse_string(&mut self) -> Result<String, ()> {
+        self.expect(b'"')?;
+        let mut out = String::new();
+        loop {
+            match self.bump()? {
+                b'"' => return Ok(out),
+                b'\\' => match self.bump()? {
+                    b'"' => out.push('"'),
+                    b'\\' => out.push('\\'),
+                    b'/' => out.push('/'),
+                    b'b' => out.push('\u{0008}'),
+                    b'f' => out.push('\u{000c}'),
+                    b'n' => out.push('\n'),
+                    b'r' => out.push('\r'),
+                    b't' => out.push('\t'),
+                    b'u' => {
+                        let mut code = 0u16;
+                        for _ in 0..4 {
+                            let h = hex_nibble(self.bump()?).ok_or(())?;
+                            code = (code << 4) | u16::from(h);
+                        }
+                        out.push(char::from_u32(u32::from(code)).unwrap_or('\u{FFFD}'));
+                    }
+                    _ => return Err(()),
+                },
+                c if c < 0x20 => return Err(()),
+                c => out.push(c as char),
+            }
+        }
+    }
+
+    fn parse_number(&mut self) -> Result<JsVal, ()> {
+        let start = self.i;
+        if self.peek() == Some(b'-') {
+            self.i += 1;
+        }
+        if self.peek() == Some(b'0') {
+            self.i += 1;
+        } else {
+            let d = self.bump()?;
+            if !d.is_ascii_digit() || d == b'0' {
+                return Err(());
+            }
+            while self.peek().is_some_and(|b| b.is_ascii_digit()) {
+                self.i += 1;
+            }
+        }
+        if self.peek() == Some(b'.') {
+            self.i += 1;
+            if !self.peek().is_some_and(|b| b.is_ascii_digit()) {
+                return Err(());
+            }
+            while self.peek().is_some_and(|b| b.is_ascii_digit()) {
+                self.i += 1;
+            }
+        }
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            self.i += 1;
+            if matches!(self.peek(), Some(b'+' | b'-')) {
+                self.i += 1;
+            }
+            if !self.peek().is_some_and(|b| b.is_ascii_digit()) {
+                return Err(());
+            }
+            while self.peek().is_some_and(|b| b.is_ascii_digit()) {
+                self.i += 1;
+            }
+        }
+        let s = std::str::from_utf8(&self.bytes[start..self.i]).map_err(|_| ())?;
+        let n: f64 = s.parse().map_err(|_| ())?;
+        Ok(JsVal::Num(n))
+    }
+
+    fn parse_array(&mut self) -> Result<JsVal, ()> {
+        self.expect(b'[')?;
+        self.skip_ws();
+        let mut elems = Vec::new();
+        if self.peek() == Some(b']') {
+            self.i += 1;
+            return Ok(JsVal::Array(elems));
+        }
+        loop {
+            elems.push(self.parse_value()?);
+            self.skip_ws();
+            match self.bump()? {
+                b']' => return Ok(JsVal::Array(elems)),
+                b',' => self.skip_ws(),
+                _ => return Err(()),
+            }
+        }
+    }
+
+    fn parse_object(&mut self) -> Result<JsVal, ()> {
+        self.expect(b'{')?;
+        self.skip_ws();
+        let mut props = Vec::new();
+        if self.peek() == Some(b'}') {
+            self.i += 1;
+            return Ok(JsVal::Object(props));
+        }
+        loop {
+            self.skip_ws();
+            if self.peek() != Some(b'"') {
+                return Err(());
+            }
+            let key = self.parse_string()?;
+            self.skip_ws();
+            self.expect(b':')?;
+            let val = self.parse_value()?;
+            if let Some((_, slot)) = props.iter_mut().find(|(k, _)| k == &key) {
+                *slot = val;
+            } else {
+                props.push((key, val));
+            }
+            self.skip_ws();
+            match self.bump()? {
+                b'}' => return Ok(JsVal::Object(props)),
+                b',' => {}
+                _ => return Err(()),
+            }
+        }
+    }
+}
+
+/// Minimal JSON.stringify for E15.05 fixture depth.
+fn json_stringify(v: &JsVal) -> Result<String, ()> {
+    match v {
+        JsVal::Null => Ok("null".into()),
+        JsVal::Bool(true) => Ok("true".into()),
+        JsVal::Bool(false) => Ok("false".into()),
+        JsVal::Num(n) => {
+            if !n.is_finite() {
+                return Ok("null".into());
+            }
+            if *n == 0.0 {
+                return Ok("0".into());
+            }
+            // Prefer integer form when exact.
+            if n.fract() == 0.0 && *n >= i64::MIN as f64 && *n <= i64::MAX as f64 {
+                return Ok(format!("{}", *n as i64));
+            }
+            Ok(format!("{n}"))
+        }
+        JsVal::Str(s) => Ok(json_quote(s)),
+        JsVal::Array(elems) => {
+            let mut out = String::from("[");
+            for (i, e) in elems.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                // undefined in arrays becomes null in JSON.stringify
+                match e {
+                    JsVal::Undef => out.push_str("null"),
+                    other => out.push_str(&json_stringify(other)?),
+                }
+            }
+            out.push(']');
+            Ok(out)
+        }
+        JsVal::Object(props) => {
+            let mut out = String::from("{");
+            let mut first = true;
+            for (k, val) in props {
+                if matches!(val, JsVal::Undef) {
+                    continue;
+                }
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                out.push_str(&json_quote(k));
+                out.push(':');
+                out.push_str(&json_stringify(val)?);
+            }
+            out.push('}');
+            Ok(out)
+        }
+        JsVal::Undef => Err(()), // top-level undefined is not a string in full ES; fixture avoids it
+        _ => Err(()),
+    }
+}
+
+fn json_quote(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 impl Emitter {
@@ -1120,13 +1488,17 @@ impl Emitter {
                     let name = self.string_const(s);
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {name}"))).ok();
                 }
+                JsVal::Null => {
+                    let name = self.string_const("null");
+                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {name}"))).ok();
+                }
                 _ => return Err(diag("es_builtins: non-printable value")),
             }
         }
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.04 global builtins / Error ctors / functions / URI)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.05 global builtins / Error ctors / functions / URI / JSON)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1286,5 +1658,28 @@ mod tests {
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
+    }
+
+    #[test]
+    fn json_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/builtins/json.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["object", "function", "true", "null", "hi", "two", "\\22hi\\22"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+        assert!(
+            ir.contains("double 1") || ir.contains("double 1.0"),
+            "should print numeric observations:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 2") || ir.contains("double 2.0"),
+            "should print ox/a1=2:\n{ir}"
+        );
     }
 }
