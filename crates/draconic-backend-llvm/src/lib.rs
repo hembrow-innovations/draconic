@@ -1076,6 +1076,41 @@ mod tests {
     }
 
     #[test]
+    fn es_strings_template_lit_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/strings/template_lit.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "template_lit must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bytes"),
+            "should print length-aware strings:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-template-lit").expect("workdir");
+        let bin = dir.join("template_lit");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = output.stdout;
+        let expected = b"hello\n\na\nb\nworld\nhello world\nworld!\naworldb\n3\nn=3\nx1y2z\nsum=3\nouter inner world end\na`b$c\\d\na\nb\nstring\ntrue\nab\n";
+        assert_eq!(
+            stdout, expected,
+            "stdout={:?}\nir=\n{ir}",
+            String::from_utf8_lossy(&stdout)
+        );
+    }
+
+    #[test]
     fn es_expr_comparison_prints() {
         let ir = emit_llvm_ir(&module_of(
             r#"

@@ -14,7 +14,8 @@
 //! E02.07 labeled statements + labeled `break` / `continue`,
 //! E02.08 `for-in` / `for-of` over strings (`let`/`const`/assign binding; string concat `+`),
 //! E02.09 `const` declarations (required init; `for`/`for-of`/`for-in` binding),
-//! E07.01 string lit + concat (incl. number ToString) + `.length` + index (N08.07.01).
+//! E07.01 string lit + concat (incl. number ToString) + `.length` + index (N08.07.01),
+//! E07.02 untagged template literals (N08.07.02; cooked quasis + ToString interpolations).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -29,13 +30,13 @@ use draconic_runtime::abi::{
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.02 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01–N08.07.02):
 /// top-level `let`/`const` declares over JS numbers, booleans, strings, undefined (`void`), and/or
 /// untyped `any` string/number slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
 /// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
 /// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`
-/// (incl. number ToString), string `.length` / index, `if`/`else`, `while`, `do`/`while`,
-/// `for` (incl. `let`/`const` init; block or expression bodies),
+/// (incl. number ToString), untagged templates, string `.length` / index, `if`/`else`, `while`,
+/// `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
 /// `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue` (unlabeled or labeled),
 /// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
 /// fall-through; unlabeled `break`).
@@ -371,6 +372,15 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
 fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::String { ty, .. } => *ty == Type::String,
+        // N08.07.02: untagged template → string (cooked quasis + ToString interpolations).
+        Expr::Template {
+            expressions, ty, ..
+        } => {
+            *ty == Type::String
+                && expressions
+                    .iter()
+                    .all(|e| expr_is_concat_operand(e, by_id))
+        }
         Expr::Local { id, ty } => {
             (*ty == Type::String
                 && by_id
@@ -831,7 +841,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02/N08.07.01 ES expressions + control + strings via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02/N08.07.01–N08.07.02 ES expressions + control + strings via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1467,6 +1477,27 @@ impl<'a> Emitter<'a> {
                 let s = value.to_string_lossy();
                 self.string_const(&s)
             }
+            // N08.07.02: `` `a${x}b` `` → concat cooked quasis with ToString(expressions).
+            Expr::Template {
+                quasis,
+                expressions,
+                ..
+            } => {
+                if quasis.is_empty() {
+                    return Err(diag("internal: template with no quasis"));
+                }
+                if quasis.len() != expressions.len() + 1 {
+                    return Err(diag("internal: template quasis/expressions length mismatch"));
+                }
+                let mut acc = self.string_const(&quasis[0].to_string_lossy())?;
+                for (i, e) in expressions.iter().enumerate() {
+                    let mid = self.emit_concat_operand(e)?;
+                    acc = self.emit_concat_strvals(&acc, &mid)?;
+                    let q = self.string_const(&quasis[i + 1].to_string_lossy())?;
+                    acc = self.emit_concat_strvals(&acc, &q)?;
+                }
+                Ok(acc)
+            }
             Expr::Local { id, .. } => self.load_string_local(*id),
             Expr::Unary {
                 op: UnaryOp::TypeOf,
@@ -1497,19 +1528,7 @@ impl<'a> Emitter<'a> {
             } => {
                 let l = self.emit_concat_operand(left)?;
                 let r = self.emit_concat_operand(right)?;
-                let t = self.fresh();
-                writeln!(
-                    self.body,
-                    "  {}",
-                    CSTR_CONCAT_N.call_to(
-                        &t,
-                        &format!("ptr {}, i64 {}, ptr {}, i64 {}", l.data, l.len, r.data, r.len)
-                    )
-                )
-                .ok();
-                let n = self.fresh();
-                writeln!(self.body, "  {n} = add i64 {}, {}", l.len, r.len).ok();
-                Ok(StrVal { data: t, len: n })
+                self.emit_concat_strvals(&l, &r)
             }
             Expr::Member {
                 object,
@@ -1568,6 +1587,30 @@ impl<'a> Emitter<'a> {
             Expr::Local { id, ty: Type::Any } => self.load_string_local(*id),
             e => self.emit_string_expr(e),
         }
+    }
+
+    fn emit_concat_strvals(&mut self, left: &StrVal, right: &StrVal) -> Result<StrVal, Diagnostic> {
+        let t = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            CSTR_CONCAT_N.call_to(
+                &t,
+                &format!(
+                    "ptr {}, i64 {}, ptr {}, i64 {}",
+                    left.data, left.len, right.data, right.len
+                )
+            )
+        )
+        .ok();
+        let n = self.fresh();
+        writeln!(
+            self.body,
+            "  {n} = add i64 {}, {}",
+            left.len, right.len
+        )
+        .ok();
+        Ok(StrVal { data: t, len: n })
     }
 
     /// Concat operand: string or number (ToString via decimal for non-neg integers).
