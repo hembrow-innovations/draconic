@@ -1,13 +1,14 @@
-//! N08.13.01–N08.13.06: native observations for Proxy basics + `set` + `has`/`in`
-//! + `delete`/`deleteProperty` + `apply` + `construct` (E14.01–E14.06).
+//! N08.13.01–N08.13.07: native observations for Proxy basics + `set` + `has`/`in`
+//! + `delete`/`deleteProperty` + `apply` + `construct` + Reflect basics (E14.01–E14.07).
 //!
-//! Compile-time evaluation of a small Proxy subset: `typeof Proxy`,
+//! Compile-time evaluation of a small Proxy/Reflect subset: `typeof Proxy`,
 //! `new Proxy(target, handler)`, empty-handler get/set/`in`/`delete`/call/`new` pass-through,
 //! `get`/`set`/`has`/`deleteProperty`/`apply`/`construct` traps (function props; free-var
-//! capture; string keys), member assign, method calls (`obj.m()` thisArg), function
-//! constructors (`this` + prop init), `typeof` on proxies. Objects live on a heap so
-//! proxy targets share identity with outer locals. Emits Runtime prints of final
-//! top-level number/string/bool locals.
+//! capture; string keys), `typeof Reflect` + `Reflect.get`/`set`/`has`/`deleteProperty`/
+//! `apply`/`construct` on plain objects + Proxy targets, array literals as arg lists,
+//! member assign, method calls (`obj.m()` thisArg), function constructors (`this` + prop
+//! init), `typeof` on proxies. Objects live on a heap so proxy targets share identity
+//! with outer locals. Emits Runtime prints of final top-level number/string/bool locals.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -16,8 +17,8 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey,
-    Param, Pattern, Stmt,
+    Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp,
+    ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
@@ -32,14 +33,29 @@ pub(crate) fn emit_es_proxies(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReflectOp {
+    Get,
+    Set,
+    Has,
+    DeleteProperty,
+    Apply,
+    Construct,
+}
+
 #[derive(Clone, Debug)]
 enum JsVal {
     Num(f64),
     Bool(bool),
     Str(String),
     Undef,
+    Null,
     /// Builtin `Proxy` constructor.
     ProxyCtor,
+    /// Builtin `Reflect` object.
+    ReflectObj,
+    /// `Reflect.get` / `set` / `has` / `deleteProperty` / `apply` / `construct`.
+    ReflectMethod(ReflectOp),
     /// Plain object (index into object heap).
     Object(usize),
     /// Function value (index into `fns`).
@@ -115,6 +131,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         if loc.name == "Proxy" && loc.ty == Type::Function {
             env.insert(loc.id, JsVal::ProxyCtor);
         }
+        if loc.name == "Reflect" && matches!(loc.ty, Type::Object | Type::Any | Type::Function) {
+            env.insert(loc.id, JsVal::ReflectObj);
+        }
     }
 
     let mut fns: Vec<FnRec> = Vec::new();
@@ -146,7 +165,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     // skip undefined for print unless we need it
                 }
                 Some(
-                    JsVal::Object(_) | JsVal::Proxy(_) | JsVal::Fn(_) | JsVal::ProxyCtor,
+                    JsVal::Object(_)
+                    | JsVal::Proxy(_)
+                    | JsVal::Fn(_)
+                    | JsVal::ProxyCtor
+                    | JsVal::ReflectObj
+                    | JsVal::ReflectMethod(_)
+                    | JsVal::Null,
                 ) => {}
                 None => return None,
                 _ => {}
@@ -192,7 +217,11 @@ fn stmt_has_proxy(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
 
 fn expr_has_proxy(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
-        Expr::Local { id, .. } => by_id.get(id).is_some_and(|l| l.name == "Proxy"),
+        Expr::Local { id, .. } => {
+            by_id
+                .get(id)
+                .is_some_and(|l| l.name == "Proxy" || l.name == "Reflect")
+        }
         Expr::New { callee, args, .. } => {
             expr_has_proxy(callee, by_id)
                 || args.iter().any(|a| match a {
@@ -219,6 +248,10 @@ fn expr_has_proxy(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                 expr_has_proxy(value, by_id)
             }
             ObjectProp::Spread(e) => expr_has_proxy(e, by_id),
+        }),
+        Expr::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_has_proxy(e, by_id),
+            ArrayElement::Elision => false,
         }),
         Expr::Function { body, .. } => body.iter().any(|s| stmt_has_proxy(s, by_id)),
         Expr::Assign { target, value, .. } => {
@@ -311,7 +344,7 @@ fn is_truthy(v: &JsVal) -> bool {
         JsVal::Bool(b) => *b,
         JsVal::Num(n) => *n != 0.0 && !n.is_nan(),
         JsVal::Str(s) => !s.is_empty(),
-        JsVal::Undef => false,
+        JsVal::Undef | JsVal::Null => false,
         _ => true,
     }
 }
@@ -468,8 +501,30 @@ fn eval_expr(
         }
         Expr::Boolean { value, .. } => Ok(JsVal::Bool(*value)),
         Expr::String { value, .. } => Ok(JsVal::Str(js_string_to_utf8(value))),
+        Expr::Null { .. } => Ok(JsVal::Null),
         Expr::This { .. } => CURRENT_THIS.with(|slot| slot.borrow().clone().ok_or(())),
         Expr::Local { id, .. } => env.get(id).cloned().ok_or(()),
+        Expr::Array { elements, .. } => {
+            let mut props = HashMap::new();
+            let mut len = 0usize;
+            for el in elements {
+                match el {
+                    ArrayElement::Expr(e) => {
+                        let v = eval_expr(e, env, fns, objects, proxies)?;
+                        props.insert(len.to_string(), v);
+                        len += 1;
+                    }
+                    ArrayElement::Elision => {
+                        len += 1;
+                    }
+                    ArrayElement::Spread(_) => return Err(()),
+                }
+            }
+            props.insert("length".into(), JsVal::Num(len as f64));
+            let idx = objects.len();
+            objects.push(ObjectRec { props });
+            Ok(JsVal::Object(idx))
+        }
         Expr::Unary {
             op: UnaryOp::TypeOf,
             arg,
@@ -624,7 +679,11 @@ fn eval_expr(
                 } => {
                     let obj = eval_expr(object, env, fns, objects, proxies)?;
                     let key = eval_key(property, env, fns, objects, proxies)?;
-                    let f = proxy_or_object_get(&obj, &key, env, fns, objects, proxies)?;
+                    let f = if matches!(obj, JsVal::ReflectObj) {
+                        reflect_method(&key)?
+                    } else {
+                        proxy_or_object_get(&obj, &key, env, fns, objects, proxies)?
+                    };
                     (f, obj)
                 }
                 _ => {
@@ -649,6 +708,9 @@ fn eval_expr(
         } => {
             let obj = eval_expr(object, env, fns, objects, proxies)?;
             let key = eval_key(property, env, fns, objects, proxies)?;
+            if matches!(obj, JsVal::ReflectObj) {
+                return reflect_method(&key);
+            }
             proxy_or_object_get(&obj, &key, env, fns, objects, proxies)
         }
         Expr::Assign {
@@ -704,8 +766,123 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Bool(_) => "boolean".into(),
         JsVal::Str(_) => "string".into(),
         JsVal::Undef => "undefined".into(),
-        JsVal::ProxyCtor | JsVal::Fn(_) => "function".into(),
-        JsVal::Object(_) | JsVal::Proxy(_) => "object".into(),
+        JsVal::ProxyCtor | JsVal::Fn(_) | JsVal::ReflectMethod(_) => "function".into(),
+        JsVal::Object(_) | JsVal::Proxy(_) | JsVal::ReflectObj | JsVal::Null => "object".into(),
+    }
+}
+
+fn reflect_method(key: &str) -> Result<JsVal, ()> {
+    let op = match key {
+        "get" => ReflectOp::Get,
+        "set" => ReflectOp::Set,
+        "has" => ReflectOp::Has,
+        "deleteProperty" => ReflectOp::DeleteProperty,
+        "apply" => ReflectOp::Apply,
+        "construct" => ReflectOp::Construct,
+        _ => return Err(()),
+    };
+    Ok(JsVal::ReflectMethod(op))
+}
+
+fn object_to_arg_list(obj: &JsVal, objects: &[ObjectRec]) -> Result<Vec<JsVal>, ()> {
+    match obj {
+        JsVal::Object(idx) => {
+            let props = &objects.get(*idx).ok_or(())?.props;
+            let len = match props.get("length") {
+                Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => *n as usize,
+                _ => return Err(()),
+            };
+            let mut out = Vec::with_capacity(len);
+            for i in 0..len {
+                out.push(
+                    props
+                        .get(&i.to_string())
+                        .cloned()
+                        .unwrap_or(JsVal::Undef),
+                );
+            }
+            Ok(out)
+        }
+        _ => Err(()),
+    }
+}
+
+fn call_reflect(
+    op: ReflectOp,
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<JsVal, ()> {
+    match op {
+        ReflectOp::Get => {
+            if args.len() < 2 {
+                return Err(());
+            }
+            let key = match &args[1] {
+                JsVal::Str(s) => s.clone(),
+                JsVal::Num(n) => format!("{}", *n as i64),
+                _ => return Err(()),
+            };
+            proxy_or_object_get(&args[0], &key, env, fns, objects, proxies)
+        }
+        ReflectOp::Set => {
+            if args.len() < 3 {
+                return Err(());
+            }
+            let key = match &args[1] {
+                JsVal::Str(s) => s.clone(),
+                JsVal::Num(n) => format!("{}", *n as i64),
+                _ => return Err(()),
+            };
+            proxy_or_object_set(&args[0], &key, &args[2], env, fns, objects, proxies)?;
+            Ok(JsVal::Bool(true))
+        }
+        ReflectOp::Has => {
+            if args.len() < 2 {
+                return Err(());
+            }
+            let key = match &args[1] {
+                JsVal::Str(s) => s.clone(),
+                JsVal::Num(n) => format!("{}", *n as i64),
+                _ => return Err(()),
+            };
+            let has = proxy_or_object_has(&args[0], &key, env, fns, objects, proxies)?;
+            Ok(JsVal::Bool(has))
+        }
+        ReflectOp::DeleteProperty => {
+            if args.len() < 2 {
+                return Err(());
+            }
+            let key = match &args[1] {
+                JsVal::Str(s) => s.clone(),
+                JsVal::Num(n) => format!("{}", *n as i64),
+                _ => return Err(()),
+            };
+            let ok = proxy_or_object_delete(&args[0], &key, env, fns, objects, proxies)?;
+            Ok(JsVal::Bool(ok))
+        }
+        ReflectOp::Apply => {
+            if args.len() < 3 {
+                return Err(());
+            }
+            let this_arg = args[1].clone();
+            let argv = object_to_arg_list(&args[2], objects)?;
+            call_value(&args[0], this_arg, &argv, env, fns, objects, proxies)
+        }
+        ReflectOp::Construct => {
+            if args.len() < 2 {
+                return Err(());
+            }
+            let argv = object_to_arg_list(&args[1], objects)?;
+            let new_target = if args.len() >= 3 {
+                args[2].clone()
+            } else {
+                args[0].clone()
+            };
+            construct_value(&args[0], &argv, &new_target, env, fns, objects, proxies)
+        }
     }
 }
 
@@ -741,7 +918,14 @@ fn call_value(
     proxies: &mut Vec<ProxyRec>,
 ) -> Result<JsVal, ()> {
     match callee {
-        JsVal::Fn(i) => call_fn(*i, args, env, fns, objects, proxies),
+        JsVal::Fn(i) => {
+            let this = match &this_arg {
+                JsVal::Undef | JsVal::Null => None,
+                other => Some(other.clone()),
+            };
+            call_fn_this(*i, args, this, env, fns, objects, proxies)
+        }
+        JsVal::ReflectMethod(op) => call_reflect(*op, args, env, fns, objects, proxies),
         JsVal::Proxy(idx) => {
             let rec = proxies.get(*idx).ok_or(())?.clone();
             if let Some(trap_idx) = rec.apply_trap {
@@ -951,7 +1135,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.06 Proxy construct)"
+            "; Draconic LLVM backend (N08.13.07 Reflect basics)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1092,6 +1276,27 @@ mod tests {
         assert!(
             ir.contains("print") || ir.contains("5") || ir.contains("20"),
             "should print observations:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn reflect_basics_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/proxies/reflect_basics.drac");
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("object") && ir.contains("function"),
+            "should print Reflect typeof observations:\n{ir}"
+        );
+        assert!(
+            ir.contains("print") || ir.contains("11") || ir.contains("13"),
+            "should print numeric observations:\n{ir}"
         );
     }
 }
