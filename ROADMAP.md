@@ -452,7 +452,10 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.09.02 | done | native | Real native observations: Symbol property keys (E09.02) — `es/values/symbol_property_keys` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/values/symbol_property_keys`, `crates/draconic-backend-llvm` |
 | N08.09.03 | done | native | Real native observations: abstract equality & coercion (E09.03) | `tests/conformance` fixture `es/values/abstract_eq_coercion`, `crates/draconic-backend-llvm` |
 | N08.09.04 | done | native | Real native observations: ToPrimitive valueOf/toString (E09.04) | `tests/conformance` fixture `es/values/to_primitive`, `crates/draconic-backend-llvm` |
-| N08.10 | todo | native | Real native observations: exceptions (E10) | `tests/conformance` fixtures `es/exceptions` |
+| N08.10 | todo | native | Real native observations: exceptions (E10) (children below) | `tests/conformance` fixtures `es/exceptions` |
+| N08.10.01 | done | native | Real native observations: `throw` + bare `try`/`catch` (E10.01) — `es/exceptions/throw_try_catch` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/exceptions/throw_try_catch`, `crates/draconic-backend-llvm` |
+| N08.10.02 | todo | native | Real native observations: `finally` (E10.02) — `es/exceptions/try_finally` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/exceptions/try_finally`, `crates/draconic-backend-llvm` |
+| N08.10.03 | todo | native | Real native observations: optional catch binding (E10.03) — `es/exceptions/optional_catch` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/exceptions/optional_catch`, `crates/draconic-backend-llvm` |
 | N08.11 | todo | native | Real native observations: modules (E11) | `tests/conformance` fixtures `es/modules` |
 | N08.12 | todo | native | Real native observations: generators (E13) | `tests/conformance` fixtures `es/generators` |
 | N08.13 | todo | native | Real native observations: proxies/Reflect (E14) | `tests/conformance` fixtures `es/proxies` |

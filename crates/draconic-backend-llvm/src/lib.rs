@@ -5,6 +5,7 @@ mod es_call_spread;
 mod es_classes;
 mod es_coercion;
 mod es_eval;
+mod es_exceptions;
 mod es_expr;
 mod es_functions;
 mod es_nullish;
@@ -26,6 +27,7 @@ use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
 use es_coercion::{emit_es_coercion, is_es_coercion_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
+use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
 use es_functions::{emit_es_functions, is_es_functions_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
@@ -87,6 +89,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Symbol property keys** (computed/get/set; no string collision) — N08.09.02
 /// - **Abstract equality & coercion** (`==`/`!=` mixed types; ToNumber/ToString/ToBoolean) — N08.09.03
 /// - **ToPrimitive** (`valueOf`/`toString` hooks in `+` and `==`) — N08.09.04
+/// - **Exceptions** (`throw` + bare `try`/`catch`; catch binding; nested; throw from fn) — N08.10.01
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -98,6 +101,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_eval_module(module) {
         return emit_es_eval(module);
+    }
+    if is_es_exceptions_module(module) {
+        return emit_es_exceptions(module);
     }
     if is_es_nullish_module(module) {
         return emit_es_nullish(module);
@@ -146,7 +152,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
           supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-           ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, empty hello)",
+           ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, empty hello)",
         Span::dummy(),
     )
 }
@@ -3187,6 +3193,41 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "3\n2\n6\n3\n5\n3\n2\n2\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_throw_try_catch_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/exceptions/throw_try_catch.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "throw_try_catch must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("N08.10.01") || ir.contains("throw/try/catch"),
+            "should use exceptions emit path:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-throw-try-catch").expect("workdir");
+        let bin = dir.join("throw_try_catch");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "1\n1\n1\n7\n5\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
