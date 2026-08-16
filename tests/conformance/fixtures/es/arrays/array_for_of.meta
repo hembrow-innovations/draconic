@@ -1,4 +1,6 @@
 id: es/arrays/array_for_of
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 6\n0\nab\n60\n15\n5\n3\n5\n6\n
 js.check: if (sum !== 6) process.exit(1); if (n !== 0) process.exit(1); if (chars !== "ab") process.exit(1); if (flat !== 60) process.exit(1); if (acc !== 15) process.exit(1); if (partial !== 5) process.exit(1); if (count !== 3) process.exit(1); if (once !== 5) process.exit(1); if (esum !== 6) process.exit(1);

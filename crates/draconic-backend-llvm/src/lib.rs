@@ -904,6 +904,43 @@ mod tests {
     }
 
     #[test]
+    fn es_arrays_for_of_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/arrays/array_for_of.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit array_for_of");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_arrays for-of must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_array_get") && ir.contains("draconic_rt_array_len"),
+            "es_arrays for-of must iterate via array get/len:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-arrays-for-of").expect("workdir");
+        let bin = dir.join("array_for_of");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "6\n0\nab\n60\n15\n5\n3\n5\n6\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn es_call_spread_prints_native() {
         let ir = emit_llvm_ir(&module_of(
             std::fs::read_to_string(concat!(

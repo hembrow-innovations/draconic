@@ -1,23 +1,25 @@
-//! N08.06.01–N08.06.03: native observations for ES array literals, index
-//! access, `.length`, element assignment, and spread in array literals
-//! (`es/arrays/array_lit_access`, `array_element_assign`, `array_spread`).
+//! N08.06.01–N08.06.05: native observations for ES array literals, index
+//! access, `.length`, element assignment, spread in array literals, and
+//! `for-of` over arrays (`es/arrays/array_lit_access`, `array_element_assign`,
+//! `array_spread`, `array_for_of`).
 //!
 //! Arrays are Runtime GC heap values (`draconic_rt_array_*`). Number elements
 //! are stored as `inttoptr` of integer bit-patterns; nested arrays store GC
 //! ptrs; strings are cstr ptrs; booleans are `inttoptr` 0/1; `null` is null.
-//! Number locals print via `print_f64`; string index results via `print_str`.
+//! Number locals print via `print_f64`; string index/accumulator results via
+//! `print_str`. `for-of` walks length + index get with break/continue.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::AssignOp;
+use draconic_ast::{AssignOp, BinaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt,
 };
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, ARRAY_SPREAD_ARRAY,
-    ARRAY_SPREAD_CSTR, GC_INIT, PRINT_F64, PRINT_STR,
+    ARRAY_SPREAD_CSTR, CSTR_CONCAT, GC_INIT, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_es_arrays_module(module: &Module) -> bool {
@@ -55,130 +57,346 @@ struct ModuleInfo {
     print_locals: Vec<(LocalId, SlotTy)>,
 }
 
+struct ClassifyCtx<'a> {
+    by_id: &'a HashMap<LocalId, &'a Local>,
+    slots: Vec<(LocalId, SlotTy)>,
+    print_locals: Vec<(LocalId, SlotTy)>,
+    has_array: bool,
+    arr_inits: HashMap<LocalId, Expr>,
+    arr_elem: HashMap<LocalId, ElemKind>,
+    slot_of: HashMap<LocalId, SlotTy>,
+}
+
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-    let mut slots = Vec::new();
-    let mut print_locals = Vec::new();
-    let mut has_array = false;
-    // Array local → its array-literal init (for constant-index type inference).
-    let mut arr_inits: HashMap<LocalId, Expr> = HashMap::new();
-    let mut arr_elem: HashMap<LocalId, ElemKind> = HashMap::new();
-    let mut slot_of: HashMap<LocalId, SlotTy> = HashMap::new();
+    let mut ctx = ClassifyCtx {
+        by_id: &by_id,
+        slots: Vec::new(),
+        print_locals: Vec::new(),
+        has_array: false,
+        arr_inits: HashMap::new(),
+        arr_elem: HashMap::new(),
+        slot_of: HashMap::new(),
+    };
 
     for stmt in &module.body {
-        match stmt {
-            Stmt::Declare { local, init, .. } => {
-                let loc = by_id.get(local)?;
-                let init = init.as_ref()?;
-                if matches!(init, Expr::Array { .. }) {
-                    if !array_expr_ok(init, &by_id, &slot_of) {
-                        return None;
-                    }
-                    has_array = true;
-                    slots.push((*local, SlotTy::Array));
-                    slot_of.insert(*local, SlotTy::Array);
-                    arr_inits.insert(*local, init.clone());
-                    if let Some(k) = array_expr_elem_kind(init, &arr_inits, &arr_elem, &slot_of) {
-                        arr_elem.insert(*local, k);
-                    }
-                } else if matches!(init, Expr::String { .. }) {
-                    if !string_expr_ok(init, &by_id, &slot_of) {
-                        return None;
-                    }
-                    slots.push((*local, SlotTy::String));
-                    slot_of.insert(*local, SlotTy::String);
-                } else if let Expr::Local { id, .. } = init {
-                    if slots.iter().any(|(s, k)| s == id && *k == SlotTy::Array) {
-                        has_array = true;
-                        slots.push((*local, SlotTy::Array));
-                        slot_of.insert(*local, SlotTy::Array);
-                        if let Some(e) = arr_inits.get(id).cloned() {
-                            arr_inits.insert(*local, e);
-                        }
-                        if let Some(k) = arr_elem.get(id).copied() {
-                            arr_elem.insert(*local, k);
-                        }
-                    } else if slots.iter().any(|(s, k)| s == id && *k == SlotTy::String) {
-                        slots.push((*local, SlotTy::String));
-                        slot_of.insert(*local, SlotTy::String);
-                    } else if slots.iter().any(|(s, k)| s == id && *k == SlotTy::Number)
-                        || matches!(loc.ty, Type::Number)
-                    {
-                        slots.push((*local, SlotTy::Number));
-                        slot_of.insert(*local, SlotTy::Number);
-                        print_locals.push((*local, SlotTy::Number));
-                    } else {
-                        return None;
-                    }
-                } else if let Some(kind) =
-                    infer_expr_slot(init, &arr_inits, &arr_elem, &slot_of)
-                {
-                    if !value_expr_ok(init, &by_id, &slot_of) {
-                        return None;
-                    }
-                    slots.push((*local, kind));
-                    slot_of.insert(*local, kind);
-                    match kind {
-                        SlotTy::Number => print_locals.push((*local, SlotTy::Number)),
-                        SlotTy::String => {
-                            // Print string results from index (not bare string lit sources).
-                            if matches!(
-                                init,
-                                Expr::Member {
-                                    computed: true,
-                                    ..
-                                }
-                            ) {
-                                print_locals.push((*local, SlotTy::String));
-                            }
-                        }
-                        SlotTy::Array => {
-                            has_array = true;
-                            if let Some(k) =
-                                array_expr_elem_kind(init, &arr_inits, &arr_elem, &slot_of)
-                            {
-                                arr_elem.insert(*local, k);
-                            }
-                        }
-                        _ => {}
-                    }
-                } else if matches!(loc.ty, Type::Number) && number_expr_ok(init, &by_id, &slot_of)
-                {
-                    slots.push((*local, SlotTy::Number));
-                    slot_of.insert(*local, SlotTy::Number);
-                    print_locals.push((*local, SlotTy::Number));
-                } else if number_expr_ok(init, &by_id, &slot_of)
-                    && matches!(
-                        init,
-                        Expr::Member {
-                            computed: true,
-                            ..
-                        } | Expr::Assign { .. }
-                    )
-                {
-                    slots.push((*local, SlotTy::Number));
-                    slot_of.insert(*local, SlotTy::Number);
-                    print_locals.push((*local, SlotTy::Number));
-                } else {
-                    return None;
-                }
-            }
-            Stmt::Expr { expr } => {
-                if !member_assign_ok(expr, &by_id, &slot_of) {
-                    return None;
-                }
-            }
-            _ => return None,
-        }
+        classify_stmt(stmt, &mut ctx)?;
     }
 
-    if !has_array || print_locals.is_empty() {
+    if !ctx.has_array || ctx.print_locals.is_empty() {
         return None;
     }
     Some(ModuleInfo {
-        slots,
-        print_locals,
+        slots: ctx.slots,
+        print_locals: ctx.print_locals,
     })
+}
+
+fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
+    match stmt {
+        Stmt::Declare { local, init, .. } => classify_declare(*local, init.as_ref(), ctx),
+        Stmt::Expr { expr } => {
+            if member_assign_ok(expr, ctx.by_id, &ctx.slot_of)
+                || local_assign_ok(expr, ctx.by_id, &ctx.slot_of)
+            {
+                Some(())
+            } else {
+                None
+            }
+        }
+        Stmt::Block { body } => {
+            for s in body {
+                classify_stmt(s, ctx)?;
+            }
+            Some(())
+        }
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            is_await,
+        } => {
+            if *is_await {
+                return None;
+            }
+            if !array_expr_ok(right, ctx.by_id, &ctx.slot_of) {
+                return None;
+            }
+            let ek = array_expr_elem_kind(
+                right,
+                &ctx.arr_inits,
+                &ctx.arr_elem,
+                &ctx.slot_of,
+            )
+            // Empty arrays (and other untyped iterables) still support for-of;
+            // bind as Number when element kind is unknown (body never observes).
+            .unwrap_or(ElemKind::Unknown);
+            let bind_ty = match ek {
+                ElemKind::Number | ElemKind::Unknown => SlotTy::Number,
+                ElemKind::String => SlotTy::String,
+                ElemKind::Array => SlotTy::Array,
+            };
+            classify_for_of_left(left, right, bind_ty, ek, ctx)?;
+            classify_stmt(body, ctx)
+        }
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            if !cmp_number_ok(test, ctx.by_id, &ctx.slot_of) {
+                return None;
+            }
+            classify_stmt(consequent, ctx)?;
+            if let Some(alt) = alternate {
+                classify_stmt(alt, ctx)?;
+            }
+            Some(())
+        }
+        Stmt::Break { label: None } | Stmt::Continue { label: None } => Some(()),
+        _ => None,
+    }
+}
+
+fn classify_for_of_left(
+    left: &Stmt,
+    right: &Expr,
+    bind_ty: SlotTy,
+    ek: ElemKind,
+    ctx: &mut ClassifyCtx<'_>,
+) -> Option<()> {
+    match left {
+        Stmt::Declare {
+            local,
+            init: None,
+            ..
+        } => {
+            if ctx.slot_of.contains_key(local) {
+                return None;
+            }
+            ctx.slots.push((*local, bind_ty));
+            ctx.slot_of.insert(*local, bind_ty);
+            if bind_ty == SlotTy::Array {
+                ctx.has_array = true;
+                if let Some(inner) = for_of_bound_array_elem_kind(right, ek, ctx) {
+                    ctx.arr_elem.insert(*local, inner);
+                }
+            }
+            Some(())
+        }
+        Stmt::Expr {
+            expr: Expr::Local { id, .. },
+        } => match ctx.slot_of.get(id).copied() {
+            Some(existing) if existing == bind_ty => Some(()),
+            // Bare `let y` provisionally Number before for-of assign.
+            Some(SlotTy::Number) if bind_ty == SlotTy::Number => Some(()),
+            None => {
+                ctx.slots.push((*id, bind_ty));
+                ctx.slot_of.insert(*id, bind_ty);
+                Some(())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Element kind of arrays yielded by `for (let row of nested)` when `nested`
+/// is an array-of-arrays (e.g. `[[10,20],[30]]` → Number).
+fn for_of_bound_array_elem_kind(
+    right: &Expr,
+    ek: ElemKind,
+    ctx: &ClassifyCtx<'_>,
+) -> Option<ElemKind> {
+    if ek != ElemKind::Array {
+        return None;
+    }
+    let lit = match right {
+        Expr::Array { .. } => right.clone(),
+        Expr::Local { id, .. } => ctx.arr_inits.get(id).cloned()?,
+        _ => return None,
+    };
+    let Expr::Array { elements, .. } = lit else {
+        return None;
+    };
+    let mut kind: Option<ElemKind> = None;
+    for el in elements {
+        let ArrayElement::Expr(Expr::Array { elements: inner, .. }) = el else {
+            return None;
+        };
+        let k = array_lit_elem_kind(&inner, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of)?;
+        kind = Some(match kind {
+            None => k,
+            Some(prev) if prev == k => prev,
+            Some(_) => ElemKind::Unknown,
+        });
+    }
+    kind
+}
+
+fn classify_declare(
+    local: LocalId,
+    init: Option<&Expr>,
+    ctx: &mut ClassifyCtx<'_>,
+) -> Option<()> {
+    let loc = ctx.by_id.get(&local)?;
+    let Some(init) = init else {
+        // Bare `let y` — provisional number slot (for-of assign target).
+        if ctx.slot_of.contains_key(&local) {
+            return Some(());
+        }
+        ctx.slots.push((local, SlotTy::Number));
+        ctx.slot_of.insert(local, SlotTy::Number);
+        return Some(());
+    };
+    if matches!(init, Expr::Array { .. }) {
+        if !array_expr_ok(init, ctx.by_id, &ctx.slot_of) {
+            return None;
+        }
+        ctx.has_array = true;
+        ctx.slots.push((local, SlotTy::Array));
+        ctx.slot_of.insert(local, SlotTy::Array);
+        ctx.arr_inits.insert(local, init.clone());
+        if let Some(k) = array_expr_elem_kind(init, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of) {
+            ctx.arr_elem.insert(local, k);
+        }
+        return Some(());
+    }
+    if matches!(init, Expr::String { .. }) {
+        if !string_expr_ok(init, ctx.by_id, &ctx.slot_of) {
+            return None;
+        }
+        ctx.slots.push((local, SlotTy::String));
+        ctx.slot_of.insert(local, SlotTy::String);
+        // Empty-string accumulators (for-of concat) are observations.
+        if let Expr::String { value, .. } = init {
+            if value.to_string_lossy().is_empty() {
+                ctx.print_locals.push((local, SlotTy::String));
+            }
+        }
+        return Some(());
+    }
+    if let Expr::Local { id, .. } = init {
+        if ctx.slots.iter().any(|(s, k)| s == id && *k == SlotTy::Array) {
+            ctx.has_array = true;
+            ctx.slots.push((local, SlotTy::Array));
+            ctx.slot_of.insert(local, SlotTy::Array);
+            if let Some(e) = ctx.arr_inits.get(id).cloned() {
+                ctx.arr_inits.insert(local, e);
+            }
+            if let Some(k) = ctx.arr_elem.get(id).copied() {
+                ctx.arr_elem.insert(local, k);
+            }
+            return Some(());
+        }
+        if ctx.slots.iter().any(|(s, k)| s == id && *k == SlotTy::String) {
+            ctx.slots.push((local, SlotTy::String));
+            ctx.slot_of.insert(local, SlotTy::String);
+            return Some(());
+        }
+        if ctx
+            .slots
+            .iter()
+            .any(|(s, k)| s == id && *k == SlotTy::Number)
+            || matches!(loc.ty, Type::Number)
+        {
+            ctx.slots.push((local, SlotTy::Number));
+            ctx.slot_of.insert(local, SlotTy::Number);
+            ctx.print_locals.push((local, SlotTy::Number));
+            return Some(());
+        }
+        return None;
+    }
+    if let Some(kind) = infer_expr_slot(init, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of) {
+        if !value_expr_ok(init, ctx.by_id, &ctx.slot_of) {
+            return None;
+        }
+        ctx.slots.push((local, kind));
+        ctx.slot_of.insert(local, kind);
+        match kind {
+            SlotTy::Number => ctx.print_locals.push((local, SlotTy::Number)),
+            SlotTy::String => {
+                if matches!(
+                    init,
+                    Expr::Member {
+                        computed: true,
+                        ..
+                    }
+                ) {
+                    ctx.print_locals.push((local, SlotTy::String));
+                }
+            }
+            SlotTy::Array => {
+                ctx.has_array = true;
+                if let Some(k) =
+                    array_expr_elem_kind(init, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of)
+                {
+                    ctx.arr_elem.insert(local, k);
+                }
+            }
+            _ => {}
+        }
+        return Some(());
+    }
+    if matches!(loc.ty, Type::Number) && number_expr_ok(init, ctx.by_id, &ctx.slot_of) {
+        ctx.slots.push((local, SlotTy::Number));
+        ctx.slot_of.insert(local, SlotTy::Number);
+        ctx.print_locals.push((local, SlotTy::Number));
+        return Some(());
+    }
+    if number_expr_ok(init, ctx.by_id, &ctx.slot_of)
+        && matches!(
+            init,
+            Expr::Member {
+                computed: true,
+                ..
+            } | Expr::Assign { .. }
+        )
+    {
+        ctx.slots.push((local, SlotTy::Number));
+        ctx.slot_of.insert(local, SlotTy::Number);
+        ctx.print_locals.push((local, SlotTy::Number));
+        return Some(());
+    }
+    None
+}
+
+fn cmp_number_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
+    match expr {
+        Expr::Binary {
+            left,
+            op: BinaryOp::EqEqEq | BinaryOp::EqEq | BinaryOp::NotEqEq | BinaryOp::NotEq,
+            right,
+            ..
+        } => number_expr_ok(left, by_id, slot_of) && number_expr_ok(right, by_id, slot_of),
+        _ => false,
+    }
+}
+
+fn local_assign_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
+    let Expr::Assign {
+        target: AssignTarget::Local(id),
+        op: AssignOp::Eq,
+        value,
+        ..
+    } = expr
+    else {
+        return false;
+    };
+    match slot_of.get(id) {
+        Some(SlotTy::Number) => number_expr_ok(value, by_id, slot_of),
+        Some(SlotTy::String) => string_expr_ok(value, by_id, slot_of),
+        Some(SlotTy::Array) => array_expr_ok(value, by_id, slot_of),
+        _ => false,
+    }
 }
 
 fn const_index(expr: &Expr) -> Option<usize> {
@@ -541,6 +759,12 @@ fn number_expr_ok(
                 && number_expr_ok(property, by_id, slot_of)
                 && number_expr_ok(value, by_id, slot_of)
         }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
+            right,
+            ..
+        } => number_expr_ok(left, by_id, slot_of) && number_expr_ok(right, by_id, slot_of),
         _ => false,
     }
 }
@@ -596,6 +820,12 @@ fn string_expr_ok(
                 && array_expr_ok(object, by_id, slot_of)
                 && number_expr_ok(property, by_id, slot_of)
         }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Add,
+            right,
+            ..
+        } => string_expr_ok(left, by_id, slot_of) && string_expr_ok(right, by_id, slot_of),
         _ => false,
     }
 }
@@ -664,6 +894,11 @@ fn member_key_is_length(property: &Expr) -> bool {
     matches!(property, Expr::String { value, .. } if value.to_string_lossy() == "length")
 }
 
+struct CtrlFrame {
+    break_label: String,
+    continue_label: Option<String>,
+}
+
 struct Emitter<'a> {
     module: &'a Module,
     out: String,
@@ -673,6 +908,7 @@ struct Emitter<'a> {
     str_globals: Vec<(String, String)>,
     tmp: usize,
     str_n: usize,
+    ctrls: Vec<CtrlFrame>,
 }
 
 impl<'a> Emitter<'a> {
@@ -686,6 +922,7 @@ impl<'a> Emitter<'a> {
             str_globals: Vec::new(),
             tmp: 0,
             str_n: 0,
+            ctrls: Vec::new(),
         }
     }
 
@@ -697,6 +934,27 @@ impl<'a> Emitter<'a> {
         let t = self.tmp;
         self.tmp += 1;
         format!("%t{t}")
+    }
+
+    fn fresh_label(&mut self, prefix: &str) -> String {
+        let t = self.tmp;
+        self.tmp += 1;
+        format!("{prefix}{t}")
+    }
+
+    fn body_ends_with_terminator(&self) -> bool {
+        self.body
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .is_some_and(|l| {
+                let t = l.trim_start();
+                t.starts_with("br ")
+                    || t.starts_with("ret ")
+                    || t.starts_with("unreachable")
+                    || t.starts_with("switch ")
+                    || t.starts_with("indirectbr ")
+            })
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
@@ -720,6 +978,7 @@ impl<'a> Emitter<'a> {
                 ARRAY_LEN,
                 ARRAY_SPREAD_ARRAY,
                 ARRAY_SPREAD_CSTR,
+                CSTR_CONCAT,
                 PRINT_F64,
                 PRINT_STR,
             ])
@@ -828,11 +1087,246 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::Expr { expr } => {
-                let _ = self.emit_member_assign(expr, false)?;
+                if matches!(
+                    expr,
+                    Expr::Assign {
+                        target: AssignTarget::Local(_),
+                        ..
+                    }
+                ) {
+                    self.emit_local_assign(expr)
+                } else {
+                    let _ = self.emit_member_assign(expr, false)?;
+                    Ok(())
+                }
+            }
+            Stmt::Block { body } => {
+                for s in body {
+                    self.emit_stmt(s)?;
+                }
+                Ok(())
+            }
+            Stmt::ForOf {
+                left,
+                right,
+                body,
+                is_await,
+            } => {
+                if *is_await {
+                    return Err(diag("es_arrays: for-await-of not supported"));
+                }
+                self.emit_for_of(left, right, body)
+            }
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => self.emit_if(test, consequent, alternate.as_deref()),
+            Stmt::Break { label: None } => {
+                let end = self
+                    .ctrls
+                    .last()
+                    .ok_or_else(|| diag("es_arrays: break outside loop"))?
+                    .break_label
+                    .clone();
+                writeln!(self.body, "  br label %{end}").ok();
+                Ok(())
+            }
+            Stmt::Continue { label: None } => {
+                let cont = self
+                    .ctrls
+                    .iter()
+                    .rev()
+                    .find_map(|f| f.continue_label.clone())
+                    .ok_or_else(|| diag("es_arrays: continue outside loop"))?;
+                writeln!(self.body, "  br label %{cont}").ok();
                 Ok(())
             }
             _ => Err(diag("es_arrays: unsupported stmt")),
         }
+    }
+
+    fn emit_if(
+        &mut self,
+        test: &Expr,
+        consequent: &Stmt,
+        alternate: Option<&Stmt>,
+    ) -> Result<(), Diagnostic> {
+        let cond = self.emit_cmp_i1(test)?;
+        let then_l = self.fresh_label("then");
+        let else_l = self.fresh_label("else");
+        let end_l = self.fresh_label("endif");
+        if alternate.is_some() {
+            writeln!(
+                self.body,
+                "  br i1 {cond}, label %{then_l}, label %{else_l}"
+            )
+            .ok();
+        } else {
+            writeln!(
+                self.body,
+                "  br i1 {cond}, label %{then_l}, label %{end_l}"
+            )
+            .ok();
+        }
+        writeln!(self.body, "{then_l}:").ok();
+        self.emit_stmt(consequent)?;
+        if !self.body_ends_with_terminator() {
+            writeln!(self.body, "  br label %{end_l}").ok();
+        }
+        if let Some(alt) = alternate {
+            writeln!(self.body, "{else_l}:").ok();
+            self.emit_stmt(alt)?;
+            if !self.body_ends_with_terminator() {
+                writeln!(self.body, "  br label %{end_l}").ok();
+            }
+        }
+        writeln!(self.body, "{end_l}:").ok();
+        Ok(())
+    }
+
+    fn emit_cmp_i1(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        let Expr::Binary {
+            left,
+            op,
+            right,
+            ..
+        } = expr
+        else {
+            return Err(diag("es_arrays: if test must be comparison"));
+        };
+        let l = self.emit_number_expr(left)?;
+        let r = self.emit_number_expr(right)?;
+        let pred = match op {
+            BinaryOp::EqEq | BinaryOp::EqEqEq => "oeq",
+            BinaryOp::NotEq | BinaryOp::NotEqEq => "one",
+            _ => return Err(diag("es_arrays: unsupported comparison")),
+        };
+        let t = self.fresh();
+        writeln!(self.body, "  {t} = fcmp {pred} double {l}, {r}").ok();
+        Ok(t)
+    }
+
+    fn emit_for_of(
+        &mut self,
+        left: &Stmt,
+        right: &Expr,
+        body: &Stmt,
+    ) -> Result<(), Diagnostic> {
+        let bind_id = match left {
+            Stmt::Declare { local, init: None, .. } => *local,
+            Stmt::Expr {
+                expr: Expr::Local { id, .. },
+            } => *id,
+            _ => return Err(diag("es_arrays: unsupported for-of left")),
+        };
+        let bind_kind = *self
+            .slot_of
+            .get(&bind_id)
+            .ok_or_else(|| diag("es_arrays: for-of bind unknown slot"))?;
+        let bind_ptr = self.slot_ptr(bind_id)?;
+
+        let arr = self.emit_array_expr(right)?;
+        let idx_ptr = self.fresh();
+        writeln!(self.body, "  {idx_ptr} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 0, ptr {idx_ptr}").ok();
+
+        let head = self.fresh_label("forof_head");
+        let bod = self.fresh_label("forof_body");
+        let cont = self.fresh_label("forof_cont");
+        let end = self.fresh_label("forof_end");
+        writeln!(self.body, "  br label %{head}").ok();
+        writeln!(self.body, "{head}:").ok();
+        let idx = self.fresh();
+        writeln!(self.body, "  {idx} = load i64, ptr {idx_ptr}").ok();
+        let len = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            ARRAY_LEN.call_to(&len, &format!("ptr {arr}"))
+        )
+        .ok();
+        let cmp = self.fresh();
+        writeln!(self.body, "  {cmp} = icmp ult i64 {idx}, {len}").ok();
+        writeln!(self.body, "  br i1 {cmp}, label %{bod}, label %{end}").ok();
+        writeln!(self.body, "{bod}:").ok();
+        let elem = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            ARRAY_GET.call_to(&elem, &format!("ptr {arr}, i64 {idx}"))
+        )
+        .ok();
+        match bind_kind {
+            SlotTy::Number => {
+                let i = self.fresh();
+                writeln!(self.body, "  {i} = ptrtoint ptr {elem} to i64").ok();
+                let d = self.fresh();
+                writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
+                writeln!(self.body, "  store double {d}, ptr {bind_ptr}").ok();
+            }
+            SlotTy::String | SlotTy::Array | SlotTy::Bool | SlotTy::Null => {
+                writeln!(self.body, "  store ptr {elem}, ptr {bind_ptr}").ok();
+            }
+        }
+        self.ctrls.push(CtrlFrame {
+            break_label: end.clone(),
+            continue_label: Some(cont.clone()),
+        });
+        self.emit_stmt(body)?;
+        self.ctrls.pop();
+        if !self.body_ends_with_terminator() {
+            writeln!(self.body, "  br label %{cont}").ok();
+        }
+        writeln!(self.body, "{cont}:").ok();
+        let idx2 = self.fresh();
+        writeln!(self.body, "  {idx2} = load i64, ptr {idx_ptr}").ok();
+        let next = self.fresh();
+        writeln!(self.body, "  {next} = add i64 {idx2}, 1").ok();
+        writeln!(self.body, "  store i64 {next}, ptr {idx_ptr}").ok();
+        writeln!(self.body, "  br label %{head}").ok();
+        writeln!(self.body, "{end}:").ok();
+        Ok(())
+    }
+
+    fn emit_local_assign(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
+        let Expr::Assign {
+            target: AssignTarget::Local(id),
+            op: AssignOp::Eq,
+            value,
+            ..
+        } = expr
+        else {
+            return Err(diag("es_arrays: expected local assign"));
+        };
+        let kind = *self
+            .slot_of
+            .get(id)
+            .ok_or_else(|| diag("es_arrays: assign unknown slot"))?;
+        let ptr = self.slot_ptr(*id)?;
+        match kind {
+            SlotTy::Number => {
+                let v = self.emit_number_expr(value)?;
+                writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+            }
+            SlotTy::String => {
+                let v = self.emit_string_expr(value)?;
+                writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+            }
+            SlotTy::Array => {
+                let v = self.emit_array_expr(value)?;
+                writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+            }
+            SlotTy::Bool => {
+                let v = self.emit_bool_as_ptr(value)?;
+                writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+            }
+            SlotTy::Null => {
+                let v = self.emit_null_as_ptr(value)?;
+                writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+            }
+        }
+        Ok(())
     }
 
     /// Emit `a[i] = v` (or nested). When `yield_number`, returns the RHS as double.
@@ -944,7 +1438,38 @@ impl<'a> Emitter<'a> {
                     Err(diag("es_arrays: only .length or computed index on arrays"))
                 }
             }
-            Expr::Assign { .. } => self.emit_member_assign(expr, true),
+            Expr::Assign {
+                target: AssignTarget::Member { .. },
+                ..
+            } => self.emit_member_assign(expr, true),
+            Expr::Binary {
+                left,
+                op,
+                right,
+                ..
+            } if matches!(
+                op,
+                BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Rem
+            ) =>
+            {
+                let l = self.emit_number_expr(left)?;
+                let r = self.emit_number_expr(right)?;
+                let inst = match op {
+                    BinaryOp::Add => "fadd",
+                    BinaryOp::Sub => "fsub",
+                    BinaryOp::Mul => "fmul",
+                    BinaryOp::Div => "fdiv",
+                    BinaryOp::Rem => "frem",
+                    _ => unreachable!(),
+                };
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = {inst} double {l}, {r}").ok();
+                Ok(t)
+            }
             _ => Err(diag("es_arrays: unsupported number expr")),
         }
     }
@@ -1147,6 +1672,23 @@ impl<'a> Emitter<'a> {
                     self.body,
                     "  {}",
                     ARRAY_GET.call_to(&t, &format!("ptr {arr}, i64 {idx_i}"))
+                )
+                .ok();
+                Ok(t)
+            }
+            Expr::Binary {
+                left,
+                op: BinaryOp::Add,
+                right,
+                ..
+            } => {
+                let l = self.emit_string_expr(left)?;
+                let r = self.emit_string_expr(right)?;
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    CSTR_CONCAT.call_to(&t, &format!("ptr {l}, ptr {r}"))
                 )
                 .ok();
                 Ok(t)
