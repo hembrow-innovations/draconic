@@ -397,7 +397,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.01.04.07 | done | native | Real native observations: unary keywords typeof/void/delete (E01.04.07) — `es/expressions/unary_keywords` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/unary_keywords`, `crates/draconic-backend-llvm` |
 | N08.01.04.08 | done | native | Real native observations: compound assignment (E01.04.08) | `tests/conformance` fixture `es/expressions/compound_assignment`, `crates/draconic-backend-llvm` |
 | N08.01.04.09 | done | native | Real native observations: nullish coalescing + logical assignment (E01.04.09) | `tests/conformance` fixture `es/expressions/nullish_logical_assign`, `crates/draconic-backend-llvm` |
-| N08.02 | todo | native | Real native observations: statements (E02) (children below) | `tests/conformance` fixtures `es/statements` |
+| N08.02 | done | native | Real native observations: statements (E02) (children below) | `tests/conformance` fixtures `es/statements` |
 | N08.02.01 | done | native | Real native observations: `if` / `else` (E02.01) — `es/statements/if_else` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/if_else`, `crates/draconic-backend-llvm` |
 | N08.02.02 | done | native | Real native observations: `while` loops (E02.02) — `es/statements/while` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/while`, `crates/draconic-backend-llvm` |
 | N08.02.03 | done | native | Real native observations: `do` / `while` loops (E02.03) — `es/statements/do_while` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/do_while`, `crates/draconic-backend-llvm` |
@@ -406,6 +406,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.02.06 | done | native | Real native observations: `switch` / `case` / `default` (E02.06) — `es/statements/switch` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/switch`, `crates/draconic-backend-llvm` |
 | N08.02.07 | done | native | Real native observations: labeled statements + labeled `break` / `continue` (E02.07) — `es/statements/labeled` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/labeled`, `crates/draconic-backend-llvm` |
 | N08.02.08 | done | native | Real native observations: `for-in` / `for-of` (E02.08) — `es/statements/for_in_of` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/for_in_of`, `crates/draconic-backend-llvm` |
+| N08.02.09 | done | native | Real native observations: `const` declarations (E02.09) — `es/statements/const` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/const`, `crates/draconic-backend-llvm` |
 | N08.03 | todo | native | Real native observations: functions (E03) | `tests/conformance` fixtures `es/functions` |
 | N08.04 | todo | native | Real native observations: objects (E04) | `tests/conformance` fixtures `es/objects` |
 | N08.05 | todo | native | Real native observations: classes (E05) | `tests/conformance` fixtures `es/classes` |

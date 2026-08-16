@@ -1,6 +1,6 @@
-//! N08.01 + N08.02.01–N08.02.08: emit native observations for ES expression Programs,
+//! N08.01 + N08.02.01–N08.02.09: emit native observations for ES expression Programs,
 //! `if`/`else`, `while`, `do`/`while`, `for`, `for-in`/`for-of` (strings), `break`/`continue`
-//! (incl. labeled), `switch`, and labeled statements
+//! (incl. labeled), `switch`, labeled statements, and `const` declarations
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
 //! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
@@ -8,11 +8,12 @@
 //! E02.01 `if` / `else` (incl. block bodies; ToBoolean on number/boolean tests),
 //! E02.02 `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
 //! E02.03 `do` / `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
-//! E02.04 `for` loops (`for (init; test; update)`; `let` init; omitted clauses; block bodies),
+//! E02.04 `for` loops (`for (init; test; update)`; `let`/`const` init; omitted clauses; block bodies),
 //! E02.05 unlabeled `break` / `continue` in loops,
 //! E02.06 `switch` / `case` / `default` (number discriminant; fall-through; unlabeled `break`),
 //! E02.07 labeled statements + labeled `break` / `continue`,
-//! E02.08 `for-in` / `for-of` over strings (`let`/assign binding; string concat `+`).
+//! E02.08 `for-in` / `for-of` over strings (`let`/`const`/assign binding; string concat `+`),
+//! E02.09 `const` declarations (required init; `for`/`for-of`/`for-in` binding).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -27,13 +28,13 @@ use draconic_runtime::abi::{
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.08 / N08.01.* / N08.02.01–N08.02.08):
-/// top-level `let` declares over JS numbers, booleans, strings, undefined (`void`), and/or
+/// (E01.* / E02.01–E02.09 / N08.01.* / N08.02.01–N08.02.09):
+/// top-level `let`/`const` declares over JS numbers, booleans, strings, undefined (`void`), and/or
 /// untyped `any` string slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
 /// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
 /// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`,
-/// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let` init; block or expression bodies),
-/// `for-in`/`for-of` over strings (`let`/assign left), `break`/`continue` (unlabeled or labeled),
+/// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
+/// `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue` (unlabeled or labeled),
 /// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
 /// fall-through; unlabeled `break`).
 /// Expression statements may be assigns or updates.
@@ -157,7 +158,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     })
 }
 
-/// Collect `for (let x = …)` / `for (let k in/of …)` locals into alloc slots (not prints).
+/// Collect `for (let|const x = …)` / `for (let|const k in/of …)` locals into alloc slots (not prints).
 fn collect_for_init_allocs(
     stmt: &Stmt,
     by_id: &HashMap<LocalId, &Local>,
