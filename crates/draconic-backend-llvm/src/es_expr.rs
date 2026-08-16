@@ -1,12 +1,13 @@
-//! N08.01 + N08.02.01–N08.02.03: emit native observations for ES expression Programs,
-//! `if`/`else`, `while`, and `do`/`while`
+//! N08.01 + N08.02.01–N08.02.04: emit native observations for ES expression Programs,
+//! `if`/`else`, `while`, `do`/`while`, and `for`
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
 //! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
 //! E01.04.08 compound assignment `+=` `-=` `*=` `/=` `%=` `**=` `<<=` `>>=` `>>>=` `&=` `^=` `|=`,
 //! E02.01 `if` / `else` (incl. block bodies; ToBoolean on number/boolean tests),
 //! E02.02 `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
-//! E02.03 `do` / `while` loops (incl. block bodies; ToBoolean on number/boolean tests).
+//! E02.03 `do` / `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
+//! E02.04 `for` loops (`for (init; test; update)`; `let` init; omitted clauses; block bodies).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -17,21 +18,21 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
-/// True when this module is a supported ES expression / `if` / `while` / `do`/`while` subset
-/// (E01.* / E02.01–E02.03 / N08.01.* / N08.02.01–N08.02.03):
+/// True when this module is a supported ES expression / `if` / `while` / `do`/`while` / `for` subset
+/// (E01.* / E02.01–E02.04 / N08.01.* / N08.02.01–N08.02.04):
 /// top-level `let` declares over JS numbers, booleans, strings, and/or undefined (`void`) with
 /// arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical,
 /// bitwise, exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`,
-/// comma, grouping, local refs, `if`/`else`, `while`, and `do`/`while` (block or expression bodies).
-/// Expression statements may be assigns or updates.
+/// comma, grouping, local refs, `if`/`else`, `while`, `do`/`while`, and `for` (incl. `let` init;
+/// block or expression bodies). Expression statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
 
 pub(crate) fn emit_es_expr(module: &Module) -> Result<String, Diagnostic> {
-    let user = classify(module).ok_or_else(|| diag("internal: not an es_expr module"))?;
+    let info = classify(module).ok_or_else(|| diag("internal: not an es_expr module"))?;
     let mut em = Emitter::new(module);
-    em.emit_module(&user.user_locals)?;
+    em.emit_module(&info.alloc_locals, &info.user_locals)?;
     Ok(em.finish())
 }
 
@@ -44,66 +45,80 @@ enum SlotTy {
     Undefined,
 }
 
-/// Top-level user locals in declaration order (observation order).
+/// Top-level user locals in declaration order (observation/print order).
+/// `alloc_locals` also includes `for (let …)` bindings (not printed).
 struct ModuleInfo {
     user_locals: Vec<(LocalId, SlotTy)>,
+    alloc_locals: Vec<(LocalId, SlotTy)>,
+}
+
+fn slot_for_declare(
+    local: LocalId,
+    init: &Option<Expr>,
+    by_id: &HashMap<LocalId, &Local>,
+) -> Option<SlotTy> {
+    let loc = by_id.get(&local)?;
+    match loc.ty {
+        Type::Number => {
+            if let Some(init) = init {
+                if !expr_is_number_subset(init, by_id) {
+                    return None;
+                }
+            }
+            Some(SlotTy::Number)
+        }
+        Type::Boolean => {
+            if let Some(init) = init {
+                if !expr_is_boolean_subset(init, by_id) {
+                    return None;
+                }
+            }
+            Some(SlotTy::Boolean)
+        }
+        Type::String => {
+            if let Some(init) = init {
+                if !expr_is_string_subset(init, by_id) {
+                    return None;
+                }
+            }
+            Some(SlotTy::String)
+        }
+        Type::Null => {
+            if let Some(init) = init {
+                if !expr_is_undefined_subset(init, by_id) {
+                    return None;
+                }
+            }
+            Some(SlotTy::Undefined)
+        }
+        _ => None,
+    }
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut user_locals = Vec::new();
+    let mut alloc_locals = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for stmt in &module.body {
         match stmt {
             Stmt::Declare { local, init, .. } => {
-                let loc = by_id.get(local)?;
-                let slot = match loc.ty {
-                    Type::Number => {
-                        if let Some(init) = init {
-                            if !expr_is_number_subset(init, &by_id) {
-                                return None;
-                            }
-                        }
-                        SlotTy::Number
-                    }
-                    Type::Boolean => {
-                        if let Some(init) = init {
-                            if !expr_is_boolean_subset(init, &by_id) {
-                                return None;
-                            }
-                        }
-                        SlotTy::Boolean
-                    }
-                    Type::String => {
-                        if let Some(init) = init {
-                            if !expr_is_string_subset(init, &by_id) {
-                                return None;
-                            }
-                        }
-                        SlotTy::String
-                    }
-                    Type::Null => {
-                        if let Some(init) = init {
-                            if !expr_is_undefined_subset(init, &by_id) {
-                                return None;
-                            }
-                        }
-                        SlotTy::Undefined
-                    }
-                    _ => return None,
-                };
+                let slot = slot_for_declare(*local, init, &by_id)?;
                 if seen.insert(*local) {
                     user_locals.push((*local, slot));
+                    alloc_locals.push((*local, slot));
                 }
             }
             Stmt::Expr { .. }
             | Stmt::Block { .. }
             | Stmt::If { .. }
             | Stmt::While { .. }
-            | Stmt::DoWhile { .. } => {
+            | Stmt::DoWhile { .. }
+            | Stmt::For { .. } => {
                 if !stmt_is_subset(stmt, &by_id) {
                     return None;
                 }
+                collect_for_init_allocs(stmt, &by_id, &mut alloc_locals, &mut seen)?;
             }
             _ => return None,
         }
@@ -111,10 +126,59 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if user_locals.is_empty() {
         return None;
     }
-    Some(ModuleInfo { user_locals })
+    Some(ModuleInfo {
+        user_locals,
+        alloc_locals,
+    })
 }
 
-/// Nested statement subset for `if`/`else`/`while`/`do`/`while` bodies and blocks (no nested `let` in this slice).
+/// Collect `for (let x = …)` locals into alloc slots (not observation prints).
+fn collect_for_init_allocs(
+    stmt: &Stmt,
+    by_id: &HashMap<LocalId, &Local>,
+    alloc_locals: &mut Vec<(LocalId, SlotTy)>,
+    seen: &mut std::collections::HashSet<LocalId>,
+) -> Option<()> {
+    match stmt {
+        Stmt::For { init, body, .. } => {
+            if let Some(i) = init.as_ref() {
+                if let Stmt::Declare { local, init, .. } = i.as_ref() {
+                    let slot = slot_for_declare(*local, init, by_id)?;
+                    if seen.insert(*local) {
+                        alloc_locals.push((*local, slot));
+                    }
+                } else {
+                    collect_for_init_allocs(i, by_id, alloc_locals, seen)?;
+                }
+            }
+            collect_for_init_allocs(body, by_id, alloc_locals, seen)
+        }
+        Stmt::Block { body } => {
+            for s in body {
+                collect_for_init_allocs(s, by_id, alloc_locals, seen)?;
+            }
+            Some(())
+        }
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            collect_for_init_allocs(consequent, by_id, alloc_locals, seen)?;
+            if let Some(a) = alternate {
+                collect_for_init_allocs(a, by_id, alloc_locals, seen)?;
+            }
+            Some(())
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            collect_for_init_allocs(body, by_id, alloc_locals, seen)
+        }
+        _ => Some(()),
+    }
+}
+
+/// Nested statement subset for `if`/`else`/`while`/`do`/`while`/`for` bodies and blocks.
+/// `for` init may introduce a nested `let` (number/boolean/string/undefined).
 fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
         Stmt::Expr { expr } => match expr.ty() {
@@ -140,6 +204,37 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
         Stmt::While { test, body } | Stmt::DoWhile { test, body } => {
             (expr_is_boolean_subset(test, by_id) || expr_is_number_subset(test, by_id))
                 && stmt_is_subset(body, by_id)
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+        } => {
+            let init_ok = init
+                .as_ref()
+                .map(|i| match i.as_ref() {
+                    Stmt::Declare { local, init, .. } => {
+                        slot_for_declare(*local, init, by_id).is_some()
+                    }
+                    other => stmt_is_subset(other, by_id),
+                })
+                .unwrap_or(true);
+            let test_ok = test
+                .as_ref()
+                .map(|t| expr_is_boolean_subset(t, by_id) || expr_is_number_subset(t, by_id))
+                .unwrap_or(true);
+            let update_ok = update
+                .as_ref()
+                .map(|u| match u.ty() {
+                    Type::Number => expr_is_number_subset(u, by_id),
+                    Type::Boolean => expr_is_boolean_subset(u, by_id),
+                    Type::String => expr_is_string_subset(u, by_id),
+                    Type::Null => expr_is_undefined_subset(u, by_id),
+                    _ => false,
+                })
+                .unwrap_or(true);
+            init_ok && test_ok && update_ok && stmt_is_subset(body, by_id)
         }
         _ => false,
     }
@@ -442,9 +537,13 @@ impl<'a> Emitter<'a> {
             })
     }
 
-    fn emit_module(&mut self, user: &[(LocalId, SlotTy)]) -> Result<(), Diagnostic> {
+    fn emit_module(
+        &mut self,
+        alloc: &[(LocalId, SlotTy)],
+        user: &[(LocalId, SlotTy)],
+    ) -> Result<(), Diagnostic> {
         // Body first so string globals are collected, then header + globals + main.
-        for (id, slot) in user {
+        for (id, slot) in alloc {
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, (ptr.clone(), *slot));
             match slot {
@@ -466,7 +565,7 @@ impl<'a> Emitter<'a> {
             self.emit_stmt(stmt)?;
         }
 
-        // Print top-level user locals in declaration order.
+        // Print top-level user locals in declaration order (not for-init bindings).
         for (id, slot) in user {
             match slot {
                 SlotTy::Number => {
@@ -510,7 +609,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.03 ES expressions + if/else/while/do-while via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.04 ES expressions + if/else/while/do-while/for via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -656,6 +755,56 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "{head}:").ok();
                 let cond = self.emit_to_boolean(test)?;
                 writeln!(self.body, "  br i1 {cond}, label %{bod}, label %{end}").ok();
+                writeln!(self.body, "{end}:").ok();
+                Ok(())
+            }
+            Stmt::For {
+                init,
+                test,
+                update,
+                body,
+            } => {
+                if let Some(i) = init {
+                    self.emit_stmt(i)?;
+                }
+                let head = self.fresh_label("for_head");
+                let bod = self.fresh_label("for_body");
+                let upd = self.fresh_label("for_update");
+                let end = self.fresh_label("for_end");
+                writeln!(self.body, "  br label %{head}").ok();
+                writeln!(self.body, "{head}:").ok();
+                if let Some(t) = test {
+                    let cond = self.emit_to_boolean(t)?;
+                    writeln!(self.body, "  br i1 {cond}, label %{bod}, label %{end}").ok();
+                } else {
+                    writeln!(self.body, "  br label %{bod}").ok();
+                }
+                writeln!(self.body, "{bod}:").ok();
+                self.emit_stmt(body)?;
+                if !self.body_ends_with_terminator() {
+                    writeln!(self.body, "  br label %{upd}").ok();
+                }
+                writeln!(self.body, "{upd}:").ok();
+                if let Some(u) = update {
+                    match u.ty() {
+                        Type::Number => {
+                            let _ = self.emit_number_expr(u)?;
+                        }
+                        Type::Boolean => {
+                            let _ = self.emit_bool_expr(u)?;
+                        }
+                        Type::String => {
+                            let _ = self.emit_string_expr(u)?;
+                        }
+                        Type::Null => {
+                            self.emit_undefined_expr(u)?;
+                        }
+                        _ => {
+                            return Err(diag("internal: unsupported for update ty in es_expr"));
+                        }
+                    }
+                }
+                writeln!(self.body, "  br label %{head}").ok();
                 writeln!(self.body, "{end}:").ok();
                 Ok(())
             }

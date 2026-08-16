@@ -41,6 +41,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   via Runtime prints — N08.02.02
 /// - **`do` / `while`** (block or expression bodies; ToBoolean on number/boolean
 ///   tests) via Runtime prints — N08.02.03
+/// - **`for`** (`for (init; test; update)`; `let` init; omitted clauses; block
+///   bodies; ToBoolean on number/boolean tests) via Runtime prints — N08.02.04
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -73,7 +75,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while), empty hello)",
+          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for), empty hello)",
         Span::dummy(),
     )
 }
@@ -1746,6 +1748,41 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "3\n1\n2\n3\n6\n0\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_for_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/statements/for.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "for fixture must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("br i1") && ir.contains("for_head") && ir.contains("for_end"),
+            "should lower for with loop branches:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-for").expect("workdir");
+        let bin = dir.join("for");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "3\n2\n6\n3\n5\n3\n2\n2\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
