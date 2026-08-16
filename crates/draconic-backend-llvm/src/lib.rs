@@ -45,6 +45,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   bodies; ToBoolean on number/boolean tests) via Runtime prints — N08.02.04
 /// - **`break` / `continue`** (unlabeled, in `while`/`do`/`for`) via Runtime
 ///   prints — N08.02.05
+/// - **`switch` / `case` / `default`** (number discriminant; fall-through;
+///   unlabeled `break`) via Runtime prints — N08.02.06
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -77,7 +79,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/break/continue), empty hello)",
+          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/break/continue/switch), empty hello)",
         Span::dummy(),
     )
 }
@@ -887,6 +889,41 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "3\n5\n4\n3\n4\n2\n4\n3\n3\n3\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_switch_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/statements/switch.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "switch fixture must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("switch_end") || ir.contains("case"),
+            "should lower switch with case labels:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-switch").expect("workdir");
+        let bin = dir.join("switch");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "10\n20\n40\n11\n1\n5\n1\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
