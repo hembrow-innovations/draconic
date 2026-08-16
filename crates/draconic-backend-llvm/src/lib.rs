@@ -98,7 +98,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
           supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-           ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment, empty hello)",
+           ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, empty hello)",
         Span::dummy(),
     )
 }
@@ -451,6 +451,39 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "2\n3\n4\n5\n6\n7\n8\n8\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn es_objects_this_method_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/objects/this_method.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit this_method");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_objects must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("define double @m_fn_") || ir.contains("define double @es_m_fn_"),
+            "es_objects must emit method functions:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-objects-this").expect("workdir");
+        let bin = dir.join("this_method");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "10\n10\n15\n3\n7\n7\n", "stdout={stdout:?}");
     }
 
     #[test]

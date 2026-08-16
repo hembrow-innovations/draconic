@@ -1,23 +1,28 @@
-//! N08.04.01–N08.04.02: native observations for ES object literals, property
-//! access, and simple property assignment (E04.01–E04.02 /
-//! `es/objects/object_lit_access`, `es/objects/property_assign`).
+//! N08.04.01–N08.04.03: native observations for ES object literals, property
+//! access, simple property assignment, and method call + `this` (E04.01–E04.03 /
+//! `es/objects/object_lit_access`, `property_assign`, `this_method`).
 //!
 //! Object values are Runtime GC heap ptrs; number props are stored as
 //! `inttoptr` of integer bit-patterns (fixture uses small integers). Nested
-//! objects store GC ptrs. Number locals from member reads are printed via
-//! `print_f64`.
+//! objects store GC ptrs. Function-valued props store LLVM method fn ptrs.
+//! Method calls use a uniform signature `double (ptr this, double a0..a3)`.
+//! Number locals from member reads / method returns are printed via `print_f64`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::AssignOp;
+use draconic_ast::{AssignOp, BinaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt,
+    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey,
+    Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, GC_INIT, OBJECT_GET, OBJECT_SET, PRINT_F64,
 };
+
+/// Max fixed args for method calling convention (fixtures use ≤1).
+const MAX_METHOD_ARGS: usize = 4;
 
 pub(crate) fn is_es_objects_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -25,7 +30,7 @@ pub(crate) fn is_es_objects_module(module: &Module) -> bool {
 
 pub(crate) fn emit_es_objects(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not an es_objects module"))?;
-    let mut em = Emitter::new(module);
+    let mut em = Emitter::new(module, &info);
     em.emit_module(&info)?;
     Ok(em.finish())
 }
@@ -36,15 +41,24 @@ enum SlotTy {
     Object,
 }
 
+#[derive(Clone)]
+struct FnInfo {
+    idx: usize,
+    params: Vec<LocalId>,
+    body: Vec<Stmt>,
+}
+
 struct ModuleInfo {
-    /// All allocated locals (object + number) with slot kinds.
     slots: Vec<(LocalId, SlotTy)>,
-    /// Number user locals in declare order (printed).
     number_locals: Vec<LocalId>,
+    functions: Vec<FnInfo>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
+    let mut functions = Vec::new();
+    collect_all_fns(&module.body, &by_id, &mut functions)?;
+
     let mut slots = Vec::new();
     let mut number_locals = Vec::new();
     let mut has_object = false;
@@ -55,13 +69,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 let loc = by_id.get(local)?;
                 let init = init.as_ref()?;
                 if is_object_slot_ty(&loc.ty) || expr_is_object_init(init) {
-                    if !object_expr_ok(init, &by_id) {
+                    if !object_expr_ok(init, &by_id, &functions) {
                         return None;
                     }
                     has_object = true;
                     slots.push((*local, SlotTy::Object));
                 } else if is_number_slot_ty(&loc.ty) || expr_is_number_init(init) {
-                    if !number_expr_ok(init, &by_id) {
+                    if !number_expr_ok(init, &by_id, &functions) {
                         return None;
                     }
                     slots.push((*local, SlotTy::Number));
@@ -71,7 +85,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 }
             }
             Stmt::Expr { expr } => {
-                if !member_assign_ok(expr, &by_id) {
+                if !member_assign_ok(expr, &by_id, &functions) {
                     return None;
                 }
             }
@@ -85,7 +99,143 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     Some(ModuleInfo {
         slots,
         number_locals,
+        functions,
     })
+}
+
+fn collect_all_fns(
+    stmts: &[Stmt],
+    by_id: &HashMap<LocalId, &Local>,
+    out: &mut Vec<FnInfo>,
+) -> Option<()> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Declare { init: Some(e), .. } => collect_expr_fns(e, by_id, out)?,
+            Stmt::Expr { expr } => collect_expr_fns(expr, by_id, out)?,
+            Stmt::Block { body } => collect_all_fns(body, by_id, out)?,
+            Stmt::Return { value: Some(e) } => collect_expr_fns(e, by_id, out)?,
+            Stmt::Return { value: None } => {}
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => {
+                collect_expr_fns(test, by_id, out)?;
+                collect_all_fns(std::slice::from_ref(consequent), by_id, out)?;
+                if let Some(a) = alternate {
+                    collect_all_fns(std::slice::from_ref(a), by_id, out)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(())
+}
+
+fn collect_expr_fns(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    out: &mut Vec<FnInfo>,
+) -> Option<()> {
+    match expr {
+        Expr::Function {
+            params,
+            body,
+            is_async,
+            is_generator,
+            ..
+        } => {
+            if *is_async || *is_generator {
+                return None;
+            }
+            let param_ids = simple_param_ids(params, by_id)?;
+            collect_all_fns(body, by_id, out)?;
+            let idx = out.len();
+            out.push(FnInfo {
+                idx,
+                params: param_ids,
+                body: body.clone(),
+            });
+            Some(())
+        }
+        Expr::Object { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectProp::Property { value, .. } => collect_expr_fns(value, by_id, out)?,
+                    ObjectProp::Accessor { value, .. } => collect_expr_fns(value, by_id, out)?,
+                    ObjectProp::Spread(e) => collect_expr_fns(e, by_id, out)?,
+                }
+            }
+            Some(())
+        }
+        Expr::Member { object, property, .. } => {
+            collect_expr_fns(object, by_id, out)?;
+            collect_expr_fns(property, by_id, out)
+        }
+        Expr::Call { callee, args, .. } => {
+            collect_expr_fns(callee, by_id, out)?;
+            for a in args {
+                if let Arg::Expr(e) = a {
+                    collect_expr_fns(e, by_id, out)?;
+                }
+            }
+            Some(())
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_expr_fns(left, by_id, out)?;
+            collect_expr_fns(right, by_id, out)
+        }
+        Expr::Assign { value, target, .. } => {
+            collect_expr_fns(value, by_id, out)?;
+            if let AssignTarget::Member {
+                object, property, ..
+            } = target
+            {
+                collect_expr_fns(object, by_id, out)?;
+                collect_expr_fns(property, by_id, out)?;
+            }
+            Some(())
+        }
+        _ => Some(()),
+    }
+}
+
+fn simple_param_ids(params: &[Param], by_id: &HashMap<LocalId, &Local>) -> Option<Vec<LocalId>> {
+    let mut ids = Vec::new();
+    for p in params {
+        if p.rest || p.default.is_some() {
+            return None;
+        }
+        match &p.pattern {
+            Pattern::Local(id) => {
+                let _ = by_id.get(id)?;
+                ids.push(*id);
+            }
+            _ => return None,
+        }
+    }
+    if ids.len() > MAX_METHOD_ARGS {
+        return None;
+    }
+    Some(ids)
+}
+
+fn find_fn_idx(params: &[Param], body: &[Stmt], functions: &[FnInfo]) -> Option<usize> {
+    let ids: Vec<LocalId> = params
+        .iter()
+        .filter_map(|p| match &p.pattern {
+            Pattern::Local(id) => Some(*id),
+            _ => None,
+        })
+        .collect();
+    if ids.len() != params.len() {
+        return None;
+    }
+    // Match params + body so zero-arity methods (getX / m / g) stay distinct.
+    functions
+        .iter()
+        .find(|f| f.params == ids && f.body == body)
+        .map(|f| f.idx)
 }
 
 fn is_object_slot_ty(ty: &Type) -> bool {
@@ -109,14 +259,20 @@ fn expr_is_number_init(expr: &Expr) -> bool {
     match expr {
         Expr::Number { .. } => true,
         Expr::Local { ty, .. } => matches!(ty, Type::Number),
-        // Property reads: Number or untyped Any (computed string keys).
         Expr::Member {
             ty: Type::Number | Type::Any,
             ..
         } => true,
-        // `let r = (o.a = 8)` — assignment expression yields the RHS number.
         Expr::Assign {
             op: AssignOp::Eq,
+            ty: Type::Number | Type::Any,
+            ..
+        } => true,
+        Expr::Call {
+            ty: Type::Number | Type::Any,
+            ..
+        } => true,
+        Expr::Binary {
             ty: Type::Number | Type::Any,
             ..
         } => true,
@@ -124,7 +280,11 @@ fn expr_is_number_init(expr: &Expr) -> bool {
     }
 }
 
-fn member_assign_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn member_assign_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &[FnInfo],
+) -> bool {
     match expr {
         Expr::Assign {
             target:
@@ -136,12 +296,16 @@ fn member_assign_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             op: AssignOp::Eq,
             value,
             ..
-        } => object_expr_ok(object, by_id) && member_key_ok(property) && number_expr_ok(value, by_id),
+        } => {
+            object_expr_ok(object, by_id, functions)
+                && member_key_ok(property)
+                && number_expr_ok(value, by_id, functions)
+        }
         _ => false,
     }
 }
 
-fn object_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn object_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>, functions: &[FnInfo]) -> bool {
     match expr {
         Expr::Object { properties, .. } => {
             for p in properties {
@@ -150,11 +314,13 @@ fn object_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                         if !static_key_ok(key) {
                             return false;
                         }
-                        // Value may be number or nested object.
-                        if object_expr_ok(value, by_id) {
+                        if object_expr_ok(value, by_id, functions) {
                             continue;
                         }
-                        if number_expr_ok(value, by_id) {
+                        if number_expr_ok(value, by_id, functions) {
+                            continue;
+                        }
+                        if function_expr_ok(value, by_id, functions) {
                             continue;
                         }
                         return false;
@@ -175,26 +341,98 @@ fn object_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             property,
             optional,
             ..
-        } => !*optional && object_expr_ok(object, by_id) && member_key_ok(property),
+        } => !*optional && object_expr_ok(object, by_id, functions) && member_key_ok(property),
         _ => false,
     }
 }
 
-fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn function_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>, functions: &[FnInfo]) -> bool {
+    match expr {
+        Expr::Function {
+            params,
+            body,
+            is_async,
+            is_generator,
+            ..
+        } => {
+            if *is_async || *is_generator {
+                return false;
+            }
+            let Some(param_ids) = simple_param_ids(params, by_id) else {
+                return false;
+            };
+            if find_fn_idx(params, body, functions).is_none() {
+                return false;
+            }
+            method_body_ok(body, by_id, functions, &param_ids)
+        }
+        _ => false,
+    }
+}
+
+fn method_body_ok(
+    body: &[Stmt],
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &[FnInfo],
+    params: &[LocalId],
+) -> bool {
+    for stmt in body {
+        match stmt {
+            Stmt::Return { value: Some(e) } => {
+                if !number_expr_ok_in_method(e, by_id, functions, params) {
+                    return false;
+                }
+            }
+            Stmt::Return { value: None } => {}
+            Stmt::Block { body } => {
+                if !method_body_ok(body, by_id, functions, params) {
+                    return false;
+                }
+            }
+            Stmt::Expr { expr } => {
+                if !number_expr_ok_in_method(expr, by_id, functions, params) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>, functions: &[FnInfo]) -> bool {
+    number_expr_ok_in_method(expr, by_id, functions, &[])
+}
+
+fn number_expr_ok_in_method(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &[FnInfo],
+    params: &[LocalId],
+) -> bool {
     match expr {
         Expr::Number { .. } => true,
         Expr::Local { id, ty } => {
+            if params.contains(id) {
+                return true;
+            }
             matches!(ty, Type::Number | Type::Any)
                 || by_id
                     .get(id)
                     .is_some_and(|l| matches!(l.ty, Type::Number | Type::Any))
         }
+        Expr::This { .. } => false, // this alone is object, not number
         Expr::Member {
             object,
             property,
             optional,
             ..
-        } => !*optional && object_expr_ok(object, by_id) && member_key_ok(property),
+        } => {
+            !*optional
+                && member_key_ok(property)
+                && (object_expr_ok(object, by_id, functions)
+                    || matches!(object.as_ref(), Expr::This { .. }))
+        }
         Expr::Assign {
             target:
                 AssignTarget::Member {
@@ -205,7 +443,51 @@ fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             op: AssignOp::Eq,
             value,
             ..
-        } => object_expr_ok(object, by_id) && member_key_ok(property) && number_expr_ok(value, by_id),
+        } => {
+            object_expr_ok(object, by_id, functions)
+                && member_key_ok(property)
+                && number_expr_ok_in_method(value, by_id, functions, params)
+        }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
+            right,
+            ..
+        } => {
+            number_expr_ok_in_method(left, by_id, functions, params)
+                && number_expr_ok_in_method(right, by_id, functions, params)
+        }
+        Expr::Call {
+            callee,
+            args,
+            optional,
+            ..
+        } => {
+            if *optional {
+                return false;
+            }
+            if !args.iter().all(|a| match a {
+                Arg::Expr(e) => number_expr_ok_in_method(e, by_id, functions, params),
+                Arg::Spread(_) => false,
+            }) {
+                return false;
+            }
+            // Method call: obj.m(...) / obj["m"](...)
+            match callee.as_ref() {
+                Expr::Member {
+                    object,
+                    property,
+                    optional: mop,
+                    ..
+                } => {
+                    !*mop
+                        && member_key_ok(property)
+                        && object_expr_ok(object, by_id, functions)
+                        && args.len() <= MAX_METHOD_ARGS
+                }
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
@@ -220,8 +502,13 @@ fn member_key_ok(property: &Expr) -> bool {
 
 struct Emitter<'a> {
     module: &'a Module,
+    info: &'a ModuleInfo,
     slot_of: HashMap<LocalId, SlotTy>,
     allocas: HashMap<LocalId, String>,
+    /// Method param local → alloca name (only while emitting a method).
+    param_allocas: HashMap<LocalId, String>,
+    /// Current method `this` SSA value (ptr), if any.
+    this_ssa: Option<String>,
     str_globals: Vec<(String, String)>,
     out: String,
     body: String,
@@ -230,11 +517,14 @@ struct Emitter<'a> {
 }
 
 impl<'a> Emitter<'a> {
-    fn new(module: &'a Module) -> Self {
+    fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
         Self {
             module,
+            info,
             slot_of: HashMap::new(),
             allocas: HashMap::new(),
+            param_allocas: HashMap::new(),
+            this_ssa: None,
             str_globals: Vec::new(),
             out: String::new(),
             body: String::new(),
@@ -260,7 +550,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.04 ES object lit + property access/assign via Runtime ABI)"
+            "; Draconic LLVM backend (N08.04 ES object lit + property access/assign + method this via Runtime ABI)"
         )
         .ok();
         writeln!(
@@ -271,7 +561,12 @@ impl<'a> Emitter<'a> {
         .ok();
         writeln!(self.out).ok();
 
-        // Emit body first so string globals are collected.
+        // Emit method functions first (collect string globals into self.str_globals).
+        for f in &info.functions.clone() {
+            self.emit_method_fn(f)?;
+        }
+
+        // Main body into self.body
         for (id, kind) in &info.slots {
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, ptr.clone());
@@ -324,6 +619,88 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
+    fn emit_method_fn(&mut self, f: &FnInfo) -> Result<(), Diagnostic> {
+        let name = format!("m_fn_{}", f.idx);
+        // Uniform signature: double (ptr %this, double %a0, ... %a{MAX-1})
+        let mut params_s = String::from("ptr %this");
+        for i in 0..MAX_METHOD_ARGS {
+            write!(params_s, ", double %a{i}").ok();
+        }
+        writeln!(self.out, "define double @{name}({params_s}) {{").ok();
+        writeln!(self.out, "entry:").ok();
+
+        // Save outer body/this/params and emit into a fresh buffer that becomes the fn body.
+        let saved_body = std::mem::take(&mut self.body);
+        let saved_this = self.this_ssa.take();
+        let saved_params = std::mem::take(&mut self.param_allocas);
+        let saved_allocas = std::mem::take(&mut self.allocas);
+
+        self.this_ssa = Some("%this".to_string());
+
+        for (i, pid) in f.params.iter().enumerate() {
+            let ptr = format!("%p{}", pid.0);
+            writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
+            writeln!(self.body, "  store double %a{i}, ptr {ptr}").ok();
+            self.param_allocas.insert(*pid, ptr);
+        }
+
+        // Default return 0 if fall-off.
+        let mut saw_return = false;
+        for stmt in &f.body {
+            if matches!(stmt, Stmt::Return { .. }) {
+                saw_return = true;
+            }
+            self.emit_method_stmt(stmt)?;
+        }
+        if !saw_return {
+            writeln!(
+                self.body,
+                "  ret double 0.00000000000000000e+00"
+            )
+            .ok();
+        }
+
+        self.out.push_str(&self.body);
+        writeln!(self.out, "}}").ok();
+        writeln!(self.out).ok();
+
+        self.body = saved_body;
+        self.this_ssa = saved_this;
+        self.param_allocas = saved_params;
+        self.allocas = saved_allocas;
+        Ok(())
+    }
+
+    fn emit_method_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+        match stmt {
+            Stmt::Return { value: Some(e) } => {
+                let v = self.emit_number_expr(e)?;
+                writeln!(self.body, "  ret double {v}").ok();
+                // Unreachable after ret — still ok in LLVM if nothing follows in this block.
+                Ok(())
+            }
+            Stmt::Return { value: None } => {
+                writeln!(
+                    self.body,
+                    "  ret double 0.00000000000000000e+00"
+                )
+                .ok();
+                Ok(())
+            }
+            Stmt::Block { body } => {
+                for s in body {
+                    self.emit_method_stmt(s)?;
+                }
+                Ok(())
+            }
+            Stmt::Expr { expr } => {
+                let _ = self.emit_number_expr(expr)?;
+                Ok(())
+            }
+            _ => Err(diag("es_objects: unsupported method stmt")),
+        }
+    }
+
     fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
@@ -360,6 +737,11 @@ impl<'a> Emitter<'a> {
         match expr {
             Expr::Number { raw, .. } => format_number_const(raw),
             Expr::Local { id, .. } => {
+                if let Some(ptr) = self.param_allocas.get(id).cloned() {
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = load double, ptr {ptr}").ok();
+                    return Ok(t);
+                }
                 let kind = *self
                     .slot_of
                     .get(id)
@@ -422,12 +804,98 @@ impl<'a> Emitter<'a> {
                 .ok();
                 Ok(n)
             }
+            Expr::Binary {
+                left, op, right, ..
+            } => {
+                let l = self.emit_number_expr(left)?;
+                let r = self.emit_number_expr(right)?;
+                let inst = match op {
+                    BinaryOp::Add => "fadd",
+                    BinaryOp::Sub => "fsub",
+                    BinaryOp::Mul => "fmul",
+                    BinaryOp::Div => "fdiv",
+                    BinaryOp::Rem => "frem",
+                    _ => return Err(diag("es_objects: unsupported binary")),
+                };
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = {inst} double {l}, {r}").ok();
+                Ok(t)
+            }
+            Expr::Call {
+                callee,
+                args,
+                optional,
+                ..
+            } => {
+                if *optional {
+                    return Err(diag("es_objects: optional call not supported"));
+                }
+                self.emit_method_call(callee, args)
+            }
             _ => Err(diag("es_objects: unsupported number expr")),
         }
     }
 
+    fn emit_method_call(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+        let Expr::Member {
+            object,
+            property,
+            optional,
+            ..
+        } = callee
+        else {
+            return Err(diag("es_objects: method call requires member callee"));
+        };
+        if *optional {
+            return Err(diag("es_objects: optional member call not supported"));
+        }
+        let recv = self.emit_object_expr(object)?;
+        let key = self.member_key_cstr(property)?;
+        let fn_ptr = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            OBJECT_GET.call_to(&fn_ptr, &format!("ptr {recv}, ptr {key}"))
+        )
+        .ok();
+
+        let mut arg_vals = Vec::new();
+        for a in args {
+            match a {
+                Arg::Expr(e) => arg_vals.push(self.emit_number_expr(e)?),
+                Arg::Spread(_) => {
+                    return Err(diag("es_objects: spread args not supported"));
+                }
+            }
+        }
+        while arg_vals.len() < MAX_METHOD_ARGS {
+            arg_vals.push("0.00000000000000000e+00".to_string());
+        }
+
+        let mut call_args = format!("ptr {recv}");
+        for v in &arg_vals {
+            write!(call_args, ", double {v}").ok();
+        }
+        // Typed call through opaque ptr.
+        let mut ty_params = String::from("ptr");
+        for _ in 0..MAX_METHOD_ARGS {
+            ty_params.push_str(", double");
+        }
+        let ret = self.fresh();
+        writeln!(
+            self.body,
+            "  {ret} = call double ({ty_params}) {fn_ptr}({call_args})"
+        )
+        .ok();
+        Ok(ret)
+    }
+
     fn emit_object_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
+            Expr::This { .. } => self
+                .this_ssa
+                .clone()
+                .ok_or_else(|| diag("es_objects: This outside method")),
             Expr::Object { properties, .. } => {
                 let obj = self.fresh();
                 writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&obj, "")).ok();
@@ -441,7 +909,12 @@ impl<'a> Emitter<'a> {
                                 }
                             };
                             let key_ptr = self.string_const(&key_s)?;
-                            let val_ptr = if object_value_is_object(value) {
+                            let val_ptr = if let Expr::Function { params, body, .. } = value {
+                                let idx = find_fn_idx(params, body, &self.info.functions)
+                                    .ok_or_else(|| diag("es_objects: unknown method FunctionExpr"))?;
+                                // Function address as ptr (opaque pointers).
+                                format!("@m_fn_{idx}")
+                            } else if object_value_is_object(value) {
                                 self.emit_object_expr(value)?
                             } else {
                                 let n = self.emit_number_expr(value)?;

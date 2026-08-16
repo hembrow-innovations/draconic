@@ -418,6 +418,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.04 | todo | native | Real native observations: objects (E04) (children below) | `tests/conformance` fixtures `es/objects` |
 | N08.04.01 | done | native | Real native observations: object literals + property access (E04.01) — `es/objects/object_lit_access` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/objects/object_lit_access`, `crates/draconic-backend-llvm` |
 | N08.04.02 | done | native | Real native observations: property assignment (E04.02) — `es/objects/property_assign` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/objects/property_assign`, `crates/draconic-backend-llvm` |
+| N08.04.03 | done | native | Real native observations: `this` + method call (E04.03) — `es/objects/this_method` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/objects/this_method`, `crates/draconic-backend-llvm` |
 | N08.05 | todo | native | Real native observations: classes (E05) | `tests/conformance` fixtures `es/classes` |
 | N08.06 | todo | native | Real native observations: arrays (E06) | `tests/conformance` fixtures `es/arrays` |
 | N08.07 | todo | native | Real native observations: strings (E07) | `tests/conformance` fixtures `es/strings` |
