@@ -33384,7 +33384,9 @@ test/language/import/import-defer/deferred-namespace-object/setup_FIXTURE.js
 test/language/import/import-defer/deferred-namespace-object/to-string-tag.js
 test/language/import/import-defer/errors/get-other-while-dep-evaluating/dep-3_FIXTURE.js
 test/language/import/import-defer/errors/get-other-while-dep-evaluating/main.js
+test/language/import/import-defer/errors/get-other-while-dep-evaluating-async/main.js
 test/language/import/import-defer/errors/get-other-while-evaluating/main.js
+test/language/import/import-defer/errors/get-other-while-evaluating-async/main.js
 test/language/import/import-defer/errors/get-self-while-defer-evaluating/main.js
 test/language/import/import-defer/errors/get-self-while-evaluating-async/main.js
 test/language/import/import-defer/errors/get-self-while-evaluating.js

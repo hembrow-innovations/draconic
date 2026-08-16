@@ -214,8 +214,12 @@ impl Loader {
                         }
                     } else {
                         if let Some(decl) = declaration {
-                            collect_decl_exports(&decl, &mut exports)?;
-                            body.push(*decl);
+                            // Multi-declarator `export let a, b` parses as a Block of Lets.
+                            let decls = expand_export_decl(*decl);
+                            for d in decls {
+                                collect_decl_exports(&d, &mut exports)?;
+                                body.push(d);
+                            }
                         }
                         for s in specifiers {
                             if exports
@@ -2921,6 +2925,21 @@ fn hoist_decl_to_assign(stmt: Stmt) -> Stmt {
     }
 }
 
+/// Expand multi-declarator export (`export let a, b`) from a Block of Lets into
+/// individual declarations (parser packs multi-declarators as `Stmt::Block`).
+fn expand_export_decl(decl: Stmt) -> Vec<Stmt> {
+    match decl {
+        Stmt::Block { body, .. }
+            if body
+                .iter()
+                .all(|s| matches!(s, Stmt::Let { .. })) =>
+        {
+            body
+        }
+        other => vec![other],
+    }
+}
+
 fn collect_decl_exports(
     decl: &Stmt,
     exports: &mut HashMap<String, String>,
@@ -2953,6 +2972,16 @@ fn collect_decl_exports(
                     format!("duplicate export `{}`", name.name),
                     name.span,
                 ));
+            }
+            Ok(())
+        }
+        Stmt::Block { body, .. }
+            if body
+                .iter()
+                .all(|s| matches!(s, Stmt::Let { .. })) =>
+        {
+            for s in body {
+                collect_decl_exports(s, exports)?;
             }
             Ok(())
         }
@@ -4347,6 +4376,31 @@ mod tests {
         assert!(
             dump.contains("__draconic_mstatus") && dump.contains("__draconic_ready"),
             "expected status helpers:\n{dump}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_export_multi_declarator_let_const() {
+        // E19.84.07: `export let a, b` / multi-declarator packs as Block; must export both.
+        let dir = temp_link_dir("export-multi-decl");
+        let lib = dir.join("lib.drac");
+        let main = dir.join("main.drac");
+        fs::write(
+            &lib,
+            "export let resolveDone, rejectDone;\nexport const done = 1;\n",
+        )
+        .unwrap();
+        fs::write(
+            &main,
+            "import { resolveDone, rejectDone, done } from \"./lib.drac\";\nlet x = done;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("multi-declarator export link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(
+            dump.contains("resolveDone") && dump.contains("rejectDone") && dump.contains("done"),
+            "expected multi-declarator exports, got:\n{dump}"
         );
         let _ = fs::remove_dir_all(&dir);
     }
