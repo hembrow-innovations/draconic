@@ -1,11 +1,12 @@
-//! N08.03.01–N08.03.05: native observations for ES function declarations,
-//! expressions, and arrows (simple ident params) — E03.01–E03.05 /
+//! N08.03.01–N08.03.06: native observations for ES function declarations,
+//! expressions, and arrows (simple ident params + defaults) — E03.01–E03.06 /
 //! `es/functions/decl_return_call`, `params_call`, `nested_capture`,
-//! `function_expr`, `arrow`.
+//! `function_expr`, `arrow`, `default_params`.
 //!
 //! Nested/non-escaping decls use extra by-value capture params. Function
 //! expressions and arrows are first-class as fn-id doubles; returned closures
 //! stash captures in a small return buffer for immediate call (`make(10)(7)`).
+//! Missing/undefined args use a NaN payload sentinel; callee applies defaults.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -15,6 +16,8 @@ use draconic_ir::{Arg, Expr, IrType as Type, Local, LocalId, Module, Param, Patt
 use draconic_runtime::abi::{llvm_declares, PRINT_F64};
 
 const MAX_CAPS: usize = 8;
+/// qNaN payload marking JS `undefined` for default-parameter application.
+const UNDEF_BITS: u64 = 0x7FF8_0000_0000_0001;
 
 pub(crate) fn is_es_functions_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -32,6 +35,8 @@ struct FnInfo {
     /// Stable index → LLVM name `d_fn_{idx}`.
     idx: usize,
     params: Vec<LocalId>,
+    /// Parallel to `params`; `Some` → apply when arg missing/undefined.
+    defaults: Vec<Option<Expr>>,
     captures: Vec<LocalId>,
     body: Vec<Stmt>,
     /// Named function expression recursive binding.
@@ -69,6 +74,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     for f in &functions {
         if !fn_body_ok(&f.body, &by_id, &fn_arities, &functions, &fn_binding) {
             return None;
+        }
+        for d in &f.defaults {
+            if let Some(e) = d {
+                if !number_expr_ok(e, &by_id, &fn_arities, &functions, &fn_binding) {
+                    return None;
+                }
+            }
         }
     }
 
@@ -136,11 +148,11 @@ fn collect_all_functions(
                 if *is_async || *is_generator {
                     return None;
                 }
-                let param_ids = simple_param_locals(params, by_id)?;
+                let (param_ids, defaults) = simple_params(params, by_id)?;
                 // Nested first.
                 collect_all_functions(body, by_id, out, fn_binding)?;
                 collect_exprs_in_body(body, by_id, out, fn_binding)?;
-                let idx = push_fn(None, param_ids, body, by_id, out)?;
+                let idx = push_fn(None, param_ids, defaults, body, by_id, out)?;
                 fn_binding.insert(*local, idx);
             }
             Stmt::Declare { local, init, .. } => {
@@ -223,10 +235,10 @@ fn collect_expr_fns(
             if *is_async || *is_generator {
                 return None;
             }
-            let param_ids = simple_param_locals(params, by_id)?;
+            let (param_ids, defaults) = simple_params(params, by_id)?;
             collect_all_functions(body, by_id, out, fn_binding)?;
             collect_exprs_in_body(body, by_id, out, fn_binding)?;
-            let idx = push_fn(*name, param_ids, body, by_id, out)?;
+            let idx = push_fn(*name, param_ids, defaults, body, by_id, out)?;
             if let Some(n) = name {
                 fn_binding.insert(*n, idx);
             }
@@ -268,6 +280,7 @@ fn find_fn_idx_by_param_patterns(params: &[Param], out: &[FnInfo]) -> Option<usi
 fn push_fn(
     name_local: Option<LocalId>,
     params: Vec<LocalId>,
+    defaults: Vec<Option<Expr>>,
     body: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
     out: &mut Vec<FnInfo>,
@@ -277,14 +290,15 @@ fn push_fn(
         // name is bound inside the function for recursion
         let mut bound = bound.clone();
         bound.insert(n);
-        return push_fn_with_bound(name_local, params, body, by_id, &bound, out);
+        return push_fn_with_bound(name_local, params, defaults, body, by_id, &bound, out);
     }
-    push_fn_with_bound(name_local, params, body, by_id, &bound, out)
+    push_fn_with_bound(name_local, params, defaults, body, by_id, &bound, out)
 }
 
 fn push_fn_with_bound(
     name_local: Option<LocalId>,
     params: Vec<LocalId>,
+    defaults: Vec<Option<Expr>>,
     body: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
     bound: &HashSet<LocalId>,
@@ -292,6 +306,11 @@ fn push_fn_with_bound(
 ) -> Option<usize> {
     let mut free = HashSet::new();
     collect_free_in_body(body, bound, &mut free);
+    for d in &defaults {
+        if let Some(e) = d {
+            collect_free_in_expr(e, bound, &mut free);
+        }
+    }
     // Nested free through nested Function decls/exprs already in body free collection
     // for exprs; nested Stmt::Function free handled via collect_free that skips nested
     // function bodies — re-walk nested decls:
@@ -313,6 +332,7 @@ fn push_fn_with_bound(
     out.push(FnInfo {
         idx,
         params,
+        defaults,
         captures,
         body: body.to_vec(),
         name_local,
@@ -446,7 +466,7 @@ fn collect_nested_free_through(
             if *is_async || *is_generator {
                 return None;
             }
-            let param_ids = simple_param_locals(params, by_id)?;
+            let (param_ids, _) = simple_params(params, by_id)?;
             let nested_bound = bound_in_fn(&param_ids, body);
             let mut nested_free = HashSet::new();
             collect_free_in_body(body, &nested_bound, &mut nested_free);
@@ -481,13 +501,14 @@ fn collect_nested_free_through(
     }
 }
 
-fn simple_param_locals(
+fn simple_params(
     params: &[Param],
     by_id: &HashMap<LocalId, &Local>,
-) -> Option<Vec<LocalId>> {
-    let mut out = Vec::with_capacity(params.len());
+) -> Option<(Vec<LocalId>, Vec<Option<Expr>>)> {
+    let mut ids = Vec::with_capacity(params.len());
+    let mut defaults = Vec::with_capacity(params.len());
     for p in params {
-        if p.rest || p.default.is_some() {
+        if p.rest {
             return None;
         }
         let Pattern::Local(id) = &p.pattern else {
@@ -497,9 +518,28 @@ fn simple_param_locals(
         if !matches!(loc.ty, Type::Number | Type::Any) {
             return None;
         }
-        out.push(*id);
+        ids.push(*id);
+        defaults.push(p.default.clone());
     }
-    Some(out)
+    Some((ids, defaults))
+}
+
+fn call_arity_ok(f: &FnInfo, args_len: usize) -> bool {
+    if args_len > f.params.len() {
+        return false;
+    }
+    f.defaults[args_len..].iter().all(|d| d.is_some())
+}
+
+fn call_arity_ok_params(defaults: &[Option<Expr>], args_len: usize) -> bool {
+    if args_len > defaults.len() {
+        return false;
+    }
+    defaults[args_len..].iter().all(|d| d.is_some())
+}
+
+fn undef_double_const() -> String {
+    format!("bitcast (i64 {UNDEF_BITS} to double)")
 }
 
 fn body_returns_fn(body: &[Stmt]) -> bool {
@@ -540,7 +580,7 @@ fn fn_body_ok(
             } => {
                 !*is_async
                     && !*is_generator
-                    && simple_param_locals(params, by_id).is_some()
+                    && simple_params(params, by_id).is_some()
                     && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
             }
             _ => number_expr_ok(v, by_id, fn_arities, functions, fn_binding),
@@ -564,7 +604,7 @@ fn fn_body_ok(
                 }) => {
                     !*is_async
                         && !*is_generator
-                        && simple_param_locals(params, by_id).is_some()
+                        && simple_params(params, by_id).is_some()
                         && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
                 }
                 Some(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding),
@@ -581,7 +621,7 @@ fn fn_body_ok(
             if *is_async || *is_generator {
                 return false;
             }
-            simple_param_locals(params, by_id).is_some()
+            simple_params(params, by_id).is_some()
                 && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
         }
         Stmt::If {
@@ -659,6 +699,12 @@ fn number_expr_ok(
             arg,
             ..
         } => number_expr_ok(arg, by_id, fn_arities, functions, fn_binding),
+        Expr::Unary {
+            op: draconic_ast::UnaryOp::Void,
+            arg,
+            ..
+        } => number_expr_ok(arg, by_id, fn_arities, functions, fn_binding)
+            || matches!(arg.as_ref(), Expr::Number { .. } | Expr::Local { .. }),
         Expr::Binary {
             left,
             op,
@@ -687,7 +733,10 @@ fn number_expr_ok(
             }
             match callee.as_ref() {
                 Expr::Local { id, .. } => {
-                    fn_arities.get(id).is_some_and(|n| *n == args.len())
+                    let Some(&idx) = fn_binding.get(id) else {
+                        return fn_arities.get(id).is_some_and(|n| args.len() <= *n);
+                    };
+                    call_arity_ok(&functions[idx], args.len())
                 }
                 Expr::Function {
                     params,
@@ -698,8 +747,9 @@ fn number_expr_ok(
                 } => {
                     !*is_async
                         && !*is_generator
-                        && simple_param_locals(params, by_id)
-                            .is_some_and(|p| p.len() == args.len())
+                        && simple_params(params, by_id).is_some_and(|(_, defaults)| {
+                            call_arity_ok_params(&defaults, args.len())
+                        })
                         && fn_body_ok(body, by_id, fn_arities, functions, fn_binding)
                 }
                 Expr::Call {
@@ -726,45 +776,19 @@ fn number_expr_ok(
                         return false;
                     };
                     let f = &functions[caller_idx];
-                    body_returns_fn(&f.body)
-                        && returned_fn_arity(&f.body).is_some_and(|n| n == args.len())
+                    if !body_returns_fn(&f.body) {
+                        return false;
+                    }
+                    let Some(ret_idx) = returned_fn_idx_in_body(&f.body, functions) else {
+                        return false;
+                    };
+                    call_arity_ok(&functions[ret_idx], args.len())
                 }
                 _ => false,
             }
         }
         _ => false,
     }
-}
-
-fn returned_fn_arity(body: &[Stmt]) -> Option<usize> {
-    for s in body {
-        match s {
-            Stmt::Return {
-                value: Some(Expr::Function { params, .. }),
-            } => return Some(params.len()),
-            Stmt::Block { body } => {
-                if let Some(n) = returned_fn_arity(body) {
-                    return Some(n);
-                }
-            }
-            Stmt::If {
-                consequent,
-                alternate,
-                ..
-            } => {
-                if let Some(n) = returned_fn_arity(std::slice::from_ref(consequent)) {
-                    return Some(n);
-                }
-                if let Some(a) = alternate {
-                    if let Some(n) = returned_fn_arity(std::slice::from_ref(a)) {
-                        return Some(n);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 fn returned_fn_idx_in_body(body: &[Stmt], functions: &[FnInfo]) -> Option<usize> {
@@ -850,7 +874,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.03.05 ES functions + expressions + arrows via Runtime ABI)"
+            "; Draconic LLVM backend (N08.03.06 ES functions + defaults via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(&[PRINT_F64])).ok();
@@ -941,6 +965,19 @@ impl<'a> Emitter<'a> {
             writeln!(entry, "  store double %c{i}, ptr {ptr}").ok();
         }
 
+        writeln!(self.out, "define double @{fn_name}({sig}) {{").ok();
+        writeln!(self.out, "entry:").ok();
+        write!(self.out, "{entry}").ok();
+
+        // Apply defaults left-to-right when arg is missing/undefined sentinel.
+        let defaults = f.defaults.clone();
+        let param_ids = f.params.clone();
+        for (i, pid) in param_ids.iter().enumerate() {
+            if let Some(def) = &defaults[i] {
+                self.emit_param_default(*pid, def)?;
+            }
+        }
+
         for stmt in &f.body {
             self.emit_fn_stmt(stmt)?;
         }
@@ -948,9 +985,6 @@ impl<'a> Emitter<'a> {
             writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
         }
 
-        writeln!(self.out, "define double @{fn_name}({sig}) {{").ok();
-        writeln!(self.out, "entry:").ok();
-        write!(self.out, "{entry}").ok();
         write!(self.out, "{}", self.body).ok();
         writeln!(self.out, "}}").ok();
         writeln!(self.out).ok();
@@ -1117,6 +1151,37 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
+    fn emit_param_default(&mut self, pid: LocalId, def: &Expr) -> Result<(), Diagnostic> {
+        let ptr = self
+            .allocas
+            .get(&pid)
+            .cloned()
+            .ok_or_else(|| diag("es_functions: default param missing alloca"))?;
+        let cur = self.fresh();
+        writeln!(self.body, "  {cur} = load double, ptr {ptr}").ok();
+        let bits = self.fresh();
+        writeln!(self.body, "  {bits} = bitcast double {cur} to i64").ok();
+        let is_u = self.fresh();
+        writeln!(
+            self.body,
+            "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}"
+        )
+        .ok();
+        let then_l = self.fresh_label("def");
+        let end_l = self.fresh_label("defend");
+        writeln!(
+            self.body,
+            "  br i1 {is_u}, label %{then_l}, label %{end_l}"
+        )
+        .ok();
+        writeln!(self.body, "{then_l}:").ok();
+        let v = self.emit_number_expr(def)?;
+        writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+        writeln!(self.body, "  br label %{end_l}").ok();
+        writeln!(self.body, "{end_l}:").ok();
+        Ok(())
+    }
+
     fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Binary {
@@ -1180,6 +1245,10 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = fneg double {a}").ok();
                 Ok(t)
             }
+            Expr::Unary {
+                op: draconic_ast::UnaryOp::Void,
+                ..
+            } => Ok(undef_double_const()),
             Expr::Binary {
                 left, op, right, ..
             } => {
@@ -1258,9 +1327,16 @@ impl<'a> Emitter<'a> {
                     }
                     _ => return Err(diag("es_functions: unsupported higher-order callee")),
                 };
-                // Load captures from return buffer (set by the returning call).
+                // Pad defaults, then load captures from return buffer.
                 let f = &self.info.functions[idx];
+                if !call_arity_ok(f, arg_vals.len()) {
+                    return Err(diag("es_functions: higher-order call arity mismatch"));
+                }
                 let mut full_args = arg_vals;
+                let undef = undef_double_const();
+                while full_args.len() < f.params.len() {
+                    full_args.push(undef.clone());
+                }
                 for i in 0..f.captures.len() {
                     let gep = self.fresh();
                     writeln!(
@@ -1272,24 +1348,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {c} = load double, ptr {gep}").ok();
                     full_args.push(c);
                 }
-                // Direct call without re-loading captures from frame.
-                let fn_name = self.fn_names.get(&idx).cloned().unwrap();
-                let t = self.fresh();
-                if full_args.is_empty() {
-                    writeln!(self.body, "  {t} = call double @{fn_name}()").ok();
-                } else {
-                    let parts: Vec<String> = full_args
-                        .iter()
-                        .map(|v| format!("double {v}"))
-                        .collect();
-                    writeln!(
-                        self.body,
-                        "  {t} = call double @{fn_name}({})",
-                        parts.join(", ")
-                    )
-                    .ok();
-                }
-                Ok(t)
+                self.emit_call_with_padded_args(idx, full_args)
             }
             _ => Err(diag("es_functions: unsupported call callee")),
         }
@@ -1297,11 +1356,14 @@ impl<'a> Emitter<'a> {
 
     fn emit_direct_call(&mut self, idx: usize, arg_vals: &[String]) -> Result<String, Diagnostic> {
         let f = &self.info.functions[idx];
-        if arg_vals.len() != f.params.len() {
+        if !call_arity_ok(f, arg_vals.len()) {
             return Err(diag("es_functions: call arity mismatch"));
         }
-        let fn_name = self.fn_names.get(&idx).cloned().unwrap();
         let mut all = arg_vals.to_vec();
+        let undef = undef_double_const();
+        while all.len() < f.params.len() {
+            all.push(undef.clone());
+        }
         for cid in &f.captures {
             let ptr = self.allocas.get(cid).cloned().ok_or_else(|| {
                 diag(format!(
@@ -1313,6 +1375,20 @@ impl<'a> Emitter<'a> {
             writeln!(self.body, "  {t} = load double, ptr {ptr}").ok();
             all.push(t);
         }
+        self.emit_call_with_padded_args(idx, all)
+    }
+
+    fn emit_call_with_padded_args(
+        &mut self,
+        idx: usize,
+        all: Vec<String>,
+    ) -> Result<String, Diagnostic> {
+        let f = &self.info.functions[idx];
+        let expected = f.params.len() + f.captures.len();
+        if all.len() != expected {
+            return Err(diag("es_functions: internal call arg count"));
+        }
+        let fn_name = self.fn_names.get(&idx).cloned().unwrap();
         let t = self.fresh();
         if all.is_empty() {
             writeln!(self.body, "  {t} = call double @{fn_name}()").ok();

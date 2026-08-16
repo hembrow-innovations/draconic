@@ -53,9 +53,9 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   N08.02.07
 /// - **`for-in` / `for-of`** over strings (`let`/assign binding; string concat)
 ///   via Runtime prints — N08.02.08
-/// - **Function declaration/expression/arrow** + `return` + call (simple ident params) +
-///   nested decls with free-variable capture + IIFE/named/higher-order via Runtime
-///   prints — N08.03.01–N08.03.05
+/// - **Function declaration/expression/arrow** + `return` + call (simple ident params,
+///   defaults) + nested decls with free-variable capture + IIFE/named/higher-order via
+///   Runtime prints — N08.03.01–N08.03.06
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -91,7 +91,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params, nested+capture, IIFE/named/HOF), empty hello)",
+          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults, nested+capture, IIFE/named/HOF), empty hello)",
         Span::dummy(),
     )
 }
@@ -1075,6 +1075,41 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "42\n17\n3\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn es_function_default_params_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/functions/default_params.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "default_params fixture must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        assert!(
+            ir.contains("define double @"),
+            "should emit LLVM functions with defaults:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-fn-defaults").expect("workdir");
+        let bin = dir.join("default_params");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "10\n7\n11\n3\n3\n9\n5\n9\n6\n8\n10\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
     }
 
     #[test]
