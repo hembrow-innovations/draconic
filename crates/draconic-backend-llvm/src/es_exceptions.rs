@@ -1,9 +1,10 @@
-//! N08.10.01–N08.10.02: native observations for `throw` + `try`/`catch`/`finally` (E10.01–E10.02).
+//! N08.10.01–N08.10.03: native observations for `throw` + `try`/`catch`/`finally` (E10.01–E10.03).
 //!
 //! Compile-time evaluation of a small exception subset matching
-//! `es/exceptions/throw_try_catch` and `es/exceptions/try_finally`: number/string
-//! throws, catch binding, nested try, rethrow, zero-arg functions that throw or
-//! `return` through `finally`. Emits Runtime prints of final top-level number locals.
+//! `es/exceptions/throw_try_catch`, `es/exceptions/try_finally`, and
+//! `es/exceptions/optional_catch`: number/string throws, catch binding (named or
+//! optional), nested try, rethrow, zero-arg functions that throw or `return`
+//! through `finally`. Emits Runtime prints of final top-level number locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -176,14 +177,12 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             handler,
             finalizer,
         } => {
-            // Bare try/catch, try/finally, or try/catch/finally.
-            // Catch param required when handler present (optional catch → N08.10.03).
-            if handler.is_some() {
-                let Some(Pattern::Local(_)) = handler_param else {
-                    return false;
-                };
-            } else if handler_param.is_some() {
-                return false;
+            // Bare try/catch, try/finally, try/catch/finally, optional catch (`catch {…}`).
+            match (handler.is_some(), handler_param) {
+                (true, None) => {}
+                (true, Some(Pattern::Local(_))) => {}
+                (false, None) => {}
+                _ => return false,
             }
             body_ok(block, by_id)
                 && handler.as_ref().is_none_or(|h| body_ok(h, by_id))
@@ -529,7 +528,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.10.02 throw/try/catch/finally)"
+            "; Draconic LLVM backend (N08.10.03 throw/try/catch/finally/optional-catch)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
