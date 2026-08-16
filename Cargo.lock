@@ -180,7 +180,10 @@ name = "draconic-test262"
 version = "0.1.0"
 dependencies = [
  "draconic-backend-js",
+ "draconic-check",
  "draconic-frontend",
+ "draconic-ir",
+ "draconic-linker",
  "rayon",
 ]
 

@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use draconic_backend_js::emit_js;
+use draconic_check::check_module;
 use draconic_frontend::{compile_path, compile_source, compile_source_module};
+use draconic_ir::lower;
+use draconic_linker::link_entry;
 use rayon::prelude::*;
 
 /// Outcome bucket for one allowlisted path.
@@ -277,6 +280,42 @@ assert.compareArray = function(actual, expected, message) {
     return;
   }
   $ERROR("Actual " + compareArray.format(actual) + " and expected " + compareArray.format(expected) + " should have the same contents. " + String(msg));
+};
+// E19.84.08: assert.deepEqual (structural equality; plain objects + primitives).
+function __draconicDeepEqual(a, b) {
+  if (a === b) {
+    return true;
+  }
+  if (a !== a && b !== b) {
+    return true;
+  }
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") {
+    return false;
+  }
+  if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) {
+    return false;
+  }
+  let aKeys = Object.keys(a);
+  let bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  for (let i = 0; i < aKeys.length; i++) {
+    let k = aKeys[i];
+    if (!Object.prototype.hasOwnProperty.call(b, k)) {
+      return false;
+    }
+    if (!__draconicDeepEqual(a[k], b[k])) {
+      return false;
+    }
+  }
+  return true;
+}
+assert.deepEqual = function(actual, expected, message) {
+  if (__draconicDeepEqual(actual, expected)) {
+    return;
+  }
+  $ERROR(message || ("Expected deep equality, got " + String(actual) + " vs " + String(expected)));
 };
 // E19.29 / E19.63: propertyHelper.js verifyProperty + deprecated verify* helpers.
 // Capture primordials at load so verifyConfigurable(this, "Object") can delete Object.
@@ -1663,7 +1702,9 @@ pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Resul
     } else {
         strip_frontmatter(test_body)
     };
-    let needs_link = module_goal && source_has_static_module_syntax(scan_body);
+    let needs_link = module_goal
+        && (source_has_static_module_syntax(scan_body)
+            || source_needs_import_defer_link(scan_body, test_path));
     // E19.71: for static module link, keep harness *out* of the linked graph and
     // prepend it to emitted JS so it always runs before any dependency body
     // (sibling test files may still contain bare `assert.sameValue` calls).
@@ -1712,7 +1753,18 @@ pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Resul
             source
         };
         fs::write(&tmp, &source).map_err(|e| format!("compile: write temp entry: {e}"))?;
-        let result = compile_path(&tmp).map_err(|d| format!("compile: {d}"));
+        // E19.84.08: `compile_path` only links on static import/export. Dynamic-only
+        // entries that load `import defer` fixtures must force `link_entry`.
+        let force_link = source_needs_import_defer_link(scan_body, test_path)
+            && !source_has_static_module_syntax(scan_body);
+        let result = if force_link {
+            link_entry(&tmp)
+                .and_then(check_module)
+                .map(|checked| lower(&checked))
+                .map_err(|d| format!("compile: {d}"))
+        } else {
+            compile_path(&tmp).map_err(|d| format!("compile: {d}"))
+        };
         let _ = fs::remove_file(&tmp);
         result?
     } else if module_goal {
@@ -1852,7 +1904,13 @@ fn normalize_module_specifier(spec: &str) -> &str {
 /// E19.83.03: static `import * as ns from X` and dynamic `import(X)` must share
 /// one Module Namespace object. Linker flatten cannot preserve that identity —
 /// run original ESM under the file-module host instead.
+///
+/// E19.84.08: skip when `import defer` is present — Node cannot parse it; the
+/// linker path must handle deferred-namespace + evaluation-error identity.
 fn source_needs_static_dynamic_ns_identity(body: &str) -> bool {
+    if body.contains("import defer") || body.contains("import.defer") {
+        return false;
+    }
     let static_owned = static_import_specifiers(body);
     let static_specs: std::collections::HashSet<&str> = static_owned
         .iter()
@@ -1864,6 +1922,33 @@ fn source_needs_static_dynamic_ns_identity(body: &str) -> bool {
     dynamic_import_specifiers(body)
         .iter()
         .any(|s| static_specs.contains(normalize_module_specifier(s)))
+}
+
+/// E19.84.08: module tests that dynamically import fixtures using `import defer`
+/// must link (Node hosts reject `import defer` syntax in loaded ESM).
+fn source_needs_import_defer_link(body: &str, test_path: Option<&Path>) -> bool {
+    if body.contains("import defer") || body.contains("import.defer") {
+        return true;
+    }
+    let Some(path) = test_path else {
+        return false;
+    };
+    let Some(dir) = path.parent() else {
+        return false;
+    };
+    for spec in dynamic_import_specifiers(body) {
+        let rel = normalize_module_specifier(&spec);
+        if rel.starts_with("http:") || rel.starts_with("https:") || rel.starts_with('/') {
+            continue;
+        }
+        let target = dir.join(rel);
+        if let Ok(src) = fs::read_to_string(&target) {
+            if src.contains("import defer") || src.contains("import.defer") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Preload hooks: force ESM for Test262 `.js` under dynamic `import()` (E19.83.03).
@@ -2039,7 +2124,9 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     //   cannot preserve export live bindings for self-import (imported-self-update).
     // E19.83.03: static namespace + dynamic `import` of the same specifier must
     // share one Module Namespace object — run original ESM (not linker flatten).
-    let needs_static_link = as_module && source_has_static_module_syntax(scan_body);
+    let needs_static_link = as_module
+        && (source_has_static_module_syntax(scan_body)
+            || source_needs_import_defer_link(scan_body, Some(full.as_path())));
     let self_import = basename
         .map(|b| source_has_dynamic_self_import(scan_body, b))
         .unwrap_or(false);
@@ -2272,6 +2359,23 @@ mod tests {
         let js = compile_test_to_js("assert.throws(TypeError, function() { 1 + 1; });\n")
             .expect("compile");
         assert!(run_js_in_node(&js).is_err());
+    }
+
+    #[test]
+    fn harness_shim_deep_equal() {
+        // E19.84.08: assert.deepEqual for module evaluation error objects.
+        let js = compile_test_to_js(
+            r#"
+            assert.deepEqual({ someError: "x" }, { someError: "x" });
+            let a = { someError: "the error" };
+            let b = a;
+            assert.deepEqual(a, b);
+            "#,
+        )
+        .expect("compile");
+        run_js_in_node(&js).expect("node");
+        let bad = compile_test_to_js("assert.deepEqual({ a: 1 }, { a: 2 });\n").expect("compile");
+        assert!(run_js_in_node(&bad).is_err());
     }
 
     #[test]
@@ -3511,4 +3615,6 @@ assert.throws(Test262Error, function () {
         handle.join().expect("test262-default-run thread");
     }
 }
+
+
 

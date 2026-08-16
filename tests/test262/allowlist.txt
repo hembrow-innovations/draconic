@@ -33390,6 +33390,11 @@ test/language/import/import-defer/errors/get-other-while-evaluating-async/main.j
 test/language/import/import-defer/errors/get-self-while-defer-evaluating/main.js
 test/language/import/import-defer/errors/get-self-while-evaluating-async/main.js
 test/language/import/import-defer/errors/get-self-while-evaluating.js
+test/language/import/import-defer/errors/module-throws/defer-import-after-evaluation.js
+test/language/import/import-defer/errors/module-throws/import-defer-throws_FIXTURE.js
+test/language/import/import-defer/errors/module-throws/third-party-evaluation-after-defer-import.js
+test/language/import/import-defer/errors/module-throws/throws_FIXTURE.js
+test/language/import/import-defer/errors/module-throws/trigger-evaluation.js
 test/language/import/import-defer/errors/resolution-error/import-defer-of-missing-module-fails.js
 test/language/import/import-defer/errors/syntax-error/import-defer-of-syntax-error-fails.js
 test/language/import/import-defer/evaluation-sync/import-defer-does-not-evaluate.js

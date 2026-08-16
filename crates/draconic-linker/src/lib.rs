@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use draconic_ast::{
-    Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BinaryOp, BindingKind,
+    Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BindingKind,
     BindingPattern, ClassElement, Expr, Ident, ImportPhase, NumberLit, ObjectKey,
     ObjectPatternProp, ObjectProp, Param, Program, Stmt,
 };
@@ -56,6 +56,9 @@ struct ModuleData {
     /// String-literal `import.defer("…")` targets (E19.84.06). Loaded into the graph
     /// and get deferred namespaces, but do not mark eval unless also an eval_dep.
     dynamic_defer_targets: Vec<PathBuf>,
+    /// String-literal evaluation-phase `import("…")` targets (E19.84.08). Loaded into
+    /// the graph for linked dynamic import + evaluation-error identity; not eval_deps.
+    dynamic_import_targets: Vec<PathBuf>,
 }
 
 struct NamedReexport {
@@ -326,6 +329,15 @@ impl Loader {
                 dep_paths.push(dep.clone());
             }
         }
+        // E19.84.08: load string-literal evaluation-phase `import("…")` targets so
+        // linked graphs can share evaluation errors with deferred namespaces.
+        let mut dynamic_import_targets = Vec::new();
+        collect_dynamic_eval_import_targets(&body, parent, &mut dynamic_import_targets)?;
+        for dep in &dynamic_import_targets {
+            if !dep_paths.iter().any(|p| p == dep) {
+                dep_paths.push(dep.clone());
+            }
+        }
 
         for dep in &dep_paths {
             self.load_module(dep, stack)?;
@@ -344,6 +356,7 @@ impl Loader {
             eval_deps,
             requested: dep_paths,
             dynamic_defer_targets,
+            dynamic_import_targets,
         });
         stack.pop();
         Ok(())
@@ -453,6 +466,13 @@ impl Loader {
                     deferred_ns_targets.insert(from_id);
                 }
             }
+            // E19.84.08: evaluation-phase `import("…")` of a linked module needs an
+            // eager namespace object as the ImportCall fulfillment value.
+            for from in &self.modules[id].dynamic_import_targets {
+                if let Some(&from_id) = self.ids.get(from) {
+                    shared_ns_targets.insert(from_id);
+                }
+            }
         }
 
         // E19.84.02: build one shared deferred namespace object per target module.
@@ -548,11 +568,15 @@ impl Loader {
         }
 
         let mut linked_body = Vec::new();
-        if any_deferred_ns {
-            // E19.84.05: module status + ReadyForSyncExecution graph for deferred ns.
+        // Status / [[EvaluationError]] helpers for deferred ns (E19.84.05) and for
+        // lazy once-eval of non-eager modules (incl. dynamic-import targets, E19.84.08).
+        let has_lazy_modules = (0..self.modules.len()).any(|id| !eager.contains(&id));
+        if any_deferred_ns || has_lazy_modules {
             for stmt in deferred_module_status_helper_stmts(self, self.modules.len())? {
                 linked_body.push(stmt);
             }
+        }
+        if any_deferred_ns {
             for stmt in deferred_namespace_helper_stmts()? {
                 linked_body.push(stmt);
             }
@@ -602,12 +626,17 @@ impl Loader {
                 // Per-file source offsets collide across modules; binder/IR key by Span.
                 uniqueify_stmt_spans(stmt, &mut span_gen);
             }
-            // E19.84.02: dynamic `import.defer("…")` of a linked module resolves to
-            // that module's shared deferred namespace object, keeping identity with
-            // static `import defer` sites (Node would otherwise return the eager ns).
-            if !deferred_ns_targets.is_empty() {
+            // E19.84.02 / E19.84.08: rewrite dynamic `import.defer` / evaluation-phase
+            // `import("…")` of linked modules (Node lacks import-defer; linked eval
+            // errors must share identity with deferred-namespace triggers).
+            if !deferred_ns_targets.is_empty() || !shared_ns_targets.is_empty() {
                 if let Some(path) = id_to_path.get(&id) {
-                    self.rewrite_dynamic_deferred_imports(&mut body, path, &deferred_ns_targets)?;
+                    self.rewrite_dynamic_deferred_imports(
+                        &mut body,
+                        path,
+                        &deferred_ns_targets,
+                        &mut span_gen,
+                    )?;
                 }
             }
             // E19.84.05: mark eager module ~evaluating~ … ~evaluated~ around body so
@@ -959,22 +988,22 @@ impl Loader {
         Ok(())
     }
 
-    /// E19.84.02: rewrite dynamic `import.defer("…")` calls of linked modules to
-    /// reference the shared deferred namespace object for that module (`__ns_defer{id}`).
-    /// The specifier is resolved relative to `self_path` (the linking module's own
-    /// file) so multiple sites get the same binding — matching the spec's per-module
-    /// `[[DeferredNamespace]]` cache. Unlinkable specifiers (external URLs, unloaded
-    /// modules) are left as regular dynamic `import`, which is an eager load on Node.
+    /// E19.84.02 / E19.84.08: rewrite dynamic `import.defer("…")` and evaluation-phase
+    /// `import("…")` of linked modules. Defer → `Promise.resolve(__ns_defer{id})`.
+    /// Evaluation → Promise that runs the module's once-eval thunk (if any), rethrows
+    /// a cached `[[EvaluationError]]`, and fulfills with `__ns{id}`.
     fn rewrite_dynamic_deferred_imports(
         &self,
         body: &mut Vec<Stmt>,
         self_path: &Path,
         deferred_ns_targets: &HashSet<usize>,
+        spans: &mut SyntheticSpans,
     ) -> Result<(), Diagnostic> {
         let mut ctx = RewriteCtx {
             importer_dir: self_path.parent().unwrap_or(Path::new("")).to_path_buf(),
             deferred_ns_targets,
             ids: &self.ids,
+            spans,
         };
         for stmt in body.iter_mut() {
             rewrite_stmt_dynamic_imports(stmt, &mut ctx)?;
@@ -987,6 +1016,7 @@ struct RewriteCtx<'a> {
     importer_dir: PathBuf,
     deferred_ns_targets: &'a HashSet<usize>,
     ids: &'a HashMap<PathBuf, usize>,
+    spans: &'a mut SyntheticSpans,
 }
 
 fn rewrite_stmt_dynamic_imports(stmt: &mut Stmt, ctx: &mut RewriteCtx<'_>) -> Result<(), Diagnostic> {
@@ -1249,7 +1279,7 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
             }
         }
         Expr::ImportCall { .. } => {
-            let replacement = match expr {
+            let defer_replacement = match expr {
                 Expr::ImportCall {
                     phase,
                     source,
@@ -1260,7 +1290,7 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
                 }
                 _ => None,
             };
-            if let Some((name, span)) = replacement {
+            if let Some((name, span)) = defer_replacement {
                 // Spec: ImportCall with ~defer~ returns a Promise of the deferred ns.
                 // `await import.defer(…)` and `.then(…)` both need a thenable.
                 // Distinct spans: binder/IR key symbols by Span (shared span collapses names).
@@ -1290,6 +1320,22 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
                     optional: false,
                     span: sp_c,
                 };
+                return Ok(());
+            }
+            // E19.84.08: evaluation-phase `import("linked")` → evaluate + eager ns.
+            let eval_replacement = match expr {
+                Expr::ImportCall {
+                    phase,
+                    source,
+                    span,
+                    ..
+                } if *phase == ImportPhase::Evaluation => {
+                    ctx.eval_import_rewrite_for_source(source, *span)?
+                }
+                _ => None,
+            };
+            if let Some(rewritten) = eval_replacement {
+                *expr = rewritten;
                 return Ok(());
             }
             if let Expr::ImportCall {
@@ -1436,34 +1482,79 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
 }
 
 impl RewriteCtx<'_> {
-    /// If `source` is a static string referring to a linked module, return the
-    /// shared deferred namespace binding name for that module. Returns `None` for
-    /// unlinkable specifiers (external URLs, unloaded modules, dynamic sources).
-    fn deferred_ident_for_source(&self, source: &Expr) -> Result<Option<String>, Diagnostic> {
+    /// Resolve a string-literal module specifier against `importer_dir` to a linked id.
+    fn linked_id_for_source(&self, source: &Expr) -> Option<usize> {
         let Expr::String(lit) = source else {
-            return Ok(None);
+            return None;
         };
         let spec = lit.value.to_string_lossy();
         let spec_path = Path::new(&spec);
         if spec_path.is_absolute() || spec_path.starts_with("http") {
-            return Ok(None);
+            return None;
         }
         let mut resolved = self.importer_dir.clone();
         for comp in spec_path.components() {
             resolved.push(comp);
         }
         let norm = lexical_normalize_path(&resolved);
-        if let Some(&id) = self.ids.get(&norm) {
-            if self.deferred_ns_targets.contains(&id) {
-                return Ok(Some(deferred_namespace_binding_name(id)));
-            }
+        self.ids.get(&norm).copied()
+    }
+
+    /// If `source` is a static string referring to a linked module, return the
+    /// shared deferred namespace binding name for that module. Returns `None` for
+    /// unlinkable specifiers (external URLs, unloaded modules, dynamic sources).
+    fn deferred_ident_for_source(&self, source: &Expr) -> Result<Option<String>, Diagnostic> {
+        let Some(id) = self.linked_id_for_source(source) else {
+            return Ok(None);
+        };
+        if self.deferred_ns_targets.contains(&id) {
+            Ok(Some(deferred_namespace_binding_name(id)))
+        } else {
+            Ok(None)
         }
-        Ok(None)
+    }
+
+    /// E19.84.08: evaluation-phase `import("linked")` → Promise that evaluates the
+    /// module (once), rethrows a cached evaluation error, and fulfills with `__ns{id}`.
+    fn eval_import_rewrite_for_source(
+        &mut self,
+        source: &Expr,
+        span: Span,
+    ) -> Result<Option<Expr>, Diagnostic> {
+        let Some(id) = self.linked_id_for_source(source) else {
+            return Ok(None);
+        };
+        let ns = shared_namespace_binding_name(id);
+        let eval_fn = deferred_eval_fn_name(id);
+        let src = format!(
+            r#"Promise.resolve().then(function () {{
+  if (typeof {eval_fn} === "function") {{
+    {eval_fn}();
+  }}
+  if (typeof __draconic_merror !== "undefined" && __draconic_merror[{id}] !== undefined) {{
+    throw __draconic_merror[{id}];
+  }}
+  return {ns};
+}})"#
+        );
+        let program = parse(&src)?;
+        let Stmt::Expression { mut expr, .. } = program
+            .body
+            .into_iter()
+            .next()
+            .ok_or_else(|| Diagnostic::new("eval import rewrite produced no stmt", span))?
+        else {
+            return Err(Diagnostic::new(
+                "eval import rewrite expected expression stmt",
+                span,
+            ));
+        };
+        // Fresh spans per rewrite site — binder/IR key symbols by Span.
+        uniqueify_expr_spans(&mut expr, self.spans);
+        Ok(Some(expr))
     }
 }
 
-/// Lexically normalize a path without touching the filesystem (for specifier
-/// resolution against the linking module's location).
 fn lexical_normalize_path(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in path.components() {
@@ -2374,9 +2465,19 @@ fn deferred_module_status_helper_stmts(
     status_inits.push(']');
     tla_inits.push(']');
     deps_inits.push(']');
+    // E19.84.08: parallel [[EvaluationError]] slots (undefined until a throw).
+    let mut error_inits = String::from("[");
+    for id in 0..n_modules {
+        if id > 0 {
+            error_inits.push_str(", ");
+        }
+        error_inits.push_str("undefined");
+    }
+    error_inits.push(']');
     let src = format!(
         r#"
 let __draconic_mstatus = {status_inits};
+let __draconic_merror = {error_inits};
 let __draconic_mtla = {tla_inits};
 let __draconic_mdeps = {deps_inits};
 function __draconic_ready(id, seen) {{
@@ -2435,6 +2536,7 @@ fn deferred_namespace_helper_stmts() -> Result<Vec<Stmt>, Diagnostic> {
     let src = r#"
 function __draconic_deferred_ns(evaluate, exportNames, modId) {
   let evaluated = false;
+  let evalError = undefined;
   let exportsObj = null;
   let names = exportNames.slice().sort();
   // Target is a static stand-in matching a module namespace exotic object's
@@ -2456,18 +2558,33 @@ function __draconic_deferred_ns(evaluate, exportNames, modId) {
   }
   Object.preventExtensions(target);
   function ensure() {
+    // E19.84.08: cached [[EvaluationError]] rethrows the same reason.
+    if (evaluated) {
+      if (evalError !== undefined) throw evalError;
+      return exportsObj;
+    }
     // E19.84.05: EnsureDeferredNamespaceEvaluation — if not ~evaluated~ and
     // ReadyForSyncExecution is false, throw TypeError (do not start evaluation).
-    if (!evaluated) {
-      let st = __draconic_mstatus[modId];
-      if (st !== 3 && !__draconic_ready(modId)) {
-        throw new TypeError("Deferred module is not ready for synchronous evaluation");
-      }
+    let st = __draconic_mstatus[modId];
+    if (st !== 3 && !__draconic_ready(modId)) {
+      throw new TypeError("Deferred module is not ready for synchronous evaluation");
+    }
+    // Already evaluated elsewhere (eager body or prior dynamic import) with error.
+    if (st === 3 && __draconic_merror[modId] !== undefined) {
+      evalError = __draconic_merror[modId];
+      evaluated = true;
+      throw evalError;
+    }
+    try {
       exportsObj = evaluate();
       evaluated = true;
       for (let i = 0; i < names.length; i++) {
         target[names[i]] = exportsObj[names[i]];
       }
+    } catch (e) {
+      evalError = __draconic_merror[modId] !== undefined ? __draconic_merror[modId] : e;
+      evaluated = true;
+      throw evalError;
     }
     return exportsObj;
   }
@@ -2808,63 +2925,83 @@ fn wrap_deferred_module_body(
         });
     }
 
-    let mut eval_body: Vec<Stmt> = Vec::new();
-    let guard_span = spans.next();
-    // E19.84.05: if already ~evaluated~, return; else mark ~evaluating~, run body, ~evaluated~.
+    // E19.84.05 / E19.84.08: once-eval with [[EvaluationError]] cache.
     // ReadyForSyncExecution / TypeError is enforced by __draconic_deferred_ns.ensure before call.
-    eval_body.push(Stmt::If {
-        test: Expr::Binary {
-            left: Box::new(Expr::MemberExpression {
-                object: Box::new(Expr::Ident(Ident {
-                    name: "__draconic_mstatus".into(),
-                    span: guard_span,
-                })),
-                property: Box::new(Expr::Number(NumberLit {
-                    raw: mod_id.to_string(),
-                    span: guard_span,
-                })),
-                computed: true,
-                optional: false,
-                private: false,
-                span: guard_span,
-            }),
-            op: BinaryOp::EqEqEq,
-            right: Box::new(Expr::Number(NumberLit {
-                raw: "3".into(),
-                span: guard_span,
-            })),
-            span: guard_span,
-        },
-        consequent: Box::new(Stmt::Return {
-            argument: None,
-            span: guard_span,
-        }),
-        alternate: None,
-        span: guard_span,
-    });
-    eval_body.push(make_module_status_assign(mod_id, 1, spans.next()));
-    eval_body.extend(prelude_calls);
+    let mut try_body: Vec<Stmt> = prelude_calls;
     for stmt in body {
-        eval_body.push(hoist_decl_to_assign(stmt));
+        try_body.push(hoist_decl_to_assign(stmt));
     }
-    eval_body.push(make_module_status_assign(mod_id, 3, spans.next()));
-    let fn_span = spans.next();
-    out.push(Stmt::FunctionDeclaration {
-        name: Ident {
-            name: eval_name.to_string(),
-            span: fn_span,
-        },
-        type_params: vec![],
-        params: vec![],
-        return_type: None,
-        body: Box::new(Stmt::Block {
-            body: eval_body,
-            span: fn_span,
-        }),
-        is_async: false,
-        is_generator: false,
-        span: fn_span,
-    });
+    try_body.push(make_module_status_assign(mod_id, 3, spans.next()));
+    let guard_src = format!(
+        r#"
+function {eval_name}() {{
+  if (__draconic_mstatus[{mod_id}] === 3) {{
+    if (__draconic_merror[{mod_id}] !== undefined) throw __draconic_merror[{mod_id}];
+    return;
+  }}
+  __draconic_mstatus[{mod_id}] = 1;
+  try {{
+    ;
+  }} catch (e) {{
+    __draconic_merror[{mod_id}] = e;
+    __draconic_mstatus[{mod_id}] = 3;
+    throw e;
+  }}
+}}
+"#
+    );
+    let mut parsed = match parse(&guard_src) {
+        Ok(p) => p.body,
+        Err(_) => {
+            // Fallback without try (should not happen): previous shape.
+            let mut eval_body = Vec::new();
+            let guard_span = spans.next();
+            eval_body.push(make_module_status_assign(mod_id, 1, guard_span));
+            eval_body.extend(try_body);
+            let fn_span = spans.next();
+            out.push(Stmt::FunctionDeclaration {
+                name: Ident {
+                    name: eval_name.to_string(),
+                    span: fn_span,
+                },
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Box::new(Stmt::Block {
+                    body: eval_body,
+                    span: fn_span,
+                }),
+                is_async: false,
+                is_generator: false,
+                span: fn_span,
+            });
+            return out;
+        }
+    };
+    // Inject real module body into the try block of the parsed skeleton.
+    if let Some(Stmt::FunctionDeclaration { body: fn_body, .. }) = parsed.last_mut() {
+        if let Stmt::Block { body: stmts, .. } = fn_body.as_mut() {
+            for stmt in stmts.iter_mut() {
+                if let Stmt::Try {
+                    block,
+                    ..
+                } = stmt
+                {
+                    if let Stmt::Block {
+                        body: try_stmts, ..
+                    } = block.as_mut()
+                    {
+                        *try_stmts = try_body;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    for mut stmt in parsed {
+        uniqueify_stmt_spans(&mut stmt, spans);
+        out.push(stmt);
+    }
     out
 }
 
@@ -3652,6 +3789,379 @@ fn collect_dynamic_defer_targets(
 ) -> Result<(), Diagnostic> {
     for stmt in body {
         collect_dynamic_defer_in_stmt(stmt, parent, out)?;
+    }
+    Ok(())
+}
+
+/// E19.84.08: collect resolved paths of string-literal evaluation-phase `import("…")`.
+fn collect_dynamic_eval_import_targets(
+    body: &[Stmt],
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), Diagnostic> {
+    for stmt in body {
+        collect_dynamic_eval_import_in_stmt(stmt, parent, out)?;
+    }
+    Ok(())
+}
+
+fn collect_dynamic_eval_import_in_stmt(
+    stmt: &Stmt,
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), Diagnostic> {
+    // Reuse the defer walker; only the ImportCall phase filter differs.
+    collect_dynamic_import_phase_in_stmt(stmt, parent, out, ImportPhase::Evaluation)
+}
+
+fn collect_dynamic_import_phase_in_stmt(
+    stmt: &Stmt,
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+    phase_filter: ImportPhase,
+) -> Result<(), Diagnostic> {
+    match stmt {
+        Stmt::Expression { expr, .. } => {
+            collect_dynamic_import_phase_in_expr(expr, parent, out, phase_filter)?
+        }
+        Stmt::Let { init: Some(init), .. } => {
+            collect_dynamic_import_phase_in_expr(init, parent, out, phase_filter)?
+        }
+        Stmt::Block { body, .. } => {
+            for s in body {
+                collect_dynamic_import_phase_in_stmt(s, parent, out, phase_filter)?;
+            }
+        }
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            collect_dynamic_import_phase_in_expr(test, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_stmt(consequent, parent, out, phase_filter)?;
+            if let Some(alt) = alternate {
+                collect_dynamic_import_phase_in_stmt(alt, parent, out, phase_filter)?;
+            }
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            collect_dynamic_import_phase_in_expr(test, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+            ..
+        } => {
+            if let Some(init) = init {
+                collect_dynamic_import_phase_in_stmt(init, parent, out, phase_filter)?;
+            }
+            if let Some(test) = test {
+                collect_dynamic_import_phase_in_expr(test, parent, out, phase_filter)?;
+            }
+            if let Some(update) = update {
+                collect_dynamic_import_phase_in_expr(update, parent, out, phase_filter)?;
+            }
+            collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+        }
+        Stmt::ForIn {
+            left, right, body, ..
+        }
+        | Stmt::ForOf {
+            left, right, body, ..
+        } => {
+            collect_dynamic_import_phase_in_stmt(left, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_expr(right, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+        }
+        Stmt::Labeled { body, .. } => {
+            collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?
+        }
+        Stmt::Switch {
+            discriminant,
+            cases,
+            ..
+        } => {
+            collect_dynamic_import_phase_in_expr(discriminant, parent, out, phase_filter)?;
+            for c in cases {
+                if let Some(test) = &c.test {
+                    collect_dynamic_import_phase_in_expr(test, parent, out, phase_filter)?;
+                }
+                for s in &c.body {
+                    collect_dynamic_import_phase_in_stmt(s, parent, out, phase_filter)?;
+                }
+            }
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            collect_dynamic_import_phase_in_stmt(block, parent, out, phase_filter)?;
+            if let Some(handler) = handler {
+                collect_dynamic_import_phase_in_stmt(handler, parent, out, phase_filter)?;
+            }
+            if let Some(finalizer) = finalizer {
+                collect_dynamic_import_phase_in_stmt(finalizer, parent, out, phase_filter)?;
+            }
+        }
+        Stmt::With { object, body, .. } => {
+            collect_dynamic_import_phase_in_expr(object, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+        }
+        Stmt::Return {
+            argument: Some(arg),
+            ..
+        }
+        | Stmt::Throw { argument: arg, .. } => {
+            collect_dynamic_import_phase_in_expr(arg, parent, out, phase_filter)?
+        }
+        Stmt::FunctionDeclaration {
+            body, params, ..
+        } => {
+            for p in params {
+                if let Some(default) = &p.default {
+                    collect_dynamic_import_phase_in_expr(default, parent, out, phase_filter)?;
+                }
+            }
+            collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+        }
+        Stmt::ClassDeclaration {
+            super_class, body, ..
+        } => {
+            if let Some(sc) = super_class {
+                collect_dynamic_import_phase_in_expr(sc, parent, out, phase_filter)?;
+            }
+            for el in body {
+                match el {
+                    ClassElement::Constructor { body, params, .. }
+                    | ClassElement::Method { body, params, .. }
+                    | ClassElement::Accessor { body, params, .. } => {
+                        for p in params {
+                            if let Some(default) = &p.default {
+                                collect_dynamic_import_phase_in_expr(
+                                    default,
+                                    parent,
+                                    out,
+                                    phase_filter,
+                                )?;
+                            }
+                        }
+                        collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+                    }
+                    ClassElement::Field { key, value, .. } => {
+                        if let ObjectKey::Computed(key) = key {
+                            collect_dynamic_import_phase_in_expr(key, parent, out, phase_filter)?;
+                        }
+                        if let Some(value) = value {
+                            collect_dynamic_import_phase_in_expr(value, parent, out, phase_filter)?;
+                        }
+                    }
+                    ClassElement::StaticBlock { body, .. } => {
+                        collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn collect_dynamic_import_phase_in_expr(
+    expr: &Expr,
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+    phase_filter: ImportPhase,
+) -> Result<(), Diagnostic> {
+    match expr {
+        Expr::ImportCall {
+            phase,
+            source,
+            options,
+            ..
+        } => {
+            if *phase == phase_filter {
+                if let Expr::String(lit) = source.as_ref() {
+                    if let Some(spec) = lit.value.to_string_strict() {
+                        let dep = resolve_specifier(parent, &spec, lit.span)?;
+                        if !out.iter().any(|p| p == &dep) {
+                            out.push(dep);
+                        }
+                    }
+                }
+            }
+            collect_dynamic_import_phase_in_expr(source, parent, out, phase_filter)?;
+            if let Some(options) = options {
+                collect_dynamic_import_phase_in_expr(options, parent, out, phase_filter)?;
+            }
+        }
+        Expr::Unary { arg, .. }
+        | Expr::Update { arg, .. }
+        | Expr::Paren { expr: arg, .. }
+        | Expr::As { expr: arg, .. } => {
+            collect_dynamic_import_phase_in_expr(arg, parent, out, phase_filter)?;
+        }
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => {
+            collect_dynamic_import_phase_in_expr(left, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_expr(right, parent, out, phase_filter)?;
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            collect_dynamic_import_phase_in_expr(test, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_expr(consequent, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_expr(alternate, parent, out, phase_filter)?;
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            collect_dynamic_import_phase_in_expr(callee, parent, out, phase_filter)?;
+            for a in args {
+                match a {
+                    Arg::Expr(e) | Arg::Spread(e) => {
+                        collect_dynamic_import_phase_in_expr(e, parent, out, phase_filter)?
+                    }
+                }
+            }
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => {
+            collect_dynamic_import_phase_in_expr(object, parent, out, phase_filter)?;
+            collect_dynamic_import_phase_in_expr(property, parent, out, phase_filter)?;
+        }
+        Expr::PrivateIn { object, .. } => {
+            collect_dynamic_import_phase_in_expr(object, parent, out, phase_filter)?
+        }
+        Expr::ArrayExpression { elements, .. } => {
+            for el in elements {
+                match el {
+                    ArrayElement::Expr(e) | ArrayElement::Spread(e) => {
+                        collect_dynamic_import_phase_in_expr(e, parent, out, phase_filter)?
+                    }
+                    ArrayElement::Elision => {}
+                }
+            }
+        }
+        Expr::ObjectExpression { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectProp::Property { key, value, .. } => {
+                        if let ObjectKey::Computed(key) = key {
+                            collect_dynamic_import_phase_in_expr(key, parent, out, phase_filter)?;
+                        }
+                        collect_dynamic_import_phase_in_expr(value, parent, out, phase_filter)?;
+                    }
+                    ObjectProp::Accessor {
+                        key, params, body, ..
+                    } => {
+                        if let ObjectKey::Computed(key) = key {
+                            collect_dynamic_import_phase_in_expr(key, parent, out, phase_filter)?;
+                        }
+                        for p in params {
+                            if let Some(default) = &p.default {
+                                collect_dynamic_import_phase_in_expr(
+                                    default,
+                                    parent,
+                                    out,
+                                    phase_filter,
+                                )?;
+                            }
+                        }
+                        collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+                    }
+                    ObjectProp::Spread { expr, .. } => {
+                        collect_dynamic_import_phase_in_expr(expr, parent, out, phase_filter)?
+                    }
+                }
+            }
+        }
+        Expr::TemplateLiteral { expressions, .. } => {
+            for e in expressions {
+                collect_dynamic_import_phase_in_expr(e, parent, out, phase_filter)?;
+            }
+        }
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => {
+            collect_dynamic_import_phase_in_expr(tag, parent, out, phase_filter)?;
+            for e in expressions {
+                collect_dynamic_import_phase_in_expr(e, parent, out, phase_filter)?;
+            }
+        }
+        Expr::FunctionExpression {
+            params, body, ..
+        } => {
+            for p in params {
+                if let Some(default) = &p.default {
+                    collect_dynamic_import_phase_in_expr(default, parent, out, phase_filter)?;
+                }
+            }
+            collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+        }
+        Expr::ClassExpression {
+            super_class, body, ..
+        } => {
+            if let Some(sc) = super_class {
+                collect_dynamic_import_phase_in_expr(sc, parent, out, phase_filter)?;
+            }
+            for el in body {
+                match el {
+                    ClassElement::Constructor { body, params, .. }
+                    | ClassElement::Method { body, params, .. }
+                    | ClassElement::Accessor { body, params, .. } => {
+                        for p in params {
+                            if let Some(default) = &p.default {
+                                collect_dynamic_import_phase_in_expr(
+                                    default,
+                                    parent,
+                                    out,
+                                    phase_filter,
+                                )?;
+                            }
+                        }
+                        collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+                    }
+                    ClassElement::Field { key, value, .. } => {
+                        if let ObjectKey::Computed(key) = key {
+                            collect_dynamic_import_phase_in_expr(key, parent, out, phase_filter)?;
+                        }
+                        if let Some(value) = value {
+                            collect_dynamic_import_phase_in_expr(value, parent, out, phase_filter)?;
+                        }
+                    }
+                    ClassElement::StaticBlock { body, .. } => {
+                        collect_dynamic_import_phase_in_stmt(body, parent, out, phase_filter)?;
+                    }
+                }
+            }
+        }
+        Expr::ArrowFunction { params, body, .. } => {
+            for p in params {
+                if let Some(default) = &p.default {
+                    collect_dynamic_import_phase_in_expr(default, parent, out, phase_filter)?;
+                }
+            }
+            match body {
+                ArrowBody::Expr(e) => {
+                    collect_dynamic_import_phase_in_expr(e, parent, out, phase_filter)?
+                }
+                ArrowBody::Block(b) => {
+                    collect_dynamic_import_phase_in_stmt(b, parent, out, phase_filter)?
+                }
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -4618,6 +5128,52 @@ mod tests {
         let program = link_entry(&main).expect("import * export same module");
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("__ns") || dump.contains("ObjectExpression"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_deferred_module_throws_evaluation_error_cache() {
+        // E19.84.08: throwing deferred module records [[EvaluationError]]; dynamic
+        // import and deferred-ns access share the same reason; merror helpers present.
+        let dir = temp_link_dir("module-throws");
+        fs::write(
+            dir.join("throws.drac"),
+            "throw { someError: \"the error from throws\" };\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("defer_ns.drac"),
+            "import defer * as ns from \"./throws.drac\";\nexport { ns };\n",
+        )
+        .unwrap();
+        let main = dir.join("main.drac");
+        fs::write(
+            &main,
+            r#"
+import defer * as ns from "./throws.drac";
+async function run() {
+  let err1;
+  await import("./throws.drac").catch(function (e) { err1 = e; });
+  let err2;
+  try { ns.foo; } catch (e) { err2 = e; }
+  let err3;
+  const mod = await import("./defer_ns.drac");
+  try { mod.ns.foo; } catch (e) { err3 = e; }
+  return err1 === err2 && err1 === err3;
+}
+"#,
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("module-throws link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(
+            dump.contains("__draconic_merror") && dump.contains("__draconic_deferred_ns"),
+            "{dump}"
+        );
+        assert!(
+            dump.contains("__draconic_eval_m") || dump.contains("draconic_eval"),
+            "{dump}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }
