@@ -1,6 +1,7 @@
 //! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
 mod es_arrays;
+mod es_builtins;
 mod es_call_spread;
 mod es_classes;
 mod es_coercion;
@@ -26,6 +27,7 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::Module;
 
 use es_arrays::{emit_es_arrays, is_es_arrays_module};
+use es_builtins::{emit_es_builtins, is_es_builtins_module};
 use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
 use es_coercion::{emit_es_coercion, is_es_coercion_module};
@@ -105,6 +107,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Proxy apply** (empty-handler call pass-through; `apply` trap; method `this`) — N08.13.05
 /// - **Proxy construct** (empty-handler `new` pass-through; `construct` trap; ctor `this`) — N08.13.06
 /// - **Reflect basics** + **ownKeys** + **getPrototypeOf/setPrototypeOf** + **defineProperty/getOwnPropertyDescriptor** — N08.13.07–N08.13.10
+/// - **Global builtins basics** (`undefined`/`globalThis`/`Object`/`Function`/`Array`/`String`/`Boolean`) — N08.14.01
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -119,6 +122,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_proxies_module(module) {
         return emit_es_proxies(module);
+    }
+    if is_es_builtins_module(module) {
+        return emit_es_builtins(module);
     }
     if is_es_generators_module(module) {
         return emit_es_generators(module);
@@ -175,8 +181,8 @@ fn is_empty_program(module: &Module) -> bool {
 fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
-           supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-            ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, ES generators (function*/yield/next/for-of), ES Proxy basics/set/has/delete/apply/construct, linked ESM modules (named/default/namespace/cyclic), empty hello)",
+            supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
+            ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, ES generators (function*/yield/next/for-of), ES Proxy basics/set/has/delete/apply/construct, ES global builtins basics, linked ESM modules (named/default/namespace/cyclic), empty hello)",
         Span::dummy(),
     )
 }
