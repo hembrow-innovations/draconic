@@ -1,5 +1,6 @@
-//! N08.04.01: native observations for ES object literals + property access
-//! (E04.01 / `es/objects/object_lit_access`).
+//! N08.04.01–N08.04.02: native observations for ES object literals, property
+//! access, and simple property assignment (E04.01–E04.02 /
+//! `es/objects/object_lit_access`, `es/objects/property_assign`).
 //!
 //! Object values are Runtime GC heap ptrs; number props are stored as
 //! `inttoptr` of integer bit-patterns (fixture uses small integers). Nested
@@ -9,9 +10,10 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use draconic_ast::AssignOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt,
+    AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt,
 };
 use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, GC_INIT, OBJECT_GET, OBJECT_SET, PRINT_F64,
@@ -68,6 +70,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     return None;
                 }
             }
+            Stmt::Expr { expr } => {
+                if !member_assign_ok(expr, &by_id) {
+                    return None;
+                }
+            }
             _ => return None,
         }
     }
@@ -107,6 +114,29 @@ fn expr_is_number_init(expr: &Expr) -> bool {
             ty: Type::Number | Type::Any,
             ..
         } => true,
+        // `let r = (o.a = 8)` — assignment expression yields the RHS number.
+        Expr::Assign {
+            op: AssignOp::Eq,
+            ty: Type::Number | Type::Any,
+            ..
+        } => true,
+        _ => false,
+    }
+}
+
+fn member_assign_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object,
+                    property,
+                    ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => object_expr_ok(object, by_id) && member_key_ok(property) && number_expr_ok(value, by_id),
         _ => false,
     }
 }
@@ -165,6 +195,17 @@ fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             optional,
             ..
         } => !*optional && object_expr_ok(object, by_id) && member_key_ok(property),
+        Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object,
+                    property,
+                    ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => object_expr_ok(object, by_id) && member_key_ok(property) && number_expr_ok(value, by_id),
         _ => false,
     }
 }
@@ -219,7 +260,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.04.01 ES object lit + property access via Runtime ABI)"
+            "; Draconic LLVM backend (N08.04 ES object lit + property access/assign via Runtime ABI)"
         )
         .ok();
         writeln!(
@@ -307,6 +348,10 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Stmt::Expr { expr } => {
+                let _ = self.emit_number_expr(expr)?;
+                Ok(())
+            }
             _ => Err(diag("es_objects: unsupported stmt")),
         }
     }
@@ -350,6 +395,32 @@ impl<'a> Emitter<'a> {
                 let d = self.fresh();
                 writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                 Ok(d)
+            }
+            Expr::Assign {
+                target:
+                    AssignTarget::Member {
+                        object,
+                        property,
+                        ..
+                    },
+                op: AssignOp::Eq,
+                value,
+                ..
+            } => {
+                let obj = self.emit_object_expr(object)?;
+                let key = self.member_key_cstr(property)?;
+                let n = self.emit_number_expr(value)?;
+                let i = self.fresh();
+                writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
+                let p = self.fresh();
+                writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    OBJECT_SET.call(&format!("ptr {obj}, ptr {key}, ptr {p}"))
+                )
+                .ok();
+                Ok(n)
             }
             _ => Err(diag("es_objects: unsupported number expr")),
         }
