@@ -1,4 +1,4 @@
-//! N08.14.01–N08.14.06: native observations for global builtins + Error ctors + functions + URI + JSON + Date.
+//! N08.14.01–N08.14.07: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -10,6 +10,8 @@
 //! - E15.04: `encodeURI` / `decodeURI` / `encodeURIComponent` / `decodeURIComponent`
 //! - E15.05: `JSON` / `JSON.parse` / `JSON.stringify` (primitives, objects, arrays)
 //! - E15.06: `Date` / `Date.now` / `Date.UTC` / `new Date(ms)` / `.getTime()` / `.valueOf()`
+//! - E15.07: `RegExp` / `new RegExp(pattern[, flags])` / call without `new` / `.source` /
+//!   `.flags` / `.test` / `.exec` (fixture subset: literals + `c+` + `i` flag)
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -71,6 +73,7 @@ enum BuiltinId {
     Date,
     DateNow,
     DateUtc,
+    RegExp,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -90,6 +93,11 @@ enum JsVal {
     /// Date instance: milliseconds since Unix epoch (UTC).
     DateInst {
         ms: f64,
+    },
+    /// RegExp instance: pattern source + flags string (E15.07 fixture subset).
+    RegExpInst {
+        source: String,
+        flags: String,
     },
     Array(Vec<JsVal>),
     /// Plain object: insertion-ordered string keys.
@@ -165,6 +173,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     | JsVal::Builtin(_)
                     | JsVal::ErrorInst { .. }
                     | JsVal::DateInst { .. }
+                    | JsVal::RegExpInst { .. }
                     | JsVal::Array(_)
                     | JsVal::Object(_),
                 ) => {}
@@ -212,6 +221,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "decodeURIComponent" => Some(BuiltinId::DecodeUriComponent),
         "JSON" => Some(BuiltinId::Json),
         "Date" => Some(BuiltinId::Date),
+        "RegExp" => Some(BuiltinId::RegExp),
         _ => None,
     }
 }
@@ -718,6 +728,9 @@ fn eval_new(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
         };
         return Ok(JsVal::DateInst { ms });
     }
+    if *b == BuiltinId::RegExp {
+        return make_regexp(args);
+    }
     let name = error_ctor_name(*b).ok_or(())?;
     if *b == BuiltinId::AggregateError {
         let errors = match args.first() {
@@ -808,6 +821,7 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
         }
         BuiltinId::DateNow => Ok(JsVal::Num(date_now_ms())),
         BuiltinId::DateUtc => Ok(JsVal::Num(date_utc(args)?)),
+        BuiltinId::RegExp => make_regexp(args),
         _ => Err(()),
     }
 }
@@ -823,12 +837,124 @@ fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, ()
             "UTC" => Ok(JsVal::Num(date_utc(args)?)),
             _ => Err(()),
         },
+        JsVal::RegExpInst { source, flags } => match key {
+            "test" => {
+                let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+                Ok(JsVal::Bool(regexp_find(source, flags, &s).is_some()))
+            }
+            "exec" => {
+                let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+                match regexp_find(source, flags, &s) {
+                    Some(m) => Ok(JsVal::Array(vec![JsVal::Str(m)])),
+                    None => Ok(JsVal::Null),
+                }
+            }
+            _ => Err(()),
+        },
         // Non-method: resolve property then call as bare function.
         other => {
             let c = member_get(other, key)?;
             eval_call(&c, args)
         }
     }
+}
+
+fn make_regexp(args: &[JsVal]) -> Result<JsVal, ()> {
+    let source = match args.first() {
+        Some(JsVal::Str(s)) => s.clone(),
+        Some(JsVal::Undef) | None => String::new(),
+        _ => return Err(()),
+    };
+    let flags = match args.get(1) {
+        Some(JsVal::Str(s)) => s.clone(),
+        Some(JsVal::Undef) | None => String::new(),
+        _ => return Err(()),
+    };
+    // Fixture subset: only empty flags or `i`.
+    if !(flags.is_empty() || flags == "i") {
+        return Err(());
+    }
+    // Reject unsupported pattern syntax early (keep classify strict).
+    parse_regexp_atoms(&source)?;
+    Ok(JsVal::RegExpInst { source, flags })
+}
+
+/// Fixture-depth pattern atoms: literal char or `c+` (one-or-more of c).
+#[derive(Clone, Copy, Debug)]
+enum ReAtom {
+    Lit(char),
+    Plus(char),
+}
+
+fn parse_regexp_atoms(pattern: &str) -> Result<Vec<ReAtom>, ()> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut atoms = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        // No escapes / classes / groups / other quantifiers in this subset.
+        if matches!(
+            c,
+            '\\' | '.' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '^' | '$'
+        ) {
+            return Err(());
+        }
+        if i + 1 < chars.len() && chars[i + 1] == '+' {
+            atoms.push(ReAtom::Plus(c));
+            i += 2;
+        } else if c == '+' {
+            return Err(());
+        } else {
+            atoms.push(ReAtom::Lit(c));
+            i += 1;
+        }
+    }
+    Ok(atoms)
+}
+
+fn char_eq(a: char, b: char, ignore_case: bool) -> bool {
+    if ignore_case {
+        a.to_ascii_lowercase() == b.to_ascii_lowercase()
+    } else {
+        a == b
+    }
+}
+
+/// First match of fixture-subset pattern in `input`, or None.
+fn regexp_find(pattern: &str, flags: &str, input: &str) -> Option<String> {
+    let atoms = parse_regexp_atoms(pattern).ok()?;
+    let ignore_case = flags.contains('i');
+    let chars: Vec<char> = input.chars().collect();
+    for start in 0..=chars.len() {
+        if let Some(end) = regexp_match_at(&atoms, &chars, start, ignore_case) {
+            return Some(chars[start..end].iter().collect());
+        }
+    }
+    None
+}
+
+fn regexp_match_at(atoms: &[ReAtom], input: &[char], start: usize, ignore_case: bool) -> Option<usize> {
+    let mut pos = start;
+    for atom in atoms {
+        match *atom {
+            ReAtom::Lit(c) => {
+                if pos >= input.len() || !char_eq(input[pos], c, ignore_case) {
+                    return None;
+                }
+                pos += 1;
+            }
+            ReAtom::Plus(c) => {
+                if pos >= input.len() || !char_eq(input[pos], c, ignore_case) {
+                    return None;
+                }
+                pos += 1;
+                while pos < input.len() && char_eq(input[pos], c, ignore_case) {
+                    pos += 1;
+                }
+            }
+        }
+    }
+    Some(pos)
 }
 
 fn date_now_ms() -> f64 {
@@ -1173,6 +1299,7 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "decodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::DecodeUriComponent)),
             "JSON" => Ok(JsVal::Builtin(BuiltinId::Json)),
             "Date" => Ok(JsVal::Builtin(BuiltinId::Date)),
+            "RegExp" => Ok(JsVal::Builtin(BuiltinId::RegExp)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -1215,6 +1342,11 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             }
             _ => Err(()),
         },
+        JsVal::RegExpInst { source, flags } => match key {
+            "source" => Ok(JsVal::Str(source.clone())),
+            "flags" => Ok(JsVal::Str(flags.clone())),
+            _ => Err(()),
+        },
         JsVal::Array(elems) if key == "length" => Ok(JsVal::Num(elems.len() as f64)),
         JsVal::Array(elems) => {
             if let Ok(idx) = key.parse::<usize>() {
@@ -1245,7 +1377,8 @@ fn typeof_str(v: &JsVal) -> String {
         | JsVal::Array(_)
         | JsVal::Object(_)
         | JsVal::ErrorInst { .. }
-        | JsVal::DateInst { .. } => "object".into(),
+        | JsVal::DateInst { .. }
+        | JsVal::RegExpInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
         JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json) => {
@@ -1278,7 +1411,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::JsonStringify
             | BuiltinId::Date
             | BuiltinId::DateNow
-            | BuiltinId::DateUtc,
+            | BuiltinId::DateUtc
+            | BuiltinId::RegExp,
         ) => "function".into(),
     }
 }
@@ -1292,6 +1426,7 @@ fn to_boolean(v: &JsVal) -> bool {
         JsVal::Builtin(_)
         | JsVal::ErrorInst { .. }
         | JsVal::DateInst { .. }
+        | JsVal::RegExpInst { .. }
         | JsVal::Array(_)
         | JsVal::Object(_) => true,
     }
@@ -1659,7 +1794,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.06 global builtins / Error ctors / functions / URI / JSON / Date)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.07 global builtins / Error ctors / functions / URI / JSON / Date / RegExp)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1861,5 +1996,20 @@ mod tests {
             ir.contains("double 0") || ir.contains("double 0.0"),
             "should print getTime/valueOf/UTC zeros:\n{ir}"
         );
+    }
+
+    #[test]
+    fn regexp_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/builtins/regexp.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["function", "true", "false", "a+b", "foo", "i", "FOO", "bar"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
     }
 }
