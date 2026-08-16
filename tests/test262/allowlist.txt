@@ -33379,6 +33379,12 @@ test/language/import/import-defer/deferred-namespace-object/reexport-deferred-ns
 test/language/import/import-defer/deferred-namespace-object/setup_FIXTURE.js
 test/language/import/import-defer/deferred-namespace-object/to-string-tag.js
 test/language/import/import-defer/errors/get-other-while-dep-evaluating/dep-3_FIXTURE.js
+test/language/import/import-defer/errors/get-other-while-dep-evaluating/main.js
+test/language/import/import-defer/errors/get-other-while-evaluating/main.js
+test/language/import/import-defer/errors/get-self-while-defer-evaluating/main.js
+test/language/import/import-defer/errors/get-self-while-evaluating-async/main.js
+test/language/import/import-defer/errors/get-self-while-evaluating.js
+test/language/import/import-defer/errors/resolution-error/import-defer-of-missing-module-fails.js
 test/language/import/import-defer/errors/syntax-error/import-defer-of-syntax-error-fails.js
 test/language/import/import-defer/evaluation-sync/import-defer-does-not-evaluate.js
 test/language/import/import-defer/evaluation-sync/setup_FIXTURE.js
@@ -33398,6 +33404,7 @@ test/language/import/import-defer/evaluation-triggers/ignore-exported-then-hasPr
 test/language/import/import-defer/evaluation-triggers/ignore-exported-then-hasProperty.js
 test/language/import/import-defer/evaluation-triggers/ignore-exported-then-super-get.js
 test/language/import/import-defer/evaluation-triggers/ignore-exported-then-super-property-define.js
+test/language/import/import-defer/evaluation-triggers/ignore-exported-then-super-property-set-exported.js
 test/language/import/import-defer/evaluation-triggers/ignore-getPrototypeOf.js
 test/language/import/import-defer/evaluation-triggers/ignore-isExtensible.js
 test/language/import/import-defer/evaluation-triggers/ignore-not-exported-then-defineOwnProperty.js
@@ -33409,7 +33416,9 @@ test/language/import/import-defer/evaluation-triggers/ignore-not-exported-then-h
 test/language/import/import-defer/evaluation-triggers/ignore-not-exported-then-hasProperty.js
 test/language/import/import-defer/evaluation-triggers/ignore-not-exported-then-super-get.js
 test/language/import/import-defer/evaluation-triggers/ignore-not-exported-then-super-property-define.js
+test/language/import/import-defer/evaluation-triggers/ignore-not-exported-then-super-property-set-exported.js
 test/language/import/import-defer/evaluation-triggers/ignore-preventExtensions.js
+test/language/import/import-defer/evaluation-triggers/ignore-private-name-access.js
 test/language/import/import-defer/evaluation-triggers/ignore-set-string-exported.js
 test/language/import/import-defer/evaluation-triggers/ignore-set-string-not-exported.js
 test/language/import/import-defer/evaluation-triggers/ignore-setPrototypeOf.js
@@ -33422,6 +33431,7 @@ test/language/import/import-defer/evaluation-triggers/ignore-symbol-other-hasPro
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-other-hasProperty.js
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-other-super-get.js
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-other-super-property-define.js
+test/language/import/import-defer/evaluation-triggers/ignore-symbol-other-super-property-set-exported.js
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-defineOwnProperty.js
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-delete.js
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-get-in-prototype.js
@@ -33431,6 +33441,7 @@ test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-hasProperty.js
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-super-get.js
 test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-super-property-define.js
+test/language/import/import-defer/evaluation-triggers/ignore-symbol-toStringTag-super-property-set-exported.js
 test/language/import/import-defer/evaluation-triggers/setup_FIXTURE.js
 test/language/import/import-defer/evaluation-triggers/trigger-exported-string-defineOwnProperty.js
 test/language/import/import-defer/evaluation-triggers/trigger-exported-string-delete.js
@@ -33440,6 +33451,8 @@ test/language/import/import-defer/evaluation-triggers/trigger-exported-string-ge
 test/language/import/import-defer/evaluation-triggers/trigger-exported-string-hasProperty-in-prototype.js
 test/language/import/import-defer/evaluation-triggers/trigger-exported-string-hasProperty.js
 test/language/import/import-defer/evaluation-triggers/trigger-exported-string-super-get.js
+test/language/import/import-defer/evaluation-triggers/trigger-exported-string-super-property-define.js
+test/language/import/import-defer/evaluation-triggers/trigger-exported-string-super-property-set-exported.js
 test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-defineOwnProperty.js
 test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-delete.js
 test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-get-in-prototype.js
@@ -33448,6 +33461,8 @@ test/language/import/import-defer/evaluation-triggers/trigger-not-exported-strin
 test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-hasProperty-in-prototype.js
 test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-hasProperty.js
 test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-super-get.js
+test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-super-property-define.js
+test/language/import/import-defer/evaluation-triggers/trigger-not-exported-string-super-property-set-exported.js
 test/language/import/import-defer/evaluation-triggers/trigger-ownPropertyKey-names.js
 test/language/import/import-defer/evaluation-triggers/trigger-ownPropertyKeys-symbols.js
 test/language/import/import-defer/evaluation-triggers/trigger-ownPropertyKeys.js

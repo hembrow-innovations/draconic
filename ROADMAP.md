@@ -328,6 +328,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.84.02 | done | js | Deferred namespace identity/caching: same module's deferred ns shared across static `import defer` sites, re-export, and dynamic `import.defer`; distinct from eager ns (`identity.js`) | `tests/test262` (allowlist + linker) |
 | E19.84.03 | done | js | Deferred JSON-module namespace: `import defer * as ns from "...json" with { type: "json" }` compiles; `default` = parsed JSON (`json-module.js`) | `tests/test262` (allowlist + parser/linker) |
 | E19.84.04 | done | js | Re-exported deferred namespace preserves deferred semantics: `export { ns }` of defer ns stays lazy; `@@toStringTag` + evaluation triggers (`reexport-deferred-ns-evaluation.js`) | `tests/test262` (allowlist + linker) |
+| E19.84.05 | done | js | EnsureDeferredNamespaceEvaluation TypeError when not ReadyForSyncExecution: get-self-while-evaluating (+ async), get-self-while-defer-evaluating, get-other-while-evaluating, get-other-while-dep-evaluating | `crates/draconic-linker`, `tests/test262` |
 | E19.85 | done | js | `ArrayBuffer` immutable APIs: `.immutable`, `transferToImmutable`, `sliceToImmutable` | `tests/test262` (allowlist + runtime) |
 | E19.86 | done | js | Module namespace internals residual: `[[Get]]`/`[[Set]]`/`[[HasProperty]]` / export-name string bindings | `crates/draconic-linker` / backend-js, `tests/test262` |
 | E19.87 | done | js | Expand allowlist further after E19.82–E19.86 (next failure clusters from baseline probe) | `tests/test262` (allowlist + baseline-report) |

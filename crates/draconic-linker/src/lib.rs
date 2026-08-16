@@ -12,9 +12,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use draconic_ast::{
-    Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BindingKind, BindingPattern,
-    ClassElement, Expr, Ident, ImportPhase, ObjectKey, ObjectPatternProp, ObjectProp, Param,
-    Program, Stmt,
+    Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BinaryOp, BindingKind,
+    BindingPattern, ClassElement, Expr, Ident, ImportPhase, NumberLit, ObjectKey,
+    ObjectPatternProp, ObjectProp, Param, Program, Stmt,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 
@@ -51,6 +51,8 @@ struct ModuleData {
     namespaces: Vec<NamespaceBind>,
     /// Dependencies that must evaluate with this module (named/side-effect/non-defer).
     eval_deps: Vec<PathBuf>,
+    /// All ModuleRequest targets (incl. deferred namespace-only) for ReadyForSyncExecution.
+    requested: Vec<PathBuf>,
 }
 
 struct NamedReexport {
@@ -323,6 +325,7 @@ impl Loader {
             imports,
             namespaces,
             eval_deps,
+            requested: dep_paths,
         });
         stack.pop();
         Ok(())
@@ -449,6 +452,7 @@ impl Loader {
                 &deferred_namespace_binding_name(*from_id),
                 eval_name.as_deref(),
                 &pairs,
+                *from_id,
                 bind_span,
             )?;
             // Synthetic per-module statements share spans; binder/IR key symbols
@@ -519,6 +523,10 @@ impl Loader {
 
         let mut linked_body = Vec::new();
         if any_deferred_ns {
+            // E19.84.05: module status + ReadyForSyncExecution graph for deferred ns.
+            for stmt in deferred_module_status_helper_stmts(self, self.modules.len())? {
+                linked_body.push(stmt);
+            }
             for stmt in deferred_namespace_helper_stmts()? {
                 linked_body.push(stmt);
             }
@@ -576,6 +584,11 @@ impl Loader {
                     self.rewrite_dynamic_deferred_imports(&mut body, path, &deferred_ns_targets)?;
                 }
             }
+            // E19.84.05: mark eager module ~evaluating~ … ~evaluated~ around body so
+            // deferred-namespace EnsureDeferredNamespaceEvaluation can TypeError.
+            if any_deferred_ns {
+                linked_body.push(make_module_status_assign(id, 1, span_gen.next()));
+            }
             for stmt in &body {
                 let sp = stmt_span_approx(stmt);
                 if linked_body.is_empty() {
@@ -584,6 +597,9 @@ impl Loader {
                 end = sp.end.0;
             }
             linked_body.extend(body);
+            if any_deferred_ns {
+                linked_body.push(make_module_status_assign(id, 3, span_gen.next()));
+            }
         }
         // (E19.86: eager namespace objects are instantiated up-front with the other
         // namespace machinery, no longer emitted after each module body.)
@@ -2263,13 +2279,99 @@ fn expr_has_top_level_await(expr: &Expr) -> bool {
     }
 }
 
+/// E19.84.05: per-module [[Status]] + ReadyForSyncExecution for deferred ns.
+fn deferred_module_status_helper_stmts(
+    loader: &Loader,
+    n_modules: usize,
+) -> Result<Vec<Stmt>, Diagnostic> {
+    let mut status_inits = String::from("[");
+    let mut tla_inits = String::from("[");
+    let mut deps_inits = String::from("[");
+    for id in 0..n_modules {
+        if id > 0 {
+            status_inits.push_str(", ");
+            tla_inits.push_str(", ");
+            deps_inits.push_str(", ");
+        }
+        status_inits.push('0'); // linked
+        let has_tla = module_body_has_tla(&loader.modules[id].body);
+        tla_inits.push_str(if has_tla { "true" } else { "false" });
+        deps_inits.push('[');
+        let mut first = true;
+        for dep in &loader.modules[id].requested {
+            if let Some(&dep_id) = loader.ids.get(dep) {
+                if !first {
+                    deps_inits.push_str(", ");
+                }
+                first = false;
+                deps_inits.push_str(&dep_id.to_string());
+            }
+        }
+        deps_inits.push(']');
+    }
+    status_inits.push(']');
+    tla_inits.push(']');
+    deps_inits.push(']');
+    let src = format!(
+        r#"
+let __draconic_mstatus = {status_inits};
+let __draconic_mtla = {tla_inits};
+let __draconic_mdeps = {deps_inits};
+function __draconic_ready(id, seen) {{
+  if (seen === undefined) seen = [];
+  if (seen.indexOf(id) >= 0) return true;
+  seen = seen.concat([id]);
+  let st = __draconic_mstatus[id];
+  if (st === 3) return true;
+  if (st === 1 || st === 2) return false;
+  if (__draconic_mtla[id]) return false;
+  let deps = __draconic_mdeps[id];
+  for (let i = 0; i < deps.length; i++) {{
+    if (!__draconic_ready(deps[i], seen)) return false;
+  }}
+  return true;
+}}
+"#
+    );
+    Ok(parse(&src)?.body)
+}
+
+fn make_module_status_assign(mod_id: usize, status: i32, span: Span) -> Stmt {
+    // __draconic_mstatus[mod_id] = status;
+    Stmt::Expression {
+        expr: Expr::Assign {
+            target: Box::new(Expr::MemberExpression {
+                object: Box::new(Expr::Ident(Ident {
+                    name: "__draconic_mstatus".into(),
+                    span,
+                })),
+                property: Box::new(Expr::Number(NumberLit {
+                    raw: mod_id.to_string(),
+                    span,
+                })),
+                computed: true,
+                optional: false,
+                private: false,
+                span,
+            }),
+            op: AssignOp::Eq,
+            value: Box::new(Expr::Number(NumberLit {
+                raw: status.to_string(),
+                span,
+            })),
+            span,
+        },
+        span,
+    }
+}
+
 /// Runtime helper implementing deferred module namespace exotic object triggers
 /// (E19.55) and the deferred namespace object MOP (E19.84.01).
 fn deferred_namespace_helper_stmts() -> Result<Vec<Stmt>, Diagnostic> {
     // Parsed once per link that needs deferred namespaces. Node hosts lack native
     // `import defer`; this Proxy matches Test262 evaluation-trigger + MOP surface.
     let src = r#"
-function __draconic_deferred_ns(evaluate, exportNames) {
+function __draconic_deferred_ns(evaluate, exportNames, modId) {
   let evaluated = false;
   let exportsObj = null;
   let names = exportNames.slice().sort();
@@ -2292,9 +2394,15 @@ function __draconic_deferred_ns(evaluate, exportNames) {
   }
   Object.preventExtensions(target);
   function ensure() {
+    // E19.84.05: EnsureDeferredNamespaceEvaluation — if not ~evaluated~ and
+    // ReadyForSyncExecution is false, throw TypeError (do not start evaluation).
     if (!evaluated) {
-      evaluated = true;
+      let st = __draconic_mstatus[modId];
+      if (st !== 3 && !__draconic_ready(modId)) {
+        throw new TypeError("Deferred module is not ready for synchronous evaluation");
+      }
       exportsObj = evaluate();
+      evaluated = true;
       for (let i = 0; i < names.length; i++) {
         target[names[i]] = exportsObj[names[i]];
       }
@@ -2492,6 +2600,7 @@ fn make_deferred_namespace_binding(
     local: &str,
     eval_fn: Option<&str>,
     export_pairs: &[(String, String)],
+    mod_id: usize,
     span: Span,
 ) -> Result<Stmt, Diagnostic> {
     let mut props = String::new();
@@ -2509,7 +2618,7 @@ fn make_deferred_namespace_binding(
         None => String::new(),
     };
     let src = format!(
-        "let {local} = __draconic_deferred_ns(function () {{ {eval_src} return {{ {props} }}; }}, [{names}]);"
+        "let {local} = __draconic_deferred_ns(function () {{ {eval_src} return {{ {props} }}; }}, [{names}], {mod_id});"
     );
     let mut body = parse(&src)?.body;
     let stmt = body.pop().ok_or_else(|| {
@@ -2613,7 +2722,7 @@ fn js_string_literal(s: &str) -> String {
 
 /// Hoist top-level bindings and wrap module body in a once-eval function.
 fn wrap_deferred_module_body(
-    _mod_id: usize,
+    mod_id: usize,
     eval_name: &str,
     prelude_calls: Vec<Stmt>,
     body: Vec<Stmt>,
@@ -2636,30 +2745,34 @@ fn wrap_deferred_module_body(
             span: sp,
         });
     }
-    let done_name = format!("{eval_name}_done");
-    let done_span = spans.next();
-    out.push(Stmt::Let {
-        kind: BindingKind::Let,
-        binding: BindingPattern::Ident(Ident {
-            name: done_name.clone(),
-            span: done_span,
-        }),
-        type_ann: None,
-        init: Some(Expr::Boolean {
-            value: false,
-            span: done_span,
-        }),
-        span: done_span,
-    });
 
     let mut eval_body: Vec<Stmt> = Vec::new();
     let guard_span = spans.next();
-    // if (done) return; done = true;
+    // E19.84.05: if already ~evaluated~, return; else mark ~evaluating~, run body, ~evaluated~.
+    // ReadyForSyncExecution / TypeError is enforced by __draconic_deferred_ns.ensure before call.
     eval_body.push(Stmt::If {
-        test: Expr::Ident(Ident {
-            name: done_name.clone(),
+        test: Expr::Binary {
+            left: Box::new(Expr::MemberExpression {
+                object: Box::new(Expr::Ident(Ident {
+                    name: "__draconic_mstatus".into(),
+                    span: guard_span,
+                })),
+                property: Box::new(Expr::Number(NumberLit {
+                    raw: mod_id.to_string(),
+                    span: guard_span,
+                })),
+                computed: true,
+                optional: false,
+                private: false,
+                span: guard_span,
+            }),
+            op: BinaryOp::EqEqEq,
+            right: Box::new(Expr::Number(NumberLit {
+                raw: "3".into(),
+                span: guard_span,
+            })),
             span: guard_span,
-        }),
+        },
         consequent: Box::new(Stmt::Return {
             argument: None,
             span: guard_span,
@@ -2667,25 +2780,12 @@ fn wrap_deferred_module_body(
         alternate: None,
         span: guard_span,
     });
-    eval_body.push(Stmt::Expression {
-        expr: Expr::Assign {
-            target: Box::new(Expr::Ident(Ident {
-                name: done_name,
-                span: guard_span,
-            })),
-            op: AssignOp::Eq,
-            value: Box::new(Expr::Boolean {
-                value: true,
-                span: guard_span,
-            }),
-            span: guard_span,
-        },
-        span: guard_span,
-    });
+    eval_body.push(make_module_status_assign(mod_id, 1, spans.next()));
     eval_body.extend(prelude_calls);
     for stmt in body {
         eval_body.push(hoist_decl_to_assign(stmt));
     }
+    eval_body.push(make_module_status_assign(mod_id, 3, spans.next()));
     let fn_span = spans.next();
     out.push(Stmt::FunctionDeclaration {
         name: Ident {
@@ -3814,6 +3914,30 @@ mod tests {
         assert!(
             dump.contains("__draconic_eval_m") || dump.contains("FunctionDeclaration"),
             "expected deferred eval thunk, got:\n{dump}"
+        );
+        // E19.84.05: ReadyForSyncExecution status machinery.
+        assert!(
+            dump.contains("__draconic_mstatus") && dump.contains("__draconic_ready"),
+            "expected module status / ready helpers, got:\n{dump}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_import_defer_self_while_evaluating_status() {
+        // E19.84.05: self deferred namespace during evaluation wraps body with status.
+        let dir = temp_link_dir("import-defer-self-eval");
+        let main = dir.join("main.drac");
+        fs::write(
+            &main,
+            "import defer * as self from \"./main.drac\";\nexport let foo = 1;\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("self defer link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(
+            dump.contains("__draconic_mstatus") && dump.contains("__draconic_ready"),
+            "expected status helpers:\n{dump}"
         );
         let _ = fs::remove_dir_all(&dir);
     }
