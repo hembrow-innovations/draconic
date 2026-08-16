@@ -1,4 +1,6 @@
 id: es/expressions/update
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 2\n2\n0\n0\n2\n1\n0\n1\n5\n
 js.check: if (pre_inc !== 2) process.exit(1); if (a !== 2) process.exit(2); if (pre_dec !== 0) process.exit(3); if (b !== 0) process.exit(4); if (post_inc !== 1) process.exit(5); if (c !== 2) process.exit(6); if (post_dec !== 1) process.exit(7); if (d !== 0) process.exit(8); if (e !== 5) process.exit(9);

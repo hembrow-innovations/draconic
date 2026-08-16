@@ -28,8 +28,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **eval / Function** (constant-string fold via Embed) — N07.02–N07.04
 /// - **ES expressions** (numeric arithmetic + comparison/equality + logical
 ///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
-///   conditional `?:` + simple `=` assignment over JS numbers/booleans) via
-///   Runtime prints — N08.01.01–N08.01.04.04
+///   conditional `?:` + simple `=` assignment + prefix/postfix `++`/`--`
+///   over JS numbers/booleans) via Runtime prints — N08.01.01–N08.01.04.05
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -59,7 +59,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign), empty hello)",
+         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/update), empty hello)",
         Span::dummy(),
     )
 }
@@ -577,6 +577,55 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "2\n2\n3\n6\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_update_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let a = 1;
+            let pre_inc = ++a;
+            let b = 1;
+            let pre_dec = --b;
+            let c = 1;
+            let post_inc = c++;
+            let d = 1;
+            let post_dec = d--;
+            let e = 5;
+            ++e;
+            e++;
+            --e;
+            e--;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr update must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("fadd double") || ir.contains("fsub double"),
+            "should use fadd/fsub for ++/--:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-update").expect("workdir");
+        let bin = dir.join("update");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "2\n2\n0\n0\n2\n1\n0\n1\n5\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

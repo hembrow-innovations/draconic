@@ -392,7 +392,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.01.04.02 | done | native | Real native observations: exponentiation (E01.04.02) | `tests/conformance` fixture `es/expressions/exponentiation`, `crates/draconic-backend-llvm` |
 | N08.01.04.03 | done | native | Real native observations: conditional ternary (E01.04.03) — `es/expressions/conditional` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/conditional`, `crates/draconic-backend-llvm` |
 | N08.01.04.04 | done | native | Real native observations: assignment (E01.04.04) — `es/expressions/assignment` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/assignment`, `crates/draconic-backend-llvm` |
-| N08.01.04.05 | todo | native | Real native observations: update ++/-- (E01.04.05) | `tests/conformance` fixture `es/expressions/update`, `crates/draconic-backend-llvm` |
+| N08.01.04.05 | done | native | Real native observations: update ++/-- (E01.04.05) | `tests/conformance` fixture `es/expressions/update`, `crates/draconic-backend-llvm` |
 | N08.01.04.06 | todo | native | Real native observations: comma operator (E01.04.06) | `tests/conformance` fixture `es/expressions/comma`, `crates/draconic-backend-llvm` |
 | N08.01.04.07 | todo | native | Real native observations: unary keywords typeof/void/delete (E01.04.07) | `tests/conformance` fixture `es/expressions/unary_keywords`, `crates/draconic-backend-llvm` |
 | N08.01.04.08 | todo | native | Real native observations: compound assignment (E01.04.08) | `tests/conformance` fixture `es/expressions/compound_assignment`, `crates/draconic-backend-llvm` |

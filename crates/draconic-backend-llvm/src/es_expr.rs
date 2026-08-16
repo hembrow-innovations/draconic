@@ -1,21 +1,21 @@
 //! N08.01: emit native observations for ES expression Programs
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
-//! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment).
+//! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
+use draconic_ast::{AssignOp, BinaryOp, UnaryOp, UpdateOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt};
+use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.04.04 / N08.01.*):
+/// True when this module is a supported ES expression subset (E01.01–E01.04.05 / N08.01.*):
 /// top-level `let` declares over JS numbers and/or booleans with arithmetic, unary `+`/`-`/`!`/`~`,
 /// comparison (`<` `<=` `>` `>=`), equality (`==` `!=` `===` `!==`), logical (`&&` `||`),
 /// bitwise (`&` `|` `^` `<<` `>>` `>>>`), exponentiation (`**`), conditional (`?:`), simple
-/// assignment (`=` to locals), grouping, and local refs. Expression statements may be assigns.
-/// Value-preserving `&&`/`||` on numbers is included.
+/// assignment (`=` to locals), prefix/postfix `++`/`--` on number locals, grouping, and local refs.
+/// Expression statements may be assigns or updates. Value-preserving `&&`/`||` on numbers is included.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -70,7 +70,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 }
             }
             Stmt::Expr { expr } => {
-                // Side-effect statements: assignment (and nested assigns) only.
+                // Side-effect statements: assignment / update (and nested).
                 match expr.ty() {
                     Type::Number => {
                         if !expr_is_number_subset(expr, &by_id) {
@@ -153,6 +153,17 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                 && matches!(op, AssignOp::Eq)
                 && matches!(target, AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::Number))
                 && expr_is_number_subset(value, by_id)
+        }
+        Expr::Update {
+            target,
+            ty,
+            ..
+        } => {
+            *ty == Type::Number
+                && matches!(
+                    target,
+                    UpdateTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::Number)
+                )
         }
         _ => false,
     }
@@ -466,6 +477,49 @@ impl<'a> Emitter<'a> {
                 let v = self.emit_number_expr(value)?;
                 writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                 Ok(v)
+            }
+            Expr::Update {
+                op,
+                target,
+                prefix,
+                ..
+            } => {
+                let UpdateTarget::Local(id) = target else {
+                    return Err(diag("internal: only local ++/-- in es_expr"));
+                };
+                let (ptr, slot) = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag(format!("internal: unallocated update local %{}", id.0)))?;
+                if slot != SlotTy::Number {
+                    return Err(diag("internal: expected number update target"));
+                }
+                let cur = self.fresh();
+                writeln!(self.body, "  {cur} = load double, ptr {ptr}").ok();
+                let next = self.fresh();
+                match op {
+                    UpdateOp::Inc => {
+                        writeln!(
+                            self.body,
+                            "  {next} = fadd double {cur}, 1.00000000000000000e+00"
+                        )
+                        .ok();
+                    }
+                    UpdateOp::Dec => {
+                        writeln!(
+                            self.body,
+                            "  {next} = fsub double {cur}, 1.00000000000000000e+00"
+                        )
+                        .ok();
+                    }
+                }
+                writeln!(self.body, "  store double {next}, ptr {ptr}").ok();
+                if *prefix {
+                    Ok(next)
+                } else {
+                    Ok(cur)
+                }
             }
             _ => Err(diag("internal: unsupported number expr in es_expr module")),
         }
