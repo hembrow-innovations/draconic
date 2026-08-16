@@ -1,4 +1,6 @@
 id: es/modules/cyclic_functions
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 41\n42\n42\n
 js.check: if (a !== 41) process.exit(1); if (b !== 42) process.exit(2); if (c !== 42) process.exit(3);
