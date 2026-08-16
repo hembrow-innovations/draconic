@@ -99,6 +99,9 @@ int draconic_rt_is_array(DraconicValue *v);
 size_t draconic_rt_array_len(DraconicValue *a);
 void *draconic_rt_array_get(DraconicValue *a, size_t index);
 void draconic_rt_array_set(DraconicValue *a, size_t index, void *value);
+/* N08.06.03: append iterable elements onto dest (grows). */
+void draconic_rt_array_spread_array(DraconicValue *dest, DraconicValue *src);
+void draconic_rt_array_spread_cstr(DraconicValue *dest, const char *s);
 
 /* --- Promise.all (N06.06): array of promises/values → promise of results array --- */
 DraconicValue *draconic_rt_promise_all(DraconicValue *arr);

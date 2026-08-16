@@ -1,11 +1,11 @@
-//! N08.06.01–N08.06.02: native observations for ES array literals, index
-//! access, `.length`, and element assignment (`es/arrays/array_lit_access`,
-//! `es/arrays/array_element_assign`).
+//! N08.06.01–N08.06.03: native observations for ES array literals, index
+//! access, `.length`, element assignment, and spread in array literals
+//! (`es/arrays/array_lit_access`, `array_element_assign`, `array_spread`).
 //!
 //! Arrays are Runtime GC heap values (`draconic_rt_array_*`). Number elements
 //! are stored as `inttoptr` of integer bit-patterns; nested arrays store GC
 //! ptrs; strings are cstr ptrs; booleans are `inttoptr` 0/1; `null` is null.
-//! Number locals (including `.length` and index results) print via `print_f64`.
+//! Number locals print via `print_f64`; string index results via `print_str`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -16,7 +16,8 @@ use draconic_ir::{
     ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt,
 };
 use draconic_runtime::abi::{
-    llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, PRINT_F64,
+    llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, ARRAY_SPREAD_ARRAY,
+    ARRAY_SPREAD_CSTR, GC_INIT, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_es_arrays_module(module: &Module) -> bool {
@@ -39,18 +40,30 @@ enum SlotTy {
     Null,
 }
 
+/// Homogeneous element kind for spread/index type inference (N08.06.03).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ElemKind {
+    Number,
+    String,
+    Array,
+    Unknown,
+}
+
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
-    number_locals: Vec<LocalId>,
+    /// Observation prints: numbers via `print_f64`, strings via `print_str`.
+    print_locals: Vec<(LocalId, SlotTy)>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut slots = Vec::new();
-    let mut number_locals = Vec::new();
+    let mut print_locals = Vec::new();
     let mut has_array = false;
     // Array local → its array-literal init (for constant-index type inference).
     let mut arr_inits: HashMap<LocalId, Expr> = HashMap::new();
+    let mut arr_elem: HashMap<LocalId, ElemKind> = HashMap::new();
+    let mut slot_of: HashMap<LocalId, SlotTy> = HashMap::new();
 
     for stmt in &module.body {
         match stmt {
@@ -58,40 +71,83 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 let loc = by_id.get(local)?;
                 let init = init.as_ref()?;
                 if matches!(init, Expr::Array { .. }) {
-                    if !array_expr_ok(init, &by_id) {
+                    if !array_expr_ok(init, &by_id, &slot_of) {
                         return None;
                     }
                     has_array = true;
                     slots.push((*local, SlotTy::Array));
+                    slot_of.insert(*local, SlotTy::Array);
                     arr_inits.insert(*local, init.clone());
+                    if let Some(k) = array_expr_elem_kind(init, &arr_inits, &arr_elem, &slot_of) {
+                        arr_elem.insert(*local, k);
+                    }
+                } else if matches!(init, Expr::String { .. }) {
+                    if !string_expr_ok(init, &by_id, &slot_of) {
+                        return None;
+                    }
+                    slots.push((*local, SlotTy::String));
+                    slot_of.insert(*local, SlotTy::String);
                 } else if let Expr::Local { id, .. } = init {
                     if slots.iter().any(|(s, k)| s == id && *k == SlotTy::Array) {
                         has_array = true;
                         slots.push((*local, SlotTy::Array));
+                        slot_of.insert(*local, SlotTy::Array);
                         if let Some(e) = arr_inits.get(id).cloned() {
                             arr_inits.insert(*local, e);
                         }
+                        if let Some(k) = arr_elem.get(id).copied() {
+                            arr_elem.insert(*local, k);
+                        }
+                    } else if slots.iter().any(|(s, k)| s == id && *k == SlotTy::String) {
+                        slots.push((*local, SlotTy::String));
+                        slot_of.insert(*local, SlotTy::String);
                     } else if slots.iter().any(|(s, k)| s == id && *k == SlotTy::Number)
                         || matches!(loc.ty, Type::Number)
                     {
                         slots.push((*local, SlotTy::Number));
-                        number_locals.push(*local);
+                        slot_of.insert(*local, SlotTy::Number);
+                        print_locals.push((*local, SlotTy::Number));
                     } else {
                         return None;
                     }
-                } else if let Some(kind) = infer_expr_slot(init, &arr_inits) {
-                    if !value_expr_ok(init, &by_id) {
+                } else if let Some(kind) =
+                    infer_expr_slot(init, &arr_inits, &arr_elem, &slot_of)
+                {
+                    if !value_expr_ok(init, &by_id, &slot_of) {
                         return None;
                     }
                     slots.push((*local, kind));
-                    if kind == SlotTy::Number {
-                        number_locals.push(*local);
+                    slot_of.insert(*local, kind);
+                    match kind {
+                        SlotTy::Number => print_locals.push((*local, SlotTy::Number)),
+                        SlotTy::String => {
+                            // Print string results from index (not bare string lit sources).
+                            if matches!(
+                                init,
+                                Expr::Member {
+                                    computed: true,
+                                    ..
+                                }
+                            ) {
+                                print_locals.push((*local, SlotTy::String));
+                            }
+                        }
+                        SlotTy::Array => {
+                            has_array = true;
+                            if let Some(k) =
+                                array_expr_elem_kind(init, &arr_inits, &arr_elem, &slot_of)
+                            {
+                                arr_elem.insert(*local, k);
+                            }
+                        }
+                        _ => {}
                     }
-                } else if matches!(loc.ty, Type::Number) && number_expr_ok(init, &by_id) {
-                    // Dynamic index into number array (e.g. `a[i]`).
+                } else if matches!(loc.ty, Type::Number) && number_expr_ok(init, &by_id, &slot_of)
+                {
                     slots.push((*local, SlotTy::Number));
-                    number_locals.push(*local);
-                } else if number_expr_ok(init, &by_id)
+                    slot_of.insert(*local, SlotTy::Number);
+                    print_locals.push((*local, SlotTy::Number));
+                } else if number_expr_ok(init, &by_id, &slot_of)
                     && matches!(
                         init,
                         Expr::Member {
@@ -100,15 +156,15 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                         } | Expr::Assign { .. }
                     )
                 {
-                    // Dynamic computed index or assign-as-value with Any type.
                     slots.push((*local, SlotTy::Number));
-                    number_locals.push(*local);
+                    slot_of.insert(*local, SlotTy::Number);
+                    print_locals.push((*local, SlotTy::Number));
                 } else {
                     return None;
                 }
             }
             Stmt::Expr { expr } => {
-                if !member_assign_ok(expr, &by_id) {
+                if !member_assign_ok(expr, &by_id, &slot_of) {
                     return None;
                 }
             }
@@ -116,12 +172,12 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         }
     }
 
-    if !has_array || number_locals.is_empty() {
+    if !has_array || print_locals.is_empty() {
         return None;
     }
     Some(ModuleInfo {
         slots,
-        number_locals,
+        print_locals,
     })
 }
 
@@ -140,7 +196,12 @@ fn const_index(expr: &Expr) -> Option<usize> {
     }
 }
 
-fn infer_expr_slot(expr: &Expr, arr_inits: &HashMap<LocalId, Expr>) -> Option<SlotTy> {
+fn infer_expr_slot(
+    expr: &Expr,
+    arr_inits: &HashMap<LocalId, Expr>,
+    arr_elem: &HashMap<LocalId, ElemKind>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> Option<SlotTy> {
     match expr {
         Expr::Number { .. } => Some(SlotTy::Number),
         Expr::String { .. } => Some(SlotTy::String),
@@ -160,13 +221,27 @@ fn infer_expr_slot(expr: &Expr, arr_inits: &HashMap<LocalId, Expr>) -> Option<Sl
                 return Some(SlotTy::Number);
             }
             if *computed {
-                let idx = const_index(property)?;
-                let elem = resolve_array_elem(object, idx, arr_inits)?;
-                return literal_or_array_slot(&elem);
+                if let Some(idx) = const_index(property) {
+                    if let Some(elem) = resolve_array_elem(object, idx, arr_inits) {
+                        return literal_or_array_slot(&elem);
+                    }
+                }
+                return slot_from_elem_kind(array_expr_elem_kind(
+                    object, arr_inits, arr_elem, slot_of,
+                )?);
             }
             None
         }
         _ => None,
+    }
+}
+
+fn slot_from_elem_kind(k: ElemKind) -> Option<SlotTy> {
+    match k {
+        ElemKind::Number => Some(SlotTy::Number),
+        ElemKind::String => Some(SlotTy::String),
+        ElemKind::Array => Some(SlotTy::Array),
+        ElemKind::Unknown => None,
     }
 }
 
@@ -215,6 +290,153 @@ fn literal_or_array_slot(expr: &Expr) -> Option<SlotTy> {
     }
 }
 
+fn array_expr_elem_kind(
+    expr: &Expr,
+    arr_inits: &HashMap<LocalId, Expr>,
+    arr_elem: &HashMap<LocalId, ElemKind>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> Option<ElemKind> {
+    match expr {
+        Expr::Array { elements, .. } => array_lit_elem_kind(elements, arr_inits, arr_elem, slot_of),
+        Expr::Local { id, .. } => arr_elem.get(id).copied().or_else(|| {
+            arr_inits
+                .get(id)
+                .and_then(|e| array_expr_elem_kind(e, arr_inits, arr_elem, slot_of))
+        }),
+        Expr::Member {
+            object,
+            property,
+            optional,
+            computed,
+            ..
+        } => {
+            if *optional || !*computed {
+                return None;
+            }
+            let idx = const_index(property)?;
+            let elem = resolve_array_elem(object, idx, arr_inits)?;
+            match elem {
+                Expr::Array { elements, .. } => {
+                    array_lit_elem_kind(&elements, arr_inits, arr_elem, slot_of)
+                }
+                Expr::String { .. } => Some(ElemKind::String),
+                Expr::Number { .. } => Some(ElemKind::Number),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn array_lit_elem_kind(
+    elements: &[ArrayElement],
+    arr_inits: &HashMap<LocalId, Expr>,
+    arr_elem: &HashMap<LocalId, ElemKind>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> Option<ElemKind> {
+    let mut kind: Option<ElemKind> = None;
+    for el in elements {
+        let k = match el {
+            ArrayElement::Elision => continue,
+            ArrayElement::Expr(e) => expr_as_elem_kind(e, arr_inits, arr_elem, slot_of)?,
+            ArrayElement::Spread(e) => spread_source_elem_kind(e, arr_inits, arr_elem, slot_of)?,
+        };
+        kind = Some(match kind {
+            None => k,
+            Some(prev) if prev == k => prev,
+            Some(_) => ElemKind::Unknown,
+        });
+    }
+    Some(kind.unwrap_or(ElemKind::Unknown))
+}
+
+fn expr_as_elem_kind(
+    expr: &Expr,
+    arr_inits: &HashMap<LocalId, Expr>,
+    arr_elem: &HashMap<LocalId, ElemKind>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> Option<ElemKind> {
+    match expr {
+        Expr::Number { .. } => Some(ElemKind::Number),
+        Expr::String { .. } => Some(ElemKind::String),
+        Expr::Array { .. } => Some(ElemKind::Array),
+        Expr::Local { id, .. } => match slot_of.get(id) {
+            Some(SlotTy::Number) => Some(ElemKind::Number),
+            Some(SlotTy::String) => Some(ElemKind::String),
+            Some(SlotTy::Array) => Some(ElemKind::Array),
+            _ => None,
+        },
+        Expr::Member {
+            object,
+            property,
+            optional,
+            computed,
+            ..
+        } => {
+            if *optional {
+                return None;
+            }
+            if !*computed && member_key_is_length(property) {
+                return Some(ElemKind::Number);
+            }
+            if *computed {
+                if let Some(idx) = const_index(property) {
+                    if let Some(elem) = resolve_array_elem(object, idx, arr_inits) {
+                        return expr_as_elem_kind(&elem, arr_inits, arr_elem, slot_of);
+                    }
+                }
+                return array_expr_elem_kind(object, arr_inits, arr_elem, slot_of);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn spread_source_elem_kind(
+    expr: &Expr,
+    arr_inits: &HashMap<LocalId, Expr>,
+    arr_elem: &HashMap<LocalId, ElemKind>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> Option<ElemKind> {
+    match expr {
+        Expr::String { .. } => Some(ElemKind::String),
+        Expr::Local { id, .. } => match slot_of.get(id) {
+            Some(SlotTy::String) => Some(ElemKind::String),
+            Some(SlotTy::Array) => arr_elem.get(id).copied().or_else(|| {
+                arr_inits
+                    .get(id)
+                    .and_then(|e| array_expr_elem_kind(e, arr_inits, arr_elem, slot_of))
+            }),
+            _ => None,
+        },
+        Expr::Array { elements, .. } => {
+            array_lit_elem_kind(elements, arr_inits, arr_elem, slot_of)
+        }
+        Expr::Member {
+            object,
+            property,
+            optional,
+            computed,
+            ..
+        } => {
+            if *optional || !*computed {
+                return None;
+            }
+            let idx = const_index(property)?;
+            let elem = resolve_array_elem(object, idx, arr_inits)?;
+            match elem {
+                Expr::Array { elements, .. } => {
+                    array_lit_elem_kind(&elements, arr_inits, arr_elem, slot_of)
+                }
+                Expr::String { .. } => Some(ElemKind::String),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn is_array_slot_ty(ty: &Type) -> bool {
     matches!(ty, Type::Object | Type::Any)
 }
@@ -223,15 +445,22 @@ fn is_number_slot_ty(ty: &Type) -> bool {
     matches!(ty, Type::Number | Type::Any)
 }
 
-fn array_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn array_expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
     match expr {
         Expr::Array { elements, .. } => elements.iter().all(|el| match el {
-            ArrayElement::Expr(e) => value_expr_ok(e, by_id),
+            ArrayElement::Expr(e) => value_expr_ok(e, by_id, slot_of),
             ArrayElement::Elision => true,
-            ArrayElement::Spread(_) => false,
+            ArrayElement::Spread(e) => {
+                array_expr_ok(e, by_id, slot_of) || string_expr_ok(e, by_id, slot_of)
+            }
         }),
         Expr::Local { id, ty } => {
-            is_array_slot_ty(ty)
+            slot_of.get(id) == Some(&SlotTy::Array)
+                || is_array_slot_ty(ty)
                 || by_id
                     .get(id)
                     .is_some_and(|l| is_array_slot_ty(&l.ty) || matches!(l.ty, Type::Any))
@@ -244,9 +473,9 @@ fn array_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             ..
         } => {
             !*optional
-                && array_expr_ok(object, by_id)
+                && array_expr_ok(object, by_id, slot_of)
                 && if *computed {
-                    number_expr_ok(property, by_id)
+                    number_expr_ok(property, by_id, slot_of)
                 } else {
                     member_key_is_length(property)
                 }
@@ -255,19 +484,28 @@ fn array_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     }
 }
 
-fn value_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
-    number_expr_ok(expr, by_id)
-        || string_expr_ok(expr, by_id)
-        || bool_expr_ok(expr, by_id)
-        || null_expr_ok(expr, by_id)
-        || array_expr_ok(expr, by_id)
+fn value_expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
+    number_expr_ok(expr, by_id, slot_of)
+        || string_expr_ok(expr, by_id, slot_of)
+        || bool_expr_ok(expr, by_id, slot_of)
+        || null_expr_ok(expr, by_id, slot_of)
+        || array_expr_ok(expr, by_id, slot_of)
 }
 
-fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn number_expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
     match expr {
         Expr::Number { .. } => true,
         Expr::Local { id, ty } => {
-            is_number_slot_ty(ty)
+            slot_of.get(id) == Some(&SlotTy::Number)
+                || is_number_slot_ty(ty)
                 || by_id
                     .get(id)
                     .is_some_and(|l| matches!(l.ty, Type::Number | Type::Any))
@@ -280,9 +518,9 @@ fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             ..
         } => {
             !*optional
-                && array_expr_ok(object, by_id)
+                && array_expr_ok(object, by_id, slot_of)
                 && if *computed {
-                    number_expr_ok(property, by_id)
+                    number_expr_ok(property, by_id, slot_of)
                 } else {
                     member_key_is_length(property)
                 }
@@ -298,13 +536,21 @@ fn number_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             op: AssignOp::Eq,
             value,
             ..
-        } => array_expr_ok(object, by_id) && number_expr_ok(property, by_id) && number_expr_ok(value, by_id),
+        } => {
+            array_expr_ok(object, by_id, slot_of)
+                && number_expr_ok(property, by_id, slot_of)
+                && number_expr_ok(value, by_id, slot_of)
+        }
         _ => false,
     }
 }
 
 /// `a[i] = v` / `nested[0][0] = v` as a statement expression (N08.06.02).
-fn member_assign_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn member_assign_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
     match expr {
         Expr::Assign {
             target:
@@ -317,16 +563,25 @@ fn member_assign_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             op: AssignOp::Eq,
             value,
             ..
-        } => array_expr_ok(object, by_id) && number_expr_ok(property, by_id) && value_expr_ok(value, by_id),
+        } => {
+            array_expr_ok(object, by_id, slot_of)
+                && number_expr_ok(property, by_id, slot_of)
+                && value_expr_ok(value, by_id, slot_of)
+        }
         _ => false,
     }
 }
 
-fn string_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn string_expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
     match expr {
         Expr::String { .. } => true,
         Expr::Local { id, ty } => {
-            matches!(ty, Type::String)
+            slot_of.get(id) == Some(&SlotTy::String)
+                || matches!(ty, Type::String)
                 || by_id.get(id).is_some_and(|l| matches!(l.ty, Type::String))
         }
         Expr::Member {
@@ -336,17 +591,25 @@ fn string_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             computed,
             ..
         } => {
-            !*optional && *computed && array_expr_ok(object, by_id) && number_expr_ok(property, by_id)
+            !*optional
+                && *computed
+                && array_expr_ok(object, by_id, slot_of)
+                && number_expr_ok(property, by_id, slot_of)
         }
         _ => false,
     }
 }
 
-fn bool_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn bool_expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
     match expr {
         Expr::Boolean { .. } => true,
         Expr::Local { id, ty } => {
-            matches!(ty, Type::Boolean)
+            slot_of.get(id) == Some(&SlotTy::Bool)
+                || matches!(ty, Type::Boolean)
                 || by_id
                     .get(id)
                     .is_some_and(|l| matches!(l.ty, Type::Boolean))
@@ -358,17 +621,25 @@ fn bool_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             computed,
             ..
         } => {
-            !*optional && *computed && array_expr_ok(object, by_id) && number_expr_ok(property, by_id)
+            !*optional
+                && *computed
+                && array_expr_ok(object, by_id, slot_of)
+                && number_expr_ok(property, by_id, slot_of)
         }
         _ => false,
     }
 }
 
-fn null_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+fn null_expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, SlotTy>,
+) -> bool {
     match expr {
         Expr::Null { .. } => true,
         Expr::Local { id, ty } => {
-            matches!(ty, Type::Null | Type::Any)
+            slot_of.get(id) == Some(&SlotTy::Null)
+                || matches!(ty, Type::Null | Type::Any)
                 || by_id
                     .get(id)
                     .is_some_and(|l| matches!(l.ty, Type::Null | Type::Any))
@@ -380,7 +651,10 @@ fn null_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             computed,
             ..
         } => {
-            !*optional && *computed && array_expr_ok(object, by_id) && number_expr_ok(property, by_id)
+            !*optional
+                && *computed
+                && array_expr_ok(object, by_id, slot_of)
+                && number_expr_ok(property, by_id, slot_of)
         }
         _ => false,
     }
@@ -444,7 +718,10 @@ impl<'a> Emitter<'a> {
                 ARRAY_GET,
                 ARRAY_SET,
                 ARRAY_LEN,
+                ARRAY_SPREAD_ARRAY,
+                ARRAY_SPREAD_CSTR,
                 PRINT_F64,
+                PRINT_STR,
             ])
         )
         .ok();
@@ -476,11 +753,21 @@ impl<'a> Emitter<'a> {
             self.emit_stmt(stmt)?;
         }
 
-        for id in &info.number_locals {
+        for (id, kind) in &info.print_locals {
             let ptr = self.slot_ptr(*id)?;
-            let v = self.fresh();
-            writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
-            writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+            match kind {
+                SlotTy::Number => {
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+                }
+                SlotTy::String => {
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+                }
+                _ => {}
+            }
         }
 
         for (content, gname) in self.str_globals.clone() {
@@ -709,28 +996,95 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_array_lit(&mut self, elements: &[ArrayElement]) -> Result<String, Diagnostic> {
-        let n = elements.len();
+        let has_spread = elements
+            .iter()
+            .any(|el| matches!(el, ArrayElement::Spread(_)));
+        if !has_spread {
+            let n = elements.len();
+            let arr = self.fresh();
+            writeln!(
+                self.body,
+                "  {}",
+                ARRAY_NEW.call_to(&arr, &format!("i64 {n}"))
+            )
+            .ok();
+            for (i, el) in elements.iter().enumerate() {
+                match el {
+                    ArrayElement::Elision => {}
+                    ArrayElement::Spread(_) => unreachable!(),
+                    ArrayElement::Expr(e) => {
+                        let v = self.emit_value_as_ptr(e)?;
+                        writeln!(
+                            self.body,
+                            "  {}",
+                            ARRAY_SET.call(&format!("ptr {arr}, i64 {i}, ptr {v}"))
+                        )
+                        .ok();
+                    }
+                }
+            }
+            return Ok(arr);
+        }
+
+        // Spread path: grow from empty via ARRAY_SET / ARRAY_SPREAD_*.
         let arr = self.fresh();
         writeln!(
             self.body,
             "  {}",
-            ARRAY_NEW.call_to(&arr, &format!("i64 {n}"))
+            ARRAY_NEW.call_to(&arr, "i64 0")
         )
         .ok();
-        for (i, el) in elements.iter().enumerate() {
+        for el in elements {
             match el {
-                ArrayElement::Elision => {}
-                ArrayElement::Spread(_) => {
-                    return Err(diag("es_arrays: spread not supported in this item"));
-                }
-                ArrayElement::Expr(e) => {
-                    let v = self.emit_value_as_ptr(e)?;
+                ArrayElement::Elision => {
+                    let len = self.fresh();
                     writeln!(
                         self.body,
                         "  {}",
-                        ARRAY_SET.call(&format!("ptr {arr}, i64 {i}, ptr {v}"))
+                        ARRAY_LEN.call_to(&len, &format!("ptr {arr}"))
                     )
                     .ok();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_SET.call(&format!("ptr {arr}, i64 {len}, ptr null"))
+                    )
+                    .ok();
+                }
+                ArrayElement::Expr(e) => {
+                    let v = self.emit_value_as_ptr(e)?;
+                    let len = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_LEN.call_to(&len, &format!("ptr {arr}"))
+                    )
+                    .ok();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        ARRAY_SET.call(&format!("ptr {arr}, i64 {len}, ptr {v}"))
+                    )
+                    .ok();
+                }
+                ArrayElement::Spread(e) => {
+                    if self.expr_is_string_slot(e) || matches!(e, Expr::String { .. }) {
+                        let s = self.emit_string_expr(e)?;
+                        writeln!(
+                            self.body,
+                            "  {}",
+                            ARRAY_SPREAD_CSTR.call(&format!("ptr {arr}, ptr {s}"))
+                        )
+                        .ok();
+                    } else {
+                        let src = self.emit_array_expr(e)?;
+                        writeln!(
+                            self.body,
+                            "  {}",
+                            ARRAY_SPREAD_ARRAY.call(&format!("ptr {arr}, ptr {src}"))
+                        )
+                        .ok();
+                    }
                 }
             }
         }

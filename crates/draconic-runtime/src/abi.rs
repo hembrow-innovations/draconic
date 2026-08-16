@@ -262,6 +262,16 @@ pub const ARRAY_SET: AbiFn = AbiFn {
     ret: "void",
     params: "ptr, i64, ptr",
 };
+pub const ARRAY_SPREAD_ARRAY: AbiFn = AbiFn {
+    symbol: "draconic_rt_array_spread_array",
+    ret: "void",
+    params: "ptr, ptr",
+};
+pub const ARRAY_SPREAD_CSTR: AbiFn = AbiFn {
+    symbol: "draconic_rt_array_spread_cstr",
+    ret: "void",
+    params: "ptr, ptr",
+};
 pub const PROMISE_ALL: AbiFn = AbiFn {
     symbol: "draconic_rt_promise_all",
     ret: "ptr",
@@ -345,6 +355,8 @@ pub const IS_ARRAY_SYMBOL: &str = IS_ARRAY.symbol;
 pub const ARRAY_LEN_SYMBOL: &str = ARRAY_LEN.symbol;
 pub const ARRAY_GET_SYMBOL: &str = ARRAY_GET.symbol;
 pub const ARRAY_SET_SYMBOL: &str = ARRAY_SET.symbol;
+pub const ARRAY_SPREAD_ARRAY_SYMBOL: &str = ARRAY_SPREAD_ARRAY.symbol;
+pub const ARRAY_SPREAD_CSTR_SYMBOL: &str = ARRAY_SPREAD_CSTR.symbol;
 pub const PROMISE_ALL_SYMBOL: &str = PROMISE_ALL.symbol;
 pub const PROMISE_RACE_SYMBOL: &str = PROMISE_RACE.symbol;
 pub const OBJECT_GET_SYMBOL: &str = OBJECT_GET.symbol;
@@ -396,6 +408,8 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     ARRAY_LEN_SYMBOL,
     ARRAY_GET_SYMBOL,
     ARRAY_SET_SYMBOL,
+    ARRAY_SPREAD_ARRAY_SYMBOL,
+    ARRAY_SPREAD_CSTR_SYMBOL,
     PROMISE_ALL_SYMBOL,
     PROMISE_RACE_SYMBOL,
     OBJECT_GET_SYMBOL,

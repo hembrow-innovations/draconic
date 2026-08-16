@@ -815,7 +815,7 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            stdout, "1\n2\n3\n3\n0\n10\n21\n1\n2\n7\n8\n2\n",
+            stdout, "1\n2\n3\n3\n0\n10\n21\n1\n2\ntwo\n7\n8\n2\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -856,6 +856,44 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "10\n2\n20\n2\n30\n40\n40\n7\n1\n9\n3\n5\n6\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_arrays_spread_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/arrays/array_spread.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit array_spread");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_arrays spread must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_array_spread_array")
+                || ir.contains("draconic_rt_array_spread_cstr"),
+            "es_arrays spread must call spread helpers:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-arrays-spread").expect("workdir");
+        let bin = dir.join("array_spread");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "1\n2\n2\n1\n2\n3\n3\n0\n1\n2\n3\n4\n10\n1\n2\n3\n1\n2\n99\n7\n0\n5\n1\n1\n2\n3\n3\na\nb\n2\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

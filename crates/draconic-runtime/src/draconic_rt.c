@@ -776,6 +776,32 @@ void draconic_rt_array_set(DraconicValue *a, size_t index, void *value) {
     a->as.array.elems[index] = value;
 }
 
+/* N08.06.03: `[...arr]` — append all elements of src onto dest. */
+void draconic_rt_array_spread_array(DraconicValue *dest, DraconicValue *src) {
+    if (!dest || dest->tag != DRACONIC_TAG_ARRAY || !src || src->tag != DRACONIC_TAG_ARRAY) {
+        return;
+    }
+    size_t n = src->as.array.len;
+    size_t base = dest->as.array.len;
+    for (size_t i = 0; i < n; i++) {
+        void *el = src->as.array.elems ? src->as.array.elems[i] : NULL;
+        draconic_rt_array_set(dest, base + i, el);
+    }
+}
+
+/* N08.06.03: `[...str]` — append each code unit as a 1-char C string. */
+void draconic_rt_array_spread_cstr(DraconicValue *dest, const char *s) {
+    if (!dest || dest->tag != DRACONIC_TAG_ARRAY) {
+        return;
+    }
+    size_t n = s ? strlen(s) : 0;
+    size_t base = dest->as.array.len;
+    for (size_t i = 0; i < n; i++) {
+        char *ch = draconic_rt_cstr_from_code_unit(s, i);
+        draconic_rt_array_set(dest, base + i, ch);
+    }
+}
+
 /* --- Promise.all (N06.06) --- */
 
 typedef struct {
