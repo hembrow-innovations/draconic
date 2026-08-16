@@ -44,7 +44,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
 ///   conditional `?:` + simple/compound assignment + prefix/postfix `++`/`--` +
 ///   comma `,` + unary keywords `typeof`/`void`/`delete` over JS
-///   numbers/BigInts/booleans/strings/undefined + Math) via Runtime prints — N08.01.01–N08.01.04.08 / N08.08.01–N08.08.05
+///   numbers/BigInts/booleans/strings/undefined + Math + Number/NaN/Infinity) via Runtime prints — N08.01.01–N08.01.04.08 / N08.08.01–N08.08.06
 /// - **Nullish / logical assignment** (`??` `??=` `&&=` `||=` with mixed
 ///   null/undefined/number/bool/string) via tagged slots — N08.01.04.09
 /// - **`if` / `else`** (block or expression bodies; ToBoolean on number/boolean
@@ -528,6 +528,48 @@ mod tests {
         assert_eq!(
             stdout,
             "3\n3\n4\n4\n1\n3\n1024\n3\n-1\ntrue\ntrue\nobject\n4\ntrue\ntrue\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_numbers_number_global_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/numbers/number_global.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "number_global must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("fcmp uno") || ir.contains("0x7FF8000000000000"),
+            "should lower Number.isNaN / NaN:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bool"),
+            "should print boolean Number results:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bytes") || ir.contains("draconic_rt_print_str"),
+            "should print typeof strings:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-number-global").expect("workdir");
+        let bin = dir.join("number_global");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "true\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nfunction\nnumber\nnumber\ntrue\ntrue\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

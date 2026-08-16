@@ -24,7 +24,9 @@
 //! E08.04 BigInt exponentiation: `**` (right-associative) and `**=` (same-type BigInt; non-neg exp; N08.08.04).
 //! E08.05 Global `Math`: constants (`E`, `PI`, `LN2`, `LOG2E`) + methods (`abs`, `floor`, `ceil`,
 //! `round`, `min`, `max`, `pow`, `sqrt`, `sign`) via `.` / `[]` and calls (N08.08.05).
-//! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
+//! E08.06 Global `NaN` / `Infinity` + `Number`: constants + static methods (`isNaN`, `isFinite`,
+//! `isInteger`, `isSafeInteger`) via `.` / `[]` and calls (N08.08.06).
+//! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -40,10 +42,10 @@ use draconic_runtime::abi::{
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.05 / N08.01.* / N08.02.01–N08.02.09 /
-/// N08.07.01–N08.07.05 / N08.08.01–N08.08.05):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.06 / N08.01.* / N08.02.01–N08.02.09 /
+/// N08.07.01–N08.07.05 / N08.08.01–N08.08.06):
 /// top-level `let`/`const` declares over JS numbers, BigInts (i64-range), booleans, strings,
-/// undefined (`void`), and/or untyped `any` string/number slots with arithmetic, unary
+/// undefined (`void`), and/or untyped `any` string/number/boolean slots with arithmetic, unary
 /// `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical, bitwise,
 /// exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`, comma,
 /// grouping, local refs, string concat `+` (incl. number ToString), untagged templates,
@@ -52,6 +54,8 @@ use draconic_runtime::abi::{
 /// unary `-`/`~`, comparison/equality, bitwise `&` `|` `^` `<<` `>>` (no `>>>`),
 /// BigInt `**` / `**=` (non-negative exponents; values fit i64),
 /// global `Math` constants/methods (`. ` / `[]` + call; `typeof Math` → `"object"`),
+/// global `NaN`/`Infinity`/`Number` constants/static methods (`. ` / `[]` + call;
+/// `typeof Number` → `"function"`; `typeof NaN`/`Infinity` → `"number"`),
 /// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or
 /// expression bodies), `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue`
 /// (unlabeled or labeled), labeled statements (incl. labeled blocks), and `switch`/`case`/`default`
@@ -133,7 +137,7 @@ fn slot_for_declare(
             }
             Some(SlotTy::Undefined)
         }
-        // Untyped: string index / for-in-of (string), `.length` (number), or Math (N08.02.08 / N08.07.01 / N08.08.05).
+        // Untyped: string index / for-in-of (string), `.length` (number), Math, or Number (N08.02.08 / N08.07.01 / N08.08.05–06).
         Type::Any => {
             if let Some(init) = init {
                 if expr_is_string_length(init, by_id) {
@@ -141,6 +145,12 @@ fn slot_for_declare(
                 }
                 if expr_is_math_number(init, by_id) {
                     return Some(SlotTy::Number);
+                }
+                if expr_is_number_ctor_const(init, by_id) {
+                    return Some(SlotTy::Number);
+                }
+                if expr_is_number_ctor_bool(init, by_id) {
+                    return Some(SlotTy::Boolean);
                 }
                 if expr_is_string_subset(init, by_id) {
                     return Some(SlotTy::String);
@@ -390,6 +400,12 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
             if is_math_global_local(*id, *ty, by_id) {
                 return true;
             }
+            if is_number_ctor_local(*id, *ty, by_id) {
+                return true;
+            }
+            if is_nan_or_infinity_local(*id, *ty, by_id) {
+                return true;
+            }
             matches!(
                 ty,
                 Type::Number
@@ -476,6 +492,108 @@ fn expr_is_math_number(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                 _ => n == 1,
             };
             arity_ok
+                && args.iter().all(|a| match a {
+                    Arg::Expr(e) => expr_is_number_subset(e, by_id),
+                    _ => false,
+                })
+        }
+        _ => false,
+    }
+}
+
+/// Global `Number` constructor binding (host builtin local; N08.08.06).
+fn is_number_ctor_local(id: LocalId, ty: Type, by_id: &HashMap<LocalId, &Local>) -> bool {
+    ty == Type::Function
+        && by_id
+            .get(&id)
+            .is_some_and(|l| l.name == "Number" && l.ty == Type::Function)
+}
+
+fn is_number_ctor_expr(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::Local { id, ty } => is_number_ctor_local(*id, *ty, by_id),
+        _ => false,
+    }
+}
+
+/// Global `NaN` / `Infinity` number bindings (host builtins; N08.08.06).
+fn is_nan_or_infinity_local(id: LocalId, ty: Type, by_id: &HashMap<LocalId, &Local>) -> bool {
+    ty == Type::Number
+        && by_id.get(&id).is_some_and(|l| {
+            l.ty == Type::Number && (l.name == "NaN" || l.name == "Infinity")
+        })
+}
+
+fn nan_or_infinity_name(id: LocalId, by_id: &HashMap<LocalId, &Local>) -> Option<&'static str> {
+    let l = by_id.get(&id)?;
+    if l.ty != Type::Number {
+        return None;
+    }
+    match l.name.as_str() {
+        "NaN" => Some("NaN"),
+        "Infinity" => Some("Infinity"),
+        _ => None,
+    }
+}
+
+/// `Number.prop` / `Number["prop"]` → property name when object is the Number constructor.
+fn number_ctor_member_name<'a>(expr: &'a Expr, by_id: &HashMap<LocalId, &Local>) -> Option<String> {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            optional: false,
+            ..
+        } if is_number_ctor_expr(object, by_id) => match property.as_ref() {
+            Expr::String { value, .. } => Some(value.to_string_lossy()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn is_number_ctor_const_name(name: &str) -> bool {
+    matches!(
+        name,
+        "NaN"
+            | "POSITIVE_INFINITY"
+            | "NEGATIVE_INFINITY"
+            | "MAX_VALUE"
+            | "MIN_VALUE"
+            | "EPSILON"
+            | "MAX_SAFE_INTEGER"
+            | "MIN_SAFE_INTEGER"
+    )
+}
+
+fn is_number_ctor_method_name(name: &str) -> bool {
+    matches!(name, "isNaN" | "isFinite" | "isInteger" | "isSafeInteger")
+}
+
+/// Number-producing `Number.*` constant member (E08.06 / N08.08.06).
+fn expr_is_number_ctor_const(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    if let Some(name) = number_ctor_member_name(expr, by_id) {
+        return is_number_ctor_const_name(&name);
+    }
+    false
+}
+
+/// Boolean-producing `Number.isNaN` / `isFinite` / `isInteger` / `isSafeInteger` call.
+fn expr_is_number_ctor_bool(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::Call {
+            callee,
+            args,
+            optional: false,
+            ..
+        } => {
+            let Some(name) = number_ctor_member_name(callee, by_id) else {
+                return false;
+            };
+            if !is_number_ctor_method_name(&name) {
+                return false;
+            }
+            args.len() == 1
                 && args.iter().all(|a| match a {
                     Arg::Expr(e) => expr_is_number_subset(e, by_id),
                     _ => false,
@@ -701,6 +819,8 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         e if expr_is_string_length(e, by_id) => true,
         // N08.08.05: `Math.*` constants/methods (Member/Call typed `any`).
         e if expr_is_math_number(e, by_id) => true,
+        // N08.08.06: `Number.*` constants (Member typed `any`).
+        e if expr_is_number_ctor_const(e, by_id) => true,
         Expr::Unary { op, arg, ty } => {
             *ty == Type::Number
                 && matches!(op, UnaryOp::Minus | UnaryOp::Plus | UnaryOp::BitNot)
@@ -792,6 +912,10 @@ fn is_number_assign_op(op: AssignOp) -> bool {
 }
 
 fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    // N08.08.06: `Number.isNaN(…)` etc. are typed `any` but produce boolean.
+    if expr_is_number_ctor_bool(expr, by_id) {
+        return true;
+    }
     match expr {
         Expr::Boolean { ty, .. } => *ty == Type::Boolean,
         Expr::Local { id, ty } => {
@@ -1639,13 +1763,29 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Expr::Local { id, ty } => {
-                // N08.08.05: `typeof Math` — host Math is not stack-allocated.
+                // N08.08.05–06: host globals are not stack-allocated.
                 if *ty == Type::Object
                     && self
                         .module
                         .locals
                         .iter()
                         .any(|l| l.id == *id && l.name == "Math")
+                {
+                    return Ok(());
+                }
+                if *ty == Type::Function
+                    && self
+                        .module
+                        .locals
+                        .iter()
+                        .any(|l| l.id == *id && l.name == "Number")
+                {
+                    return Ok(());
+                }
+                if *ty == Type::Number
+                    && self.module.locals.iter().any(|l| {
+                        l.id == *id && (l.name == "NaN" || l.name == "Infinity")
+                    })
                 {
                     return Ok(());
                 }
@@ -1706,6 +1846,18 @@ impl<'a> Emitter<'a> {
             Expr::Local { id, .. } => {
                 if module.locals.iter().any(|l| l.id == *id && l.name == "Math") {
                     return Some("object");
+                }
+                if module
+                    .locals
+                    .iter()
+                    .any(|l| l.id == *id && l.name == "Number")
+                {
+                    return Some("function");
+                }
+                if module.locals.iter().any(|l| {
+                    l.id == *id && (l.name == "NaN" || l.name == "Infinity")
+                }) {
+                    return Some("number");
                 }
                 match slot_of.get(id)? {
                     SlotTy::Number => Some("number"),
@@ -2178,6 +2330,12 @@ impl<'a> Emitter<'a> {
                 return Ok(format_math_const(&name)?);
             }
         }
+        // N08.08.06: `Number.NaN` / `Number.MAX_VALUE` / …
+        if let Some(name) = self.number_ctor_member_name_emit(expr) {
+            if is_number_ctor_const_name(&name) {
+                return Ok(format_number_ctor_const(&name)?);
+            }
+        }
         // N08.08.05: `Math.abs(…)` / `Math["abs"](…)` / …
         if let Expr::Call {
             callee,
@@ -2195,6 +2353,12 @@ impl<'a> Emitter<'a> {
         match expr {
             Expr::Number { raw, .. } => Ok(format_number_const(raw)?),
             Expr::Local { id, .. } => {
+                // N08.08.06: host `NaN` / `Infinity` are not stack-allocated.
+                let by_id: HashMap<LocalId, &Local> =
+                    self.module.locals.iter().map(|l| (l.id, l)).collect();
+                if let Some(name) = nan_or_infinity_name(*id, &by_id) {
+                    return Ok(format_number_ctor_const(name)?);
+                }
                 let (ptr, slot) = self
                     .allocas
                     .get(id)
@@ -2461,6 +2625,20 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        // N08.08.06: `Number.isNaN(…)` / `isFinite` / `isInteger` / `isSafeInteger`.
+        if let Expr::Call {
+            callee,
+            args,
+            optional: false,
+            ..
+        } = expr
+        {
+            if let Some(name) = self.number_ctor_member_name_emit(callee) {
+                if is_number_ctor_method_name(&name) {
+                    return self.emit_number_ctor_bool_call(&name, args);
+                }
+            }
+        }
         match expr {
             Expr::Boolean { value, .. } => Ok(if *value { "true".into() } else { "false".into() }),
             Expr::Local { id, .. } => {
@@ -2505,9 +2683,10 @@ impl<'a> Emitter<'a> {
                 {
                     let l = self.emit_number_expr(left)?;
                     let r = self.emit_number_expr(right)?;
+                    // `une` so NaN !== NaN is true (ES Number equality; `one` is false for NaN).
                     let pred = match op {
                         BinaryOp::EqEq | BinaryOp::EqEqEq => "oeq",
-                        BinaryOp::NotEq | BinaryOp::NotEqEq => "one",
+                        BinaryOp::NotEq | BinaryOp::NotEqEq => "une",
                         BinaryOp::Lt => "olt",
                         BinaryOp::LtEq => "ole",
                         BinaryOp::Gt => "ogt",
@@ -2639,14 +2818,129 @@ impl<'a> Emitter<'a> {
         math_member_name(expr, &by_id)
     }
 
-    /// True when `emit_number_expr` can lower this (Number ty, Math, or `.length`).
+    /// Resolve `Number.prop` / `Number["prop"]` property name during emit.
+    fn number_ctor_member_name_emit(&self, expr: &Expr) -> Option<String> {
+        let by_id: HashMap<LocalId, &Local> =
+            self.module.locals.iter().map(|l| (l.id, l)).collect();
+        number_ctor_member_name(expr, &by_id)
+    }
+
+    /// True when `emit_number_expr` can lower this (Number ty, Math, Number consts, or `.length`).
     fn expr_emits_as_number(&self, expr: &Expr) -> bool {
         if matches!(expr.ty(), Type::Number) {
             return true;
         }
         let by_id: HashMap<LocalId, &Local> =
             self.module.locals.iter().map(|l| (l.id, l)).collect();
-        expr_is_math_number(expr, &by_id) || expr_is_string_length(expr, &by_id)
+        expr_is_math_number(expr, &by_id)
+            || expr_is_number_ctor_const(expr, &by_id)
+            || expr_is_string_length(expr, &by_id)
+    }
+
+    /// Emit `Number.isNaN` / `isFinite` / `isInteger` / `isSafeInteger` as i1 SSA (N08.08.06).
+    fn emit_number_ctor_bool_call(
+        &mut self,
+        method: &str,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        if args.len() != 1 {
+            return Err(diag(format!("internal: Number.{method} arity")));
+        }
+        let Arg::Expr(e) = &args[0] else {
+            return Err(diag("internal: Number method expects expression arg"));
+        };
+        let x = self.emit_number_expr(e)?;
+        match method {
+            "isNaN" => {
+                // Number.isNaN: true iff unordered (NaN); no ToNumber coerce.
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = fcmp uno double {x}, {x}").ok();
+                Ok(t)
+            }
+            "isFinite" => {
+                // finite ≡ ordered and not ±Infinity.
+                let ord = self.fresh();
+                writeln!(self.body, "  {ord} = fcmp ord double {x}, {x}").ok();
+                let abs = self.fresh();
+                writeln!(self.body, "  {abs} = call double @llvm.fabs.f64(double {x})").ok();
+                let is_inf = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {is_inf} = fcmp oeq double {abs}, 0x7FF0000000000000"
+                )
+                .ok();
+                let not_inf = self.fresh();
+                writeln!(self.body, "  {not_inf} = xor i1 {is_inf}, true").ok();
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = and i1 {ord}, {not_inf}").ok();
+                Ok(t)
+            }
+            "isInteger" => {
+                // finite && floor(x) === x
+                let ord = self.fresh();
+                writeln!(self.body, "  {ord} = fcmp ord double {x}, {x}").ok();
+                let abs = self.fresh();
+                writeln!(self.body, "  {abs} = call double @llvm.fabs.f64(double {x})").ok();
+                let is_inf = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {is_inf} = fcmp oeq double {abs}, 0x7FF0000000000000"
+                )
+                .ok();
+                let not_inf = self.fresh();
+                writeln!(self.body, "  {not_inf} = xor i1 {is_inf}, true").ok();
+                let finite = self.fresh();
+                writeln!(self.body, "  {finite} = and i1 {ord}, {not_inf}").ok();
+                let flo = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {flo} = call double @llvm.floor.f64(double {x})"
+                )
+                .ok();
+                let eq = self.fresh();
+                writeln!(self.body, "  {eq} = fcmp oeq double {flo}, {x}").ok();
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = and i1 {finite}, {eq}").ok();
+                Ok(t)
+            }
+            "isSafeInteger" => {
+                // isInteger && abs(x) <= MAX_SAFE_INTEGER
+                let ord = self.fresh();
+                writeln!(self.body, "  {ord} = fcmp ord double {x}, {x}").ok();
+                let abs = self.fresh();
+                writeln!(self.body, "  {abs} = call double @llvm.fabs.f64(double {x})").ok();
+                let is_inf = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {is_inf} = fcmp oeq double {abs}, 0x7FF0000000000000"
+                )
+                .ok();
+                let not_inf = self.fresh();
+                writeln!(self.body, "  {not_inf} = xor i1 {is_inf}, true").ok();
+                let finite = self.fresh();
+                writeln!(self.body, "  {finite} = and i1 {ord}, {not_inf}").ok();
+                let flo = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {flo} = call double @llvm.floor.f64(double {x})"
+                )
+                .ok();
+                let eq = self.fresh();
+                writeln!(self.body, "  {eq} = fcmp oeq double {flo}, {x}").ok();
+                let is_int = self.fresh();
+                writeln!(self.body, "  {is_int} = and i1 {finite}, {eq}").ok();
+                let le = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {le} = fcmp ole double {abs}, 9.0071992547409910e+15"
+                )
+                .ok();
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = and i1 {is_int}, {le}").ok();
+                Ok(t)
+            }
+            _ => Err(diag(format!("internal: unsupported Number.{method}"))),
+        }
     }
 
     /// Emit `Math.<method>(…args)` as f64 SSA (N08.08.05).
@@ -2838,6 +3132,22 @@ fn format_math_const(name: &str) -> Result<String, Diagnostic> {
         _ => return Err(diag(format!("internal: unknown Math const {name}"))),
     };
     Ok(format!("{f:.17e}"))
+}
+
+/// Format a Number/NaN/Infinity constant as an LLVM `double` (N08.08.06 / E08.06).
+fn format_number_ctor_const(name: &str) -> Result<String, Diagnostic> {
+    match name {
+        // Quiet NaN / ±Infinity as bit patterns (decimal `NaN` is not valid LLVM double text).
+        "NaN" => Ok("0x7FF8000000000000".into()),
+        "POSITIVE_INFINITY" | "Infinity" => Ok("0x7FF0000000000000".into()),
+        "NEGATIVE_INFINITY" => Ok("0xFFF0000000000000".into()),
+        "MAX_VALUE" => Ok(format!("{:.17e}", f64::MAX)),
+        "MIN_VALUE" => Ok(format!("{:.17e}", f64::MIN_POSITIVE)),
+        "EPSILON" => Ok(format!("{:.17e}", f64::EPSILON)),
+        "MAX_SAFE_INTEGER" => Ok("9.0071992547409910e+15".into()),
+        "MIN_SAFE_INTEGER" => Ok("-9.0071992547409910e+15".into()),
+        _ => Err(diag(format!("internal: unknown Number const {name}"))),
+    }
 }
 
 /// Format a JS number literal as an LLVM `double` constant (decimal/hex/bin/oct,
