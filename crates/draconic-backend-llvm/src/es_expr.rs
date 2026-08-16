@@ -22,6 +22,8 @@
 //! E08.02 BigInt integer literals + same-type arithmetic (N08.08.02; i64-range values).
 //! E08.03 BigInt comparison & bitwise: `<` `<=` `>` `>=` `==` `!=` `===` `!==` `&` `|` `^` `~` `<<` `>>` (N08.08.03; no `>>>`).
 //! E08.04 BigInt exponentiation: `**` (right-associative) and `**=` (same-type BigInt; non-neg exp; N08.08.04).
+//! E08.05 Global `Math`: constants (`E`, `PI`, `LN2`, `LOG2E`) + methods (`abs`, `floor`, `ceil`,
+//! `round`, `min`, `max`, `pow`, `sqrt`, `sign`) via `.` / `[]` and calls (N08.08.05).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -29,15 +31,17 @@ use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp, UpdateOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
+use draconic_ir::{
+    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget,
+};
 use draconic_runtime::abi::{
     llvm_declares, CSTR_CONCAT_N, CSTR_EQ_N, CSTR_FROM_CODE_UNIT_N, CSTR_FROM_U64, CSTR_LEN,
     ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64, PRINT_I64, UTF16_LEN,
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.04 / N08.01.* / N08.02.01–N08.02.09 /
-/// N08.07.01–N08.07.05 / N08.08.01–N08.08.04):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.05 / N08.01.* / N08.02.01–N08.02.09 /
+/// N08.07.01–N08.07.05 / N08.08.01–N08.08.05):
 /// top-level `let`/`const` declares over JS numbers, BigInts (i64-range), booleans, strings,
 /// undefined (`void`), and/or untyped `any` string/number slots with arithmetic, unary
 /// `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical, bitwise,
@@ -47,6 +51,7 @@ use draconic_runtime::abi::{
 /// (decimal/hex/bin/oct/separators/scientific), BigInt literals + same-type `+` `-` `*` `/` `%`
 /// unary `-`/`~`, comparison/equality, bitwise `&` `|` `^` `<<` `>>` (no `>>>`),
 /// BigInt `**` / `**=` (non-negative exponents; values fit i64),
+/// global `Math` constants/methods (`. ` / `[]` + call; `typeof Math` → `"object"`),
 /// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or
 /// expression bodies), `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue`
 /// (unlabeled or labeled), labeled statements (incl. labeled blocks), and `switch`/`case`/`default`
@@ -128,10 +133,13 @@ fn slot_for_declare(
             }
             Some(SlotTy::Undefined)
         }
-        // Untyped: string index / for-in-of (string) or `.length` (number) (N08.02.08 / N08.07.01).
+        // Untyped: string index / for-in-of (string), `.length` (number), or Math (N08.02.08 / N08.07.01 / N08.08.05).
         Type::Any => {
             if let Some(init) = init {
                 if expr_is_string_length(init, by_id) {
+                    return Some(SlotTy::Number);
+                }
+                if expr_is_math_number(init, by_id) {
                     return Some(SlotTy::Number);
                 }
                 if expr_is_string_subset(init, by_id) {
@@ -379,6 +387,9 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
         Expr::Boolean { ty, .. } => *ty == Type::Boolean,
         Expr::Null { ty } => *ty == Type::Null,
         Expr::Local { id, ty } => {
+            if is_math_global_local(*id, *ty, by_id) {
+                return true;
+            }
             matches!(
                 ty,
                 Type::Number
@@ -394,6 +405,82 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
         e if expr_is_boolean_subset(e, by_id) => true,
         e if expr_is_string_subset(e, by_id) => true,
         e if expr_is_undefined_subset(e, by_id) => true,
+        _ => false,
+    }
+}
+
+/// Global `Math` binding (host builtin local; N08.08.05).
+fn is_math_global_local(id: LocalId, ty: Type, by_id: &HashMap<LocalId, &Local>) -> bool {
+    ty == Type::Object
+        && by_id
+            .get(&id)
+            .is_some_and(|l| l.name == "Math" && l.ty == Type::Object)
+}
+
+fn is_math_global_expr(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::Local { id, ty } => is_math_global_local(*id, *ty, by_id),
+        _ => false,
+    }
+}
+
+/// `Math.prop` / `Math["prop"]` → property name when object is the Math global.
+fn math_member_name<'a>(expr: &'a Expr, by_id: &HashMap<LocalId, &Local>) -> Option<String> {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            optional: false,
+            ..
+        } if is_math_global_expr(object, by_id) => match property.as_ref() {
+            Expr::String { value, .. } => Some(value.to_string_lossy()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn is_math_const_name(name: &str) -> bool {
+    matches!(name, "E" | "PI" | "LN2" | "LOG2E")
+}
+
+fn is_math_method_name(name: &str) -> bool {
+    matches!(
+        name,
+        "abs" | "floor" | "ceil" | "round" | "min" | "max" | "pow" | "sqrt" | "sign"
+    )
+}
+
+/// Number-producing `Math` member or call (E08.05 / N08.08.05).
+fn expr_is_math_number(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    if let Some(name) = math_member_name(expr, by_id) {
+        return is_math_const_name(&name);
+    }
+    match expr {
+        Expr::Call {
+            callee,
+            args,
+            optional: false,
+            ..
+        } => {
+            let Some(name) = math_member_name(callee, by_id) else {
+                return false;
+            };
+            if !is_math_method_name(&name) {
+                return false;
+            }
+            let n = args.len();
+            let arity_ok = match name.as_str() {
+                "min" | "max" => n >= 1,
+                "pow" => n == 2,
+                _ => n == 1,
+            };
+            arity_ok
+                && args.iter().all(|a| match a {
+                    Arg::Expr(e) => expr_is_number_subset(e, by_id),
+                    _ => false,
+                })
+        }
         _ => false,
     }
 }
@@ -612,6 +699,8 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         }
         // N08.07.01: `s.length` (Member typed `any`).
         e if expr_is_string_length(e, by_id) => true,
+        // N08.08.05: `Math.*` constants/methods (Member/Call typed `any`).
+        e if expr_is_math_number(e, by_id) => true,
         Expr::Unary { op, arg, ty } => {
             *ty == Type::Number
                 && matches!(op, UnaryOp::Minus | UnaryOp::Plus | UnaryOp::BitNot)
@@ -948,8 +1037,13 @@ impl<'a> Emitter<'a> {
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
-        // JS `**` → IEEE pow (Math.pow); intrinsic available without libm link flags.
+        // JS `**` / Math.pow + Math.* methods (IEEE f64 intrinsics; no extra libm flags).
         writeln!(self.out, "declare double @llvm.pow.f64(double, double)").ok();
+        writeln!(self.out, "declare double @llvm.fabs.f64(double)").ok();
+        writeln!(self.out, "declare double @llvm.floor.f64(double)").ok();
+        writeln!(self.out, "declare double @llvm.ceil.f64(double)").ok();
+        writeln!(self.out, "declare double @llvm.round.f64(double)").ok();
+        writeln!(self.out, "declare double @llvm.sqrt.f64(double)").ok();
         writeln!(self.out).ok();
 
         for (content, gname) in &self.str_globals {
@@ -1544,7 +1638,17 @@ impl<'a> Emitter<'a> {
                 let _ = self.emit_string_expr(expr)?;
                 Ok(())
             }
-            Expr::Local { id, .. } => {
+            Expr::Local { id, ty } => {
+                // N08.08.05: `typeof Math` — host Math is not stack-allocated.
+                if *ty == Type::Object
+                    && self
+                        .module
+                        .locals
+                        .iter()
+                        .any(|l| l.id == *id && l.name == "Math")
+                {
+                    return Ok(());
+                }
                 let (_, slot) = self
                     .allocas
                     .get(id)
@@ -1588,20 +1692,29 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn typeof_name(expr: &Expr, slot_of: &HashMap<LocalId, SlotTy>) -> Option<&'static str> {
+    fn typeof_name(
+        expr: &Expr,
+        slot_of: &HashMap<LocalId, SlotTy>,
+        module: &Module,
+    ) -> Option<&'static str> {
         match expr {
             Expr::Number { .. } => Some("number"),
             Expr::BigInt { .. } => Some("bigint"),
             Expr::String { .. } => Some("string"),
             Expr::Boolean { .. } => Some("boolean"),
             Expr::Null { .. } => Some("object"),
-            Expr::Local { id, .. } => match slot_of.get(id)? {
-                SlotTy::Number => Some("number"),
-                SlotTy::BigInt => Some("bigint"),
-                SlotTy::String => Some("string"), // includes untyped any string slots
-                SlotTy::Boolean => Some("boolean"),
-                SlotTy::Undefined => Some("undefined"),
-            },
+            Expr::Local { id, .. } => {
+                if module.locals.iter().any(|l| l.id == *id && l.name == "Math") {
+                    return Some("object");
+                }
+                match slot_of.get(id)? {
+                    SlotTy::Number => Some("number"),
+                    SlotTy::BigInt => Some("bigint"),
+                    SlotTy::String => Some("string"), // includes untyped any string slots
+                    SlotTy::Boolean => Some("boolean"),
+                    SlotTy::Undefined => Some("undefined"),
+                }
+            }
             Expr::Unary {
                 op: UnaryOp::Void, ..
             } => Some("undefined"),
@@ -1837,7 +1950,7 @@ impl<'a> Emitter<'a> {
                 self.emit_discard_arg(arg)?;
                 let slot_of: HashMap<LocalId, SlotTy> =
                     self.allocas.iter().map(|(k, (_, s))| (*k, *s)).collect();
-                let name = Self::typeof_name(arg, &slot_of)
+                let name = Self::typeof_name(arg, &slot_of, self.module)
                     .ok_or_else(|| diag("internal: unsupported typeof operand"))?;
                 self.string_const(name)
             }
@@ -2057,6 +2170,26 @@ impl<'a> Emitter<'a> {
                 let t = self.fresh();
                 writeln!(self.body, "  {t} = uitofp i64 {units} to double").ok();
                 return Ok(t);
+            }
+        }
+        // N08.08.05: `Math.PI` / `Math.E` / …
+        if let Some(name) = self.math_member_name_emit(expr) {
+            if is_math_const_name(&name) {
+                return Ok(format_math_const(&name)?);
+            }
+        }
+        // N08.08.05: `Math.abs(…)` / `Math["abs"](…)` / …
+        if let Expr::Call {
+            callee,
+            args,
+            optional: false,
+            ..
+        } = expr
+        {
+            if let Some(name) = self.math_member_name_emit(callee) {
+                if is_math_method_name(&name) {
+                    return self.emit_math_call(&name, args);
+                }
             }
         }
         match expr {
@@ -2368,7 +2501,7 @@ impl<'a> Emitter<'a> {
                 | BinaryOp::NotEq
                 | BinaryOp::EqEqEq
                 | BinaryOp::NotEqEq
-                    if expr_ty_is_number(left) =>
+                    if expr_ty_is_number(left) || self.expr_emits_as_number(left) =>
                 {
                     let l = self.emit_number_expr(left)?;
                     let r = self.emit_number_expr(right)?;
@@ -2499,6 +2632,130 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Resolve `Math.prop` / `Math["prop"]` property name during emit.
+    fn math_member_name_emit(&self, expr: &Expr) -> Option<String> {
+        let by_id: HashMap<LocalId, &Local> =
+            self.module.locals.iter().map(|l| (l.id, l)).collect();
+        math_member_name(expr, &by_id)
+    }
+
+    /// True when `emit_number_expr` can lower this (Number ty, Math, or `.length`).
+    fn expr_emits_as_number(&self, expr: &Expr) -> bool {
+        if matches!(expr.ty(), Type::Number) {
+            return true;
+        }
+        let by_id: HashMap<LocalId, &Local> =
+            self.module.locals.iter().map(|l| (l.id, l)).collect();
+        expr_is_math_number(expr, &by_id) || expr_is_string_length(expr, &by_id)
+    }
+
+    /// Emit `Math.<method>(…args)` as f64 SSA (N08.08.05).
+    fn emit_math_call(&mut self, method: &str, args: &[Arg]) -> Result<String, Diagnostic> {
+        let mut nums = Vec::with_capacity(args.len());
+        for a in args {
+            let Arg::Expr(e) = a else {
+                return Err(diag("internal: Math call expects expression args"));
+            };
+            nums.push(self.emit_number_expr(e)?);
+        }
+        match method {
+            "abs" | "floor" | "ceil" | "round" | "sqrt" => {
+                if nums.len() != 1 {
+                    return Err(diag(format!("internal: Math.{method} arity")));
+                }
+                let intrinsic = match method {
+                    "abs" => "llvm.fabs.f64",
+                    "floor" => "llvm.floor.f64",
+                    "ceil" => "llvm.ceil.f64",
+                    "round" => "llvm.round.f64",
+                    "sqrt" => "llvm.sqrt.f64",
+                    _ => unreachable!(),
+                };
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {t} = call double @{intrinsic}(double {})",
+                    nums[0]
+                )
+                .ok();
+                Ok(t)
+            }
+            "pow" => {
+                if nums.len() != 2 {
+                    return Err(diag("internal: Math.pow arity"));
+                }
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {t} = call double @llvm.pow.f64(double {}, double {})",
+                    nums[0], nums[1]
+                )
+                .ok();
+                Ok(t)
+            }
+            "sign" => {
+                if nums.len() != 1 {
+                    return Err(diag("internal: Math.sign arity"));
+                }
+                // ES Math.sign: NaN→NaN; +0/−0 preserve; else ±1 by sign bit via compares.
+                let x = &nums[0];
+                let is_nan = self.fresh();
+                writeln!(self.body, "  {is_nan} = fcmp uno double {x}, {x}").ok();
+                let is_neg = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {is_neg} = fcmp olt double {x}, 0.00000000000000000e+00"
+                )
+                .ok();
+                let is_pos = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {is_pos} = fcmp ogt double {x}, 0.00000000000000000e+00"
+                )
+                .ok();
+                let neg1 = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {neg1} = select i1 {is_neg}, double -1.0000000000000000e+00, double {x}"
+                )
+                .ok();
+                let pos1 = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {pos1} = select i1 {is_pos}, double 1.0000000000000000e+00, double {neg1}"
+                )
+                .ok();
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {t} = select i1 {is_nan}, double {x}, double {pos1}"
+                )
+                .ok();
+                Ok(t)
+            }
+            "min" | "max" => {
+                if nums.is_empty() {
+                    return Err(diag(format!("internal: Math.{method} arity")));
+                }
+                let mut acc = nums[0].clone();
+                for n in nums.iter().skip(1) {
+                    let cmp = self.fresh();
+                    let pred = if method == "min" { "olt" } else { "ogt" };
+                    writeln!(self.body, "  {cmp} = fcmp {pred} double {acc}, {n}").ok();
+                    let t = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {t} = select i1 {cmp}, double {acc}, double {n}"
+                    )
+                    .ok();
+                    acc = t;
+                }
+                Ok(acc)
+            }
+            _ => Err(diag(format!("internal: unsupported Math.{method}"))),
+        }
+    }
+
     /// Emit JS bitwise op on two number SSA values (doubles). Shift count masked to 5 bits.
     fn emit_bitwise_number(
         &mut self,
@@ -2569,6 +2826,18 @@ fn expr_ty_is_bigint(expr: &Expr) -> bool {
 
 fn expr_ty_is_string(expr: &Expr) -> bool {
     matches!(expr.ty(), Type::String)
+}
+
+/// Format a Math constant name as an LLVM `double` (N08.08.05 / E08.05).
+fn format_math_const(name: &str) -> Result<String, Diagnostic> {
+    let f = match name {
+        "E" => std::f64::consts::E,
+        "PI" => std::f64::consts::PI,
+        "LN2" => std::f64::consts::LN_2,
+        "LOG2E" => std::f64::consts::LOG2_E,
+        _ => return Err(diag(format!("internal: unknown Math const {name}"))),
+    };
+    Ok(format!("{f:.17e}"))
 }
 
 /// Format a JS number literal as an LLVM `double` constant (decimal/hex/bin/oct,
