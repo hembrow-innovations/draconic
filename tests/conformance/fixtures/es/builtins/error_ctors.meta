@@ -1,4 +1,6 @@
 id: es/builtins/error_ctors
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\nfunction\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nError\nmsg\nTypeError\nt\nRangeError\nReferenceError\nSyntaxError\nURIError\nEvalError\nAggregateError\na\n2\n1\n
 js.check: if (te !== "function") process.exit(1); if (tt !== "function") process.exit(2); if (tr !== "function") process.exit(3); if (tref !== "function") process.exit(4); if (ts !== "function") process.exit(5); if (tu !== "function") process.exit(6); if (tev !== "function") process.exit(7); if (ta !== "function") process.exit(8); if (ge !== true) process.exit(9); if (gt !== true) process.exit(10); if (gr !== true) process.exit(11); if (gref !== true) process.exit(12); if (gs !== true) process.exit(13); if (gu !== true) process.exit(14); if (gev !== true) process.exit(15); if (ga !== true) process.exit(16); if (en !== "Error") process.exit(17); if (em !== "msg") process.exit(18); if (tyn !== "TypeError") process.exit(19); if (tym !== "t") process.exit(20); if (rgn !== "RangeError") process.exit(21); if (rfn !== "ReferenceError") process.exit(22); if (syn !== "SyntaxError") process.exit(23); if (urn !== "URIError") process.exit(24); if (evn !== "EvalError") process.exit(25); if (agn !== "AggregateError") process.exit(26); if (agm !== "a") process.exit(27); if (agl !== 2) process.exit(28); if (thr !== 1) process.exit(29); if (typeof te !== "string") process.exit(30);
