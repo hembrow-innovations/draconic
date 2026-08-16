@@ -15,7 +15,8 @@
 //! E02.08 `for-in` / `for-of` over strings (`let`/`const`/assign binding; string concat `+`),
 //! E02.09 `const` declarations (required init; `for`/`for-of`/`for-in` binding),
 //! E07.01 string lit + concat (incl. number ToString) + `.length` + index (N08.07.01),
-//! E07.02 untagged template literals (N08.07.02; cooked quasis + ToString interpolations).
+//! E07.02 untagged template literals (N08.07.02; cooked quasis + ToString interpolations),
+//! E07.03 unicode escapes `\x`/`\u`/`\u{}` cooked into strings; `.length` is UTF-16 units (N08.07.03).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -26,17 +27,17 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{
     llvm_declares, CSTR_CONCAT_N, CSTR_EQ_N, CSTR_FROM_CODE_UNIT_N, CSTR_FROM_U64, CSTR_LEN,
-    ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64,
+    ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64, UTF16_LEN,
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.02 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01–N08.07.02):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.03 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01–N08.07.03):
 /// top-level `let`/`const` declares over JS numbers, booleans, strings, undefined (`void`), and/or
 /// untyped `any` string/number slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
 /// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
 /// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`
-/// (incl. number ToString), untagged templates, string `.length` / index, `if`/`else`, `while`,
-/// `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
+/// (incl. number ToString), untagged templates, unicode-escape string lits, string `.length` / index,
+/// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
 /// `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue` (unlabeled or labeled),
 /// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
 /// fall-through; unlabeled `break`).
@@ -841,7 +842,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02/N08.07.01–N08.07.02 ES expressions + control + strings via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02/N08.07.01–N08.07.03 ES expressions + control + strings via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1715,8 +1716,16 @@ impl<'a> Emitter<'a> {
                 Expr::String { value, .. } if value.to_string_lossy() == "length"
             ) {
                 let s = self.emit_string_expr(object)?;
+                // N08.07.03: JS `.length` is UTF-16 code units (storage remains UTF-8 bytes).
+                let units = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    UTF16_LEN.call_to(&units, &format!("ptr {}, i64 {}", s.data, s.len))
+                )
+                .ok();
                 let t = self.fresh();
-                writeln!(self.body, "  {t} = uitofp i64 {} to double", s.len).ok();
+                writeln!(self.body, "  {t} = uitofp i64 {units} to double").ok();
                 return Ok(t);
             }
         }

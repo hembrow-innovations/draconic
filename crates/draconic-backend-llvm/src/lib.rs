@@ -72,6 +72,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   array ABI — N08.06.01–N08.06.06
 /// - **String lit** + concat (incl. number ToString) + `.length` + index via
 ///   length-aware C-string ABI — N08.07.01
+/// - **Untagged templates** — N08.07.02
+/// - **Unicode escapes** (`\x`/`\u`/`\u{}`) + UTF-16 `.length` — N08.07.03
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -1103,6 +1105,53 @@ mod tests {
         );
         let stdout = output.stdout;
         let expected = b"hello\n\na\nb\nworld\nhello world\nworld!\naworldb\n3\nn=3\nx1y2z\nsum=3\nouter inner world end\na`b$c\\d\na\nb\nstring\ntrue\nab\n";
+        assert_eq!(
+            stdout, expected,
+            "stdout={:?}\nir=\n{ir}",
+            String::from_utf8_lossy(&stdout)
+        );
+    }
+
+    #[test]
+    fn es_strings_unicode_escapes_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/strings/unicode_escapes.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "unicode_escapes must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bytes"),
+            "should print length-aware strings:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-unicode-escapes").expect("workdir");
+        let bin = dir.join("unicode_escapes");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = output.stdout;
+        // Content is UTF-8; .length is UTF-16 code units (emoji=2, ©=1).
+        let mut expected = Vec::new();
+        expected.extend_from_slice(b"AB\na\n");
+        expected.push(0); // hex_null
+        expected.extend_from_slice(b"\nA\n");
+        expected.extend_from_slice("\u{00A9}".as_bytes());
+        expected.extend_from_slice(b"\n \nA\n");
+        expected.extend_from_slice("\u{1F600}".as_bytes());
+        expected.extend_from_slice(b"\n");
+        expected.extend_from_slice("\u{00FF}".as_bytes());
+        expected.extend_from_slice(b"\nABC\nHi\nOK\n");
+        expected.extend_from_slice("\u{1F4A9}".as_bytes());
+        expected.extend_from_slice(b"\nxAy\ntrue\ntrue\ntrue\n2\n1\nHi\n");
         assert_eq!(
             stdout, expected,
             "stdout={:?}\nir=\n{ir}",

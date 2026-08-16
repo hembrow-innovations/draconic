@@ -128,6 +128,11 @@ pub const CSTR_EQ_N: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, i64, ptr, i64",
 };
+pub const UTF16_LEN: AbiFn = AbiFn {
+    symbol: "draconic_rt_utf16_len",
+    ret: "i64",
+    params: "ptr, i64",
+};
 
 // --- GC ---
 
@@ -460,6 +465,7 @@ pub const ES_EXPR_DECLARES: &[AbiFn] = &[
     CSTR_FROM_CODE_UNIT,
     CSTR_FROM_CODE_UNIT_N,
     CSTR_EQ_N,
+    UTF16_LEN,
 ];
 
 /// Declares used by the Promise/async emitter.

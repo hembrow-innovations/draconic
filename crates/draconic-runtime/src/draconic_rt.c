@@ -132,6 +132,37 @@ int draconic_rt_cstr_eq_n(const char *a, size_t la, const char *b, size_t lb) {
     return memcmp(a, b, la) == 0;
 }
 
+size_t draconic_rt_utf16_len(const char *s, size_t byte_len) {
+    size_t units = 0;
+    size_t i = 0;
+    if (!s) {
+        return 0;
+    }
+    while (i < byte_len) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x80u) {
+            units += 1;
+            i += 1;
+        } else if ((c & 0xE0u) == 0xC0u) {
+            /* 2-byte UTF-8 → one BMP code unit */
+            units += 1;
+            i += (i + 1 < byte_len) ? 2 : 1;
+        } else if ((c & 0xF0u) == 0xE0u) {
+            /* 3-byte UTF-8 → one BMP code unit */
+            units += 1;
+            i += (i + 2 < byte_len) ? 3 : 1;
+        } else if ((c & 0xF8u) == 0xF0u) {
+            /* 4-byte UTF-8 → surrogate pair (two UTF-16 units) */
+            units += 2;
+            i += (i + 3 < byte_len) ? 4 : 1;
+        } else {
+            units += 1;
+            i += 1;
+        }
+    }
+    return units;
+}
+
 /* --- GC hello (B09): tracing heap for JS strings and objects --- */
 
 typedef enum {

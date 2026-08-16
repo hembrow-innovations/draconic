@@ -29,6 +29,8 @@ void draconic_rt_print_bytes(const char *s, size_t len);
 char *draconic_rt_cstr_concat_n(const char *a, size_t la, const char *b, size_t lb);
 char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index);
 int draconic_rt_cstr_eq_n(const char *a, size_t la, const char *b, size_t lb);
+/* N08.07.03: JS `.length` = UTF-16 code units over UTF-8 stored bytes. */
+size_t draconic_rt_utf16_len(const char *s, size_t byte_len);
 
 /* --- GC heap for JS values --- */
 typedef struct DraconicValue DraconicValue;
