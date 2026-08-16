@@ -11,6 +11,7 @@ mod es_nullish;
 mod es_objects;
 mod es_promise;
 mod es_tagged_template;
+mod es_to_primitive;
 mod es_values;
 mod native_ints;
 
@@ -31,6 +32,7 @@ use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
+use es_to_primitive::{emit_es_to_primitive, is_es_to_primitive_module};
 use es_values::{emit_es_values, is_es_values_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
@@ -84,6 +86,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Symbol basics** (`Symbol()` / `Symbol.for` / `Symbol.keyFor` / typeof / `===`) — N08.09.01
 /// - **Symbol property keys** (computed/get/set; no string collision) — N08.09.02
 /// - **Abstract equality & coercion** (`==`/`!=` mixed types; ToNumber/ToString/ToBoolean) — N08.09.03
+/// - **ToPrimitive** (`valueOf`/`toString` hooks in `+` and `==`) — N08.09.04
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -98,6 +101,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_nullish_module(module) {
         return emit_es_nullish(module);
+    }
+    if is_es_to_primitive_module(module) {
+        return emit_es_to_primitive(module);
     }
     if is_es_coercion_module(module) {
         return emit_es_coercion(module);

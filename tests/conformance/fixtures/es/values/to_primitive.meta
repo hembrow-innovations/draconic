@@ -1,4 +1,6 @@
 id: es/values/to_primitive
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 15\n15\n20\ntrue\nfalse\ntrue\nx10\n10x\n71\ntrue\ntrue\n91\ntrue\n7\ntrue\nfalse\nfalse\n
 js.check: if (add_num_left !== 15) process.exit(1); if (add_num_right !== 15) process.exit(2); if (add_two_nbox !== 20) process.exit(3); if (eq_nbox_num !== true) process.exit(4); if (ne_nbox_num !== false) process.exit(5); if (eq_num_nbox !== true) process.exit(6); if (add_str_left !== "x10") process.exit(7); if (add_str_right !== "10x") process.exit(8); if (add_sbox_num !== "71") process.exit(9); if (eq_sbox_num !== true) process.exit(10); if (eq_sbox_str !== true) process.exit(11); if (add_fallback !== "91") process.exit(12); if (eq_fallback !== true) process.exit(13); if (add_vonly !== 7) process.exit(14); if (eq_vonly !== true) process.exit(15); if (eq_nbox_true !== false) process.exit(16); if (eq_sbox_true !== false) process.exit(17);
