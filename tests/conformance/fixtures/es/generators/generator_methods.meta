@@ -1,4 +1,6 @@
 id: es/generators/generator_methods
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 5\nfalse\n6\nfalse\n7\ntrue\n10\nfalse\ntrue\n7\nfalse\n14\nfalse\n21\ntrue\n3\nfalse\n4\ntrue\n
 js.check: if (v1 !== 5) process.exit(1); if (d1 !== false) process.exit(2); if (v2 !== 6) process.exit(3); if (d2 !== false) process.exit(4); if (v3 !== 7) process.exit(5); if (d3 !== true) process.exit(6); if (hv1 !== 10) process.exit(7); if (hd1 !== false) process.exit(8); if (hd2 !== true) process.exit(9); if (cv1 !== 7) process.exit(10); if (cd1 !== false) process.exit(11); if (cv2 !== 14) process.exit(12); if (cd2 !== false) process.exit(13); if (cv3 !== 21) process.exit(14); if (cd3 !== true) process.exit(15); if (sv1 !== 3) process.exit(16); if (sd1 !== false) process.exit(17); if (sv2 !== 4) process.exit(18); if (sd2 !== true) process.exit(19);

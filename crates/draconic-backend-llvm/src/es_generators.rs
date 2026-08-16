@@ -1,22 +1,24 @@
-//! N08.12.01–N08.12.05: native observations for generator function declaration +
-//! expression + `yield` / `yield*` / `return` + `.next()` / `.next(arg)` →
-//! `{value, done}` (E13.01–E13.05).
+//! N08.12.01–N08.12.06: native observations for generator function declaration +
+//! expression + methods (object/class/static) + `yield` / `yield*` / `return` +
+//! `.next()` / `.next(arg)` → `{value, done}` (E13.01–E13.06).
 //!
 //! Compile-time evaluation of a small generator subset: generator decls and
 //! `function*` expressions (incl. named + IIFE) with simple ident params,
-//! `yield` of number/binary/local/GenFn/`void 0` (bare yield), `let x = yield …`
-//! resume binding, `yield*` of generators/arrays (incl. completion value),
-//! `return` of same, iterator `.next()` / `.next(arg)`, and property reads
-//! `.value` / `.done`. Emits Runtime prints of final top-level
+//! object/class generator methods (`*m()` / `static *m()`), `this` prop reads
+//! in methods, `yield` of number/binary/local/GenFn/`void 0` (bare yield),
+//! `let x = yield …` resume binding, `yield*` of generators/arrays (incl.
+//! completion value), `return` of same, iterator `.next()` / `.next(arg)`, and
+//! property reads `.value` / `.done`. Emits Runtime prints of final top-level
 //! number/boolean/undefined locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::{BinaryOp, UnaryOp};
+use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, ArrayElement, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt,
+    Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp,
+    ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
@@ -44,6 +46,19 @@ enum JsVal {
     Array(Vec<JsVal>),
     /// Iterator result `{ value, done }`.
     Result { value: Box<JsVal>, done: bool },
+    /// Plain object or class instance (own props + optional prototype methods).
+    Object {
+        props: HashMap<String, JsVal>,
+        methods: HashMap<String, usize>,
+    },
+    /// Class constructor value (static methods + prototype methods + simple ctor).
+    Class {
+        methods: HashMap<String, usize>,
+        statics: HashMap<String, usize>,
+        ctor_params: Vec<LocalId>,
+        /// `this.prop = param` assignments from the constructor body.
+        ctor_assigns: Vec<(String, LocalId)>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -78,6 +93,8 @@ struct GenInst {
     suspended: bool,
     done: bool,
     env: HashMap<LocalId, JsVal>,
+    /// Method call receiver (`this`), when spawned via method call.
+    this_val: Option<JsVal>,
     /// Active `yield*` when suspended mid-delegate.
     yield_star: Option<YieldStarState>,
 }
@@ -93,7 +110,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if !module_has_generator(&module.body) {
         return None;
     }
-    if !body_ok(&module.body, &by_id) {
+    // Top-level shape only; detailed acceptance is eval success (methods/class IIFE).
+    if !module.body.iter().all(|s| {
+        matches!(
+            s,
+            Stmt::Function { .. } | Stmt::Declare { .. } | Stmt::Expr { .. }
+        )
+    }) {
         return None;
     }
 
@@ -118,7 +141,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             let idx = gen_fns.len();
             gen_fns.push(GenFnRec {
                 params: param_ids,
-                body: body.clone(),
+                body: filter_gen_body(body),
                 name: None,
             });
             fn_bind.insert(*local, idx);
@@ -149,7 +172,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                         JsVal::GenFn(_)
                         | JsVal::GenInst(_)
                         | JsVal::Result { .. }
-                        | JsVal::Array(_),
+                        | JsVal::Array(_)
+                        | JsVal::Object { .. }
+                        | JsVal::Class { .. },
                     ) => {}
                     None => return None,
                 }
@@ -226,134 +251,36 @@ fn expr_has_generator(expr: &Expr) -> bool {
             ArrayElement::Expr(e) => expr_has_generator(e),
             _ => false,
         }),
-        _ => false,
-    }
-}
-
-fn body_ok(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> bool {
-    body.iter().all(|s| stmt_ok(s, by_id))
-}
-
-fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
-    match stmt {
-        Stmt::Declare { local, init, .. } => {
-            let Some(loc) = by_id.get(local) else {
-                return false;
-            };
-            if !matches!(
-                loc.ty,
-                Type::Number | Type::Any | Type::Boolean | Type::Function
-            ) {
-                return false;
+        Expr::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { value, .. } | ObjectProp::Accessor { value, .. } => {
+                expr_has_generator(value)
             }
-            match init {
-                None => true,
-                Some(e) => expr_ok(e, by_id),
-            }
-        }
-        Stmt::Function {
-            params,
-            body,
-            is_async: false,
-            is_generator: true,
-            ..
-        } => simple_param_locals(params).is_some() && gen_body_ok(body, by_id),
-        Stmt::Function {
-            is_generator: false,
-            ..
-        } => false,
-        Stmt::Expr { expr } => expr_ok(expr, by_id),
-        _ => false,
-    }
-}
-
-fn gen_body_ok(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> bool {
-    body.iter().all(|s| match s {
-        Stmt::Expr { expr } => match expr {
-            Expr::Unary {
-                op: UnaryOp::Yield | UnaryOp::YieldStar,
-                arg,
-                ..
-            } => expr_ok(arg, by_id),
-            _ => false,
-        },
-        Stmt::Declare { local, init, .. } => {
-            let Some(loc) = by_id.get(local) else {
-                return false;
-            };
-            if !matches!(loc.ty, Type::Number | Type::Any | Type::Boolean) {
-                return false;
-            }
-            match init {
-                None => true,
-                Some(Expr::Unary {
-                    op: UnaryOp::Yield | UnaryOp::YieldStar,
-                    arg,
-                    ..
-                }) => expr_ok(arg, by_id),
-                Some(e) => expr_ok(e, by_id),
-            }
-        }
-        Stmt::Return { value } => match value {
-            None => true,
-            Some(e) => expr_ok(e, by_id),
-        },
-        _ => false,
-    })
-}
-
-fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
-    match expr {
-        Expr::Number { .. } | Expr::Boolean { .. } | Expr::String { .. } => true,
-        Expr::Local { id, .. } => by_id.contains_key(id),
-        Expr::Array { elements, .. } => elements.iter().all(|el| match el {
-            ArrayElement::Expr(e) => expr_ok(e, by_id),
-            _ => false,
+            ObjectProp::Spread(e) => expr_has_generator(e),
         }),
-        Expr::Call {
-            callee,
-            args,
-            optional: false,
-            ..
-        } => {
-            expr_ok(callee, by_id)
-                && args.iter().all(|a| match a {
-                    Arg::Expr(e) => expr_ok(e, by_id),
+        Expr::New { callee, args, .. } => {
+            expr_has_generator(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) => expr_has_generator(e),
                     _ => false,
                 })
         }
-        Expr::Member {
-            object,
-            property,
-            optional: false,
-            ..
-        } => expr_ok(object, by_id) && expr_ok(property, by_id),
-        Expr::Unary {
-            op: UnaryOp::Yield | UnaryOp::YieldStar | UnaryOp::Void,
-            arg,
-            ..
-        } => expr_ok(arg, by_id),
-        Expr::Binary {
-            left,
-            op:
-                BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Rem,
-            right,
-            ..
-        } => expr_ok(left, by_id) && expr_ok(right, by_id),
-        Expr::Function {
-            params,
-            body,
-            is_async: false,
-            is_generator: true,
-            is_arrow: false,
-            ..
-        } => simple_param_locals(params).is_some() && gen_body_ok(body, by_id),
+        Expr::Assign { value, .. } => expr_has_generator(value),
         _ => false,
     }
+}
+
+fn filter_gen_body(body: &[Stmt]) -> Vec<Stmt> {
+    body.iter()
+        .filter(|s| {
+            !matches!(
+                s,
+                Stmt::Expr {
+                    expr: Expr::String { value, .. },
+                } if value.to_string_lossy() == "use strict"
+            )
+        })
+        .cloned()
+        .collect()
 }
 
 fn eval_body(
@@ -408,7 +335,7 @@ fn register_gen_fn_expr(
     let idx = gen_fns.len();
     gen_fns.push(GenFnRec {
         params: param_ids,
-        body: body.to_vec(),
+        body: filter_gen_body(body),
         name,
     });
     if let Some(n) = name {
@@ -431,6 +358,7 @@ fn eval_expr(
         }
         Expr::Boolean { value, .. } => Ok(JsVal::Bool(*value)),
         Expr::Local { id, .. } => env.get(id).cloned().ok_or(()),
+        Expr::This { .. } => Err(()),
         Expr::Unary {
             op: UnaryOp::Void, ..
         } => Ok(JsVal::Undef),
@@ -446,6 +374,7 @@ fn eval_expr(
             }
             Ok(JsVal::Array(vals))
         }
+        Expr::Object { properties, .. } => eval_object_lit(properties, env, gen_fns, fn_bind, gens),
         Expr::Binary {
             left,
             op,
@@ -465,41 +394,43 @@ fn eval_expr(
             is_arrow: false,
             ..
         } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind),
+        // Class builder IIFE: `(function(){ … return ctor })()`
         Expr::Call {
             callee,
             args,
             optional: false,
             ..
-        } => {
-            // Method call: `it.next()` / `it.next(arg)`.
-            if let Expr::Member {
-                object,
-                property,
-                optional: false,
+        } if args.is_empty() => {
+            if let Expr::Function {
+                params,
+                body,
+                is_async: false,
+                is_generator: false,
+                is_arrow: false,
                 ..
             } = callee.as_ref()
             {
-                let obj = eval_expr(object, env, gen_fns, fn_bind, gens)?;
-                let prop = prop_name(property)?;
-                if prop == "next" {
-                    let resume = if args.is_empty() {
-                        JsVal::Undef
-                    } else if args.len() == 1 {
-                        match &args[0] {
-                            Arg::Expr(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
-                            _ => return Err(()),
-                        }
-                    } else {
-                        return Err(());
-                    };
-                    return gen_next(&obj, resume, gen_fns, fn_bind, gens);
+                if params.is_empty() {
+                    if let Ok(cls) = try_eval_class_iife(body, gen_fns, fn_bind) {
+                        return Ok(cls);
+                    }
                 }
-                return Err(());
             }
-
-            // Call generator function: `g(args)` / IIFE → iterator.
+            eval_call(callee, args, env, gen_fns, fn_bind, gens)
+        }
+        Expr::Call {
+            callee,
+            args,
+            optional: false,
+            ..
+        } => eval_call(callee, args, env, gen_fns, fn_bind, gens),
+        Expr::New {
+            callee,
+            args,
+            ..
+        } => {
             let c = eval_expr(callee, env, gen_fns, fn_bind, gens)?;
-            spawn_gen(c, args, env, gen_fns, fn_bind, gens)
+            eval_new(c, args, env, gen_fns, fn_bind, gens)
         }
         Expr::Member {
             object,
@@ -509,22 +440,444 @@ fn eval_expr(
         } => {
             let obj = eval_expr(object, env, gen_fns, fn_bind, gens)?;
             let prop = prop_name(property)?;
-            match obj {
-                JsVal::Result { value, done } => match prop.as_str() {
-                    "value" => Ok(*value),
-                    "done" => Ok(JsVal::Bool(done)),
-                    _ => Err(()),
-                },
-                _ => Err(()),
-            }
+            lookup_prop(&obj, &prop)
         }
         _ => Err(()),
     }
 }
 
-fn spawn_gen(
+fn eval_call(
+    callee: &Expr,
+    args: &[Arg],
+    env: &mut HashMap<LocalId, JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, ()> {
+    // Method call: `it.next()` / `obj.m(args)` / `C.sgen(args)`.
+    if let Expr::Member {
+        object,
+        property,
+        optional: false,
+        ..
+    } = callee
+    {
+        let obj = eval_expr(object, env, gen_fns, fn_bind, gens)?;
+        let prop = prop_name(property)?;
+        if prop == "next" {
+            let resume = if args.is_empty() {
+                JsVal::Undef
+            } else if args.len() == 1 {
+                match &args[0] {
+                    Arg::Expr(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
+                    _ => return Err(()),
+                }
+            } else {
+                return Err(());
+            };
+            return gen_next(&obj, resume, gen_fns, fn_bind, gens);
+        }
+        let method = lookup_prop(&obj, &prop)?;
+        let this_val = match &obj {
+            JsVal::Object { .. } | JsVal::Class { .. } => Some(obj),
+            _ => None,
+        };
+        return spawn_gen_call(method, args, this_val, env, gen_fns, fn_bind, gens);
+    }
+
+    // Call generator function: `g(args)` / IIFE → iterator.
+    let c = eval_expr(callee, env, gen_fns, fn_bind, gens)?;
+    spawn_gen_call(c, args, None, env, gen_fns, fn_bind, gens)
+}
+
+fn eval_object_lit(
+    properties: &[ObjectProp],
+    env: &mut HashMap<LocalId, JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, ()> {
+    let mut props = HashMap::new();
+    let methods = HashMap::new();
+    for p in properties {
+        let ObjectProp::Property { key, value } = p else {
+            return Err(());
+        };
+        let ObjectPropKey::Static(k) = key else {
+            return Err(());
+        };
+        let name = k.to_string_lossy();
+        let v = eval_expr(value, env, gen_fns, fn_bind, gens)?;
+        props.insert(name, v);
+    }
+    Ok(JsVal::Object { props, methods })
+}
+
+fn lookup_prop(obj: &JsVal, prop: &str) -> Result<JsVal, ()> {
+    match obj {
+        JsVal::Result { value, done } => match prop {
+            "value" => Ok(*value.clone()),
+            "done" => Ok(JsVal::Bool(*done)),
+            _ => Err(()),
+        },
+        JsVal::Object { props, methods } => {
+            if let Some(v) = props.get(prop) {
+                return Ok(v.clone());
+            }
+            if let Some(&fid) = methods.get(prop) {
+                return Ok(JsVal::GenFn(fid));
+            }
+            Err(())
+        }
+        JsVal::Class { statics, .. } => {
+            if let Some(&fid) = statics.get(prop) {
+                return Ok(JsVal::GenFn(fid));
+            }
+            Err(())
+        }
+        _ => Err(()),
+    }
+}
+
+fn eval_new(
     callee: JsVal,
     args: &[Arg],
+    env: &mut HashMap<LocalId, JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, ()> {
+    let JsVal::Class {
+        methods,
+        ctor_params,
+        ctor_assigns,
+        ..
+    } = callee
+    else {
+        return Err(());
+    };
+    if args.len() > ctor_params.len() {
+        return Err(());
+    }
+    let mut arg_vals = Vec::new();
+    for a in args {
+        match a {
+            Arg::Expr(e) => arg_vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?),
+            _ => return Err(()),
+        }
+    }
+    let mut param_env = HashMap::new();
+    for (i, pid) in ctor_params.iter().enumerate() {
+        let v = if i < arg_vals.len() {
+            arg_vals[i].clone()
+        } else {
+            JsVal::Undef
+        };
+        param_env.insert(*pid, v);
+    }
+    let mut props = HashMap::new();
+    for (prop, pid) in &ctor_assigns {
+        let v = param_env.get(pid).cloned().unwrap_or(JsVal::Undef);
+        props.insert(prop.clone(), v);
+    }
+    Ok(JsVal::Object { props, methods })
+}
+
+/// Extract class from builder IIFE body (ctor + proto/static generator methods).
+fn try_eval_class_iife(
+    body: &[Stmt],
+    gen_fns: &mut Vec<GenFnRec>,
+    _fn_bind: &mut HashMap<LocalId, usize>,
+) -> Result<JsVal, ()> {
+    let mut ctor_local: Option<LocalId> = None;
+    let mut ctor_params: Vec<LocalId> = Vec::new();
+    let mut ctor_assigns: Vec<(String, LocalId)> = Vec::new();
+    let mut pending_methods: Vec<(bool, String, Vec<LocalId>, Vec<Stmt>)> = Vec::new();
+    let mut pending_key: Option<String> = None;
+    let mut saw_return_ctor = false;
+    let mut saw_any_gen_method = false;
+
+    for stmt in body {
+        match stmt {
+            Stmt::Expr {
+                expr: Expr::String { value, .. },
+            } if value.to_string_lossy() == "use strict" => {}
+            Stmt::Declare {
+                local,
+                init:
+                    Some(Expr::Function {
+                        params,
+                        body: cbody,
+                        is_async: false,
+                        is_generator: false,
+                        is_arrow: false,
+                        ..
+                    }),
+                ..
+            } if ctor_local.is_none() => {
+                ctor_params = simple_param_locals(params).ok_or(())?;
+                ctor_assigns = extract_ctor_assigns(cbody)?;
+                ctor_local = Some(*local);
+            }
+            Stmt::Declare {
+                init: Some(Expr::String { value, .. }),
+                ..
+            } => {
+                pending_key = Some(value.to_string_lossy());
+            }
+            Stmt::Expr {
+                expr:
+                    Expr::Call {
+                        callee,
+                        args,
+                        ..
+                    },
+            } if is_object_define_property(callee) && args.len() == 3 => {
+                let ctor = ctor_local.ok_or(())?;
+                let key = pending_key
+                    .take()
+                    .or_else(|| string_arg_key(&args[1]))
+                    .ok_or(())?;
+                // Skip non-method defines (name, prototype descriptor without method).
+                let Some(method_fn) = find_method_function(&args[2]) else {
+                    continue;
+                };
+                let Expr::Function {
+                    params,
+                    body: mbody,
+                    is_async: false,
+                    is_generator: true,
+                    ..
+                } = method_fn
+                else {
+                    // Non-generator method — not in this adapter's scope.
+                    return Err(());
+                };
+                let param_ids = simple_param_locals(params).ok_or(())?;
+                let is_static = if is_define_on_ctor(args, ctor) {
+                    true
+                } else if is_define_on_proto(args, ctor) {
+                    false
+                } else {
+                    return Err(());
+                };
+                saw_any_gen_method = true;
+                pending_methods.push((is_static, key, param_ids, filter_gen_body(mbody)));
+            }
+            Stmt::Return {
+                value: Some(Expr::Local { id, .. }),
+            } if Some(*id) == ctor_local => {
+                saw_return_ctor = true;
+            }
+            // Ignore other class-builder scaffolding (defineProperty name/proto, etc.).
+            Stmt::Declare { .. } | Stmt::Expr { .. } | Stmt::If { .. } => {}
+            _ => return Err(()),
+        }
+    }
+
+    if !saw_return_ctor || ctor_local.is_none() || !saw_any_gen_method {
+        return Err(());
+    }
+
+    let mut methods: HashMap<String, usize> = HashMap::new();
+    let mut statics: HashMap<String, usize> = HashMap::new();
+    for (is_static, key, params, mbody) in pending_methods {
+        let idx = gen_fns.len();
+        gen_fns.push(GenFnRec {
+            params,
+            body: mbody,
+            name: None,
+        });
+        if is_static {
+            statics.insert(key, idx);
+        } else {
+            methods.insert(key, idx);
+        }
+    }
+
+    Ok(JsVal::Class {
+        methods,
+        statics,
+        ctor_params,
+        ctor_assigns,
+    })
+}
+
+fn extract_ctor_assigns(body: &[Stmt]) -> Result<Vec<(String, LocalId)>, ()> {
+    let mut out = Vec::new();
+    for stmt in body {
+        match stmt {
+            Stmt::Expr {
+                expr: Expr::String { value, .. },
+            } if value.to_string_lossy() == "use strict" => {}
+            Stmt::If { .. } => {} // new.target check
+            Stmt::Expr {
+                expr:
+                    Expr::Assign {
+                        target:
+                            AssignTarget::Member {
+                                object,
+                                property,
+                                ..
+                            },
+                        op: AssignOp::Eq,
+                        value,
+                        ..
+                    },
+            } => {
+                if !matches!(object.as_ref(), Expr::This { .. }) {
+                    return Err(());
+                }
+                let prop = prop_name(property)?;
+                let Expr::Local { id, .. } = value.as_ref() else {
+                    return Err(());
+                };
+                out.push((prop, *id));
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+fn is_object_define_property(callee: &Expr) -> bool {
+    let Expr::Member {
+        object, property, ..
+    } = callee
+    else {
+        return false;
+    };
+    matches!(
+        (object.as_ref(), property.as_ref()),
+        (
+            Expr::IdentName { name, .. },
+            Expr::String { value, .. }
+        ) if name == "Object" && value.to_string_lossy() == "defineProperty"
+    )
+}
+
+fn is_define_on_ctor(args: &[Arg], ctor: LocalId) -> bool {
+    matches!(
+        &args[0],
+        Arg::Expr(Expr::Local { id, .. }) if *id == ctor
+    )
+}
+
+fn is_define_on_proto(args: &[Arg], ctor: LocalId) -> bool {
+    let Arg::Expr(Expr::Member {
+        object, property, ..
+    }) = &args[0]
+    else {
+        return false;
+    };
+    matches!(
+        (object.as_ref(), property.as_ref()),
+        (
+            Expr::Local { id, .. },
+            Expr::String { value, .. }
+        ) if *id == ctor && value.to_string_lossy() == "prototype"
+    )
+}
+
+fn string_arg_key(arg: &Arg) -> Option<String> {
+    match arg {
+        Arg::Expr(Expr::String { value, .. }) => Some(value.to_string_lossy()),
+        _ => None,
+    }
+}
+
+fn find_method_function<'a>(arg: &'a Arg) -> Option<&'a Expr> {
+    let Arg::Expr(expr) = arg else {
+        return None;
+    };
+    find_method_function_expr(expr)
+}
+
+fn find_method_function_expr(expr: &Expr) -> Option<&Expr> {
+    match expr {
+        Expr::Function {
+            is_method: true, ..
+        } => Some(expr),
+        Expr::Function { body, .. } => {
+            for s in body {
+                if let Some(f) = find_method_function_in_stmt(s) {
+                    return Some(f);
+                }
+            }
+            None
+        }
+        Expr::Call { callee, args, .. } => {
+            if let Some(f) = find_method_function_expr(callee) {
+                return Some(f);
+            }
+            for a in args {
+                if let Some(f) = find_method_function(a) {
+                    return Some(f);
+                }
+            }
+            None
+        }
+        Expr::Object { properties, .. } => {
+            for p in properties {
+                if let ObjectProp::Property { value, .. } = p {
+                    if let Some(f) = find_method_function_expr(value) {
+                        return Some(f);
+                    }
+                }
+            }
+            None
+        }
+        Expr::Member {
+            object, property, ..
+        } => find_method_function_expr(object).or_else(|| find_method_function_expr(property)),
+        Expr::Binary { left, right, .. } => {
+            find_method_function_expr(left).or_else(|| find_method_function_expr(right))
+        }
+        Expr::Assign { value, .. } => find_method_function_expr(value),
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => find_method_function_expr(test)
+            .or_else(|| find_method_function_expr(consequent))
+            .or_else(|| find_method_function_expr(alternate)),
+        Expr::Unary { arg, .. } => find_method_function_expr(arg),
+        _ => None,
+    }
+}
+
+fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
+    match stmt {
+        Stmt::Expr { expr } | Stmt::Return { value: Some(expr) } => {
+            find_method_function_expr(expr)
+        }
+        Stmt::Declare {
+            init: Some(expr), ..
+        } => find_method_function_expr(expr),
+        Stmt::Block { body } => {
+            for s in body {
+                if let Some(f) = find_method_function_in_stmt(s) {
+                    return Some(f);
+                }
+            }
+            None
+        }
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => find_method_function_expr(test)
+            .or_else(|| find_method_function_in_stmt(consequent))
+            .or_else(|| alternate.as_ref().and_then(|a| find_method_function_in_stmt(a))),
+        _ => None,
+    }
+}
+
+fn spawn_gen_call(
+    callee: JsVal,
+    args: &[Arg],
+    this_val: Option<JsVal>,
     env: &mut HashMap<LocalId, JsVal>,
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
@@ -547,7 +900,14 @@ fn spawn_gen(
             _ => return Err(()),
         }
     }
-    spawn_gen_vals(JsVal::GenFn(fid), &arg_vals, gen_fns, fn_bind, gens)
+    spawn_gen_vals(
+        JsVal::GenFn(fid),
+        &arg_vals,
+        this_val,
+        gen_fns,
+        fn_bind,
+        gens,
+    )
 }
 
 fn bin_num(op: &BinaryOp, left: &JsVal, right: &JsVal) -> Result<JsVal, ()> {
@@ -765,7 +1125,7 @@ fn start_yield_star(
             bind,
         },
         JsVal::GenFn(fid) => {
-            let inst = spawn_gen_vals(JsVal::GenFn(fid), &[], gen_fns, fn_bind, gens)?;
+            let inst = spawn_gen_vals(JsVal::GenFn(fid), &[], None, gen_fns, fn_bind, gens)?;
             let JsVal::GenInst(i) = inst else {
                 return Err(());
             };
@@ -839,7 +1199,7 @@ fn step_yield_star(
     }
 }
 
-/// Evaluate expression in generator body (params, arithmetic, arrays, gen calls).
+/// Evaluate expression in generator body (params, arithmetic, arrays, gen calls, this).
 fn eval_in_gen(
     expr: &Expr,
     gen_idx: usize,
@@ -854,6 +1214,7 @@ fn eval_in_gen(
         }
         Expr::Boolean { value, .. } => Ok(JsVal::Bool(*value)),
         Expr::Local { id, .. } => gens[gen_idx].env.get(id).cloned().ok_or(()),
+        Expr::This { .. } => gens[gen_idx].this_val.clone().ok_or(()),
         Expr::Unary {
             op: UnaryOp::Void, ..
         } => Ok(JsVal::Undef),
@@ -878,6 +1239,16 @@ fn eval_in_gen(
             let l = eval_in_gen(left, gen_idx, gen_fns, fn_bind, gens)?;
             let r = eval_in_gen(right, gen_idx, gen_fns, fn_bind, gens)?;
             bin_num(op, &l, &r)
+        }
+        Expr::Member {
+            object,
+            property,
+            optional: false,
+            ..
+        } => {
+            let obj = eval_in_gen(object, gen_idx, gen_fns, fn_bind, gens)?;
+            let prop = prop_name(property)?;
+            lookup_prop(&obj, &prop)
         }
         Expr::Function {
             name,
@@ -918,7 +1289,7 @@ fn eval_in_gen(
                     _ => return Err(()),
                 }
             }
-            spawn_gen_vals(c, &arg_vals, gen_fns, fn_bind, gens)
+            spawn_gen_vals(c, &arg_vals, None, gen_fns, fn_bind, gens)
         }
         _ => Err(()),
     }
@@ -927,6 +1298,7 @@ fn eval_in_gen(
 fn spawn_gen_vals(
     callee: JsVal,
     args: &[JsVal],
+    this_val: Option<JsVal>,
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
@@ -968,6 +1340,7 @@ fn spawn_gen_vals(
         suspended: false,
         done: false,
         env: gen_env,
+        this_val,
         yield_star: None,
     });
     Ok(JsVal::GenInst(idx))
@@ -1043,7 +1416,7 @@ impl Emitter {
 
             writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.12.05 generators expr)"
+            "; Draconic LLVM backend (N08.12.06 generators methods)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
