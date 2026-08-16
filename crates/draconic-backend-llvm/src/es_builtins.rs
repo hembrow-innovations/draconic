@@ -1,4 +1,4 @@
-//! N08.14.01–N08.14.03: native observations for global builtins + Error ctors + global functions.
+//! N08.14.01–N08.14.04: native observations for global builtins + Error ctors + functions + URI.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -7,6 +7,7 @@
 //!   `new …(msg)`, `.name`/`.message`/`.errors.length`, throw+catch)
 //! - E15.03: `parseInt` / `parseFloat` / `isNaN` / `isFinite` (`typeof`, `globalThis`
 //!   identity, basic call behavior; `NaN` / `Infinity` globals)
+//! - E15.04: `encodeURI` / `decodeURI` / `encodeURIComponent` / `decodeURIComponent`
 //!
 //! Emits Runtime prints of final top-level number/string/bool locals.
 
@@ -56,6 +57,10 @@ enum BuiltinId {
     IsFinite,
     Nan,
     Infinity,
+    EncodeUri,
+    DecodeUri,
+    EncodeUriComponent,
+    DecodeUriComponent,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -178,6 +183,10 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "isFinite" => Some(BuiltinId::IsFinite),
         "NaN" => Some(BuiltinId::Nan),
         "Infinity" => Some(BuiltinId::Infinity),
+        "encodeURI" => Some(BuiltinId::EncodeUri),
+        "decodeURI" => Some(BuiltinId::DecodeUri),
+        "encodeURIComponent" => Some(BuiltinId::EncodeUriComponent),
+        "decodeURIComponent" => Some(BuiltinId::DecodeUriComponent),
         _ => None,
     }
 }
@@ -671,8 +680,119 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
             let n = to_number(args.first().unwrap_or(&JsVal::Undef))?;
             Ok(JsVal::Bool(n.is_finite()))
         }
+        BuiltinId::EncodeUri => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Str(js_encode_uri(&s, false)))
+        }
+        BuiltinId::EncodeUriComponent => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Str(js_encode_uri(&s, true)))
+        }
+        BuiltinId::DecodeUri => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Str(js_decode_uri(&s, false)?))
+        }
+        BuiltinId::DecodeUriComponent => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Str(js_decode_uri(&s, true)?))
+        }
         _ => Err(()),
     }
+}
+
+fn to_string_arg(v: &JsVal) -> Result<String, ()> {
+    match v {
+        JsVal::Str(s) => Ok(s.clone()),
+        JsVal::Num(n) => {
+            if n.is_nan() {
+                Ok("NaN".into())
+            } else if *n == f64::INFINITY {
+                Ok("Infinity".into())
+            } else if *n == f64::NEG_INFINITY {
+                Ok("-Infinity".into())
+            } else if *n == 0.0 {
+                Ok("0".into())
+            } else {
+                Ok(format!("{n}"))
+            }
+        }
+        JsVal::Bool(true) => Ok("true".into()),
+        JsVal::Bool(false) => Ok("false".into()),
+        JsVal::Undef => Ok("undefined".into()),
+        _ => Err(()),
+    }
+}
+
+/// uriUnescaped = Alpha / DecimalDigit / "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
+fn is_uri_unescaped(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+}
+
+/// uriReserved = ";" / "/" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
+/// plus "#" kept unescaped by encodeURI / reserved by decodeURI.
+fn is_uri_reserved_or_hash(b: u8) -> bool {
+    matches!(
+        b,
+        b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b',' | b'#'
+    )
+}
+
+/// ECMA-262 Encode (encodeURI / encodeURIComponent) over UTF-8 code units of the string.
+fn js_encode_uri(input: &str, component: bool) -> String {
+    let mut out = String::new();
+    for b in input.bytes() {
+        let leave = if component {
+            is_uri_unescaped(b)
+        } else {
+            is_uri_unescaped(b) || is_uri_reserved_or_hash(b)
+        };
+        if leave {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+fn hex_nibble(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// ECMA-262 Decode (decodeURI / decodeURIComponent). Reserved set preserved only for decodeURI.
+fn js_decode_uri(input: &str, component: bool) -> Result<String, ()> {
+    let bytes = input.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'%' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        if i + 2 >= bytes.len() {
+            return Err(());
+        }
+        let hi = hex_nibble(bytes[i + 1]).ok_or(())?;
+        let lo = hex_nibble(bytes[i + 2]).ok_or(())?;
+        let decoded = (hi << 4) | lo;
+        // decodeURI leaves percent-escapes of uriReserved + "#" as-is.
+        if !component && is_uri_reserved_or_hash(decoded) {
+            out.push(b'%');
+            out.push(bytes[i + 1]);
+            out.push(bytes[i + 2]);
+        } else {
+            out.push(decoded);
+        }
+        i += 3;
+    }
+    String::from_utf8(out).map_err(|_| ())
 }
 
 fn to_number(v: &JsVal) -> Result<f64, ()> {
@@ -840,6 +960,10 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "isFinite" => Ok(JsVal::Builtin(BuiltinId::IsFinite)),
             "NaN" => Ok(JsVal::Num(f64::NAN)),
             "Infinity" => Ok(JsVal::Num(f64::INFINITY)),
+            "encodeURI" => Ok(JsVal::Builtin(BuiltinId::EncodeUri)),
+            "decodeURI" => Ok(JsVal::Builtin(BuiltinId::DecodeUri)),
+            "encodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::EncodeUriComponent)),
+            "decodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::DecodeUriComponent)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -896,7 +1020,11 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::ParseInt
             | BuiltinId::ParseFloat
             | BuiltinId::IsNaN
-            | BuiltinId::IsFinite,
+            | BuiltinId::IsFinite
+            | BuiltinId::EncodeUri
+            | BuiltinId::DecodeUri
+            | BuiltinId::EncodeUriComponent
+            | BuiltinId::DecodeUriComponent,
         ) => "function".into(),
     }
 }
@@ -998,7 +1126,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.03 global builtins / Error ctors / functions)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.04 global builtins / Error ctors / functions / URI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1133,5 +1261,30 @@ mod tests {
             ir.contains("double 100") || ir.contains("double 100.0"),
             "should print parseFloat 1e2 → 100:\n{ir}"
         );
+    }
+
+    #[test]
+    fn uri_functions_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/builtins/uri_functions.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "function",
+            "true",
+            "https://example.com/a%20b",
+            "https://example.com/a b",
+            "a%20b%26c%3Dd",
+            "a b&c=d",
+            "caf%C3%A9",
+            "x/y?z=1",
+        ] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
     }
 }
