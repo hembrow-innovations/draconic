@@ -1,6 +1,6 @@
 class MathUtil {
   constructor() {
-    this.tag = "inst";
+    this.tag = 7;
   }
   static add(a, b) {
     return a + b;
@@ -17,8 +17,8 @@ let b = MathUtil.id();
 let m = new MathUtil();
 let c = m.tagValue();
 class Greeter {
-  static hello(name) {
-    return name;
+  static hello(n) {
+    return n;
   }
 }
-let d = Greeter.hello("hi");
+let d = Greeter.hello(9);

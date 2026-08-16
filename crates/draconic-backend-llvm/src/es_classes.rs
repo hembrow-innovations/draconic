@@ -1,12 +1,13 @@
-//! N08.05.01–N08.05.02: native observations for ES class declarations (E05.01 /
-//! `class_basic`) and class heritage (E05.02 / `class_extends`).
+//! N08.05.01–N08.05.03: native observations for ES class declarations (E05.01 /
+//! `class_basic`), class heritage (E05.02 / `class_extends`), and static methods
+//! (E05.03 / `class_static`).
 //!
 //! Classes lower to builder IIFEs (`const C = (function(){ … return ctor })()`).
 //! This adapter recognizes that shape for base and derived classes (no fields /
-//! statics / private), extracts the constructor + prototype methods + optional
-//! `extends` parent, and emits the Runtime GC/object ABI (`new` + prototype
-//! chain + `super()` as parent-ctor call + method call). Number locals print
-//! via `print_f64`.
+//! private), extracts the constructor + prototype methods + static methods +
+//! optional `extends` parent, and emits the Runtime GC/object ABI (`new` +
+//! prototype chain + `super()` as parent-ctor call + method / static call).
+//! Number locals print via `print_f64`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -54,6 +55,8 @@ struct ClassInfo {
     ctor_fn_idx: usize,
     /// Prototype method name → function index.
     methods: Vec<(String, usize)>,
+    /// Static method name → function index (own props on the constructor).
+    static_methods: Vec<(String, usize)>,
     /// Parent class index in `ModuleInfo::classes` when `extends` is present.
     parent: Option<usize>,
 }
@@ -161,6 +164,7 @@ fn try_extract_class(
     let mut ctor_local: Option<LocalId> = None;
     let mut ctor_fn_idx: Option<usize> = None;
     let mut methods: Vec<(String, usize)> = Vec::new();
+    let mut static_methods: Vec<(String, usize)> = Vec::new();
     let mut pending_key: Option<String> = None;
     let mut parent_idx: Option<usize> = None;
     let mut parent_ctor_fn_idx: Option<usize> = None;
@@ -230,10 +234,45 @@ fn try_extract_class(
                     ..
                 },
             } if is_object_define_property(def_callee) && def_args.len() == 3 => {
-                if is_define_on_ctor(def_args, ctor_local?) {
+                let ctor = ctor_local?;
+                if is_define_on_ctor(def_args, ctor) {
+                    // Static methods (and skip non-method own props like `name`).
+                    let Arg::Expr(desc_expr) = &def_args[2] else {
+                        continue;
+                    };
+                    let Some(method_fn) = find_method_function(desc_expr) else {
+                        continue;
+                    };
+                    let key = pending_key.take().or_else(|| string_arg(&def_args[1]))?;
+                    let Expr::Function {
+                        params: mparams,
+                        body: mbody,
+                        is_async: ma,
+                        is_generator: mg,
+                        ..
+                    } = method_fn
+                    else {
+                        return None;
+                    };
+                    if *ma || *mg {
+                        return None;
+                    }
+                    let param_ids = simple_param_ids(mparams, by_id)?;
+                    let filtered = filter_method_body(mbody);
+                    if !method_body_ok(&filtered, by_id) {
+                        return None;
+                    }
+                    let idx = functions.len();
+                    functions.push(FnInfo {
+                        idx,
+                        params: param_ids,
+                        body: filtered,
+                        parent_ctor_fn_idx: None,
+                    });
+                    static_methods.push((key, idx));
                     continue;
                 }
-                if !is_define_on_proto(def_args, ctor_local?) {
+                if !is_define_on_proto(def_args, ctor) {
                     return None;
                 }
                 let key = pending_key.take().or_else(|| string_arg(&def_args[1]))?;
@@ -286,6 +325,7 @@ fn try_extract_class(
     Some(ClassInfo {
         ctor_fn_idx: ctor_fn_idx?,
         methods,
+        static_methods,
         parent: parent_idx,
     })
 }
@@ -951,7 +991,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.05 ES class decl/heritage via Runtime ABI)"
+            "; Draconic LLVM backend (N08.05 ES class decl/heritage/static via Runtime ABI)"
         )
         .ok();
         writeln!(
@@ -1240,6 +1280,16 @@ impl<'a> Emitter<'a> {
                 self.body,
                 "  {}",
                 OBJECT_SET.call(&format!("ptr {proto}, ptr {mkey}, ptr {fptr}"))
+            )
+            .ok();
+        }
+        for (name, fn_idx) in &cls.static_methods {
+            let mkey = self.string_const(name)?;
+            let fptr = format!("@m_fn_{fn_idx}");
+            writeln!(
+                self.body,
+                "  {}",
+                OBJECT_SET.call(&format!("ptr {ctor}, ptr {mkey}, ptr {fptr}"))
             )
             .ok();
         }

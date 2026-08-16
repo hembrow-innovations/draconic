@@ -425,7 +425,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.05 | todo | native | Real native observations: classes (E05) (children below) | `tests/conformance` fixtures `es/classes` |
 | N08.05.01 | done | native | Real native observations: class declaration (E05.01) — `es/classes/class_basic` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/classes/class_basic`, `crates/draconic-backend-llvm` |
 | N08.05.02 | done | native | Real native observations: class heritage (E05.02) — `es/classes/class_extends` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/classes/class_extends`, `crates/draconic-backend-llvm` |
-| N08.05.03 | todo | native | Real native observations: static methods (E05.03) — `es/classes/class_static` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/classes/class_static`, `crates/draconic-backend-llvm` |
+| N08.05.03 | done | native | Real native observations: static methods (E05.03) — `es/classes/class_static` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/classes/class_static`, `crates/draconic-backend-llvm` |
 | N08.05.04 | todo | native | Real native observations: `super` property access (E05.04) — `es/classes/class_super_access` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/classes/class_super_access`, `crates/draconic-backend-llvm` |
 | N08.06 | todo | native | Real native observations: arrays (E06) | `tests/conformance` fixtures `es/arrays` |
 | N08.07 | todo | native | Real native observations: strings (E07) | `tests/conformance` fixtures `es/strings` |
