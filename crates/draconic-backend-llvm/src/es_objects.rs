@@ -1,6 +1,7 @@
-//! N08.04.01–N08.04.05: native observations for ES object literals, property
+//! N08.04.01–N08.04.06: native observations for ES object literals, property
 //! access, simple property assignment, method call + `this`, `new`
-//! constructors, and prototypes (E04.01–E04.05 / `es/objects/*` incl. `prototype`).
+//! constructors, prototypes, and object-literal sugar (E04.01–E04.06 /
+//! `es/objects/*` incl. `object_lit_sugar`).
 //!
 //! Object values are Runtime GC heap ptrs; number props are stored as
 //! `inttoptr` of integer bit-patterns (fixture uses small integers). Nested
@@ -10,6 +11,9 @@
 //! `.prototype` own prop; `new C(args)` allocates an instance, sets
 //! `[[Prototype]]` from `C.prototype`, calls the ctor, and yields the instance.
 //! Runtime `object_get` walks the prototype chain so inherited methods resolve.
+//! Property shorthand / method shorthand lower as static keys; computed keys
+//! (`[expr]`) accept string locals or string literals. Top-level number/string
+//! slots are module globals so methods can read free number locals.
 //! Number locals from member reads / method returns are printed via `print_f64`.
 
 use std::collections::HashMap;
@@ -43,6 +47,7 @@ pub(crate) fn emit_es_objects(module: &Module) -> Result<String, Diagnostic> {
 enum SlotTy {
     Number,
     Object,
+    String,
 }
 
 #[derive(Clone)]
@@ -92,6 +97,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     }
                     has_object = true;
                     slots.push((*local, SlotTy::Object));
+                } else if is_string_slot_ty(&loc.ty) || expr_is_string_init(init) {
+                    if !string_expr_ok(init, &by_id) {
+                        return None;
+                    }
+                    slots.push((*local, SlotTy::String));
                 } else if is_number_slot_ty(&loc.ty) || expr_is_number_init(init) {
                     if !number_expr_ok(init, &by_id, &functions, &fn_binding) {
                         return None;
@@ -295,6 +305,32 @@ fn is_number_slot_ty(ty: &Type) -> bool {
     matches!(ty, Type::Number | Type::Any)
 }
 
+fn is_string_slot_ty(ty: &Type) -> bool {
+    matches!(ty, Type::String)
+}
+
+fn expr_is_string_init(expr: &Expr) -> bool {
+    matches!(expr, Expr::String { .. })
+}
+
+fn string_expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::String { .. } => true,
+        Expr::Local { id, ty } => {
+            matches!(ty, Type::String)
+                || by_id.get(id).is_some_and(|l| matches!(l.ty, Type::String))
+        }
+        _ => false,
+    }
+}
+
+fn prop_key_ok(key: &ObjectPropKey, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match key {
+        ObjectPropKey::Static(_) => true,
+        ObjectPropKey::Computed(e) => string_expr_ok(e, by_id),
+    }
+}
+
 fn expr_is_object_init(expr: &Expr) -> bool {
     match expr {
         Expr::Object { .. } | Expr::New { .. } => true,
@@ -369,7 +405,7 @@ fn object_expr_ok(
             for p in properties {
                 match p {
                     ObjectProp::Property { key, value } => {
-                        if !static_key_ok(key) {
+                        if !prop_key_ok(key, by_id) {
                             return false;
                         }
                         if object_expr_ok(value, by_id, functions, fn_binding) {
@@ -621,12 +657,16 @@ fn number_expr_ok_in_method(
     }
 }
 
-fn static_key_ok(key: &ObjectPropKey) -> bool {
-    matches!(key, ObjectPropKey::Static(_))
-}
-
 fn member_key_ok(property: &Expr) -> bool {
     matches!(property, Expr::String { .. })
+}
+
+fn number_global_name(id: LocalId) -> String {
+    format!("es_obj_n_{}", id.0)
+}
+
+fn string_global_name(id: LocalId) -> String {
+    format!("es_obj_s_{}", id.0)
 }
 
 struct Emitter<'a> {
@@ -697,25 +737,48 @@ impl<'a> Emitter<'a> {
         .ok();
         writeln!(self.out).ok();
 
+        // Number/string slots as module globals so method bodies can load free vars.
+        for (id, kind) in &info.slots {
+            match kind {
+                SlotTy::Number => {
+                    let g = number_global_name(*id);
+                    writeln!(
+                        self.out,
+                        "@{g} = internal global double 0.00000000000000000e+00, align 8"
+                    )
+                    .ok();
+                    self.allocas.insert(*id, format!("@{g}"));
+                }
+                SlotTy::String => {
+                    let g = string_global_name(*id);
+                    writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
+                    self.allocas.insert(*id, format!("@{g}"));
+                }
+                SlotTy::Object => {}
+            }
+        }
+        if info
+            .slots
+            .iter()
+            .any(|(_, k)| matches!(k, SlotTy::Number | SlotTy::String))
+        {
+            writeln!(self.out).ok();
+        }
+
         // Emit method/ctor functions first (collect string globals into self.str_globals).
         for f in &info.functions.clone() {
             self.emit_method_fn(f)?;
         }
 
-        // Main body into self.body
+        // Main body into self.body — object slots stay stack allocas.
         for (id, kind) in &info.slots {
+            if *kind != SlotTy::Object {
+                continue;
+            }
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, ptr.clone());
-            match kind {
-                SlotTy::Number => {
-                    writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
-                    writeln!(self.body, "  store double 0.00000000000000000e+00, ptr {ptr}").ok();
-                }
-                SlotTy::Object => {
-                    writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
-                    writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
-                }
-            }
+            writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+            writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
         }
 
         for stmt in &self.module.body {
@@ -723,11 +786,7 @@ impl<'a> Emitter<'a> {
         }
 
         for id in &info.number_locals {
-            let ptr = self
-                .allocas
-                .get(id)
-                .cloned()
-                .ok_or_else(|| diag("internal: print missing alloca"))?;
+            let ptr = self.number_slot_ptr(*id)?;
             let v = self.fresh();
             writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
             writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
@@ -867,8 +926,13 @@ impl<'a> Emitter<'a> {
                 match kind {
                     SlotTy::Number => {
                         let v = self.emit_number_expr(init)?;
-                        let ptr = self.allocas.get(local).cloned().unwrap();
+                        let ptr = self.number_slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    }
+                    SlotTy::String => {
+                        let v = self.emit_string_expr(init)?;
+                        let ptr = self.string_slot_ptr(*local)?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
                     SlotTy::Object => {
                         let v = self.emit_object_expr(init)?;
@@ -945,7 +1009,7 @@ impl<'a> Emitter<'a> {
                 if kind != SlotTy::Number {
                     return Err(diag("es_objects: expected number local"));
                 }
-                let ptr = self.allocas.get(id).cloned().unwrap();
+                let ptr = self.number_slot_ptr(*id)?;
                 let t = self.fresh();
                 writeln!(self.body, "  {t} = load double, ptr {ptr}").ok();
                 Ok(t)
@@ -1168,13 +1232,7 @@ impl<'a> Emitter<'a> {
                 for p in properties {
                     match p {
                         ObjectProp::Property { key, value } => {
-                            let key_s = match key {
-                                ObjectPropKey::Static(s) => s.to_string_lossy(),
-                                ObjectPropKey::Computed(_) => {
-                                    return Err(diag("es_objects: computed keys not supported"));
-                                }
-                            };
-                            let key_ptr = self.string_const(&key_s)?;
+                            let key_ptr = self.emit_prop_key(key)?;
                             let val_ptr = if let Expr::Function { params, body, .. } = value {
                                 let idx = find_fn_idx(params, body, &self.info.functions)
                                     .ok_or_else(|| {
@@ -1257,6 +1315,54 @@ impl<'a> Emitter<'a> {
             Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
             _ => Err(diag("es_objects: member key must be string")),
         }
+    }
+
+    fn emit_prop_key(&mut self, key: &ObjectPropKey) -> Result<String, Diagnostic> {
+        match key {
+            ObjectPropKey::Static(s) => self.string_const(&s.to_string_lossy()),
+            ObjectPropKey::Computed(e) => self.emit_string_expr(e),
+        }
+    }
+
+    fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
+            Expr::Local { id, .. } => {
+                let kind = *self
+                    .slot_of
+                    .get(id)
+                    .ok_or_else(|| diag("es_objects: string local unknown"))?;
+                if kind != SlotTy::String {
+                    return Err(diag("es_objects: expected string local"));
+                }
+                let ptr = self.string_slot_ptr(*id)?;
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+                Ok(t)
+            }
+            _ => Err(diag("es_objects: unsupported string expr")),
+        }
+    }
+
+    fn number_slot_ptr(&self, id: LocalId) -> Result<String, Diagnostic> {
+        if let Some(ptr) = self.allocas.get(&id) {
+            return Ok(ptr.clone());
+        }
+        // Methods emit before main fills object allocas; number slots are globals.
+        if self.slot_of.get(&id) == Some(&SlotTy::Number) {
+            return Ok(format!("@{}", number_global_name(id)));
+        }
+        Err(diag("es_objects: number slot missing"))
+    }
+
+    fn string_slot_ptr(&self, id: LocalId) -> Result<String, Diagnostic> {
+        if let Some(ptr) = self.allocas.get(&id) {
+            return Ok(ptr.clone());
+        }
+        if self.slot_of.get(&id) == Some(&SlotTy::String) {
+            return Ok(format!("@{}", string_global_name(id)));
+        }
+        Err(diag("es_objects: string slot missing"))
     }
 
     fn string_const(&mut self, s: &str) -> Result<String, Diagnostic> {
