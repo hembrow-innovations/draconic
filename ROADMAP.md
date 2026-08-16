@@ -472,7 +472,8 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.12.06 | done | native | Real native observations: generator methods (E13.06) | `tests/conformance` fixture `es/generators/generator_methods`, `crates/draconic-backend-llvm` |
 | N08.12.07 | done | native | Real native observations: `for-of` over generators (E13.07) — `es/generators/generator_for_of` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/generators/generator_for_of`, `crates/draconic-backend-llvm` |
 | N08.12.08 | done | native | Real native observations: generator `.return`/`.throw` (E13.08) | `tests/conformance` fixture `es/generators/generator_return_throw`, `crates/draconic-backend-llvm` |
-| N08.13 | todo | native | Real native observations: proxies/Reflect (E14) | `tests/conformance` fixtures `es/proxies` |
+| N08.13 | todo | native | Real native observations: proxies/Reflect (E14) (children below) | `tests/conformance` fixtures `es/proxies` |
+| N08.13.01 | done | native | Real native observations: Proxy constructor basics (E14.01) — `es/proxies/proxy_basics` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/proxies/proxy_basics`, `crates/draconic-backend-llvm` |
 | N08.14 | todo | native | Real native observations: builtins surface (E15) | `tests/conformance` fixtures `es/builtins` |
 | N08.15 | todo | native | Real native observations: legacy `with` (E17) | `tests/conformance` fixtures `es/legacy` |
 | N08.16 | todo | native | Real native observations: annex-b / late ES (E18 children) | `tests/conformance` fixtures `es/annex-b` |
