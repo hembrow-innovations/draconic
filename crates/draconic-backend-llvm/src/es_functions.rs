@@ -1,17 +1,22 @@
-//! N08.03.01–N08.03.02: emit native observations for ES function declaration +
-//! return + call (simple ident params) — E03.01–E03.02 /
-//! `es/functions/decl_return_call`, `es/functions/params_call`.
+//! N08.03.01–N08.03.03: emit native observations for ES function declaration +
+//! return + call (simple ident params) + nested decls with free-variable capture
+//! — E03.01–E03.03 /
+//! `es/functions/decl_return_call`, `es/functions/params_call`,
+//! `es/functions/nested_capture`.
+//!
+//! Nested functions that do not escape are lowered as LLVM functions with
+//! extra capture parameters (by-value doubles) for free number locals.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt};
 use draconic_runtime::abi::{llvm_declares, PRINT_F64};
 
-/// True when this module is the supported ES function subset (E03.01–E03.02 /
-/// N08.03.01–N08.03.02): top-level `function f(a, b) { return <number>; }` +
-/// `let x = f(...)` (number/any slots; simple ident params only).
+/// True when this module is the supported ES function subset (E03.01–E03.03 /
+/// N08.03.01–N08.03.03): top-level `function` + nested decls with number
+/// capture + `let x = f(...)` (number/any slots; simple ident params only).
 pub(crate) fn is_es_functions_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -27,10 +32,13 @@ struct FnInfo {
     local: LocalId,
     /// Simple ident param locals (order).
     params: Vec<LocalId>,
+    /// Free number locals (stable order by id) passed as extra LLVM params.
+    captures: Vec<LocalId>,
     body: Vec<Stmt>,
 }
 
 struct ModuleInfo {
+    /// All functions (top-level + nested), declaration order.
     functions: Vec<FnInfo>,
     /// Top-level user locals to print (declare order).
     user_locals: Vec<LocalId>,
@@ -42,6 +50,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut fn_arities: HashMap<LocalId, usize> = HashMap::new();
     let mut user_locals = Vec::new();
     let mut has_fn = false;
+
+    // First pass: collect all function arities (top-level + nested) so bodies
+    // may call any known function.
+    collect_fn_arities(&module.body, &by_id, &mut fn_arities)?;
 
     for stmt in &module.body {
         match stmt {
@@ -60,12 +72,14 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     return None;
                 }
                 has_fn = true;
-                fn_arities.insert(*local, param_ids.len());
-                functions.push(FnInfo {
-                    local: *local,
-                    params: param_ids,
-                    body: body.clone(),
-                });
+                collect_functions(
+                    *local,
+                    param_ids,
+                    body,
+                    &by_id,
+                    &fn_arities,
+                    &mut functions,
+                )?;
             }
             Stmt::Declare { local, init, .. } => {
                 let loc = by_id.get(local)?;
@@ -91,6 +105,209 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         functions,
         user_locals,
     })
+}
+
+fn collect_fn_arities(
+    stmts: &[Stmt],
+    by_id: &HashMap<LocalId, &Local>,
+    fn_arities: &mut HashMap<LocalId, usize>,
+) -> Option<()> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Function {
+                local,
+                params,
+                body,
+                is_async,
+                is_generator,
+            } => {
+                if *is_async || *is_generator {
+                    return None;
+                }
+                let param_ids = simple_param_locals(params, by_id)?;
+                fn_arities.insert(*local, param_ids.len());
+                collect_fn_arities(body, by_id, fn_arities)?;
+            }
+            Stmt::Block { body } => collect_fn_arities(body, by_id, fn_arities)?,
+            _ => {}
+        }
+    }
+    Some(())
+}
+
+/// Walk one function and its nested decls; push `FnInfo` for each (nested first).
+fn collect_functions(
+    local: LocalId,
+    params: Vec<LocalId>,
+    body: &[Stmt],
+    by_id: &HashMap<LocalId, &Local>,
+    fn_arities: &HashMap<LocalId, usize>,
+    out: &mut Vec<FnInfo>,
+) -> Option<()> {
+    // Nested functions first (so LLVM defines exist before callers).
+    for stmt in body {
+        walk_nested_fns(stmt, by_id, fn_arities, out)?;
+    }
+
+    let bound = bound_in_fn(&params, body);
+    let mut free = HashSet::new();
+    collect_free_in_body(body, &bound, &mut free);
+    // Nested free vars that aren't bound here are also free here.
+    for stmt in body {
+        collect_nested_free_through(stmt, &bound, by_id, fn_arities, &mut free)?;
+    }
+    let mut captures: Vec<LocalId> = free.into_iter().collect();
+    captures.sort_by_key(|id| id.0);
+    // Captures must be number/any slots.
+    for id in &captures {
+        let loc = by_id.get(id)?;
+        if !matches!(loc.ty, Type::Number | Type::Any) {
+            return None;
+        }
+    }
+
+    out.push(FnInfo {
+        local,
+        params,
+        captures,
+        body: body.to_vec(),
+    });
+    Some(())
+}
+
+fn walk_nested_fns(
+    stmt: &Stmt,
+    by_id: &HashMap<LocalId, &Local>,
+    fn_arities: &HashMap<LocalId, usize>,
+    out: &mut Vec<FnInfo>,
+) -> Option<()> {
+    match stmt {
+        Stmt::Function {
+            local,
+            params,
+            body,
+            is_async,
+            is_generator,
+        } => {
+            if *is_async || *is_generator {
+                return None;
+            }
+            let param_ids = simple_param_locals(params, by_id)?;
+            collect_functions(*local, param_ids, body, by_id, fn_arities, out)
+        }
+        Stmt::Block { body } => {
+            for s in body {
+                walk_nested_fns(s, by_id, fn_arities, out)?;
+            }
+            Some(())
+        }
+        _ => Some(()),
+    }
+}
+
+fn bound_in_fn(params: &[LocalId], body: &[Stmt]) -> HashSet<LocalId> {
+    let mut bound: HashSet<LocalId> = params.iter().copied().collect();
+    collect_bound_in_body(body, &mut bound);
+    bound
+}
+
+fn collect_bound_in_body(body: &[Stmt], bound: &mut HashSet<LocalId>) {
+    for stmt in body {
+        match stmt {
+            Stmt::Declare { local, .. } => {
+                bound.insert(*local);
+            }
+            Stmt::Function { local, .. } => {
+                bound.insert(*local);
+            }
+            Stmt::Block { body } => collect_bound_in_body(body, bound),
+            _ => {}
+        }
+    }
+}
+
+/// Free locals referenced in this body, not descending into nested Function bodies.
+fn collect_free_in_body(body: &[Stmt], bound: &HashSet<LocalId>, free: &mut HashSet<LocalId>) {
+    for stmt in body {
+        match stmt {
+            Stmt::Return { value: Some(v) } => collect_free_in_expr(v, bound, free),
+            Stmt::Declare { init, .. } => {
+                if let Some(e) = init {
+                    collect_free_in_expr(e, bound, free);
+                }
+            }
+            Stmt::Block { body } => collect_free_in_body(body, bound, free),
+            Stmt::Function { .. } => {}
+            _ => {}
+        }
+    }
+}
+
+fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSet<LocalId>) {
+    match expr {
+        Expr::Local { id, .. } => {
+            if !bound.contains(id) {
+                free.insert(*id);
+            }
+        }
+        Expr::Unary { arg, .. } => collect_free_in_expr(arg, bound, free),
+        Expr::Binary { left, right, .. } => {
+            collect_free_in_expr(left, bound, free);
+            collect_free_in_expr(right, bound, free);
+        }
+        Expr::Call { callee, args, .. } => {
+            collect_free_in_expr(callee, bound, free);
+            for a in args {
+                if let Arg::Expr(e) = a {
+                    collect_free_in_expr(e, bound, free);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Union free vars of nested functions (relative to this function's bound set).
+fn collect_nested_free_through(
+    stmt: &Stmt,
+    outer_bound: &HashSet<LocalId>,
+    by_id: &HashMap<LocalId, &Local>,
+    fn_arities: &HashMap<LocalId, usize>,
+    free: &mut HashSet<LocalId>,
+) -> Option<()> {
+    match stmt {
+        Stmt::Function {
+            params,
+            body,
+            is_async,
+            is_generator,
+            ..
+        } => {
+            if *is_async || *is_generator {
+                return None;
+            }
+            let param_ids = simple_param_locals(params, by_id)?;
+            let nested_bound = bound_in_fn(&param_ids, body);
+            let mut nested_free = HashSet::new();
+            collect_free_in_body(body, &nested_bound, &mut nested_free);
+            for s in body {
+                collect_nested_free_through(s, &nested_bound, by_id, fn_arities, &mut nested_free)?;
+            }
+            for id in nested_free {
+                if !outer_bound.contains(&id) {
+                    free.insert(id);
+                }
+            }
+            Some(())
+        }
+        Stmt::Block { body } => {
+            for s in body {
+                collect_nested_free_through(s, outer_bound, by_id, fn_arities, free)?;
+            }
+            Some(())
+        }
+        _ => Some(()),
+    }
 }
 
 /// N08.03.02: simple ident params only (no default, rest, or destructure).
@@ -124,6 +341,30 @@ fn fn_body_ok(
         Stmt::Return { value: Some(v) } => number_expr_ok(v, by_id, fn_arities),
         Stmt::Return { value: None } => false,
         Stmt::Block { body } => fn_body_ok(body, by_id, fn_arities),
+        Stmt::Declare { local, init, .. } => {
+            let Some(loc) = by_id.get(local) else {
+                return false;
+            };
+            if !matches!(loc.ty, Type::Number | Type::Any) {
+                return false;
+            }
+            match init {
+                Some(e) => number_expr_ok(e, by_id, fn_arities),
+                None => true,
+            }
+        }
+        Stmt::Function {
+            params,
+            body,
+            is_async,
+            is_generator,
+            ..
+        } => {
+            if *is_async || *is_generator {
+                return false;
+            }
+            simple_param_locals(params, by_id).is_some() && fn_body_ok(body, by_id, fn_arities)
+        }
         _ => false,
     })
 }
@@ -136,6 +377,10 @@ fn number_expr_ok(
     match expr {
         Expr::Number { .. } => true,
         Expr::Local { id, ty } => {
+            // Function locals are callables, not number values — only allow as call callees.
+            if fn_arities.contains_key(id) {
+                return false;
+            }
             matches!(ty, Type::Number | Type::Any)
                 && by_id
                     .get(id)
@@ -186,6 +431,8 @@ struct Emitter<'a> {
     fn_names: HashMap<LocalId, String>,
     /// Function local → param locals (for call arity / signature).
     fn_params: HashMap<LocalId, Vec<LocalId>>,
+    /// Function local → capture locals (extra LLVM args).
+    fn_captures: HashMap<LocalId, Vec<LocalId>>,
     allocas: HashMap<LocalId, String>,
     out: String,
     body: String,
@@ -197,23 +444,37 @@ impl<'a> Emitter<'a> {
         let locals: HashMap<LocalId, &Local> =
             module.locals.iter().map(|l| (l.id, l)).collect();
         let mut fn_names = HashMap::new();
-        for stmt in &module.body {
-            if let Stmt::Function { local, .. } = stmt {
-                let name = locals
-                    .get(local)
-                    .map(|l| l.name.as_str())
-                    .unwrap_or("fn");
-                let safe: String = name
-                    .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                    .collect();
-                fn_names.insert(*local, format!("d_{safe}_{}", local.0));
+        // Collect names for all functions including nested.
+        fn collect_names(
+            stmts: &[Stmt],
+            locals: &HashMap<LocalId, &Local>,
+            fn_names: &mut HashMap<LocalId, String>,
+        ) {
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Function { local, body, .. } => {
+                        let name = locals
+                            .get(local)
+                            .map(|l| l.name.as_str())
+                            .unwrap_or("fn");
+                        let safe: String = name
+                            .chars()
+                            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                            .collect();
+                        fn_names.insert(*local, format!("d_{safe}_{}", local.0));
+                        collect_names(body, locals, fn_names);
+                    }
+                    Stmt::Block { body } => collect_names(body, locals, fn_names),
+                    _ => {}
+                }
             }
         }
+        collect_names(&module.body, &locals, &mut fn_names);
         Self {
             module,
             fn_names,
             fn_params: HashMap::new(),
+            fn_captures: HashMap::new(),
             allocas: HashMap::new(),
             out: String::new(),
             body: String::new(),
@@ -234,7 +495,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.03.02 ES function params/call via Runtime ABI)"
+            "; Draconic LLVM backend (N08.03.03 ES nested functions + capture via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(&[PRINT_F64])).ok();
@@ -242,6 +503,7 @@ impl<'a> Emitter<'a> {
 
         for f in &info.functions {
             self.fn_params.insert(f.local, f.params.clone());
+            self.fn_captures.insert(f.local, f.captures.clone());
         }
 
         for f in &info.functions {
@@ -299,20 +561,29 @@ impl<'a> Emitter<'a> {
         self.tmp = 0;
         self.allocas.clear();
 
-        // Param signature: double %p0, double %p1, ...
+        // Signature: params then captures.
         let mut sig_parts = Vec::new();
         for (i, _) in f.params.iter().enumerate() {
             sig_parts.push(format!("double %p{i}"));
         }
+        for (i, _) in f.captures.iter().enumerate() {
+            sig_parts.push(format!("double %c{i}"));
+        }
         let sig = sig_parts.join(", ");
 
-        // Entry: alloca + store each param, then body.
+        // Entry: alloca + store each param and capture.
         let mut entry = String::new();
         for (i, pid) in f.params.iter().enumerate() {
             let ptr = format!("%l{}", pid.0);
             self.allocas.insert(*pid, ptr.clone());
             writeln!(entry, "  {ptr} = alloca double, align 8").ok();
             writeln!(entry, "  store double %p{i}, ptr {ptr}").ok();
+        }
+        for (i, cid) in f.captures.iter().enumerate() {
+            let ptr = format!("%l{}", cid.0);
+            self.allocas.insert(*cid, ptr.clone());
+            writeln!(entry, "  {ptr} = alloca double, align 8").ok();
+            writeln!(entry, "  store double %c{i}, ptr {ptr}").ok();
         }
 
         for stmt in &f.body {
@@ -362,6 +633,23 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Stmt::Declare { local, init, .. } => {
+                let ptr = format!("%l{}", local.0);
+                self.allocas.insert(*local, ptr.clone());
+                writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
+                if let Some(e) = init {
+                    let v = self.emit_number_expr(e)?;
+                    writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                } else {
+                    writeln!(
+                        self.body,
+                        "  store double 0.00000000000000000e+00, ptr {ptr}"
+                    )
+                    .ok();
+                }
+                Ok(())
+            }
+            Stmt::Function { .. } => Ok(()),
             _ => Err(diag("es_functions: unsupported stmt in function body")),
         }
     }
@@ -465,6 +753,23 @@ impl<'a> Emitter<'a> {
                             return Err(diag("es_functions: spread args not supported"));
                         }
                     }
+                }
+                // Append capture values from current frame allocas.
+                let captures = self
+                    .fn_captures
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_default();
+                for cid in &captures {
+                    let ptr = self.allocas.get(cid).cloned().ok_or_else(|| {
+                        diag(format!(
+                            "es_functions: capture local %{} not in caller frame",
+                            cid.0
+                        ))
+                    })?;
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = load double, ptr {ptr}").ok();
+                    arg_vals.push(t);
                 }
                 let t = self.fresh();
                 if arg_vals.is_empty() {
