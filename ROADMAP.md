@@ -467,7 +467,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.12.01 | done | native | Real native observations: generator decl + yield + return (E13.01) — `es/generators/basic_yield` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/generators/basic_yield`, `crates/draconic-backend-llvm` |
 | N08.12.02 | done | native | Real native observations: yield expression RHS (E13.02) — `es/generators/yield_expr` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/generators/yield_expr`, `crates/draconic-backend-llvm` |
 | N08.12.03 | done | native | Real native observations: yield resume `.next(arg)` (E13.03) | `tests/conformance` fixture `es/generators/yield_resume`, `crates/draconic-backend-llvm` |
-| N08.12.04 | todo | native | Real native observations: `yield*` (E13.04) | `tests/conformance` fixture `es/generators/yield_star`, `crates/draconic-backend-llvm` |
+| N08.12.04 | done | native | Real native observations: `yield*` (E13.04) | `tests/conformance` fixture `es/generators/yield_star`, `crates/draconic-backend-llvm` |
 | N08.12.05 | todo | native | Real native observations: generator expressions (E13.05) | `tests/conformance` fixture `es/generators/generator_expr`, `crates/draconic-backend-llvm` |
 | N08.12.06 | todo | native | Real native observations: generator methods (E13.06) | `tests/conformance` fixture `es/generators/generator_methods`, `crates/draconic-backend-llvm` |
 | N08.12.07 | todo | native | Real native observations: `for-of` over generators (E13.07) | `tests/conformance` fixture `es/generators/generator_for_of`, `crates/draconic-backend-llvm` |

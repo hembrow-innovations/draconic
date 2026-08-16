@@ -1,4 +1,6 @@
 id: es/generators/yield_star
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\nfalse\n2\nfalse\n99\nfalse\n0\ntrue\n10\nfalse\n20\nfalse\n30\ntrue\n1\nfalse\n2\nfalse\n3\nfalse\nundefined\ntrue\n
 js.check: if (v1 !== 1) process.exit(1); if (d1 !== false) process.exit(2); if (v2 !== 2) process.exit(3); if (d2 !== false) process.exit(4); if (v3 !== 99) process.exit(5); if (d3 !== false) process.exit(6); if (v4 !== 0) process.exit(7); if (d4 !== true) process.exit(8); if (av1 !== 10) process.exit(9); if (ad1 !== false) process.exit(10); if (av2 !== 20) process.exit(11); if (ad2 !== false) process.exit(12); if (av3 !== 30) process.exit(13); if (ad3 !== true) process.exit(14); if (mv1 !== 1) process.exit(15); if (md1 !== false) process.exit(16); if (mv2 !== 2) process.exit(17); if (md2 !== false) process.exit(18); if (mv3 !== 3) process.exit(19); if (md3 !== false) process.exit(20); if (mv4 !== undefined) process.exit(21); if (md4 !== true) process.exit(22);
