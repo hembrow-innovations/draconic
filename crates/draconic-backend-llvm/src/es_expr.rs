@@ -1,11 +1,12 @@
-//! N08.01 + N08.02.01–N08.02.02: emit native observations for ES expression Programs,
-//! `if`/`else`, and `while`
+//! N08.01 + N08.02.01–N08.02.03: emit native observations for ES expression Programs,
+//! `if`/`else`, `while`, and `do`/`while`
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
 //! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
 //! E01.04.08 compound assignment `+=` `-=` `*=` `/=` `%=` `**=` `<<=` `>>=` `>>>=` `&=` `^=` `|=`,
 //! E02.01 `if` / `else` (incl. block bodies; ToBoolean on number/boolean tests),
-//! E02.02 `while` loops (incl. block bodies; ToBoolean on number/boolean tests).
+//! E02.02 `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
+//! E02.03 `do` / `while` loops (incl. block bodies; ToBoolean on number/boolean tests).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -16,13 +17,13 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
-/// True when this module is a supported ES expression / `if` / `while` subset
-/// (E01.* / E02.01–E02.02 / N08.01.* / N08.02.01–N08.02.02):
+/// True when this module is a supported ES expression / `if` / `while` / `do`/`while` subset
+/// (E01.* / E02.01–E02.03 / N08.01.* / N08.02.01–N08.02.03):
 /// top-level `let` declares over JS numbers, booleans, strings, and/or undefined (`void`) with
 /// arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical,
 /// bitwise, exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`,
-/// comma, grouping, local refs, `if`/`else`, and `while` (block or expression bodies). Expression
-/// statements may be assigns or updates.
+/// comma, grouping, local refs, `if`/`else`, `while`, and `do`/`while` (block or expression bodies).
+/// Expression statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -95,7 +96,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     user_locals.push((*local, slot));
                 }
             }
-            Stmt::Expr { .. } | Stmt::Block { .. } | Stmt::If { .. } | Stmt::While { .. } => {
+            Stmt::Expr { .. }
+            | Stmt::Block { .. }
+            | Stmt::If { .. }
+            | Stmt::While { .. }
+            | Stmt::DoWhile { .. } => {
                 if !stmt_is_subset(stmt, &by_id) {
                     return None;
                 }
@@ -109,7 +114,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     Some(ModuleInfo { user_locals })
 }
 
-/// Nested statement subset for `if`/`else`/`while` bodies and blocks (no nested `let` in this slice).
+/// Nested statement subset for `if`/`else`/`while`/`do`/`while` bodies and blocks (no nested `let` in this slice).
 fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
         Stmt::Expr { expr } => match expr.ty() {
@@ -132,7 +137,7 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
                     .map(|a| stmt_is_subset(a, by_id))
                     .unwrap_or(true)
         }
-        Stmt::While { test, body } => {
+        Stmt::While { test, body } | Stmt::DoWhile { test, body } => {
             (expr_is_boolean_subset(test, by_id) || expr_is_number_subset(test, by_id))
                 && stmt_is_subset(body, by_id)
         }
@@ -505,7 +510,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.02 ES expressions + if/else/while via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.03 ES expressions + if/else/while/do-while via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -635,6 +640,22 @@ impl<'a> Emitter<'a> {
                 if !self.body_ends_with_terminator() {
                     writeln!(self.body, "  br label %{head}").ok();
                 }
+                writeln!(self.body, "{end}:").ok();
+                Ok(())
+            }
+            Stmt::DoWhile { body, test } => {
+                let bod = self.fresh_label("do_body");
+                let head = self.fresh_label("do_test");
+                let end = self.fresh_label("do_end");
+                writeln!(self.body, "  br label %{bod}").ok();
+                writeln!(self.body, "{bod}:").ok();
+                self.emit_stmt(body)?;
+                if !self.body_ends_with_terminator() {
+                    writeln!(self.body, "  br label %{head}").ok();
+                }
+                writeln!(self.body, "{head}:").ok();
+                let cond = self.emit_to_boolean(test)?;
+                writeln!(self.body, "  br i1 {cond}, label %{bod}, label %{end}").ok();
                 writeln!(self.body, "{end}:").ok();
                 Ok(())
             }
