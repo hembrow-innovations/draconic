@@ -399,6 +399,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.01.04.09 | done | native | Real native observations: nullish coalescing + logical assignment (E01.04.09) | `tests/conformance` fixture `es/expressions/nullish_logical_assign`, `crates/draconic-backend-llvm` |
 | N08.02 | todo | native | Real native observations: statements (E02) (children below) | `tests/conformance` fixtures `es/statements` |
 | N08.02.01 | done | native | Real native observations: `if` / `else` (E02.01) — `es/statements/if_else` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/if_else`, `crates/draconic-backend-llvm` |
+| N08.02.02 | done | native | Real native observations: `while` loops (E02.02) — `es/statements/while` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/while`, `crates/draconic-backend-llvm` |
 | N08.03 | todo | native | Real native observations: functions (E03) | `tests/conformance` fixtures `es/functions` |
 | N08.04 | todo | native | Real native observations: objects (E04) | `tests/conformance` fixtures `es/objects` |
 | N08.05 | todo | native | Real native observations: classes (E05) | `tests/conformance` fixtures `es/classes` |
