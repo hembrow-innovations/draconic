@@ -1,12 +1,13 @@
-//! N08.12.01–N08.12.04: native observations for generator function declaration +
-//! `yield` / `yield*` / `return` + `.next()` / `.next(arg)` → `{value, done}`
-//! (E13.01–E13.04).
+//! N08.12.01–N08.12.05: native observations for generator function declaration +
+//! expression + `yield` / `yield*` / `return` + `.next()` / `.next(arg)` →
+//! `{value, done}` (E13.01–E13.05).
 //!
-//! Compile-time evaluation of a small generator subset: generator decls with
-//! simple ident params, `yield` of number/binary/local/`void 0` (bare yield),
-//! `let x = yield …` resume binding, `yield*` of generators/arrays (incl.
-//! completion value), `return` of same, iterator `.next()` / `.next(arg)`, and
-//! property reads `.value` / `.done`. Emits Runtime prints of final top-level
+//! Compile-time evaluation of a small generator subset: generator decls and
+//! `function*` expressions (incl. named + IIFE) with simple ident params,
+//! `yield` of number/binary/local/GenFn/`void 0` (bare yield), `let x = yield …`
+//! resume binding, `yield*` of generators/arrays (incl. completion value),
+//! `return` of same, iterator `.next()` / `.next(arg)`, and property reads
+//! `.value` / `.done`. Emits Runtime prints of final top-level
 //! number/boolean/undefined locals.
 
 use std::collections::HashMap;
@@ -35,8 +36,8 @@ enum JsVal {
     Num(f64),
     Bool(bool),
     Undef,
-    /// Generator function binding.
-    GenFn(LocalId),
+    /// Generator function index into `gen_fns`.
+    GenFn(usize),
     /// Live generator instance index into `gens`.
     GenInst(usize),
     /// Array iterable (for `yield* […]`).
@@ -49,6 +50,8 @@ enum JsVal {
 struct GenFnRec {
     params: Vec<LocalId>,
     body: Vec<Stmt>,
+    /// Named function expression binding (local to body), if any.
+    name: Option<LocalId>,
 }
 
 /// Active `yield*` delegate while suspended.
@@ -65,7 +68,8 @@ enum YieldStarState {
 
 /// Suspended generator: body + program counter + param env + done flag.
 struct GenInst {
-    fn_id: LocalId,
+    /// Index into `gen_fns`.
+    fn_id: usize,
     /// Next statement index to execute (or complete if suspended).
     pc: usize,
     /// True after the first `.next` has started execution.
@@ -94,7 +98,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     }
 
     let mut env: HashMap<LocalId, JsVal> = HashMap::new();
-    let mut gen_fns: HashMap<LocalId, GenFnRec> = HashMap::new();
+    let mut gen_fns: Vec<GenFnRec> = Vec::new();
+    let mut fn_bind: HashMap<LocalId, usize> = HashMap::new();
     let mut gens: Vec<GenInst> = Vec::new();
     let mut user_locals = Vec::new();
 
@@ -110,18 +115,24 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         } = stmt
         {
             let param_ids = simple_param_locals(params)?;
-            gen_fns.insert(
-                *local,
-                GenFnRec {
-                    params: param_ids,
-                    body: body.clone(),
-                },
-            );
-            env.insert(*local, JsVal::GenFn(*local));
+            let idx = gen_fns.len();
+            gen_fns.push(GenFnRec {
+                params: param_ids,
+                body: body.clone(),
+                name: None,
+            });
+            fn_bind.insert(*local, idx);
+            env.insert(*local, JsVal::GenFn(idx));
         }
     }
 
-    match eval_body(&module.body, &mut env, &gen_fns, &mut gens) {
+    match eval_body(
+        &module.body,
+        &mut env,
+        &mut gen_fns,
+        &mut fn_bind,
+        &mut gens,
+    ) {
         Ok(()) => {}
         Err(()) => return None,
     }
@@ -187,8 +198,36 @@ fn module_has_generator(body: &[Stmt]) -> bool {
             is_generator: true, ..
         } => true,
         Stmt::Block { body } => module_has_generator(body),
+        Stmt::Declare { init: Some(e), .. } | Stmt::Expr { expr: e } => expr_has_generator(e),
         _ => false,
     })
+}
+
+fn expr_has_generator(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function {
+            is_generator: true, ..
+        } => true,
+        Expr::Call { callee, args, .. } => {
+            expr_has_generator(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) => expr_has_generator(e),
+                    _ => false,
+                })
+        }
+        Expr::Member { object, property, .. } => {
+            expr_has_generator(object) || expr_has_generator(property)
+        }
+        Expr::Unary { arg, .. } => expr_has_generator(arg),
+        Expr::Binary { left, right, .. } => {
+            expr_has_generator(left) || expr_has_generator(right)
+        }
+        Expr::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) => expr_has_generator(e),
+            _ => false,
+        }),
+        _ => false,
+    }
 }
 
 fn body_ok(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> bool {
@@ -305,6 +344,14 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             right,
             ..
         } => expr_ok(left, by_id) && expr_ok(right, by_id),
+        Expr::Function {
+            params,
+            body,
+            is_async: false,
+            is_generator: true,
+            is_arrow: false,
+            ..
+        } => simple_param_locals(params).is_some() && gen_body_ok(body, by_id),
         _ => false,
     }
 }
@@ -312,11 +359,12 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
 fn eval_body(
     body: &[Stmt],
     env: &mut HashMap<LocalId, JsVal>,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<(), ()> {
     for stmt in body {
-        eval_stmt(stmt, env, gen_fns, gens)?;
+        eval_stmt(stmt, env, gen_fns, fn_bind, gens)?;
     }
     Ok(())
 }
@@ -324,31 +372,56 @@ fn eval_body(
 fn eval_stmt(
     stmt: &Stmt,
     env: &mut HashMap<LocalId, JsVal>,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<(), ()> {
     match stmt {
         Stmt::Function { .. } => Ok(()),
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => eval_expr(e, env, gen_fns, gens)?,
+                Some(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
                 None => JsVal::Undef,
             };
+            if let JsVal::GenFn(idx) = &v {
+                fn_bind.insert(*local, *idx);
+            }
             env.insert(*local, v);
             Ok(())
         }
         Stmt::Expr { expr } => {
-            eval_expr(expr, env, gen_fns, gens)?;
+            eval_expr(expr, env, gen_fns, fn_bind, gens)?;
             Ok(())
         }
         _ => Err(()),
     }
 }
 
+fn register_gen_fn_expr(
+    name: Option<LocalId>,
+    params: &[Param],
+    body: &[Stmt],
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+) -> Result<JsVal, ()> {
+    let param_ids = simple_param_locals(params).ok_or(())?;
+    let idx = gen_fns.len();
+    gen_fns.push(GenFnRec {
+        params: param_ids,
+        body: body.to_vec(),
+        name,
+    });
+    if let Some(n) = name {
+        fn_bind.insert(n, idx);
+    }
+    Ok(JsVal::GenFn(idx))
+}
+
 fn eval_expr(
     expr: &Expr,
     env: &mut HashMap<LocalId, JsVal>,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<JsVal, ()> {
     match expr {
@@ -365,7 +438,9 @@ fn eval_expr(
             let mut vals = Vec::new();
             for el in elements {
                 match el {
-                    ArrayElement::Expr(e) => vals.push(eval_expr(e, env, gen_fns, gens)?),
+                    ArrayElement::Expr(e) => {
+                        vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?)
+                    }
                     _ => return Err(()),
                 }
             }
@@ -377,10 +452,19 @@ fn eval_expr(
             right,
             ..
         } => {
-            let l = eval_expr(left, env, gen_fns, gens)?;
-            let r = eval_expr(right, env, gen_fns, gens)?;
+            let l = eval_expr(left, env, gen_fns, fn_bind, gens)?;
+            let r = eval_expr(right, env, gen_fns, fn_bind, gens)?;
             bin_num(op, &l, &r)
         }
+        Expr::Function {
+            name,
+            params,
+            body,
+            is_async: false,
+            is_generator: true,
+            is_arrow: false,
+            ..
+        } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind),
         Expr::Call {
             callee,
             args,
@@ -395,27 +479,27 @@ fn eval_expr(
                 ..
             } = callee.as_ref()
             {
-                let obj = eval_expr(object, env, gen_fns, gens)?;
+                let obj = eval_expr(object, env, gen_fns, fn_bind, gens)?;
                 let prop = prop_name(property)?;
                 if prop == "next" {
                     let resume = if args.is_empty() {
                         JsVal::Undef
                     } else if args.len() == 1 {
                         match &args[0] {
-                            Arg::Expr(e) => eval_expr(e, env, gen_fns, gens)?,
+                            Arg::Expr(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
                             _ => return Err(()),
                         }
                     } else {
                         return Err(());
                     };
-                    return gen_next(&obj, resume, gen_fns, gens);
+                    return gen_next(&obj, resume, gen_fns, fn_bind, gens);
                 }
                 return Err(());
             }
 
-            // Call generator function: `g(args)` → iterator.
-            let c = eval_expr(callee, env, gen_fns, gens)?;
-            spawn_gen(c, args, env, gen_fns, gens)
+            // Call generator function: `g(args)` / IIFE → iterator.
+            let c = eval_expr(callee, env, gen_fns, fn_bind, gens)?;
+            spawn_gen(c, args, env, gen_fns, fn_bind, gens)
         }
         Expr::Member {
             object,
@@ -423,7 +507,7 @@ fn eval_expr(
             optional: false,
             ..
         } => {
-            let obj = eval_expr(object, env, gen_fns, gens)?;
+            let obj = eval_expr(object, env, gen_fns, fn_bind, gens)?;
             let prop = prop_name(property)?;
             match obj {
                 JsVal::Result { value, done } => match prop.as_str() {
@@ -442,42 +526,28 @@ fn spawn_gen(
     callee: JsVal,
     args: &[Arg],
     env: &mut HashMap<LocalId, JsVal>,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<JsVal, ()> {
     let JsVal::GenFn(fid) = callee else {
         return Err(());
     };
-    let rec = gen_fns.get(&fid).ok_or(())?;
-    if args.len() > rec.params.len() {
+    if fid >= gen_fns.len() {
         return Err(());
     }
-    let mut gen_env = HashMap::new();
-    for (gid, _) in gen_fns {
-        gen_env.insert(*gid, JsVal::GenFn(*gid));
+    let n_params = gen_fns[fid].params.len();
+    if args.len() > n_params {
+        return Err(());
     }
-    for (i, pid) in rec.params.iter().enumerate() {
-        let v = if i < args.len() {
-            match &args[i] {
-                Arg::Expr(e) => eval_expr(e, env, gen_fns, gens)?,
-                _ => return Err(()),
-            }
-        } else {
-            JsVal::Undef
-        };
-        gen_env.insert(*pid, v);
+    let mut arg_vals = Vec::new();
+    for a in args {
+        match a {
+            Arg::Expr(e) => arg_vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?),
+            _ => return Err(()),
+        }
     }
-    let idx = gens.len();
-    gens.push(GenInst {
-        fn_id: fid,
-        pc: 0,
-        started: false,
-        suspended: false,
-        done: false,
-        env: gen_env,
-        yield_star: None,
-    });
-    Ok(JsVal::GenInst(idx))
+    spawn_gen_vals(JsVal::GenFn(fid), &arg_vals, gen_fns, fn_bind, gens)
 }
 
 fn bin_num(op: &BinaryOp, left: &JsVal, right: &JsVal) -> Result<JsVal, ()> {
@@ -510,7 +580,8 @@ fn prop_name(expr: &Expr) -> Result<String, ()> {
 fn gen_next(
     obj: &JsVal,
     resume: JsVal,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<JsVal, ()> {
     let JsVal::GenInst(idx) = obj else {
@@ -538,14 +609,23 @@ fn gen_next(
 
     // Active yield* first.
     if gens[*idx].yield_star.is_some() {
-        match step_yield_star(*idx, inject.take().unwrap_or(JsVal::Undef), gen_fns, gens)? {
+        match step_yield_star(
+            *idx,
+            inject.take().unwrap_or(JsVal::Undef),
+            gen_fns,
+            fn_bind,
+            gens,
+        )? {
             Step::Yield(v) => return Ok(v),
             Step::Continue => {}
         }
     }
 
     let fn_id = gens[*idx].fn_id;
-    let body = gen_fns.get(&fn_id).ok_or(())?.body.clone();
+    if fn_id >= gen_fns.len() {
+        return Err(());
+    }
+    let body = gen_fns[fn_id].body.clone();
 
     loop {
         let pc = gens[*idx].pc;
@@ -570,7 +650,7 @@ fn gen_next(
                     gens[*idx].pc = pc + 1;
                     continue;
                 }
-                let yv = eval_in_gen(arg, *idx, gen_fns, gens)?;
+                let yv = eval_in_gen(arg, *idx, gen_fns, fn_bind, gens)?;
                 gens[*idx].suspended = true;
                 return Ok(JsVal::Result {
                     value: Box::new(yv),
@@ -590,8 +670,8 @@ fn gen_next(
                     // for yield*; inject only applies when suspended on this stmt.
                     inject.take();
                 }
-                start_yield_star(*idx, arg, None, gen_fns, gens)?;
-                match step_yield_star(*idx, JsVal::Undef, gen_fns, gens)? {
+                start_yield_star(*idx, arg, None, gen_fns, fn_bind, gens)?;
+                match step_yield_star(*idx, JsVal::Undef, gen_fns, fn_bind, gens)? {
                     Step::Yield(v) => return Ok(v),
                     Step::Continue => continue,
                 }
@@ -611,7 +691,7 @@ fn gen_next(
                     gens[*idx].pc = pc + 1;
                     continue;
                 }
-                let yv = eval_in_gen(arg, *idx, gen_fns, gens)?;
+                let yv = eval_in_gen(arg, *idx, gen_fns, fn_bind, gens)?;
                 gens[*idx].suspended = true;
                 return Ok(JsVal::Result {
                     value: Box::new(yv),
@@ -632,8 +712,8 @@ fn gen_next(
                     inject.take();
                 }
                 let bind = Some(*local);
-                start_yield_star(*idx, arg, bind, gen_fns, gens)?;
-                match step_yield_star(*idx, JsVal::Undef, gen_fns, gens)? {
+                start_yield_star(*idx, arg, bind, gen_fns, fn_bind, gens)?;
+                match step_yield_star(*idx, JsVal::Undef, gen_fns, fn_bind, gens)? {
                     Step::Yield(v) => return Ok(v),
                     Step::Continue => continue,
                 }
@@ -641,7 +721,7 @@ fn gen_next(
             Stmt::Declare { local, init, .. } => {
                 let v = match init {
                     None => JsVal::Undef,
-                    Some(e) => eval_in_gen(e, *idx, gen_fns, gens)?,
+                    Some(e) => eval_in_gen(e, *idx, gen_fns, fn_bind, gens)?,
                 };
                 gens[*idx].env.insert(*local, v);
                 gens[*idx].pc = pc + 1;
@@ -649,7 +729,7 @@ fn gen_next(
             Stmt::Return { value } => {
                 let v = match value {
                     None => JsVal::Undef,
-                    Some(e) => eval_in_gen(e, *idx, gen_fns, gens)?,
+                    Some(e) => eval_in_gen(e, *idx, gen_fns, fn_bind, gens)?,
                 };
                 gens[*idx].pc = body.len();
                 gens[*idx].done = true;
@@ -672,10 +752,11 @@ fn start_yield_star(
     outer_idx: usize,
     arg: &Expr,
     bind: Option<LocalId>,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<(), ()> {
-    let iterable = eval_in_gen(arg, outer_idx, gen_fns, gens)?;
+    let iterable = eval_in_gen(arg, outer_idx, gen_fns, fn_bind, gens)?;
     let state = match iterable {
         JsVal::GenInst(i) => YieldStarState::Gen { idx: i, bind },
         JsVal::Array(elems) => YieldStarState::Array {
@@ -684,7 +765,7 @@ fn start_yield_star(
             bind,
         },
         JsVal::GenFn(fid) => {
-            let inst = spawn_gen_vals(JsVal::GenFn(fid), &[], gen_fns, gens)?;
+            let inst = spawn_gen_vals(JsVal::GenFn(fid), &[], gen_fns, fn_bind, gens)?;
             let JsVal::GenInst(i) = inst else {
                 return Err(());
             };
@@ -699,13 +780,14 @@ fn start_yield_star(
 fn step_yield_star(
     outer_idx: usize,
     resume: JsVal,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<Step, ()> {
     let state = gens[outer_idx].yield_star.take().ok_or(())?;
     match state {
         YieldStarState::Gen { idx: inner, bind } => {
-            let r = gen_next(&JsVal::GenInst(inner), resume, gen_fns, gens)?;
+            let r = gen_next(&JsVal::GenInst(inner), resume, gen_fns, fn_bind, gens)?;
             match r {
                 JsVal::Result { value, done: false } => {
                     gens[outer_idx].yield_star = Some(YieldStarState::Gen { idx: inner, bind });
@@ -761,7 +843,8 @@ fn step_yield_star(
 fn eval_in_gen(
     expr: &Expr,
     gen_idx: usize,
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<JsVal, ()> {
     match expr {
@@ -779,7 +862,7 @@ fn eval_in_gen(
             for el in elements {
                 match el {
                     ArrayElement::Expr(e) => {
-                        vals.push(eval_in_gen(e, gen_idx, gen_fns, gens)?)
+                        vals.push(eval_in_gen(e, gen_idx, gen_fns, fn_bind, gens)?)
                     }
                     _ => return Err(()),
                 }
@@ -792,10 +875,19 @@ fn eval_in_gen(
             right,
             ..
         } => {
-            let l = eval_in_gen(left, gen_idx, gen_fns, gens)?;
-            let r = eval_in_gen(right, gen_idx, gen_fns, gens)?;
+            let l = eval_in_gen(left, gen_idx, gen_fns, fn_bind, gens)?;
+            let r = eval_in_gen(right, gen_idx, gen_fns, fn_bind, gens)?;
             bin_num(op, &l, &r)
         }
+        Expr::Function {
+            name,
+            params,
+            body,
+            is_async: false,
+            is_generator: true,
+            is_arrow: false,
+            ..
+        } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind),
         Expr::Call {
             callee,
             args,
@@ -805,26 +897,28 @@ fn eval_in_gen(
             // Resolve callee in gen env; spawn if GenFn.
             let c = match callee.as_ref() {
                 Expr::Local { id, .. } => gens[gen_idx].env.get(id).cloned().ok_or(())?,
-                _ => {
-                    // Also allow nested eval for free top-level gens via outer env:
-                    // gen env only has params + locals; top-level GenFn bindings are
-                    // not automatically in gen env. Copy from... we need gen_fns by
-                    // looking up Local that is a GenFn id.
-                    // For `inner()` where inner is outer-scope GenFn: IR uses Local
-                    // of the function binding. That local is not in gen_env unless
-                    // we inject free GenFn bindings.
-                    return Err(());
-                }
+                Expr::Function {
+                    name,
+                    params,
+                    body,
+                    is_async: false,
+                    is_generator: true,
+                    is_arrow: false,
+                    ..
+                } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind)?,
+                _ => return Err(()),
             };
             // Build args using gen env.
             let mut arg_vals = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => arg_vals.push(eval_in_gen(e, gen_idx, gen_fns, gens)?),
+                    Arg::Expr(e) => {
+                        arg_vals.push(eval_in_gen(e, gen_idx, gen_fns, fn_bind, gens)?)
+                    }
                     _ => return Err(()),
                 }
             }
-            spawn_gen_vals(c, &arg_vals, gen_fns, gens)
+            spawn_gen_vals(c, &arg_vals, gen_fns, fn_bind, gens)
         }
         _ => Err(()),
     }
@@ -833,18 +927,24 @@ fn eval_in_gen(
 fn spawn_gen_vals(
     callee: JsVal,
     args: &[JsVal],
-    gen_fns: &HashMap<LocalId, GenFnRec>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<JsVal, ()> {
     let JsVal::GenFn(fid) = callee else {
         return Err(());
     };
-    let rec = gen_fns.get(&fid).ok_or(())?;
-    if args.len() > rec.params.len() {
+    if fid >= gen_fns.len() {
         return Err(());
     }
+    let n_params = gen_fns[fid].params.len();
+    if args.len() > n_params {
+        return Err(());
+    }
+    let params = gen_fns[fid].params.clone();
+    let name = gen_fns[fid].name;
     let mut gen_env = HashMap::new();
-    for (i, pid) in rec.params.iter().enumerate() {
+    for (i, pid) in params.iter().enumerate() {
         let v = if i < args.len() {
             args[i].clone()
         } else {
@@ -852,9 +952,13 @@ fn spawn_gen_vals(
         };
         gen_env.insert(*pid, v);
     }
-    // Free GenFn bindings: inject all known gen fns into env so nested yield* can call peers.
-    for (gid, _) in gen_fns {
-        gen_env.entry(*gid).or_insert(JsVal::GenFn(*gid));
+    // Free GenFn bindings: inject all known gen fn bindings so nested yield* can call peers.
+    for (lid, idx) in fn_bind {
+        gen_env.entry(*lid).or_insert(JsVal::GenFn(*idx));
+    }
+    // Named function expression self-binding.
+    if let Some(n) = name {
+        gen_env.insert(n, JsVal::GenFn(fid));
     }
     let idx = gens.len();
     gens.push(GenInst {
@@ -937,9 +1041,9 @@ impl Emitter {
             }
         }
 
-        writeln!(
+            writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.12.04 generators yield_star)"
+            "; Draconic LLVM backend (N08.12.05 generators expr)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
