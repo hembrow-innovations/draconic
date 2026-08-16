@@ -1,8 +1,9 @@
-//! N08.01: emit native observations for ES expression Programs
+//! N08.01 + N08.02.01: emit native observations for ES expression Programs and `if`/`else`
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
 //! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
-//! E01.04.08 compound assignment `+=` `-=` `*=` `/=` `%=` `**=` `<<=` `>>=` `>>>=` `&=` `^=` `|=`.
+//! E01.04.08 compound assignment `+=` `-=` `*=` `/=` `%=` `**=` `<<=` `>>=` `>>>=` `&=` `^=` `|=`,
+//! E02.01 `if` / `else` (incl. block bodies; ToBoolean on number/boolean tests).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -13,11 +14,12 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
-/// True when this module is a supported ES expression subset (E01.01–E01.04.08 / N08.01.*):
+/// True when this module is a supported ES expression / `if` subset (E01.* / E02.01 / N08.01.* / N08.02.01):
 /// top-level `let` declares over JS numbers, booleans, strings, and/or undefined (`void`) with
 /// arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical,
 /// bitwise, exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`,
-/// comma, grouping, and local refs. Expression statements may be assigns or updates.
+/// comma, grouping, local refs, and `if`/`else` (block or expression bodies). Expression
+/// statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -90,29 +92,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     user_locals.push((*local, slot));
                 }
             }
-            Stmt::Expr { expr } => {
-                match expr.ty() {
-                    Type::Number => {
-                        if !expr_is_number_subset(expr, &by_id) {
-                            return None;
-                        }
-                    }
-                    Type::Boolean => {
-                        if !expr_is_boolean_subset(expr, &by_id) {
-                            return None;
-                        }
-                    }
-                    Type::String => {
-                        if !expr_is_string_subset(expr, &by_id) {
-                            return None;
-                        }
-                    }
-                    Type::Null => {
-                        if !expr_is_undefined_subset(expr, &by_id) {
-                            return None;
-                        }
-                    }
-                    _ => return None,
+            Stmt::Expr { .. } | Stmt::Block { .. } | Stmt::If { .. } => {
+                if !stmt_is_subset(stmt, &by_id) {
+                    return None;
                 }
             }
             _ => return None,
@@ -122,6 +104,33 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         return None;
     }
     Some(ModuleInfo { user_locals })
+}
+
+/// Nested statement subset for `if`/`else` bodies and blocks (no nested `let` in this slice).
+fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match stmt {
+        Stmt::Expr { expr } => match expr.ty() {
+            Type::Number => expr_is_number_subset(expr, by_id),
+            Type::Boolean => expr_is_boolean_subset(expr, by_id),
+            Type::String => expr_is_string_subset(expr, by_id),
+            Type::Null => expr_is_undefined_subset(expr, by_id),
+            _ => false,
+        },
+        Stmt::Block { body } => body.iter().all(|s| stmt_is_subset(s, by_id)),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            (expr_is_boolean_subset(test, by_id) || expr_is_number_subset(test, by_id))
+                && stmt_is_subset(consequent, by_id)
+                && alternate
+                    .as_ref()
+                    .map(|a| stmt_is_subset(a, by_id))
+                    .unwrap_or(true)
+        }
+        _ => false,
+    }
 }
 
 /// Operand of `typeof` / `void` / `delete` in the supported subset.
@@ -400,6 +409,27 @@ impl<'a> Emitter<'a> {
         format!("%t{n}")
     }
 
+    fn fresh_label(&mut self, prefix: &str) -> String {
+        let n = self.tmp;
+        self.tmp += 1;
+        format!("{prefix}{n}")
+    }
+
+    fn body_ends_with_terminator(&self) -> bool {
+        self.body
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .is_some_and(|l| {
+                let t = l.trim_start();
+                t.starts_with("br ")
+                    || t.starts_with("ret ")
+                    || t.starts_with("unreachable")
+                    || t.starts_with("switch ")
+                    || t.starts_with("indirectbr ")
+            })
+    }
+
     fn emit_module(&mut self, user: &[(LocalId, SlotTy)]) -> Result<(), Diagnostic> {
         // Body first so string globals are collected, then header + globals + main.
         for (id, slot) in user {
@@ -421,52 +451,7 @@ impl<'a> Emitter<'a> {
         }
 
         for stmt in &self.module.body {
-            match stmt {
-                Stmt::Declare { local, init, .. } => {
-                    let (ptr, slot) = self
-                        .allocas
-                        .get(local)
-                        .cloned()
-                        .ok_or_else(|| diag("internal: missing alloca"))?;
-                    match (slot, init) {
-                        (SlotTy::Number, Some(init)) => {
-                            let v = self.emit_number_expr(init)?;
-                            writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
-                        }
-                        (SlotTy::Boolean, Some(init)) => {
-                            let v = self.emit_bool_expr(init)?;
-                            writeln!(self.body, "  store i1 {v}, ptr {ptr}").ok();
-                        }
-                        (SlotTy::String, Some(init)) => {
-                            let v = self.emit_string_expr(init)?;
-                            writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
-                        }
-                        (SlotTy::Undefined, Some(init)) => {
-                            self.emit_undefined_expr(init)?;
-                        }
-                        // Uninitialized `let` — leave alloca undef until assigned.
-                        (_, None) => {}
-                    }
-                }
-                Stmt::Expr { expr } => match expr.ty() {
-                    Type::Number => {
-                        let _ = self.emit_number_expr(expr)?;
-                    }
-                    Type::Boolean => {
-                        let _ = self.emit_bool_expr(expr)?;
-                    }
-                    Type::String => {
-                        let _ = self.emit_string_expr(expr)?;
-                    }
-                    Type::Null => {
-                        self.emit_undefined_expr(expr)?;
-                    }
-                    _ => {
-                        return Err(diag("internal: unsupported expr stmt ty in es_expr module"))
-                    }
-                },
-                _ => return Err(diag("internal: unsupported stmt in es_expr module")),
-            }
+            self.emit_stmt(stmt)?;
         }
 
         // Print top-level user locals in declaration order.
@@ -513,7 +498,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01 ES expressions via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02.01 ES expressions + if/else via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -540,6 +525,98 @@ impl<'a> Emitter<'a> {
         writeln!(self.out, "  ret i32 0").ok();
         writeln!(self.out, "}}").ok();
         Ok(())
+    }
+
+    fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
+        match stmt {
+            Stmt::Declare { local, init, .. } => {
+                let (ptr, slot) = self
+                    .allocas
+                    .get(local)
+                    .cloned()
+                    .ok_or_else(|| diag("internal: missing alloca"))?;
+                match (slot, init) {
+                    (SlotTy::Number, Some(init)) => {
+                        let v = self.emit_number_expr(init)?;
+                        writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    }
+                    (SlotTy::Boolean, Some(init)) => {
+                        let v = self.emit_bool_expr(init)?;
+                        writeln!(self.body, "  store i1 {v}, ptr {ptr}").ok();
+                    }
+                    (SlotTy::String, Some(init)) => {
+                        let v = self.emit_string_expr(init)?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    }
+                    (SlotTy::Undefined, Some(init)) => {
+                        self.emit_undefined_expr(init)?;
+                    }
+                    // Uninitialized `let` — leave alloca undef until assigned.
+                    (_, None) => {}
+                }
+                Ok(())
+            }
+            Stmt::Expr { expr } => match expr.ty() {
+                Type::Number => {
+                    let _ = self.emit_number_expr(expr)?;
+                    Ok(())
+                }
+                Type::Boolean => {
+                    let _ = self.emit_bool_expr(expr)?;
+                    Ok(())
+                }
+                Type::String => {
+                    let _ = self.emit_string_expr(expr)?;
+                    Ok(())
+                }
+                Type::Null => self.emit_undefined_expr(expr),
+                _ => Err(diag("internal: unsupported expr stmt ty in es_expr module")),
+            },
+            Stmt::Block { body } => {
+                for s in body {
+                    self.emit_stmt(s)?;
+                }
+                Ok(())
+            }
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => {
+                let cond = self.emit_to_boolean(test)?;
+                let then_l = self.fresh_label("then");
+                let else_l = self.fresh_label("else");
+                let end_l = self.fresh_label("endif");
+                if alternate.is_some() {
+                    writeln!(
+                        self.body,
+                        "  br i1 {cond}, label %{then_l}, label %{else_l}"
+                    )
+                    .ok();
+                } else {
+                    writeln!(
+                        self.body,
+                        "  br i1 {cond}, label %{then_l}, label %{end_l}"
+                    )
+                    .ok();
+                }
+                writeln!(self.body, "{then_l}:").ok();
+                self.emit_stmt(consequent)?;
+                if !self.body_ends_with_terminator() {
+                    writeln!(self.body, "  br label %{end_l}").ok();
+                }
+                if let Some(alt) = alternate {
+                    writeln!(self.body, "{else_l}:").ok();
+                    self.emit_stmt(alt)?;
+                    if !self.body_ends_with_terminator() {
+                        writeln!(self.body, "  br label %{end_l}").ok();
+                    }
+                }
+                writeln!(self.body, "{end_l}:").ok();
+                Ok(())
+            }
+            _ => Err(diag("internal: unsupported stmt in es_expr module")),
+        }
     }
 
     fn string_const(&mut self, s: &str) -> Result<String, Diagnostic> {
