@@ -1,17 +1,21 @@
-//! N08.13.01–N08.13.09: native observations for Proxy basics + `set` + `has`/`in`
+//! N08.13.01–N08.13.10: native observations for Proxy basics + `set` + `has`/`in`
 //! + `delete`/`deleteProperty` + `apply` + `construct` + Reflect basics + `ownKeys`
-//! + `getPrototypeOf`/`setPrototypeOf` (E14.01–E14.09).
+//! + `getPrototypeOf`/`setPrototypeOf` + `defineProperty`/`getOwnPropertyDescriptor`
+//! (E14.01–E14.10).
 //!
 //! Compile-time evaluation of a small Proxy/Reflect subset: `typeof Proxy`,
 //! `new Proxy(target, handler)`, empty-handler get/set/`in`/`delete`/call/`new`/ownKeys
-//! /prototype pass-through, `get`/`set`/`has`/`deleteProperty`/`apply`/`construct`/
-//! `ownKeys`/`getPrototypeOf`/`setPrototypeOf` traps (function props; free-var capture;
-//! string keys), `typeof Reflect` + `Reflect.get`/`set`/`has`/`deleteProperty`/`apply`/
-//! `construct`/`ownKeys`/`getPrototypeOf`/`setPrototypeOf` on plain objects + Proxy
-//! targets, array literals as arg lists, member assign, method calls (`obj.m()` thisArg),
-//! function constructors (`this` + prop init), `typeof` on proxies. Objects live on a heap
-//! so proxy targets share identity with outer locals. Emits Runtime prints of final
-//! top-level number/string/bool locals.
+//! /prototype/defineProperty pass-through, `get`/`set`/`has`/`deleteProperty`/`apply`/
+//! `construct`/`ownKeys`/`getPrototypeOf`/`setPrototypeOf`/`defineProperty`/
+//! `getOwnPropertyDescriptor` traps (function props; free-var capture; string keys),
+//! `typeof Reflect` + `Reflect.get`/`set`/`has`/`deleteProperty`/`apply`/`construct`/
+//! `ownKeys`/`getPrototypeOf`/`setPrototypeOf`/`defineProperty`/
+//! `getOwnPropertyDescriptor` on plain objects + Proxy targets, data descriptors
+//! `{value,writable,enumerable,configurable}`, `void`, array literals as arg lists,
+//! member assign, method calls (`obj.m()` thisArg), function constructors (`this` +
+//! prop init), `typeof` on proxies. Objects live on a heap so proxy targets share
+//! identity with outer locals. Emits Runtime prints of final top-level
+//! number/string/bool locals.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -47,6 +51,8 @@ enum ReflectOp {
     OwnKeys,
     GetPrototypeOf,
     SetPrototypeOf,
+    DefineProperty,
+    GetOwnPropertyDescriptor,
 }
 
 /// Heap index of the shared `Object.prototype` stand-in (null [[Prototype]]).
@@ -64,7 +70,8 @@ enum JsVal {
     /// Builtin `Reflect` object.
     ReflectObj,
     /// `Reflect.get` / `set` / `has` / `deleteProperty` / `apply` / `construct` /
-    /// `ownKeys` / `getPrototypeOf` / `setPrototypeOf`.
+    /// `ownKeys` / `getPrototypeOf` / `setPrototypeOf` / `defineProperty` /
+    /// `getOwnPropertyDescriptor`.
     ReflectMethod(ReflectOp),
     /// Plain object (index into object heap).
     Object(usize),
@@ -114,6 +121,10 @@ struct ProxyRec {
     get_prototype_of_trap: Option<usize>,
     /// Optional `setPrototypeOf` trap function index.
     set_prototype_of_trap: Option<usize>,
+    /// Optional `defineProperty` trap function index.
+    define_property_trap: Option<usize>,
+    /// Optional `getOwnPropertyDescriptor` trap function index.
+    get_own_property_descriptor_trap: Option<usize>,
 }
 
 fn object_set_prop(rec: &mut ObjectRec, key: String, value: JsVal) {
@@ -581,6 +592,14 @@ fn eval_expr(
             Ok(JsVal::Str(typeof_str(&v)))
         }
         Expr::Unary {
+            op: UnaryOp::Void,
+            arg,
+            ..
+        } => {
+            let _ = eval_expr(arg, env, fns, objects, proxies)?;
+            Ok(JsVal::Undef)
+        }
+        Expr::Unary {
             op: UnaryOp::Delete,
             arg,
             ..
@@ -711,6 +730,17 @@ fn eval_expr(
                         Some(_) => return Err(()),
                         None => None,
                     };
+                    let define_property_trap = match handler.get("defineProperty") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
+                    let get_own_property_descriptor_trap =
+                        match handler.get("getOwnPropertyDescriptor") {
+                            Some(JsVal::Fn(i)) => Some(*i),
+                            Some(_) => return Err(()),
+                            None => None,
+                        };
                     let idx = proxies.len();
                     proxies.push(ProxyRec {
                         target,
@@ -723,6 +753,8 @@ fn eval_expr(
                         own_keys_trap,
                         get_prototype_of_trap,
                         set_prototype_of_trap,
+                        define_property_trap,
+                        get_own_property_descriptor_trap,
                     });
                     Ok(JsVal::Proxy(idx))
                 }
@@ -847,6 +879,8 @@ fn reflect_method(key: &str) -> Result<JsVal, ()> {
         "ownKeys" => ReflectOp::OwnKeys,
         "getPrototypeOf" => ReflectOp::GetPrototypeOf,
         "setPrototypeOf" => ReflectOp::SetPrototypeOf,
+        "defineProperty" => ReflectOp::DefineProperty,
+        "getOwnPropertyDescriptor" => ReflectOp::GetOwnPropertyDescriptor,
         _ => return Err(()),
     };
     Ok(JsVal::ReflectMethod(op))
@@ -970,6 +1004,44 @@ fn call_reflect(
             let ok =
                 proxy_or_object_set_prototype_of(&args[0], &args[1], env, fns, objects, proxies)?;
             Ok(JsVal::Bool(ok))
+        }
+        ReflectOp::DefineProperty => {
+            if args.len() < 3 {
+                return Err(());
+            }
+            let key = match &args[1] {
+                JsVal::Str(s) => s.clone(),
+                JsVal::Num(n) => format!("{}", *n as i64),
+                _ => return Err(()),
+            };
+            let ok = proxy_or_object_define_property(
+                &args[0],
+                &key,
+                &args[2],
+                env,
+                fns,
+                objects,
+                proxies,
+            )?;
+            Ok(JsVal::Bool(ok))
+        }
+        ReflectOp::GetOwnPropertyDescriptor => {
+            if args.len() < 2 {
+                return Err(());
+            }
+            let key = match &args[1] {
+                JsVal::Str(s) => s.clone(),
+                JsVal::Num(n) => format!("{}", *n as i64),
+                _ => return Err(()),
+            };
+            proxy_or_object_get_own_property_descriptor(
+                &args[0],
+                &key,
+                env,
+                fns,
+                objects,
+                proxies,
+            )
         }
     }
 }
@@ -1197,6 +1269,97 @@ fn proxy_or_object_set_prototype_of(
     }
 }
 
+fn descriptor_value(desc: &JsVal, objects: &[ObjectRec]) -> Result<JsVal, ()> {
+    match desc {
+        JsVal::Object(idx) => Ok(objects
+            .get(*idx)
+            .ok_or(())?
+            .props
+            .get("value")
+            .cloned()
+            .unwrap_or(JsVal::Undef)),
+        _ => Err(()),
+    }
+}
+
+fn make_data_descriptor(value: JsVal, objects: &mut Vec<ObjectRec>) -> JsVal {
+    let mut rec = empty_object();
+    object_set_prop(&mut rec, "value".into(), value);
+    object_set_prop(&mut rec, "writable".into(), JsVal::Bool(true));
+    object_set_prop(&mut rec, "enumerable".into(), JsVal::Bool(true));
+    object_set_prop(&mut rec, "configurable".into(), JsVal::Bool(true));
+    let idx = objects.len();
+    objects.push(rec);
+    JsVal::Object(idx)
+}
+
+fn proxy_or_object_define_property(
+    obj: &JsVal,
+    key: &str,
+    desc: &JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<bool, ()> {
+    match obj {
+        JsVal::Object(idx) => {
+            let value = descriptor_value(desc, objects)?;
+            let rec = objects.get_mut(*idx).ok_or(())?;
+            object_set_prop(rec, key.to_string(), value);
+            Ok(true)
+        }
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.define_property_trap {
+                let args = vec![
+                    rec.target.clone(),
+                    JsVal::Str(key.to_string()),
+                    desc.clone(),
+                ];
+                let v = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
+                Ok(is_truthy(&v))
+            } else {
+                proxy_or_object_define_property(
+                    &rec.target, key, desc, env, fns, objects, proxies,
+                )
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+fn proxy_or_object_get_own_property_descriptor(
+    obj: &JsVal,
+    key: &str,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<JsVal, ()> {
+    match obj {
+        JsVal::Object(idx) => {
+            let value = match objects.get(*idx).ok_or(())?.props.get(key) {
+                Some(v) => v.clone(),
+                None => return Ok(JsVal::Undef),
+            };
+            Ok(make_data_descriptor(value, objects))
+        }
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.get_own_property_descriptor_trap {
+                let args = vec![rec.target.clone(), JsVal::Str(key.to_string())];
+                call_fn(trap_idx, &args, env, fns, objects, proxies)
+            } else {
+                proxy_or_object_get_own_property_descriptor(
+                    &rec.target, key, env, fns, objects, proxies,
+                )
+            }
+        }
+        _ => Err(()),
+    }
+}
+
 fn proxy_or_object_has(
     obj: &JsVal,
     key: &str,
@@ -1313,7 +1476,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.09 Proxy getPrototypeOf/setPrototypeOf)"
+            "; Draconic LLVM backend (N08.13.10 Proxy defineProperty/getOwnPropertyDescriptor)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1517,6 +1680,28 @@ mod tests {
         assert!(
             ir.contains("print") || ir.contains("1"),
             "should print trap call counts:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn proxy_define_property_classifies_and_emits() {
+        let src = include_str!(
+            "../../../tests/conformance/fixtures/es/proxies/proxy_define_property.drac"
+        );
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("function") && ir.contains("true"),
+            "should print defineProperty observations:\n{ir}"
+        );
+        assert!(
+            ir.contains("42") || ir.contains("print"),
+            "should print trap values:\n{ir}"
         );
     }
 }

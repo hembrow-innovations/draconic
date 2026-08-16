@@ -1,4 +1,6 @@
 id: es/proxies/proxy_define_property
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\ntrue\n1\ntrue\ntrue\ntrue\ntrue\ntrue\n10\n10\n1\nm\n42\ntrue\n42\n1\n8\n
 js.check: if (td !== "function") process.exit(1); if (tg !== "function") process.exit(2); if (defOk !== true) process.exit(3); if (dv !== 1) process.exit(4); if (dw !== true) process.exit(5); if (de !== true) process.exit(6); if (dc !== true) process.exit(7); if (missUndef !== true) process.exit(8); if (passDef !== true) process.exit(9); if (passV !== 10) process.exit(10); if (targetV !== 10) process.exit(11); if (defines !== 1) process.exit(12); if (lastKey !== "m") process.exit(13); if (lastVal !== 42) process.exit(14); if (trapDef !== true) process.exit(15); if (pm !== 42) process.exit(16); if (gets !== 1) process.exit(17); if (trapV !== 8) process.exit(18);
