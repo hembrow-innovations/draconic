@@ -19,6 +19,7 @@
 //! E07.03 unicode escapes `\x`/`\u`/`\u{}` cooked into strings; `.length` is UTF-16 units (N08.07.03),
 //! E07.05 UTF-16 code-unit semantics: index/concat/eq over WTF-8 storage (N08.07.05).
 //! E08.01 number literals: decimal/hex/bin/oct/separators/scientific (N08.08.01).
+//! E08.02 BigInt integer literals + same-type arithmetic (N08.08.02; i64-range values).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -29,22 +30,23 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{
     llvm_declares, CSTR_CONCAT_N, CSTR_EQ_N, CSTR_FROM_CODE_UNIT_N, CSTR_FROM_U64, CSTR_LEN,
-    ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64, UTF16_LEN,
+    ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64, PRINT_I64, UTF16_LEN,
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01 / N08.01.* / N08.02.01–N08.02.09 /
-/// N08.07.01–N08.07.05 / N08.08.01):
-/// top-level `let`/`const` declares over JS numbers, booleans, strings, undefined (`void`), and/or
-/// untyped `any` string/number slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
-/// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
-/// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`
-/// (incl. number ToString), untagged templates, unicode-escape string lits, UTF-16 index/length,
-/// number literals (decimal/hex/bin/oct/separators/scientific),
-/// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
-/// `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue` (unlabeled or labeled),
-/// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
-/// fall-through; unlabeled `break`).
+/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.02 / N08.01.* / N08.02.01–N08.02.09 /
+/// N08.07.01–N08.07.05 / N08.08.01–N08.08.02):
+/// top-level `let`/`const` declares over JS numbers, BigInts (i64-range), booleans, strings,
+/// undefined (`void`), and/or untyped `any` string/number slots with arithmetic, unary
+/// `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical, bitwise,
+/// exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`, comma,
+/// grouping, local refs, string concat `+` (incl. number ToString), untagged templates,
+/// unicode-escape string lits, UTF-16 index/length, number literals
+/// (decimal/hex/bin/oct/separators/scientific), BigInt literals + same-type `+` `-` `*` `/` `%`
+/// and unary `-`, `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or
+/// expression bodies), `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue`
+/// (unlabeled or labeled), labeled statements (incl. labeled blocks), and `switch`/`case`/`default`
+/// (number discriminant; fall-through; unlabeled `break`).
 /// Expression statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -60,6 +62,8 @@ pub(crate) fn emit_es_expr(module: &Module) -> Result<String, Diagnostic> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Number,
+    /// JS BigInt as signed i64 (N08.08.02 fixture range).
+    BigInt,
     Boolean,
     String,
     /// JS `undefined` from `void` (checker maps void → `Type::Null`).
@@ -87,6 +91,14 @@ fn slot_for_declare(
                 }
             }
             Some(SlotTy::Number)
+        }
+        Type::BigInt => {
+            if let Some(init) = init {
+                if !expr_is_bigint_subset(init, by_id) {
+                    return None;
+                }
+            }
+            Some(SlotTy::BigInt)
         }
         Type::Boolean => {
             if let Some(init) = init {
@@ -357,19 +369,76 @@ fn for_in_of_left_ok(left: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
 fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::Number { ty, .. } => *ty == Type::Number,
+        Expr::BigInt { ty, .. } => *ty == Type::BigInt,
         Expr::String { ty, .. } => *ty == Type::String,
         Expr::Boolean { ty, .. } => *ty == Type::Boolean,
         Expr::Null { ty } => *ty == Type::Null,
         Expr::Local { id, ty } => {
             matches!(
                 ty,
-                Type::Number | Type::String | Type::Boolean | Type::Null | Type::Any
+                Type::Number
+                    | Type::BigInt
+                    | Type::String
+                    | Type::Boolean
+                    | Type::Null
+                    | Type::Any
             ) && by_id.get(id).is_some_and(|l| l.ty == *ty)
         }
         e if expr_is_number_subset(e, by_id) => true,
+        e if expr_is_bigint_subset(e, by_id) => true,
         e if expr_is_boolean_subset(e, by_id) => true,
         e if expr_is_string_subset(e, by_id) => true,
         e if expr_is_undefined_subset(e, by_id) => true,
+        _ => false,
+    }
+}
+
+/// Same-type BigInt arithmetic subset (E08.02 / N08.08.02): literals, unary `-`,
+/// `+` `-` `*` `/` `%`, locals. Values must fit signed i64 at emit.
+fn expr_is_bigint_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::BigInt { ty, .. } => *ty == Type::BigInt,
+        Expr::Local { id, ty } => {
+            *ty == Type::BigInt && by_id.get(id).is_some_and(|l| l.ty == Type::BigInt)
+        }
+        Expr::Unary { op, arg, ty } => {
+            *ty == Type::BigInt
+                && matches!(op, UnaryOp::Minus)
+                && expr_is_bigint_subset(arg, by_id)
+        }
+        Expr::Binary {
+            left,
+            op,
+            right,
+            ty,
+        } => {
+            *ty == Type::BigInt
+                && matches!(
+                    op,
+                    BinaryOp::Add
+                        | BinaryOp::Sub
+                        | BinaryOp::Mul
+                        | BinaryOp::Div
+                        | BinaryOp::Rem
+                        | BinaryOp::Comma
+                )
+                && expr_is_bigint_subset(left, by_id)
+                && expr_is_bigint_subset(right, by_id)
+        }
+        Expr::Assign {
+            target,
+            op,
+            value,
+            ty,
+        } => {
+            *ty == Type::BigInt
+                && matches!(op, AssignOp::Eq)
+                && matches!(
+                    target,
+                    AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::BigInt)
+                )
+                && expr_is_bigint_subset(value, by_id)
+        }
         _ => false,
     }
 }
@@ -767,6 +836,9 @@ impl<'a> Emitter<'a> {
                 SlotTy::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
+                SlotTy::BigInt => {
+                    writeln!(self.body, "  {ptr} = alloca i64, align 8").ok();
+                }
                 SlotTy::Boolean => {
                     writeln!(self.body, "  {ptr} = alloca i1, align 1").ok();
                 }
@@ -797,6 +869,16 @@ impl<'a> Emitter<'a> {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+                }
+                SlotTy::BigInt => {
+                    let (ptr, _) = self
+                        .allocas
+                        .get(id)
+                        .cloned()
+                        .ok_or_else(|| diag("internal: print missing alloca"))?;
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load i64, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_I64.call(&format!("i64 {v}"))).ok();
                 }
                 SlotTy::Boolean => {
                     let (ptr, _) = self
@@ -888,6 +970,10 @@ impl<'a> Emitter<'a> {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
+                    (SlotTy::BigInt, Some(init)) => {
+                        let v = self.emit_bigint_expr(init)?;
+                        writeln!(self.body, "  store i64 {v}, ptr {ptr}").ok();
+                    }
                     (SlotTy::Boolean, Some(init)) => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i1 {v}, ptr {ptr}").ok();
@@ -904,7 +990,7 @@ impl<'a> Emitter<'a> {
                         let v = self.string_const("")?;
                         self.store_string_local(*local, &v)?;
                     }
-                    // Uninitialized number/bool/undefined — leave alloca undef until assigned.
+                    // Uninitialized number/bigint/bool/undefined — leave alloca undef until assigned.
                     (_, None) => {}
                 }
                 Ok(())
@@ -1426,6 +1512,10 @@ impl<'a> Emitter<'a> {
                 let _ = self.emit_number_expr(expr)?;
                 Ok(())
             }
+            Expr::BigInt { .. } => {
+                let _ = self.emit_bigint_expr(expr)?;
+                Ok(())
+            }
             Expr::Boolean { .. } => {
                 let _ = self.emit_bool_expr(expr)?;
                 Ok(())
@@ -1444,6 +1534,9 @@ impl<'a> Emitter<'a> {
                     SlotTy::Number => {
                         let _ = self.emit_number_expr(expr)?;
                     }
+                    SlotTy::BigInt => {
+                        let _ = self.emit_bigint_expr(expr)?;
+                    }
                     SlotTy::Boolean => {
                         let _ = self.emit_bool_expr(expr)?;
                     }
@@ -1456,6 +1549,10 @@ impl<'a> Emitter<'a> {
             }
             e if matches!(e.ty(), Type::Number) => {
                 let _ = self.emit_number_expr(e)?;
+                Ok(())
+            }
+            e if matches!(e.ty(), Type::BigInt) => {
+                let _ = self.emit_bigint_expr(e)?;
                 Ok(())
             }
             e if matches!(e.ty(), Type::Boolean) => {
@@ -1474,11 +1571,13 @@ impl<'a> Emitter<'a> {
     fn typeof_name(expr: &Expr, slot_of: &HashMap<LocalId, SlotTy>) -> Option<&'static str> {
         match expr {
             Expr::Number { .. } => Some("number"),
+            Expr::BigInt { .. } => Some("bigint"),
             Expr::String { .. } => Some("string"),
             Expr::Boolean { .. } => Some("boolean"),
             Expr::Null { .. } => Some("object"),
-            Expr::Local { id, .. } =>             match slot_of.get(id)? {
+            Expr::Local { id, .. } => match slot_of.get(id)? {
                 SlotTy::Number => Some("number"),
+                SlotTy::BigInt => Some("bigint"),
                 SlotTy::String => Some("string"), // includes untyped any string slots
                 SlotTy::Boolean => Some("boolean"),
                 SlotTy::Undefined => Some("undefined"),
@@ -1490,12 +1589,92 @@ impl<'a> Emitter<'a> {
                 op: UnaryOp::TypeOf,
                 ..
             } => Some("string"),
-            // Number/bool-producing ops → "number" / "boolean"
+            // Number/bool/bigint-producing ops → type name strings
             e if matches!(e.ty(), Type::Number) => Some("number"),
+            e if matches!(e.ty(), Type::BigInt) => Some("bigint"),
             e if matches!(e.ty(), Type::Boolean) => Some("boolean"),
             e if matches!(e.ty(), Type::String) => Some("string"),
             e if matches!(e.ty(), Type::Null) => Some("undefined"),
             _ => None,
+        }
+    }
+
+    /// Emit a BigInt expression as signed i64 SSA (N08.08.02).
+    fn emit_bigint_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::BigInt { raw, .. } => Ok(format_bigint_const(raw)?),
+            Expr::Local { id, .. } => {
+                let (ptr, slot) = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag(format!("internal: unallocated local %{}", id.0)))?;
+                if slot != SlotTy::BigInt {
+                    return Err(diag("internal: expected bigint local"));
+                }
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = load i64, ptr {ptr}").ok();
+                Ok(t)
+            }
+            Expr::Unary {
+                op: UnaryOp::Minus,
+                arg,
+                ..
+            } => {
+                let a = self.emit_bigint_expr(arg)?;
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = sub i64 0, {a}").ok();
+                Ok(t)
+            }
+            Expr::Binary {
+                left, op, right, ..
+            } => {
+                let l = self.emit_bigint_expr(left)?;
+                let r = self.emit_bigint_expr(right)?;
+                match op {
+                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                        let inst = match op {
+                            BinaryOp::Add => "add",
+                            BinaryOp::Sub => "sub",
+                            BinaryOp::Mul => "mul",
+                            // JS BigInt `/` and `%` truncate toward zero (sdiv/srem).
+                            BinaryOp::Div => "sdiv",
+                            BinaryOp::Rem => "srem",
+                            _ => unreachable!(),
+                        };
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = {inst} i64 {l}, {r}").ok();
+                        Ok(t)
+                    }
+                    BinaryOp::Comma => Ok(r),
+                    _ => Err(diag("internal: non-arithmetic binary in bigint emit")),
+                }
+            }
+            Expr::Assign {
+                target,
+                op,
+                value,
+                ..
+            } => {
+                let AssignTarget::Local(id) = target else {
+                    return Err(diag("internal: only local assign in es_expr"));
+                };
+                if !matches!(op, AssignOp::Eq) {
+                    return Err(diag("internal: only simple = for bigint assign"));
+                }
+                let (ptr, slot) = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
+                if slot != SlotTy::BigInt {
+                    return Err(diag("internal: expected bigint assign local"));
+                }
+                let v = self.emit_bigint_expr(value)?;
+                writeln!(self.body, "  store i64 {v}, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("internal: unsupported bigint expr in es_expr")),
         }
     }
 
@@ -2243,6 +2422,30 @@ fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
     let f = parse_js_number_literal(&cleaned)
         .ok_or_else(|| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
+}
+
+/// Format a JS BigInt literal as an LLVM `i64` constant (decimal/hex/bin/oct,
+/// numeric separators, trailing `n`). N08.08.02 / E08.02.
+fn format_bigint_const(raw: &str) -> Result<String, Diagnostic> {
+    let cleaned: String = raw.chars().filter(|c| *c != '_').collect();
+    let n = parse_js_bigint_literal(&cleaned)
+        .ok_or_else(|| diag(format!("invalid BigInt literal {raw}")))?;
+    Ok(n.to_string())
+}
+
+/// Parse ECMAScript BigInt literal text (no `_` separators; optional trailing `n`) to `i64`.
+fn parse_js_bigint_literal(s: &str) -> Option<i64> {
+    let s = s.strip_suffix('n').unwrap_or(s);
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        return i64::from_str_radix(hex, 16).ok();
+    }
+    if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
+        return i64::from_str_radix(bin, 2).ok();
+    }
+    if let Some(oct) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
+        return i64::from_str_radix(oct, 8).ok();
+    }
+    s.parse().ok()
 }
 
 /// Parse ECMAScript numeric literal text (no `_` separators) to `f64`.

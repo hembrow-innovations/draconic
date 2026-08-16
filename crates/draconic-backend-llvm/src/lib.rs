@@ -44,7 +44,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
 ///   conditional `?:` + simple/compound assignment + prefix/postfix `++`/`--` +
 ///   comma `,` + unary keywords `typeof`/`void`/`delete` over JS
-///   numbers/booleans/strings/undefined) via Runtime prints — N08.01.01–N08.01.04.08
+///   numbers/BigInts/booleans/strings/undefined) via Runtime prints — N08.01.01–N08.01.04.08 / N08.08.01–N08.08.02
 /// - **Nullish / logical assignment** (`??` `??=` `&&=` `||=` with mixed
 ///   null/undefined/number/bool/string) via tagged slots — N08.01.04.09
 /// - **`if` / `else`** (block or expression bodies; ToBoolean on number/boolean
@@ -410,6 +410,44 @@ mod tests {
         assert_eq!(
             stdout,
             "42\n0\n3.1400000000000001\n0.5\n0.5\n5\n1000\n1000\n150\n200\n0.10000000000000001\n6.02e+23\n255\n255\n16\n10\n10\n15\n15\n1000\n1000000\n65535\n161\n1000.5\n10000000000\n36\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_numbers_bigint_literals_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/numbers/bigint_literals.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "bigint_literals must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_i64"),
+            "should print i64 BigInt results:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bytes") || ir.contains("draconic_rt_print_str"),
+            "should print typeof string:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-bigint-literals").expect("workdir");
+        let bin = dir.join("bigint_literals");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout,
+            "1\n2\n3\n2\n20\n3\n1\n255\n255\n10\n10\n15\n15\n1000\n65535\n161\n0\n-1\nbigint\n36\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

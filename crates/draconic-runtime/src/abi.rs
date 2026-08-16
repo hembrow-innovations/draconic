@@ -454,6 +454,7 @@ pub const ES_EVAL_DECLARES: &[AbiFn] = &[GC_INIT, PRINT_I64, PRINT_BOOL, PRINT_S
 
 /// Declares used by the ES expression observation emitter (N08.01.* / N08.02.*).
 pub const ES_EXPR_DECLARES: &[AbiFn] = &[
+    PRINT_I64,
     PRINT_F64,
     PRINT_BOOL,
     PRINT_STR,
