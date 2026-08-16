@@ -1,15 +1,16 @@
-//! N08.12.01–N08.12.06: native observations for generator function declaration +
+//! N08.12.01–N08.12.07: native observations for generator function declaration +
 //! expression + methods (object/class/static) + `yield` / `yield*` / `return` +
-//! `.next()` / `.next(arg)` → `{value, done}` (E13.01–E13.06).
+//! `.next()` / `.next(arg)` → `{value, done}` + `for-of` over generators (E13.01–E13.07).
 //!
 //! Compile-time evaluation of a small generator subset: generator decls and
 //! `function*` expressions (incl. named + IIFE) with simple ident params,
 //! object/class generator methods (`*m()` / `static *m()`), `this` prop reads
-//! in methods, `yield` of number/binary/local/GenFn/`void 0` (bare yield),
+//! in methods, `yield` of number/string/binary/local/GenFn/`void 0` (bare yield),
 //! `let x = yield …` resume binding, `yield*` of generators/arrays (incl.
-//! completion value), `return` of same, iterator `.next()` / `.next(arg)`, and
-//! property reads `.value` / `.done`. Emits Runtime prints of final top-level
-//! number/boolean/undefined locals.
+//! completion value), `return` of same, iterator `.next()` / `.next(arg)`,
+//! property reads `.value` / `.done`, and top-level `for-of` over generators
+//! (let/const/assign binding, nested for-of over yielded arrays, break/continue).
+//! Emits Runtime prints of final top-level number/boolean/string/undefined locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -37,12 +38,13 @@ pub(crate) fn emit_es_generators(module: &Module) -> Result<String, Diagnostic> 
 enum JsVal {
     Num(f64),
     Bool(bool),
+    Str(String),
     Undef,
     /// Generator function index into `gen_fns`.
     GenFn(usize),
     /// Live generator instance index into `gens`.
     GenInst(usize),
-    /// Array iterable (for `yield* […]`).
+    /// Array iterable (for `yield* […]` / nested `for-of`).
     Array(Vec<JsVal>),
     /// Iterator result `{ value, done }`.
     Result { value: Box<JsVal>, done: bool },
@@ -59,6 +61,14 @@ enum JsVal {
         /// `this.prop = param` assignments from the constructor body.
         ctor_assigns: Vec<(String, LocalId)>,
     },
+}
+
+/// Loop control from break/continue inside for-of bodies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flow {
+    Next,
+    Break,
+    Continue,
 }
 
 #[derive(Clone, Debug)]
@@ -110,11 +120,16 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if !module_has_generator(&module.body) {
         return None;
     }
-    // Top-level shape only; detailed acceptance is eval success (methods/class IIFE).
+    // Top-level shape only; detailed acceptance is eval success (methods/class/for-of).
     if !module.body.iter().all(|s| {
         matches!(
             s,
-            Stmt::Function { .. } | Stmt::Declare { .. } | Stmt::Expr { .. }
+            Stmt::Function { .. }
+                | Stmt::Declare { .. }
+                | Stmt::Expr { .. }
+                | Stmt::ForOf { .. }
+                | Stmt::Block { .. }
+                | Stmt::If { .. }
         )
     }) {
         return None;
@@ -163,9 +178,12 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     for stmt in &module.body {
         if let Stmt::Declare { local, .. } = stmt {
             let loc = by_id.get(local)?;
-            if matches!(loc.ty, Type::Number | Type::Any | Type::Boolean) {
+            if matches!(
+                loc.ty,
+                Type::Number | Type::Any | Type::Boolean | Type::String
+            ) {
                 match env.get(local) {
-                    Some(JsVal::Num(_) | JsVal::Bool(_) | JsVal::Undef) => {
+                    Some(JsVal::Num(_) | JsVal::Bool(_) | JsVal::Str(_) | JsVal::Undef) => {
                         user_locals.push(*local)
                     }
                     Some(
@@ -190,7 +208,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     for id in &user_locals {
         let v = env.get(id)?.clone();
         match &v {
-            JsVal::Num(_) | JsVal::Bool(_) | JsVal::Undef => {
+            JsVal::Num(_) | JsVal::Bool(_) | JsVal::Str(_) | JsVal::Undef => {
                 values.insert(*id, v);
             }
             _ => return None,
@@ -291,7 +309,10 @@ fn eval_body(
     gens: &mut Vec<GenInst>,
 ) -> Result<(), ()> {
     for stmt in body {
-        eval_stmt(stmt, env, gen_fns, fn_bind, gens)?;
+        match eval_stmt(stmt, env, gen_fns, fn_bind, gens)? {
+            Flow::Next => {}
+            Flow::Break | Flow::Continue => return Err(()),
+        }
     }
     Ok(())
 }
@@ -302,9 +323,9 @@ fn eval_stmt(
     gen_fns: &mut Vec<GenFnRec>,
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
-) -> Result<(), ()> {
+) -> Result<Flow, ()> {
     match stmt {
-        Stmt::Function { .. } => Ok(()),
+        Stmt::Function { .. } => Ok(Flow::Next),
         Stmt::Declare { local, init, .. } => {
             let v = match init {
                 Some(e) => eval_expr(e, env, gen_fns, fn_bind, gens)?,
@@ -314,14 +335,131 @@ fn eval_stmt(
                 fn_bind.insert(*local, *idx);
             }
             env.insert(*local, v);
-            Ok(())
+            Ok(Flow::Next)
         }
         Stmt::Expr { expr } => {
             eval_expr(expr, env, gen_fns, fn_bind, gens)?;
+            Ok(Flow::Next)
+        }
+        Stmt::Block { body } => eval_block(body, env, gen_fns, fn_bind, gens),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            let t = eval_expr(test, env, gen_fns, fn_bind, gens)?;
+            if is_truthy(&t) {
+                eval_stmt(consequent, env, gen_fns, fn_bind, gens)
+            } else if let Some(alt) = alternate {
+                eval_stmt(alt, env, gen_fns, fn_bind, gens)
+            } else {
+                Ok(Flow::Next)
+            }
+        }
+        Stmt::Break { label: None } => Ok(Flow::Break),
+        Stmt::Continue { label: None } => Ok(Flow::Continue),
+        Stmt::ForOf {
+            left,
+            right,
+            body,
+            is_await: false,
+        } => {
+            eval_for_of(left, right, body, env, gen_fns, fn_bind, gens)?;
+            Ok(Flow::Next)
+        }
+        _ => Err(()),
+    }
+}
+
+fn eval_block(
+    body: &[Stmt],
+    env: &mut HashMap<LocalId, JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<Flow, ()> {
+    for stmt in body {
+        match eval_stmt(stmt, env, gen_fns, fn_bind, gens)? {
+            Flow::Next => {}
+            flow => return Ok(flow),
+        }
+    }
+    Ok(Flow::Next)
+}
+
+fn is_truthy(v: &JsVal) -> bool {
+    match v {
+        JsVal::Bool(b) => *b,
+        JsVal::Num(n) => *n != 0.0 && !n.is_nan(),
+        JsVal::Str(s) => !s.is_empty(),
+        JsVal::Undef => false,
+        _ => true,
+    }
+}
+
+fn bind_for_of_left(
+    left: &Stmt,
+    value: JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<(), ()> {
+    match left {
+        Stmt::Declare { local, init: None, .. } => {
+            env.insert(*local, value);
+            Ok(())
+        }
+        Stmt::Expr {
+            expr: Expr::Local { id, .. },
+        } => {
+            env.insert(*id, value);
             Ok(())
         }
         _ => Err(()),
     }
+}
+
+fn eval_for_of(
+    left: &Stmt,
+    right: &Expr,
+    body: &Stmt,
+    env: &mut HashMap<LocalId, JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<(), ()> {
+    let iterable = eval_expr(right, env, gen_fns, fn_bind, gens)?;
+    match iterable {
+        JsVal::GenInst(idx) => loop {
+            let r = gen_next(
+                &JsVal::GenInst(idx),
+                JsVal::Undef,
+                gen_fns,
+                fn_bind,
+                gens,
+            )?;
+            let JsVal::Result { value, done } = r else {
+                return Err(());
+            };
+            if done {
+                break;
+            }
+            bind_for_of_left(left, *value, env)?;
+            match eval_stmt(body, env, gen_fns, fn_bind, gens)? {
+                Flow::Next | Flow::Continue => {}
+                Flow::Break => break,
+            }
+        },
+        JsVal::Array(elems) => {
+            for el in elems {
+                bind_for_of_left(left, el, env)?;
+                match eval_stmt(body, env, gen_fns, fn_bind, gens)? {
+                    Flow::Next | Flow::Continue => {}
+                    Flow::Break => break,
+                }
+            }
+        }
+        _ => return Err(()),
+    }
+    Ok(())
 }
 
 fn register_gen_fn_expr(
@@ -357,6 +495,7 @@ fn eval_expr(
             Ok(JsVal::Num(n))
         }
         Expr::Boolean { value, .. } => Ok(JsVal::Bool(*value)),
+        Expr::String { value, .. } => Ok(JsVal::Str(value.to_string_lossy())),
         Expr::Local { id, .. } => env.get(id).cloned().ok_or(()),
         Expr::This { .. } => Err(()),
         Expr::Unary {
@@ -383,7 +522,17 @@ fn eval_expr(
         } => {
             let l = eval_expr(left, env, gen_fns, fn_bind, gens)?;
             let r = eval_expr(right, env, gen_fns, fn_bind, gens)?;
-            bin_num(op, &l, &r)
+            bin_val(op, &l, &r)
+        }
+        Expr::Assign {
+            target: AssignTarget::Local(id),
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => {
+            let v = eval_expr(value, env, gen_fns, fn_bind, gens)?;
+            env.insert(*id, v.clone());
+            Ok(v)
         }
         Expr::Function {
             name,
@@ -910,22 +1059,45 @@ fn spawn_gen_call(
     )
 }
 
-fn bin_num(op: &BinaryOp, left: &JsVal, right: &JsVal) -> Result<JsVal, ()> {
-    let JsVal::Num(a) = left else {
-        return Err(());
-    };
-    let JsVal::Num(b) = right else {
-        return Err(());
-    };
-    let n = match op {
-        BinaryOp::Add => a + b,
-        BinaryOp::Sub => a - b,
-        BinaryOp::Mul => a * b,
-        BinaryOp::Div => a / b,
-        BinaryOp::Rem => a % b,
-        _ => return Err(()),
-    };
-    Ok(JsVal::Num(n))
+fn bin_val(op: &BinaryOp, left: &JsVal, right: &JsVal) -> Result<JsVal, ()> {
+    match op {
+        BinaryOp::Add => match (left, right) {
+            (JsVal::Num(a), JsVal::Num(b)) => Ok(JsVal::Num(a + b)),
+            (JsVal::Str(a), JsVal::Str(b)) => Ok(JsVal::Str(format!("{a}{b}"))),
+            (JsVal::Str(a), JsVal::Num(b)) => Ok(JsVal::Str(format!("{a}{b}"))),
+            (JsVal::Num(a), JsVal::Str(b)) => Ok(JsVal::Str(format!("{a}{b}"))),
+            _ => Err(()),
+        },
+        BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+            let JsVal::Num(a) = left else {
+                return Err(());
+            };
+            let JsVal::Num(b) = right else {
+                return Err(());
+            };
+            let n = match op {
+                BinaryOp::Sub => a - b,
+                BinaryOp::Mul => a * b,
+                BinaryOp::Div => a / b,
+                BinaryOp::Rem => a % b,
+                _ => unreachable!(),
+            };
+            Ok(JsVal::Num(n))
+        }
+        BinaryOp::EqEqEq => Ok(JsVal::Bool(strict_eq(left, right))),
+        BinaryOp::NotEqEq => Ok(JsVal::Bool(!strict_eq(left, right))),
+        _ => Err(()),
+    }
+}
+
+fn strict_eq(left: &JsVal, right: &JsVal) -> bool {
+    match (left, right) {
+        (JsVal::Num(a), JsVal::Num(b)) => a == b,
+        (JsVal::Bool(a), JsVal::Bool(b)) => a == b,
+        (JsVal::Str(a), JsVal::Str(b)) => a == b,
+        (JsVal::Undef, JsVal::Undef) => true,
+        _ => false,
+    }
 }
 
 fn prop_name(expr: &Expr) -> Result<String, ()> {
@@ -1213,6 +1385,7 @@ fn eval_in_gen(
             Ok(JsVal::Num(n))
         }
         Expr::Boolean { value, .. } => Ok(JsVal::Bool(*value)),
+        Expr::String { value, .. } => Ok(JsVal::Str(value.to_string_lossy())),
         Expr::Local { id, .. } => gens[gen_idx].env.get(id).cloned().ok_or(()),
         Expr::This { .. } => gens[gen_idx].this_val.clone().ok_or(()),
         Expr::Unary {
@@ -1238,7 +1411,7 @@ fn eval_in_gen(
         } => {
             let l = eval_in_gen(left, gen_idx, gen_fns, fn_bind, gens)?;
             let r = eval_in_gen(right, gen_idx, gen_fns, fn_bind, gens)?;
-            bin_num(op, &l, &r)
+            bin_val(op, &l, &r)
         }
         Expr::Member {
             object,
@@ -1409,14 +1582,18 @@ impl Emitter {
             match v {
                 JsVal::Num(n) => self.emit_num(*n),
                 JsVal::Bool(b) => self.emit_bool(*b),
+                JsVal::Str(s) => {
+                    let name = self.string_const(s);
+                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {name}"))).ok();
+                }
                 JsVal::Undef => self.emit_undef(),
                 _ => return Err(diag("es_generators: non-printable value")),
             }
         }
 
-            writeln!(
+        writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.12.06 generators methods)"
+            "; Draconic LLVM backend (N08.12.07 generators for-of)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1453,3 +1630,5 @@ impl Emitter {
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
+
+
