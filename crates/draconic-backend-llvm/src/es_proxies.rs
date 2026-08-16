@@ -1,16 +1,17 @@
-//! N08.13.01–N08.13.08: native observations for Proxy basics + `set` + `has`/`in`
+//! N08.13.01–N08.13.09: native observations for Proxy basics + `set` + `has`/`in`
 //! + `delete`/`deleteProperty` + `apply` + `construct` + Reflect basics + `ownKeys`
-//! (E14.01–E14.08).
+//! + `getPrototypeOf`/`setPrototypeOf` (E14.01–E14.09).
 //!
 //! Compile-time evaluation of a small Proxy/Reflect subset: `typeof Proxy`,
 //! `new Proxy(target, handler)`, empty-handler get/set/`in`/`delete`/call/`new`/ownKeys
-//! pass-through, `get`/`set`/`has`/`deleteProperty`/`apply`/`construct`/`ownKeys` traps
-//! (function props; free-var capture; string keys), `typeof Reflect` +
-//! `Reflect.get`/`set`/`has`/`deleteProperty`/`apply`/`construct`/`ownKeys` on plain
-//! objects + Proxy targets, array literals as arg lists, member assign, method calls
-//! (`obj.m()` thisArg), function constructors (`this` + prop init), `typeof` on proxies.
-//! Objects live on a heap so proxy targets share identity with outer locals. Emits
-//! Runtime prints of final top-level number/string/bool locals.
+//! /prototype pass-through, `get`/`set`/`has`/`deleteProperty`/`apply`/`construct`/
+//! `ownKeys`/`getPrototypeOf`/`setPrototypeOf` traps (function props; free-var capture;
+//! string keys), `typeof Reflect` + `Reflect.get`/`set`/`has`/`deleteProperty`/`apply`/
+//! `construct`/`ownKeys`/`getPrototypeOf`/`setPrototypeOf` on plain objects + Proxy
+//! targets, array literals as arg lists, member assign, method calls (`obj.m()` thisArg),
+//! function constructors (`this` + prop init), `typeof` on proxies. Objects live on a heap
+//! so proxy targets share identity with outer locals. Emits Runtime prints of final
+//! top-level number/string/bool locals.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -44,7 +45,12 @@ enum ReflectOp {
     Apply,
     Construct,
     OwnKeys,
+    GetPrototypeOf,
+    SetPrototypeOf,
 }
+
+/// Heap index of the shared `Object.prototype` stand-in (null [[Prototype]]).
+const OBJECT_PROTOTYPE_IDX: usize = 0;
 
 #[derive(Clone, Debug)]
 enum JsVal {
@@ -57,7 +63,8 @@ enum JsVal {
     ProxyCtor,
     /// Builtin `Reflect` object.
     ReflectObj,
-    /// `Reflect.get` / `set` / `has` / `deleteProperty` / `apply` / `construct` / `ownKeys`.
+    /// `Reflect.get` / `set` / `has` / `deleteProperty` / `apply` / `construct` /
+    /// `ownKeys` / `getPrototypeOf` / `setPrototypeOf`.
     ReflectMethod(ReflectOp),
     /// Plain object (index into object heap).
     Object(usize),
@@ -82,6 +89,8 @@ struct ObjectRec {
     props: HashMap<String, JsVal>,
     /// Insertion order of own string keys (for `Reflect.ownKeys`).
     keys: Vec<String>,
+    /// [[Prototype]] — `Null` or `Object(idx)` (shared Object.prototype at 0 by default).
+    proto: JsVal,
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +110,10 @@ struct ProxyRec {
     construct_trap: Option<usize>,
     /// Optional `ownKeys` trap function index.
     own_keys_trap: Option<usize>,
+    /// Optional `getPrototypeOf` trap function index.
+    get_prototype_of_trap: Option<usize>,
+    /// Optional `setPrototypeOf` trap function index.
+    set_prototype_of_trap: Option<usize>,
 }
 
 fn object_set_prop(rec: &mut ObjectRec, key: String, value: JsVal) {
@@ -120,6 +133,15 @@ fn empty_object() -> ObjectRec {
     ObjectRec {
         props: HashMap::new(),
         keys: Vec::new(),
+        proto: JsVal::Object(OBJECT_PROTOTYPE_IDX),
+    }
+}
+
+fn object_prototype_rec() -> ObjectRec {
+    ObjectRec {
+        props: HashMap::new(),
+        keys: Vec::new(),
+        proto: JsVal::Null,
     }
 }
 
@@ -164,7 +186,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     }
 
     let mut fns: Vec<FnRec> = Vec::new();
-    let mut objects: Vec<ObjectRec> = Vec::new();
+    let mut objects: Vec<ObjectRec> = vec![object_prototype_rec()];
     let mut proxies: Vec<ProxyRec> = Vec::new();
 
     if eval_body(&module.body, &mut env, &mut fns, &mut objects, &mut proxies).is_err() {
@@ -679,6 +701,16 @@ fn eval_expr(
                         Some(_) => return Err(()),
                         None => None,
                     };
+                    let get_prototype_of_trap = match handler.get("getPrototypeOf") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
+                    let set_prototype_of_trap = match handler.get("setPrototypeOf") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
                     let idx = proxies.len();
                     proxies.push(ProxyRec {
                         target,
@@ -689,6 +721,8 @@ fn eval_expr(
                         apply_trap,
                         construct_trap,
                         own_keys_trap,
+                        get_prototype_of_trap,
+                        set_prototype_of_trap,
                     });
                     Ok(JsVal::Proxy(idx))
                 }
@@ -811,6 +845,8 @@ fn reflect_method(key: &str) -> Result<JsVal, ()> {
         "apply" => ReflectOp::Apply,
         "construct" => ReflectOp::Construct,
         "ownKeys" => ReflectOp::OwnKeys,
+        "getPrototypeOf" => ReflectOp::GetPrototypeOf,
+        "setPrototypeOf" => ReflectOp::SetPrototypeOf,
         _ => return Err(()),
     };
     Ok(JsVal::ReflectMethod(op))
@@ -921,6 +957,20 @@ fn call_reflect(
             }
             proxy_or_object_own_keys(&args[0], env, fns, objects, proxies)
         }
+        ReflectOp::GetPrototypeOf => {
+            if args.is_empty() {
+                return Err(());
+            }
+            proxy_or_object_get_prototype_of(&args[0], env, fns, objects, proxies)
+        }
+        ReflectOp::SetPrototypeOf => {
+            if args.len() < 2 {
+                return Err(());
+            }
+            let ok =
+                proxy_or_object_set_prototype_of(&args[0], &args[1], env, fns, objects, proxies)?;
+            Ok(JsVal::Bool(ok))
+        }
     }
 }
 
@@ -984,6 +1034,10 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
         (JsVal::Bool(a), JsVal::Bool(b)) => a == b,
         (JsVal::Str(a), JsVal::Str(b)) => a == b,
         (JsVal::Undef, JsVal::Undef) => true,
+        (JsVal::Null, JsVal::Null) => true,
+        (JsVal::Object(a), JsVal::Object(b)) => a == b,
+        (JsVal::Proxy(a), JsVal::Proxy(b)) => a == b,
+        (JsVal::Fn(a), JsVal::Fn(b)) => a == b,
         _ => false,
     }
 }
@@ -1083,6 +1137,60 @@ fn proxy_or_object_own_keys(
                 call_fn(trap_idx, &args, env, fns, objects, proxies)
             } else {
                 proxy_or_object_own_keys(&rec.target, env, fns, objects, proxies)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+fn proxy_or_object_get_prototype_of(
+    obj: &JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<JsVal, ()> {
+    match obj {
+        JsVal::Object(idx) => Ok(objects.get(*idx).ok_or(())?.proto.clone()),
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.get_prototype_of_trap {
+                let args = vec![rec.target.clone()];
+                call_fn(trap_idx, &args, env, fns, objects, proxies)
+            } else {
+                proxy_or_object_get_prototype_of(&rec.target, env, fns, objects, proxies)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+fn proxy_or_object_set_prototype_of(
+    obj: &JsVal,
+    proto: &JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<bool, ()> {
+    match proto {
+        JsVal::Null | JsVal::Object(_) => {}
+        _ => return Err(()),
+    }
+    match obj {
+        JsVal::Object(idx) => {
+            let rec = objects.get_mut(*idx).ok_or(())?;
+            rec.proto = proto.clone();
+            Ok(true)
+        }
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.set_prototype_of_trap {
+                let args = vec![rec.target.clone(), proto.clone()];
+                let v = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
+                Ok(is_truthy(&v))
+            } else {
+                proxy_or_object_set_prototype_of(&rec.target, proto, env, fns, objects, proxies)
             }
         }
         _ => Err(()),
@@ -1205,7 +1313,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.08 Proxy ownKeys)"
+            "; Draconic LLVM backend (N08.13.09 Proxy getPrototypeOf/setPrototypeOf)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1388,6 +1496,27 @@ mod tests {
         assert!(
             ir.contains("print") || ir.contains("2"),
             "should print numeric observations:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn proxy_prototype_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/proxies/proxy_prototype.drac");
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("function") && ir.contains("true"),
+            "should print prototype observations:\n{ir}"
+        );
+        assert!(
+            ir.contains("print") || ir.contains("1"),
+            "should print trap call counts:\n{ir}"
         );
     }
 }
