@@ -63,7 +63,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Object literals** + property access/assignment (string keys; nested objects;
 ///   number props) via Runtime GC/object ABI — N08.04.01–N08.04.02
 /// - **Class declarations** (base + `extends`/`super()` + instance/static methods;
-///   `new`; prototype chain) via Runtime GC/object ABI — N08.05.01–N08.05.03
+///   `super.m(…)`; `new`; prototype chain) via Runtime GC/object ABI — N08.05.01–N08.05.04
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -727,6 +727,47 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "5\n42\n7\n9\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn es_classes_super_access_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/classes/class_super_access.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit class_super_access");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_classes super must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_alloc_object"),
+            "es_classes super must alloc objects:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_object_set_proto"),
+            "es_classes super must set [[Prototype]]:\n{ir}"
+        );
+        assert!(
+            ir.contains("define double @m_fn_"),
+            "es_classes super must emit ctor/method functions:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-classes-super-access").expect("workdir");
+        let bin = dir.join("class_super_access");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "5\n7\n15\n9\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]

@@ -1,12 +1,14 @@
-//! N08.05.01–N08.05.03: native observations for ES class declarations (E05.01 /
-//! `class_basic`), class heritage (E05.02 / `class_extends`), and static methods
-//! (E05.03 / `class_static`).
+//! N08.05.01–N08.05.04: native observations for ES class declarations (E05.01 /
+//! `class_basic`), class heritage (E05.02 / `class_extends`), static methods
+//! (E05.03 / `class_static`), and `super` property access (E05.04 /
+//! `class_super_access`).
 //!
 //! Classes lower to builder IIFEs (`const C = (function(){ … return ctor })()`).
 //! This adapter recognizes that shape for base and derived classes (no fields /
 //! private), extracts the constructor + prototype methods + static methods +
 //! optional `extends` parent, and emits the Runtime GC/object ABI (`new` +
-//! prototype chain + `super()` as parent-ctor call + method / static call).
+//! prototype chain + `super()` as parent-ctor call + `super.m(…)` via parent
+//! prototype method + method / static call).
 //! Number locals print via `print_f64`.
 
 use std::collections::HashMap;
@@ -48,6 +50,8 @@ struct FnInfo {
     body: Vec<Stmt>,
     /// When set, this function is a derived constructor; `super(...)` calls this parent ctor.
     parent_ctor_fn_idx: Option<usize>,
+    /// Parent class index for `super.m(…)` resolution in derived methods.
+    super_class_idx: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -217,6 +221,7 @@ fn try_extract_class(
                     params: param_ids,
                     body: filtered,
                     parent_ctor_fn_idx,
+                    super_class_idx: None,
                 });
                 ctor_local = Some(*local);
                 ctor_fn_idx = Some(idx);
@@ -268,6 +273,7 @@ fn try_extract_class(
                         params: param_ids,
                         body: filtered,
                         parent_ctor_fn_idx: None,
+                        super_class_idx: parent_idx,
                     });
                     static_methods.push((key, idx));
                     continue;
@@ -304,6 +310,7 @@ fn try_extract_class(
                     params: param_ids,
                     body: filtered,
                     parent_ctor_fn_idx: None,
+                    super_class_idx: parent_idx,
                 });
                 methods.push((key, idx));
             }
@@ -745,6 +752,19 @@ fn number_expr_ok_method(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                 && matches!(object.as_ref(), Expr::This { .. })
                 && matches!(property.as_ref(), Expr::String { .. })
         }
+        Expr::Call {
+            callee,
+            args,
+            optional,
+            ..
+        } => {
+            !*optional
+                && super_method_callee_ok(callee)
+                && args.iter().all(|a| match a {
+                    Arg::Expr(e) => number_expr_ok_method(e, by_id),
+                    Arg::Spread(_) => false,
+                })
+        }
         Expr::Binary {
             left, op, right, ..
         } => {
@@ -768,6 +788,23 @@ fn number_expr_ok_method(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
             matches!(object.as_ref(), Expr::This { .. })
                 && matches!(property.as_ref(), Expr::String { .. })
                 && number_expr_ok_method(value, by_id)
+        }
+        _ => false,
+    }
+}
+
+/// `super.m` / `super["m"]` as call callee (IR keeps bare Super in methods).
+fn super_method_callee_ok(callee: &Expr) -> bool {
+    match callee {
+        Expr::Member {
+            object,
+            property,
+            optional,
+            ..
+        } => {
+            !*optional
+                && matches!(object.as_ref(), Expr::Super { .. })
+                && matches!(property.as_ref(), Expr::String { .. })
         }
         _ => false,
     }
@@ -944,6 +981,8 @@ struct Emitter<'a> {
     param_allocas: HashMap<LocalId, String>,
     this_ssa: Option<String>,
     active_parent_ctor: Option<usize>,
+    /// Parent class index while emitting a derived method (`super.m` base).
+    active_super_class: Option<usize>,
     /// Class binding local id for each class index (for parent ctor object load).
     class_binding: HashMap<usize, LocalId>,
     str_globals: Vec<(String, String)>,
@@ -967,6 +1006,7 @@ impl<'a> Emitter<'a> {
             param_allocas: HashMap::new(),
             this_ssa: None,
             active_parent_ctor: None,
+            active_super_class: None,
             class_binding,
             str_globals: Vec::new(),
             tmp: 0,
@@ -991,7 +1031,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.05 ES class decl/heritage/static via Runtime ABI)"
+            "; Draconic LLVM backend (N08.05 ES class decl/heritage/static/super via Runtime ABI)"
         )
         .ok();
         writeln!(
@@ -1085,9 +1125,11 @@ impl<'a> Emitter<'a> {
         let saved_params = std::mem::take(&mut self.param_allocas);
         let saved_allocas = std::mem::take(&mut self.allocas);
         let saved_parent = self.active_parent_ctor.take();
+        let saved_super = self.active_super_class.take();
 
         self.this_ssa = Some("%this".to_string());
         self.active_parent_ctor = f.parent_ctor_fn_idx;
+        self.active_super_class = f.super_class_idx;
         for (i, pid) in f.params.iter().enumerate() {
             let ptr = format!("%p{}", pid.0);
             writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
@@ -1119,6 +1161,7 @@ impl<'a> Emitter<'a> {
         self.param_allocas = saved_params;
         self.allocas = saved_allocas;
         self.active_parent_ctor = saved_parent;
+        self.active_super_class = saved_super;
         Ok(())
     }
 
@@ -1459,6 +1502,9 @@ impl<'a> Emitter<'a> {
         if *optional {
             return Err(diag("es_classes: optional member call not supported"));
         }
+        if matches!(object.as_ref(), Expr::Super { .. }) {
+            return self.emit_super_method_call(property, args);
+        }
         let recv = self.emit_object_expr(object)?;
         let key = self.member_key_cstr(property)?;
         let fn_ptr = self.fresh();
@@ -1497,6 +1543,71 @@ impl<'a> Emitter<'a> {
         )
         .ok();
         Ok(ret)
+    }
+
+    /// `super.m(args)` — call parent prototype method with current `this`.
+    fn emit_super_method_call(
+        &mut self,
+        property: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
+        let name = match property {
+            Expr::String { value, .. } => value.to_string_lossy(),
+            _ => {
+                return Err(diag(
+                    "es_classes: super method name must be string key",
+                ))
+            }
+        };
+        let start = self
+            .active_super_class
+            .ok_or_else(|| diag("es_classes: super.m outside derived method"))?;
+        let fn_idx = self
+            .resolve_super_method(start, &name)
+            .ok_or_else(|| diag(&format!("es_classes: super.{name} not found on parent")))?;
+        let this = self
+            .this_ssa
+            .clone()
+            .ok_or_else(|| diag("es_classes: super.m without this"))?;
+
+        let mut arg_vals = Vec::new();
+        for a in args {
+            match a {
+                Arg::Expr(e) => arg_vals.push(self.emit_number_expr(e)?),
+                Arg::Spread(_) => {
+                    return Err(diag("es_classes: spread super method args not supported"));
+                }
+            }
+        }
+        while arg_vals.len() < MAX_METHOD_ARGS {
+            arg_vals.push("0.00000000000000000e+00".to_string());
+        }
+
+        let mut call_args = format!("ptr {this}");
+        for v in &arg_vals {
+            write!(call_args, ", double {v}").ok();
+        }
+        let mut ty_params = String::from("ptr");
+        for _ in 0..MAX_METHOD_ARGS {
+            ty_params.push_str(", double");
+        }
+        let ret = self.fresh();
+        writeln!(
+            self.body,
+            "  {ret} = call double ({ty_params}) @m_fn_{fn_idx}({call_args})"
+        )
+        .ok();
+        Ok(ret)
+    }
+
+    fn resolve_super_method(&self, mut class_idx: usize, name: &str) -> Option<usize> {
+        loop {
+            let cls = self.info.classes.get(class_idx)?;
+            if let Some((_, fn_idx)) = cls.methods.iter().find(|(n, _)| n == name) {
+                return Some(*fn_idx);
+            }
+            class_idx = cls.parent?;
+        }
     }
 
     fn emit_new(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {

@@ -1,17 +1,20 @@
 class Animal {
-  constructor(name) {
-    this.name = name;
+  constructor(id) {
+    this.id = id;
   }
   greet() {
-    return this.name;
+    return this.id;
   }
   tag() {
-    return "animal";
+    return 7;
+  }
+  scaled(n) {
+    return this.id * n;
   }
 }
 class Dog extends Animal {
-  constructor(name) {
-    super(name);
+  constructor(id) {
+    super(id);
   }
   greet() {
     return super.greet();
@@ -19,22 +22,21 @@ class Dog extends Animal {
   both() {
     return super.tag();
   }
-  parentGreetProp() {
-    let f = super.greet;
-    return f.call(this);
+  parentScaled() {
+    return super.scaled(3);
   }
 }
-let d = new Dog("rex");
+let d = new Dog(5);
 let a = d.greet();
 let b = d.both();
-let c = d.parentGreetProp();
+let c = d.parentScaled();
 class Cat extends Animal {
-  constructor(name) {
-    super(name);
+  constructor(id) {
+    super(id);
   }
   loud() {
     return super.greet();
   }
 }
-let cat = new Cat("mia");
+let cat = new Cat(9);
 let e = cat.loud();
