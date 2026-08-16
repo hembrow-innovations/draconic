@@ -108,6 +108,26 @@ pub const CSTR_FROM_CODE_UNIT: AbiFn = AbiFn {
     ret: "ptr",
     params: "ptr, i64",
 };
+pub const PRINT_BYTES: AbiFn = AbiFn {
+    symbol: "draconic_rt_print_bytes",
+    ret: "void",
+    params: "ptr, i64",
+};
+pub const CSTR_CONCAT_N: AbiFn = AbiFn {
+    symbol: "draconic_rt_cstr_concat_n",
+    ret: "ptr",
+    params: "ptr, i64, ptr, i64",
+};
+pub const CSTR_FROM_CODE_UNIT_N: AbiFn = AbiFn {
+    symbol: "draconic_rt_cstr_from_code_unit_n",
+    ret: "ptr",
+    params: "ptr, i64, i64",
+};
+pub const CSTR_EQ_N: AbiFn = AbiFn {
+    symbol: "draconic_rt_cstr_eq_n",
+    ret: "i32",
+    params: "ptr, i64, ptr, i64",
+};
 
 // --- GC ---
 
@@ -432,10 +452,14 @@ pub const ES_EXPR_DECLARES: &[AbiFn] = &[
     PRINT_F64,
     PRINT_BOOL,
     PRINT_STR,
+    PRINT_BYTES,
     CSTR_LEN,
     CSTR_CONCAT,
+    CSTR_CONCAT_N,
     CSTR_FROM_U64,
     CSTR_FROM_CODE_UNIT,
+    CSTR_FROM_CODE_UNIT_N,
+    CSTR_EQ_N,
 ];
 
 /// Declares used by the Promise/async emitter.

@@ -13,7 +13,8 @@
 //! E02.06 `switch` / `case` / `default` (number discriminant; fall-through; unlabeled `break`),
 //! E02.07 labeled statements + labeled `break` / `continue`,
 //! E02.08 `for-in` / `for-of` over strings (`let`/`const`/assign binding; string concat `+`),
-//! E02.09 `const` declarations (required init; `for`/`for-of`/`for-in` binding).
+//! E02.09 `const` declarations (required init; `for`/`for-of`/`for-in` binding),
+//! E07.01 string lit + concat (incl. number ToString) + `.length` + index (N08.07.01).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -23,17 +24,18 @@ use draconic_ast::{AssignOp, BinaryOp, UnaryOp, UpdateOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{
-    llvm_declares, CSTR_CONCAT, CSTR_FROM_CODE_UNIT, CSTR_FROM_U64, CSTR_LEN, ES_EXPR_DECLARES,
-    PRINT_BOOL, PRINT_F64, PRINT_STR,
+    llvm_declares, CSTR_CONCAT_N, CSTR_EQ_N, CSTR_FROM_CODE_UNIT_N, CSTR_FROM_U64, CSTR_LEN,
+    ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64,
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / N08.01.* / N08.02.01–N08.02.09):
+/// (E01.* / E02.01–E02.09 / E07.01 / N08.01.* / N08.02.01–N08.02.09 / N08.07.01):
 /// top-level `let`/`const` declares over JS numbers, booleans, strings, undefined (`void`), and/or
-/// untyped `any` string slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
+/// untyped `any` string/number slots with arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`,
 /// comparison, equality, logical, bitwise, exponentiation, conditional, simple/compound
-/// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`,
-/// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or expression bodies),
+/// assignment, prefix/postfix `++`/`--`, comma, grouping, local refs, string concat `+`
+/// (incl. number ToString), string `.length` / index, `if`/`else`, `while`, `do`/`while`,
+/// `for` (incl. `let`/`const` init; block or expression bodies),
 /// `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue` (unlabeled or labeled),
 /// labeled statements (incl. labeled blocks), and `switch`/`case`/`default` (number discriminant;
 /// fall-through; unlabeled `break`).
@@ -104,12 +106,16 @@ fn slot_for_declare(
             }
             Some(SlotTy::Undefined)
         }
-        // Untyped / for-in-of bindings hold string values in this subset (N08.02.08).
+        // Untyped: string index / for-in-of (string) or `.length` (number) (N08.02.08 / N08.07.01).
         Type::Any => {
             if let Some(init) = init {
-                if !expr_is_string_subset(init, by_id) {
-                    return None;
+                if expr_is_string_length(init, by_id) {
+                    return Some(SlotTy::Number);
                 }
+                if expr_is_string_subset(init, by_id) {
+                    return Some(SlotTy::String);
+                }
+                return None;
             }
             Some(SlotTy::String)
         }
@@ -388,12 +394,27 @@ fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                     BinaryOp::Comma => {
                         expr_is_unary_keyword_arg(left, by_id) && expr_is_string_subset(right, by_id)
                     }
-                    // String concat (N08.02.08 / supporting for-in-of fixtures).
+                    // String concat (N08.02.08 / N08.07.01); number operand → ToString.
                     BinaryOp::Add => {
-                        expr_is_string_operand(left, by_id) && expr_is_string_operand(right, by_id)
+                        expr_is_concat_operand(left, by_id) && expr_is_concat_operand(right, by_id)
+                            && (expr_is_string_operand(left, by_id)
+                                || expr_is_string_operand(right, by_id))
                     }
                     _ => false,
                 }
+        }
+        Expr::Member {
+            object,
+            property,
+            computed,
+            optional,
+            ty,
+        } => {
+            !*optional
+                && (*ty == Type::String || *ty == Type::Any)
+                && expr_is_string_subset(object, by_id)
+                && *computed
+                && expr_is_number_subset(property, by_id)
         }
         Expr::Assign {
             target,
@@ -416,6 +437,28 @@ fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
     }
 }
 
+/// `s.length` → number (IR types Member as `any`).
+fn expr_is_string_length(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            computed,
+            optional,
+            ..
+        } => {
+            !*optional
+                && !*computed
+                && expr_is_string_subset(object, by_id)
+                && matches!(
+                    property.as_ref(),
+                    Expr::String { value, .. } if value.to_string_lossy() == "length"
+                )
+        }
+        _ => false,
+    }
+}
+
 fn expr_is_string_operand(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::Local { id, ty } if *ty == Type::Any => {
@@ -423,6 +466,10 @@ fn expr_is_string_operand(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
         }
         e => expr_is_string_subset(e, by_id),
     }
+}
+
+fn expr_is_concat_operand(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
+    expr_is_string_operand(expr, by_id) || expr_is_number_subset(expr, by_id)
 }
 
 fn expr_is_undefined_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
@@ -467,6 +514,8 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         Expr::Local { id, ty } => {
             *ty == Type::Number && by_id.get(id).is_some_and(|l| l.ty == Type::Number)
         }
+        // N08.07.01: `s.length` (Member typed `any`).
+        e if expr_is_string_length(e, by_id) => true,
         Expr::Unary { op, arg, ty } => {
             *ty == Type::Number
                 && matches!(op, UnaryOp::Minus | UnaryOp::Plus | UnaryOp::BitNot)
@@ -591,6 +640,8 @@ fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
                     (expr_is_number_subset(left, by_id) && expr_is_number_subset(right, by_id))
                         || (expr_is_boolean_subset(left, by_id)
                             && expr_is_boolean_subset(right, by_id))
+                        || (expr_is_string_subset(left, by_id)
+                            && expr_is_string_subset(right, by_id))
                 }
                 BinaryOp::And | BinaryOp::Or => {
                     expr_is_boolean_subset(left, by_id) && expr_is_boolean_subset(right, by_id)
@@ -624,10 +675,18 @@ struct CtrlFrame {
     continue_label: Option<String>,
 }
 
+/// Length-aware string SSA value (N08.07.01; supports embedded NUL).
+struct StrVal {
+    data: String,
+    len: String,
+}
+
 struct Emitter<'a> {
     module: &'a Module,
     /// local id → (alloca ptr name, slot type)
     allocas: HashMap<LocalId, (String, SlotTy)>,
+    /// string local id → length alloca ptr name (`i64`)
+    string_lens: HashMap<LocalId, String>,
     /// string content → global name (e.g. `.str.0`)
     str_globals: HashMap<String, String>,
     out: String,
@@ -643,6 +702,7 @@ impl<'a> Emitter<'a> {
         Self {
             module,
             allocas: HashMap::new(),
+            string_lens: HashMap::new(),
             str_globals: HashMap::new(),
             out: String::new(),
             body: String::new(),
@@ -697,6 +757,9 @@ impl<'a> Emitter<'a> {
                 }
                 SlotTy::String => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+                    let len_ptr = format!("%l{}_len", id.0);
+                    writeln!(self.body, "  {len_ptr} = alloca i64, align 8").ok();
+                    self.string_lens.insert(*id, len_ptr);
                 }
                 // No runtime payload; print always emits `undefined`.
                 SlotTy::Undefined => {}
@@ -738,20 +801,37 @@ impl<'a> Emitter<'a> {
                         .get(id)
                         .cloned()
                         .ok_or_else(|| diag("internal: print missing alloca"))?;
+                    let len_ptr = self
+                        .string_lens
+                        .get(id)
+                        .cloned()
+                        .ok_or_else(|| diag("internal: print missing string len"))?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
-                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+                    let n = self.fresh();
+                    writeln!(self.body, "  {n} = load i64, ptr {len_ptr}").ok();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        PRINT_BYTES.call(&format!("ptr {v}, i64 {n}"))
+                    )
+                    .ok();
                 }
                 SlotTy::Undefined => {
                     let p = self.string_const("undefined")?;
-                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {p}"))).ok();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        PRINT_BYTES.call(&format!("ptr {}, i64 {}", p.data, p.len))
+                    )
+                    .ok();
                 }
             }
         }
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.08 ES expressions + if/else/while/do-while/for/for-in/for-of/break/continue/switch/labeled via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02/N08.07.01 ES expressions + control + strings via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -799,15 +879,15 @@ impl<'a> Emitter<'a> {
                     }
                     (SlotTy::String, Some(init)) => {
                         let v = self.emit_string_expr(init)?;
-                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                        self.store_string_local(*local, &v)?;
                     }
                     (SlotTy::Undefined, Some(init)) => {
                         self.emit_undefined_expr(init)?;
                     }
-                    // Uninitialized string `let` (incl. any) — empty C string until assigned.
+                    // Uninitialized string `let` (incl. any) — empty until assigned.
                     (SlotTy::String, None) => {
                         let v = self.string_const("")?;
-                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                        self.store_string_local(*local, &v)?;
                     }
                     // Uninitialized number/bool/undefined — leave alloca undef until assigned.
                     (_, None) => {}
@@ -1148,6 +1228,9 @@ impl<'a> Emitter<'a> {
                 let ptr = format!("%l{}", local.0);
                 writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 self.allocas.insert(*local, (ptr, SlotTy::String));
+                let len_ptr = format!("%l{}_len", local.0);
+                writeln!(self.body, "  {len_ptr} = alloca i64, align 8").ok();
+                self.string_lens.insert(*local, len_ptr);
             }
         }
         let s = self.emit_string_expr(right)?;
@@ -1162,13 +1245,7 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "{head}:").ok();
         let idx = self.fresh();
         writeln!(self.body, "  {idx} = load i64, ptr {idx_ptr}").ok();
-        let len = self.fresh();
-        writeln!(
-            self.body,
-            "  {}",
-            CSTR_LEN.call_to(&len, &format!("ptr {s}"))
-        )
-        .ok();
+        let len = s.len.clone();
         let cmp = self.fresh();
         writeln!(self.body, "  {cmp} = icmp ult i64 {idx}, {len}").ok();
         writeln!(self.body, "  br i1 {cmp}, label %{bod}, label %{end}").ok();
@@ -1178,10 +1255,16 @@ impl<'a> Emitter<'a> {
             writeln!(
                 self.body,
                 "  {}",
-                CSTR_FROM_CODE_UNIT.call_to(&ch, &format!("ptr {s}, i64 {idx}"))
+                CSTR_FROM_CODE_UNIT_N.call_to(
+                    &ch,
+                    &format!("ptr {}, i64 {}, i64 {idx}", s.data, s.len)
+                )
             )
             .ok();
-            ch
+            StrVal {
+                data: ch,
+                len: "1".into(),
+            }
         } else {
             let key = self.fresh();
             writeln!(
@@ -1190,7 +1273,17 @@ impl<'a> Emitter<'a> {
                 CSTR_FROM_U64.call_to(&key, &format!("i64 {idx}"))
             )
             .ok();
-            key
+            let key_len = self.fresh();
+            writeln!(
+                self.body,
+                "  {}",
+                CSTR_LEN.call_to(&key_len, &format!("ptr {key}"))
+            )
+            .ok();
+            StrVal {
+                data: key,
+                len: key_len,
+            }
         };
         self.store_for_in_of_left(left, &bound)?;
         self.ctrls.push(CtrlFrame {
@@ -1214,7 +1307,7 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn store_for_in_of_left(&mut self, left: &Stmt, value: &str) -> Result<(), Diagnostic> {
+    fn store_for_in_of_left(&mut self, left: &Stmt, value: &StrVal) -> Result<(), Diagnostic> {
         let id = match left {
             Stmt::Declare { local, .. } => *local,
             Stmt::Expr {
@@ -1222,19 +1315,50 @@ impl<'a> Emitter<'a> {
             } => *id,
             _ => return Err(diag("internal: unsupported for-in/of left")),
         };
+        self.store_string_local(id, value)
+    }
+
+    fn store_string_local(&mut self, id: LocalId, value: &StrVal) -> Result<(), Diagnostic> {
         let (ptr, slot) = self
             .allocas
             .get(&id)
             .cloned()
-            .ok_or_else(|| diag(format!("internal: unallocated for-in/of left %{}", id.0)))?;
+            .ok_or_else(|| diag(format!("internal: unallocated string local %{}", id.0)))?;
         if slot != SlotTy::String {
-            return Err(diag("internal: for-in/of left must be string slot"));
+            return Err(diag("internal: expected string slot"));
         }
-        writeln!(self.body, "  store ptr {value}, ptr {ptr}").ok();
+        let len_ptr = self
+            .string_lens
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| diag(format!("internal: missing string len alloca %{}", id.0)))?;
+        writeln!(self.body, "  store ptr {}, ptr {ptr}", value.data).ok();
+        writeln!(self.body, "  store i64 {}, ptr {len_ptr}", value.len).ok();
         Ok(())
     }
 
-    fn string_const(&mut self, s: &str) -> Result<String, Diagnostic> {
+    fn load_string_local(&mut self, id: LocalId) -> Result<StrVal, Diagnostic> {
+        let (ptr, slot) = self
+            .allocas
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| diag(format!("internal: unallocated local %{}", id.0)))?;
+        if slot != SlotTy::String {
+            return Err(diag("internal: expected string local"));
+        }
+        let len_ptr = self
+            .string_lens
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| diag(format!("internal: missing string len %{}", id.0)))?;
+        let data = self.fresh();
+        writeln!(self.body, "  {data} = load ptr, ptr {ptr}").ok();
+        let len = self.fresh();
+        writeln!(self.body, "  {len} = load i64, ptr {len_ptr}").ok();
+        Ok(StrVal { data, len })
+    }
+
+    fn string_const(&mut self, s: &str) -> Result<StrVal, Diagnostic> {
         let gname = if let Some(g) = self.str_globals.get(s) {
             g.clone()
         } else {
@@ -1249,7 +1373,10 @@ impl<'a> Emitter<'a> {
             "  {t} = getelementptr inbounds [{n} x i8], ptr @{gname}, i64 0, i64 0"
         )
         .ok();
-        Ok(t)
+        Ok(StrVal {
+            data: t,
+            len: format!("{}", s.len()),
+        })
     }
 
     /// Evaluate a typeof/void/delete operand for side effects only.
@@ -1334,25 +1461,13 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+    fn emit_string_expr(&mut self, expr: &Expr) -> Result<StrVal, Diagnostic> {
         match expr {
             Expr::String { value, .. } => {
                 let s = value.to_string_lossy();
                 self.string_const(&s)
             }
-            Expr::Local { id, .. } => {
-                let (ptr, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated local %{}", id.0)))?;
-                if slot != SlotTy::String {
-                    return Err(diag("internal: expected string local"));
-                }
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
-                Ok(t)
-            }
+            Expr::Local { id, .. } => self.load_string_local(*id),
             Expr::Unary {
                 op: UnaryOp::TypeOf,
                 arg,
@@ -1380,16 +1495,52 @@ impl<'a> Emitter<'a> {
                 right,
                 ..
             } => {
-                let l = self.emit_string_operand(left)?;
-                let r = self.emit_string_operand(right)?;
+                let l = self.emit_concat_operand(left)?;
+                let r = self.emit_concat_operand(right)?;
                 let t = self.fresh();
                 writeln!(
                     self.body,
                     "  {}",
-                    CSTR_CONCAT.call_to(&t, &format!("ptr {l}, ptr {r}"))
+                    CSTR_CONCAT_N.call_to(
+                        &t,
+                        &format!("ptr {}, i64 {}, ptr {}, i64 {}", l.data, l.len, r.data, r.len)
+                    )
                 )
                 .ok();
-                Ok(t)
+                let n = self.fresh();
+                writeln!(self.body, "  {n} = add i64 {}, {}", l.len, r.len).ok();
+                Ok(StrVal { data: t, len: n })
+            }
+            Expr::Member {
+                object,
+                property,
+                computed: true,
+                optional: false,
+                ..
+            } => {
+                let s = self.emit_string_expr(object)?;
+                let idx_f = self.emit_number_expr(property)?;
+                let idx = self.fresh();
+                writeln!(self.body, "  {idx} = fptoui double {idx_f} to i64").ok();
+                let ch = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    CSTR_FROM_CODE_UNIT_N.call_to(
+                        &ch,
+                        &format!("ptr {}, i64 {}, i64 {idx}", s.data, s.len)
+                    )
+                )
+                .ok();
+                // OOB → empty string (len 0); in-bounds → one code unit.
+                let in_b = self.fresh();
+                writeln!(self.body, "  {in_b} = icmp ult i64 {idx}, {}", s.len).ok();
+                let one = self.fresh();
+                writeln!(self.body, "  {one} = select i1 {in_b}, i64 1, i64 0").ok();
+                Ok(StrVal {
+                    data: ch,
+                    len: one,
+                })
             }
             Expr::Assign {
                 target,
@@ -1403,16 +1554,8 @@ impl<'a> Emitter<'a> {
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
-                let (ptr, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
-                if slot != SlotTy::String {
-                    return Err(diag("internal: expected string assign target"));
-                }
                 let v = self.emit_string_expr(value)?;
-                writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                self.store_string_local(*id, &v)?;
                 Ok(v)
             }
             _ => Err(diag("internal: unsupported string expr in es_expr module")),
@@ -1420,23 +1563,45 @@ impl<'a> Emitter<'a> {
     }
 
     /// String-producing operand for concat (string subset or `any` string slot).
-    fn emit_string_operand(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+    fn emit_string_operand(&mut self, expr: &Expr) -> Result<StrVal, Diagnostic> {
         match expr {
-            Expr::Local { id, ty: Type::Any } => {
-                let (ptr, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated any local %{}", id.0)))?;
-                if slot != SlotTy::String {
-                    return Err(diag("internal: expected string slot for any local"));
-                }
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
-                Ok(t)
-            }
+            Expr::Local { id, ty: Type::Any } => self.load_string_local(*id),
             e => self.emit_string_expr(e),
         }
+    }
+
+    /// Concat operand: string or number (ToString via decimal for non-neg integers).
+    fn emit_concat_operand(&mut self, expr: &Expr) -> Result<StrVal, Diagnostic> {
+        let as_number = match expr {
+            Expr::Number { .. } => true,
+            Expr::Local { id, .. } => self
+                .allocas
+                .get(id)
+                .is_some_and(|(_, s)| *s == SlotTy::Number),
+            e if expr_ty_is_number(e) => true,
+            _ => false,
+        };
+        if as_number {
+            let n = self.emit_number_expr(expr)?;
+            let i = self.fresh();
+            writeln!(self.body, "  {i} = fptoui double {n} to i64").ok();
+            let p = self.fresh();
+            writeln!(
+                self.body,
+                "  {}",
+                CSTR_FROM_U64.call_to(&p, &format!("i64 {i}"))
+            )
+            .ok();
+            let len = self.fresh();
+            writeln!(
+                self.body,
+                "  {}",
+                CSTR_LEN.call_to(&len, &format!("ptr {p}"))
+            )
+            .ok();
+            return Ok(StrVal { data: p, len });
+        }
+        self.emit_string_operand(expr)
     }
 
     fn emit_undefined_expr(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
@@ -1493,6 +1658,25 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        // N08.07.01: `s.length`
+        if let Expr::Member {
+            object,
+            property,
+            computed: false,
+            optional: false,
+            ..
+        } = expr
+        {
+            if matches!(
+                property.as_ref(),
+                Expr::String { value, .. } if value.to_string_lossy() == "length"
+            ) {
+                let s = self.emit_string_expr(object)?;
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = uitofp i64 {} to double", s.len).ok();
+                return Ok(t);
+            }
+        }
         match expr {
             Expr::Number { raw, .. } => Ok(format_number_const(raw)?),
             Expr::Local { id, .. } => {
@@ -1819,6 +2003,36 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {t} = fcmp {pred} double {l}, {r}").ok();
                     Ok(t)
                 }
+                BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq
+                    if expr_ty_is_string(left) || matches!(left.ty(), Type::String) =>
+                {
+                    let l = self.emit_string_expr(left)?;
+                    let r = self.emit_string_expr(right)?;
+                    let eq = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        CSTR_EQ_N.call_to(
+                            &eq,
+                            &format!(
+                                "ptr {}, i64 {}, ptr {}, i64 {}",
+                                l.data, l.len, r.data, r.len
+                            )
+                        )
+                    )
+                    .ok();
+                    let t = self.fresh();
+                    match op {
+                        BinaryOp::EqEq | BinaryOp::EqEqEq => {
+                            writeln!(self.body, "  {t} = icmp ne i32 {eq}, 0").ok();
+                        }
+                        BinaryOp::NotEq | BinaryOp::NotEqEq => {
+                            writeln!(self.body, "  {t} = icmp eq i32 {eq}, 0").ok();
+                        }
+                        _ => unreachable!(),
+                    }
+                    Ok(t)
+                }
                 BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq => {
                     let l = self.emit_bool_expr(left)?;
                     let r = self.emit_bool_expr(right)?;
@@ -1939,6 +2153,10 @@ impl<'a> Emitter<'a> {
 
 fn expr_ty_is_number(expr: &Expr) -> bool {
     matches!(expr.ty(), Type::Number)
+}
+
+fn expr_ty_is_string(expr: &Expr) -> bool {
+    matches!(expr.ty(), Type::String)
 }
 
 /// Format a JS number literal as an LLVM `double` constant (decimal, round-trip safe).

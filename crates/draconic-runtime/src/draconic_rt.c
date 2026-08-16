@@ -83,6 +83,55 @@ char *draconic_rt_cstr_from_code_unit(const char *s, size_t index) {
     return out;
 }
 
+void draconic_rt_print_bytes(const char *s, size_t len) {
+    if (s && len) {
+        fwrite(s, 1, len, stdout);
+    }
+    fputc('\n', stdout);
+}
+
+char *draconic_rt_cstr_concat_n(const char *a, size_t la, const char *b, size_t lb) {
+    char *out = (char *)malloc(la + lb + 1);
+    if (!out) {
+        abort();
+    }
+    if (la && a) {
+        memcpy(out, a, la);
+    }
+    if (lb && b) {
+        memcpy(out + la, b, lb);
+    }
+    out[la + lb] = '\0';
+    return out;
+}
+
+char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index) {
+    char *out = (char *)malloc(2);
+    if (!out) {
+        abort();
+    }
+    if (s && index < len) {
+        out[0] = s[index];
+    } else {
+        out[0] = '\0';
+    }
+    out[1] = '\0';
+    return out;
+}
+
+int draconic_rt_cstr_eq_n(const char *a, size_t la, const char *b, size_t lb) {
+    if (la != lb) {
+        return 0;
+    }
+    if (la == 0) {
+        return 1;
+    }
+    if (!a || !b) {
+        return a == b;
+    }
+    return memcmp(a, b, la) == 0;
+}
+
 /* --- GC hello (B09): tracing heap for JS strings and objects --- */
 
 typedef enum {

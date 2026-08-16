@@ -70,6 +70,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   `super.m(…)`; `new`; prototype chain) via Runtime GC/object ABI — N08.05.01–N08.05.04
 /// - **Array literals** + index access + `.length` + destructuring via Runtime
 ///   array ABI — N08.06.01–N08.06.06
+/// - **String lit** + concat (incl. number ToString) + `.length` + index via
+///   length-aware C-string ABI — N08.07.01
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -1036,6 +1038,41 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "hi\n3\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
+    fn es_strings_lit_access_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/strings/string_lit_access.drac"
+        ))
+        .expect("read fixture");
+        let ir = emit_llvm_ir(&module_of(&src)).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "string_lit_access must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bytes"),
+            "should print length-aware strings:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-string-lit-access").expect("workdir");
+        let bin = dir.join("string_lit_access");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = output.stdout;
+        let expected = b"hello\nworld\n\n\nhelloworld\nabc\nn1\n2n\nx\ny\nabc\n3\n0\na\nb\nc\n1\nb\na\nb\na\tb\na\rb\na\\b\na\"b\na'b\na\0b\nit's \"ok\"\nstring\ntrue\ntrue\n";
+        assert_eq!(
+            stdout, expected,
+            "stdout={:?}\nir=\n{ir}",
+            String::from_utf8_lossy(&stdout)
+        );
     }
 
     #[test]

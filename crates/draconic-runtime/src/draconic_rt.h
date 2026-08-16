@@ -24,6 +24,11 @@ size_t draconic_rt_cstr_len(const char *s);
 char *draconic_rt_cstr_concat(const char *a, const char *b);
 char *draconic_rt_cstr_from_u64(uint64_t n);
 char *draconic_rt_cstr_from_code_unit(const char *s, size_t index);
+/* N08.07.01: length-aware bytes (embedded NUL / non-C-string JS strings). */
+void draconic_rt_print_bytes(const char *s, size_t len);
+char *draconic_rt_cstr_concat_n(const char *a, size_t la, const char *b, size_t lb);
+char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index);
+int draconic_rt_cstr_eq_n(const char *a, size_t la, const char *b, size_t lb);
 
 /* --- GC heap for JS values --- */
 typedef struct DraconicValue DraconicValue;
