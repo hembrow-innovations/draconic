@@ -1,12 +1,12 @@
-//! N08.13.01–N08.13.03: native observations for Proxy basics + `set` + `has`/`in`
-//! (E14.01–E14.03).
+//! N08.13.01–N08.13.04: native observations for Proxy basics + `set` + `has`/`in`
+//! + `delete`/`deleteProperty` (E14.01–E14.04).
 //!
 //! Compile-time evaluation of a small Proxy subset: `typeof Proxy`,
-//! `new Proxy(target, handler)`, empty-handler get/set/`in` pass-through,
-//! `get`/`set`/`has` traps (function props; free-var capture; string keys),
-//! member assign, `typeof` on proxies. Objects live on a heap so proxy targets
-//! share identity with outer locals. Emits Runtime prints of final top-level
-//! number/string/bool locals.
+//! `new Proxy(target, handler)`, empty-handler get/set/`in`/`delete` pass-through,
+//! `get`/`set`/`has`/`deleteProperty` traps (function props; free-var capture;
+//! string keys), member assign, `typeof` on proxies. Objects live on a heap so
+//! proxy targets share identity with outer locals. Emits Runtime prints of final
+//! top-level number/string/bool locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -66,6 +66,8 @@ struct ProxyRec {
     set_trap: Option<usize>,
     /// Optional `has` trap function index.
     has_trap: Option<usize>,
+    /// Optional `deleteProperty` trap function index.
+    delete_trap: Option<usize>,
 }
 
 struct ModuleInfo {
@@ -390,6 +392,24 @@ fn eval_expr(
             let v = eval_expr(arg, env, fns, objects, proxies)?;
             Ok(JsVal::Str(typeof_str(&v)))
         }
+        Expr::Unary {
+            op: UnaryOp::Delete,
+            arg,
+            ..
+        } => match arg.as_ref() {
+            Expr::Member {
+                object,
+                property,
+                optional: false,
+                ..
+            } => {
+                let obj = eval_expr(object, env, fns, objects, proxies)?;
+                let key = eval_key(property, env, fns, objects, proxies)?;
+                let ok = proxy_or_object_delete(&obj, &key, env, fns, objects, proxies)?;
+                Ok(JsVal::Bool(ok))
+            }
+            _ => Err(()),
+        },
         Expr::Binary {
             left,
             op: BinaryOp::In,
@@ -473,12 +493,18 @@ fn eval_expr(
                         Some(_) => return Err(()),
                         None => None,
                     };
+                    let delete_trap = match handler.get("deleteProperty") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
                     let idx = proxies.len();
                     proxies.push(ProxyRec {
                         target,
                         get_trap,
                         set_trap,
                         has_trap,
+                        delete_trap,
                     });
                     Ok(JsVal::Proxy(idx))
                 }
@@ -694,6 +720,34 @@ fn proxy_or_object_has(
     }
 }
 
+fn proxy_or_object_delete(
+    obj: &JsVal,
+    key: &str,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<bool, ()> {
+    match obj {
+        JsVal::Object(idx) => {
+            let rec = objects.get_mut(*idx).ok_or(())?;
+            rec.props.remove(key);
+            Ok(true)
+        }
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.delete_trap {
+                let args = vec![rec.target.clone(), JsVal::Str(key.to_string())];
+                let v = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
+                Ok(is_truthy(&v))
+            } else {
+                proxy_or_object_delete(&rec.target, key, env, fns, objects, proxies)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
 impl Emitter {
     fn new() -> Self {
         Self {
@@ -755,7 +809,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.03 Proxy has/in)"
+            "; Draconic LLVM backend (N08.13.04 Proxy deleteProperty)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -846,6 +900,22 @@ mod tests {
         );
         assert!(
             ir.contains("true") || ir.contains("print"),
+            "should print observations:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn proxy_delete_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/proxies/proxy_delete.drac");
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("true") || ir.contains("print") || ir.contains("keep"),
             "should print observations:\n{ir}"
         );
     }
