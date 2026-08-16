@@ -2,6 +2,7 @@
 
 mod es_eval;
 mod es_expr;
+mod es_functions;
 mod es_nullish;
 mod es_promise;
 mod native_ints;
@@ -14,6 +15,7 @@ use draconic_ir::Module;
 
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
+use es_functions::{emit_es_functions, is_es_functions_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use native_ints::{emit_native_ints, is_native_int_module};
@@ -51,6 +53,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   N08.02.07
 /// - **`for-in` / `for-of`** over strings (`let`/assign binding; string concat)
 ///   via Runtime prints — N08.02.08
+/// - **Function declaration** + `return` + call (no params) via Runtime prints —
+///   N08.03.01
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -65,6 +69,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_nullish_module(module) {
         return emit_es_nullish(module);
+    }
+    if is_es_functions_module(module) {
+        return emit_es_functions(module);
     }
     if is_es_expr_module(module) {
         return emit_es_expr(module);
@@ -83,7 +90,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), empty hello)",
+          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/return/call, empty hello)",
         Span::dummy(),
     )
 }
@@ -1003,6 +1010,38 @@ mod tests {
             stdout, "ab\n01\nab\nx\n0\nx\nyz\nz\n01\n1\n2\n2\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
+    }
+
+    #[test]
+    fn es_function_decl_return_call_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/functions/decl_return_call.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "decl_return_call fixture must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 result:\n{ir}"
+        );
+        assert!(
+            ir.contains("define double @"),
+            "should emit LLVM function for JS function decl:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-fn-decl").expect("workdir");
+        let bin = dir.join("decl_return_call");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "1\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]

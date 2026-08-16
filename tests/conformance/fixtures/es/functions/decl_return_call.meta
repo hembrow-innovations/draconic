@@ -1,4 +1,6 @@
 id: es/functions/decl_return_call
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\n
 js.check: if (x !== 1) process.exit(1);

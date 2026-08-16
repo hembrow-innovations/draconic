@@ -407,7 +407,8 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.02.07 | done | native | Real native observations: labeled statements + labeled `break` / `continue` (E02.07) — `es/statements/labeled` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/labeled`, `crates/draconic-backend-llvm` |
 | N08.02.08 | done | native | Real native observations: `for-in` / `for-of` (E02.08) — `es/statements/for_in_of` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/for_in_of`, `crates/draconic-backend-llvm` |
 | N08.02.09 | done | native | Real native observations: `const` declarations (E02.09) — `es/statements/const` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/const`, `crates/draconic-backend-llvm` |
-| N08.03 | todo | native | Real native observations: functions (E03) | `tests/conformance` fixtures `es/functions` |
+| N08.03 | todo | native | Real native observations: functions (E03) (children below) | `tests/conformance` fixtures `es/functions` |
+| N08.03.01 | done | native | Real native observations: function declaration + `return` + call no params (E03.01) — `es/functions/decl_return_call` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/functions/decl_return_call`, `crates/draconic-backend-llvm` |
 | N08.04 | todo | native | Real native observations: objects (E04) | `tests/conformance` fixtures `es/objects` |
 | N08.05 | todo | native | Real native observations: classes (E05) | `tests/conformance` fixtures `es/classes` |
 | N08.06 | todo | native | Real native observations: arrays (E06) | `tests/conformance` fixtures `es/arrays` |
