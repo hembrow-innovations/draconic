@@ -394,7 +394,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.01.04.04 | done | native | Real native observations: assignment (E01.04.04) — `es/expressions/assignment` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/expressions/assignment`, `crates/draconic-backend-llvm` |
 | N08.01.04.05 | done | native | Real native observations: update ++/-- (E01.04.05) | `tests/conformance` fixture `es/expressions/update`, `crates/draconic-backend-llvm` |
 | N08.01.04.06 | done | native | Real native observations: comma operator (E01.04.06) | `tests/conformance` fixture `es/expressions/comma`, `crates/draconic-backend-llvm` |
-| N08.01.04.07 | todo | native | Real native observations: unary keywords typeof/void/delete (E01.04.07) | `tests/conformance` fixture `es/expressions/unary_keywords`, `crates/draconic-backend-llvm` |
+| N08.01.04.07 | in_progress | native | Real native observations: unary keywords typeof/void/delete (E01.04.07) | `tests/conformance` fixture `es/expressions/unary_keywords`, `crates/draconic-backend-llvm` |
 | N08.01.04.08 | todo | native | Real native observations: compound assignment (E01.04.08) | `tests/conformance` fixture `es/expressions/compound_assignment`, `crates/draconic-backend-llvm` |
 | N08.01.04.09 | todo | native | Real native observations: nullish coalescing + logical assignment (E01.04.09) | `tests/conformance` fixture `es/expressions/nullish_logical_assign`, `crates/draconic-backend-llvm` |
 | N08.02 | todo | native | Real native observations: statements (E02) | `tests/conformance` fixtures `es/statements` |

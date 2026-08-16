@@ -377,7 +377,7 @@ pub const NATIVE_INT_DECLARES: &[AbiFn] = &[PRINT_I64, PRINT_U64, PRINT_F64, PRI
 pub const ES_EVAL_DECLARES: &[AbiFn] = &[GC_INIT, PRINT_I64, PRINT_BOOL, PRINT_STR];
 
 /// Declares used by the ES expression observation emitter (N08.01.*).
-pub const ES_EXPR_DECLARES: &[AbiFn] = &[PRINT_F64, PRINT_BOOL];
+pub const ES_EXPR_DECLARES: &[AbiFn] = &[PRINT_F64, PRINT_BOOL, PRINT_STR];
 
 /// Declares used by the Promise/async emitter.
 pub const ES_PROMISE_DECLARES: &[AbiFn] = &[

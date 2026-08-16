@@ -29,7 +29,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **ES expressions** (numeric arithmetic + comparison/equality + logical
 ///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
 ///   conditional `?:` + simple `=` assignment + prefix/postfix `++`/`--` +
-///   comma `,` over JS numbers/booleans) via Runtime prints — N08.01.01–N08.01.04.06
+///   comma `,` + unary keywords `typeof`/`void`/`delete` over JS
+///   numbers/booleans/strings/undefined) via Runtime prints — N08.01.01–N08.01.04.07
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -59,7 +60,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/update/comma), empty hello)",
+         ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/update/comma/typeof/void/delete), empty hello)",
         Span::dummy(),
     )
 }
@@ -214,7 +215,7 @@ mod tests {
 
     #[test]
     fn unsupported_js_module_errors() {
-        let err = emit_llvm_ir(&module_of("let s = \"hi\";")).expect_err("must reject");
+        let err = emit_llvm_ir(&module_of("let o = {};")).expect_err("must reject");
         let msg = err.to_string();
         assert!(
             msg.contains("unsupported") || msg.contains("native target"),
@@ -223,6 +224,49 @@ mod tests {
         assert!(
             !msg.contains("draconic_rt_hello"),
             "error must not be a hello-stub success path:\n{msg}"
+        );
+    }
+
+    #[test]
+    fn es_expr_unary_keywords_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let t_num = typeof 1;
+            let t_str = typeof "hi";
+            let t_bool = typeof true;
+            let t_null = typeof null;
+            let v0 = void 0;
+            let v1 = void 1;
+            let d_lit = delete 1;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr unary keywords must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_str"),
+            "should print string/undefined results:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_bool"),
+            "should print bool delete result:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-unary-keywords").expect("workdir");
+        let bin = dir.join("unary_keywords");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "number\nstring\nboolean\nobject\nundefined\nundefined\ntrue\n",
+            "stdout={stdout:?}\nir=\n{ir}"
         );
     }
 
@@ -304,19 +348,46 @@ mod tests {
     }
 
     #[test]
-    fn es_expr_non_numeric_unsupported() {
+    fn es_expr_object_literal_unsupported() {
         let err = emit_llvm_ir(&module_of(
             r#"
-            let s = "hi";
+            let o = {};
             let n = 1 + 2;
             "#,
         ))
-        .expect_err("string program must reject");
+        .expect_err("object program must reject");
         assert!(
             err.to_string().contains("unsupported"),
             "diagnostic should mention unsupported:\n{}",
             err
         );
+    }
+
+    #[test]
+    fn es_expr_string_literal_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let s = "hi";
+            let n = 1 + 2;
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr string must not use hello stub:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-string-lit").expect("workdir");
+        let bin = dir.join("string_lit");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "hi\n3\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]
