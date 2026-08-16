@@ -1,4 +1,6 @@
 id: es/proxies/proxy_own_keys
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 2\na\nb\n2\nx\ny\n1\n2\nm\nextra\nfunction\n
 js.check: if (to !== "function") process.exit(1); if (plainLen !== 2) process.exit(2); if (plain0 !== "a") process.exit(3); if (plain1 !== "b") process.exit(4); if (passLen !== 2) process.exit(5); if (pass0 !== "x") process.exit(6); if (pass1 !== "y") process.exit(7); if (calls !== 1) process.exit(8); if (trapLen !== 2) process.exit(9); if (trap0 !== "m") process.exit(10); if (trap1 !== "extra") process.exit(11);

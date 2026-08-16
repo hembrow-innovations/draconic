@@ -480,6 +480,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.13.05 | done | native | Real native observations: Proxy `apply` trap (E14.05) — `es/proxies/proxy_apply` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/proxies/proxy_apply`, `crates/draconic-backend-llvm` |
 | N08.13.06 | done | native | Real native observations: Proxy `construct` trap (E14.06) — `es/proxies/proxy_construct` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/proxies/proxy_construct`, `crates/draconic-backend-llvm` |
 | N08.13.07 | done | native | Real native observations: Reflect basics (E14.07) — `es/proxies/reflect_basics` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/proxies/reflect_basics`, `crates/draconic-backend-llvm` |
+| N08.13.08 | done | native | Real native observations: Proxy `ownKeys` trap + `Reflect.ownKeys` (E14.08) — `es/proxies/proxy_own_keys` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/proxies/proxy_own_keys`, `crates/draconic-backend-llvm` |
 | N08.14 | todo | native | Real native observations: builtins surface (E15) | `tests/conformance` fixtures `es/builtins` |
 | N08.15 | todo | native | Real native observations: legacy `with` (E17) | `tests/conformance` fixtures `es/legacy` |
 | N08.16 | todo | native | Real native observations: annex-b / late ES (E18 children) | `tests/conformance` fixtures `es/annex-b` |
