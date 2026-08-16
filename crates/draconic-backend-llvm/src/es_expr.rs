@@ -20,6 +20,7 @@
 //! E07.05 UTF-16 code-unit semantics: index/concat/eq over WTF-8 storage (N08.07.05).
 //! E08.01 number literals: decimal/hex/bin/oct/separators/scientific (N08.08.01).
 //! E08.02 BigInt integer literals + same-type arithmetic (N08.08.02; i64-range values).
+//! E08.03 BigInt comparison & bitwise: `<` `<=` `>` `>=` `==` `!=` `===` `!==` `&` `|` `^` `~` `<<` `>>` (N08.08.03; no `>>>`).
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -34,8 +35,8 @@ use draconic_runtime::abi::{
 };
 
 /// True when this module is a supported ES expression / control-flow subset
-/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.02 / N08.01.* / N08.02.01–N08.02.09 /
-/// N08.07.01–N08.07.05 / N08.08.01–N08.08.02):
+/// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.03 / N08.01.* / N08.02.01–N08.02.09 /
+/// N08.07.01–N08.07.05 / N08.08.01–N08.08.03):
 /// top-level `let`/`const` declares over JS numbers, BigInts (i64-range), booleans, strings,
 /// undefined (`void`), and/or untyped `any` string/number slots with arithmetic, unary
 /// `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical, bitwise,
@@ -43,7 +44,8 @@ use draconic_runtime::abi::{
 /// grouping, local refs, string concat `+` (incl. number ToString), untagged templates,
 /// unicode-escape string lits, UTF-16 index/length, number literals
 /// (decimal/hex/bin/oct/separators/scientific), BigInt literals + same-type `+` `-` `*` `/` `%`
-/// and unary `-`, `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or
+/// unary `-`/`~`, comparison/equality, bitwise `&` `|` `^` `<<` `>>` (no `>>>`),
+/// `if`/`else`, `while`, `do`/`while`, `for` (incl. `let`/`const` init; block or
 /// expression bodies), `for-in`/`for-of` over strings (`let`/`const`/assign left), `break`/`continue`
 /// (unlabeled or labeled), labeled statements (incl. labeled blocks), and `switch`/`case`/`default`
 /// (number discriminant; fall-through; unlabeled `break`).
@@ -393,8 +395,9 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
     }
 }
 
-/// Same-type BigInt arithmetic subset (E08.02 / N08.08.02): literals, unary `-`,
-/// `+` `-` `*` `/` `%`, locals. Values must fit signed i64 at emit.
+/// Same-type BigInt subset (E08.02–E08.03 / N08.08.02–N08.08.03): literals, unary `-`/`~`,
+/// `+` `-` `*` `/` `%`, bitwise `&` `|` `^` `<<` `>>` (no `>>>`), locals.
+/// Values must fit signed i64 at emit.
 fn expr_is_bigint_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::BigInt { ty, .. } => *ty == Type::BigInt,
@@ -403,7 +406,7 @@ fn expr_is_bigint_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         }
         Expr::Unary { op, arg, ty } => {
             *ty == Type::BigInt
-                && matches!(op, UnaryOp::Minus)
+                && matches!(op, UnaryOp::Minus | UnaryOp::BitNot)
                 && expr_is_bigint_subset(arg, by_id)
         }
         Expr::Binary {
@@ -420,6 +423,11 @@ fn expr_is_bigint_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                         | BinaryOp::Mul
                         | BinaryOp::Div
                         | BinaryOp::Rem
+                        | BinaryOp::BitAnd
+                        | BinaryOp::BitOr
+                        | BinaryOp::BitXor
+                        | BinaryOp::Shl
+                        | BinaryOp::Shr
                         | BinaryOp::Comma
                 )
                 && expr_is_bigint_subset(left, by_id)
@@ -718,10 +726,14 @@ fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
             }
             match op {
                 BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
-                    expr_is_number_subset(left, by_id) && expr_is_number_subset(right, by_id)
+                    (expr_is_number_subset(left, by_id) && expr_is_number_subset(right, by_id))
+                        || (expr_is_bigint_subset(left, by_id)
+                            && expr_is_bigint_subset(right, by_id))
                 }
                 BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq => {
                     (expr_is_number_subset(left, by_id) && expr_is_number_subset(right, by_id))
+                        || (expr_is_bigint_subset(left, by_id)
+                            && expr_is_bigint_subset(right, by_id))
                         || (expr_is_boolean_subset(left, by_id)
                             && expr_is_boolean_subset(right, by_id))
                         || (expr_is_string_subset(left, by_id)
@@ -1599,7 +1611,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// Emit a BigInt expression as signed i64 SSA (N08.08.02).
+    /// Emit a BigInt expression as signed i64 SSA (N08.08.02–N08.08.03).
     fn emit_bigint_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::BigInt { raw, .. } => Ok(format_bigint_const(raw)?),
@@ -1616,16 +1628,22 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = load i64, ptr {ptr}").ok();
                 Ok(t)
             }
-            Expr::Unary {
-                op: UnaryOp::Minus,
-                arg,
-                ..
-            } => {
-                let a = self.emit_bigint_expr(arg)?;
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = sub i64 0, {a}").ok();
-                Ok(t)
-            }
+            Expr::Unary { op, arg, .. } => match op {
+                UnaryOp::Minus => {
+                    let a = self.emit_bigint_expr(arg)?;
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = sub i64 0, {a}").ok();
+                    Ok(t)
+                }
+                // JS BigInt `~x` is two's-complement bitwise not (no ToInt32).
+                UnaryOp::BitNot => {
+                    let a = self.emit_bigint_expr(arg)?;
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = xor i64 {a}, -1").ok();
+                    Ok(t)
+                }
+                _ => Err(diag("internal: non-bigint unary in bigint emit")),
+            },
             Expr::Binary {
                 left, op, right, ..
             } => {
@@ -1644,6 +1662,28 @@ impl<'a> Emitter<'a> {
                         };
                         let t = self.fresh();
                         writeln!(self.body, "  {t} = {inst} i64 {l}, {r}").ok();
+                        Ok(t)
+                    }
+                    BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
+                        let inst = match op {
+                            BinaryOp::BitAnd => "and",
+                            BinaryOp::BitOr => "or",
+                            BinaryOp::BitXor => "xor",
+                            _ => unreachable!(),
+                        };
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = {inst} i64 {l}, {r}").ok();
+                        Ok(t)
+                    }
+                    // BigInt shifts use the full shift count (fixture values fit i64).
+                    BinaryOp::Shl => {
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = shl i64 {l}, {r}").ok();
+                        Ok(t)
+                    }
+                    BinaryOp::Shr => {
+                        let t = self.fresh();
+                        writeln!(self.body, "  {t} = ashr i64 {l}, {r}").ok();
                         Ok(t)
                     }
                     BinaryOp::Comma => Ok(r),
@@ -2259,6 +2299,32 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {t} = fcmp {pred} double {l}, {r}").ok();
                     Ok(t)
                 }
+                // N08.08.03: same-type BigInt comparison / equality (signed i64).
+                BinaryOp::Lt
+                | BinaryOp::LtEq
+                | BinaryOp::Gt
+                | BinaryOp::GtEq
+                | BinaryOp::EqEq
+                | BinaryOp::NotEq
+                | BinaryOp::EqEqEq
+                | BinaryOp::NotEqEq
+                    if expr_ty_is_bigint(left) =>
+                {
+                    let l = self.emit_bigint_expr(left)?;
+                    let r = self.emit_bigint_expr(right)?;
+                    let pred = match op {
+                        BinaryOp::EqEq | BinaryOp::EqEqEq => "eq",
+                        BinaryOp::NotEq | BinaryOp::NotEqEq => "ne",
+                        BinaryOp::Lt => "slt",
+                        BinaryOp::LtEq => "sle",
+                        BinaryOp::Gt => "sgt",
+                        BinaryOp::GtEq => "sge",
+                        _ => unreachable!(),
+                    };
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = icmp {pred} i64 {l}, {r}").ok();
+                    Ok(t)
+                }
                 BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq
                     if expr_ty_is_string(left) || matches!(left.ty(), Type::String) =>
                 {
@@ -2409,6 +2475,10 @@ impl<'a> Emitter<'a> {
 
 fn expr_ty_is_number(expr: &Expr) -> bool {
     matches!(expr.ty(), Type::Number)
+}
+
+fn expr_ty_is_bigint(expr: &Expr) -> bool {
+    matches!(expr.ty(), Type::BigInt)
 }
 
 fn expr_ty_is_string(expr: &Expr) -> bool {

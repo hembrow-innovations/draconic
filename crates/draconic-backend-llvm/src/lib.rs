@@ -44,7 +44,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   `&&`/`||`/`!` + bitwise `&` `|` `^` `~` `<<` `>>` `>>>` + `**` +
 ///   conditional `?:` + simple/compound assignment + prefix/postfix `++`/`--` +
 ///   comma `,` + unary keywords `typeof`/`void`/`delete` over JS
-///   numbers/BigInts/booleans/strings/undefined) via Runtime prints — N08.01.01–N08.01.04.08 / N08.08.01–N08.08.02
+///   numbers/BigInts/booleans/strings/undefined) via Runtime prints — N08.01.01–N08.01.04.08 / N08.08.01–N08.08.03
 /// - **Nullish / logical assignment** (`??` `??=` `&&=` `||=` with mixed
 ///   null/undefined/number/bool/string) via tagged slots — N08.01.04.09
 /// - **`if` / `else`** (block or expression bodies; ToBoolean on number/boolean

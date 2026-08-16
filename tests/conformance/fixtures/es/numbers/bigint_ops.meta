@@ -1,4 +1,6 @@
 id: es/numbers/bigint_ops
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n8\n14\n6\n-1\n8\n4\ntrue\n
 js.check: if (lt !== true) process.exit(1); if (le !== true) process.exit(2); if (gt !== true) process.exit(3); if (ge !== true) process.exit(4); if (eq !== true) process.exit(5); if (ne !== true) process.exit(6); if (seq !== true) process.exit(7); if (sne !== true) process.exit(8); if (band !== 0b1000n) process.exit(9); if (bor !== 0b1110n) process.exit(10); if (bxor !== 0b0110n) process.exit(11); if (bnot !== -1n) process.exit(12); if (shl !== 8n) process.exit(13); if (shr !== 4n) process.exit(14); if (mix !== true) process.exit(15); if (typeof band !== "bigint") process.exit(16); if (typeof lt !== "boolean") process.exit(17);
