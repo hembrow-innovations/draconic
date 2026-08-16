@@ -53,6 +53,9 @@ struct ModuleData {
     eval_deps: Vec<PathBuf>,
     /// All ModuleRequest targets (incl. deferred namespace-only) for ReadyForSyncExecution.
     requested: Vec<PathBuf>,
+    /// String-literal `import.defer("…")` targets (E19.84.06). Loaded into the graph
+    /// and get deferred namespaces, but do not mark eval unless also an eval_dep.
+    dynamic_defer_targets: Vec<PathBuf>,
 }
 
 struct NamedReexport {
@@ -310,6 +313,16 @@ impl Loader {
             }
         }
 
+        // E19.84.06: load string-literal `import.defer("…")` targets into the graph
+        // (deferred namespace + lazy eval) without marking them eval_deps.
+        let mut dynamic_defer_targets = Vec::new();
+        collect_dynamic_defer_targets(&body, parent, &mut dynamic_defer_targets)?;
+        for dep in &dynamic_defer_targets {
+            if !dep_paths.iter().any(|p| p == dep) {
+                dep_paths.push(dep.clone());
+            }
+        }
+
         for dep in &dep_paths {
             self.load_module(dep, stack)?;
         }
@@ -326,6 +339,7 @@ impl Loader {
             namespaces,
             eval_deps,
             requested: dep_paths,
+            dynamic_defer_targets,
         });
         stack.pop();
         Ok(())
@@ -425,6 +439,14 @@ impl Loader {
                     shared_ns_targets.insert(from_id);
                     import_renames[id]
                         .insert(bind.local.clone(), shared_namespace_binding_name(from_id));
+                }
+            }
+            // E19.84.06: dynamic `import.defer("…")` of a linked module also gets a
+            // shared deferred namespace (even with no static `import defer`).
+            for from in &self.modules[id].dynamic_defer_targets {
+                if let Some(&from_id) = self.ids.get(from) {
+                    any_deferred_ns = true;
+                    deferred_ns_targets.insert(from_id);
                 }
             }
         }
@@ -632,6 +654,14 @@ impl Loader {
                     continue;
                 }
                 if let Some(&dep_id) = self.ids.get(&ns.from) {
+                    for tla_id in self.gather_async_transitive(dep_id) {
+                        stack.push(tla_id);
+                    }
+                }
+            }
+            // E19.84.06: dynamic `import.defer` — same GatherAsynchronousTransitiveDependencies.
+            for from in &self.modules[id].dynamic_defer_targets {
+                if let Some(&dep_id) = self.ids.get(from) {
                     for tla_id in self.gather_async_transitive(dep_id) {
                         stack.push(tla_id);
                     }
@@ -1227,7 +1257,35 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
                 _ => None,
             };
             if let Some((name, span)) = replacement {
-                *expr = Expr::Ident(Ident { name, span });
+                // Spec: ImportCall with ~defer~ returns a Promise of the deferred ns.
+                // `await import.defer(…)` and `.then(…)` both need a thenable.
+                // Distinct spans: binder/IR key symbols by Span (shared span collapses names).
+                let sp_p = Span::new(span.start.0.saturating_add(1), span.end.0);
+                let sp_r = Span::new(span.start.0.saturating_add(2), span.end.0);
+                let sp_n = Span::new(span.start.0.saturating_add(3), span.end.0);
+                let sp_c = Span::new(span.start.0.saturating_add(4), span.end.0);
+                *expr = Expr::Call {
+                    callee: Box::new(Expr::MemberExpression {
+                        object: Box::new(Expr::Ident(Ident {
+                            name: "Promise".into(),
+                            span: sp_p,
+                        })),
+                        property: Box::new(Expr::Ident(Ident {
+                            name: "resolve".into(),
+                            span: sp_r,
+                        })),
+                        computed: false,
+                        optional: false,
+                        private: false,
+                        span: sp_c,
+                    }),
+                    args: vec![Arg::Expr(Expr::Ident(Ident {
+                        name,
+                        span: sp_n,
+                    }))],
+                    optional: false,
+                    span: sp_c,
+                };
                 return Ok(());
             }
             if let Expr::ImportCall {
@@ -3557,6 +3615,323 @@ fn stmt_span_approx(stmt: &Stmt) -> Span {
     }
 }
 
+/// E19.84.06: collect resolved paths of string-literal `import.defer("…")` calls.
+fn collect_dynamic_defer_targets(
+    body: &[Stmt],
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), Diagnostic> {
+    for stmt in body {
+        collect_dynamic_defer_in_stmt(stmt, parent, out)?;
+    }
+    Ok(())
+}
+
+fn collect_dynamic_defer_in_stmt(
+    stmt: &Stmt,
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), Diagnostic> {
+    match stmt {
+        Stmt::Expression { expr, .. } => collect_dynamic_defer_in_expr(expr, parent, out)?,
+        Stmt::Let { init: Some(init), .. } => collect_dynamic_defer_in_expr(init, parent, out)?,
+        Stmt::Block { body, .. } => {
+            for s in body {
+                collect_dynamic_defer_in_stmt(s, parent, out)?;
+            }
+        }
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            collect_dynamic_defer_in_expr(test, parent, out)?;
+            collect_dynamic_defer_in_stmt(consequent, parent, out)?;
+            if let Some(alt) = alternate {
+                collect_dynamic_defer_in_stmt(alt, parent, out)?;
+            }
+        }
+        Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
+            collect_dynamic_defer_in_expr(test, parent, out)?;
+            collect_dynamic_defer_in_stmt(body, parent, out)?;
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+            ..
+        } => {
+            if let Some(init) = init {
+                collect_dynamic_defer_in_stmt(init, parent, out)?;
+            }
+            if let Some(test) = test {
+                collect_dynamic_defer_in_expr(test, parent, out)?;
+            }
+            if let Some(update) = update {
+                collect_dynamic_defer_in_expr(update, parent, out)?;
+            }
+            collect_dynamic_defer_in_stmt(body, parent, out)?;
+        }
+        Stmt::ForIn {
+            left, right, body, ..
+        }
+        | Stmt::ForOf {
+            left, right, body, ..
+        } => {
+            collect_dynamic_defer_in_stmt(left, parent, out)?;
+            collect_dynamic_defer_in_expr(right, parent, out)?;
+            collect_dynamic_defer_in_stmt(body, parent, out)?;
+        }
+        Stmt::Labeled { body, .. } => collect_dynamic_defer_in_stmt(body, parent, out)?,
+        Stmt::Switch {
+            discriminant,
+            cases,
+            ..
+        } => {
+            collect_dynamic_defer_in_expr(discriminant, parent, out)?;
+            for c in cases {
+                if let Some(test) = &c.test {
+                    collect_dynamic_defer_in_expr(test, parent, out)?;
+                }
+                for s in &c.body {
+                    collect_dynamic_defer_in_stmt(s, parent, out)?;
+                }
+            }
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            collect_dynamic_defer_in_stmt(block, parent, out)?;
+            if let Some(handler) = handler {
+                collect_dynamic_defer_in_stmt(handler, parent, out)?;
+            }
+            if let Some(finalizer) = finalizer {
+                collect_dynamic_defer_in_stmt(finalizer, parent, out)?;
+            }
+        }
+        Stmt::With { object, body, .. } => {
+            collect_dynamic_defer_in_expr(object, parent, out)?;
+            collect_dynamic_defer_in_stmt(body, parent, out)?;
+        }
+        Stmt::Return {
+            argument: Some(arg),
+            ..
+        }
+        | Stmt::Throw { argument: arg, .. } => collect_dynamic_defer_in_expr(arg, parent, out)?,
+        Stmt::FunctionDeclaration {
+            body, params, ..
+        } => {
+            for p in params {
+                if let Some(default) = &p.default {
+                    collect_dynamic_defer_in_expr(default, parent, out)?;
+                }
+            }
+            collect_dynamic_defer_in_stmt(body, parent, out)?;
+        }
+        Stmt::ClassDeclaration {
+            super_class, body, ..
+        } => {
+            if let Some(sc) = super_class {
+                collect_dynamic_defer_in_expr(sc, parent, out)?;
+            }
+            collect_dynamic_defer_in_class_els(body, parent, out)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn collect_dynamic_defer_in_class_els(
+    body: &[ClassElement],
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), Diagnostic> {
+    for el in body {
+        match el {
+            ClassElement::Constructor { body, params, .. }
+            | ClassElement::Method { body, params, .. }
+            | ClassElement::Accessor { body, params, .. } => {
+                for p in params {
+                    if let Some(default) = &p.default {
+                        collect_dynamic_defer_in_expr(default, parent, out)?;
+                    }
+                }
+                collect_dynamic_defer_in_stmt(body, parent, out)?;
+            }
+            ClassElement::Field {
+                key,
+                value,
+                ..
+            } => {
+                if let ObjectKey::Computed(key) = key {
+                    collect_dynamic_defer_in_expr(key, parent, out)?;
+                }
+                if let Some(value) = value {
+                    collect_dynamic_defer_in_expr(value, parent, out)?;
+                }
+            }
+            ClassElement::StaticBlock { body, .. } => {
+                collect_dynamic_defer_in_stmt(body, parent, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_dynamic_defer_in_expr(
+    expr: &Expr,
+    parent: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), Diagnostic> {
+    match expr {
+        Expr::ImportCall {
+            phase,
+            source,
+            options,
+            ..
+        } => {
+            if *phase == ImportPhase::Defer {
+                if let Expr::String(lit) = source.as_ref() {
+                    if let Some(spec) = lit.value.to_string_strict() {
+                        let dep = resolve_specifier(parent, &spec, lit.span)?;
+                        if !out.iter().any(|p| p == &dep) {
+                            out.push(dep);
+                        }
+                    }
+                }
+            }
+            collect_dynamic_defer_in_expr(source, parent, out)?;
+            if let Some(options) = options {
+                collect_dynamic_defer_in_expr(options, parent, out)?;
+            }
+        }
+        Expr::Unary { arg, .. } | Expr::Update { arg, .. } | Expr::Paren { expr: arg, .. } | Expr::As { expr: arg, .. } => {
+            collect_dynamic_defer_in_expr(arg, parent, out)?;
+        }
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => {
+            collect_dynamic_defer_in_expr(left, parent, out)?;
+            collect_dynamic_defer_in_expr(right, parent, out)?;
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            collect_dynamic_defer_in_expr(test, parent, out)?;
+            collect_dynamic_defer_in_expr(consequent, parent, out)?;
+            collect_dynamic_defer_in_expr(alternate, parent, out)?;
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            collect_dynamic_defer_in_expr(callee, parent, out)?;
+            for a in args {
+                match a {
+                    Arg::Expr(e) | Arg::Spread(e) => collect_dynamic_defer_in_expr(e, parent, out)?,
+                }
+            }
+        }
+        Expr::MemberExpression {
+            object, property, ..
+        } => {
+            collect_dynamic_defer_in_expr(object, parent, out)?;
+            collect_dynamic_defer_in_expr(property, parent, out)?;
+        }
+        Expr::PrivateIn { object, .. } => collect_dynamic_defer_in_expr(object, parent, out)?,
+        Expr::ArrayExpression { elements, .. } => {
+            for el in elements {
+                match el {
+                    ArrayElement::Expr(e) | ArrayElement::Spread(e) => {
+                        collect_dynamic_defer_in_expr(e, parent, out)?
+                    }
+                    ArrayElement::Elision => {}
+                }
+            }
+        }
+        Expr::ObjectExpression { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectProp::Property { key, value, .. } => {
+                        if let ObjectKey::Computed(key) = key {
+                            collect_dynamic_defer_in_expr(key, parent, out)?;
+                        }
+                        collect_dynamic_defer_in_expr(value, parent, out)?;
+                    }
+                    ObjectProp::Accessor {
+                        key, params, body, ..
+                    } => {
+                        if let ObjectKey::Computed(key) = key {
+                            collect_dynamic_defer_in_expr(key, parent, out)?;
+                        }
+                        for p in params {
+                            if let Some(default) = &p.default {
+                                collect_dynamic_defer_in_expr(default, parent, out)?;
+                            }
+                        }
+                        collect_dynamic_defer_in_stmt(body, parent, out)?;
+                    }
+                    ObjectProp::Spread { expr, .. } => {
+                        collect_dynamic_defer_in_expr(expr, parent, out)?
+                    }
+                }
+            }
+        }
+        Expr::TemplateLiteral { expressions, .. } => {
+            for e in expressions {
+                collect_dynamic_defer_in_expr(e, parent, out)?;
+            }
+        }
+        Expr::TaggedTemplate {
+            tag, expressions, ..
+        } => {
+            collect_dynamic_defer_in_expr(tag, parent, out)?;
+            for e in expressions {
+                collect_dynamic_defer_in_expr(e, parent, out)?;
+            }
+        }
+        Expr::FunctionExpression {
+            params, body, ..
+        } => {
+            for p in params {
+                if let Some(default) = &p.default {
+                    collect_dynamic_defer_in_expr(default, parent, out)?;
+                }
+            }
+            collect_dynamic_defer_in_stmt(body, parent, out)?;
+        }
+        Expr::ClassExpression {
+            super_class, body, ..
+        } => {
+            if let Some(sc) = super_class {
+                collect_dynamic_defer_in_expr(sc, parent, out)?;
+            }
+            collect_dynamic_defer_in_class_els(body, parent, out)?;
+        }
+        Expr::ArrowFunction { params, body, .. } => {
+            for p in params {
+                if let Some(default) = &p.default {
+                    collect_dynamic_defer_in_expr(default, parent, out)?;
+                }
+            }
+            match body {
+                ArrowBody::Expr(e) => collect_dynamic_defer_in_expr(e, parent, out)?,
+                ArrowBody::Block(b) => collect_dynamic_defer_in_stmt(b, parent, out)?,
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn normalize_path(path: &Path) -> Result<PathBuf, Diagnostic> {
     if path.exists() {
         fs::canonicalize(path).map_err(|e| {
@@ -3878,6 +4253,40 @@ mod tests {
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("ClassDeclaration") || dump.contains("Point"), "{dump}");
         assert!(dump.contains("Counter") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_dynamic_import_defer_sync_lazy() {
+        // E19.84.06: `import.defer("./dep")` loads dep into the graph as deferred
+        // and rewrites to Promise.resolve(__ns_defer…); body stays unevaluated.
+        let dir = temp_link_dir("dynamic-import-defer-sync");
+        let dep = dir.join("dep.drac");
+        let main = dir.join("main.drac");
+        fs::write(
+            &dep,
+            "globalThis.side = (globalThis.side || 0) + 1;\nexport let x = 1;\n",
+        )
+        .unwrap();
+        fs::write(
+            &main,
+            "import.defer(\"./dep.drac\").then(function (ns) { let v = ns.x; });\n",
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("dynamic import.defer link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(
+            dump.contains("__draconic_deferred_ns") || dump.contains("draconic_deferred"),
+            "expected deferred ns helper:\n{dump}"
+        );
+        assert!(
+            dump.contains("Promise") && dump.contains("resolve"),
+            "expected Promise.resolve rewrite:\n{dump}"
+        );
+        assert!(
+            dump.contains("__draconic_eval_m") || dump.contains("FunctionDeclaration"),
+            "expected deferred eval thunk:\n{dump}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

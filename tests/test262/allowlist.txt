@@ -28992,8 +28992,12 @@ test/language/expressions/dynamic-import/import-attributes/trailing-comma-fulfil
 test/language/expressions/dynamic-import/import-attributes/trailing-comma-reject.js
 test/language/expressions/dynamic-import/import-defer/import-defer-async-module/main.js
 test/language/expressions/dynamic-import/import-defer/import-defer-async-module/setup_FIXTURE.js
+test/language/expressions/dynamic-import/import-defer/import-defer-transitive-async-module/main.js
+test/language/expressions/dynamic-import/import-defer/import-defer-transitive-async-module/promise-prototype-then-not-called.js
 test/language/expressions/dynamic-import/import-defer/import-defer-transitive-async-module/setup_FIXTURE.js
+test/language/expressions/dynamic-import/import-defer/sync-dependency-of-deferred-async-module/main.js
 test/language/expressions/dynamic-import/import-defer/sync-dependency-of-deferred-async-module/setup_FIXTURE.js
+test/language/expressions/dynamic-import/import-defer/sync/main.js
 test/language/expressions/dynamic-import/import-defer/sync/setup_FIXTURE.js
 test/language/expressions/dynamic-import/import-errored-module.js
 test/language/expressions/dynamic-import/imported-self-update.js
