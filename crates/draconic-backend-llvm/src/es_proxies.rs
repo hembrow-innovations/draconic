@@ -1,21 +1,22 @@
-//! N08.13.01–N08.13.10: native observations for Proxy basics + `set` + `has`/`in`
+//! N08.13.01–N08.13.11: native observations for Proxy basics + `set` + `has`/`in`
 //! + `delete`/`deleteProperty` + `apply` + `construct` + Reflect basics + `ownKeys`
 //! + `getPrototypeOf`/`setPrototypeOf` + `defineProperty`/`getOwnPropertyDescriptor`
-//! (E14.01–E14.10).
+//! + `isExtensible`/`preventExtensions` (E14.01–E14.11).
 //!
 //! Compile-time evaluation of a small Proxy/Reflect subset: `typeof Proxy`,
 //! `new Proxy(target, handler)`, empty-handler get/set/`in`/`delete`/call/`new`/ownKeys
-//! /prototype/defineProperty pass-through, `get`/`set`/`has`/`deleteProperty`/`apply`/
-//! `construct`/`ownKeys`/`getPrototypeOf`/`setPrototypeOf`/`defineProperty`/
-//! `getOwnPropertyDescriptor` traps (function props; free-var capture; string keys),
+//! /prototype/defineProperty/isExtensible/preventExtensions pass-through, `get`/`set`/
+//! `has`/`deleteProperty`/`apply`/`construct`/`ownKeys`/`getPrototypeOf`/
+//! `setPrototypeOf`/`defineProperty`/`getOwnPropertyDescriptor`/`isExtensible`/
+//! `preventExtensions` traps (function props; free-var capture; string keys),
 //! `typeof Reflect` + `Reflect.get`/`set`/`has`/`deleteProperty`/`apply`/`construct`/
 //! `ownKeys`/`getPrototypeOf`/`setPrototypeOf`/`defineProperty`/
-//! `getOwnPropertyDescriptor` on plain objects + Proxy targets, data descriptors
-//! `{value,writable,enumerable,configurable}`, `void`, array literals as arg lists,
-//! member assign, method calls (`obj.m()` thisArg), function constructors (`this` +
-//! prop init), `typeof` on proxies. Objects live on a heap so proxy targets share
-//! identity with outer locals. Emits Runtime prints of final top-level
-//! number/string/bool locals.
+//! `getOwnPropertyDescriptor`/`isExtensible`/`preventExtensions` on plain objects +
+//! Proxy targets, data descriptors `{value,writable,enumerable,configurable}`,
+//! `void`, array literals as arg lists, member assign, method calls (`obj.m()` thisArg),
+//! function constructors (`this` + prop init), `typeof` on proxies. Objects live on a
+//! heap so proxy targets share identity with outer locals. Emits Runtime prints of
+//! final top-level number/string/bool locals.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -53,6 +54,8 @@ enum ReflectOp {
     SetPrototypeOf,
     DefineProperty,
     GetOwnPropertyDescriptor,
+    IsExtensible,
+    PreventExtensions,
 }
 
 /// Heap index of the shared `Object.prototype` stand-in (null [[Prototype]]).
@@ -71,7 +74,7 @@ enum JsVal {
     ReflectObj,
     /// `Reflect.get` / `set` / `has` / `deleteProperty` / `apply` / `construct` /
     /// `ownKeys` / `getPrototypeOf` / `setPrototypeOf` / `defineProperty` /
-    /// `getOwnPropertyDescriptor`.
+    /// `getOwnPropertyDescriptor` / `isExtensible` / `preventExtensions`.
     ReflectMethod(ReflectOp),
     /// Plain object (index into object heap).
     Object(usize),
@@ -98,6 +101,8 @@ struct ObjectRec {
     keys: Vec<String>,
     /// [[Prototype]] — `Null` or `Object(idx)` (shared Object.prototype at 0 by default).
     proto: JsVal,
+    /// [[Extensible]] — cleared by `Reflect.preventExtensions`.
+    extensible: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -125,6 +130,10 @@ struct ProxyRec {
     define_property_trap: Option<usize>,
     /// Optional `getOwnPropertyDescriptor` trap function index.
     get_own_property_descriptor_trap: Option<usize>,
+    /// Optional `isExtensible` trap function index.
+    is_extensible_trap: Option<usize>,
+    /// Optional `preventExtensions` trap function index.
+    prevent_extensions_trap: Option<usize>,
 }
 
 fn object_set_prop(rec: &mut ObjectRec, key: String, value: JsVal) {
@@ -145,6 +154,7 @@ fn empty_object() -> ObjectRec {
         props: HashMap::new(),
         keys: Vec::new(),
         proto: JsVal::Object(OBJECT_PROTOTYPE_IDX),
+        extensible: true,
     }
 }
 
@@ -153,6 +163,7 @@ fn object_prototype_rec() -> ObjectRec {
         props: HashMap::new(),
         keys: Vec::new(),
         proto: JsVal::Null,
+        extensible: true,
     }
 }
 
@@ -741,6 +752,16 @@ fn eval_expr(
                             Some(_) => return Err(()),
                             None => None,
                         };
+                    let is_extensible_trap = match handler.get("isExtensible") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
+                    let prevent_extensions_trap = match handler.get("preventExtensions") {
+                        Some(JsVal::Fn(i)) => Some(*i),
+                        Some(_) => return Err(()),
+                        None => None,
+                    };
                     let idx = proxies.len();
                     proxies.push(ProxyRec {
                         target,
@@ -755,6 +776,8 @@ fn eval_expr(
                         set_prototype_of_trap,
                         define_property_trap,
                         get_own_property_descriptor_trap,
+                        is_extensible_trap,
+                        prevent_extensions_trap,
                     });
                     Ok(JsVal::Proxy(idx))
                 }
@@ -881,6 +904,8 @@ fn reflect_method(key: &str) -> Result<JsVal, ()> {
         "setPrototypeOf" => ReflectOp::SetPrototypeOf,
         "defineProperty" => ReflectOp::DefineProperty,
         "getOwnPropertyDescriptor" => ReflectOp::GetOwnPropertyDescriptor,
+        "isExtensible" => ReflectOp::IsExtensible,
+        "preventExtensions" => ReflectOp::PreventExtensions,
         _ => return Err(()),
     };
     Ok(JsVal::ReflectMethod(op))
@@ -1042,6 +1067,20 @@ fn call_reflect(
                 objects,
                 proxies,
             )
+        }
+        ReflectOp::IsExtensible => {
+            if args.is_empty() {
+                return Err(());
+            }
+            let ok = proxy_or_object_is_extensible(&args[0], env, fns, objects, proxies)?;
+            Ok(JsVal::Bool(ok))
+        }
+        ReflectOp::PreventExtensions => {
+            if args.is_empty() {
+                return Err(());
+            }
+            let ok = proxy_or_object_prevent_extensions(&args[0], env, fns, objects, proxies)?;
+            Ok(JsVal::Bool(ok))
         }
     }
 }
@@ -1293,6 +1332,56 @@ fn make_data_descriptor(value: JsVal, objects: &mut Vec<ObjectRec>) -> JsVal {
     JsVal::Object(idx)
 }
 
+fn proxy_or_object_is_extensible(
+    obj: &JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<bool, ()> {
+    match obj {
+        JsVal::Object(idx) => Ok(objects.get(*idx).ok_or(())?.extensible),
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.is_extensible_trap {
+                let args = vec![rec.target.clone()];
+                let v = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
+                Ok(is_truthy(&v))
+            } else {
+                proxy_or_object_is_extensible(&rec.target, env, fns, objects, proxies)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+fn proxy_or_object_prevent_extensions(
+    obj: &JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+    fns: &mut Vec<FnRec>,
+    objects: &mut Vec<ObjectRec>,
+    proxies: &mut Vec<ProxyRec>,
+) -> Result<bool, ()> {
+    match obj {
+        JsVal::Object(idx) => {
+            let rec = objects.get_mut(*idx).ok_or(())?;
+            rec.extensible = false;
+            Ok(true)
+        }
+        JsVal::Proxy(idx) => {
+            let rec = proxies.get(*idx).ok_or(())?.clone();
+            if let Some(trap_idx) = rec.prevent_extensions_trap {
+                let args = vec![rec.target.clone()];
+                let v = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
+                Ok(is_truthy(&v))
+            } else {
+                proxy_or_object_prevent_extensions(&rec.target, env, fns, objects, proxies)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
 fn proxy_or_object_define_property(
     obj: &JsVal,
     key: &str,
@@ -1476,7 +1565,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.13.10 Proxy defineProperty/getOwnPropertyDescriptor)"
+            "; Draconic LLVM backend (N08.13.11 Proxy isExtensible/preventExtensions)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1702,6 +1791,27 @@ mod tests {
         assert!(
             ir.contains("42") || ir.contains("print"),
             "should print trap values:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn proxy_extensible_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/proxies/proxy_extensible.drac");
+        let m = compile(src);
+        assert!(is_es_proxies_module(&m), "should classify as es_proxies");
+        let ir = emit_es_proxies(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("function") && ir.contains("true") && ir.contains("false"),
+            "should print isExtensible/preventExtensions observations:\n{ir}"
+        );
+        assert!(
+            ir.contains("print") || ir.contains("1"),
+            "should print trap call counts:\n{ir}"
         );
     }
 }
