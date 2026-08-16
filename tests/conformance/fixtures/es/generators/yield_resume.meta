@@ -1,4 +1,6 @@
 id: es/generators/yield_resume
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\nfalse\n10\nfalse\nundefined\nfalse\n27\ntrue\n
 js.check: if (v1 !== 1) process.exit(1); if (d1 !== false) process.exit(2); if (v2 !== 10) process.exit(3); if (d2 !== false) process.exit(4); if (v3 !== undefined) process.exit(5); if (d3 !== false) process.exit(6); if (v4 !== 27) process.exit(7); if (d4 !== true) process.exit(8);

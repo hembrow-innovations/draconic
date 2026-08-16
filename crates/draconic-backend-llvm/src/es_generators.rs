@@ -1,11 +1,12 @@
-//! N08.12.01–N08.12.02: native observations for generator function declaration +
-//! `yield` / `return` + `.next()` → `{value, done}` (E13.01 / E13.02).
+//! N08.12.01–N08.12.03: native observations for generator function declaration +
+//! `yield` / `return` + `.next()` / `.next(arg)` → `{value, done}` (E13.01–E13.03).
 //!
 //! Compile-time evaluation of a small generator subset: generator decls with
 //! simple ident params, `yield` of number/binary/local/`void 0` (bare yield),
-//! `return` of same, iterator `.next()` (no resume arg yet), and property reads
-//! `.value` / `.done`. Emits Runtime prints of final top-level number/boolean/
-//! undefined locals.
+//! `let x = yield …` resume binding, `return` of same, iterator `.next()` /
+//! `.next(arg)` (first arg ignored; later args become the yield value), and
+//! property reads `.value` / `.done`. Emits Runtime prints of final top-level
+//! number/boolean/undefined locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -48,8 +49,12 @@ struct GenFnRec {
 /// Suspended generator: body + program counter + param env + done flag.
 struct GenInst {
     fn_id: LocalId,
-    /// Next statement index to execute on resume.
+    /// Next statement index to execute (or complete if suspended).
     pc: usize,
+    /// True after the first `.next` has started execution.
+    started: bool,
+    /// True when paused on the statement at `pc` awaiting resume value.
+    suspended: bool,
     done: bool,
     env: HashMap<LocalId, JsVal>,
 }
@@ -209,6 +214,23 @@ fn gen_body_ok(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> bool {
             } => expr_ok(arg, by_id),
             _ => false,
         },
+        Stmt::Declare { local, init, .. } => {
+            let Some(loc) = by_id.get(local) else {
+                return false;
+            };
+            if !matches!(loc.ty, Type::Number | Type::Any | Type::Boolean) {
+                return false;
+            }
+            match init {
+                None => true,
+                Some(Expr::Unary {
+                    op: UnaryOp::Yield,
+                    arg,
+                    ..
+                }) => expr_ok(arg, by_id),
+                Some(e) => expr_ok(e, by_id),
+            }
+        }
         Stmt::Return { value } => match value {
             None => true,
             Some(e) => expr_ok(e, by_id),
@@ -348,9 +370,7 @@ fn eval_expr(
                     } else {
                         return Err(());
                     };
-                    // First next ignores resume arg (ECMA-262); resume unused until N08.12.03.
-                    let _ = resume;
-                    return gen_next(&obj, gen_fns, gens);
+                    return gen_next(&obj, resume, gen_fns, gens);
                 }
                 return Err(());
             }
@@ -383,6 +403,8 @@ fn eval_expr(
             gens.push(GenInst {
                 fn_id: fid,
                 pc: 0,
+                started: false,
+                suspended: false,
                 done: false,
                 env: gen_env,
             });
@@ -435,8 +457,10 @@ fn prop_name(expr: &Expr) -> Result<String, ()> {
 }
 
 /// Resume generator until next `yield` / `return` / end.
+/// First `.next` ignores `resume`; later calls inject it as the yield value.
 fn gen_next(
     obj: &JsVal,
+    resume: JsVal,
     gen_fns: &HashMap<LocalId, GenFnRec>,
     gens: &mut Vec<GenInst>,
 ) -> Result<JsVal, ()> {
@@ -453,11 +477,30 @@ fn gen_next(
         });
     }
 
+    let mut inject: Option<JsVal> = if !gens[*idx].started {
+        gens[*idx].started = true;
+        None
+    } else if gens[*idx].suspended {
+        gens[*idx].suspended = false;
+        Some(resume)
+    } else {
+        // Resumed without a pending yield — treat like inject undefined.
+        Some(JsVal::Undef)
+    };
+
     let fn_id = gens[*idx].fn_id;
     let body = gen_fns.get(&fn_id).ok_or(())?.body.clone();
-    let pc = gens[*idx].pc;
 
-    while pc < body.len() {
+    loop {
+        let pc = gens[*idx].pc;
+        if pc >= body.len() {
+            gens[*idx].done = true;
+            return Ok(JsVal::Result {
+                value: Box::new(JsVal::Undef),
+                done: true,
+            });
+        }
+
         match &body[pc] {
             Stmt::Expr {
                 expr:
@@ -467,12 +510,47 @@ fn gen_next(
                         ..
                     },
             } => {
-                let v = eval_in_gen(arg, &gens[*idx].env)?;
-                gens[*idx].pc = pc + 1;
+                if let Some(_v) = inject.take() {
+                    // Complete prior yield (value discarded for bare yield stmt).
+                    gens[*idx].pc = pc + 1;
+                    continue;
+                }
+                let yv = eval_in_gen(arg, &gens[*idx].env)?;
+                gens[*idx].suspended = true;
                 return Ok(JsVal::Result {
-                    value: Box::new(v),
+                    value: Box::new(yv),
                     done: false,
                 });
+            }
+            Stmt::Declare {
+                local,
+                init:
+                    Some(Expr::Unary {
+                        op: UnaryOp::Yield,
+                        arg,
+                        ..
+                    }),
+                ..
+            } => {
+                if let Some(v) = inject.take() {
+                    gens[*idx].env.insert(*local, v);
+                    gens[*idx].pc = pc + 1;
+                    continue;
+                }
+                let yv = eval_in_gen(arg, &gens[*idx].env)?;
+                gens[*idx].suspended = true;
+                return Ok(JsVal::Result {
+                    value: Box::new(yv),
+                    done: false,
+                });
+            }
+            Stmt::Declare { local, init, .. } => {
+                let v = match init {
+                    None => JsVal::Undef,
+                    Some(e) => eval_in_gen(e, &gens[*idx].env)?,
+                };
+                gens[*idx].env.insert(*local, v);
+                gens[*idx].pc = pc + 1;
             }
             Stmt::Return { value } => {
                 let v = match value {
@@ -489,12 +567,6 @@ fn gen_next(
             _ => return Err(()),
         }
     }
-
-    gens[*idx].done = true;
-    Ok(JsVal::Result {
-        value: Box::new(JsVal::Undef),
-        done: true,
-    })
 }
 
 /// Evaluate yield/return argument in generator body (params + arithmetic + bare yield).
@@ -593,7 +665,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.12.02 generators yield_expr)"
+            "; Draconic LLVM backend (N08.12.03 generators yield_resume)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
