@@ -1,4 +1,6 @@
 id: es/exceptions/try_finally
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 11\n11\n23\n5\n1\n11\n
 js.check: if (a !== 11) process.exit(1); if (b !== 11) process.exit(2); if (c !== 23) process.exit(3); if (d !== 5) process.exit(4); if (e !== 1) process.exit(5); if (nested !== 11) process.exit(6);

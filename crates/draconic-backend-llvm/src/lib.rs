@@ -3208,7 +3208,7 @@ mod tests {
             "throw_try_catch must not use hello stub:\n{ir}"
         );
         assert!(
-            ir.contains("N08.10.01") || ir.contains("throw/try/catch"),
+            ir.contains("N08.10") || ir.contains("throw/try/catch"),
             "should use exceptions emit path:\n{ir}"
         );
         assert!(
@@ -3228,6 +3228,41 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "1\n1\n1\n7\n5\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_try_finally_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/exceptions/try_finally.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "try_finally must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("N08.10.02") || ir.contains("finally"),
+            "should use exceptions finally emit path:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-try-finally").expect("workdir");
+        let bin = dir.join("try_finally");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "11\n11\n23\n5\n1\n11\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

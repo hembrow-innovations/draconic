@@ -1,9 +1,9 @@
-//! N08.10.01: native observations for `throw` + bare `try`/`catch` (E10.01).
+//! N08.10.01–N08.10.02: native observations for `throw` + `try`/`catch`/`finally` (E10.01–E10.02).
 //!
 //! Compile-time evaluation of a small exception subset matching
-//! `es/exceptions/throw_try_catch`: number/string throws, catch binding,
-//! nested try/catch, rethrow, and zero-arg function that throws. Emits Runtime
-//! prints of final top-level number locals (no finally / optional catch here).
+//! `es/exceptions/throw_try_catch` and `es/exceptions/try_finally`: number/string
+//! throws, catch binding, nested try, rethrow, zero-arg functions that throw or
+//! `return` through `finally`. Emits Runtime prints of final top-level number locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -48,6 +48,7 @@ struct ModuleInfo {
 enum Flow {
     Normal,
     Throw(JsVal),
+    Return(JsVal),
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -165,23 +166,28 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             ..
         } => params.is_empty() && body_ok(body, by_id),
         Stmt::Throw { value } => expr_ok(value, by_id),
+        Stmt::Return { value } => match value {
+            None => true,
+            Some(e) => expr_ok(e, by_id),
+        },
         Stmt::Try {
             block,
             handler_param,
             handler,
             finalizer,
         } => {
-            // N08.10.01: bare try/catch only (no finally; catch param required).
-            if finalizer.is_some() {
+            // Bare try/catch, try/finally, or try/catch/finally.
+            // Catch param required when handler present (optional catch → N08.10.03).
+            if handler.is_some() {
+                let Some(Pattern::Local(_)) = handler_param else {
+                    return false;
+                };
+            } else if handler_param.is_some() {
                 return false;
             }
-            let Some(handler) = handler else {
-                return false;
-            };
-            let Some(Pattern::Local(_)) = handler_param else {
-                return false;
-            };
-            body_ok(block, by_id) && body_ok(handler, by_id)
+            body_ok(block, by_id)
+                && handler.as_ref().is_none_or(|h| body_ok(h, by_id))
+                && finalizer.as_ref().is_none_or(|f| body_ok(f, by_id))
         }
         Stmt::Block { body } => body_ok(body, by_id),
         Stmt::Expr { expr } => expr_ok(expr, by_id),
@@ -272,24 +278,39 @@ fn eval_stmt(
             Ok(v) => Ok(Flow::Throw(v)),
             Err(flow) => Ok(flow),
         },
+        Stmt::Return { value } => match value {
+            None => Ok(Flow::Return(JsVal::Undef)),
+            Some(e) => match eval_expr(e, env, functions)? {
+                Ok(v) => Ok(Flow::Return(v)),
+                Err(flow) => Ok(flow),
+            },
+        },
         Stmt::Try {
             block,
             handler_param,
             handler,
-            finalizer: None,
+            finalizer,
         } => {
-            match eval_body(block, env, functions)? {
-                Flow::Normal => Ok(Flow::Normal),
+            let mut completion = match eval_body(block, env, functions)? {
                 Flow::Throw(exc) => {
-                    let Some(handler) = handler else {
-                        return Ok(Flow::Throw(exc));
-                    };
-                    if let Some(Pattern::Local(pid)) = handler_param {
-                        env.insert(*pid, exc);
+                    if let Some(handler) = handler {
+                        if let Some(Pattern::Local(pid)) = handler_param {
+                            env.insert(*pid, exc);
+                        }
+                        eval_body(handler, env, functions)?
+                    } else {
+                        Flow::Throw(exc)
                     }
-                    eval_body(handler, env, functions)
+                }
+                other => other,
+            };
+            if let Some(fin) = finalizer {
+                match eval_body(fin, env, functions)? {
+                    Flow::Normal => {}
+                    abrupt => completion = abrupt,
                 }
             }
+            Ok(completion)
         }
         Stmt::Block { body } => eval_body(body, env, functions),
         Stmt::Expr { expr } => match eval_expr(expr, env, functions)? {
@@ -317,7 +338,7 @@ fn eval_stmt(
     }
 }
 
-/// `Ok(Ok(v))` = value; `Ok(Err(flow))` = abrupt from nested throw; `Err(())` = unsupported.
+/// `Ok(Ok(v))` = value; `Ok(Err(flow))` = abrupt from nested throw/return; `Err(())` = unsupported.
 fn eval_expr(
     expr: &Expr,
     env: &mut HashMap<LocalId, JsVal>,
@@ -404,6 +425,7 @@ fn eval_expr(
             match eval_body(&frec.body, env, functions)? {
                 Flow::Normal => Ok(Ok(JsVal::Undef)),
                 Flow::Throw(exc) => Ok(Err(Flow::Throw(exc))),
+                Flow::Return(v) => Ok(Ok(v)),
             }
         }
         _ => Err(()),
@@ -507,7 +529,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.10.01 throw/try/catch)"
+            "; Draconic LLVM backend (N08.10.02 throw/try/catch/finally)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
