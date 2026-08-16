@@ -1,5 +1,5 @@
-//! N08.01 + N08.02.01–N08.02.04: emit native observations for ES expression Programs,
-//! `if`/`else`, `while`, `do`/`while`, and `for`
+//! N08.01 + N08.02.01–N08.02.05: emit native observations for ES expression Programs,
+//! `if`/`else`, `while`, `do`/`while`, `for`, and unlabeled `break`/`continue`
 //! (E01.01 arithmetic, E01.02 comparison, E01.03 logical, E01.04.01 bitwise, E01.04.02 `**`,
 //! E01.04.03 conditional `?:`, E01.04.04 simple `=` assignment, E01.04.05 prefix/postfix `++`/`--`,
 //! E01.04.06 comma `,`, E01.04.07 unary keywords `typeof`/`void`/`delete`,
@@ -7,7 +7,8 @@
 //! E02.01 `if` / `else` (incl. block bodies; ToBoolean on number/boolean tests),
 //! E02.02 `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
 //! E02.03 `do` / `while` loops (incl. block bodies; ToBoolean on number/boolean tests),
-//! E02.04 `for` loops (`for (init; test; update)`; `let` init; omitted clauses; block bodies).
+//! E02.04 `for` loops (`for (init; test; update)`; `let` init; omitted clauses; block bodies),
+//! E02.05 unlabeled `break` / `continue` in loops.
 //! N08.01.04.09 nullish/logical-assign lives in `es_nullish`.)
 
 use std::collections::HashMap;
@@ -18,13 +19,14 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt, UpdateTarget};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
-/// True when this module is a supported ES expression / `if` / `while` / `do`/`while` / `for` subset
-/// (E01.* / E02.01–E02.04 / N08.01.* / N08.02.01–N08.02.04):
+/// True when this module is a supported ES expression / control-flow subset
+/// (E01.* / E02.01–E02.05 / N08.01.* / N08.02.01–N08.02.05):
 /// top-level `let` declares over JS numbers, booleans, strings, and/or undefined (`void`) with
 /// arithmetic, unary `+`/`-`/`!`/`~`/`typeof`/`void`/`delete`, comparison, equality, logical,
 /// bitwise, exponentiation, conditional, simple/compound assignment, prefix/postfix `++`/`--`,
-/// comma, grouping, local refs, `if`/`else`, `while`, `do`/`while`, and `for` (incl. `let` init;
-/// block or expression bodies). Expression statements may be assigns or updates.
+/// comma, grouping, local refs, `if`/`else`, `while`, `do`/`while`, `for` (incl. `let` init;
+/// block or expression bodies), and unlabeled `break`/`continue` in loops.
+/// Expression statements may be assigns or updates.
 pub(crate) fn is_es_expr_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -179,6 +181,7 @@ fn collect_for_init_allocs(
 
 /// Nested statement subset for `if`/`else`/`while`/`do`/`while`/`for` bodies and blocks.
 /// `for` init may introduce a nested `let` (number/boolean/string/undefined).
+/// Unlabeled `break`/`continue` only (labeled → later N08.02.07).
 fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
         Stmt::Expr { expr } => match expr.ty() {
@@ -236,6 +239,7 @@ fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
                 .unwrap_or(true);
             init_ok && test_ok && update_ok && stmt_is_subset(body, by_id)
         }
+        Stmt::Break { label: None } | Stmt::Continue { label: None } => true,
         _ => false,
     }
 }
@@ -487,6 +491,12 @@ fn expr_is_boolean_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool
     }
 }
 
+/// Innermost loop targets for unlabeled `break` / `continue`.
+struct LoopFrame {
+    break_label: String,
+    continue_label: String,
+}
+
 struct Emitter<'a> {
     module: &'a Module,
     /// local id → (alloca ptr name, slot type)
@@ -496,6 +506,7 @@ struct Emitter<'a> {
     out: String,
     body: String,
     tmp: u32,
+    loops: Vec<LoopFrame>,
 }
 
 impl<'a> Emitter<'a> {
@@ -507,6 +518,7 @@ impl<'a> Emitter<'a> {
             out: String::new(),
             body: String::new(),
             tmp: 0,
+            loops: Vec::new(),
         }
     }
 
@@ -609,7 +621,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.04 ES expressions + if/else/while/do-while/for via Runtime ABI)"
+            "; Draconic LLVM backend (N08.01/N08.02.01–N08.02.05 ES expressions + if/else/while/do-while/for/break/continue via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -685,6 +697,9 @@ impl<'a> Emitter<'a> {
             },
             Stmt::Block { body } => {
                 for s in body {
+                    if self.body_ends_with_terminator() {
+                        break;
+                    }
                     self.emit_stmt(s)?;
                 }
                 Ok(())
@@ -735,7 +750,12 @@ impl<'a> Emitter<'a> {
                 let cond = self.emit_to_boolean(test)?;
                 writeln!(self.body, "  br i1 {cond}, label %{bod}, label %{end}").ok();
                 writeln!(self.body, "{bod}:").ok();
+                self.loops.push(LoopFrame {
+                    break_label: end.clone(),
+                    continue_label: head.clone(),
+                });
                 self.emit_stmt(body)?;
+                self.loops.pop();
                 if !self.body_ends_with_terminator() {
                     writeln!(self.body, "  br label %{head}").ok();
                 }
@@ -748,7 +768,12 @@ impl<'a> Emitter<'a> {
                 let end = self.fresh_label("do_end");
                 writeln!(self.body, "  br label %{bod}").ok();
                 writeln!(self.body, "{bod}:").ok();
+                self.loops.push(LoopFrame {
+                    break_label: end.clone(),
+                    continue_label: head.clone(),
+                });
                 self.emit_stmt(body)?;
+                self.loops.pop();
                 if !self.body_ends_with_terminator() {
                     writeln!(self.body, "  br label %{head}").ok();
                 }
@@ -780,7 +805,12 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  br label %{bod}").ok();
                 }
                 writeln!(self.body, "{bod}:").ok();
+                self.loops.push(LoopFrame {
+                    break_label: end.clone(),
+                    continue_label: upd.clone(),
+                });
                 self.emit_stmt(body)?;
+                self.loops.pop();
                 if !self.body_ends_with_terminator() {
                     writeln!(self.body, "  br label %{upd}").ok();
                 }
@@ -806,6 +836,24 @@ impl<'a> Emitter<'a> {
                 }
                 writeln!(self.body, "  br label %{head}").ok();
                 writeln!(self.body, "{end}:").ok();
+                Ok(())
+            }
+            Stmt::Break { label: None } => {
+                let frame = self
+                    .loops
+                    .last()
+                    .ok_or_else(|| diag("internal: break outside loop in es_expr"))?;
+                let end = frame.break_label.clone();
+                writeln!(self.body, "  br label %{end}").ok();
+                Ok(())
+            }
+            Stmt::Continue { label: None } => {
+                let frame = self
+                    .loops
+                    .last()
+                    .ok_or_else(|| diag("internal: continue outside loop in es_expr"))?;
+                let cont = frame.continue_label.clone();
+                writeln!(self.body, "  br label %{cont}").ok();
                 Ok(())
             }
             _ => Err(diag("internal: unsupported stmt in es_expr module")),

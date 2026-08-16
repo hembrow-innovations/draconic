@@ -43,6 +43,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 ///   tests) via Runtime prints — N08.02.03
 /// - **`for`** (`for (init; test; update)`; `let` init; omitted clauses; block
 ///   bodies; ToBoolean on number/boolean tests) via Runtime prints — N08.02.04
+/// - **`break` / `continue`** (unlabeled, in `while`/`do`/`for`) via Runtime
+///   prints — N08.02.05
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -75,7 +77,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
          supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for), empty hello)",
+          ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/break/continue), empty hello)",
         Span::dummy(),
     )
 }
@@ -810,6 +812,81 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "2\n3\n2\n3\n4\n2\n2\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_expr_break_continue_prints() {
+        let ir = emit_llvm_ir(&module_of(
+            r#"
+            let a = 0;
+            while (true) {
+              a = a + 1;
+              if (a === 3) break;
+            }
+            let b = 0;
+            let c = 0;
+            while (b < 5) {
+              b = b + 1;
+              if (b === 2) continue;
+              c = c + 1;
+            }
+            let d = 0;
+            for (let i = 0; i < 10; i = i + 1) {
+              d = d + 1;
+              if (i === 2) break;
+            }
+            let e = 0;
+            for (let j = 0; j < 5; j = j + 1) {
+              if (j === 2) continue;
+              e = e + 1;
+            }
+            let f = 0;
+            do {
+              f = f + 1;
+              if (f === 2) break;
+            } while (true);
+            let g = 0;
+            let h = 0;
+            do {
+              g = g + 1;
+              if (g === 2) continue;
+              h = h + 1;
+            } while (g < 4);
+            let outer = 0;
+            let inner = 0;
+            while (outer < 3) {
+              outer = outer + 1;
+              while (true) {
+                inner = inner + 1;
+                break;
+              }
+            }
+            "#,
+        ))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_expr break/continue must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-break-continue").expect("workdir");
+        let bin = dir.join("break_continue");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "3\n5\n4\n3\n4\n2\n4\n3\n3\n3\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

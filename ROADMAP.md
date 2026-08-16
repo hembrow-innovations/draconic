@@ -402,6 +402,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.02.02 | done | native | Real native observations: `while` loops (E02.02) — `es/statements/while` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/while`, `crates/draconic-backend-llvm` |
 | N08.02.03 | done | native | Real native observations: `do` / `while` loops (E02.03) — `es/statements/do_while` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/do_while`, `crates/draconic-backend-llvm` |
 | N08.02.04 | done | native | Real native observations: `for` loops (E02.04) — `es/statements/for` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/for`, `crates/draconic-backend-llvm` |
+| N08.02.05 | done | native | Real native observations: `break` / `continue` (E02.05) — `es/statements/break_continue` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/statements/break_continue`, `crates/draconic-backend-llvm` |
 | N08.03 | todo | native | Real native observations: functions (E03) | `tests/conformance` fixtures `es/functions` |
 | N08.04 | todo | native | Real native observations: objects (E04) | `tests/conformance` fixtures `es/objects` |
 | N08.05 | todo | native | Real native observations: classes (E05) | `tests/conformance` fixtures `es/classes` |
