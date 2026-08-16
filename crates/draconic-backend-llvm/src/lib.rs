@@ -8,6 +8,7 @@ mod es_eval;
 mod es_exceptions;
 mod es_expr;
 mod es_functions;
+mod es_generators;
 mod es_modules;
 mod es_nullish;
 mod es_objects;
@@ -31,6 +32,7 @@ use es_eval::{emit_es_eval, is_es_eval_module};
 use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
 use es_functions::{emit_es_functions, is_es_functions_module};
+use es_generators::{emit_es_generators, is_es_generators_module};
 use es_modules::{emit_es_modules, is_es_modules_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
@@ -93,6 +95,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **ToPrimitive** (`valueOf`/`toString` hooks in `+` and `==`) — N08.09.04
 /// - **Exceptions** (`throw` + bare `try`/`catch`; catch binding; nested; throw from fn) — N08.10.01
 /// - **Linked ESM modules** (named/default/cyclic flatten; number/string observations) — N08.11
+/// - **Generators** (function* + yield + return + `.next()` `{value,done}`) — N08.12.01
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -104,6 +107,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_eval_module(module) {
         return emit_es_eval(module);
+    }
+    if is_es_generators_module(module) {
+        return emit_es_generators(module);
     }
     if is_es_modules_module(module) {
         return emit_es_modules(module);
@@ -158,7 +164,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
            supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-           ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, linked ESM modules (named/default/namespace/cyclic), empty hello)",
+            ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, ES generators (function*/yield/next), linked ESM modules (named/default/namespace/cyclic), empty hello)",
         Span::dummy(),
     )
 }
