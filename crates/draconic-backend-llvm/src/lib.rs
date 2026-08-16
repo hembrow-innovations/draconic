@@ -3,6 +3,7 @@
 mod es_arrays;
 mod es_call_spread;
 mod es_classes;
+mod es_coercion;
 mod es_eval;
 mod es_expr;
 mod es_functions;
@@ -22,6 +23,7 @@ use draconic_ir::Module;
 use es_arrays::{emit_es_arrays, is_es_arrays_module};
 use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
+use es_coercion::{emit_es_coercion, is_es_coercion_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
 use es_functions::{emit_es_functions, is_es_functions_module};
@@ -81,6 +83,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Tagged templates** `` tag`…` `` (quasi array + interps; method/call tags) — N08.07.04
 /// - **Symbol basics** (`Symbol()` / `Symbol.for` / `Symbol.keyFor` / typeof / `===`) — N08.09.01
 /// - **Symbol property keys** (computed/get/set; no string collision) — N08.09.02
+/// - **Abstract equality & coercion** (`==`/`!=` mixed types; ToNumber/ToString/ToBoolean) — N08.09.03
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -95,6 +98,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_nullish_module(module) {
         return emit_es_nullish(module);
+    }
+    if is_es_coercion_module(module) {
+        return emit_es_coercion(module);
     }
     if is_es_values_module(module) {
         return emit_es_values(module);

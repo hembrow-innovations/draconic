@@ -450,7 +450,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.09 | todo | native | Real native observations: symbols/equality/coercion (E09) (children below) | `tests/conformance` fixtures `es/values` |
 | N08.09.01 | done | native | Real native observations: Symbol constructor basics (E09.01) — `es/values/symbol_basics` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/values/symbol_basics`, `crates/draconic-backend-llvm` |
 | N08.09.02 | done | native | Real native observations: Symbol property keys (E09.02) — `es/values/symbol_property_keys` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/values/symbol_property_keys`, `crates/draconic-backend-llvm` |
-| N08.09.03 | todo | native | Real native observations: abstract equality & coercion (E09.03) | `tests/conformance` fixture `es/values/abstract_eq_coercion`, `crates/draconic-backend-llvm` |
+| N08.09.03 | done | native | Real native observations: abstract equality & coercion (E09.03) | `tests/conformance` fixture `es/values/abstract_eq_coercion`, `crates/draconic-backend-llvm` |
 | N08.09.04 | todo | native | Real native observations: ToPrimitive valueOf/toString (E09.04) | `tests/conformance` fixture `es/values/to_primitive`, `crates/draconic-backend-llvm` |
 | N08.10 | todo | native | Real native observations: exceptions (E10) | `tests/conformance` fixtures `es/exceptions` |
 | N08.11 | todo | native | Real native observations: modules (E11) | `tests/conformance` fixtures `es/modules` |
