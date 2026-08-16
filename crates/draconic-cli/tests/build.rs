@@ -114,7 +114,7 @@ fn build_target_native_writes_runnable_binary() {
 #[test]
 fn build_target_native_rejects_unsupported_js() {
     let dir = temp_dir();
-    let src = write_program(&dir, "prog.drac", "let x = \"hi\";");
+    let src = write_program(&dir, "prog.drac", "let x = {};");
     let out = dir.join("prog");
 
     let output = draconic()
