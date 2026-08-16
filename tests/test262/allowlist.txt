@@ -33398,7 +33398,9 @@ test/language/import/import-defer/errors/module-throws/trigger-evaluation.js
 test/language/import/import-defer/errors/resolution-error/import-defer-of-missing-module-fails.js
 test/language/import/import-defer/errors/syntax-error/import-defer-of-syntax-error-fails.js
 test/language/import/import-defer/evaluation-sync/import-defer-does-not-evaluate.js
+test/language/import/import-defer/evaluation-sync/module-imported-defer-and-eager.js
 test/language/import/import-defer/evaluation-sync/setup_FIXTURE.js
+test/language/import/import-defer/evaluation-top-level-await/flattening-order/main.js
 test/language/import/import-defer/evaluation-top-level-await/flattening-order/setup_FIXTURE.js
 test/language/import/import-defer/evaluation-top-level-await/import-defer-async-module/main.js
 test/language/import/import-defer/evaluation-top-level-await/import-defer-async-module/setup_FIXTURE.js

@@ -53,12 +53,22 @@ struct ModuleData {
     eval_deps: Vec<PathBuf>,
     /// All ModuleRequest targets (incl. deferred namespace-only) for ReadyForSyncExecution.
     requested: Vec<PathBuf>,
+    /// Static ModuleRequests in source order with phase (E19.84.09 evaluation list).
+    /// Deduped by (path, deferred) per ModuleRequests static semantics.
+    module_requests: Vec<ModuleRequest>,
     /// String-literal `import.defer("…")` targets (E19.84.06). Loaded into the graph
     /// and get deferred namespaces, but do not mark eval unless also an eval_dep.
     dynamic_defer_targets: Vec<PathBuf>,
     /// String-literal evaluation-phase `import("…")` targets (E19.84.08). Loaded into
     /// the graph for linked dynamic import + evaluation-error identity; not eval_deps.
     dynamic_import_targets: Vec<PathBuf>,
+}
+
+/// One static ModuleRequest (specifier + phase) for InnerModuleEvaluation.
+struct ModuleRequest {
+    path: PathBuf,
+    /// `import defer` / deferred phase; otherwise evaluation phase.
+    deferred: bool,
 }
 
 struct NamedReexport {
@@ -134,6 +144,7 @@ impl Loader {
         let mut namespaces: Vec<NamespaceBind> = Vec::new();
         let mut eval_deps: Vec<PathBuf> = Vec::new();
         let mut dep_paths = Vec::new();
+        let mut module_requests: Vec<ModuleRequest> = Vec::new();
         // E19.69: bare `export { local }` must resolve to Var/LexicallyDeclaredNames.
         let mut local_export_checks: Vec<(String, Span)> = Vec::new();
 
@@ -155,6 +166,12 @@ impl Loader {
                     let dep = resolve_specifier(parent, &spec, source.span)?;
                     dep_paths.push(dep.clone());
                     let deferred_ns = phase == ImportPhase::Defer && namespace.is_some();
+                    // ModuleRequests: phase-aware; same specifier+phase is not duplicated.
+                    push_module_request(
+                        &mut module_requests,
+                        dep.clone(),
+                        phase == ImportPhase::Defer,
+                    );
                     // Named / default / side-effect imports evaluate the target; deferred
                     // namespace alone does not (E19.55).
                     let mut marks_eval = !specifiers.is_empty()
@@ -196,6 +213,7 @@ impl Loader {
                         })?;
                         let dep = resolve_specifier(parent, &spec, src.span)?;
                         dep_paths.push(dep.clone());
+                        push_module_request(&mut module_requests, dep.clone(), false);
                         eval_deps.push(dep.clone());
                         for s in specifiers {
                             if exports.contains_key(&s.exported.name)
@@ -271,6 +289,7 @@ impl Loader {
                     })?;
                     let dep = resolve_specifier(parent, &spec, source.span)?;
                     dep_paths.push(dep.clone());
+                    push_module_request(&mut module_requests, dep.clone(), false);
                     eval_deps.push(dep.clone());
                     if let Some(ns) = exported {
                         if exports
@@ -355,6 +374,7 @@ impl Loader {
             namespaces,
             eval_deps,
             requested: dep_paths,
+            module_requests,
             dynamic_defer_targets,
             dynamic_import_targets,
         });
@@ -532,10 +552,31 @@ impl Loader {
         }
         shared_ns_setup.sort_by_key(|(id, _)| *id);
 
-        // modules are stored in post-order (deps before importers). Entry last.
-        let mut order: Vec<usize> = (0..self.modules.len()).collect();
-        order.retain(|&id| id != entry_id);
-        order.push(entry_id);
+        // Thunk emission order: load ids then entry last (stable, independent of eval).
+        let mut thunk_order: Vec<usize> = (0..self.modules.len()).collect();
+        thunk_order.retain(|&id| id != entry_id);
+        thunk_order.push(entry_id);
+
+        // Snapshot HasTLA before any body is taken (deferred thunks / eager emit).
+        let has_tla: Vec<bool> = self
+            .modules
+            .iter()
+            .map(|m| module_body_has_tla(&m.body))
+            .collect();
+
+        // E19.84.09: eager body order follows InnerModuleEvaluation (ModuleRequests
+        // evaluation list), not DFS load post-order.
+        let eval_order = self.compute_inner_module_eval_order(entry_id, &eager, &has_tla);
+        let async_mods = self.compute_async_eval_modules(&eager, &has_tla);
+        // Precompute async deps per module while TLA snapshot is valid (before take).
+        let async_deps_by_id: Vec<Vec<usize>> = (0..self.modules.len())
+            .map(|id| {
+                self.evaluation_list(id, &has_tla)
+                    .into_iter()
+                    .filter(|d| async_mods.contains(d))
+                    .collect()
+            })
+            .collect();
 
         // Pre-rename deferred module bodies and build lazy eval thunks.
         let mut deferred_thunks: HashMap<usize, Vec<Stmt>> = HashMap::new();
@@ -571,7 +612,8 @@ impl Loader {
         // Status / [[EvaluationError]] helpers for deferred ns (E19.84.05) and for
         // lazy once-eval of non-eager modules (incl. dynamic-import targets, E19.84.08).
         let has_lazy_modules = (0..self.modules.len()).any(|id| !eager.contains(&id));
-        if any_deferred_ns || has_lazy_modules {
+        let track_status = any_deferred_ns || has_lazy_modules;
+        if track_status {
             for stmt in deferred_module_status_helper_stmts(self, self.modules.len())? {
                 linked_body.push(stmt);
             }
@@ -600,9 +642,19 @@ impl Loader {
             }
         }
         // Emit deferred thunks before eager bodies (hoisted bindings + eval fns).
-        for id in &order {
+        for id in &thunk_order {
             if let Some(thunks) = deferred_thunks.remove(id) {
                 linked_body.extend(thunks);
+            }
+        }
+
+        // E19.84.09: promise slots for async module evaluation (TLA interleaving).
+        let needs_async_eval = !async_mods.is_empty();
+        if needs_async_eval {
+            let mp_src = "let __draconic_mp = [];\n";
+            for mut stmt in parse(mp_src)?.body {
+                uniqueify_stmt_spans(&mut stmt, &mut span_gen);
+                linked_body.push(stmt);
             }
         }
 
@@ -614,7 +666,7 @@ impl Loader {
         for (p, id) in &self.ids {
             id_to_path.insert(*id, p.clone());
         }
-        for id in order {
+        for &id in &eval_order {
             if !eager.contains(&id) {
                 continue;
             }
@@ -639,11 +691,6 @@ impl Loader {
                     )?;
                 }
             }
-            // E19.84.05: mark eager module ~evaluating~ … ~evaluated~ around body so
-            // deferred-namespace EnsureDeferredNamespaceEvaluation can TypeError.
-            if any_deferred_ns {
-                linked_body.push(make_module_status_assign(id, 1, span_gen.next()));
-            }
             for stmt in &body {
                 let sp = stmt_span_approx(stmt);
                 if linked_body.is_empty() {
@@ -651,9 +698,29 @@ impl Loader {
                 }
                 end = sp.end.0;
             }
-            linked_body.extend(body);
-            if any_deferred_ns {
-                linked_body.push(make_module_status_assign(id, 3, span_gen.next()));
+            let is_async = async_mods.contains(&id);
+            if is_async {
+                let async_deps = &async_deps_by_id[id];
+                let is_entry = id == entry_id;
+                let wrapped = wrap_async_eager_module_body(
+                    id,
+                    body,
+                    async_deps,
+                    track_status,
+                    is_entry,
+                    &mut span_gen,
+                )?;
+                linked_body.extend(wrapped);
+            } else {
+                // E19.84.05: mark eager module ~evaluating~ … ~evaluated~ around body so
+                // deferred-namespace EnsureDeferredNamespaceEvaluation can TypeError.
+                if track_status {
+                    linked_body.push(make_module_status_assign(id, 1, span_gen.next()));
+                }
+                linked_body.extend(body);
+                if track_status {
+                    linked_body.push(make_module_status_assign(id, 3, span_gen.next()));
+                }
             }
         }
         // (E19.86: eager namespace objects are instantiated up-front with the other
@@ -687,7 +754,7 @@ impl Loader {
                     continue;
                 }
                 if let Some(&dep_id) = self.ids.get(&ns.from) {
-                    for tla_id in self.gather_async_transitive(dep_id) {
+                    for tla_id in self.gather_async_transitive(dep_id, None) {
                         stack.push(tla_id);
                     }
                 }
@@ -695,7 +762,7 @@ impl Loader {
             // E19.84.06: dynamic `import.defer` — same GatherAsynchronousTransitiveDependencies.
             for from in &self.modules[id].dynamic_defer_targets {
                 if let Some(&dep_id) = self.ids.get(from) {
-                    for tla_id in self.gather_async_transitive(dep_id) {
+                    for tla_id in self.gather_async_transitive(dep_id, None) {
                         stack.push(tla_id);
                     }
                 }
@@ -704,35 +771,154 @@ impl Loader {
         eager
     }
 
+    /// InnerModuleEvaluation evaluationList for `id` (E19.84.09).
+    ///
+    /// For each ModuleRequest in source order: ~defer~ → GatherAsynchronousTransitive
+    /// Dependencies; else append the required module if not already listed.
+    fn evaluation_list(&self, id: usize, has_tla: &[bool]) -> Vec<usize> {
+        let mut list = Vec::new();
+        for req in &self.modules[id].module_requests {
+            let Some(&req_id) = self.ids.get(&req.path) else {
+                continue;
+            };
+            if req.deferred {
+                for async_id in self.gather_async_transitive(req_id, Some(has_tla)) {
+                    if !list.contains(&async_id) {
+                        list.push(async_id);
+                    }
+                }
+            } else if !list.contains(&req_id) {
+                list.push(req_id);
+            }
+        }
+        list
+    }
+
+    /// DFS InnerModuleEvaluation order over eager modules (deps before importers).
+    fn compute_inner_module_eval_order(
+        &self,
+        entry_id: usize,
+        eager: &HashSet<usize>,
+        has_tla: &[bool],
+    ) -> Vec<usize> {
+        let mut order = Vec::new();
+        let mut visiting = HashSet::new();
+        let mut done = HashSet::new();
+        self.inner_module_eval_order_rec(
+            entry_id,
+            eager,
+            has_tla,
+            &mut visiting,
+            &mut done,
+            &mut order,
+        );
+        // Any eager module not reached from entry (should be rare) — append stably.
+        let mut rest: Vec<_> = eager.iter().copied().filter(|id| !done.contains(id)).collect();
+        rest.sort();
+        for id in rest {
+            self.inner_module_eval_order_rec(
+                id,
+                eager,
+                has_tla,
+                &mut visiting,
+                &mut done,
+                &mut order,
+            );
+        }
+        order
+    }
+
+    fn inner_module_eval_order_rec(
+        &self,
+        id: usize,
+        eager: &HashSet<usize>,
+        has_tla: &[bool],
+        visiting: &mut HashSet<usize>,
+        done: &mut HashSet<usize>,
+        order: &mut Vec<usize>,
+    ) {
+        if done.contains(&id) || !eager.contains(&id) {
+            return;
+        }
+        if !visiting.insert(id) {
+            return; // cycle: break
+        }
+        for dep in self.evaluation_list(id, has_tla) {
+            self.inner_module_eval_order_rec(dep, eager, has_tla, visiting, done, order);
+        }
+        visiting.remove(&id);
+        done.insert(id);
+        order.push(id);
+    }
+
+    /// Modules whose evaluation is async: HasTLA or any evaluationList dep is async.
+    fn compute_async_eval_modules(
+        &self,
+        eager: &HashSet<usize>,
+        has_tla: &[bool],
+    ) -> HashSet<usize> {
+        let mut async_mods = HashSet::new();
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &id in eager {
+                if async_mods.contains(&id) {
+                    continue;
+                }
+                if has_tla.get(id).copied().unwrap_or(false) {
+                    async_mods.insert(id);
+                    changed = true;
+                    continue;
+                }
+                if self
+                    .evaluation_list(id, has_tla)
+                    .into_iter()
+                    .any(|d| async_mods.contains(&d))
+                {
+                    async_mods.insert(id);
+                    changed = true;
+                }
+            }
+        }
+        async_mods
+    }
+
     /// Modules with TLA (or that reach them) under a deferred import subgraph.
-    fn gather_async_transitive(&self, start: usize) -> Vec<usize> {
+    ///
+    /// `has_tla_snapshot` avoids reading bodies after they were moved into thunks.
+    fn gather_async_transitive(
+        &self,
+        start: usize,
+        has_tla_snapshot: Option<&[bool]>,
+    ) -> Vec<usize> {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
-        self.gather_async_transitive_rec(start, &mut seen, &mut out);
+        self.gather_async_transitive_rec(start, has_tla_snapshot, &mut seen, &mut out);
         out
     }
 
     fn gather_async_transitive_rec(
         &self,
         id: usize,
+        has_tla_snapshot: Option<&[bool]>,
         seen: &mut HashSet<usize>,
         out: &mut Vec<usize>,
     ) {
         if !seen.insert(id) {
             return;
         }
-        if module_body_has_tla(&self.modules[id].body) {
+        let has_tla = match has_tla_snapshot {
+            Some(flags) => flags.get(id).copied().unwrap_or(false),
+            None => module_body_has_tla(&self.modules[id].body),
+        };
+        if has_tla {
             out.push(id);
             return;
         }
-        for dep in &self.modules[id].eval_deps {
-            if let Some(&dep_id) = self.ids.get(dep) {
-                self.gather_async_transitive_rec(dep_id, seen, out);
-            }
-        }
-        for ns in &self.modules[id].namespaces {
-            if let Some(&dep_id) = self.ids.get(&ns.from) {
-                self.gather_async_transitive_rec(dep_id, seen, out);
+        // Spec: walk all RequestedModules (both phases).
+        for req in &self.modules[id].module_requests {
+            if let Some(&dep_id) = self.ids.get(&req.path) {
+                self.gather_async_transitive_rec(dep_id, has_tla_snapshot, seen, out);
             }
         }
     }
@@ -2248,6 +2434,163 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
 
 fn deferred_eval_fn_name(mod_id: usize) -> String {
     format!("__draconic_eval_m{mod_id}")
+}
+
+fn push_module_request(reqs: &mut Vec<ModuleRequest>, path: PathBuf, deferred: bool) {
+    if !reqs.iter().any(|r| r.path == path && r.deferred == deferred) {
+        reqs.push(ModuleRequest { path, deferred });
+    }
+}
+
+/// E19.84.09: hoist bindings and run module body as an async IIFE so TLA modules
+/// can interleave (fire-and-forget kick; entry awaits its own promise).
+fn wrap_async_eager_module_body(
+    mod_id: usize,
+    body: Vec<Stmt>,
+    async_dep_ids: &[usize],
+    track_status: bool,
+    is_entry: bool,
+    spans: &mut SyntheticSpans,
+) -> Result<Vec<Stmt>, Diagnostic> {
+    let names = top_level_names(&body);
+    let mut out = Vec::new();
+    let mut sorted: Vec<_> = names.into_iter().collect();
+    sorted.sort();
+    for name in &sorted {
+        let sp = spans.next();
+        out.push(Stmt::Let {
+            kind: BindingKind::Let,
+            binding: BindingPattern::Ident(Ident {
+                name: name.clone(),
+                span: sp,
+            }),
+            type_ann: None,
+            init: None,
+            span: sp,
+        });
+    }
+
+    let mut await_deps = String::new();
+    for &dep in async_dep_ids {
+        await_deps.push_str(&format!("await __draconic_mp[{dep}];\n"));
+    }
+    let status_start = if track_status {
+        format!("__draconic_mstatus[{mod_id}] = 1;\n")
+    } else {
+        String::new()
+    };
+    let status_ok = if track_status {
+        format!("__draconic_mstatus[{mod_id}] = 3;\n")
+    } else {
+        String::new()
+    };
+    let status_err = if track_status {
+        format!(
+            "__draconic_merror[{mod_id}] = e;\n__draconic_mstatus[{mod_id}] = 3;\n"
+        )
+    } else {
+        String::new()
+    };
+
+    // Placeholder `;` is replaced with hoisted body statements.
+    let src = format!(
+        r#"
+__draconic_mp[{mod_id}] = (async () => {{
+  {status_start}try {{
+    {await_deps};
+    {status_ok}}} catch (e) {{
+    {status_err}throw e;
+  }}
+}})();
+"#
+    );
+    let mut parsed = parse(&src)?.body;
+    let mut try_body: Vec<Stmt> = Vec::new();
+    // Re-parse await deps as real statements by extracting from a tiny module.
+    if !async_dep_ids.is_empty() {
+        let mut adeps = String::new();
+        for &dep in async_dep_ids {
+            adeps.push_str(&format!("await __draconic_mp[{dep}];\n"));
+        }
+        // parse_module allows top-level await.
+        let dep_prog = parse_module(&adeps).map_err(|e| {
+            Diagnostic::new(format!("async dep await parse: {e}"), Span::dummy())
+        })?;
+        try_body.extend(dep_prog.body);
+    }
+    for stmt in body {
+        try_body.push(hoist_decl_to_assign(stmt));
+    }
+    if track_status {
+        try_body.push(make_module_status_assign(mod_id, 3, spans.next()));
+    }
+
+    // Inject try_body into the try block of the async IIFE assignment.
+    inject_try_body_into_async_mp(&mut parsed, &mut try_body);
+
+    for mut stmt in parsed {
+        uniqueify_stmt_spans(&mut stmt, spans);
+        out.push(stmt);
+    }
+
+    // Entry module evaluation must complete before subsequent host code; await it.
+    if is_entry {
+        let await_src = format!("await __draconic_mp[{mod_id}];\n");
+        let await_prog = parse_module(&await_src).map_err(|e| {
+            Diagnostic::new(format!("entry await parse: {e}"), Span::dummy())
+        })?;
+        for mut stmt in await_prog.body {
+            uniqueify_stmt_spans(&mut stmt, spans);
+            out.push(stmt);
+        }
+    }
+
+    Ok(out)
+}
+
+/// Replace the try-block body of `__draconic_mp[id] = (async () => { try {…} })()`
+/// with `try_body` (leaves catch intact).
+fn inject_try_body_into_async_mp(parsed: &mut [Stmt], try_body: &mut Vec<Stmt>) {
+    for stmt in parsed.iter_mut() {
+        let Stmt::Expression { expr, .. } = stmt else {
+            continue;
+        };
+        let Expr::Assign { value, .. } = expr else {
+            continue;
+        };
+        let arrow_body = match value.as_mut() {
+            Expr::Call { callee, .. } => match callee.as_mut() {
+                Expr::Paren { expr: inner, .. } => match inner.as_mut() {
+                    Expr::ArrowFunction {
+                        body: ArrowBody::Block(block),
+                        ..
+                    } => Some(block.as_mut()),
+                    _ => None,
+                },
+                Expr::ArrowFunction {
+                    body: ArrowBody::Block(block),
+                    ..
+                } => Some(block.as_mut()),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(Stmt::Block { body: stmts, .. }) = arrow_body else {
+            continue;
+        };
+        for s in stmts.iter_mut() {
+            // status assign may precede try
+            if let Stmt::Try { block: tb, .. } = s {
+                if let Stmt::Block {
+                    body: try_stmts, ..
+                } = tb.as_mut()
+                {
+                    *try_stmts = std::mem::take(try_body);
+                    return;
+                }
+            }
+        }
+    }
 }
 
 /// True when module body has top-level `await` / `await using` / `for await` (HasTLA).
@@ -4960,6 +5303,86 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn link_defer_and_eager_same_module_eval_order() {
+        // E19.84.09: when a module is both `import defer` and later evaluation-phase,
+        // evaluation order follows the non-deferred import site (not first load).
+        let dir = temp_link_dir("defer-and-eager-order");
+        fs::write(dir.join("setup.drac"), "globalThis.evaluations = [];\n").unwrap();
+        fs::write(
+            dir.join("dep1.drac"),
+            "import \"./dep1a.drac\";\nglobalThis.evaluations.push(1);\n",
+        )
+        .unwrap();
+        fs::write(dir.join("dep1a.drac"), "globalThis.evaluations.push(1.1);\n").unwrap();
+        fs::write(dir.join("dep2.drac"), "globalThis.evaluations.push(2);\n").unwrap();
+        let main = dir.join("main.drac");
+        fs::write(
+            &main,
+            r#"
+import "./setup.drac";
+import defer * as ns1 from "./dep1.drac";
+import "./dep2.drac";
+import "./dep1.drac";
+let order = globalThis.evaluations;
+"#,
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("defer+eager link");
+        let dump = draconic_ast::dump_program(&program);
+        // dep2 body (push 2) must appear before dep1a (push 1.1) in the linked program.
+        let p2 = dump.find("Number 2").expect("dep2 push");
+        let p11 = dump.find("Number 1.1").expect("dep1a push");
+        assert!(
+            p2 < p11,
+            "expected eval order dep2 before dep1 subgraph:\n{dump}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_defer_tla_flattening_uses_async_mp() {
+        // E19.84.09: async transitive deps of deferred imports evaluate via __draconic_mp
+        // so TLA can interleave with later sync modules.
+        let dir = temp_link_dir("defer-tla-flatten");
+        fs::write(dir.join("setup.drac"), "globalThis.evaluations = [];\n").unwrap();
+        fs::write(dir.join("dep1.drac"), "globalThis.evaluations.push(\"1\");\n").unwrap();
+        fs::write(
+            dir.join("tla.drac"),
+            "globalThis.evaluations.push(\"tla start\");\nawait Promise.resolve(0);\nglobalThis.evaluations.push(\"tla end\");\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("dep2.drac"),
+            "import \"./tla.drac\";\nglobalThis.evaluations.push(\"2\");\n",
+        )
+        .unwrap();
+        fs::write(dir.join("dep3.drac"), "globalThis.evaluations.push(\"3\");\n").unwrap();
+        let main = dir.join("main.drac");
+        fs::write(
+            &main,
+            r#"
+import "./setup.drac";
+import "./dep1.drac";
+import defer * as ns from "./dep2.drac";
+import "./dep3.drac";
+let _ = ns;
+"#,
+        )
+        .unwrap();
+        let program = link_entry(&main).expect("defer TLA flatten link");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(
+            dump.contains("__draconic_mp"),
+            "expected async module promise slots, got:\n{dump}"
+        );
+        assert!(
+            dump.contains("Await") || dump.contains("await"),
+            "expected top-level await of async module eval, got:\n{dump}"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

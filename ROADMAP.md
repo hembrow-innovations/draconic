@@ -323,10 +323,10 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | E19.83.02 | done | js | Dynamic import usage residual: self-import module eval + eval-export-dflt + `$DONE`/file-module host | `tests/test262` (allowlist + harness) |
 | E19.83.03 | done | js | Dynamic import namespace residual: delete non-exported, default not own, reuse ns from static import | `tests/test262` (allowlist + linker/backend) |
 | E19.83.04 | done | js | Dynamic import catch residual: async-gen script-code-target SyntaxError path | `tests/test262` |
-| E19.84 | todo | js | `import.defer` residual: errors, evaluation-triggers, deferred-namespace, top-level-await defer clusters (children below) | `crates/draconic-parser` / linker, `tests/test262` |
+| E19.84 | done | js | `import.defer` residual: errors, evaluation-triggers, deferred-namespace, top-level-await defer clusters (children below) | `crates/draconic-parser` / linker, `tests/test262` |
 | E19.84.07 | done | js | Multi-declarator `export let/const a, b` + ReadyForSyncExecution async residuals: `get-other-while-evaluating-async` / `get-other-while-dep-evaluating-async` | `crates/draconic-linker`, `tests/test262` |
 | E19.84.08 | done | js | Deferred ns module evaluation errors: `module-throws/*` (throw on EnsureDeferredNamespaceEvaluation; same reason after eager eval; `assert.deepEqual` harness) | `crates/draconic-linker` / harness, `tests/test262` |
-| E19.84.09 | todo | js | Evaluation order residual: `module-imported-defer-and-eager` + TLA `flattening-order` | `crates/draconic-linker`, `tests/test262` |
+| E19.84.09 | done | js | Evaluation order residual: `module-imported-defer-and-eager` + TLA `flattening-order` | `crates/draconic-linker`, `tests/test262` |
 | E19.84.06 | done | js | Dynamic `import.defer` of sync graphs does not evaluate; TLA transitive deps still evaluate at defer-import time; rewrite to deferred ns + `Promise.resolve` | `crates/draconic-linker`, `tests/test262` |
 | E19.84.01 | done | js | Deferred namespace object MOP: `exotic-object-behavior` + `to-string-tag` (non-extensible; null proto; sorted ownKeys + `@@toStringTag`; `configurable: false` descriptors; `"Deferred Module"` tag; `setPrototypeOf`/`isExtensible`/`preventExtensions` semantics) | `tests/test262` (allowlist + linker) |
 | E19.84.02 | done | js | Deferred namespace identity/caching: same module's deferred ns shared across static `import defer` sites, re-export, and dynamic `import.defer`; distinct from eager ns (`identity.js`) | `tests/test262` (allowlist + linker) |
