@@ -8,7 +8,10 @@ use draconic_ast::{
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_lexer::{JsString, Lexer, Token, TokenKind};
 
+mod fuzz;
+
 pub use draconic_ast::dump_program as dump_ast;
+pub use fuzz::fuzz_parse;
 
 pub fn parse(source: &str) -> Result<Program, Diagnostic> {
     let tokens = Lexer::new(source).tokenize()?;

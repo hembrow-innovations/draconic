@@ -1,0 +1,42 @@
+[package]
+name = "draconic-parser-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "MIT"
+description = "Parser fuzz harness for draconic-parser (Roadmap R05.01)"
+
+# Standalone package (not the root workspace). Keep libfuzzer/cargo-fuzz
+# optional and out of `cargo test --workspace`. Build the designed harness:
+#   cargo build --manifest-path crates/draconic-parser/fuzz/Cargo.toml --bin parse_harness
+# cargo-fuzz (optional):
+#   cargo install cargo-fuzz
+#   cargo fuzz run parse --fuzz-dir crates/draconic-parser/fuzz
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+draconic-parser = { path = ".." }
+libfuzzer-sys = { version = "0.4", optional = true }
+
+[features]
+default = []
+# Enable when building with cargo-fuzz / libFuzzer.
+libfuzzer = ["dep:libfuzzer-sys"]
+
+[[bin]]
+name = "parse_harness"
+path = "harness/parse_harness.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse"
+path = "fuzz_targets/parse.rs"
+required-features = ["libfuzzer"]
+test = false
+doc = false
+bench = false

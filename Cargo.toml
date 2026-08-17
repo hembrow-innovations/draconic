@@ -20,6 +20,10 @@ members = [
     "tests/conformance",
     "tests/test262",
 ]
+# Standalone fuzz packages (cargo-fuzz / designed harness); not built by workspace.
+exclude = [
+    "crates/draconic-parser/fuzz",
+]
 
 [workspace.package]
 version = "0.1.0"

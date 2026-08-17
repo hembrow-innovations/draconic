@@ -16,3 +16,10 @@
 examples/todo/server/server
 /third_party/test262/
 /tests/test262/baseline-report.md
+
+# cargo-fuzz / designed harness artifacts (R05.01)
+**/fuzz/target
+**/fuzz/corpus
+**/fuzz/artifacts
+**/fuzz/coverage
+**/*_seed_corpus.zip

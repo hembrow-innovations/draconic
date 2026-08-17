@@ -515,6 +515,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.13 | done | native | Real native observations: block-level function declarations (E18.13) — `es/annex-b/block_function` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/block_function`, `crates/draconic-backend-llvm` |
 | N08.16.14 | done | native | Real native observations: `var` declarations (E18.14) — `es/annex-b/var_decl` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/var_decl`, `crates/draconic-backend-llvm` |
 | N08.16.15 | done | native | Real native observations: `var` in `for` heads (E18.15) — `es/annex-b/var_for` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/var_for`, `crates/draconic-backend-llvm` |
+| N08.16.16 | in_progress | native | Real native observations: RegExp constructor Annex B statics (E18.16) — `es/annex-b/regexp_statics` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/regexp_statics`, `crates/draconic-backend-llvm` |
 | N08.17 | done | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
@@ -539,7 +540,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | U11 | todo | both | Coverage: line coverage for `draconic test` on js and/or native | `crates/draconic-cli`, `tests/integration` |
 | U12 | todo | compiler | Doc comments → HTML/md: `draconic doc` extract/emit | `crates/draconic-cli`, `tests/integration` |
 | U13 | done | compiler | Verbose version: commit, host target, LLVM version (`draconic -V`) | `crates/draconic-cli` |
-| U14 | todo | compiler | `draconic run <file>`: build+execute convenience (js and/or native); shebang-friendly | `crates/draconic-cli`, `tests/integration` |
+| U14 | in_progress | compiler | `draconic run <file>`: build+execute convenience (js and/or native); shebang-friendly | `crates/draconic-cli`, `tests/integration` |
 
 ---
 
@@ -554,7 +555,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H00 | todo | both | Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix | `tests/conformance/host/policy`, `crates/draconic-runtime` |
 | H00.01 | done | compiler | Host API registry: known symbols + target availability; js unsupported → hard diagnostic | `crates/draconic-check`, `tests/conformance/host/policy` |
 | H00.02 | done | native | Host Runtime ABI scaffold: syscall/error codes, handles, path encoding at boundary | `crates/draconic-runtime` |
-| H00.03 | todo | native | I/O bytes boundary: `Uint8Array`/`ArrayBuffer` as OS read/write buffers | `crates/draconic-runtime`, `tests/conformance/host/bytes` |
+| H00.03 | in_progress | native | I/O bytes boundary: `Uint8Array`/`ArrayBuffer` as OS read/write buffers | `crates/draconic-runtime`, `tests/conformance/host/bytes` |
 | H01 | todo | both | Process: args, env, exit | `tests/conformance/host/process` |
 | H01.01 | todo | both | Program args as string array (native OS argv; js Node bridge) | `tests/conformance` fixtures `host/process` |
 | H01.02 | todo | both | Env get/set/delete (string values); missing → undefined | `tests/conformance` fixtures `host/process` |
@@ -648,7 +649,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K01 | todo | compiler | Manifest (`draconic.toml`): module path, deps, optional path→git URL map | `crates/draconic-pkg` |
 | K01.01 | done | compiler | Parse `draconic.toml`: own module path + deps map (path → version req) | `crates/draconic-pkg` |
 | K01.02 | done | compiler | Write/round-trip `draconic.toml` (stable order) | `crates/draconic-pkg` |
-| K01.03 | todo | compiler | Manifest schema validation + diagnostics | `crates/draconic-pkg` |
+| K01.03 | done | compiler | Manifest schema validation + diagnostics | `crates/draconic-pkg` |
 | K01.04 | todo | compiler | Optional URL map; default derive `https://{module_path}.git` | `crates/draconic-pkg` |
 | K02 | todo | compiler | Lockfile (`draconic.lock`): resolved pins | `crates/draconic-pkg` |
 | K02.01 | todo | compiler | Lock entry: path + version + git URL + commit OID + content hash SHA-256 | `crates/draconic-pkg` |
@@ -726,7 +727,7 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 | F07.03 | todo | compiler | CLI: `draconic bindgen <header>` (or designed) writes extern module | `crates/draconic-cli`, `tests/integration` |
 | F07.04 | todo | compiler | Header subset: simple structs + typedef names (no full C) | `tests/integration` |
 | F08 | todo | both | Unsafe/native-only FFI diagnostics; JS hard-error; clear spans | `tests/conformance` fixtures `ffi/policy` |
-| F08.01 | todo | js | FFI/extern on js → hard diagnostic (N04 spirit) | `tests/conformance` fixtures `ffi/policy` |
+| F08.01 | in_progress | js | FFI/extern on js → hard diagnostic (N04 spirit) | `tests/conformance` fixtures `ffi/policy` |
 | F08.02 | todo | both | Clear spans + codes for bad extern signatures / unsupported types | `tests/conformance` fixtures `ffi/policy` |
 | F09 | todo | native | Optional later: wasm32/wasi emit + link smoke | `tests/integration`, `crates/draconic-backend-llvm` |
 
@@ -862,7 +863,7 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 | R04.01 | todo | native | Document + fixture: which failures are catchable exceptions | `tests/conformance` fixtures `security/panic_policy` |
 | R04.02 | todo | native | Document + fixture: which failures abort/panic process | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
 | R05 | todo | both | Fuzz/stress hooks: parser/embed/runtime entry points | `crates/draconic-parser` and/or `crates/draconic-runtime` fuzz |
-| R05.01 | todo | compiler | Parser fuzz entry (cargo-fuzz or designed harness) | `crates/draconic-parser` fuzz |
+| R05.01 | done | compiler | Parser fuzz entry (cargo-fuzz or designed harness) | `crates/draconic-parser` fuzz |
 | R05.02 | todo | native | Embed/runtime fuzz or stress hooks | `crates/draconic-runtime` fuzz, `crates/draconic-embed` |
 | R06 | todo | native | Panic backtraces with source locations (ties **U07** DWARF) | `crates/draconic-runtime`, `tests/integration` |
 
