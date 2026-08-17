@@ -22,19 +22,22 @@ export function stallConfig() {
 }
 
 /**
- * @param {{ label: string, promptArgs: string[], extraFlags?: string[], quiet?: boolean }} opts
+ * @param {{ label: string, promptArgs: string[], extraFlags?: string[], quiet?: boolean, cwd?: string }} opts
  * @returns {Promise<{ code: number, reason: string }>}
  */
 export function runOpencodeOnce(opts) {
-	const { label, promptArgs, extraFlags = [], quiet = false } = opts;
+	const { label, promptArgs, extraFlags = [], quiet = false, cwd } = opts;
 	const { stallSec, stallMs } = stallConfig();
 
 	return new Promise((resolve) => {
-		if (!quiet) process.stdout.write(`\n===== ${label} =====\n`);
+		if (!quiet) {
+			process.stdout.write(`\n===== ${label} =====\n`);
+			if (cwd) process.stdout.write(`[cwd] ${cwd}\n`);
+		}
 		const child = spawn(
 			"opencode",
 			["run", "--auto", "--format", "json", ...promptArgs, ...extraFlags],
-			{ stdio: ["inherit", "pipe", "inherit"] },
+			{ stdio: ["inherit", "pipe", "inherit"], cwd: cwd || process.cwd() },
 		);
 
 		let lastActivity = Date.now();

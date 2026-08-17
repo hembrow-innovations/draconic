@@ -12,6 +12,7 @@
 *.dylib
 *.exe
 /tmp
+.loop/worktrees/
 .scratch/**/claim.lock
 examples/todo/server/server
 /third_party/test262/

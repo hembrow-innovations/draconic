@@ -29,7 +29,7 @@ Prefer `cargo test --workspace` and the `draconic` CLI over ad-hoc scripts.
 
 Unattended multi-iteration driver: `node .loop/opencode-loop.mjs <n>` (see `.loop/`; stall watchdog via `STALL_SEC`). TUI: `/loop` (default 100×).
 
-Swarm / orchestrate (until Roadmap empty): `node .loop/opencode-swarm.mjs wave=10` (one wave); `node .loop/opencode-orchestrate.mjs wave=10` (loop waves). TUI: `/swarm`, `/orchestrate`. Prefer **serial** waves on this monorepo; `parallel` is opt-in and conflict-prone.
+Swarm / orchestrate (until Roadmap empty): `node .loop/opencode-swarm.mjs wave=10` (one wave); `node .loop/opencode-orchestrate.mjs wave=10` (loop waves). TUI: `/swarm`, `/orchestrate`. Prefer **serial** waves on this monorepo. **parallel** uses one git worktree per slot under `.loop/worktrees/` and **must** remove it when the slot finishes (also swept on start/end/signal). Manual sweep: `node .loop/worktree.mjs cleanup`.
 
 Each `rs` file should have a soft limit of 1,000 lines.
 

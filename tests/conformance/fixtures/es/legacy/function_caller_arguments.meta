@@ -1,0 +1,4 @@
+id: es/legacy/function_caller_arguments
+targets: js
+js.exit: 0
+js.check: if (callerOk !== true) process.exit(1); if (a0 !== 10) process.exit(2); if (a1 !== 20) process.exit(3); if (aLen !== 2) process.exit(4); if (aType !== "object") process.exit(5); if (topCaller !== null) process.exit(6); if (afterCaller !== null) process.exit(7); if (afterArgs !== null) process.exit(8); if (callerType !== "function") process.exit(9); if (strictCallerErr !== "TypeError") process.exit(10); if (strictArgsErr !== "TypeError") process.exit(11);

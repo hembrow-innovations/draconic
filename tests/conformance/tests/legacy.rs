@@ -88,3 +88,13 @@ fn duplicate_params_fixture_present() {
 fn duplicate_params_runs() {
     assert_fixture_runs_declared_targets("es/legacy/duplicate_params");
 }
+
+#[test]
+fn function_caller_arguments_fixture_present() {
+    assert_fixture_present("es/legacy/function_caller_arguments");
+}
+
+#[test]
+fn function_caller_arguments_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/function_caller_arguments");
+}

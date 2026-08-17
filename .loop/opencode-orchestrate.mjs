@@ -20,9 +20,17 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readRoadmapStatus } from "./roadmap-status.mjs";
+import {
+	cleanupAllSwarmWorktrees,
+	installWorktreeCleanupHandlers,
+	repoRoot,
+} from "./worktree.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const swarmScript = join(here, "opencode-swarm.mjs");
+const root = repoRoot();
+installWorktreeCleanupHandlers(root);
+cleanupAllSwarmWorktrees(root, { label: "orchestrate-start" });
 
 function parseArgs(argv) {
 	/** @type {string[]} */
@@ -84,6 +92,7 @@ for (;;) {
 	);
 	if (st.counts.todo === 0) {
 		console.log("##### orchestrate complete: no todo items left");
+		cleanupAllSwarmWorktrees(root, { label: "orchestrate-complete" });
 		process.exit(totalErrors > 0 ? 1 : 0);
 	}
 
@@ -98,6 +107,8 @@ for (;;) {
 	console.log(`##### wave ${wave} starting (todo=${beforeTodo})`);
 
 	const code = await runSwarm();
+	// Swarm should have cleaned its trees; sweep again in case of hard kill
+	cleanupAllSwarmWorktrees(root, { label: `orchestrate-after-wave-${wave}` });
 	if (code !== 0 && code !== 2) totalErrors++;
 
 	const after = readRoadmapStatus();
@@ -106,6 +117,7 @@ for (;;) {
 
 	if (after.counts.todo === 0) {
 		console.log("##### orchestrate complete after wave", wave);
+		cleanupAllSwarmWorktrees(root, { label: "orchestrate-complete" });
 		process.exit(totalErrors > 0 || code === 1 ? 1 : 0);
 	}
 
@@ -118,6 +130,7 @@ for (;;) {
 			console.error(
 				"##### abort: too many consecutive no-progress waves (stuck items or agent failures)",
 			);
+			cleanupAllSwarmWorktrees(root, { label: "orchestrate-stuck" });
 			process.exit(2);
 		}
 	} else {

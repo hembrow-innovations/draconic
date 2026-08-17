@@ -1,0 +1,70 @@
+// E17.02.05: Function.caller / Function.arguments on non-strict functions.
+function f(a, b) {
+  let callerIsG = f.caller === g;
+  let args0 = f.arguments[0];
+  let args1 = f.arguments[1];
+  let argsLen = f.arguments.length;
+  let argsType = typeof f.arguments;
+  return [callerIsG, args0, args1, argsLen, argsType];
+}
+function g() {
+  return f(10, 20);
+}
+let r = g();
+let callerOk = r[0];
+let a0 = r[1];
+let a1 = r[2];
+let aLen = r[3];
+let aType = r[4];
+
+// Top-level call: caller is null.
+function top() {
+  return top.caller;
+}
+let topCaller = top();
+
+// After return: caller and arguments are null.
+function done() {
+  return 1;
+}
+done();
+let afterCaller = done.caller;
+let afterArgs = done.arguments;
+
+// typeof while running
+function typeProbe() {
+  return typeof typeProbe.caller;
+}
+function typeCaller() {
+  return typeProbe();
+}
+let callerType = typeCaller();
+
+// Strict function: reading .caller / .arguments throws TypeError.
+function strictCaller() {
+  "use strict";
+  try {
+    return strictCaller.caller;
+  } catch (e) {
+    return e.name;
+  }
+}
+function callStrictCaller() {
+  "use strict";
+  return strictCaller();
+}
+let strictCallerErr = callStrictCaller();
+
+function strictArgs() {
+  "use strict";
+  try {
+    return strictArgs.arguments;
+  } catch (e) {
+    return e.name;
+  }
+}
+function callStrictArgs() {
+  "use strict";
+  return strictArgs();
+}
+let strictArgsErr = callStrictArgs();

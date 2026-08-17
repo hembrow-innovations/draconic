@@ -144,6 +144,15 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if user_locals.is_empty() {
         return None;
     }
+    // Class lowering injects `new.target` into constructors, so bare class
+    // fixtures also set module_has_new_target. Reject failed evals that only
+    // produced Undef observations so they fall through to es_classes.
+    if !values
+        .values()
+        .any(|v| matches!(v, JsVal::Bool(_) | JsVal::Str(_)))
+    {
+        return None;
+    }
     Some(ModuleInfo {
         user_locals,
         values,

@@ -9,9 +9,11 @@ Run **one swarm wave** only. Do not implement Roadmap items yourself — spawn t
 
 `$ARGUMENTS` may include:
 
-- `parallel` or `serial` (default **serial** — safe on one worktree)
+- `parallel` or `serial` (default **serial** — main worktree only)
 - `wave=N` (default **10**)
 - env-style: `SLEEP=30` `STALL_SEC=900` `STALL_ACTION=continue|abort`
+
+**Parallel worktrees:** each slot gets `.loop/worktrees/<name>` + branch `swarm/<name>`. After the slot finishes (ok / error / stall), the driver **always** removes that worktree and deletes the branch. Start/end/signal also run a full sweep so nothing dangles.
 
 Examples:
 
@@ -36,12 +38,14 @@ node .loop/opencode-swarm.mjs wave=10
 
 3. When the process exits, report briefly:
    - exit code
-   - slots run / stalls / errors
+   - slots run / stalls / errors / merge failures
    - ROADMAP `todo` before→after (run `node .loop/roadmap-status.mjs`)
    - whether the board is empty
+4. Confirm no dangling trees: `node .loop/worktree.mjs list` should show **no** `[swarm]` entries. If any remain, run `node .loop/worktree.mjs cleanup`.
 
 ## Do not
 
 - Do not run the draconic-loop skill in this session — child `opencode run` processes do that.
 - Do not start a second swarm while one is still running.
 - Do not loop waves here — that is `/orchestrate`.
+- Do not leave `.loop/worktrees/*` around — cleanup is mandatory.
