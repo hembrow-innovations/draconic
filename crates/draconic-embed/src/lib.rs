@@ -18,6 +18,22 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_frontend::compile_source;
 use draconic_ir::{Expr, LocalId, Module, Stmt};
 
+/// Maximum UTF-8 byte length of source accepted by embed `eval` / `Function` (R01.01).
+///
+/// Checked before compile so oversize input fails closed without parsing.
+pub const MAX_EVAL_SOURCE_BYTES: usize = 1_048_576; // 1 MiB
+
+/// Reject `source` when longer than [`MAX_EVAL_SOURCE_BYTES`].
+fn check_eval_source_size(source: &str) -> Result<(), Diagnostic> {
+    let len = source.len();
+    if len > MAX_EVAL_SOURCE_BYTES {
+        return Err(diag(format!(
+            "embed eval: source exceeds maximum source size ({len} > {MAX_EVAL_SOURCE_BYTES} bytes)"
+        )));
+    }
+    Ok(())
+}
+
 /// JS-ish value produced by Embed eval (N07.01 subset).
 #[derive(Debug, Clone, PartialEq)]
 pub enum EmbedValue {
@@ -59,6 +75,7 @@ impl EmbedValue {
 /// N07.01 supports expression scripts built from literals, arithmetic, unary
 /// `+/-`, grouping, and `typeof` on the supported value set (incl. `undefined`).
 pub fn eval_source(source: &str) -> Result<EmbedValue, Diagnostic> {
+    check_eval_source_size(source)?;
     let module = compile_source(source)?;
     interpret_module(&module)
 }
@@ -102,6 +119,8 @@ pub fn eval_function_call(
     body: &str,
     args: &[EmbedValue],
 ) -> Result<EmbedValue, Diagnostic> {
+    // Body is Function source text; reject before strip/compile (R01.01).
+    check_eval_source_size(body)?;
     let expr_src = function_body_completion_expr(body)?;
     let mut bindings = Vec::with_capacity(params.len());
     for (i, name) in params.iter().enumerate() {
@@ -549,5 +568,58 @@ mod tests {
         )
         .unwrap();
         assert_eq!(v, EmbedValue::Number(100.0));
+    }
+
+    #[test]
+    fn eval_source_accepts_source_at_max_size() {
+        // One-byte expression under the cap; pad with spaces after a valid expr.
+        let mut src = String::from("1");
+        src.push_str(&" ".repeat(MAX_EVAL_SOURCE_BYTES - src.len()));
+        assert_eq!(src.len(), MAX_EVAL_SOURCE_BYTES);
+        let v = eval_source(&src).unwrap();
+        assert_eq!(v, EmbedValue::Number(1.0));
+    }
+
+    #[test]
+    fn eval_source_rejects_oversize_source() {
+        let src = "1".to_string() + &" ".repeat(MAX_EVAL_SOURCE_BYTES);
+        assert_eq!(src.len(), MAX_EVAL_SOURCE_BYTES + 1);
+        let err = eval_source(&src).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("maximum source size") || msg.contains("exceeds"),
+            "msg={msg}"
+        );
+        assert!(
+            msg.contains(&MAX_EVAL_SOURCE_BYTES.to_string()),
+            "msg should mention limit; msg={msg}"
+        );
+    }
+
+    #[test]
+    fn eval_source_with_bindings_rejects_when_combined_script_oversize() {
+        // Source alone is small; bindings + source exceed the cap.
+        let pad = " ".repeat(MAX_EVAL_SOURCE_BYTES);
+        let err = eval_source_with_bindings(
+            &pad,
+            &[("gx".into(), EmbedValue::Number(1.0))],
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("maximum source size") || msg.contains("exceeds"),
+            "msg={msg}"
+        );
+    }
+
+    #[test]
+    fn eval_function_call_rejects_oversize_body() {
+        let body = format!("return {}", "1".to_string() + &" ".repeat(MAX_EVAL_SOURCE_BYTES));
+        let err = eval_function_call(&[], &body, &[]).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("maximum source size") || msg.contains("exceeds"),
+            "msg={msg}"
+        );
     }
 }
