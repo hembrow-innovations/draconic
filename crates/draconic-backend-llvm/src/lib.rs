@@ -15,6 +15,7 @@ mod es_legacy;
 mod es_modules;
 mod es_nullish;
 mod es_objects;
+mod es_private_accessors;
 mod es_promise;
 mod es_proxies;
 mod es_tagged_template;
@@ -44,6 +45,7 @@ use es_legacy::{emit_es_legacy, is_es_legacy_module};
 use es_modules::{emit_es_modules, is_es_modules_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
+use es_private_accessors::{emit_es_private_accessors, is_es_private_accessors_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_proxies::{emit_es_proxies, is_es_proxies_module};
 use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
@@ -132,6 +134,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Annex B block-level function declarations** (`{ function f(){…} }`) — N08.16.13
 /// - **`var` declarations** (hoist/redeclare/uninit) — N08.16.14
 /// - **`var` in `for` heads** (for-in/of/classic + Annex B.3.5 init) — N08.16.15
+/// - **Private accessors** (`get`/`set #x` instance+static) — N08.16.40
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -149,6 +152,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_encoding_module(module) {
         return emit_es_encoding(module);
+    }
+    if is_es_private_accessors_module(module) {
+        return emit_es_private_accessors(module);
     }
     if is_es_builtins_module(module) {
         return emit_es_builtins(module);
