@@ -1,4 +1,6 @@
 id: es/annex-b/class_expr_name
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: cls\nX\nfunction\ndCls\nY\nfunction\noCls\nZ\nfunction\npCls\nW\nfunction\naCls\nQ\n
 js.check: if (a !== "cls") process.exit(1); if (b !== "X") process.exit(2); if (c !== "function") process.exit(3); if (d !== "dCls") process.exit(4); if (e !== "Y") process.exit(5); if (f1 !== "function") process.exit(6); if (g !== "oCls") process.exit(7); if (h !== "Z") process.exit(8); if (i !== "function") process.exit(9); if (j !== "pCls") process.exit(10); if (k !== "W") process.exit(11); if (l !== "function") process.exit(12); if (m !== "aCls") process.exit(13); if (n !== "Q") process.exit(14);
