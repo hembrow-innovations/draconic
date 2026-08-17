@@ -1,7 +1,8 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_ast::print_program;
 use draconic_backend_js::emit_js;
@@ -24,6 +25,7 @@ fn main() -> ExitCode {
         "check" => cmd_check(&args),
         "fmt" => cmd_fmt(&args),
         "build" => cmd_build(&args),
+        "run" => cmd_run(&args),
         "test" => cmd_test(&args),
         "help" | "-h" | "--help" => {
             print_usage();
@@ -33,12 +35,36 @@ fn main() -> ExitCode {
             print!("{}", verbose_version());
             ExitCode::SUCCESS
         }
+        // Shebang-friendly: `#!/usr/bin/env draconic` → `draconic <script> [args…]`
+        other if looks_like_script_path(other) => {
+            let mut run_args = Vec::with_capacity(args.len() + 1);
+            run_args.push(other.to_string());
+            run_args.extend(args);
+            cmd_run(&run_args)
+        }
         other => {
             eprintln!("unknown command: {other}");
             eprint_usage();
             ExitCode::from(2)
         }
     }
+}
+
+/// True when `arg` should be treated as a Program path (shebang / bare-file invoke).
+fn looks_like_script_path(arg: &str) -> bool {
+    if arg.starts_with('-') {
+        return false;
+    }
+    let path = Path::new(arg);
+    if path.is_file() {
+        return true;
+    }
+    // Allow paths that clearly look like sources even if missing (better error later).
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("drac") | Some("js")
+    ) || arg.contains('/')
+        || arg.contains('\\')
 }
 
 fn cmd_parse(args: &[String]) -> ExitCode {
@@ -206,6 +232,165 @@ fn cmd_build(args: &[String]) -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+/// ROADMAP U14: `draconic run` — build to a temp artifact and execute immediately.
+/// Default target is `js` (Node). Use `--target native` for the LLVM path.
+/// Remaining args after the input file are forwarded to the program.
+fn cmd_run(args: &[String]) -> ExitCode {
+    let parsed = match parse_run_args(args) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            eprintln!("usage: draconic run [--target js|native] <file> [args...]");
+            return ExitCode::from(2);
+        }
+    };
+
+    let work = match run_work_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let artifact = match parsed.target {
+        Target::Js => work.join("out.js"),
+        Target::Native => work.join("out"),
+    };
+
+    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact) {
+        let _ = fs::remove_dir_all(&work);
+        eprintln!("error: {d}");
+        return ExitCode::from(1);
+    }
+
+    let status = execute_artifact(parsed.target, &artifact, &parsed.program_args);
+    let _ = fs::remove_dir_all(&work);
+
+    match status {
+        Ok(code) => exit_from_code(code),
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[derive(Debug)]
+struct RunArgs {
+    target: Target,
+    input: PathBuf,
+    program_args: Vec<String>,
+}
+
+fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
+    let mut target = Target::Js; // default for shebang / quick scripts
+    let mut input: Option<PathBuf> = None;
+    let mut program_args: Vec<String> = Vec::new();
+    let mut i = 0;
+    let mut saw_separator = false;
+
+    while i < args.len() {
+        let a = &args[i];
+        if saw_separator {
+            program_args.push(a.clone());
+            i += 1;
+            continue;
+        }
+        match a.as_str() {
+            "--" => {
+                saw_separator = true;
+            }
+            "--target" => {
+                i += 1;
+                let val = args
+                    .get(i)
+                    .ok_or_else(|| "missing value for --target".to_string())?;
+                target = parse_target(val)?;
+            }
+            t if let Some(rest) = t.strip_prefix("--target=") => {
+                target = parse_target(rest)?;
+            }
+            "-h" | "--help" => {
+                return Err("usage: draconic run [--target js|native] <file> [args...]".into());
+            }
+            other if other.starts_with('-') && input.is_none() => {
+                return Err(format!("unknown option: {other}"));
+            }
+            other => {
+                if input.is_none() {
+                    input = Some(PathBuf::from(other));
+                } else {
+                    // After the Program path, remaining tokens are program argv.
+                    program_args.push(other.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+
+    let input = input.ok_or_else(|| "missing input file".to_string())?;
+    Ok(RunArgs {
+        target,
+        input,
+        program_args,
+    })
+}
+
+fn run_work_dir() -> Result<PathBuf, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = env::temp_dir().join(format!(
+        "draconic-run-{}-{}-{}",
+        std::process::id(),
+        nanos,
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&dir).map_err(|e| format!("create temp dir failed: {e}"))?;
+    Ok(dir)
+}
+
+fn execute_artifact(
+    target: Target,
+    artifact: &Path,
+    program_args: &[String],
+) -> Result<i32, String> {
+    let mut cmd = match target {
+        Target::Js => {
+            let mut c = Command::new("node");
+            c.arg(artifact);
+            c
+        }
+        Target::Native => Command::new(artifact),
+    };
+    cmd.args(program_args);
+    // Inherit stdio so run feels like a real process (shebang-friendly).
+    cmd.stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    let status = cmd
+        .status()
+        .map_err(|e| match target {
+            Target::Js => format!("spawn node failed: {e}"),
+            Target::Native => format!("spawn binary failed: {e}"),
+        })?;
+    Ok(status.code().unwrap_or(1))
+}
+
+fn exit_from_code(code: i32) -> ExitCode {
+    if code == 0 {
+        ExitCode::SUCCESS
+    } else if (1..=255).contains(&code) {
+        ExitCode::from(code as u8)
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
@@ -504,9 +689,13 @@ Usage:
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
   draconic build --target js|native <file> [-o <out>]
                                                  Compile a Program to JS or a native binary
+  draconic run [--target js|native] <file> [args...]
+                                                 Build and execute a Program (default target: js)
   draconic test <path>                           Run conformance fixtures (dir or .drac file)
   draconic version | -V | --version              Print verbose version (commit, host, LLVM)
   draconic help                                  Show this help
+
+Shebang: #!/usr/bin/env draconic  (invokes run on the script path)
 "
     );
 }
@@ -547,6 +736,36 @@ mod tests {
         let args = vec!["a.drac".into()];
         let err = parse_build_args(&args).unwrap_err();
         assert!(err.contains("target"), "{err}");
+    }
+
+    #[test]
+    fn parse_run_args_defaults_js_and_forwards() {
+        let args = vec!["a.drac".into(), "x".into(), "y".into()];
+        let p = parse_run_args(&args).unwrap();
+        assert_eq!(p.target, Target::Js);
+        assert_eq!(p.input, PathBuf::from("a.drac"));
+        assert_eq!(p.program_args, vec!["x".to_string(), "y".to_string()]);
+    }
+
+    #[test]
+    fn parse_run_args_native_target() {
+        let args = vec![
+            "--target".into(),
+            "native".into(),
+            "a.drac".into(),
+        ];
+        let p = parse_run_args(&args).unwrap();
+        assert_eq!(p.target, Target::Native);
+        assert_eq!(p.input, PathBuf::from("a.drac"));
+        assert!(p.program_args.is_empty());
+    }
+
+    #[test]
+    fn looks_like_script_path_for_shebang() {
+        assert!(looks_like_script_path("hello.drac"));
+        assert!(looks_like_script_path("./bin/tool"));
+        assert!(!looks_like_script_path("--target"));
+        assert!(!looks_like_script_path("build"));
     }
 
     #[test]
