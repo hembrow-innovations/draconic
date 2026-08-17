@@ -518,6 +518,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.16 | done | native | Real native observations: RegExp constructor Annex B statics (E18.16) — `es/annex-b/regexp_statics` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/regexp_statics`, `crates/draconic-backend-llvm` |
 | N08.16.17 | done | native | Real native observations: VariableStatements in Catch (E18.17) — `es/annex-b/var_catch` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/var_catch`, `crates/draconic-backend-llvm` |
 | N08.16.18 | done | native | Real native observations: regexp literals (E18.18) — `es/annex-b/regexp_literal` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/regexp_literal`, `crates/draconic-backend-llvm` |
+| N08.16.19 | done | native | Real native observations: object destructuring (E18.19) — `es/annex-b/object_destructure` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/object_destructure`, `crates/draconic-backend-llvm` |
 | N08.17 | done | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |

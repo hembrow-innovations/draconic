@@ -14,6 +14,7 @@ mod es_generators;
 mod es_legacy;
 mod es_modules;
 mod es_nullish;
+mod es_object_destructure;
 mod es_objects;
 mod es_promise;
 mod es_proxies;
@@ -43,6 +44,7 @@ use es_generators::{emit_es_generators, is_es_generators_module};
 use es_legacy::{emit_es_legacy, is_es_legacy_module};
 use es_modules::{emit_es_modules, is_es_modules_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
+use es_object_destructure::{emit_es_object_destructure, is_es_object_destructure_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_proxies::{emit_es_proxies, is_es_proxies_module};
@@ -192,6 +194,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_classes_module(module) {
         return emit_es_classes(module);
+    }
+    if is_es_object_destructure_module(module) {
+        return emit_es_object_destructure(module);
     }
     if is_es_objects_module(module) {
         return emit_es_objects(module);

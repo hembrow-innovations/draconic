@@ -131,6 +131,9 @@ void *draconic_rt_object_get_symbol(DraconicValue *obj, int64_t sym);
 /* N08.04.05: set/get ordinary object [[Prototype]] (nullable). */
 void draconic_rt_object_set_proto(DraconicValue *obj, DraconicValue *proto);
 DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj);
+/* N08.16.19: object rest — copy own string props then delete excluded keys. */
+void draconic_rt_object_copy_own(DraconicValue *dst, DraconicValue *src);
+void draconic_rt_object_delete(DraconicValue *obj, const char *key);
 
 /* --- Promise.allSettled (N06.08): array of promises/values →
        promise of [{status,value|reason}, …] --- */
