@@ -1,15 +1,18 @@
-//! N08.10.01–N08.10.03: native observations for `throw` + `try`/`catch`/`finally` (E10.01–E10.03).
+//! N08.10.01–N08.10.03 + N08.16.17: native observations for `throw` +
+//! `try`/`catch`/`finally` (E10.01–E10.03) and Annex B.3.4 VariableStatements in
+//! Catch (E18.17 / `es/annex-b/var_catch`).
 //!
-//! Compile-time evaluation of a small exception subset matching
-//! `es/exceptions/throw_try_catch`, `es/exceptions/try_finally`, and
-//! `es/exceptions/optional_catch`: number/string throws, catch binding (named or
-//! optional), nested try, rethrow, zero-arg functions that throw or `return`
-//! through `finally`. Emits Runtime prints of final top-level number locals.
+//! Compile-time evaluation of a small exception subset: number/string throws,
+//! catch binding (named or optional), nested try, rethrow, zero-arg functions
+//! that throw or `return` through `finally`, string concat / `typeof` /
+//! `String(…)`, and Annex B `catch (e) { var e = … }` (initializer assigns the
+//! catch binding; outer `var` stays hoisted-undefined). Emits Runtime prints of
+//! final top-level number/string/undefined locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::{AssignOp, BinaryOp};
+use draconic_ast::{AssignOp, BinaryOp, BindingKind, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
@@ -34,6 +37,8 @@ enum JsVal {
     Undef,
     /// Function local bound at declaration.
     Fn(LocalId),
+    /// Global `String` (ToString).
+    BuiltinString,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +70,12 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut functions: HashMap<LocalId, FnRec> = HashMap::new();
     let mut user_locals = Vec::new();
 
+    for loc in &module.locals {
+        if loc.name == "String" {
+            env.insert(loc.id, JsVal::BuiltinString);
+        }
+    }
+
     // Hoist function decls first (JS).
     for stmt in &module.body {
         if let Stmt::Function {
@@ -84,7 +95,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         }
     }
 
-    match eval_body(&module.body, &mut env, &functions) {
+    hoist_vars_in_stmts(&module.body, &mut env);
+
+    match eval_body(&module.body, &mut env, &functions, &by_id, None) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }
@@ -92,8 +105,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     for stmt in &module.body {
         if let Stmt::Declare { local, .. } = stmt {
             let loc = by_id.get(local)?;
-            if matches!(loc.ty, Type::Number | Type::Any) {
-                if matches!(env.get(local), Some(JsVal::Fn(_))) {
+            if matches!(loc.ty, Type::Number | Type::Any | Type::String) {
+                if matches!(env.get(local), Some(JsVal::Fn(_)) | Some(JsVal::BuiltinString)) {
                     continue;
                 }
                 user_locals.push(*local);
@@ -109,7 +122,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     for id in &user_locals {
         let v = env.get(id)?.clone();
         match &v {
-            JsVal::Num(_) | JsVal::Str(_) => {
+            JsVal::Num(_) | JsVal::Str(_) | JsVal::Undef => {
                 values.insert(*id, v);
             }
             _ => return None,
@@ -139,6 +152,52 @@ fn module_has_throw_or_try(body: &[Stmt]) -> bool {
         }
         _ => false,
     })
+}
+
+fn hoist_vars_in_stmts(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) {
+    for stmt in body {
+        hoist_vars_in_stmt(stmt, env);
+    }
+}
+
+fn hoist_vars_in_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) {
+    match stmt {
+        Stmt::Declare {
+            local,
+            kind: BindingKind::Var,
+            ..
+        } => {
+            env.entry(*local).or_insert(JsVal::Undef);
+        }
+        Stmt::Block { body } => hoist_vars_in_stmts(body, env),
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            hoist_vars_in_stmts(block, env);
+            if let Some(h) = handler {
+                hoist_vars_in_stmts(h, env);
+            }
+            if let Some(f) = finalizer {
+                hoist_vars_in_stmts(f, env);
+            }
+        }
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            hoist_vars_in_stmt(consequent, env);
+            if let Some(a) = alternate {
+                hoist_vars_in_stmt(a, env);
+            }
+        }
+        // Nested functions hoist their own vars on entry.
+        Stmt::Function { .. } => {}
+        _ => {}
+    }
 }
 
 fn body_ok(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> bool {
@@ -177,7 +236,6 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             handler,
             finalizer,
         } => {
-            // Bare try/catch, try/finally, try/catch/finally, optional catch (`catch {…}`).
             match (handler.is_some(), handler_param) {
                 (true, None) => {}
                 (true, Some(Pattern::Local(_))) => {}
@@ -207,7 +265,12 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => true,
         Expr::Local { id, .. } => by_id.contains_key(id),
-        Expr::Unary { arg, .. } => expr_ok(arg, by_id),
+        Expr::Unary { op, arg, .. } => {
+            matches!(
+                op,
+                UnaryOp::Plus | UnaryOp::Minus | UnaryOp::Not | UnaryOp::TypeOf
+            ) && expr_ok(arg, by_id)
+        }
         Expr::Binary { left, right, op, .. } => {
             matches!(
                 op,
@@ -232,6 +295,7 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             ..
         } => {
             expr_ok(callee, by_id)
+                && args.len() <= 1
                 && args.iter().all(|a| match a {
                     Arg::Expr(e) => expr_ok(e, by_id),
                     _ => false,
@@ -241,13 +305,26 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     }
 }
 
+fn same_name(
+    a: LocalId,
+    b: LocalId,
+    by_id: &HashMap<LocalId, &Local>,
+) -> bool {
+    match (by_id.get(&a), by_id.get(&b)) {
+        (Some(la), Some(lb)) => la.name == lb.name,
+        _ => false,
+    }
+}
+
 fn eval_body(
     body: &[Stmt],
     env: &mut HashMap<LocalId, JsVal>,
     functions: &HashMap<LocalId, FnRec>,
+    by_id: &HashMap<LocalId, &Local>,
+    catch_param: Option<LocalId>,
 ) -> Result<Flow, ()> {
     for stmt in body {
-        match eval_stmt(stmt, env, functions)? {
+        match eval_stmt(stmt, env, functions, by_id, catch_param)? {
             Flow::Normal => {}
             other => return Ok(other),
         }
@@ -259,12 +336,38 @@ fn eval_stmt(
     stmt: &Stmt,
     env: &mut HashMap<LocalId, JsVal>,
     functions: &HashMap<LocalId, FnRec>,
+    by_id: &HashMap<LocalId, &Local>,
+    catch_param: Option<LocalId>,
 ) -> Result<Flow, ()> {
     match stmt {
         Stmt::Function { .. } => Ok(Flow::Normal),
-        Stmt::Declare { local, init, .. } => {
+        Stmt::Declare {
+            local,
+            kind,
+            init,
+            ..
+        } => {
+            // Annex B.3.4: `catch (e) { var e = init }` — initializer assigns the
+            // catch binding; bare `var e` is a no-op on the catch binding; outer
+            // var slot stays hoisted-undefined.
+            let annex_b_catch = *kind == BindingKind::Var
+                && catch_param.is_some_and(|cp| same_name(*local, cp, by_id));
+            if annex_b_catch {
+                if let Some(e) = init {
+                    let v = match eval_expr(e, env, functions, by_id)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(flow),
+                    };
+                    env.insert(catch_param.unwrap(), v);
+                }
+                return Ok(Flow::Normal);
+            }
+            if *kind == BindingKind::Var && init.is_none() {
+                // Already hoisted to undefined.
+                return Ok(Flow::Normal);
+            }
             let v = match init {
-                Some(e) => match eval_expr(e, env, functions)? {
+                Some(e) => match eval_expr(e, env, functions, by_id)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(flow),
                 },
@@ -273,13 +376,13 @@ fn eval_stmt(
             env.insert(*local, v);
             Ok(Flow::Normal)
         }
-        Stmt::Throw { value } => match eval_expr(value, env, functions)? {
+        Stmt::Throw { value } => match eval_expr(value, env, functions, by_id)? {
             Ok(v) => Ok(Flow::Throw(v)),
             Err(flow) => Ok(flow),
         },
         Stmt::Return { value } => match value {
             None => Ok(Flow::Return(JsVal::Undef)),
-            Some(e) => match eval_expr(e, env, functions)? {
+            Some(e) => match eval_expr(e, env, functions, by_id)? {
                 Ok(v) => Ok(Flow::Return(v)),
                 Err(flow) => Ok(flow),
             },
@@ -290,13 +393,16 @@ fn eval_stmt(
             handler,
             finalizer,
         } => {
-            let mut completion = match eval_body(block, env, functions)? {
+            let mut completion = match eval_body(block, env, functions, by_id, catch_param)? {
                 Flow::Throw(exc) => {
                     if let Some(handler) = handler {
-                        if let Some(Pattern::Local(pid)) = handler_param {
+                        let hp = if let Some(Pattern::Local(pid)) = handler_param {
                             env.insert(*pid, exc);
-                        }
-                        eval_body(handler, env, functions)?
+                            Some(*pid)
+                        } else {
+                            None
+                        };
+                        eval_body(handler, env, functions, by_id, hp)?
                     } else {
                         Flow::Throw(exc)
                     }
@@ -304,15 +410,15 @@ fn eval_stmt(
                 other => other,
             };
             if let Some(fin) = finalizer {
-                match eval_body(fin, env, functions)? {
+                match eval_body(fin, env, functions, by_id, catch_param)? {
                     Flow::Normal => {}
                     abrupt => completion = abrupt,
                 }
             }
             Ok(completion)
         }
-        Stmt::Block { body } => eval_body(body, env, functions),
-        Stmt::Expr { expr } => match eval_expr(expr, env, functions)? {
+        Stmt::Block { body } => eval_body(body, env, functions, by_id, catch_param),
+        Stmt::Expr { expr } => match eval_expr(expr, env, functions, by_id)? {
             Ok(_) => Ok(Flow::Normal),
             Err(flow) => Ok(flow),
         },
@@ -321,14 +427,14 @@ fn eval_stmt(
             consequent,
             alternate,
         } => {
-            let t = match eval_expr(test, env, functions)? {
+            let t = match eval_expr(test, env, functions, by_id)? {
                 Ok(v) => to_boolean(&v),
                 Err(flow) => return Ok(flow),
             };
             if t {
-                eval_stmt(consequent, env, functions)
+                eval_stmt(consequent, env, functions, by_id, catch_param)
             } else if let Some(a) = alternate {
-                eval_stmt(a, env, functions)
+                eval_stmt(a, env, functions, by_id, catch_param)
             } else {
                 Ok(Flow::Normal)
             }
@@ -342,6 +448,7 @@ fn eval_expr(
     expr: &Expr,
     env: &mut HashMap<LocalId, JsVal>,
     functions: &HashMap<LocalId, FnRec>,
+    by_id: &HashMap<LocalId, &Local>,
 ) -> Result<Result<JsVal, Flow>, ()> {
     match expr {
         Expr::Number { raw, .. } => {
@@ -356,8 +463,7 @@ fn eval_expr(
             Ok(Ok(v))
         }
         Expr::Unary { op, arg, .. } => {
-            use draconic_ast::UnaryOp;
-            let v = match eval_expr(arg, env, functions)? {
+            let v = match eval_expr(arg, env, functions, by_id)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -365,20 +471,24 @@ fn eval_expr(
                 UnaryOp::Plus => Ok(Ok(JsVal::Num(to_number(&v)))),
                 UnaryOp::Minus => Ok(Ok(JsVal::Num(-to_number(&v)))),
                 UnaryOp::Not => Ok(Ok(JsVal::Num(if to_boolean(&v) { 0.0 } else { 1.0 }))),
+                UnaryOp::TypeOf => Ok(Ok(JsVal::Str(typeof_str(&v).to_string()))),
                 _ => Err(()),
             }
         }
         Expr::Binary {
             left, op, right, ..
         } => {
-            let l = match eval_expr(left, env, functions)? {
+            let l = match eval_expr(left, env, functions, by_id)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let r = match eval_expr(right, env, functions)? {
+            let r = match eval_expr(right, env, functions, by_id)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
+            if *op == BinaryOp::Add && (matches!(l, JsVal::Str(_)) || matches!(r, JsVal::Str(_))) {
+                return Ok(Ok(JsVal::Str(format!("{}{}", to_string(&l), to_string(&r)))));
+            }
             let ln = to_number(&l);
             let rn = to_number(&r);
             let n = match op {
@@ -397,7 +507,7 @@ fn eval_expr(
             value,
             ..
         } => {
-            let v = match eval_expr(value, env, functions)? {
+            let v = match eval_expr(value, env, functions, by_id)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -410,24 +520,78 @@ fn eval_expr(
             optional: false,
             ..
         } => {
-            if !args.is_empty() {
-                return Err(());
-            }
-            let c = match eval_expr(callee, env, functions)? {
+            let c = match eval_expr(callee, env, functions, by_id)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let JsVal::Fn(fid) = c else {
-                return Err(());
-            };
-            let frec = functions.get(&fid).ok_or(())?;
-            match eval_body(&frec.body, env, functions)? {
-                Flow::Normal => Ok(Ok(JsVal::Undef)),
-                Flow::Throw(exc) => Ok(Err(Flow::Throw(exc))),
-                Flow::Return(v) => Ok(Ok(v)),
+            match c {
+                JsVal::BuiltinString => {
+                    if args.len() != 1 {
+                        return Err(());
+                    }
+                    let Arg::Expr(e) = &args[0] else {
+                        return Err(());
+                    };
+                    let v = match eval_expr(e, env, functions, by_id)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Str(to_string(&v))))
+                }
+                JsVal::Fn(fid) => {
+                    if !args.is_empty() {
+                        return Err(());
+                    }
+                    let frec = functions.get(&fid).ok_or(())?;
+                    // Fresh-ish: hoist function-scoped vars, keep outer env (unique LocalIds).
+                    hoist_vars_in_stmts(&frec.body, env);
+                    match eval_body(&frec.body, env, functions, by_id, None)? {
+                        Flow::Normal => Ok(Ok(JsVal::Undef)),
+                        Flow::Throw(exc) => Ok(Err(Flow::Throw(exc))),
+                        Flow::Return(v) => Ok(Ok(v)),
+                    }
+                }
+                _ => Err(()),
             }
         }
         _ => Err(()),
+    }
+}
+
+fn typeof_str(v: &JsVal) -> &'static str {
+    match v {
+        JsVal::Num(_) => "number",
+        JsVal::Str(_) => "string",
+        JsVal::Undef => "undefined",
+        JsVal::Fn(_) | JsVal::BuiltinString => "function",
+    }
+}
+
+fn to_string(v: &JsVal) -> String {
+    match v {
+        JsVal::Num(n) => {
+            if n.is_nan() {
+                "NaN".into()
+            } else if n.is_infinite() {
+                if n.is_sign_negative() {
+                    "-Infinity".into()
+                } else {
+                    "Infinity".into()
+                }
+            } else if *n == 0.0 {
+                "0".into()
+            } else {
+                // Prefer integer-looking print for whole numbers.
+                if n.fract() == 0.0 && n.abs() < 1e15 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{n}")
+                }
+            }
+        }
+        JsVal::Str(s) => s.clone(),
+        JsVal::Undef => "undefined".into(),
+        JsVal::Fn(_) | JsVal::BuiltinString => "function".into(),
     }
 }
 
@@ -443,7 +607,7 @@ fn to_number(v: &JsVal) -> f64 {
             }
         }
         JsVal::Undef => f64::NAN,
-        JsVal::Fn(_) => f64::NAN,
+        JsVal::Fn(_) | JsVal::BuiltinString => f64::NAN,
     }
 }
 
@@ -452,7 +616,7 @@ fn to_boolean(v: &JsVal) -> bool {
         JsVal::Num(n) => *n != 0.0 && !n.is_nan(),
         JsVal::Str(s) => !s.is_empty(),
         JsVal::Undef => false,
-        JsVal::Fn(_) => true,
+        JsVal::Fn(_) | JsVal::BuiltinString => true,
     }
 }
 
@@ -522,13 +686,14 @@ impl Emitter {
             match v {
                 JsVal::Num(n) => self.emit_num(*n),
                 JsVal::Str(s) => self.emit_str(s),
+                JsVal::Undef => self.emit_str("undefined"),
                 _ => return Err(diag("es_exceptions: non-printable value")),
             }
         }
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.10.03 throw/try/catch/finally/optional-catch)"
+            "; Draconic LLVM backend (N08.10.03 + N08.16.17 throw/try/catch/finally + Annex B var-in-catch)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();

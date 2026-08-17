@@ -132,6 +132,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Annex B block-level function declarations** (`{ function f(){…} }`) — N08.16.13
 /// - **`var` declarations** (hoist/redeclare/uninit) — N08.16.14
 /// - **`var` in `for` heads** (for-in/of/classic + Annex B.3.5 init) — N08.16.15
+/// - **Annex B VariableStatements in Catch** (`catch (e) { var e … }`) — N08.16.17
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
