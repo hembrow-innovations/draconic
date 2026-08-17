@@ -1,4 +1,6 @@
 id: es/annex-b/regexp_compile
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: function\na+\n\nb+\ni\ntrue\nfalse\nbar\n\ntrue\nw\ni\ny+\ng\n
 js.check: if (tc !== "function") process.exit(1); if (src0 !== "a+") process.exit(2); if (fl0 !== "") process.exit(3); if (src1 !== "b+") process.exit(4); if (fl1 !== "i") process.exit(5); if (t1 !== true) process.exit(6); if (t2 !== false) process.exit(7); if (src2 !== "bar") process.exit(8); if (fl2 !== "") process.exit(9); if (t3 !== true) process.exit(10); if (src3 !== "w") process.exit(11); if (fl3 !== "i") process.exit(12); if (viaSrc !== "y+") process.exit(13); if (viaFl !== "g") process.exit(14); if (typeof tc !== "string") process.exit(15);

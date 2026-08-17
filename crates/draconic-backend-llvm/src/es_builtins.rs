@@ -119,6 +119,9 @@ enum BuiltinId {
     DateToGmtString,
     DateGetFullYear,
     RegExp,
+    RegExpPrototype,
+    /// Annex B RegExp.prototype.compile (unbound; `.call` supplies this).
+    RegExpCompile,
     Map,
     Set,
     WeakMap,
@@ -1299,6 +1302,13 @@ fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal
             let method = date_proto_method_name(*id).ok_or(())?;
             eval_method_call(&mut this, method, &rest)
         }
+        JsVal::Builtin(id) if key == "call" && is_regexp_proto_method(*id) => {
+            let this_arg = args.first().ok_or(())?;
+            let mut this = this_arg.clone();
+            let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
+            let method = regexp_proto_method_name(*id).ok_or(())?;
+            eval_method_call(&mut this, method, &rest)
+        }
         JsVal::Builtin(BuiltinId::HasOwnProperty) if key == "call" => {
             let this_arg = args.first().ok_or(())?;
             let prop = match args.get(1) {
@@ -1335,6 +1345,16 @@ fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal
                     Some(m) => Ok(JsVal::Array(vec![JsVal::Str(m)])),
                     None => Ok(JsVal::Null),
                 }
+            }
+            "compile" => {
+                let (new_source, new_flags) = regexp_compile_args(args)?;
+                parse_regexp_atoms(&new_source)?;
+                *source = new_source;
+                *flags = new_flags;
+                Ok(JsVal::RegExpInst {
+                    source: source.clone(),
+                    flags: flags.clone(),
+                })
             }
             _ => Err(()),
         },
@@ -1519,9 +1539,80 @@ fn same_value_zero(a: &JsVal, b: &JsVal) -> bool {
     }
 }
 
+fn regexp_flags_ok(flags: &str) -> bool {
+    // Fixture subset: empty or any combo of `i` / `g` (order preserved as given).
+    flags.chars().all(|c| matches!(c, 'i' | 'g'))
+}
+
+fn regexp_compile_args(args: &[JsVal]) -> Result<(String, String), ()> {
+    match args.first() {
+        Some(JsVal::RegExpInst {
+            source: s,
+            flags: f,
+        }) => {
+            let flags = match args.get(1) {
+                Some(JsVal::Undef) | None => f.clone(),
+                Some(JsVal::Str(fs)) => {
+                    if !regexp_flags_ok(fs) {
+                        return Err(());
+                    }
+                    fs.clone()
+                }
+                _ => return Err(()),
+            };
+            Ok((s.clone(), flags))
+        }
+        Some(JsVal::Str(s)) => {
+            let flags = match args.get(1) {
+                Some(JsVal::Str(fs)) => {
+                    if !regexp_flags_ok(fs) {
+                        return Err(());
+                    }
+                    fs.clone()
+                }
+                Some(JsVal::Undef) | None => String::new(),
+                _ => return Err(()),
+            };
+            Ok((s.clone(), flags))
+        }
+        Some(JsVal::Undef) | None => {
+            let flags = match args.get(1) {
+                Some(JsVal::Str(fs)) => {
+                    if !regexp_flags_ok(fs) {
+                        return Err(());
+                    }
+                    fs.clone()
+                }
+                Some(JsVal::Undef) | None => String::new(),
+                _ => return Err(()),
+            };
+            Ok((String::new(), flags))
+        }
+        _ => Err(()),
+    }
+}
+
 fn make_regexp(args: &[JsVal]) -> Result<JsVal, ()> {
     let source = match args.first() {
         Some(JsVal::Str(s)) => s.clone(),
+        Some(JsVal::RegExpInst { source, flags }) => {
+            // `new RegExp(re)` / `RegExp(re)` copy when flags omitted.
+            let fl = match args.get(1) {
+                Some(JsVal::Undef) | None => flags.clone(),
+                Some(JsVal::Str(fs)) => {
+                    if !regexp_flags_ok(fs) {
+                        return Err(());
+                    }
+                    fs.clone()
+                }
+                _ => return Err(()),
+            };
+            parse_regexp_atoms(source)?;
+            return Ok(JsVal::RegExpInst {
+                source: source.clone(),
+                flags: fl,
+            });
+        }
         Some(JsVal::Undef) | None => String::new(),
         _ => return Err(()),
     };
@@ -1530,13 +1621,30 @@ fn make_regexp(args: &[JsVal]) -> Result<JsVal, ()> {
         Some(JsVal::Undef) | None => String::new(),
         _ => return Err(()),
     };
-    // Fixture subset: only empty flags or `i`.
-    if !(flags.is_empty() || flags == "i") {
+    if !regexp_flags_ok(&flags) {
         return Err(());
     }
     // Reject unsupported pattern syntax early (keep classify strict).
     parse_regexp_atoms(&source)?;
     Ok(JsVal::RegExpInst { source, flags })
+}
+
+fn regexp_proto_method_builtin(key: &str) -> Option<BuiltinId> {
+    match key {
+        "compile" => Some(BuiltinId::RegExpCompile),
+        _ => None,
+    }
+}
+
+fn is_regexp_proto_method(id: BuiltinId) -> bool {
+    matches!(id, BuiltinId::RegExpCompile)
+}
+
+fn regexp_proto_method_name(id: BuiltinId) -> Option<&'static str> {
+    match id {
+        BuiltinId::RegExpCompile => Some("compile"),
+        _ => None,
+    }
 }
 
 /// Fixture-depth pattern atoms: literal char or `c+` (one-or-more of c).
@@ -2364,6 +2472,12 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
         JsVal::Builtin(BuiltinId::Date) if key == "prototype" => {
             Ok(JsVal::Builtin(BuiltinId::DatePrototype))
         }
+        JsVal::Builtin(BuiltinId::RegExp) if key == "prototype" => {
+            Ok(JsVal::Builtin(BuiltinId::RegExpPrototype))
+        }
+        JsVal::Builtin(BuiltinId::RegExpPrototype) => regexp_proto_method_builtin(key)
+            .map(JsVal::Builtin)
+            .ok_or(()),
         JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
             Ok(JsVal::Builtin(BuiltinId::ObjectGetPrototypeOf))
         }
@@ -2535,6 +2649,7 @@ fn typeof_str(v: &JsVal) -> String {
                 | BuiltinId::ObjectPrototype
                 | BuiltinId::StringPrototype
                 | BuiltinId::DatePrototype
+                | BuiltinId::RegExpPrototype
                 | BuiltinId::Json,
         ) => "object".into(),
         JsVal::Builtin(
@@ -2588,6 +2703,7 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::DateToGmtString
             | BuiltinId::DateGetFullYear
             | BuiltinId::RegExp
+            | BuiltinId::RegExpCompile
             | BuiltinId::Map
             | BuiltinId::Set
             | BuiltinId::WeakMap
@@ -3016,7 +3132,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.04 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.05 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString / RegExp.prototype.compile)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -3432,6 +3548,33 @@ mod tests {
                         && ir.contains("double")),
                 "missing {s:?} in emit:\n{ir}"
             );
+        }
+    }
+
+    #[test]
+    fn regexp_compile_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/regexp_compile.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "function",
+            "a+",
+            "b+",
+            "true",
+            "false",
+            "bar",
+            "w",
+            "y+",
+            "i",
+            "g",
+        ] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
     }
 }
