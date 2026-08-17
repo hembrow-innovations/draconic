@@ -1,0 +1,6 @@
+id: stdlib/url/parse_basics
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\nhttps\nexample.com\n/path\nq=1\nfrag\nhttp\nlocalhost:8080\n/\n\n\n\n\n\nuser:pass@example.com:443\n/a/b\nx=1&y=2\ntop\n
+js.check: if (tp !== "function") process.exit(1); if (gp !== true) process.exit(2); if (scheme !== "https") process.exit(3); if (host !== "example.com") process.exit(4); if (path !== "/path") process.exit(5); if (query !== "q=1") process.exit(6); if (hash !== "frag") process.exit(7); if (scheme2 !== "http") process.exit(8); if (host2 !== "localhost:8080") process.exit(9); if (path2 !== "/") process.exit(10); if (query2 !== "") process.exit(11); if (hash2 !== "") process.exit(12); if (path3 !== "") process.exit(13); if (query3 !== "") process.exit(14); if (hash3 !== "") process.exit(15); if (host4 !== "user:pass@example.com:443") process.exit(16); if (path4 !== "/a/b") process.exit(17); if (query4 !== "x=1&y=2") process.exit(18); if (hash4 !== "top") process.exit(19);

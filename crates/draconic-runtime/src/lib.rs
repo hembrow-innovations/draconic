@@ -2,6 +2,167 @@
 
 pub mod abi;
 pub use abi::*;
+pub use url::{parse_url, parse_url_js_polyfill, ParsedUrl};
+
+
+/// L08.01: portable URL parse — scheme / host / path / query / hash.
+pub mod url {
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ParsedUrl {
+        pub scheme: String,
+        pub host: String,
+        pub path: String,
+        pub query: String,
+        pub hash: String,
+    }
+
+    pub fn parse_url(input: &str) -> Result<ParsedUrl, ()> {
+        let bytes = input.as_bytes();
+        let mut i = 0;
+        if bytes.is_empty() || !bytes[0].is_ascii_alphabetic() {
+            return Err(());
+        }
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b == b':' { break; }
+            if !(b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.')) {
+                return Err(());
+            }
+            i += 1;
+        }
+        if i == 0 || i >= bytes.len() || bytes[i] != b':' { return Err(()); }
+        let scheme = input[..i].to_ascii_lowercase();
+        i += 1;
+        if i + 1 >= bytes.len() || bytes[i] != b'/' || bytes[i + 1] != b'/' { return Err(()); }
+        i += 2;
+        let auth_start = i;
+        while i < bytes.len() && !matches!(bytes[i], b'/' | b'?' | b'#') { i += 1; }
+        if i == auth_start { return Err(()); }
+        let host = input[auth_start..i].to_string();
+        let mut path = String::new();
+        if i < bytes.len() && bytes[i] == b'/' {
+            let path_start = i;
+            i += 1;
+            while i < bytes.len() && !matches!(bytes[i], b'?' | b'#') { i += 1; }
+            path = input[path_start..i].to_string();
+        }
+        let mut query = String::new();
+        if i < bytes.len() && bytes[i] == b'?' {
+            i += 1;
+            let q_start = i;
+            while i < bytes.len() && bytes[i] != b'#' { i += 1; }
+            query = input[q_start..i].to_string();
+        }
+        let mut hash = String::new();
+        if i < bytes.len() && bytes[i] == b'#' {
+            i += 1;
+            hash = input[i..].to_string();
+        }
+        Ok(ParsedUrl { scheme, host, path, query, hash })
+    }
+
+    pub fn parse_url_js_polyfill() -> &'static str {
+        r#"function parseUrl(input) {
+  if (typeof input !== "string") input = String(input);
+  var s = input;
+  var i = 0;
+  var n = s.length;
+  if (n === 0) throw new TypeError("Invalid URL");
+  var c0 = s.charCodeAt(0);
+  if (!((c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122))) throw new TypeError("Invalid URL");
+  while (i < n) {
+    var b = s.charCodeAt(i);
+    if (b === 58) break;
+    var ok = (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57)
+      || b === 43 || b === 45 || b === 46;
+    if (!ok) throw new TypeError("Invalid URL");
+    i++;
+  }
+  if (i === 0 || i >= n || s.charCodeAt(i) !== 58) throw new TypeError("Invalid URL");
+  var scheme = s.slice(0, i).toLowerCase();
+  i++;
+  if (i + 1 >= n || s.charCodeAt(i) !== 47 || s.charCodeAt(i + 1) !== 47) throw new TypeError("Invalid URL");
+  i += 2;
+  var authStart = i;
+  while (i < n) {
+    var ch = s.charCodeAt(i);
+    if (ch === 47 || ch === 63 || ch === 35) break;
+    i++;
+  }
+  if (i === authStart) throw new TypeError("Invalid URL");
+  var host = s.slice(authStart, i);
+  var path = "";
+  if (i < n && s.charCodeAt(i) === 47) {
+    var pathStart = i;
+    i++;
+    while (i < n) {
+      var ch2 = s.charCodeAt(i);
+      if (ch2 === 63 || ch2 === 35) break;
+      i++;
+    }
+    path = s.slice(pathStart, i);
+  }
+  var query = "";
+  if (i < n && s.charCodeAt(i) === 63) {
+    i++;
+    var qStart = i;
+    while (i < n && s.charCodeAt(i) !== 35) i++;
+    query = s.slice(qStart, i);
+  }
+  var hash = "";
+  if (i < n && s.charCodeAt(i) === 35) {
+    i++;
+    hash = s.slice(i);
+  }
+  return { scheme: scheme, host: host, path: path, query: query, hash: hash };
+}
+if (typeof globalThis !== "undefined") globalThis.parseUrl = parseUrl;
+"#
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        #[test]
+        fn parses_full_url() {
+            let u = parse_url("https://example.com/path?q=1#frag").unwrap();
+            assert_eq!(u.scheme, "https");
+            assert_eq!(u.host, "example.com");
+            assert_eq!(u.path, "/path");
+            assert_eq!(u.query, "q=1");
+            assert_eq!(u.hash, "frag");
+        }
+        #[test]
+        fn parses_port_and_root_path() {
+            let u = parse_url("http://localhost:8080/").unwrap();
+            assert_eq!(u.host, "localhost:8080");
+            assert_eq!(u.path, "/");
+        }
+        #[test]
+        fn empty_path_when_absent() {
+            assert_eq!(parse_url("https://example.com").unwrap().path, "");
+        }
+        #[test]
+        fn authority_with_userinfo() {
+            let u = parse_url("https://user:pass@example.com:443/a/b?x=1&y=2#top").unwrap();
+            assert_eq!(u.host, "user:pass@example.com:443");
+            assert_eq!(u.path, "/a/b");
+            assert_eq!(u.query, "x=1&y=2");
+            assert_eq!(u.hash, "top");
+        }
+        #[test]
+        fn rejects_relative() {
+            assert!(parse_url("/path").is_err());
+            assert!(parse_url("").is_err());
+        }
+        #[test]
+        fn lowercases_scheme() {
+            let u = parse_url("HTTPS://Example.COM/x").unwrap();
+            assert_eq!(u.scheme, "https");
+            assert_eq!(u.host, "Example.COM");
+        }
+    }
+}
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

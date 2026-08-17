@@ -34,6 +34,147 @@ pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
     Ok(emit_js_full(module, None)?.code)
 }
 
+/// L08.01: true when the Program body references the stdlib `parseUrl` global.
+///
+/// IR locals include every binder symbol (all builtins), so presence in
+/// `module.locals` is not enough — walk the body for a use of the parseUrl local.
+fn module_uses_parse_url(module: &Module) -> bool {
+    let ids: Vec<LocalId> = module
+        .locals
+        .iter()
+        .filter(|l| l.name == "parseUrl")
+        .map(|l| l.id)
+        .collect();
+    if ids.is_empty() {
+        return false;
+    }
+    module.body.iter().any(|s| stmt_uses_local(s, &ids))
+}
+
+fn stmt_uses_local(stmt: &Stmt, ids: &[LocalId]) -> bool {
+    match stmt {
+        Stmt::Declare { init: Some(e), .. }
+        | Stmt::DeclareArrayPattern { init: Some(e), .. }
+        | Stmt::DeclareObjectPattern { init: Some(e), .. }
+        | Stmt::Expr { expr: e }
+        | Stmt::Throw { value: e } => expr_uses_local(e, ids),
+        Stmt::Return { value: Some(e) } => expr_uses_local(e, ids),
+        Stmt::Block { body } => body.iter().any(|s| stmt_uses_local(s, ids)),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            expr_uses_local(test, ids)
+                || stmt_uses_local(consequent, ids)
+                || alternate.as_ref().is_some_and(|a| stmt_uses_local(a, ids))
+        }
+        Stmt::While { test, body } | Stmt::DoWhile { test, body } => {
+            expr_uses_local(test, ids) || stmt_uses_local(body, ids)
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+        } => {
+            init.as_ref().is_some_and(|s| stmt_uses_local(s, ids))
+                || test.as_ref().is_some_and(|e| expr_uses_local(e, ids))
+                || update.as_ref().is_some_and(|e| expr_uses_local(e, ids))
+                || stmt_uses_local(body, ids)
+        }
+        Stmt::ForIn { left, right, body } | Stmt::ForOf { left, right, body, .. } => {
+            stmt_uses_local(left, ids)
+                || expr_uses_local(right, ids)
+                || stmt_uses_local(body, ids)
+        }
+        Stmt::Labeled { body, .. } => stmt_uses_local(body, ids),
+        Stmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            expr_uses_local(discriminant, ids)
+                || cases.iter().any(|c| {
+                    c.test.as_ref().is_some_and(|e| expr_uses_local(e, ids))
+                        || c.body.iter().any(|s| stmt_uses_local(s, ids))
+                })
+        }
+        Stmt::Function { body, .. } => body.iter().any(|s| stmt_uses_local(s, ids)),
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            block.iter().any(|s| stmt_uses_local(s, ids))
+                || handler
+                    .as_ref()
+                    .is_some_and(|h| h.iter().any(|s| stmt_uses_local(s, ids)))
+                || finalizer
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(|s| stmt_uses_local(s, ids)))
+        }
+        Stmt::With { object, body } => expr_uses_local(object, ids) || body.iter().any(|s| stmt_uses_local(s, ids)),
+        _ => false,
+    }
+}
+
+fn expr_uses_local(expr: &Expr, ids: &[LocalId]) -> bool {
+    use draconic_ir::{Arg, ArrayElement, ObjectProp, ObjectPropKey};
+    match expr {
+        Expr::Local { id, .. } => ids.contains(id),
+        Expr::Unary { arg, .. } => expr_uses_local(arg, ids),
+        Expr::Binary { left, right, .. } => {
+            expr_uses_local(left, ids) || expr_uses_local(right, ids)
+        }
+        Expr::Assign { target, value, .. } => {
+            let t = match target {
+                AssignTarget::Local(id) => ids.contains(id),
+                AssignTarget::Member {
+                    object, property, ..
+                } => expr_uses_local(object, ids) || expr_uses_local(property, ids),
+                _ => false,
+            };
+            t || expr_uses_local(value, ids)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_uses_local(test, ids)
+                || expr_uses_local(consequent, ids)
+                || expr_uses_local(alternate, ids)
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_uses_local(callee, ids)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_uses_local(e, ids),
+                })
+        }
+        Expr::Member { object, property, .. } => {
+            expr_uses_local(object, ids) || expr_uses_local(property, ids)
+        }
+        Expr::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_uses_local(e, ids),
+            ArrayElement::Elision => false,
+        }),
+        Expr::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Spread(e) => expr_uses_local(e, ids),
+            ObjectProp::Property { key, value } | ObjectProp::Accessor { key, value, .. } => {
+                let key_hit = match key {
+                    ObjectPropKey::Computed(e) => expr_uses_local(e, ids),
+                    _ => false,
+                };
+                key_hit || expr_uses_local(value, ids)
+            }
+        }),
+        Expr::Function { body, .. } => body.iter().any(|s| stmt_uses_local(s, ids)),
+        _ => false,
+    }
+}
+
 /// Emit ECMAScript plus a Source Map v3 mapping generated positions back to the Program.
 ///
 /// One mapping segment is recorded at the start of each top-level IR statement, using
@@ -59,6 +200,13 @@ fn emit_js_full(
         .collect();
 
     let mut out = String::new();
+    // L08.01: portable `parseUrl` polyfill when the Program references it.
+    if module_uses_parse_url(module) {
+        out.push_str(draconic_runtime::parse_url_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
     let mut builder = map_opts.map(SourceMapBuilder::new);
 
     for (i, stmt) in module.body.iter().enumerate() {

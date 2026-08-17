@@ -797,7 +797,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L07.01 | todo | both | Parse long/short flags + positionals from string array | `tests/conformance` fixtures `stdlib/flags` |
 | L07.02 | todo | both | Typed options (bool/string/number); help text as designed | `tests/conformance` fixtures `stdlib/flags` |
 | L08 | todo | both | URL / query parse + serialize | `tests/conformance` fixtures `stdlib/url` |
-| L08.01 | todo | both | Parse URL: scheme/host/path/query/hash | `tests/conformance` fixtures `stdlib/url` |
+| L08.01 | done | both | Parse URL: scheme/host/path/query/hash | `tests/conformance` fixtures `stdlib/url` |
 | L08.02 | todo | both | Query parse/serialize; round-trip common cases | `tests/conformance` fixtures `stdlib/url` |
 | L09 | todo | both | MIME multipart later (HTTP-shaped programs; after H10) | `tests/conformance` fixtures `stdlib/mime` |
 | L10 | todo | both | Crypto later: HMAC + AEAD (after L03) | `tests/conformance` fixtures `stdlib/crypto` |

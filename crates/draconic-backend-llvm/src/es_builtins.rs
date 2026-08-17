@@ -49,6 +49,7 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
+use draconic_runtime::parse_url;
 
 pub(crate) fn is_es_builtins_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -144,6 +145,8 @@ enum BuiltinId {
     Uint8Array,
     Int32Array,
     Float64Array,
+    /// L08.01
+    ParseUrl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -628,6 +631,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "Uint8Array" => Some(BuiltinId::Uint8Array),
         "Int32Array" => Some(BuiltinId::Int32Array),
         "Float64Array" => Some(BuiltinId::Float64Array),
+        "parseUrl" => Some(BuiltinId::ParseUrl),
         _ => None,
     }
 }
@@ -1467,6 +1471,17 @@ fn eval_call(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) 
         BuiltinId::DateNow => Ok(JsVal::Num(date_now_ms())),
         BuiltinId::DateUtc => Ok(JsVal::Num(date_utc(args)?)),
         BuiltinId::RegExp => make_regexp(args),
+        BuiltinId::ParseUrl => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            let u = parse_url(&s).map_err(|_| ())?;
+            Ok(new_object(vec![
+                ("scheme".into(), PropSlot::Data(JsVal::Str(u.scheme))),
+                ("host".into(), PropSlot::Data(JsVal::Str(u.host))),
+                ("path".into(), PropSlot::Data(JsVal::Str(u.path))),
+                ("query".into(), PropSlot::Data(JsVal::Str(u.query))),
+                ("hash".into(), PropSlot::Data(JsVal::Str(u.hash))),
+            ]))
+        }
         BuiltinId::ObjectGetPrototypeOf => {
             let target = args.first().ok_or(())?;
             object_get_prototype(target)
@@ -2807,6 +2822,7 @@ fn member_get(
             "Uint8Array" => Ok(JsVal::Builtin(BuiltinId::Uint8Array)),
             "Int32Array" => Ok(JsVal::Builtin(BuiltinId::Int32Array)),
             "Float64Array" => Ok(JsVal::Builtin(BuiltinId::Float64Array)),
+            "parseUrl" => Ok(JsVal::Builtin(BuiltinId::ParseUrl)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -3112,7 +3128,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::DataView
             | BuiltinId::Uint8Array
             | BuiltinId::Int32Array
-            | BuiltinId::Float64Array,
+            | BuiltinId::Float64Array
+            | BuiltinId::ParseUrl,
         ) => "function".into(),
     }
 }
@@ -4024,6 +4041,18 @@ mod tests {
             "ok",
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+    }
+
+    #[test]
+    fn parse_url_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/stdlib/url/parse_basics.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(!ir.contains("draconic_rt_hello"), "hello stub");
+        for s in ["function","true","https","example.com","/path","q=1","frag","http","localhost:8080","user:pass@example.com:443","/a/b","x=1&y=2","top"] {
+            assert!(ir.contains(s), "missing {s:?}");
         }
     }
 }
