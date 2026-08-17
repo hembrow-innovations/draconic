@@ -521,6 +521,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.19 | done | native | Real native observations: object destructuring (E18.19) — `es/annex-b/object_destructure` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/object_destructure`, `crates/draconic-backend-llvm` |
 | N08.16.20 | done | native | Real native observations: destructuring defaults (E18.20) — `es/annex-b/destructure_defaults` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/destructure_defaults`, `crates/draconic-backend-llvm` |
 | N08.16.21 | done | native | Real native observations: `instanceof` (E18.21) — `es/annex-b/instanceof` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/instanceof`, `crates/draconic-backend-llvm` |
+| N08.16.22 | done | native | Real native observations: accessors (E18.22) — `es/annex-b/accessors` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/accessors`, `crates/draconic-backend-llvm` |
 | N08.17 | done | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
