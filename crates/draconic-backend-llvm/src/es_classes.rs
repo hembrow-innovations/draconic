@@ -1,7 +1,8 @@
-//! N08.05.01–N08.05.04 + N08.16.26 + N08.16.36: native observations for ES class
-//! declarations (E05.01 / `class_basic`), heritage (E05.02), static methods (E05.03),
-//! `super` property access (E05.04), public fields (E18.26 / `class_fields`), and
-//! private instance fields (E18.35 / `private_fields`).
+//! N08.05.01–N08.05.04 + N08.16.26 + N08.16.33 + N08.16.36: native observations for ES
+//! class declarations (E05.01 / `class_basic`), class expressions (E18.33 /
+//! `class_expr`), heritage (E05.02), static methods (E05.03), `super` property access
+//! (E05.04), public fields (E18.26 / `class_fields`), and private instance fields
+//! (E18.35 / `private_fields`).
 //!
 //! Classes lower to builder IIFEs (`const C = (function(){ … return ctor })()`).
 //! This adapter recognizes that shape for base and derived classes (public fields via
@@ -104,6 +105,8 @@ struct ModuleInfo {
     class_of: HashMap<LocalId, usize>,
     /// Instance local → class index (`let p = new C()`).
     instance_of: HashMap<LocalId, usize>,
+    /// Folded number observations (`new (class {…})().x` → constant).
+    const_number: HashMap<LocalId, String>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -114,6 +117,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut instance_of = HashMap::new();
     let mut slots = Vec::new();
     let mut observe_locals = Vec::new();
+    let mut const_number = HashMap::new();
     let mut saw_class = false;
 
     for stmt in &module.body {
@@ -141,6 +145,22 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                         return None;
                     }
                     slots.push((*local, SlotTy::Object));
+                } else if let Some((st, raw)) = try_fold_new_class_iife_member(
+                    init,
+                    &by_id,
+                    &mut functions,
+                    &class_of,
+                    &classes,
+                ) {
+                    // `let i = new (class { constructor(){ this.x = 42 } })().x`
+                    saw_class = true;
+                    slots.push((*local, st));
+                    if let Some(raw) = raw {
+                        const_number.insert(*local, raw);
+                    }
+                    if matches!(st, SlotTy::Number | SlotTy::String | SlotTy::Undefined) {
+                        observe_locals.push(*local);
+                    }
                 } else if let Some(st) = classify_value_init(
                     init,
                     &class_of,
@@ -176,6 +196,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         classes,
         class_of,
         instance_of,
+        const_number,
     })
 }
 
@@ -343,6 +364,7 @@ fn try_extract_class(
     let mut parent_idx: Option<usize> = None;
     let mut parent_ctor_fn_idx: Option<usize> = None;
     let mut wm_fields: HashMap<LocalId, String> = HashMap::new();
+    let mut class_name: Option<String> = None;
 
     for stmt in body {
         match stmt {
@@ -440,7 +462,13 @@ fn try_extract_class(
                         .take()
                         .or_else(|| string_arg(&def_args[1]))
                         .unwrap_or_default();
-                    if key.is_empty() || key == "name" || key == "prototype" {
+                    if key == "name" {
+                        if let Some(n) = descriptor_string_value(desc_expr) {
+                            class_name = Some(n);
+                        }
+                        continue;
+                    }
+                    if key.is_empty() || key == "prototype" {
                         continue;
                     }
                     // Static method: descriptor.value is directly a function (not field __fi.call).
@@ -460,7 +488,10 @@ fn try_extract_class(
                         }
                         let param_ids = simple_param_ids(mparams, by_id)?;
                         let filtered = filter_method_body(mbody);
-                        let rewritten = rewrite_private_stmts(&filtered, &wm_fields);
+                        let mut rewritten = rewrite_private_stmts(&filtered, &wm_fields);
+                        if let (Some(cl), Some(n)) = (ctor_local, class_name.as_ref()) {
+                            rewritten = rewrite_ctor_name_refs(&rewritten, cl, n);
+                        }
                         if !method_body_ok(&rewritten, by_id) {
                             return None;
                         }
@@ -507,7 +538,10 @@ fn try_extract_class(
                 }
                 let param_ids = simple_param_ids(mparams, by_id)?;
                 let filtered = filter_method_body(mbody);
-                let rewritten = rewrite_private_stmts(&filtered, &wm_fields);
+                let mut rewritten = rewrite_private_stmts(&filtered, &wm_fields);
+                if let (Some(cl), Some(n)) = (ctor_local, class_name.as_ref()) {
+                    rewritten = rewrite_ctor_name_refs(&rewritten, cl, n);
+                }
                 if !method_body_ok(&rewritten, by_id) {
                     return None;
                 }
@@ -548,7 +582,206 @@ fn try_extract_class(
     })
 }
 
+/// `Object.defineProperty(ctor, "name", { value: "Counter", … })` → `"Counter"`.
+fn descriptor_string_value(desc: &Expr) -> Option<String> {
+    let Expr::Object { properties, .. } = desc else {
+        return None;
+    };
+    for p in properties {
+        let ObjectProp::Property { key, value } = p else {
+            continue;
+        };
+        let k = match key {
+            ObjectPropKey::Static(s) => s.to_string_lossy(),
+            ObjectPropKey::Computed(Expr::String { value, .. }) => value.to_string_lossy(),
+            _ => continue,
+        };
+        if k == "value" {
+            if let Expr::String { value, .. } = value {
+                return Some(value.to_string_lossy());
+            }
+        }
+    }
+    None
+}
 
+/// Named class expression methods may close over the ctor local and read `.name`
+/// (`return Counter.name`). Fold to the string set on the constructor.
+fn rewrite_ctor_name_refs(body: &[Stmt], ctor: LocalId, name: &str) -> Vec<Stmt> {
+    body.iter()
+        .map(|s| rewrite_ctor_name_stmt(s, ctor, name))
+        .collect()
+}
+
+fn rewrite_ctor_name_stmt(stmt: &Stmt, ctor: LocalId, name: &str) -> Stmt {
+    match stmt {
+        Stmt::Return { value: Some(e) } => Stmt::Return {
+            value: Some(rewrite_ctor_name_expr(e, ctor, name)),
+        },
+        Stmt::Block { body } => Stmt::Block {
+            body: body
+                .iter()
+                .map(|s| rewrite_ctor_name_stmt(s, ctor, name))
+                .collect(),
+        },
+        Stmt::Expr { expr } => Stmt::Expr {
+            expr: rewrite_ctor_name_expr(expr, ctor, name),
+        },
+        other => other.clone(),
+    }
+}
+
+fn rewrite_ctor_name_expr(expr: &Expr, ctor: LocalId, name: &str) -> Expr {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            computed,
+            optional,
+            ty,
+        } if !*optional
+            && matches!(object.as_ref(), Expr::Local { id, .. } if *id == ctor)
+            && matches!(
+                property.as_ref(),
+                Expr::String { value, .. } if value.to_string_lossy() == "name"
+            ) =>
+        {
+            Expr::String {
+                value: name.into(),
+                ty: Type::String,
+            }
+        }
+        Expr::Binary {
+            left,
+            op,
+            right,
+            ty,
+        } => Expr::Binary {
+            left: Box::new(rewrite_ctor_name_expr(left, ctor, name)),
+            op: *op,
+            right: Box::new(rewrite_ctor_name_expr(right, ctor, name)),
+            ty: ty.clone(),
+        },
+        Expr::Call {
+            callee,
+            args,
+            optional,
+            ty,
+        } => Expr::Call {
+            callee: Box::new(rewrite_ctor_name_expr(callee, ctor, name)),
+            args: args
+                .iter()
+                .map(|a| match a {
+                    Arg::Expr(e) => Arg::Expr(rewrite_ctor_name_expr(e, ctor, name)),
+                    Arg::Spread(e) => Arg::Spread(rewrite_ctor_name_expr(e, ctor, name)),
+                })
+                .collect(),
+            optional: *optional,
+            ty: ty.clone(),
+        },
+        Expr::Member {
+            object,
+            property,
+            computed,
+            optional,
+            ty,
+        } => Expr::Member {
+            object: Box::new(rewrite_ctor_name_expr(object, ctor, name)),
+            property: Box::new(rewrite_ctor_name_expr(property, ctor, name)),
+            computed: *computed,
+            optional: *optional,
+            ty: ty.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
+/// `let i = new (class { constructor() { this.x = 42 } })().x` → number observation.
+fn try_fold_new_class_iife_member(
+    init: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &mut Vec<FnInfo>,
+    class_of: &HashMap<LocalId, usize>,
+    classes: &[ClassInfo],
+) -> Option<(SlotTy, Option<String>)> {
+    let Expr::Member {
+        object,
+        property,
+        optional,
+        ..
+    } = init
+    else {
+        return None;
+    };
+    if *optional {
+        return None;
+    }
+    let key = match property.as_ref() {
+        Expr::String { value, .. } => value.to_string_lossy(),
+        _ => return None,
+    };
+    let Expr::New {
+        callee,
+        args,
+        ..
+    } = object.as_ref()
+    else {
+        return None;
+    };
+    // Only empty-arg `new (class IIFE)()` for constant fold of ctor assigns.
+    if !args.is_empty() {
+        return None;
+    }
+    // Callee must be class builder IIFE call (not a binding).
+    if !matches!(callee.as_ref(), Expr::Call { .. }) {
+        return None;
+    }
+    let dummy = LocalId(u32::MAX);
+    let cls = try_extract_class(callee, dummy, by_id, functions, class_of, classes)?;
+    let ctor = functions.get(cls.ctor_fn_idx)?;
+    let raw = ctor_this_prop_number(&ctor.body, &key)?;
+    // Drop the extracted class methods from functions — observation is folded;
+    // keeping orphan m_fn_* is fine but wastes IR. Leave them; emit still works.
+    let _ = cls;
+    Some((SlotTy::Number, Some(raw)))
+}
+
+fn ctor_this_prop_number(body: &[Stmt], key: &str) -> Option<String> {
+    for s in body {
+        match s {
+            Stmt::Expr {
+                expr:
+                    Expr::Assign {
+                        target:
+                            AssignTarget::Member {
+                                object,
+                                property,
+                                ..
+                            },
+                        op: AssignOp::Eq,
+                        value,
+                        ..
+                    },
+            } if matches!(object.as_ref(), Expr::This { .. })
+                && matches!(
+                    property.as_ref(),
+                    Expr::String { value: k, .. } if k.to_string_lossy() == key
+                ) =>
+            {
+                if let Expr::Number { raw, .. } = value.as_ref() {
+                    return Some(raw.clone());
+                }
+            }
+            Stmt::Block { body } => {
+                if let Some(r) = ctor_this_prop_number(body, key) {
+                    return Some(r);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
 
 fn is_wm_method_call(
     callee: &Expr,
@@ -2589,7 +2822,11 @@ impl<'a> Emitter<'a> {
                 };
                 match kind {
                     SlotTy::Number => {
-                        let v = self.emit_number_expr(init)?;
+                        let v = if let Some(raw) = self.info.const_number.get(local) {
+                            format_number_const(raw)?
+                        } else {
+                            self.emit_number_expr(init)?
+                        };
                         let ptr = self.number_slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }

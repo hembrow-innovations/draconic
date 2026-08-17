@@ -3756,6 +3756,42 @@ mod tests {
     }
 
     #[test]
+    fn es_class_expr_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/annex-b/class_expr.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit class_expr");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "class_expr must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_alloc_object"),
+            "class_expr must alloc objects:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-class-expr").expect("workdir");
+        let bin = dir.join("class_expr");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "1\n2\n3\n6\nCounter\n13\n10\n7\n42\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn es_class_expr_name_prints_native() {
         let ir = emit_llvm_ir(&module_of(include_str!(
             "../../../tests/conformance/fixtures/es/annex-b/class_expr_name.drac"
