@@ -344,15 +344,10 @@ pub const OBJECT_GET_PROTO: AbiFn = AbiFn {
     ret: "ptr",
     params: "ptr",
 };
-/// N08.16.19: shallow copy own string props (object rest).
-pub const OBJECT_COPY_OWN: AbiFn = AbiFn {
-    symbol: "draconic_rt_object_copy_own",
-    ret: "void",
-    params: "ptr, ptr",
-};
-/// N08.16.19: delete own string prop (object rest exclusions).
-pub const OBJECT_DELETE: AbiFn = AbiFn {
-    symbol: "draconic_rt_object_delete",
+
+/// N08.16.28: CopyDataProperties for object spread (`{...src}`).
+pub const OBJECT_SPREAD: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_spread",
     ret: "void",
     params: "ptr, ptr",
 };
@@ -453,6 +448,7 @@ pub const OBJECT_GET_BY_SYMBOL_SYMBOL: &str = OBJECT_GET_BY_SYMBOL.symbol;
 pub const OBJECT_SET_BY_SYMBOL_SYMBOL: &str = OBJECT_SET_BY_SYMBOL.symbol;
 pub const OBJECT_SET_PROTO_SYMBOL: &str = OBJECT_SET_PROTO.symbol;
 pub const OBJECT_GET_PROTO_SYMBOL: &str = OBJECT_GET_PROTO.symbol;
+pub const OBJECT_SPREAD_SYMBOL: &str = OBJECT_SPREAD.symbol;
 pub const PROMISE_ALL_SETTLED_SYMBOL: &str = PROMISE_ALL_SETTLED.symbol;
 pub const PROMISE_ANY_SYMBOL: &str = PROMISE_ANY.symbol;
 pub const PROMISE_AWAIT_SYMBOL: &str = PROMISE_AWAIT.symbol;
@@ -506,6 +502,7 @@ pub const PROMISE_SYMBOLS: &[&str] = &[
     OBJECT_SET_SYMBOL,
     OBJECT_SET_PROTO_SYMBOL,
     OBJECT_GET_PROTO_SYMBOL,
+    OBJECT_SPREAD_SYMBOL,
     PROMISE_ALL_SETTLED_SYMBOL,
     PROMISE_ANY_SYMBOL,
     PROMISE_AWAIT_SYMBOL,

@@ -1,7 +1,8 @@
-//! N08.04.01–N08.04.06: native observations for ES object literals, property
-//! access, simple property assignment, method call + `this`, `new`
-//! constructors, prototypes, and object-literal sugar (E04.01–E04.06 /
-//! `es/objects/*` incl. `object_lit_sugar`).
+//! N08.04.01–N08.04.06 + N08.16.28: native observations for ES object literals,
+//! property access, simple property assignment, method call + `this`, `new`
+//! constructors, prototypes, object-literal sugar (E04.01–E04.06 /
+//! `es/objects/*` incl. `object_lit_sugar`), and object spread in literals
+//! (E18.28 / `es/annex-b/object_spread`).
 //!
 //! Object values are Runtime GC heap ptrs; number props are stored as
 //! `inttoptr` of integer bit-patterns (fixture uses small integers). Nested
@@ -12,21 +13,24 @@
 //! `[[Prototype]]` from `C.prototype`, calls the ctor, and yields the instance.
 //! Runtime `object_get` walks the prototype chain so inherited methods resolve.
 //! Property shorthand / method shorthand lower as static keys; computed keys
-//! (`[expr]`) accept string locals or string literals. Top-level number/string
+//! (`[expr]`) accept string locals or string literals. Object spread
+//! (`{...src}`) copies own enumerable string keys via Runtime
+//! `object_spread` (null/undefined sources are no-ops). Top-level number/string
 //! slots are module globals so methods can read free number locals.
 //! Number locals from member reads / method returns are printed via `print_f64`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::{AssignOp, BinaryOp};
+use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey,
     Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{
-    llvm_declares, ALLOC_OBJECT, GC_INIT, OBJECT_GET, OBJECT_SET, OBJECT_SET_PROTO, PRINT_F64,
+    llvm_declares, ALLOC_OBJECT, GC_INIT, OBJECT_GET, OBJECT_SET, OBJECT_SET_PROTO, OBJECT_SPREAD,
+    PRINT_F64,
 };
 
 /// Max fixed args for method/ctor calling convention (fixtures use ≤2).
@@ -393,6 +397,22 @@ fn member_assign_ok(
     }
 }
 
+/// N08.16.28: spread source is object, null, or undefined (void 0 / unbound Any).
+fn spread_source_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &[FnInfo],
+    fn_binding: &HashMap<LocalId, usize>,
+) -> bool {
+    match expr {
+        Expr::Null { .. } => true,
+        Expr::Unary {
+            op: UnaryOp::Void, ..
+        } => true,
+        _ => object_expr_ok(expr, by_id, functions, fn_binding),
+    }
+}
+
 fn object_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
@@ -419,7 +439,12 @@ fn object_expr_ok(
                         }
                         return false;
                     }
-                    ObjectProp::Accessor { .. } | ObjectProp::Spread(_) => return false,
+                    ObjectProp::Spread(e) => {
+                        if !spread_source_ok(e, by_id, functions, fn_binding) {
+                            return false;
+                        }
+                    }
+                    ObjectProp::Accessor { .. } => return false,
                 }
             }
             true
@@ -731,6 +756,7 @@ impl<'a> Emitter<'a> {
                 OBJECT_SET,
                 OBJECT_GET,
                 OBJECT_SET_PROTO,
+                OBJECT_SPREAD,
                 PRINT_F64,
             ])
         )
@@ -1259,7 +1285,16 @@ impl<'a> Emitter<'a> {
                             )
                             .ok();
                         }
-                        _ => return Err(diag("es_objects: only plain properties")),
+                        ObjectProp::Spread(e) => {
+                            let src = self.emit_spread_source(e)?;
+                            writeln!(
+                                self.body,
+                                "  {}",
+                                OBJECT_SPREAD.call(&format!("ptr {obj}, ptr {src}"))
+                            )
+                            .ok();
+                        }
+                        _ => return Err(diag("es_objects: only plain properties / spread")),
                     }
                 }
                 Ok(obj)
@@ -1321,6 +1356,23 @@ impl<'a> Emitter<'a> {
         match key {
             ObjectPropKey::Static(s) => self.string_const(&s.to_string_lossy()),
             ObjectPropKey::Computed(e) => self.emit_string_expr(e),
+        }
+    }
+
+    /// N08.16.28: object spread source — null/undefined → null ptr (runtime no-op).
+    fn emit_spread_source(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Null { .. } => Ok("null".to_string()),
+            Expr::Unary {
+                op: UnaryOp::Void, ..
+            } => Ok("null".to_string()),
+            Expr::Local { id, .. }
+                if !self.slot_of.contains_key(id) && !self.info.fn_binding.contains_key(id) =>
+            {
+                // Builtin `undefined` (or other non-slot Any) — no-op spread.
+                Ok("null".to_string())
+            }
+            _ => self.emit_object_expr(expr),
         }
     }
 
