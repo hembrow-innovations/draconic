@@ -1280,7 +1280,22 @@ void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value) {
 }
 
 void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
-    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
+    if (!obj || !key) {
+        return NULL;
+    }
+    /* N08.16.25: array exotic [[Get]] for decimal indexes + "length" (inttoptr). */
+    if (obj->tag == DRACONIC_TAG_ARRAY) {
+        if (strcmp(key, "length") == 0) {
+            return (void *)(intptr_t)obj->as.array.len;
+        }
+        char *end = NULL;
+        unsigned long idx = strtoul(key, &end, 10);
+        if (end && end != key && *end == '\0') {
+            return draconic_rt_array_get(obj, (size_t)idx);
+        }
+        return NULL;
+    }
+    if (obj->tag != DRACONIC_TAG_OBJECT) {
         return NULL;
     }
     /* N08.04.05: ordinary [[Get]] walks [[Prototype]] for missing own keys. */
