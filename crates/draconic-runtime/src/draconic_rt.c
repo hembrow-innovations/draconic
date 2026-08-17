@@ -394,14 +394,20 @@ static DraconicValue *g_heap_head = NULL;
 static size_t g_live_count = 0;
 static int g_gc_inited = 0;
 
-#define ROOT_STACK_MAX 64
-static DraconicValue *g_roots[ROOT_STACK_MAX];
+/* N09.04: growable root stack (historic fixed max was 64). */
+#define ROOT_STACK_INITIAL 64
+static DraconicValue **g_roots = NULL;
+static size_t g_root_cap = 0;
 static size_t g_root_sp = 0;
 
 void draconic_rt_gc_init(void) {
     g_heap_head = NULL;
     g_live_count = 0;
     g_root_sp = 0;
+    if (!g_roots) {
+        g_roots = (DraconicValue **)calloc(ROOT_STACK_INITIAL, sizeof(DraconicValue *));
+        g_root_cap = g_roots ? ROOT_STACK_INITIAL : 0;
+    }
     g_gc_inited = 1;
 }
 
@@ -454,6 +460,9 @@ void draconic_rt_gc_shutdown(void) {
     g_heap_head = NULL;
     g_live_count = 0;
     g_root_sp = 0;
+    free(g_roots);
+    g_roots = NULL;
+    g_root_cap = 0;
     g_gc_inited = 0;
 }
 
@@ -499,9 +508,23 @@ DraconicValue *draconic_rt_alloc_object(void) {
 }
 
 void draconic_rt_gc_root_push(DraconicValue *v) {
-    if (g_root_sp >= ROOT_STACK_MAX) {
-        fprintf(stderr, "draconic_rt: root stack overflow\n");
-        abort();
+    if (!g_gc_inited) {
+        draconic_rt_gc_init();
+    }
+    if (g_root_sp >= g_root_cap) {
+        size_t new_cap = g_root_cap ? g_root_cap * 2 : ROOT_STACK_INITIAL;
+        DraconicValue **grown =
+            (DraconicValue **)realloc(g_roots, new_cap * sizeof(DraconicValue *));
+        if (!grown) {
+            fprintf(stderr, "draconic_rt: root stack grow failed\n");
+            abort();
+        }
+        /* Clear new slots so unused entries are not stale pointers. */
+        for (size_t i = g_root_cap; i < new_cap; i++) {
+            grown[i] = NULL;
+        }
+        g_roots = grown;
+        g_root_cap = new_cap;
     }
     g_roots[g_root_sp++] = v;
 }

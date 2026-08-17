@@ -1329,6 +1329,183 @@ mod tests {
         assert_eq!(stdout, "gc-cycles-ok\n", "stdout={stdout:?}");
     }
 
+    /// N09.04: root stack must grow past the historic fixed 64 limit without abort.
+    ///
+    /// Push N_ROOT (>64) distinct heap values, collect (all stay live), verify
+    /// payloads, pop all, collect → live_count 0. Nested deep push/pop churn
+    /// must not corrupt the stack.
+    #[test]
+    fn gc_root_stack_grows_beyond_fixed_limit() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_gc_root_stack");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <string.h>
+            #include <stdint.h>
+
+            /* Historic fixed limit was 64 — exceed it. */
+            enum { N_ROOT = 200 };
+
+            int main(void) {
+                char buf[32];
+                DraconicValue *kept[N_ROOT];
+                size_t i;
+
+                draconic_rt_gc_init();
+
+                /* --- 1. Push N_ROOT roots (forces growth past 64) --- */
+                for (i = 0; i < N_ROOT; i++) {
+                    int n = snprintf(buf, sizeof(buf), "r%zu", i);
+                    if (n < 0) {
+                        fprintf(stderr, "snprintf failed\n");
+                        return 1;
+                    }
+                    kept[i] = draconic_rt_alloc_string(buf, (size_t)n);
+                    if (!kept[i] || !draconic_rt_is_string(kept[i])) {
+                        fprintf(stderr, "alloc failed at %zu\n", i);
+                        return 2;
+                    }
+                    draconic_rt_gc_root_push(kept[i]);
+                }
+
+                if (draconic_rt_gc_live_count() != (size_t)N_ROOT) {
+                    fprintf(stderr, "pre-collect live want %d got %zu\n",
+                            N_ROOT, draconic_rt_gc_live_count());
+                    return 3;
+                }
+
+                draconic_rt_gc_collect();
+
+                if (draconic_rt_gc_live_count() != (size_t)N_ROOT) {
+                    fprintf(stderr, "after collect live want %d got %zu\n",
+                            N_ROOT, draconic_rt_gc_live_count());
+                    return 4;
+                }
+
+                /* Spot-check first, mid (past old 64), and last roots. */
+                if (!draconic_rt_is_string(kept[0])
+                    || draconic_rt_string_len(kept[0]) != 2
+                    || memcmp(draconic_rt_string_data(kept[0]), "r0", 2) != 0) {
+                    fprintf(stderr, "root 0 corrupted\n");
+                    return 5;
+                }
+                if (!draconic_rt_is_string(kept[100])
+                    || draconic_rt_string_len(kept[100]) != 4
+                    || memcmp(draconic_rt_string_data(kept[100]), "r100", 4) != 0) {
+                    fprintf(stderr, "root 100 corrupted\n");
+                    return 6;
+                }
+                if (!draconic_rt_is_string(kept[N_ROOT - 1])
+                    || draconic_rt_string_len(kept[N_ROOT - 1]) != 4
+                    || memcmp(draconic_rt_string_data(kept[N_ROOT - 1]), "r199", 4) != 0) {
+                    fprintf(stderr, "root last corrupted\n");
+                    return 7;
+                }
+
+                for (i = 0; i < N_ROOT; i++) {
+                    draconic_rt_gc_root_pop();
+                }
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 0) {
+                    fprintf(stderr, "after unroot live want 0 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 8;
+                }
+
+                /* --- 2. Nested deep push/pop churn (grow, shrink, grow again) --- */
+                for (i = 0; i < 80; i++) {
+                    int n = snprintf(buf, sizeof(buf), "a%zu", i);
+                    if (n < 0) {
+                        fprintf(stderr, "snprintf a failed\n");
+                        return 9;
+                    }
+                    DraconicValue *v = draconic_rt_alloc_string(buf, (size_t)n);
+                    if (!v) {
+                        fprintf(stderr, "wave a alloc failed\n");
+                        return 10;
+                    }
+                    draconic_rt_gc_root_push(v);
+                }
+                for (i = 0; i < 40; i++) {
+                    draconic_rt_gc_root_pop();
+                }
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 40) {
+                    fprintf(stderr, "mid churn live want 40 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 11;
+                }
+                for (i = 0; i < 120; i++) {
+                    int n = snprintf(buf, sizeof(buf), "b%zu", i);
+                    if (n < 0) {
+                        fprintf(stderr, "snprintf b failed\n");
+                        return 12;
+                    }
+                    DraconicValue *v = draconic_rt_alloc_string(buf, (size_t)n);
+                    if (!v) {
+                        fprintf(stderr, "wave b alloc failed\n");
+                        return 13;
+                    }
+                    draconic_rt_gc_root_push(v);
+                }
+                /* 40 retained + 120 new = 160 roots */
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 160) {
+                    fprintf(stderr, "deep churn live want 160 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 14;
+                }
+                for (i = 0; i < 160; i++) {
+                    draconic_rt_gc_root_pop();
+                }
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 0) {
+                    fprintf(stderr, "final unroot live want 0 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 15;
+                }
+
+                puts("gc-root-stack-ok");
+                draconic_rt_gc_shutdown();
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link gc root stack test");
+
+        let output = Command::new(&bin).output().expect("run rt_gc_root_stack");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "gc root stack binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "gc-root-stack-ok\n", "stdout={stdout:?}");
+    }
+
     #[test]
     fn print_hello_smoke() {
         print_hello();
