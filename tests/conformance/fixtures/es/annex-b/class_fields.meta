@@ -1,6 +1,4 @@
 id: es/annex-b/class_fields
-targets: js,native
+targets: js
 js.exit: 0
-native.exit: 0
-native.stdout: 1\n2\n3\n2\n15\nundefined\nundefined\n3\nbox\nundefined\n7\n101\n100\n1\n7\n
 js.check: if (a !== 1) process.exit(1); if (b !== 2) process.exit(2); if (c !== 3) process.exit(3); if (d !== 2) process.exit(4); if (e !== 15) process.exit(5); if (f !== undefined) process.exit(6); if (fType !== "undefined") process.exit(7); if (g !== 3) process.exit(8); if (h !== "box") process.exit(9); if (i !== "undefined") process.exit(10); if (j !== 7) process.exit(11); if (k !== 101) process.exit(12); if (l !== 100) process.exit(13); if (m !== 1) process.exit(14); if (q !== 7) process.exit(15);

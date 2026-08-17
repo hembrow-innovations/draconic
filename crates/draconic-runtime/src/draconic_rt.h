@@ -123,20 +123,18 @@ DraconicValue *draconic_rt_promise_race(DraconicValue *arr);
 
 /* --- Plain object props (N06.08; keys are NUL-terminated C strings) --- */
 void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value);
-/* N08.04.05: [[Get]] walks [[Prototype]] when key is missing on own props.
-   N08.16.25: also array exotic [[Get]] for decimal indexes + "length". */
+/* N08.04.05: [[Get]] walks [[Prototype]] when key is missing on own props. */
 void *draconic_rt_object_get(DraconicValue *obj, const char *key);
-/* N08.16.25: copy own string-keyed props excluding NULL-terminated `exclude` list. */
-DraconicValue *draconic_rt_object_rest(DraconicValue *obj, const char **exclude);
 /* N08.09.02: symbol-keyed own props (i64 Symbol id; no string collision). */
 void draconic_rt_object_set_symbol(DraconicValue *obj, int64_t sym, void *value);
 void *draconic_rt_object_get_symbol(DraconicValue *obj, int64_t sym);
 /* N08.04.05: set/get ordinary object [[Prototype]] (nullable). */
 void draconic_rt_object_set_proto(DraconicValue *obj, DraconicValue *proto);
 DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj);
-
-/* N08.16.28: CopyDataProperties — own enumerable string keys from src → dest.
- * null/undefined/non-object src is a no-op (ES object spread). */
+/* N08.16.19: object rest — copy own string props then delete excluded keys. */
+DraconicValue *draconic_rt_object_rest(DraconicValue *obj, const char **exclude);
+void draconic_rt_object_copy_own(DraconicValue *dst, DraconicValue *src);
+void draconic_rt_object_delete(DraconicValue *obj, const char *key);
 void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src);
 
 /* --- Promise.allSettled (N06.08): array of promises/values →

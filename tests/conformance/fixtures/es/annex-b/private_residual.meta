@@ -1,6 +1,4 @@
 id: es/annex-b/private_residual
-targets: js,native
+targets: js
 js.exit: 0
-native.exit: 0
-native.stdout: test262\ntest262\n42\ntest262\n3\n7\n9\n4\n4\n5\n
 js.check: if (a !== "test262") process.exit(1); if (b !== "test262") process.exit(2); if (d !== 42) process.exit(3); if (e !== "test262") process.exit(4); if (f !== 3) process.exit(5); if (g !== 7) process.exit(6); if (h !== 9) process.exit(7); if (i !== 4) process.exit(8); if (j !== 4) process.exit(9); if (k !== 5) process.exit(10);

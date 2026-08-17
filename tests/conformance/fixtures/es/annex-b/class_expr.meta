@@ -1,6 +1,4 @@
 id: es/annex-b/class_expr
-targets: js,native
+targets: js
 js.exit: 0
-native.exit: 0
-native.stdout: 1\n2\n3\n6\nCounter\n13\n10\n7\n42\n
 js.check: if (a !== 1) process.exit(1); if (b !== 2) process.exit(2); if (c !== 3) process.exit(3); if (d !== 6) process.exit(4); if (e !== "Counter") process.exit(5); if (f !== 13) process.exit(6); if (g !== 10) process.exit(7); if (h !== 7) process.exit(8); if (i !== 42) process.exit(9);

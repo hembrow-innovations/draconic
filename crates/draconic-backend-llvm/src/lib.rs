@@ -18,6 +18,10 @@ mod es_generators;
 mod es_instanceof;
 mod es_legacy;
 mod es_modules;
+mod es_private_methods;
+mod es_private_accessors;
+mod es_optional_chain;
+mod es_new_target;
 
 mod es_static_blocks;
 mod es_nullish;
@@ -61,6 +65,10 @@ use es_generators::{emit_es_generators, is_es_generators_module};
 use es_instanceof::{emit_es_instanceof, is_es_instanceof_module};
 use es_legacy::{emit_es_legacy, is_es_legacy_module};
 use es_modules::{emit_es_modules, is_es_modules_module};
+use es_private_methods::{emit_es_private_methods, is_es_private_methods_module};
+use es_private_accessors::{emit_es_private_accessors, is_es_private_accessors_module};
+use es_optional_chain::{emit_es_optional_chain, is_es_optional_chain_module};
+use es_new_target::{emit_es_new_target, is_es_new_target_module};
 
 use es_static_blocks::{emit_es_static_blocks, is_es_static_blocks_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
@@ -180,14 +188,15 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_es_encoding_module(module) {
         return emit_es_encoding(module);
     }
-
+    if is_es_new_target_module(module) {
+        return emit_es_new_target(module);
+    }
     if is_es_private_accessors_module(module) {
         return emit_es_private_accessors(module);
     }
-    if is_es_builtins_module(module) {
-        return emit_es_builtins(module);
+    if is_es_instanceof_module(module) {
+        return emit_es_instanceof(module);
     }
-
     if is_es_private_methods_module(module) {
         return emit_es_private_methods(module);
     }
@@ -203,7 +212,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_es_legacy_module(module) {
         return emit_es_legacy(module);
     }
-
+    if is_es_optional_chain_module(module) {
+        return emit_es_optional_chain(module);
+    }
     if is_es_static_blocks_module(module) {
         return emit_es_static_blocks(module);
     }
@@ -234,16 +245,23 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_es_var_for_module(module) {
         return emit_es_var_for(module);
     }
-
+    if is_es_class_expr_name_module(module) {
+        return emit_es_class_expr_name(module);
+    }
     if is_es_static_private_methods_module(module) {
         return emit_es_static_private_methods(module);
     }
     if is_es_classes_module(module) {
         return emit_es_classes(module);
     }
-
+    if is_es_object_destructure_module(module) {
+        return emit_es_object_destructure(module);
+    }
     if is_es_destructure_defaults_module(module) {
         return emit_es_destructure_defaults(module);
+    }
+    if is_es_builtins_module(module) {
+        return emit_es_builtins(module);
     }
     if is_es_objects_module(module) {
         return emit_es_objects(module);

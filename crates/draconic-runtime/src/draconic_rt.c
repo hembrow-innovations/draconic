@@ -1280,22 +1280,7 @@ void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value) {
 }
 
 void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
-    if (!obj || !key) {
-        return NULL;
-    }
-    /* N08.16.25: array exotic [[Get]] for decimal indexes + "length" (inttoptr). */
-    if (obj->tag == DRACONIC_TAG_ARRAY) {
-        if (strcmp(key, "length") == 0) {
-            return (void *)(intptr_t)obj->as.array.len;
-        }
-        char *end = NULL;
-        unsigned long idx = strtoul(key, &end, 10);
-        if (end && end != key && *end == '\0') {
-            return draconic_rt_array_get(obj, (size_t)idx);
-        }
-        return NULL;
-    }
-    if (obj->tag != DRACONIC_TAG_OBJECT) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
         return NULL;
     }
     /* N08.04.05: ordinary [[Get]] walks [[Prototype]] for missing own keys. */
@@ -1309,7 +1294,6 @@ void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
     return NULL;
 }
 
-/* N08.16.25: object rest `{a, ...rest}` — copy own string keys not in exclude (NULL-terminated). */
 DraconicValue *draconic_rt_object_rest(DraconicValue *obj, const char **exclude) {
     DraconicValue *out = draconic_rt_alloc_object();
     if (!out || !obj || obj->tag != DRACONIC_TAG_OBJECT) {
@@ -1388,9 +1372,44 @@ DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj) {
     return obj->as.object.proto;
 }
 
+/* N08.16.19: copy own string-keyed props (shallow) for object rest. */
+void draconic_rt_object_copy_own(DraconicValue *dst, DraconicValue *src) {
+    if (!dst || !src || dst->tag != DRACONIC_TAG_OBJECT || src->tag != DRACONIC_TAG_OBJECT) {
+        return;
+    }
+    /* Copy in reverse so insertion order matches src after prepend-set. */
+    size_t n = 0;
+    for (DraconicProp *p = src->as.object.props; p; p = p->next) {
+        if (p->key) {
+            n++;
+        }
+    }
+    if (n == 0) {
+        return;
+    }
+    const char **keys = (const char **)calloc(n, sizeof(const char *));
+    void **vals = (void **)calloc(n, sizeof(void *));
+    if (!keys || !vals) {
+        free(keys);
+        free(vals);
+        fprintf(stderr, "draconic_rt: object_copy_own OOM\n");
+        abort();
+    }
+    size_t i = n;
+    for (DraconicProp *p = src->as.object.props; p; p = p->next) {
+        if (p->key) {
+            i--;
+            keys[i] = p->key;
+            vals[i] = p->value;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        draconic_rt_object_set(dst, keys[i], vals[i]);
+    }
+    free(keys);
+    free(vals);
+}
 
-/* N08.16.28: `{...src}` — copy own enumerable string-keyed props onto dest.
- * Prop list is newest-first; apply oldest-first to preserve insertion order. */
 void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src) {
     if (!dest || dest->tag != DRACONIC_TAG_OBJECT) {
         return;
@@ -1407,7 +1426,6 @@ void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src) {
     if (n == 0) {
         return;
     }
-
     DraconicProp **ordered = (DraconicProp **)malloc(n * sizeof(DraconicProp *));
     if (!ordered) {
         fprintf(stderr, "draconic_rt: object_spread OOM\n");
@@ -1416,7 +1434,6 @@ void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src) {
     size_t i = n;
     for (DraconicProp *p = src->as.object.props; p; p = p->next) {
         if (p->key) {
-
             ordered[--i] = p;
         }
     }
@@ -1424,6 +1441,23 @@ void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src) {
         draconic_rt_object_set(dest, ordered[j]->key, ordered[j]->value);
     }
     free(ordered);
+}
+
+void draconic_rt_object_delete(DraconicValue *obj, const char *key) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
+        return;
+    }
+    DraconicProp **pp = &obj->as.object.props;
+    while (*pp) {
+        DraconicProp *p = *pp;
+        if (p->key && strcmp(p->key, key) == 0) {
+            *pp = p->next;
+            free(p->key);
+            free(p);
+            return;
+        }
+        pp = &p->next;
+    }
 }
 
 /* --- Promise.allSettled (N06.08) --- */

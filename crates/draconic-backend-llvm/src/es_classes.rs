@@ -1,4 +1,3 @@
-
 //! N08.05.01–N08.05.04 + N08.16.36: native observations for ES class declarations
 //! (E05.01 / `class_basic`), class heritage (E05.02 / `class_extends`), static
 //! methods (E05.03 / `class_static`), `super` property access (E05.04 /
@@ -27,12 +26,6 @@ use draconic_runtime::abi::{
 };
 
 const MAX_METHOD_ARGS: usize = 4;
-/// qNaN payload marking JS `undefined` (matches es_functions).
-const UNDEF_BITS: u64 = 0x7FF8_0000_0000_0001;
-
-fn undef_double_const() -> String {
-    format!("bitcast (i64 {UNDEF_BITS} to double)")
-}
 
 pub(crate) fn is_es_classes_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -45,11 +38,10 @@ pub(crate) fn emit_es_classes(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Number,
     Object,
-
     /// Top-level typeof observation (`"undefined"` / `"function"` / …).
     String,
 }
@@ -69,7 +61,6 @@ struct FnInfo {
     parent_ctor_fn_idx: Option<usize>,
     /// Parent class index for `super.m(…)` resolution in derived methods.
     super_class_idx: Option<usize>,
-
     ret: MethodRet,
 }
 
@@ -80,61 +71,31 @@ struct ClassInfo {
     methods: Vec<(String, usize)>,
     /// Static method name → function index (own props on the constructor).
     static_methods: Vec<(String, usize)>,
-    /// Public static fields (`static x = expr`).
-    static_fields: Vec<(String, FieldVal)>,
-    /// Public instance fields (`x = expr`) — also injected into ctor body as assigns.
-    instance_fields: Vec<(String, FieldVal)>,
     /// Parent class index in `ModuleInfo::classes` when `extends` is present.
     parent: Option<usize>,
-    /// `Function.prototype.name` / `defineProperty(…, "name", {value})`.
-    name: String,
-    /// Named class expression inner binding (`class Foo { … Foo … }`).
-    inner_binding: Option<LocalId>,
 }
 
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
-
     /// Observation print order (numbers and typeof-strings interleaved by declare order).
     observe_locals: Vec<LocalId>,
     functions: Vec<FnInfo>,
     classes: Vec<ClassInfo>,
     /// Class binding → index in `classes`.
     class_of: HashMap<LocalId, usize>,
-
-    /// `new (class …)(…)` class indices in evaluation order.
-    anon_new_classes: Vec<usize>,
-}
-
-struct ClassifyCtx<'a> {
-    by_id: &'a HashMap<LocalId, &'a Local>,
-    functions: Vec<FnInfo>,
-    classes: Vec<ClassInfo>,
-    class_of: HashMap<LocalId, usize>,
-    /// ctor_local → class index (for named class expression body refs).
-    ctor_class: HashMap<LocalId, usize>,
-    anon_new_classes: Vec<usize>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-
-    let mut ctx = ClassifyCtx {
-        by_id: &by_id,
-        functions: Vec::new(),
-        classes: Vec::new(),
-        class_of: HashMap::new(),
-        ctor_class: HashMap::new(),
-        anon_new_classes: Vec::new(),
-    };
+    let mut functions = Vec::new();
+    let mut classes = Vec::new();
+    let mut class_of = HashMap::new();
     let mut slots = Vec::new();
-
     let mut observe_locals = Vec::new();
     let mut saw_class = false;
 
     for stmt in &module.body {
         match stmt {
-
             Stmt::Declare { init: None, .. } => {
                 // Private compound-assign temps (`__drac_pobj_*` / `__drac_pval_*`).
             }
@@ -143,14 +104,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     try_extract_class(init, *local, &by_id, &mut functions, &class_of, &classes)
                 {
                     saw_class = true;
-                    let idx = ctx.classes.len();
-                    if let Some(inner) = cls.inner_binding {
-                        ctx.ctor_class.insert(inner, idx);
-                    }
-                    ctx.class_of.insert(*local, idx);
-                    ctx.classes.push(cls);
+                    let idx = classes.len();
+                    class_of.insert(*local, idx);
+                    classes.push(cls);
                     slots.push((*local, SlotTy::Object));
-
                 } else if is_object_slot(init, &class_of, &by_id) {
                     if !object_expr_ok(init, &class_of, &by_id, &functions, &classes) {
                         return None;
@@ -167,7 +124,6 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 }
             }
             Stmt::Expr { expr } => {
-
                 if !side_effect_ok(expr, &class_of, &by_id, &functions, &classes) {
                     return None;
                 }
@@ -176,13 +132,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         }
     }
 
-
     if !saw_class || observe_locals.is_empty() {
         return None;
     }
     Some(ModuleInfo {
         slots,
-
         observe_locals,
         functions,
         classes,
@@ -190,17 +144,14 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     })
 }
 
-fn value_slot_kind(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<SlotTy> {
-    if string_expr_ok(expr, ctx) {
-        Some(SlotTy::String)
-    } else if number_expr_ok(expr, ctx) {
-        Some(SlotTy::Number)
-    } else {
-        None
-    }
-}
-
-fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo> {
+fn try_extract_class(
+    init: &Expr,
+    _binding: LocalId,
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &mut Vec<FnInfo>,
+    class_of: &HashMap<LocalId, usize>,
+    classes: &[ClassInfo],
+) -> Option<ClassInfo> {
     let Expr::Call {
         callee,
         args,
@@ -234,12 +185,9 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
     let mut ctor_fn_idx: Option<usize> = None;
     let mut methods: Vec<(String, usize)> = Vec::new();
     let mut static_methods: Vec<(String, usize)> = Vec::new();
-    let mut static_fields: Vec<(String, FieldVal)> = Vec::new();
-    let mut instance_fields: Vec<(String, FieldVal)> = Vec::new();
     let mut pending_key: Option<String> = None;
     let mut parent_idx: Option<usize> = None;
     let mut parent_ctor_fn_idx: Option<usize> = None;
-
     let mut wm_fields: HashMap<LocalId, String> = HashMap::new();
 
     for stmt in body {
@@ -269,11 +217,10 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
             Stmt::Declare {
                 init: Some(Expr::Local { id, .. }),
                 ..
-
             } if ctor_local.is_none() && parent_idx.is_none() && !is_weakmap_local(*id, by_id) => {
                 let pidx = *class_of.get(id)?;
                 parent_idx = Some(pidx);
-                parent_ctor_fn_idx = Some(ctx.classes[pidx].ctor_fn_idx);
+                parent_ctor_fn_idx = Some(classes[pidx].ctor_fn_idx);
             }
             // Derived: bare `let __drac_sproto_N` / private temps
             Stmt::Declare { init: None, .. } => {}
@@ -294,27 +241,23 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
                 if *ca || *cg || *carrow {
                     return None;
                 }
-
-                let param_ids = simple_param_ids(cparams, ctx.by_id)?;
+                let param_ids = simple_param_ids(cparams, by_id)?;
                 let filtered = if parent_idx.is_some() {
                     filter_derived_ctor_body(cbody)
                 } else {
                     filter_ctor_body(cbody)
                 };
-
                 let rewritten = rewrite_private_stmts(&filtered, &wm_fields);
                 if !method_body_ok(&rewritten, by_id) {
                     return None;
                 }
-
-                let idx = ctx.functions.len();
-                ctx.functions.push(FnInfo {
+                let idx = functions.len();
+                functions.push(FnInfo {
                     idx,
                     params: param_ids,
                     body: rewritten,
                     parent_ctor_fn_idx,
                     super_class_idx: None,
-
                     ret: MethodRet::Number,
                 });
                 ctor_local = Some(*local);
@@ -335,32 +278,14 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
             } if is_object_define_property(def_callee) && def_args.len() == 3 => {
                 let ctor = ctor_local?;
                 if is_define_on_ctor(def_args, ctor) {
-
-                    let key = pending_key
-                        .take()
-                        .or_else(|| string_arg(&def_args[1]))
-                        .unwrap_or_default();
-                    if key == "name" {
-                        if let Some(n) = define_property_string_value(&def_args[2]) {
-                            class_name = n;
-                        }
-                        continue;
-                    }
-                    // Static methods (and skip non-method own props like `prototype`).
+                    // Static methods (and skip non-method own props like `name`).
                     let Arg::Expr(desc_expr) = &def_args[2] else {
                         continue;
                     };
-                    let key = pending_key
-                        .take()
-                        .or_else(|| string_arg(&def_args[1]))
-                        .unwrap_or_default();
-                    if key.is_empty() || key == "name" || key == "prototype" {
+                    let Some(method_fn) = find_method_function(desc_expr) else {
                         continue;
-
                     };
-                    if key.is_empty() {
-                        return None;
-                    }
+                    let key = pending_key.take().or_else(|| string_arg(&def_args[1]))?;
                     let Expr::Function {
                         params: mparams,
                         body: mbody,
@@ -374,9 +299,8 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
                     if *ma || *mg {
                         return None;
                     }
-                    let param_ids = simple_param_ids(mparams, ctx.by_id)?;
+                    let param_ids = simple_param_ids(mparams, by_id)?;
                     let filtered = filter_method_body(mbody);
-
                     let rewritten = rewrite_private_stmts(&filtered, &wm_fields);
                     if !method_body_ok(&rewritten, by_id) {
                         return None;
@@ -389,7 +313,6 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
                         body: rewritten,
                         parent_ctor_fn_idx: None,
                         super_class_idx: parent_idx,
-
                         ret,
                     });
                     static_methods.push((key, idx));
@@ -416,9 +339,8 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
                 if *ma || *mg {
                     return None;
                 }
-                let param_ids = simple_param_ids(mparams, ctx.by_id)?;
+                let param_ids = simple_param_ids(mparams, by_id)?;
                 let filtered = filter_method_body(mbody);
-
                 let rewritten = rewrite_private_stmts(&filtered, &wm_fields);
                 if !method_body_ok(&rewritten, by_id) {
                     return None;
@@ -431,7 +353,6 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
                     body: rewritten,
                     parent_ctor_fn_idx: None,
                     super_class_idx: parent_idx,
-
                     ret,
                 });
                 methods.push((key, idx));
@@ -455,14 +376,9 @@ fn try_extract_class(init: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<ClassInfo
         ctor_fn_idx: ctor_fn_idx?,
         methods,
         static_methods,
-        static_fields,
-        instance_fields,
         parent: parent_idx,
-        name: class_name,
-        inner_binding: ctor_local,
     })
 }
-
 
 
 
@@ -1159,31 +1075,6 @@ fn string_arg(arg: &Arg) -> Option<String> {
     }
 }
 
-/// Method function from a defineProperty descriptor.
-///
-/// Static fields use `{ value: __fi.call(ctor), writable: true, … }` — do **not**
-/// deep-search those (nested `__fi` is a method function). Real static/proto methods
-/// either have `value: function…` directly or a getOwnPropertyDescriptor IIFE shape.
-fn descriptor_direct_method_fn(desc: &Expr) -> Option<&Expr> {
-    if let Expr::Object { properties, .. } = desc {
-        for p in properties {
-            if let ObjectProp::Property { key, value, .. } = p {
-                if let ObjectPropKey::Static(k) = key {
-                    if k.to_string_lossy() == "value" {
-                        if matches!(value, Expr::Function { .. }) {
-                            return Some(value);
-                        }
-                        // Data descriptor whose value is not a bare function (static field).
-                        return None;
-                    }
-                }
-            }
-        }
-    }
-    // Complex method install (getOwnPropertyDescriptor + fixup IIFE) or accessors.
-    find_method_function(desc)
-}
-
 fn find_method_function(expr: &Expr) -> Option<&Expr> {
     match expr {
         Expr::Function {
@@ -1265,25 +1156,20 @@ fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
     }
 }
 
-
 fn filter_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
-    let mut out = Vec::new();
-    for s in body {
-        match s {
+    body.iter()
+        .filter(|s| match s {
             Stmt::Expr {
                 expr: Expr::String { value, .. },
-            } if value.to_string_lossy() == "use strict" => {}
-            Stmt::If { .. } => {} // new.target check
-
+            } if value.to_string_lossy() == "use strict" => false,
+            Stmt::If { .. } => false, // new.target check
             Stmt::Expr {
                 expr:
                     Expr::Assign {
                         target: AssignTarget::Member { .. },
                         op: AssignOp::Eq,
                         ..
-
                     },
-
             } => true,
             // Private field inits: `({__fi(){…}}).__fi.call(this)`
             Stmt::Expr {
@@ -1300,162 +1186,37 @@ fn filter_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
             Stmt::Return { .. } => true,
             Stmt::Block { .. } => true,
             _ => false,
-        };
-        if !is_fi {
-            continue;
-        }
-        if let Expr::Function {
-            body,
-            is_method: true,
-            is_async: false,
-            is_generator: false,
-            ..
-        } = value
-        {
-            fi_body = Some(body.as_slice());
-        }
-    }
-    let fi_body = fi_body?;
-    // Find Object.defineProperty(this, key, { value: N })
-    for s in fi_body {
-        let Stmt::Expr {
-            expr:
-                Expr::Call {
-                    callee: def_c,
-                    args: def_a,
-                    ..
-                },
-        } = s
-        else {
-            continue;
-        };
-        if !is_object_define_property(def_c) || def_a.len() != 3 {
-            continue;
-        }
-        let Arg::Expr(obj) = &def_a[0] else {
-            continue;
-        };
-        if !matches!(obj, Expr::This { .. }) {
-            continue;
-        }
-        let key = string_arg(&def_a[1])?;
-        let val = define_property_number_value(&def_a[2])?;
-        return Some(Stmt::Expr {
-            expr: Expr::Assign {
-                target: AssignTarget::Member {
-                    object: Box::new(Expr::This { ty: Type::Any }),
-                    property: Box::new(Expr::String {
-                        value: key.into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
-                },
-                op: AssignOp::Eq,
-                value: Box::new(Expr::Number {
-                    raw: format_field_number(val),
-                    ty: Type::Number,
-                }),
-                ty: Type::Number,
-            },
-        });
-    }
-    None
-}
-
-fn define_property_number_value(desc: &Arg) -> Option<f64> {
-    let Arg::Expr(Expr::Object { properties, .. }) = desc else {
-        return None;
-    };
-    for p in properties {
-        let ObjectProp::Property { key, value, .. } = p else {
-            continue;
-        };
-        let key_s = match key {
-            ObjectPropKey::Static(s) => s.to_string_lossy(),
-            ObjectPropKey::Computed(Expr::String { value, .. }) => value.to_string_lossy(),
-            _ => continue,
-        };
-        if key_s == "value" {
-            if let Expr::Number { raw, .. } = value {
-                let cleaned: String = raw.chars().filter(|c| *c != '_').collect();
-                return cleaned.parse().ok();
-            }
-        }
-    }
-    None
-}
-
-fn format_field_number(v: f64) -> String {
-    if v.fract() == 0.0 && v.abs() < 1e15 {
-        format!("{}", v as i64)
-    } else {
-        format!("{v}")
-    }
+        })
+        .cloned()
+        .collect()
 }
 
 /// Collapse derived-ctor IR (this-TDZ + Reflect.construct super IIFE) into:
 /// `super(args…); this.prop = …;`
-fn filter_derived_ctor_body(body: &[Stmt]) -> (Vec<Stmt>, Vec<(String, FieldVal)>) {
+fn filter_derived_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
     let mut out = Vec::new();
-    let mut fields = Vec::new();
-    collect_derived_ctor_stmts(body, &mut out, &mut fields);
-    (out, fields)
+    collect_derived_ctor_stmts(body, &mut out);
+    out
 }
 
-fn collect_derived_ctor_stmts(
-    body: &[Stmt],
-    out: &mut Vec<Stmt>,
-    fields: &mut Vec<(String, FieldVal)>,
-) {
+fn collect_derived_ctor_stmts(body: &[Stmt], out: &mut Vec<Stmt>) {
     for stmt in body {
         match stmt {
             Stmt::Expr {
                 expr: Expr::String { value, .. },
             } if value.to_string_lossy() == "use strict" => {}
             Stmt::If { .. } | Stmt::Declare { .. } | Stmt::Return { .. } => {}
-            Stmt::Try {
-                block,
-                handler,
-                finalizer,
-                ..
-            } => {
-                collect_derived_ctor_stmts(block, out, fields);
-                if let Some(h) = handler {
-                    collect_derived_ctor_stmts(h, out, fields);
-                }
-                if let Some(f) = finalizer {
-                    collect_derived_ctor_stmts(f, out, fields);
-                }
-            }
-            Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out, fields),
-            Stmt::Block { body } => collect_derived_ctor_stmts(body, out, fields),
-            other => collect_derived_ctor_stmts_one(other, out, fields),
+            Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
+            Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
+            other => collect_derived_ctor_stmts_one(other, out),
         }
     }
 }
 
-fn collect_derived_ctor_stmts_one(
-    stmt: &Stmt,
-    out: &mut Vec<Stmt>,
-    fields: &mut Vec<(String, FieldVal)>,
-) {
+fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
     match stmt {
-        Stmt::Block { body } => collect_derived_ctor_stmts(body, out, fields),
-        Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out, fields),
-        Stmt::Try {
-            block,
-            handler,
-            finalizer,
-            ..
-        } => {
-            collect_derived_ctor_stmts(block, out, fields);
-            if let Some(h) = handler {
-                collect_derived_ctor_stmts(h, out, fields);
-            }
-            if let Some(f) = finalizer {
-                collect_derived_ctor_stmts(f, out, fields);
-            }
-        }
+        Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
+        Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
         Stmt::Expr {
             expr:
                 Expr::Call {
@@ -1483,7 +1244,6 @@ fn collect_derived_ctor_stmts_one(
                     ty: ty.clone(),
                 },
             });
-
             // Private field inits nested inside the super() IIFE after construct.
             extract_field_inits_from_expr(callee, out);
         }
@@ -1508,26 +1268,11 @@ fn collect_derived_ctor_stmts_one(
                         property: property.clone(),
                         computed: *computed,
                     },
-                op: AssignOp::Eq,
-                value,
-                ty,
-            } = expr
-            {
-                if matches!(property.as_ref(), Expr::String { .. }) {
-                    out.push(Stmt::Expr {
-                        expr: Expr::Assign {
-                            target: AssignTarget::Member {
-                                object: Box::new(Expr::This { ty: Type::Any }),
-                                property: property.clone(),
-                                computed: *computed,
-                            },
-                            op: AssignOp::Eq,
-                            value: value.clone(),
-                            ty: ty.clone(),
-                        },
-                    });
-                }
-            }
+                    op: AssignOp::Eq,
+                    value: value.clone(),
+                    ty: ty.clone(),
+                },
+            });
         }
         // Private field inits after super() (super IIFE already matched above).
         Stmt::Expr {
@@ -1628,7 +1373,6 @@ fn extract_field_inits_from_stmt(stmt: &Stmt, out: &mut Vec<Stmt>) {
         _ => {}
     }
 }
-
 
 fn is_field_init_call_shape(expr: &Expr) -> bool {
     let Expr::Call {
@@ -1769,25 +1513,13 @@ fn simple_param_ids(params: &[Param], by_id: &HashMap<LocalId, &Local>) -> Optio
     Some(ids)
 }
 
-fn method_body_ok(
-    body: &[Stmt],
-    by_id: &HashMap<LocalId, &Local>,
-    ctor_local: Option<LocalId>,
-    class_name: &str,
-) -> bool {
-    body.iter()
-        .all(|s| method_stmt_ok(s, by_id, ctor_local, class_name))
+fn method_body_ok(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> bool {
+    body.iter().all(|s| method_stmt_ok(s, by_id))
 }
 
-fn method_stmt_ok(
-    stmt: &Stmt,
-    by_id: &HashMap<LocalId, &Local>,
-    ctor_local: Option<LocalId>,
-    class_name: &str,
-) -> bool {
+fn method_stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
         Stmt::Return { value: None } => true,
-
         Stmt::Return { value: Some(e) } => {
             number_expr_ok_method(e, by_id) || string_expr_ok_method(e, by_id)
         }
@@ -1801,7 +1533,7 @@ fn method_stmt_ok(
                     ..
                 },
         } if matches!(c.as_ref(), Expr::Super { .. }) && !*optional => args.iter().all(|a| match a {
-            Arg::Expr(e) => number_expr_ok_method(e, by_id, ctor_local, class_name),
+            Arg::Expr(e) => number_expr_ok_method(e, by_id),
             Arg::Spread(_) => false,
         }),
         Stmt::Expr {
@@ -1820,7 +1552,6 @@ fn method_stmt_ok(
         } => {
             matches!(object.as_ref(), Expr::This { .. })
                 && matches!(property.as_ref(), Expr::String { .. })
-
                 && (number_expr_ok_method(value, by_id) || is_undefined_expr(value))
         }
         _ => false,
@@ -1863,18 +1594,9 @@ fn is_undefined_expr(expr: &Expr) -> bool {
     }
 }
 
-fn number_expr_ok_method(
-    expr: &Expr,
-    by_id: &HashMap<LocalId, &Local>,
-    ctor_local: Option<LocalId>,
-    class_name: &str,
-) -> bool {
+fn number_expr_ok_method(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::Number { .. } => true,
-        Expr::IdentName { name, .. } if name == "undefined" => true,
-        Expr::Unary {
-            op: UnaryOp::Void, ..
-        } => true,
         Expr::Local { id, ty } => {
             matches!(ty, Type::Number | Type::Any)
                 || by_id
@@ -1888,18 +1610,9 @@ fn number_expr_ok_method(
             optional,
             ..
         } => {
-            if *optional {
-                return false;
-            }
-            // `this.prop` number read
-            if matches!(object.as_ref(), Expr::This { .. })
+            !*optional
+                && matches!(object.as_ref(), Expr::This { .. })
                 && matches!(property.as_ref(), Expr::String { .. })
-            {
-                return true;
-            }
-            // `Ctor.name` is string — not a number expr (handled via string_const_ret)
-            let _ = (ctor_local, class_name);
-            false
         }
         Expr::Call {
             callee,
@@ -1910,7 +1623,7 @@ fn number_expr_ok_method(
             !*optional
                 && (super_method_callee_ok(callee) || this_method_callee_ok(callee))
                 && args.iter().all(|a| match a {
-                    Arg::Expr(e) => number_expr_ok_method(e, by_id, ctor_local, class_name),
+                    Arg::Expr(e) => number_expr_ok_method(e, by_id),
                     Arg::Spread(_) => false,
                 })
         }
@@ -1920,8 +1633,8 @@ fn number_expr_ok_method(
             matches!(
                 op,
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
-            ) && number_expr_ok_method(left, by_id, ctor_local, class_name)
-                && number_expr_ok_method(right, by_id, ctor_local, class_name)
+            ) && number_expr_ok_method(left, by_id)
+                && number_expr_ok_method(right, by_id)
         }
         Expr::Assign {
             target:
@@ -1936,7 +1649,7 @@ fn number_expr_ok_method(
         } => {
             matches!(object.as_ref(), Expr::This { .. })
                 && matches!(property.as_ref(), Expr::String { .. })
-                && number_expr_ok_method(value, by_id, ctor_local, class_name)
+                && number_expr_ok_method(value, by_id)
         }
         _ => false,
     }
@@ -1958,7 +1671,6 @@ fn super_method_callee_ok(callee: &Expr) -> bool {
         _ => false,
     }
 }
-
 
 /// `this.m(...)` call callee in methods (e.g. Child.total → this.base()).
 fn this_method_callee_ok(callee: &Expr) -> bool {
@@ -1998,7 +1710,6 @@ fn is_object_slot(
     }
 }
 
-
 fn object_expr_ok(
     expr: &Expr,
     class_of: &HashMap<LocalId, usize>,
@@ -2008,23 +1719,26 @@ fn object_expr_ok(
 ) -> bool {
     match expr {
         Expr::This { .. } => true,
-        Expr::New { callee, args, .. } => {
-            if !new_callee_ok(callee, ctx) {
+        Expr::New {
+            callee,
+            args,
+            ..
+        } => {
+            let Expr::Local { id, .. } = callee.as_ref() else {
+                return false;
+            };
+            if !class_of.contains_key(id) {
                 return false;
             }
             args.iter().all(|a| match a {
-
                 Arg::Expr(e) => number_expr_ok(e, class_of, by_id, functions, classes),
                 Arg::Spread(_) => false,
             })
         }
         Expr::Local { id, .. } => {
-            ctx.class_of.contains_key(id)
-                || ctx.by_id.get(id).is_some_and(|l| {
-                    matches!(
-                        l.ty,
-                        Type::Object | Type::Function | Type::Any | Type::Shape(_)
-                    )
+            class_of.contains_key(id)
+                || by_id.get(id).is_some_and(|l| {
+                    matches!(l.ty, Type::Object | Type::Function | Type::Any | Type::Shape(_))
                 })
         }
         Expr::Member {
@@ -2034,14 +1748,12 @@ fn object_expr_ok(
             ..
         } => {
             !*optional
-
                 && object_expr_ok(object, class_of, by_id, functions, classes)
                 && matches!(property.as_ref(), Expr::String { .. })
         }
         _ => false,
     }
 }
-
 
 fn number_expr_ok(
     expr: &Expr,
@@ -2054,8 +1766,7 @@ fn number_expr_ok(
         Expr::Number { .. } => true,
         Expr::Local { id, ty } => {
             matches!(ty, Type::Number | Type::Any)
-                || ctx
-                    .by_id
+                || by_id
                     .get(id)
                     .is_some_and(|l| matches!(l.ty, Type::Number | Type::Any))
         }
@@ -2066,10 +1777,8 @@ fn number_expr_ok(
             ..
         } => {
             !*optional
-
                 && object_expr_ok(object, class_of, by_id, functions, classes)
                 && matches!(property.as_ref(), Expr::String { .. })
-                && !member_is_class_name(object, property, ctx)
         }
         Expr::Call {
             callee,
@@ -2077,7 +1786,6 @@ fn number_expr_ok(
             optional,
             ..
         } => {
-
             !*optional
                 && method_callee_ok(callee, class_of, by_id, functions, classes)
                 && method_call_returns_number(callee, classes, functions)
@@ -2092,7 +1800,6 @@ fn number_expr_ok(
             matches!(
                 op,
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
-
             ) && number_expr_ok(left, class_of, by_id, functions, classes)
                 && number_expr_ok(right, class_of, by_id, functions, classes)
         }
@@ -2100,7 +1807,6 @@ fn number_expr_ok(
         _ => false,
     }
 }
-
 
 fn typeof_string_expr_ok(
     expr: &Expr,
@@ -2127,7 +1833,6 @@ fn typeof_string_expr_ok(
             ..
         } => {
             !*optional
-
                 && method_callee_ok(callee, class_of, by_id, functions, classes)
                 && method_call_returns_string(callee, classes, functions)
                 && args.iter().all(|a| match a {
@@ -2139,7 +1844,6 @@ fn typeof_string_expr_ok(
         _ => false,
     }
 }
-
 
 fn method_call_returns_number(
     callee: &Expr,
@@ -2189,7 +1893,6 @@ fn method_call_ret(
     found
 }
 
-
 fn method_callee_ok(
     callee: &Expr,
     class_of: &HashMap<LocalId, usize>,
@@ -2205,14 +1908,12 @@ fn method_callee_ok(
             ..
         } => {
             !*optional
-
                 && object_expr_ok(object, class_of, by_id, functions, classes)
                 && matches!(property.as_ref(), Expr::String { .. })
         }
         _ => false,
     }
 }
-
 
 fn side_effect_ok(
     expr: &Expr,
@@ -2229,7 +1930,6 @@ fn side_effect_ok(
             ..
         } => {
             !*optional
-
                 && method_callee_ok(callee, class_of, by_id, functions, classes)
                 && args.iter().all(|a| match a {
                     Arg::Expr(e) => number_expr_ok(e, class_of, by_id, functions, classes),
@@ -2258,8 +1958,6 @@ struct Emitter<'a> {
     str_globals: Vec<(String, String)>,
     tmp: usize,
     str_n: usize,
-    /// Cursor into `info.anon_new_classes` for `new (class…)()`.
-    anon_new_i: usize,
 }
 
 impl<'a> Emitter<'a> {
@@ -2269,7 +1967,6 @@ impl<'a> Emitter<'a> {
             class_binding.insert(*idx, *id);
         }
         Self {
-            anon_new_i: 0,
             module,
             info,
             out: String::new(),
@@ -2305,7 +2002,6 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-
             "; Draconic LLVM backend (N08.05/N08.16.36 ES classes + private fields via Runtime ABI)"
         )
         .ok();
@@ -2353,28 +2049,22 @@ impl<'a> Emitter<'a> {
         }
 
         for f in &info.functions.clone() {
-            if f.string_const_ret.is_some() {
-                continue;
-            }
             self.emit_method_fn(f)?;
         }
 
         for (id, kind) in &info.slots {
-            match kind {
-                SlotTy::Object | SlotTy::String => {
-                    let ptr = format!("%l{}", id.0);
-                    self.allocas.insert(*id, ptr.clone());
-                    writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
-                    writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
-                }
-                SlotTy::Undefined | SlotTy::Number => {}
+            if *kind != SlotTy::Object {
+                continue;
             }
+            let ptr = format!("%l{}", id.0);
+            self.allocas.insert(*id, ptr.clone());
+            writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+            writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
         }
 
         for stmt in &self.module.body {
             self.emit_stmt(stmt)?;
         }
-
 
         for id in &info.observe_locals {
             match self.slot_of.get(id).copied() {
@@ -2389,13 +2079,11 @@ impl<'a> Emitter<'a> {
                         .allocas
                         .get(id)
                         .cloned()
-
                         .ok_or_else(|| diag("es_classes: string slot missing"))?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-
                 _ => return Err(diag("es_classes: bad observe slot")),
             }
         }
@@ -2419,12 +2107,6 @@ impl<'a> Emitter<'a> {
         self.out.push_str(&self.body);
         writeln!(self.out, "  ret i32 0").ok();
         writeln!(self.out, "}}").ok();
-        Ok(())
-    }
-
-    fn emit_print_str_lit(&mut self, s: &str) -> Result<(), Diagnostic> {
-        let p = self.string_const(s)?;
-        writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {p}"))).ok();
         Ok(())
     }
 
@@ -2605,7 +2287,6 @@ impl<'a> Emitter<'a> {
                             .allocas
                             .get(local)
                             .cloned()
-
                             .ok_or_else(|| diag("es_classes: string alloca missing"))?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -2639,16 +2320,6 @@ impl<'a> Emitter<'a> {
             OBJECT_SET.call(&format!("ptr {ctor}, ptr {key}, ptr {proto}"))
         )
         .ok();
-        if !cls.name.is_empty() {
-            let nkey = self.string_const("name")?;
-            let nval = self.string_const(&cls.name)?;
-            writeln!(
-                self.body,
-                "  {}",
-                OBJECT_SET.call(&format!("ptr {ctor}, ptr {nkey}, ptr {nval}"))
-            )
-            .ok();
-        }
         if let Some(parent_idx) = cls.parent {
             let parent_binding = *self
                 .class_binding
@@ -2676,10 +2347,6 @@ impl<'a> Emitter<'a> {
             .ok();
         }
         for (name, fn_idx) in &cls.methods {
-            if self.info.functions[*fn_idx].string_const_ret.is_some() {
-                // String-const methods are folded at call sites; no fn pointer.
-                continue;
-            }
             let mkey = self.string_const(name)?;
             let fptr = format!("@m_fn_{fn_idx}");
             writeln!(
@@ -2690,9 +2357,6 @@ impl<'a> Emitter<'a> {
             .ok();
         }
         for (name, fn_idx) in &cls.static_methods {
-            if self.info.functions[*fn_idx].string_const_ret.is_some() {
-                continue;
-            }
             let mkey = self.string_const(name)?;
             let fptr = format!("@m_fn_{fn_idx}");
             writeln!(
@@ -2702,131 +2366,7 @@ impl<'a> Emitter<'a> {
             )
             .ok();
         }
-        for (name, fv) in &cls.static_fields {
-            self.emit_field_on_object(&ctor, name, fv)?;
-        }
         Ok(ctor)
-    }
-
-
-    fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
-        match expr {
-            Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
-            Expr::Local { id, .. } => {
-                if self.slot_of.get(id) != Some(&SlotTy::String) {
-                    return Err(diag("es_classes: expected string local"));
-                }
-                let ptr = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag("es_classes: string local missing"))?;
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
-                Ok(t)
-            }
-            Expr::Member {
-                object,
-                property,
-                optional,
-                ..
-            } => {
-                if *optional {
-                    return Err(diag("es_classes: optional member not supported"));
-                }
-                if let Some(s) = self.class_name_from_member(object, property) {
-                    return self.string_const(&s);
-                }
-                Err(diag("es_classes: unsupported string member"))
-            }
-            Expr::Call {
-                callee,
-                args,
-                optional,
-                ..
-            } => {
-                if *optional || !args.is_empty() {
-                    return Err(diag("es_classes: unsupported string call"));
-                }
-                if let Some(s) = self.string_const_from_method_call(callee)? {
-                    return self.string_const(&s);
-                }
-                Err(diag("es_classes: unsupported string call"))
-            }
-            _ => Err(diag("es_classes: unsupported string expr")),
-        }
-    }
-
-    fn class_name_from_member(&self, object: &Expr, property: &Expr) -> Option<String> {
-        let Expr::String { value, .. } = property else {
-            return None;
-        };
-        if value.to_string_lossy() != "name" {
-            return None;
-        }
-        let Expr::Local { id, .. } = object else {
-            return None;
-        };
-        if let Some(ci) = self.info.class_of.get(id) {
-            let n = &self.info.classes[*ci].name;
-            if !n.is_empty() {
-                return Some(n.clone());
-            }
-        }
-        None
-    }
-
-    fn string_const_from_method_call(&self, callee: &Expr) -> Result<Option<String>, Diagnostic> {
-        let Expr::Member {
-            object,
-            property,
-            optional,
-            ..
-        } = callee
-        else {
-            return Ok(None);
-        };
-        if *optional {
-            return Ok(None);
-        }
-        let name = match property.as_ref() {
-            Expr::String { value, .. } => value.to_string_lossy(),
-            _ => return Ok(None),
-        };
-        let class_idx = match object.as_ref() {
-            Expr::Local { id, .. } => {
-                if let Some(ci) = self.info.class_of.get(id) {
-                    Some(*ci)
-                } else {
-                    // Instance: unique method name among classes.
-                    let mut found = None;
-                    for (i, cls) in self.info.classes.iter().enumerate() {
-                        if cls.methods.iter().any(|(n, _)| n == &name) {
-                            if found.is_some() {
-                                return Ok(None);
-                            }
-                            found = Some(i);
-                        }
-                    }
-                    found
-                }
-            }
-            Expr::New {
-                callee: new_c, ..
-            } => match new_c.as_ref() {
-                Expr::Local { id, .. } => self.info.class_of.get(id).copied(),
-                _ => None,
-            },
-            _ => None,
-        };
-        let Some(ci) = class_idx else {
-            return Ok(None);
-        };
-        let cls = &self.info.classes[ci];
-        let Some((_, fn_idx)) = cls.methods.iter().find(|(n, _)| n == &name) else {
-            return Ok(None);
-        };
-        Ok(self.info.functions[*fn_idx].string_const_ret.clone())
     }
 
     fn emit_side_effect_expr(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
@@ -2844,7 +2384,6 @@ impl<'a> Emitter<'a> {
             } => {
                 let obj = self.emit_object_expr(object)?;
                 let key = self.member_key_cstr(property)?;
-
                 let p = if is_undefined_expr(value) {
                     "null".to_string()
                 } else {
@@ -2881,7 +2420,6 @@ impl<'a> Emitter<'a> {
             }
         }
     }
-
 
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
@@ -3008,10 +2546,6 @@ impl<'a> Emitter<'a> {
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Number { raw, .. } => format_number_const(raw),
-            Expr::IdentName { name, .. } if name == "undefined" => Ok(undef_double_const()),
-            Expr::Unary {
-                op: UnaryOp::Void, ..
-            } => Ok(undef_double_const()),
             Expr::Local { id, .. } => {
                 if let Some(ptr) = self.param_allocas.get(id).cloned() {
                     let t = self.fresh();
@@ -3048,38 +2582,10 @@ impl<'a> Emitter<'a> {
                     OBJECT_GET.call_to(&raw, &format!("ptr {obj}, ptr {key}"))
                 )
                 .ok();
-                // null get → undefined sentinel; else inttoptr number unbox
-                let is_null = self.fresh();
-                writeln!(self.body, "  {is_null} = icmp eq ptr {raw}, null").ok();
-                let und_l = self.fresh().replace('%', "");
-                let num_l = self.fresh().replace('%', "");
-                let end_l = self.fresh().replace('%', "");
-                let und_l = format!("mget_und_{und_l}");
-                let num_l = format!("mget_num_{num_l}");
-                let end_l = format!("mget_end_{end_l}");
+                let i = self.fresh();
+                writeln!(self.body, "  {i} = ptrtoint ptr {raw} to i64").ok();
                 let d = self.fresh();
-                // alloca for phi result
-                let slot = self.fresh();
-                writeln!(self.body, "  {slot} = alloca double, align 8").ok();
-                writeln!(
-                    self.body,
-                    "  br i1 {is_null}, label %{und_l}, label %{num_l}"
-                )
-                .ok();
-                writeln!(self.body, "{und_l}:").ok();
-                writeln!(
-                    self.body,
-                    "  store double {}, ptr {slot}",
-                    undef_double_const()
-                )
-                .ok();
-                writeln!(self.body, "  br label %{end_l}").ok();
-                writeln!(self.body, "{num_l}:").ok();
-                let dn = self.unbox_number(&raw)?;
-                writeln!(self.body, "  store double {dn}, ptr {slot}").ok();
-                writeln!(self.body, "  br label %{end_l}").ok();
-                writeln!(self.body, "{end_l}:").ok();
-                writeln!(self.body, "  {d} = load double, ptr {slot}").ok();
+                writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                 Ok(d)
             }
             Expr::Assign {
@@ -3105,7 +2611,10 @@ impl<'a> Emitter<'a> {
                     return Ok("0.00000000000000000e+00".to_string());
                 }
                 let n = self.emit_number_expr(value)?;
-                let p = self.box_number(&n)?;
+                let i = self.fresh();
+                writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
+                let p = self.fresh();
+                writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
                 writeln!(
                     self.body,
                     "  {}",
@@ -3268,35 +2777,26 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_new(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
-        let (ci, ctor) = match callee {
-            Expr::Local { id, .. } => {
-                let ci = *self
-                    .info
-                    .class_of
-                    .get(id)
-                    .ok_or_else(|| diag("es_classes: unknown class constructor"))?;
-                let ptr = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag("es_classes: class binding missing alloca"))?;
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
-                (ci, t)
-            }
-            Expr::Call { .. } => {
-                if self.anon_new_i >= self.info.anon_new_classes.len() {
-                    return Err(diag("es_classes: anon new class missing"));
-                }
-                let ci = self.info.anon_new_classes[self.anon_new_i];
-                self.anon_new_i += 1;
-                let ctor = self.emit_class_ctor(ci)?;
-                (ci, ctor)
-            }
-            _ => return Err(diag("es_classes: new callee must be class")),
+        let Expr::Local { id, .. } = callee else {
+            return Err(diag("es_classes: new callee must be local class"));
         };
+        let ci = *self
+            .info
+            .class_of
+            .get(id)
+            .ok_or_else(|| diag("es_classes: unknown class constructor"))?;
         let ctor_idx = self.info.classes[ci].ctor_fn_idx;
 
+        let ctor = {
+            let ptr = self
+                .allocas
+                .get(id)
+                .cloned()
+                .ok_or_else(|| diag("es_classes: class binding missing alloca"))?;
+            let t = self.fresh();
+            writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+            t
+        };
         let proto_key = self.string_const("prototype")?;
         let proto = self.fresh();
         writeln!(
@@ -3408,90 +2908,6 @@ impl<'a> Emitter<'a> {
         Err(diag("es_classes: number slot missing"))
     }
 
-    fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
-        match expr {
-            Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
-            Expr::Unary {
-                op: UnaryOp::TypeOf,
-                arg,
-                ..
-            } => {
-                // Field fixture: typeof only on undefined fields / missing props.
-                if let Some(fv) = member_field_val(
-                    arg,
-                    &self.info.class_of,
-                    &self.info.instance_of,
-                    &self.info.classes,
-                ) {
-                    match fv {
-                        FieldVal::Undef => return self.string_const("undefined"),
-                        FieldVal::String(_) => return self.string_const("string"),
-                        FieldVal::Number(_) => return self.string_const("number"),
-                    }
-                }
-                // Runtime: null get → "undefined"
-                if let Expr::Member {
-                    object,
-                    property,
-                    optional,
-                    ..
-                } = arg.as_ref()
-                {
-                    if !*optional {
-                        let obj = self.emit_object_expr(object)?;
-                        let key = self.member_key_cstr(property)?;
-                        let raw = self.fresh();
-                        writeln!(
-                            self.body,
-                            "  {}",
-                            OBJECT_GET.call_to(&raw, &format!("ptr {obj}, ptr {key}"))
-                        )
-                        .ok();
-                        // Fixture only needs undefined; always print path as undefined when null.
-                        let _ = raw;
-                        return self.string_const("undefined");
-                    }
-                }
-                self.string_const("undefined")
-            }
-            Expr::Local { id, .. } => {
-                if self.slot_of.get(id) != Some(&SlotTy::String) {
-                    return Err(diag("es_classes: expected string local"));
-                }
-                let ptr = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag("es_classes: string local missing"))?;
-                let t = self.fresh();
-                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
-                Ok(t)
-            }
-            Expr::Member {
-                object,
-                property,
-                optional,
-                ..
-            } => {
-                if *optional {
-                    return Err(diag("es_classes: optional member not supported"));
-                }
-                // Known string field → get cstr from object
-                let obj = self.emit_object_expr(object)?;
-                let key = self.member_key_cstr(property)?;
-                let t = self.fresh();
-                writeln!(
-                    self.body,
-                    "  {}",
-                    OBJECT_GET.call_to(&t, &format!("ptr {obj}, ptr {key}"))
-                )
-                .ok();
-                Ok(t)
-            }
-            _ => Err(diag("es_classes: unsupported string expr")),
-        }
-    }
-
     fn string_const(&mut self, s: &str) -> Result<String, Diagnostic> {
         let gname = if let Some((_, g)) = self.str_globals.iter().find(|(c, _)| c == s) {
             g.clone()
@@ -3544,7 +2960,6 @@ fn escape_llvm_string(s: &str) -> String {
 fn diag(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(message, Span::dummy())
 }
-
 
 
 #[cfg(test)]

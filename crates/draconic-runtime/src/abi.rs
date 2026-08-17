@@ -317,13 +317,12 @@ pub const OBJECT_SET: AbiFn = AbiFn {
     ret: "void",
     params: "ptr, ptr, ptr",
 };
-/// N08.16.25: object rest pattern — copy own keys excluding NULL-terminated list.
+/// N08.09.02: get/set own props keyed by Symbol id (i64).
 pub const OBJECT_REST: AbiFn = AbiFn {
     symbol: "draconic_rt_object_rest",
     ret: "ptr",
     params: "ptr, ptr",
 };
-/// N08.09.02: get/set own props keyed by Symbol id (i64).
 pub const OBJECT_GET_BY_SYMBOL: AbiFn = AbiFn {
     symbol: "draconic_rt_object_get_symbol",
     ret: "ptr",
@@ -344,7 +343,18 @@ pub const OBJECT_GET_PROTO: AbiFn = AbiFn {
     ret: "ptr",
     params: "ptr",
 };
-
+/// N08.16.19: shallow copy own string props (object rest).
+pub const OBJECT_COPY_OWN: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_copy_own",
+    ret: "void",
+    params: "ptr, ptr",
+};
+/// N08.16.19: delete own string prop (object rest exclusions).
+pub const OBJECT_DELETE: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_delete",
+    ret: "void",
+    params: "ptr, ptr",
+};
 /// N08.16.28: CopyDataProperties for object spread (`{...src}`).
 pub const OBJECT_SPREAD: AbiFn = AbiFn {
     symbol: "draconic_rt_object_spread",
