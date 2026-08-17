@@ -1,4 +1,6 @@
-//! N08.14.01–N08.14.10: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet + ArrayBuffer/DataView/TypedArrays.
+//! N08.14.01–N08.14.10 + N08.16.01: native observations for global builtins + Error ctors +
+//! functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet + ArrayBuffer/DataView/
+//! TypedArrays + Annex B `escape`/`unescape`.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -18,6 +20,7 @@
 //!   `.delete`, `.add`/`.has`/`.delete` (object keys only; identity equality)
 //! - E15.10: `ArrayBuffer` / `DataView` / `Uint8Array` / `Int32Array` / `Float64Array`
 //!   (`new`, `.byteLength`/`.length`, index get/set, `getUint8`/`setUint8`; shared buffer)
+//! - E18.01: `escape` / `unescape` (`typeof`, `globalThis` identity, basic call behavior)
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -76,6 +79,8 @@ enum BuiltinId {
     DecodeUri,
     EncodeUriComponent,
     DecodeUriComponent,
+    Escape,
+    Unescape,
     Json,
     JsonParse,
     JsonStringify,
@@ -431,6 +436,8 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "decodeURI" => Some(BuiltinId::DecodeUri),
         "encodeURIComponent" => Some(BuiltinId::EncodeUriComponent),
         "decodeURIComponent" => Some(BuiltinId::DecodeUriComponent),
+        "escape" => Some(BuiltinId::Escape),
+        "unescape" => Some(BuiltinId::Unescape),
         "JSON" => Some(BuiltinId::Json),
         "Date" => Some(BuiltinId::Date),
         "RegExp" => Some(BuiltinId::RegExp),
@@ -1154,6 +1161,14 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
             let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
             Ok(JsVal::Str(js_decode_uri(&s, true)?))
         }
+        BuiltinId::Escape => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Str(js_escape(&s)))
+        }
+        BuiltinId::Unescape => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            Ok(JsVal::Str(js_unescape(&s)))
+        }
         BuiltinId::JsonParse => {
             let s = match args.first() {
                 Some(JsVal::Str(s)) => s.as_str(),
@@ -1590,6 +1605,78 @@ fn is_uri_reserved_or_hash(b: u8) -> bool {
     )
 }
 
+/// Annex B.2.1.1 escape: unescaped = Alpha / Digit / "@" / "*" / "_" / "+" / "-" / "." / "/"
+fn is_escape_unescaped(cu: u16) -> bool {
+    matches!(
+        cu,
+        0x41..=0x5A // A-Z
+            | 0x61..=0x7A // a-z
+            | 0x30..=0x39 // 0-9
+            | 0x40 // @
+            | 0x2A // *
+            | 0x5F // _
+            | 0x2B // +
+            | 0x2D // -
+            | 0x2E // .
+            | 0x2F // /
+    )
+}
+
+/// ECMA-262 Annex B `escape` over UTF-16 code units.
+fn js_escape(input: &str) -> String {
+    let mut out = String::new();
+    for cu in input.encode_utf16() {
+        if is_escape_unescaped(cu) {
+            out.push(char::from_u32(cu as u32).unwrap_or('\u{FFFD}'));
+        } else if cu < 256 {
+            out.push_str(&format!("%{cu:02X}"));
+        } else {
+            out.push_str(&format!("%u{cu:04X}"));
+        }
+    }
+    out
+}
+
+/// ECMA-262 Annex B `unescape`: `%uXXXX` and `%XX` sequences.
+fn js_unescape(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut units: Vec<u16> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 1 < bytes.len() {
+            if bytes[i + 1] == b'u' && i + 5 < bytes.len() {
+                if let (Some(a), Some(b), Some(c), Some(d)) = (
+                    hex_nibble(bytes[i + 2]),
+                    hex_nibble(bytes[i + 3]),
+                    hex_nibble(bytes[i + 4]),
+                    hex_nibble(bytes[i + 5]),
+                ) {
+                    units.push(((a as u16) << 12) | ((b as u16) << 8) | ((c as u16) << 4) | d as u16);
+                    i += 6;
+                    continue;
+                }
+            } else if i + 2 < bytes.len() {
+                if let (Some(hi), Some(lo)) = (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2])) {
+                    units.push(((hi as u16) << 4) | lo as u16);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        // Non-ASCII UTF-8 in the source string: take next UTF-8 char as code units.
+        let rest = &input[i..];
+        if let Some(ch) = rest.chars().next() {
+            for cu in ch.encode_utf16(&mut [0u16; 2]).iter().copied() {
+                units.push(cu);
+            }
+            i += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    String::from_utf16_lossy(&units)
+}
+
 /// ECMA-262 Encode (encodeURI / encodeURIComponent) over UTF-8 code units of the string.
 fn js_encode_uri(input: &str, component: bool) -> String {
     let mut out = String::new();
@@ -1816,6 +1903,8 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "decodeURI" => Ok(JsVal::Builtin(BuiltinId::DecodeUri)),
             "encodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::EncodeUriComponent)),
             "decodeURIComponent" => Ok(JsVal::Builtin(BuiltinId::DecodeUriComponent)),
+            "escape" => Ok(JsVal::Builtin(BuiltinId::Escape)),
+            "unescape" => Ok(JsVal::Builtin(BuiltinId::Unescape)),
             "JSON" => Ok(JsVal::Builtin(BuiltinId::Json)),
             "Date" => Ok(JsVal::Builtin(BuiltinId::Date)),
             "RegExp" => Ok(JsVal::Builtin(BuiltinId::RegExp)),
@@ -1990,6 +2079,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::DecodeUri
             | BuiltinId::EncodeUriComponent
             | BuiltinId::DecodeUriComponent
+            | BuiltinId::Escape
+            | BuiltinId::Unescape
             | BuiltinId::JsonParse
             | BuiltinId::JsonStringify
             | BuiltinId::Date
@@ -2424,7 +2515,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -2721,5 +2812,28 @@ mod tests {
             ir.contains("double 2.25"),
             "should print f64_1=2.25:\n{ir}"
         );
+    }
+
+    #[test]
+    fn escape_unescape_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/escape_unescape.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "function",
+            "true",
+            "a%20b",
+            " ",
+            "caf%E9",
+            "hello world",
+        ] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
     }
 }
