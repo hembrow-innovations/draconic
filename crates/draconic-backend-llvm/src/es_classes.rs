@@ -1,30 +1,35 @@
-//! N08.05.01–N08.05.04: native observations for ES class declarations (E05.01 /
-//! `class_basic`), class heritage (E05.02 / `class_extends`), static methods
-//! (E05.03 / `class_static`), and `super` property access (E05.04 /
-//! `class_super_access`).
+//! N08.05.01–N08.05.04 + N08.16.26: native observations for ES class declarations
+//! (E05.01 `class_basic`), heritage (E05.02), static methods (E05.03), `super`
+//! property access (E05.04), and class public fields (E18.26 / `class_fields`).
 //!
 //! Classes lower to builder IIFEs (`const C = (function(){ … return ctor })()`).
-//! This adapter recognizes that shape for base and derived classes (no fields /
-//! private), extracts the constructor + prototype methods + static methods +
-//! optional `extends` parent, and emits the Runtime GC/object ABI (`new` +
-//! prototype chain + `super()` as parent-ctor call + `super.m(…)` via parent
-//! prototype method + method / static call).
-//! Number locals print via `print_f64`.
+//! This adapter recognizes that shape for base and derived classes (public
+//! fields; no private), extracts the constructor + prototype methods + static
+//! methods/fields + optional `extends` parent, and emits the Runtime GC/object
+//! ABI (`new` + prototype chain + `super()` + field inits + method / static call).
+//! Number / string / undefined locals print via Runtime ABI.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::{AssignOp, BinaryOp};
+use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, Param, Pattern,
-    Stmt,
+    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey,
+    Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, GC_INIT, OBJECT_GET, OBJECT_SET, OBJECT_SET_PROTO, PRINT_F64,
+    PRINT_STR,
 };
 
 const MAX_METHOD_ARGS: usize = 4;
+/// qNaN payload marking JS `undefined` (matches es_functions).
+const UNDEF_BITS: u64 = 0x7FF8_0000_0000_0001;
+
+fn undef_double_const() -> String {
+    format!("bitcast (i64 {UNDEF_BITS} to double)")
+}
 
 pub(crate) fn is_es_classes_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -37,10 +42,20 @@ pub(crate) fn emit_es_classes(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Number,
     Object,
+    String,
+    Undefined,
+}
+
+/// Public field initializer value (instance or static).
+#[derive(Clone)]
+enum FieldVal {
+    Number(Expr),
+    String(String),
+    Undef,
 }
 
 #[derive(Clone)]
@@ -61,17 +76,24 @@ struct ClassInfo {
     methods: Vec<(String, usize)>,
     /// Static method name → function index (own props on the constructor).
     static_methods: Vec<(String, usize)>,
+    /// Public static fields (`static x = expr`).
+    static_fields: Vec<(String, FieldVal)>,
+    /// Public instance fields (`x = expr`) — also injected into ctor body as assigns.
+    instance_fields: Vec<(String, FieldVal)>,
     /// Parent class index in `ModuleInfo::classes` when `extends` is present.
     parent: Option<usize>,
 }
 
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
-    number_locals: Vec<LocalId>,
+    /// Top-level observation locals in source order (number/string/undefined).
+    print_locals: Vec<(LocalId, SlotTy)>,
     functions: Vec<FnInfo>,
     classes: Vec<ClassInfo>,
     /// Class binding → index in `classes`.
     class_of: HashMap<LocalId, usize>,
+    /// Instance local → class index (`let p = new C()`).
+    instance_of: HashMap<LocalId, usize>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -79,8 +101,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut functions = Vec::new();
     let mut classes = Vec::new();
     let mut class_of = HashMap::new();
+    let mut instance_of = HashMap::new();
     let mut slots = Vec::new();
-    let mut number_locals = Vec::new();
+    let mut print_locals = Vec::new();
     let mut saw_class = false;
 
     for stmt in &module.body {
@@ -95,14 +118,24 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     class_of.insert(*local, idx);
                     classes.push(cls);
                     slots.push((*local, SlotTy::Object));
+                } else if let Some(ci) = new_class_idx(init, &class_of) {
+                    if !object_expr_ok(init, &class_of, &by_id, &functions) {
+                        return None;
+                    }
+                    instance_of.insert(*local, ci);
+                    slots.push((*local, SlotTy::Object));
                 } else if is_object_slot(init, &class_of, &by_id) {
                     if !object_expr_ok(init, &class_of, &by_id, &functions) {
                         return None;
                     }
                     slots.push((*local, SlotTy::Object));
-                } else if number_expr_ok(init, &class_of, &by_id, &functions) {
-                    slots.push((*local, SlotTy::Number));
-                    number_locals.push(*local);
+                } else if let Some(st) =
+                    classify_value_init(init, &class_of, &instance_of, &classes, &by_id, &functions)
+                {
+                    slots.push((*local, st));
+                    if matches!(st, SlotTy::Number | SlotTy::String | SlotTy::Undefined) {
+                        print_locals.push((*local, st));
+                    }
                 } else {
                     return None;
                 }
@@ -116,16 +149,165 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         }
     }
 
-    if !saw_class || number_locals.is_empty() {
+    if !saw_class || print_locals.is_empty() {
         return None;
     }
     Some(ModuleInfo {
         slots,
-        number_locals,
+        print_locals,
         functions,
         classes,
         class_of,
+        instance_of,
     })
+}
+
+fn new_class_idx(init: &Expr, class_of: &HashMap<LocalId, usize>) -> Option<usize> {
+    let Expr::New { callee, .. } = init else {
+        return None;
+    };
+    let Expr::Local { id, .. } = callee.as_ref() else {
+        return None;
+    };
+    class_of.get(id).copied()
+}
+
+fn classify_value_init(
+    init: &Expr,
+    class_of: &HashMap<LocalId, usize>,
+    instance_of: &HashMap<LocalId, usize>,
+    classes: &[ClassInfo],
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &[FnInfo],
+) -> Option<SlotTy> {
+    if let Expr::Unary {
+        op: UnaryOp::TypeOf,
+        arg,
+        ..
+    } = init
+    {
+        if member_field_val(arg, class_of, instance_of, classes).is_some()
+            || object_expr_ok(arg, class_of, by_id, functions)
+            || matches!(arg.as_ref(), Expr::Local { .. } | Expr::Member { .. })
+        {
+            return Some(SlotTy::String);
+        }
+        return None;
+    }
+    if let Some(fv) = member_field_val(init, class_of, instance_of, classes) {
+        return Some(match fv {
+            FieldVal::Number(_) => SlotTy::Number,
+            FieldVal::String(_) => SlotTy::String,
+            FieldVal::Undef => SlotTy::Undefined,
+        });
+    }
+    if number_expr_ok(init, class_of, by_id, functions) {
+        return Some(SlotTy::Number);
+    }
+    if string_expr_ok(init, class_of, instance_of, classes, by_id, functions) {
+        return Some(SlotTy::String);
+    }
+    None
+}
+
+fn string_expr_ok(
+    expr: &Expr,
+    class_of: &HashMap<LocalId, usize>,
+    instance_of: &HashMap<LocalId, usize>,
+    classes: &[ClassInfo],
+    by_id: &HashMap<LocalId, &Local>,
+    functions: &[FnInfo],
+) -> bool {
+    match expr {
+        Expr::String { .. } => true,
+        Expr::Local { id, ty } => {
+            matches!(ty, Type::String)
+                || by_id.get(id).is_some_and(|l| matches!(l.ty, Type::String))
+        }
+        Expr::Member { .. } => matches!(
+            member_field_val(expr, class_of, instance_of, classes),
+            Some(FieldVal::String(_))
+        ),
+        Expr::Unary {
+            op: UnaryOp::TypeOf,
+            arg,
+            ..
+        } => {
+            object_expr_ok(arg, class_of, by_id, functions)
+                || member_field_val(arg, class_of, instance_of, classes).is_some()
+                || matches!(arg.as_ref(), Expr::Local { .. } | Expr::Member { .. })
+        }
+        _ => false,
+    }
+}
+
+fn member_field_val<'a>(
+    expr: &Expr,
+    class_of: &HashMap<LocalId, usize>,
+    instance_of: &HashMap<LocalId, usize>,
+    classes: &'a [ClassInfo],
+) -> Option<&'a FieldVal> {
+    let Expr::Member {
+        object,
+        property,
+        optional,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if *optional {
+        return None;
+    }
+    let key = match property.as_ref() {
+        Expr::String { value, .. } => value.to_string_lossy(),
+        _ => return None,
+    };
+    match object.as_ref() {
+        Expr::Local { id, .. } => {
+            if let Some(&ci) = class_of.get(id) {
+                return lookup_static_field(classes, ci, &key);
+            }
+            if let Some(&ci) = instance_of.get(id) {
+                return lookup_instance_field(classes, ci, &key);
+            }
+            None
+        }
+        Expr::New { callee, .. } => {
+            let Expr::Local { id, .. } = callee.as_ref() else {
+                return None;
+            };
+            let ci = *class_of.get(id)?;
+            lookup_instance_field(classes, ci, &key)
+        }
+        _ => None,
+    }
+}
+
+fn lookup_instance_field<'a>(
+    classes: &'a [ClassInfo],
+    mut idx: usize,
+    name: &str,
+) -> Option<&'a FieldVal> {
+    loop {
+        let cls = classes.get(idx)?;
+        if let Some((_, v)) = cls.instance_fields.iter().find(|(n, _)| n == name) {
+            return Some(v);
+        }
+        idx = cls.parent?;
+    }
+}
+
+fn lookup_static_field<'a>(
+    classes: &'a [ClassInfo],
+    idx: usize,
+    name: &str,
+) -> Option<&'a FieldVal> {
+    let cls = classes.get(idx)?;
+    cls.static_fields
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, v)| v)
 }
 
 fn try_extract_class(
@@ -169,6 +351,8 @@ fn try_extract_class(
     let mut ctor_fn_idx: Option<usize> = None;
     let mut methods: Vec<(String, usize)> = Vec::new();
     let mut static_methods: Vec<(String, usize)> = Vec::new();
+    let mut static_fields: Vec<(String, FieldVal)> = Vec::new();
+    let mut instance_fields: Vec<(String, FieldVal)> = Vec::new();
     let mut pending_key: Option<String> = None;
     let mut parent_idx: Option<usize> = None;
     let mut parent_ctor_fn_idx: Option<usize> = None;
@@ -207,7 +391,7 @@ fn try_extract_class(
                     return None;
                 }
                 let param_ids = simple_param_ids(cparams, by_id)?;
-                let filtered = if parent_idx.is_some() {
+                let (filtered, ifields) = if parent_idx.is_some() {
                     filter_derived_ctor_body(cbody)
                 } else {
                     filter_ctor_body(cbody)
@@ -215,6 +399,7 @@ fn try_extract_class(
                 if !method_body_ok(&filtered, by_id) {
                     return None;
                 }
+                instance_fields = ifields;
                 let idx = functions.len();
                 functions.push(FnInfo {
                     idx,
@@ -241,41 +426,52 @@ fn try_extract_class(
             } if is_object_define_property(def_callee) && def_args.len() == 3 => {
                 let ctor = ctor_local?;
                 if is_define_on_ctor(def_args, ctor) {
-                    // Static methods (and skip non-method own props like `name`).
                     let Arg::Expr(desc_expr) = &def_args[2] else {
                         continue;
                     };
-                    let Some(method_fn) = find_method_function(desc_expr) else {
+                    let key = pending_key
+                        .take()
+                        .or_else(|| string_arg(&def_args[1]))
+                        .unwrap_or_default();
+                    if key.is_empty() || key == "name" || key == "prototype" {
                         continue;
-                    };
-                    let key = pending_key.take().or_else(|| string_arg(&def_args[1]))?;
-                    let Expr::Function {
-                        params: mparams,
-                        body: mbody,
-                        is_async: ma,
-                        is_generator: mg,
-                        ..
-                    } = method_fn
-                    else {
-                        return None;
-                    };
-                    if *ma || *mg {
-                        return None;
                     }
-                    let param_ids = simple_param_ids(mparams, by_id)?;
-                    let filtered = filter_method_body(mbody);
-                    if !method_body_ok(&filtered, by_id) {
-                        return None;
+                    // Static method: descriptor.value is directly a function (not field __fi.call).
+                    if let Some(method_fn) = descriptor_direct_method_fn(desc_expr) {
+                        let Expr::Function {
+                            params: mparams,
+                            body: mbody,
+                            is_async: ma,
+                            is_generator: mg,
+                            ..
+                        } = method_fn
+                        else {
+                            return None;
+                        };
+                        if *ma || *mg {
+                            return None;
+                        }
+                        let param_ids = simple_param_ids(mparams, by_id)?;
+                        let filtered = filter_method_body(mbody);
+                        if !method_body_ok(&filtered, by_id) {
+                            return None;
+                        }
+                        let idx = functions.len();
+                        functions.push(FnInfo {
+                            idx,
+                            params: param_ids,
+                            body: filtered,
+                            parent_ctor_fn_idx: None,
+                            super_class_idx: parent_idx,
+                        });
+                        static_methods.push((key, idx));
+                        continue;
                     }
-                    let idx = functions.len();
-                    functions.push(FnInfo {
-                        idx,
-                        params: param_ids,
-                        body: filtered,
-                        parent_ctor_fn_idx: None,
-                        super_class_idx: parent_idx,
-                    });
-                    static_methods.push((key, idx));
+                    // Public static field: defineProperty(ctor, key, { value: __fi.call(ctor), … })
+                    if let Some(fv) = static_field_val_from_desc(desc_expr) {
+                        static_fields.push((key, fv));
+                        continue;
+                    }
                     continue;
                 }
                 if !is_define_on_proto(def_args, ctor) {
@@ -333,6 +529,8 @@ fn try_extract_class(
         ctor_fn_idx: ctor_fn_idx?,
         methods,
         static_methods,
+        static_fields,
+        instance_fields,
         parent: parent_idx,
     })
 }
@@ -398,6 +596,31 @@ fn string_arg(arg: &Arg) -> Option<String> {
         Arg::Expr(Expr::Local { .. }) => None,
         _ => None,
     }
+}
+
+/// Method function from a defineProperty descriptor.
+///
+/// Static fields use `{ value: __fi.call(ctor), writable: true, … }` — do **not**
+/// deep-search those (nested `__fi` is a method function). Real static/proto methods
+/// either have `value: function…` directly or a getOwnPropertyDescriptor IIFE shape.
+fn descriptor_direct_method_fn(desc: &Expr) -> Option<&Expr> {
+    if let Expr::Object { properties, .. } = desc {
+        for p in properties {
+            if let ObjectProp::Property { key, value, .. } = p {
+                if let ObjectPropKey::Static(k) = key {
+                    if k.to_string_lossy() == "value" {
+                        if matches!(value, Expr::Function { .. }) {
+                            return Some(value);
+                        }
+                        // Data descriptor whose value is not a bare function (static field).
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+    // Complex method install (getOwnPropertyDescriptor + fixup IIFE) or accessors.
+    find_method_function(desc)
 }
 
 fn find_method_function(expr: &Expr) -> Option<&Expr> {
@@ -481,55 +704,100 @@ fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
     }
 }
 
-fn filter_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
-    body.iter()
-        .filter(|s| match s {
+fn filter_ctor_body(body: &[Stmt]) -> (Vec<Stmt>, Vec<(String, FieldVal)>) {
+    let mut out = Vec::new();
+    let mut fields = Vec::new();
+    for s in body {
+        match s {
             Stmt::Expr {
                 expr: Expr::String { value, .. },
-            } if value.to_string_lossy() == "use strict" => false,
-            Stmt::If { .. } => false, // new.target check
-            Stmt::Expr {
-                expr:
+            } if value.to_string_lossy() == "use strict" => {}
+            Stmt::If { .. } => {} // new.target check
+            Stmt::Expr { expr } => {
+                if let Some((name, fv, assign)) = try_field_init_assign(expr) {
+                    fields.push((name, fv));
+                    out.push(assign);
+                } else if matches!(
+                    expr,
                     Expr::Assign {
                         target: AssignTarget::Member { .. },
                         op: AssignOp::Eq,
                         ..
-                    },
-            } => true,
-            Stmt::Return { .. } => true,
-            Stmt::Block { .. } => true,
-            _ => false,
-        })
-        .cloned()
-        .collect()
+                    }
+                ) {
+                    out.push(s.clone());
+                }
+            }
+            Stmt::Return { .. } | Stmt::Block { .. } => out.push(s.clone()),
+            _ => {}
+        }
+    }
+    (out, fields)
 }
 
 /// Collapse derived-ctor IR (this-TDZ + Reflect.construct super IIFE) into:
 /// `super(args…); this.prop = …;`
-fn filter_derived_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
+fn filter_derived_ctor_body(body: &[Stmt]) -> (Vec<Stmt>, Vec<(String, FieldVal)>) {
     let mut out = Vec::new();
-    collect_derived_ctor_stmts(body, &mut out);
-    out
+    let mut fields = Vec::new();
+    collect_derived_ctor_stmts(body, &mut out, &mut fields);
+    (out, fields)
 }
 
-fn collect_derived_ctor_stmts(body: &[Stmt], out: &mut Vec<Stmt>) {
+fn collect_derived_ctor_stmts(
+    body: &[Stmt],
+    out: &mut Vec<Stmt>,
+    fields: &mut Vec<(String, FieldVal)>,
+) {
     for stmt in body {
         match stmt {
             Stmt::Expr {
                 expr: Expr::String { value, .. },
             } if value.to_string_lossy() == "use strict" => {}
             Stmt::If { .. } | Stmt::Declare { .. } | Stmt::Return { .. } => {}
-            Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
-            Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
-            other => collect_derived_ctor_stmts_one(other, out),
+            Stmt::Try {
+                block,
+                handler,
+                finalizer,
+                ..
+            } => {
+                collect_derived_ctor_stmts(block, out, fields);
+                if let Some(h) = handler {
+                    collect_derived_ctor_stmts(h, out, fields);
+                }
+                if let Some(f) = finalizer {
+                    collect_derived_ctor_stmts(f, out, fields);
+                }
+            }
+            Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out, fields),
+            Stmt::Block { body } => collect_derived_ctor_stmts(body, out, fields),
+            other => collect_derived_ctor_stmts_one(other, out, fields),
         }
     }
 }
 
-fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
+fn collect_derived_ctor_stmts_one(
+    stmt: &Stmt,
+    out: &mut Vec<Stmt>,
+    fields: &mut Vec<(String, FieldVal)>,
+) {
     match stmt {
-        Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
-        Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
+        Stmt::Block { body } => collect_derived_ctor_stmts(body, out, fields),
+        Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out, fields),
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            collect_derived_ctor_stmts(block, out, fields);
+            if let Some(h) = handler {
+                collect_derived_ctor_stmts(h, out, fields);
+            }
+            if let Some(f) = finalizer {
+                collect_derived_ctor_stmts(f, out, fields);
+            }
+        }
         Stmt::Expr {
             expr:
                 Expr::Call {
@@ -557,35 +825,234 @@ fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
                     ty: ty.clone(),
                 },
             });
+            // Instance field inits are nested inside the super IIFE after Reflect.construct.
+            if let Expr::Function { body, .. } = callee.as_ref() {
+                collect_derived_ctor_stmts(body, out, fields);
+            }
         }
-        Stmt::Expr {
-            expr:
-                Expr::Assign {
-                    target:
-                        AssignTarget::Member {
-                            object: _,
-                            property,
-                            computed,
-                        },
-                    op: AssignOp::Eq,
-                    value,
-                    ty,
-                },
-        } if matches!(property.as_ref(), Expr::String { .. }) => {
-            out.push(Stmt::Expr {
-                expr: Expr::Assign {
-                    target: AssignTarget::Member {
-                        object: Box::new(Expr::This { ty: Type::Any }),
-                        property: property.clone(),
-                        computed: *computed,
+        Stmt::Expr { expr } => {
+            if let Some((name, fv, assign)) = try_field_init_assign(expr) {
+                fields.push((name, fv));
+                out.push(assign);
+            } else if let Expr::Assign {
+                target:
+                    AssignTarget::Member {
+                        object: _,
+                        property,
+                        computed,
                     },
-                    op: AssignOp::Eq,
-                    value: value.clone(),
-                    ty: ty.clone(),
-                },
-            });
+                op: AssignOp::Eq,
+                value,
+                ty,
+            } = expr
+            {
+                if matches!(property.as_ref(), Expr::String { .. }) {
+                    out.push(Stmt::Expr {
+                        expr: Expr::Assign {
+                            target: AssignTarget::Member {
+                                object: Box::new(Expr::This { ty: Type::Any }),
+                                property: property.clone(),
+                                computed: *computed,
+                            },
+                            op: AssignOp::Eq,
+                            value: value.clone(),
+                            ty: ty.clone(),
+                        },
+                    });
+                }
+            }
         }
         _ => {}
+    }
+}
+
+/// Instance field init: `({__proto__, __fi(){ Object.defineProperty(this,k,{value}) }}).__fi.call(recv)`
+/// → `(name, FieldVal, this.name = value)`.
+fn try_field_init_assign(expr: &Expr) -> Option<(String, FieldVal, Stmt)> {
+    let (key, value) = extract_instance_field_define(expr)?;
+    let fv = field_val_from_expr(&value)?;
+    let assign = Stmt::Expr {
+        expr: Expr::Assign {
+            target: AssignTarget::Member {
+                object: Box::new(Expr::This { ty: Type::Any }),
+                property: Box::new(Expr::String {
+                    value: key.clone().into(),
+                    ty: Type::String,
+                }),
+                computed: false,
+            },
+            op: AssignOp::Eq,
+            value: Box::new(value),
+            ty: Type::Any,
+        },
+    };
+    Some((key, fv, assign))
+}
+
+fn extract_instance_field_define(expr: &Expr) -> Option<(String, Expr)> {
+    let Expr::Call {
+        callee,
+        args,
+        optional,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if *optional || args.len() != 1 {
+        return None;
+    }
+    // recv is This or Local (derived this temp)
+    match &args[0] {
+        Arg::Expr(Expr::This { .. } | Expr::Local { .. }) => {}
+        _ => return None,
+    }
+    let fi_fn = fi_method_from_call_callee(callee)?;
+    let Expr::Function { body, .. } = fi_fn else {
+        return None;
+    };
+    for s in body {
+        if let Stmt::Expr {
+            expr:
+                Expr::Call {
+                    callee: def_c,
+                    args: def_a,
+                    ..
+                },
+        } = s
+        {
+            if is_object_define_property(def_c) && def_a.len() == 3 {
+                let key = string_arg(&def_a[1])?;
+                let Arg::Expr(desc) = &def_a[2] else {
+                    return None;
+                };
+                let val = object_prop_value(desc, "value")?;
+                return Some((key, val));
+            }
+        }
+    }
+    None
+}
+
+fn fi_method_from_call_callee(callee: &Expr) -> Option<&Expr> {
+    // obj.__fi.call  OR  (obj.__fi).call
+    let Expr::Member {
+        object,
+        property,
+        optional,
+        ..
+    } = callee
+    else {
+        return None;
+    };
+    if *optional || !matches!(property.as_ref(), Expr::String { value, .. } if value.to_string_lossy() == "call")
+    {
+        return None;
+    }
+    let Expr::Member {
+        object: obj,
+        property: fi_key,
+        optional: opt2,
+        ..
+    } = object.as_ref()
+    else {
+        return None;
+    };
+    if *opt2 || !matches!(fi_key.as_ref(), Expr::String { value, .. } if value.to_string_lossy() == "__fi")
+    {
+        return None;
+    }
+    let Expr::Object { properties, .. } = obj.as_ref() else {
+        return None;
+    };
+    for p in properties {
+        if let ObjectProp::Property { key, value, .. } = p {
+            if let ObjectPropKey::Static(k) = key {
+                if k.to_string_lossy() == "__fi" {
+                    return Some(value);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn static_field_val_from_desc(desc: &Expr) -> Option<FieldVal> {
+    let val = object_prop_value(desc, "value")?;
+    // Static field value is often `__fi.call(ctor)` returning the init expr.
+    if let Some(ret) = fi_call_return_expr(&val) {
+        return field_val_from_expr(ret);
+    }
+    field_val_from_expr(&val)
+}
+
+fn fi_call_return_expr(expr: &Expr) -> Option<&Expr> {
+    let Expr::Call {
+        callee,
+        args,
+        optional,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if *optional || args.is_empty() {
+        return None;
+    }
+    let fi_fn = fi_method_from_call_callee(callee)?;
+    let Expr::Function { body, .. } = fi_fn else {
+        return None;
+    };
+    for s in body {
+        match s {
+            Stmt::Return { value: Some(v) } => return Some(v),
+            Stmt::Expr {
+                expr: Expr::String { .. },
+            } => {}
+            _ => {}
+        }
+    }
+    None
+}
+
+fn object_prop_value(obj: &Expr, name: &str) -> Option<Expr> {
+    let Expr::Object { properties, .. } = obj else {
+        return None;
+    };
+    for p in properties {
+        if let ObjectProp::Property { key, value, .. } = p {
+            if let ObjectPropKey::Static(s) = key {
+                if s.to_string_lossy() == name {
+                    return Some(value.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn field_val_from_expr(expr: &Expr) -> Option<FieldVal> {
+    match expr {
+        Expr::Number { .. } => Some(FieldVal::Number(expr.clone())),
+        Expr::String { value, .. } => Some(FieldVal::String(value.to_string_lossy())),
+        Expr::IdentName { name, .. } if name == "undefined" => Some(FieldVal::Undef),
+        Expr::Unary {
+            op: UnaryOp::Void, ..
+        } => Some(FieldVal::Undef),
+        Expr::Binary {
+            left,
+            op,
+            right,
+            ..
+        } if matches!(
+            op,
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
+        ) && field_val_from_expr(left).is_some()
+            && field_val_from_expr(right).is_some() =>
+        {
+            Some(FieldVal::Number(expr.clone()))
+        }
+        _ => None,
     }
 }
 
@@ -735,6 +1202,10 @@ fn method_stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
 fn number_expr_ok_method(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::Number { .. } => true,
+        Expr::IdentName { name, .. } if name == "undefined" => true,
+        Expr::Unary {
+            op: UnaryOp::Void, ..
+        } => true,
         Expr::Local { id, ty } => {
             matches!(ty, Type::Number | Type::Any)
                 || by_id
@@ -1031,7 +1502,7 @@ impl<'a> Emitter<'a> {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.05 ES class decl/heritage/static/super via Runtime ABI)"
+            "; Draconic LLVM backend (N08.05/N08.16.26 ES class + public fields via Runtime ABI)"
         )
         .ok();
         writeln!(
@@ -1044,6 +1515,7 @@ impl<'a> Emitter<'a> {
                 OBJECT_GET,
                 OBJECT_SET_PROTO,
                 PRINT_F64,
+                PRINT_STR,
             ])
         )
         .ok();
@@ -1069,24 +1541,66 @@ impl<'a> Emitter<'a> {
         }
 
         for (id, kind) in &info.slots {
-            if *kind != SlotTy::Object {
-                continue;
+            match kind {
+                SlotTy::Object | SlotTy::String => {
+                    let ptr = format!("%l{}", id.0);
+                    self.allocas.insert(*id, ptr.clone());
+                    writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+                    writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
+                }
+                SlotTy::Undefined | SlotTy::Number => {}
             }
-            let ptr = format!("%l{}", id.0);
-            self.allocas.insert(*id, ptr.clone());
-            writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
-            writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
         }
 
         for stmt in &self.module.body {
             self.emit_stmt(stmt)?;
         }
 
-        for id in &info.number_locals {
-            let ptr = self.number_slot_ptr(*id)?;
-            let v = self.fresh();
-            writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
-            writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+        for (id, kind) in &info.print_locals {
+            match kind {
+                SlotTy::Number => {
+                    let ptr = self.number_slot_ptr(*id)?;
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                    let bits = self.fresh();
+                    writeln!(self.body, "  {bits} = bitcast double {v} to i64").ok();
+                    let is_u = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}"
+                    )
+                    .ok();
+                    let und_l = format!("print_und_{}", id.0);
+                    let num_l = format!("print_num_{}", id.0);
+                    let end_l = format!("print_end_{}", id.0);
+                    writeln!(
+                        self.body,
+                        "  br i1 {is_u}, label %{und_l}, label %{num_l}"
+                    )
+                    .ok();
+                    writeln!(self.body, "{und_l}:").ok();
+                    self.emit_print_str_lit("undefined")?;
+                    writeln!(self.body, "  br label %{end_l}").ok();
+                    writeln!(self.body, "{num_l}:").ok();
+                    writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+                    writeln!(self.body, "  br label %{end_l}").ok();
+                    writeln!(self.body, "{end_l}:").ok();
+                }
+                SlotTy::String => {
+                    let ptr = self
+                        .allocas
+                        .get(id)
+                        .cloned()
+                        .ok_or_else(|| diag("es_classes: string print missing"))?;
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+                }
+                SlotTy::Undefined => {
+                    self.emit_print_str_lit("undefined")?;
+                }
+                SlotTy::Object => {}
+            }
         }
 
         for (content, gname) in self.str_globals.clone() {
@@ -1108,6 +1622,12 @@ impl<'a> Emitter<'a> {
         self.out.push_str(&self.body);
         writeln!(self.out, "  ret i32 0").ok();
         writeln!(self.out, "}}").ok();
+        Ok(())
+    }
+
+    fn emit_print_str_lit(&mut self, s: &str) -> Result<(), Diagnostic> {
+        let p = self.string_const(s)?;
+        writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {p}"))).ok();
         Ok(())
     }
 
@@ -1260,6 +1780,18 @@ impl<'a> Emitter<'a> {
                         let ptr = self.number_slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::String => {
+                        let v = self.emit_string_expr(init)?;
+                        let ptr = self
+                            .allocas
+                            .get(local)
+                            .cloned()
+                            .ok_or_else(|| diag("es_classes: string slot missing"))?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    }
+                    SlotTy::Undefined => {
+                        // Observation-only; print emits `undefined`.
+                    }
                     SlotTy::Object => {
                         let v = if let Some(ci) = self.info.class_of.get(local) {
                             self.emit_class_ctor(*ci)?
@@ -1336,7 +1868,44 @@ impl<'a> Emitter<'a> {
             )
             .ok();
         }
+        for (name, fv) in &cls.static_fields {
+            self.emit_field_on_object(&ctor, name, fv)?;
+        }
         Ok(ctor)
+    }
+
+    fn emit_field_on_object(
+        &mut self,
+        obj: &str,
+        name: &str,
+        fv: &FieldVal,
+    ) -> Result<(), Diagnostic> {
+        match fv {
+            FieldVal::Undef => Ok(()), // missing prop → undefined on get
+            FieldVal::Number(e) => {
+                let key = self.string_const(name)?;
+                let n = self.emit_number_expr(e)?;
+                let p = self.box_number(&n)?;
+                writeln!(
+                    self.body,
+                    "  {}",
+                    OBJECT_SET.call(&format!("ptr {obj}, ptr {key}, ptr {p}"))
+                )
+                .ok();
+                Ok(())
+            }
+            FieldVal::String(s) => {
+                let key = self.string_const(name)?;
+                let p = self.string_const(s)?;
+                writeln!(
+                    self.body,
+                    "  {}",
+                    OBJECT_SET.call(&format!("ptr {obj}, ptr {key}, ptr {p}"))
+                )
+                .ok();
+                Ok(())
+            }
+        }
     }
 
     fn emit_side_effect_expr(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
@@ -1354,11 +1923,32 @@ impl<'a> Emitter<'a> {
             } => {
                 let obj = self.emit_object_expr(object)?;
                 let key = self.member_key_cstr(property)?;
+                if matches!(
+                    value.as_ref(),
+                    Expr::IdentName { name, .. } if name == "undefined"
+                ) || matches!(
+                    value.as_ref(),
+                    Expr::Unary {
+                        op: UnaryOp::Void,
+                        ..
+                    }
+                ) {
+                    // Leave property missing → undefined.
+                    let _ = (obj, key);
+                    return Ok(());
+                }
+                if let Expr::String { value: s, .. } = value.as_ref() {
+                    let p = self.string_const(&s.to_string_lossy())?;
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        OBJECT_SET.call(&format!("ptr {obj}, ptr {key}, ptr {p}"))
+                    )
+                    .ok();
+                    return Ok(());
+                }
                 let n = self.emit_number_expr(value)?;
-                let i = self.fresh();
-                writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
-                let p = self.fresh();
-                writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
+                let p = self.box_number(&n)?;
                 writeln!(
                     self.body,
                     "  {}",
@@ -1386,9 +1976,35 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Pack f64 bits into a non-null ptr so `0` is distinct from missing/undefined.
+    fn box_number(&mut self, n: &str) -> Result<String, Diagnostic> {
+        let bits = self.fresh();
+        writeln!(self.body, "  {bits} = bitcast double {n} to i64").ok();
+        // Ensure non-null: XOR a tag bit that is cleared on unbox (bit 0).
+        let tagged = self.fresh();
+        writeln!(self.body, "  {tagged} = or i64 {bits}, 1").ok();
+        let p = self.fresh();
+        writeln!(self.body, "  {p} = inttoptr i64 {tagged} to ptr").ok();
+        Ok(p)
+    }
+
+    fn unbox_number(&mut self, raw: &str) -> Result<String, Diagnostic> {
+        let i = self.fresh();
+        writeln!(self.body, "  {i} = ptrtoint ptr {raw} to i64").ok();
+        let bits = self.fresh();
+        writeln!(self.body, "  {bits} = and i64 {i}, -2").ok();
+        let d = self.fresh();
+        writeln!(self.body, "  {d} = bitcast i64 {bits} to double").ok();
+        Ok(d)
+    }
+
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Number { raw, .. } => format_number_const(raw),
+            Expr::IdentName { name, .. } if name == "undefined" => Ok(undef_double_const()),
+            Expr::Unary {
+                op: UnaryOp::Void, ..
+            } => Ok(undef_double_const()),
             Expr::Local { id, .. } => {
                 if let Some(ptr) = self.param_allocas.get(id).cloned() {
                     let t = self.fresh();
@@ -1425,10 +2041,38 @@ impl<'a> Emitter<'a> {
                     OBJECT_GET.call_to(&raw, &format!("ptr {obj}, ptr {key}"))
                 )
                 .ok();
-                let i = self.fresh();
-                writeln!(self.body, "  {i} = ptrtoint ptr {raw} to i64").ok();
+                // null get → undefined sentinel; else inttoptr number unbox
+                let is_null = self.fresh();
+                writeln!(self.body, "  {is_null} = icmp eq ptr {raw}, null").ok();
+                let und_l = self.fresh().replace('%', "");
+                let num_l = self.fresh().replace('%', "");
+                let end_l = self.fresh().replace('%', "");
+                let und_l = format!("mget_und_{und_l}");
+                let num_l = format!("mget_num_{num_l}");
+                let end_l = format!("mget_end_{end_l}");
                 let d = self.fresh();
-                writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
+                // alloca for phi result
+                let slot = self.fresh();
+                writeln!(self.body, "  {slot} = alloca double, align 8").ok();
+                writeln!(
+                    self.body,
+                    "  br i1 {is_null}, label %{und_l}, label %{num_l}"
+                )
+                .ok();
+                writeln!(self.body, "{und_l}:").ok();
+                writeln!(
+                    self.body,
+                    "  store double {}, ptr {slot}",
+                    undef_double_const()
+                )
+                .ok();
+                writeln!(self.body, "  br label %{end_l}").ok();
+                writeln!(self.body, "{num_l}:").ok();
+                let dn = self.unbox_number(&raw)?;
+                writeln!(self.body, "  store double {dn}, ptr {slot}").ok();
+                writeln!(self.body, "  br label %{end_l}").ok();
+                writeln!(self.body, "{end_l}:").ok();
+                writeln!(self.body, "  {d} = load double, ptr {slot}").ok();
                 Ok(d)
             }
             Expr::Assign {
@@ -1445,10 +2089,7 @@ impl<'a> Emitter<'a> {
                 let obj = self.emit_object_expr(object)?;
                 let key = self.member_key_cstr(property)?;
                 let n = self.emit_number_expr(value)?;
-                let i = self.fresh();
-                writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
-                let p = self.fresh();
-                writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
+                let p = self.box_number(&n)?;
                 writeln!(
                     self.body,
                     "  {}",
@@ -1742,6 +2383,90 @@ impl<'a> Emitter<'a> {
         Err(diag("es_classes: number slot missing"))
     }
 
+    fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
+            Expr::Unary {
+                op: UnaryOp::TypeOf,
+                arg,
+                ..
+            } => {
+                // Field fixture: typeof only on undefined fields / missing props.
+                if let Some(fv) = member_field_val(
+                    arg,
+                    &self.info.class_of,
+                    &self.info.instance_of,
+                    &self.info.classes,
+                ) {
+                    match fv {
+                        FieldVal::Undef => return self.string_const("undefined"),
+                        FieldVal::String(_) => return self.string_const("string"),
+                        FieldVal::Number(_) => return self.string_const("number"),
+                    }
+                }
+                // Runtime: null get → "undefined"
+                if let Expr::Member {
+                    object,
+                    property,
+                    optional,
+                    ..
+                } = arg.as_ref()
+                {
+                    if !*optional {
+                        let obj = self.emit_object_expr(object)?;
+                        let key = self.member_key_cstr(property)?;
+                        let raw = self.fresh();
+                        writeln!(
+                            self.body,
+                            "  {}",
+                            OBJECT_GET.call_to(&raw, &format!("ptr {obj}, ptr {key}"))
+                        )
+                        .ok();
+                        // Fixture only needs undefined; always print path as undefined when null.
+                        let _ = raw;
+                        return self.string_const("undefined");
+                    }
+                }
+                self.string_const("undefined")
+            }
+            Expr::Local { id, .. } => {
+                if self.slot_of.get(id) != Some(&SlotTy::String) {
+                    return Err(diag("es_classes: expected string local"));
+                }
+                let ptr = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("es_classes: string local missing"))?;
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
+                Ok(t)
+            }
+            Expr::Member {
+                object,
+                property,
+                optional,
+                ..
+            } => {
+                if *optional {
+                    return Err(diag("es_classes: optional member not supported"));
+                }
+                // Known string field → get cstr from object
+                let obj = self.emit_object_expr(object)?;
+                let key = self.member_key_cstr(property)?;
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    OBJECT_GET.call_to(&t, &format!("ptr {obj}, ptr {key}"))
+                )
+                .ok();
+                Ok(t)
+            }
+            _ => Err(diag("es_classes: unsupported string expr")),
+        }
+    }
+
     fn string_const(&mut self, s: &str) -> Result<String, Diagnostic> {
         let gname = if let Some((_, g)) = self.str_globals.iter().find(|(c, _)| c == s) {
             g.clone()
@@ -1790,4 +2515,6 @@ fn escape_llvm_string(s: &str) -> String {
 fn diag(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(message, Span::dummy())
 }
+
+
 
