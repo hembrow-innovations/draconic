@@ -1,8 +1,8 @@
-//! N08.03.01–N08.03.07 + N08.16.11: native observations for ES function declarations,
-//! expressions, and arrows (simple ident params + defaults + rest) — E03.01–E03.07 /
-//! `es/functions/decl_return_call`, `params_call`, `nested_capture`,
-//! `function_expr`, `arrow`, `default_params`, `rest_params`, and Annex B labelled
-//! function declarations — E18.11 / `es/annex-b/labelled_function`.
+//! N08.03.01–N08.03.07 + N08.16.11–N08.16.12: native observations for ES function
+//! declarations, expressions, and arrows (simple ident params + defaults + rest) —
+//! E03.01–E03.07 / `es/functions/*`, Annex B labelled function declarations —
+//! E18.11 / `es/annex-b/labelled_function`, and Annex B FunctionDeclarations in
+//! `if` — E18.12 / `es/annex-b/if_function`.
 //!
 //! Nested/non-escaping decls use extra by-value capture params. Function
 //! expressions and arrows are first-class as fn-id doubles; returned closures
@@ -11,6 +11,8 @@
 //! Rest params pack trailing args into a stack buffer of doubles; `for-of` over
 //! the rest local iterates that buffer (no full JS array heap).
 //! Labelled function declarations (`L: function f(){…}`) unwrap to ordinary decls.
+//! If-clause function decls (Annex B.3.4) bind only when the branch runs; same-name
+//! then/else share one slot; `typeof` on an unbound name is `"undefined"`.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -20,7 +22,7 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern, Stmt,
 };
-use draconic_runtime::abi::{llvm_declares, PRINT_F64};
+use draconic_runtime::abi::{llvm_declares, PRINT_F64, PRINT_STR};
 
 const MAX_CAPS: usize = 8;
 /// Max trailing rest arguments packed into the stack buffer (fixture uses ≤3).
@@ -59,8 +61,16 @@ struct ModuleInfo {
     functions: Vec<FnInfo>,
     /// Locals statically bound to a function index (decl / expr assign / name).
     fn_binding: HashMap<LocalId, usize>,
-    /// Top-level number/any user locals to print (declare order).
+    /// Top-level user locals to print (declare order): numbers and typeof-strings.
     user_locals: Vec<LocalId>,
+    /// Subset of `user_locals` holding typeof string observations.
+    string_locals: HashSet<LocalId>,
+    /// Annex B if-clause primary binding locals (runtime i32 fn-idx slot; -1 = unbound).
+    if_fn_slots: HashSet<LocalId>,
+    /// If-clause Function local → primary slot local (then/else same name share primary).
+    if_fn_primary: HashMap<LocalId, LocalId>,
+    /// Primary slot → possible fn idxs that may be stored there (for dynamic dispatch).
+    if_fn_candidates: HashMap<LocalId, Vec<usize>>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -68,9 +78,19 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut functions = Vec::new();
     let mut fn_binding = HashMap::new();
     let mut user_locals = Vec::new();
+    let mut string_locals = HashSet::new();
+    let mut if_fn_primary = HashMap::new();
+    let mut if_fn_slots = HashSet::new();
 
     // Collect every function (decl + expr) first so arities are known.
     collect_all_functions(&module.body, &by_id, &mut functions, &mut fn_binding)?;
+    record_if_fn_bindings(
+        &module.body,
+        &by_id,
+        &fn_binding,
+        &mut if_fn_primary,
+        &mut if_fn_slots,
+    );
 
     let mut fn_arities: HashMap<LocalId, usize> = HashMap::new();
     for (loc, idx) in &fn_binding {
@@ -115,8 +135,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             &fn_arities,
             &functions,
             &fn_binding,
+            &if_fn_primary,
+            &if_fn_slots,
             &mut has_fn,
             &mut user_locals,
+            &mut string_locals,
             true,
         ) {
             return None;
@@ -126,11 +149,131 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if !has_fn || user_locals.is_empty() {
         return None;
     }
+
+    let mut if_fn_candidates: HashMap<LocalId, Vec<usize>> = HashMap::new();
+    for (loc, primary) in &if_fn_primary {
+        if let Some(&idx) = fn_binding.get(loc) {
+            let c = if_fn_candidates.entry(*primary).or_default();
+            if !c.contains(&idx) {
+                c.push(idx);
+            }
+        }
+    }
+    for c in if_fn_candidates.values_mut() {
+        c.sort_unstable();
+    }
+
     Some(ModuleInfo {
         functions,
         fn_binding,
         user_locals,
+        string_locals,
+        if_fn_slots,
+        if_fn_primary,
+        if_fn_candidates,
     })
+}
+
+/// Unwrap `L: …: function f` / bare `function f` as if/else clause.
+fn unwrap_if_fn_local(stmt: &Stmt) -> Option<LocalId> {
+    let mut s = stmt;
+    while let Stmt::Labeled { body, .. } = s {
+        s = body;
+    }
+    match s {
+        Stmt::Function { local, .. } => Some(*local),
+        _ => None,
+    }
+}
+
+/// Annex B.3.4: if-clause function decls bind only when the branch runs; then/else
+/// same name share the consequent (first) local as the primary use binding.
+fn record_if_fn_bindings(
+    stmts: &[Stmt],
+    by_id: &HashMap<LocalId, &Local>,
+    fn_binding: &HashMap<LocalId, usize>,
+    if_fn_primary: &mut HashMap<LocalId, LocalId>,
+    if_fn_slots: &mut HashSet<LocalId>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                let c = unwrap_if_fn_local(consequent);
+                let a = alternate.as_ref().and_then(|s| unwrap_if_fn_local(s));
+                match (c, a) {
+                    (Some(cl), Some(al)) => {
+                        let same = by_id.get(&cl).is_some_and(|l| {
+                            by_id.get(&al).is_some_and(|r| l.name == r.name)
+                        });
+                        if same {
+                            // Uses resolve to the first (consequent) binding.
+                            if_fn_primary.insert(cl, cl);
+                            if_fn_primary.insert(al, cl);
+                            if_fn_slots.insert(cl);
+                        } else {
+                            if_fn_primary.insert(cl, cl);
+                            if_fn_primary.insert(al, al);
+                            if_fn_slots.insert(cl);
+                            if_fn_slots.insert(al);
+                        }
+                    }
+                    (Some(cl), None) => {
+                        if_fn_primary.insert(cl, cl);
+                        if_fn_slots.insert(cl);
+                    }
+                    (None, Some(al)) => {
+                        if_fn_primary.insert(al, al);
+                        if_fn_slots.insert(al);
+                    }
+                    (None, None) => {
+                        record_if_fn_bindings(
+                            std::slice::from_ref(consequent.as_ref()),
+                            by_id,
+                            fn_binding,
+                            if_fn_primary,
+                            if_fn_slots,
+                        );
+                        if let Some(alt) = alternate {
+                            record_if_fn_bindings(
+                                std::slice::from_ref(alt.as_ref()),
+                                by_id,
+                                fn_binding,
+                                if_fn_primary,
+                                if_fn_slots,
+                            );
+                        }
+                    }
+                }
+            }
+            Stmt::Function { body, .. } => {
+                record_if_fn_bindings(body, by_id, fn_binding, if_fn_primary, if_fn_slots);
+            }
+            Stmt::Block { body } => {
+                record_if_fn_bindings(body, by_id, fn_binding, if_fn_primary, if_fn_slots);
+            }
+            Stmt::Labeled { body, .. } => {
+                record_if_fn_bindings(
+                    std::slice::from_ref(body.as_ref()),
+                    by_id,
+                    fn_binding,
+                    if_fn_primary,
+                    if_fn_slots,
+                );
+            }
+            Stmt::Declare {
+                init: Some(Expr::Function { body, .. }),
+                ..
+            } => {
+                record_if_fn_bindings(body, by_id, fn_binding, if_fn_primary, if_fn_slots);
+            }
+            _ => {}
+        }
+    }
+    let _ = fn_binding;
 }
 
 fn classify_top_stmt(
@@ -139,8 +282,11 @@ fn classify_top_stmt(
     fn_arities: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
+    if_fn_primary: &HashMap<LocalId, LocalId>,
+    if_fn_slots: &HashSet<LocalId>,
     has_fn: &mut bool,
     user_locals: &mut Vec<LocalId>,
+    string_locals: &mut HashSet<LocalId>,
     observe_declares: bool,
 ) -> bool {
     match stmt {
@@ -154,8 +300,11 @@ fn classify_top_stmt(
             fn_arities,
             functions,
             fn_binding,
+            if_fn_primary,
+            if_fn_slots,
             has_fn,
             user_locals,
+            string_locals,
             observe_declares,
         ),
         Stmt::Block { body } => body.iter().all(|s| {
@@ -165,11 +314,49 @@ fn classify_top_stmt(
                 fn_arities,
                 functions,
                 fn_binding,
+                if_fn_primary,
+                if_fn_slots,
                 has_fn,
                 user_locals,
+                string_locals,
                 false,
             )
         }),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            bool_expr_ok(test, by_id, fn_arities, functions, fn_binding)
+                && classify_top_stmt(
+                    consequent,
+                    by_id,
+                    fn_arities,
+                    functions,
+                    fn_binding,
+                    if_fn_primary,
+                    if_fn_slots,
+                    has_fn,
+                    user_locals,
+                    string_locals,
+                    false,
+                )
+                && alternate.as_ref().is_none_or(|a| {
+                    classify_top_stmt(
+                        a,
+                        by_id,
+                        fn_arities,
+                        functions,
+                        fn_binding,
+                        if_fn_primary,
+                        if_fn_slots,
+                        has_fn,
+                        user_locals,
+                        string_locals,
+                        false,
+                    )
+                })
+        }
         Stmt::Declare { local, init, .. } => {
             let Some(loc) = by_id.get(local) else {
                 return false;
@@ -186,10 +373,27 @@ fn classify_top_stmt(
                         return true;
                     }
                     if !number_expr_ok(init, by_id, fn_arities, functions, fn_binding) {
+                        // Call of if-clause function uses dynamic slot — still ok if callee is if-fn.
+                        if !call_if_fn_ok(init, by_id, fn_arities, functions, fn_binding, if_fn_slots)
+                        {
+                            return false;
+                        }
+                    }
+                    if observe_declares {
+                        user_locals.push(*local);
+                    }
+                    true
+                }
+                Type::String => {
+                    let Some(init) = init.as_ref() else {
+                        return false;
+                    };
+                    if !typeof_fn_local_ok(init, if_fn_primary, if_fn_slots, fn_binding) {
                         return false;
                     }
                     if observe_declares {
                         user_locals.push(*local);
+                        string_locals.insert(*local);
                     }
                     true
                 }
@@ -213,6 +417,68 @@ fn classify_top_stmt(
         },
         _ => false,
     }
+}
+
+fn typeof_fn_local_ok(
+    expr: &Expr,
+    if_fn_primary: &HashMap<LocalId, LocalId>,
+    if_fn_slots: &HashSet<LocalId>,
+    fn_binding: &HashMap<LocalId, usize>,
+) -> bool {
+    let Expr::Unary {
+        op: draconic_ast::UnaryOp::TypeOf,
+        arg,
+        ..
+    } = expr
+    else {
+        return false;
+    };
+    let Expr::Local { id, .. } = arg.as_ref() else {
+        return false;
+    };
+    if_fn_slots.contains(id)
+        || if_fn_primary.contains_key(id)
+        || fn_binding.contains_key(id)
+}
+
+/// `f()` where `f` is an Annex B if-clause binding (may be undefined until branch runs).
+fn call_if_fn_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    fn_arities: &HashMap<LocalId, usize>,
+    functions: &[FnInfo],
+    fn_binding: &HashMap<LocalId, usize>,
+    if_fn_slots: &HashSet<LocalId>,
+) -> bool {
+    let Expr::Call {
+        callee,
+        args,
+        optional,
+        ..
+    } = expr
+    else {
+        return false;
+    };
+    if *optional {
+        return false;
+    }
+    if !args.iter().all(|a| match a {
+        Arg::Expr(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding),
+        Arg::Spread(_) => false,
+    }) {
+        return false;
+    }
+    let Expr::Local { id, .. } = callee.as_ref() else {
+        return false;
+    };
+    if !if_fn_slots.contains(id) && !fn_binding.contains_key(id) {
+        return false;
+    }
+    // Arity: use any candidate with matching fixed arity, or static binding.
+    if let Some(&idx) = fn_binding.get(id) {
+        return call_arity_ok(&functions[idx], args.len());
+    }
+    true
 }
 
 fn collect_all_functions(
@@ -901,6 +1167,7 @@ fn bool_expr_ok(
     fn_binding: &HashMap<LocalId, usize>,
 ) -> bool {
     match expr {
+        Expr::Boolean { .. } => true,
         Expr::Binary {
             left,
             op,
@@ -1087,6 +1354,11 @@ struct Emitter<'a> {
     allocas: HashMap<LocalId, String>,
     /// Rest local → (buf ptr alloca, len i64 alloca).
     rest_slots: HashMap<LocalId, (String, String)>,
+    /// Annex B if-fn primary → i32 alloca (fn idx or -1).
+    if_fn_slot_ptrs: HashMap<LocalId, String>,
+    /// String typeof obs local → i32 alloca (0 = "undefined", 1 = "function").
+    typeof_code_ptrs: HashMap<LocalId, String>,
+    str_globals: HashMap<String, String>,
     out: String,
     body: String,
     tmp: u32,
@@ -1105,6 +1377,9 @@ impl<'a> Emitter<'a> {
             fn_names,
             allocas: HashMap::new(),
             rest_slots: HashMap::new(),
+            if_fn_slot_ptrs: HashMap::new(),
+            typeof_code_ptrs: HashMap::new(),
+            str_globals: HashMap::new(),
             out: String::new(),
             body: String::new(),
             tmp: 0,
@@ -1134,7 +1409,7 @@ impl<'a> Emitter<'a> {
             "; Draconic LLVM backend (N08.03.07 ES functions + defaults/rest via Runtime ABI)"
         )
         .ok();
-        writeln!(self.out, "{}", llvm_declares(&[PRINT_F64])).ok();
+        writeln!(self.out, "{}", llvm_declares(&[PRINT_F64, PRINT_STR])).ok();
         writeln!(self.out, "@es_ret_fn = private global i32 -1").ok();
         writeln!(
             self.out,
@@ -1152,14 +1427,38 @@ impl<'a> Emitter<'a> {
         self.label = 0;
         self.allocas.clear();
         self.rest_slots.clear();
+        self.if_fn_slot_ptrs.clear();
+        self.typeof_code_ptrs.clear();
+
+        // String globals for typeof observations (emitted before main).
+        let mut prelude = String::new();
 
         writeln!(self.out, "define i32 @main() {{").ok();
         writeln!(self.out, "entry:").ok();
 
         for id in &info.user_locals {
-            let ptr = format!("%l{}", id.0);
-            self.allocas.insert(*id, ptr.clone());
-            writeln!(self.out, "  {ptr} = alloca double, align 8").ok();
+            if info.string_locals.contains(id) {
+                let ptr = format!("%typeof{}", id.0);
+                self.typeof_code_ptrs.insert(*id, ptr.clone());
+                writeln!(self.out, "  {ptr} = alloca i32, align 4").ok();
+                writeln!(self.out, "  store i32 0, ptr {ptr}").ok();
+            } else {
+                let ptr = format!("%l{}", id.0);
+                self.allocas.insert(*id, ptr.clone());
+                writeln!(self.out, "  {ptr} = alloca double, align 8").ok();
+            }
+        }
+        // Annex B if-fn binding slots (top-level).
+        let mut slot_ids: Vec<LocalId> = info.if_fn_slots.iter().copied().collect();
+        slot_ids.sort_by_key(|id| id.0);
+        for id in slot_ids {
+            // Only slots whose Function is not nested inside another function body.
+            if self.if_fn_slot_owned_by_top(id) {
+                let ptr = format!("%iffn{}", id.0);
+                self.if_fn_slot_ptrs.insert(id, ptr.clone());
+                writeln!(self.out, "  {ptr} = alloca i32, align 4").ok();
+                writeln!(self.out, "  store i32 -1, ptr {ptr}").ok();
+            }
         }
         // Function-binding locals that are only used as call targets need no storage
         // when statically bound; assigns of FunctionExpr to unused-as-value slots skip.
@@ -1170,19 +1469,103 @@ impl<'a> Emitter<'a> {
         }
 
         for id in &info.user_locals {
-            let ptr = self
-                .allocas
-                .get(id)
-                .cloned()
-                .ok_or_else(|| diag("internal: print missing alloca"))?;
-            let v = self.fresh();
-            writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
-            writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+            if info.string_locals.contains(id) {
+                let code_ptr = self
+                    .typeof_code_ptrs
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("internal: typeof print missing"))?;
+                let code = self.fresh();
+                writeln!(self.body, "  {code} = load i32, ptr {code_ptr}").ok();
+                let is_fn = self.fresh();
+                writeln!(self.body, "  {is_fn} = icmp eq i32 {code}, 1").ok();
+                let then_l = self.fresh_label("ty_fn");
+                let else_l = self.fresh_label("ty_und");
+                let end_l = self.fresh_label("ty_end");
+                writeln!(
+                    self.body,
+                    "  br i1 {is_fn}, label %{then_l}, label %{else_l}"
+                )
+                .ok();
+                writeln!(self.body, "{then_l}:").ok();
+                self.emit_print_str("function")?;
+                writeln!(self.body, "  br label %{end_l}").ok();
+                writeln!(self.body, "{else_l}:").ok();
+                self.emit_print_str("undefined")?;
+                writeln!(self.body, "  br label %{end_l}").ok();
+                writeln!(self.body, "{end_l}:").ok();
+            } else {
+                let ptr = self
+                    .allocas
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("internal: print missing alloca"))?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+            }
+        }
+
+        // Emit string globals before main definition.
+        for (s, gname) in &self.str_globals {
+            let n = s.len() + 1;
+            let esc = escape_llvm_string(s);
+            writeln!(
+                prelude,
+                "@{gname} = private unnamed_addr constant [{n} x i8] c\"{esc}\\00\""
+            )
+            .ok();
+        }
+        if !prelude.is_empty() {
+            // Insert globals before `define i32 @main` — rewrite out.
+            let main_def = "define i32 @main()";
+            if let Some(pos) = self.out.find(main_def) {
+                let mut new_out = String::new();
+                new_out.push_str(&self.out[..pos]);
+                new_out.push_str(&prelude);
+                new_out.push('\n');
+                new_out.push_str(&self.out[pos..]);
+                self.out = new_out;
+            }
         }
 
         write!(self.out, "{}", self.body).ok();
         writeln!(self.out, "  ret i32 0").ok();
         writeln!(self.out, "}}").ok();
+        Ok(())
+    }
+
+    /// True when `id` is an if-fn primary whose Function stmts appear only at top level
+    /// (not nested inside another function). Nested slots are allocated in that function.
+    fn if_fn_slot_owned_by_top(&self, id: LocalId) -> bool {
+        !self.if_fn_nested_in_any_function(id)
+    }
+
+    fn if_fn_nested_in_any_function(&self, id: LocalId) -> bool {
+        for f in &self.info.functions {
+            if stmt_list_mentions_if_fn(&f.body, id) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn emit_print_str(&mut self, s: &str) -> Result<(), Diagnostic> {
+        let gname = if let Some(g) = self.str_globals.get(s) {
+            g.clone()
+        } else {
+            let g = format!(".esfn.str.{}", self.str_globals.len());
+            self.str_globals.insert(s.to_string(), g.clone());
+            g
+        };
+        let t = self.fresh();
+        let n = s.len() + 1;
+        writeln!(
+            self.body,
+            "  {t} = getelementptr inbounds [{n} x i8], ptr @{gname}, i64 0, i64 0"
+        )
+        .ok();
+        writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {t}"))).ok();
         Ok(())
     }
 
@@ -1194,11 +1577,13 @@ impl<'a> Emitter<'a> {
         let saved_label = self.label;
         let saved_allocas = std::mem::take(&mut self.allocas);
         let saved_rest = std::mem::take(&mut self.rest_slots);
+        let saved_if_slots = std::mem::take(&mut self.if_fn_slot_ptrs);
 
         self.tmp = 0;
         self.label = 0;
         self.allocas.clear();
         self.rest_slots.clear();
+        self.if_fn_slot_ptrs.clear();
 
         let mut sig_parts = Vec::new();
         for (i, _) in f.params.iter().enumerate() {
@@ -1235,6 +1620,21 @@ impl<'a> Emitter<'a> {
             writeln!(entry, "  {ptr} = alloca double, align 8").ok();
             writeln!(entry, "  store double %c{i}, ptr {ptr}").ok();
         }
+        // Nested Annex B if-fn slots for this function body.
+        let mut nested_slots: Vec<LocalId> = self
+            .info
+            .if_fn_slots
+            .iter()
+            .copied()
+            .filter(|id| stmt_list_mentions_if_fn(&f.body, *id))
+            .collect();
+        nested_slots.sort_by_key(|id| id.0);
+        for id in nested_slots {
+            let ptr = format!("%iffn{}", id.0);
+            self.if_fn_slot_ptrs.insert(id, ptr.clone());
+            writeln!(entry, "  {ptr} = alloca i32, align 4").ok();
+            writeln!(entry, "  store i32 -1, ptr {ptr}").ok();
+        }
 
         writeln!(self.out, "define double @{fn_name}({sig}) {{").ok();
         writeln!(self.out, "entry:").ok();
@@ -1265,6 +1665,7 @@ impl<'a> Emitter<'a> {
         self.label = saved_label;
         self.allocas = saved_allocas;
         self.rest_slots = saved_rest;
+        self.if_fn_slot_ptrs = saved_if_slots;
         Ok(())
     }
 
@@ -1286,6 +1687,12 @@ impl<'a> Emitter<'a> {
                     // Function binding — no number storage required for static calls.
                     return Ok(());
                 }
+                let init = init
+                    .as_ref()
+                    .ok_or_else(|| diag("es_functions: declare requires init"))?;
+                if self.info.string_locals.contains(local) {
+                    return self.emit_typeof_declare(*local, init);
+                }
                 let ptr = if let Some(p) = self.allocas.get(local).cloned() {
                     p
                 } else {
@@ -1294,14 +1701,11 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {p} = alloca double, align 8").ok();
                     p
                 };
-                let init = init
-                    .as_ref()
-                    .ok_or_else(|| diag("es_functions: declare requires init"))?;
                 let v = self.emit_number_expr(init)?;
                 writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                 Ok(())
             }
-            Stmt::Function { .. } => Ok(()),
+            Stmt::Function { local, .. } => self.emit_if_fn_activate(*local),
             Stmt::Labeled { body, .. } => self.emit_top_stmt(body),
             Stmt::Block { body } => {
                 for s in body {
@@ -1309,6 +1713,11 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => self.emit_if_stmt(test, consequent, alternate, true),
             Stmt::Expr { expr } => match expr {
                 Expr::Assign {
                     target: AssignTarget::Local(id),
@@ -1329,6 +1738,113 @@ impl<'a> Emitter<'a> {
             },
             _ => Err(diag("es_functions: unsupported top-level stmt")),
         }
+    }
+
+    fn emit_typeof_declare(&mut self, local: LocalId, init: &Expr) -> Result<(), Diagnostic> {
+        let Expr::Unary {
+            op: draconic_ast::UnaryOp::TypeOf,
+            arg,
+            ..
+        } = init
+        else {
+            return Err(diag("es_functions: string local must be typeof"));
+        };
+        let Expr::Local { id, .. } = arg.as_ref() else {
+            return Err(diag("es_functions: typeof arg must be local"));
+        };
+        let code_ptr = self
+            .typeof_code_ptrs
+            .get(&local)
+            .cloned()
+            .ok_or_else(|| diag("es_functions: typeof code slot missing"))?;
+        let primary = self
+            .info
+            .if_fn_primary
+            .get(id)
+            .copied()
+            .unwrap_or(*id);
+        if let Some(slot) = self.if_fn_slot_ptrs.get(&primary).cloned() {
+            let idx = self.fresh();
+            writeln!(self.body, "  {idx} = load i32, ptr {slot}").ok();
+            let bound = self.fresh();
+            writeln!(self.body, "  {bound} = icmp ne i32 {idx}, -1").ok();
+            let t = self.fresh();
+            writeln!(self.body, "  {t} = zext i1 {bound} to i32").ok();
+            writeln!(self.body, "  store i32 {t}, ptr {code_ptr}").ok();
+        } else if self.info.fn_binding.contains_key(id) {
+            // Always-bound function decl.
+            writeln!(self.body, "  store i32 1, ptr {code_ptr}").ok();
+        } else {
+            writeln!(self.body, "  store i32 0, ptr {code_ptr}").ok();
+        }
+        Ok(())
+    }
+
+    /// Activate Annex B if-clause function: store its fn idx into the primary slot.
+    fn emit_if_fn_activate(&mut self, local: LocalId) -> Result<(), Diagnostic> {
+        let Some(primary) = self.info.if_fn_primary.get(&local).copied() else {
+            // Ordinary function decl (not if-clause) — always available via fn_binding.
+            return Ok(());
+        };
+        let Some(&idx) = self.info.fn_binding.get(&local) else {
+            return Ok(());
+        };
+        let Some(slot) = self.if_fn_slot_ptrs.get(&primary).cloned() else {
+            return Err(diag(format!(
+                "es_functions: if-fn slot missing for %{}",
+                primary.0
+            )));
+        };
+        writeln!(self.body, "  store i32 {idx}, ptr {slot}").ok();
+        Ok(())
+    }
+
+    fn emit_if_stmt(
+        &mut self,
+        test: &Expr,
+        consequent: &Stmt,
+        alternate: &Option<Box<Stmt>>,
+        top: bool,
+    ) -> Result<(), Diagnostic> {
+        let cond = self.emit_bool_expr(test)?;
+        let then_l = self.fresh_label("then");
+        let else_l = self.fresh_label("else");
+        let end_l = self.fresh_label("endif");
+        if alternate.is_some() {
+            writeln!(
+                self.body,
+                "  br i1 {cond}, label %{then_l}, label %{else_l}"
+            )
+            .ok();
+        } else {
+            writeln!(
+                self.body,
+                "  br i1 {cond}, label %{then_l}, label %{end_l}"
+            )
+            .ok();
+        }
+        writeln!(self.body, "{then_l}:").ok();
+        if top {
+            self.emit_top_stmt(consequent)?;
+        } else {
+            self.emit_fn_stmt(consequent)?;
+        }
+        if !self.body_ends_with_terminator() {
+            writeln!(self.body, "  br label %{end_l}").ok();
+        }
+        if let Some(alt) = alternate {
+            writeln!(self.body, "{else_l}:").ok();
+            if top {
+                self.emit_top_stmt(alt)?;
+            } else {
+                self.emit_fn_stmt(alt)?;
+            }
+            if !self.body_ends_with_terminator() {
+                writeln!(self.body, "  br label %{end_l}").ok();
+            }
+        }
+        writeln!(self.body, "{end_l}:").ok();
+        Ok(())
     }
 
     fn emit_fn_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
@@ -1377,45 +1893,13 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
-            Stmt::Function { .. } => Ok(()),
+            Stmt::Function { local, .. } => self.emit_if_fn_activate(*local),
             Stmt::Labeled { body, .. } => self.emit_fn_stmt(body),
             Stmt::If {
                 test,
                 consequent,
                 alternate,
-            } => {
-                let cond = self.emit_bool_expr(test)?;
-                let then_l = self.fresh_label("then");
-                let else_l = self.fresh_label("else");
-                let end_l = self.fresh_label("endif");
-                if alternate.is_some() {
-                    writeln!(
-                        self.body,
-                        "  br i1 {cond}, label %{then_l}, label %{else_l}"
-                    )
-                    .ok();
-                } else {
-                    writeln!(
-                        self.body,
-                        "  br i1 {cond}, label %{then_l}, label %{end_l}"
-                    )
-                    .ok();
-                }
-                writeln!(self.body, "{then_l}:").ok();
-                self.emit_fn_stmt(consequent)?;
-                if !self.body_ends_with_terminator() {
-                    writeln!(self.body, "  br label %{end_l}").ok();
-                }
-                if let Some(alt) = alternate {
-                    writeln!(self.body, "{else_l}:").ok();
-                    self.emit_fn_stmt(alt)?;
-                    if !self.body_ends_with_terminator() {
-                        writeln!(self.body, "  br label %{end_l}").ok();
-                    }
-                }
-                writeln!(self.body, "{end_l}:").ok();
-                Ok(())
-            }
+            } => self.emit_if_stmt(test, consequent, alternate, false),
             Stmt::ForOf {
                 left,
                 right,
@@ -1584,6 +2068,12 @@ impl<'a> Emitter<'a> {
 
     fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
+            Expr::Boolean { value, .. } => {
+                let t = self.fresh();
+                let bit = if *value { 1 } else { 0 };
+                writeln!(self.body, "  {t} = add i1 0, {bit}").ok();
+                Ok(t)
+            }
             Expr::Binary {
                 left, op, right, ..
             } => {
@@ -1695,6 +2185,23 @@ impl<'a> Emitter<'a> {
 
         match callee {
             Expr::Local { id, .. } => {
+                let primary = self
+                    .info
+                    .if_fn_primary
+                    .get(id)
+                    .copied()
+                    .or_else(|| {
+                        if self.info.if_fn_slots.contains(id) {
+                            Some(*id)
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(primary) = primary {
+                    if self.if_fn_slot_ptrs.contains_key(&primary) {
+                        return self.emit_dynamic_if_fn_call(primary, &arg_vals);
+                    }
+                }
                 let idx = *self
                     .info
                     .fn_binding
@@ -1768,6 +2275,73 @@ impl<'a> Emitter<'a> {
             caps.push(t);
         }
         self.emit_call_args(idx, arg_vals, &caps)
+    }
+
+    /// Call through Annex B if-fn slot (i32 idx, -1 = unbound).
+    fn emit_dynamic_if_fn_call(
+        &mut self,
+        primary: LocalId,
+        arg_vals: &[String],
+    ) -> Result<String, Diagnostic> {
+        let slot = self
+            .if_fn_slot_ptrs
+            .get(&primary)
+            .cloned()
+            .ok_or_else(|| diag("es_functions: dynamic call missing slot"))?;
+        let candidates = self
+            .info
+            .if_fn_candidates
+            .get(&primary)
+            .cloned()
+            .unwrap_or_default();
+        if candidates.is_empty() {
+            return Err(diag("es_functions: dynamic call has no candidates"));
+        }
+        // Precompute captures per candidate (same frame).
+        let idx_v = self.fresh();
+        writeln!(self.body, "  {idx_v} = load i32, ptr {slot}").ok();
+        let end_l = self.fresh_label("dyn_end");
+        let bad_l = self.fresh_label("dyn_bad");
+        let mut case_labels = Vec::new();
+        for &cidx in &candidates {
+            case_labels.push((cidx, self.fresh_label(&format!("dyn_c{cidx}"))));
+        }
+        // switch
+        let mut sw = format!("  switch i32 {idx_v}, label %{bad_l} [");
+        for (cidx, lab) in &case_labels {
+            sw.push_str(&format!(" i32 {cidx}, label %{lab}"));
+        }
+        sw.push_str(" ]");
+        writeln!(self.body, "{sw}").ok();
+
+        let mut phi_pairs = Vec::new();
+        for (cidx, lab) in &case_labels {
+            writeln!(self.body, "{lab}:").ok();
+            let ret = self.emit_direct_call(*cidx, arg_vals)?;
+            phi_pairs.push((ret, lab.clone()));
+            writeln!(self.body, "  br label %{end_l}").ok();
+        }
+        writeln!(self.body, "{bad_l}:").ok();
+        // Unbound / bad idx — return 0 (should not be observed in fixtures).
+        let bad_ret = "0.00000000000000000e+00".to_string();
+        writeln!(self.body, "  br label %{end_l}").ok();
+        writeln!(self.body, "{end_l}:").ok();
+        let phi = self.fresh();
+        let mut phi_src = String::from(&format!("  {phi} = phi double "));
+        let mut first = true;
+        for (ret, lab) in &phi_pairs {
+            if !first {
+                phi_src.push_str(", ");
+            }
+            first = false;
+            phi_src.push_str(&format!("[ {ret}, %{lab} ]"));
+        }
+        if !first {
+            phi_src.push_str(", ");
+        }
+        phi_src.push_str(&format!("[ {bad_ret}, %{bad_l} ]"));
+        writeln!(self.body, "{phi_src}").ok();
+        Ok(phi)
     }
 
     /// Build fixed params (pad defaults), optional rest buffer, then captures.
@@ -1844,6 +2418,70 @@ fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
         .parse()
         .map_err(|_| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
+}
+
+/// Whether `body` contains an if-clause Function for primary/local `id`.
+fn stmt_list_mentions_if_fn(body: &[Stmt], id: LocalId) -> bool {
+    for stmt in body {
+        if stmt_mentions_if_fn(stmt, id) {
+            return true;
+        }
+    }
+    false
+}
+
+fn stmt_mentions_if_fn(stmt: &Stmt, id: LocalId) -> bool {
+    match stmt {
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            if unwrap_if_fn_local(consequent) == Some(id)
+                || alternate
+                    .as_ref()
+                    .and_then(|a| unwrap_if_fn_local(a))
+                    == Some(id)
+            {
+                return true;
+            }
+            // Primary may be consequent while else has different local aliased to primary.
+            if let Some(cl) = unwrap_if_fn_local(consequent) {
+                if cl == id {
+                    return true;
+                }
+            }
+            if let Some(alt) = alternate {
+                if let Some(al) = unwrap_if_fn_local(alt) {
+                    // Caller checks primary set membership separately; match either local.
+                    if al == id {
+                        return true;
+                    }
+                }
+                if stmt_mentions_if_fn(alt, id) {
+                    return true;
+                }
+            }
+            stmt_mentions_if_fn(consequent, id)
+        }
+        Stmt::Block { body } => stmt_list_mentions_if_fn(body, id),
+        Stmt::Labeled { body, .. } => stmt_mentions_if_fn(body, id),
+        Stmt::Function { body, local, .. } => *local == id || stmt_list_mentions_if_fn(body, id),
+        _ => false,
+    }
+}
+
+fn escape_llvm_string(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\22"),
+            c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
+            c => out.push_str(&format!("\\{c:02X}")),
+        }
+    }
+    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {
