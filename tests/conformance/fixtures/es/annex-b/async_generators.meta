@@ -1,4 +1,6 @@
 id: es/annex-b/async_generators
-targets: js
+targets: js,native
 js.exit: 0
 js.check: setTimeout(function () { if (declV1 !== 10) process.exit(1); if (declD1 !== false) process.exit(2); if (declV2 !== 20) process.exit(3); if (declD2 !== false) process.exit(4); if (declV3 !== 30) process.exit(5); if (declD3 !== true) process.exit(6); if (awaitV !== 6) process.exit(7); if (exprV !== 3) process.exit(8); if (objV1 !== 7) process.exit(9); if (objV2 !== 8) process.exit(10); if (classV !== 11) process.exit(11); if (staticV !== 13) process.exit(12); if (forSum !== 6) process.exit(13); }, 0);
+native.exit: 0
+native.stdout: 10\nfalse\n20\nfalse\n30\ntrue\n6\n3\n7\n8\n11\n13\n6\n

@@ -1,16 +1,20 @@
-//! N08.12.01–N08.12.08: native observations for generator function declaration +
-//! expression + methods (object/class/static) + `yield` / `yield*` / `return` +
-//! `.next()` / `.next(arg)` / `.return(arg)` / `.throw(arg)` → `{value, done}` +
-//! `for-of` over generators (E13.01–E13.08).
+//! N08.12.01–N08.12.08 + N08.16.44: native observations for generator function
+//! declaration + expression + methods (object/class/static) + `yield` / `yield*` /
+//! `return` + `.next()` / `.next(arg)` / `.return(arg)` / `.throw(arg)` →
+//! `{value, done}` + `for-of` over generators (E13.01–E13.08), and async
+//! generators (E18.43): `async function*` / `{ async *m() }` / class
+//! `async *m()` / `static async *m()`, `.next()` thenables, `await
+//! Promise.resolve`, `for await` over async gens inside `async function`.
 //!
 //! Compile-time evaluation of a small generator subset: generator decls and
-//! `function*` expressions (incl. named + IIFE) with simple ident params,
-//! object/class generator methods (`*m()` / `static *m()`), `this` prop reads
-//! in methods, `yield` of number/string/binary/local/GenFn/`void 0` (bare yield),
-//! `let x = yield …` resume binding, `yield*` of generators/arrays (incl.
-//! completion value), `return` of same, iterator `.next()` / `.return()` /
-//! `.throw()`, try/catch/finally in generator bodies, property reads `.value` /
-//! `.done`, and top-level `for-of` / `try` over generators.
+//! `function*` / `async function*` expressions (incl. named + IIFE) with simple
+//! ident params, object/class generator methods (`*m()` / `async *m()` /
+//! `static *m()`), `this` prop reads in methods, `yield` of
+//! number/string/binary/local/GenFn/`void 0` (bare yield), `let x = yield …`
+//! resume binding, `yield*` of generators/arrays (incl. completion value),
+//! `return` of same, iterator `.next()` / `.return()` / `.throw()`, try/catch/
+//! finally in generator bodies, property reads `.value` / `.done`, top-level
+//! `for-of` / `try` over generators, and async-gen thenables / await / for-await.
 //! Emits Runtime prints of final top-level number/boolean/string/undefined locals.
 
 use std::collections::HashMap;
@@ -62,6 +66,13 @@ enum JsVal {
         /// `this.prop = param` assignments from the constructor body.
         ctor_assigns: Vec<(String, LocalId)>,
     },
+    /// `async function` (non-generator) — body run to completion on call.
+    AsyncFn {
+        params: Vec<LocalId>,
+        body: Vec<Stmt>,
+    },
+    /// Global `Promise` for `Promise.resolve(x)`.
+    BuiltinPromise,
 }
 
 /// Loop control from break/continue inside for-of bodies; throw for `.throw` / try.
@@ -171,13 +182,19 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut gens: Vec<GenInst> = Vec::new();
     let mut user_locals = Vec::new();
 
-    // Hoist generator function decls.
+    // Seed Promise builtin for `Promise.resolve` inside async gens.
+    for loc in &module.locals {
+        if loc.name == "Promise" {
+            env.insert(loc.id, JsVal::BuiltinPromise);
+        }
+    }
+
+    // Hoist generator / async generator function decls.
     for stmt in &module.body {
         if let Stmt::Function {
             local,
             params,
             body,
-            is_async: false,
             is_generator: true,
             ..
         } = stmt
@@ -222,7 +239,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                         | JsVal::Result { .. }
                         | JsVal::Array(_)
                         | JsVal::Object { .. }
-                        | JsVal::Class { .. },
+                        | JsVal::Class { .. }
+                        | JsVal::AsyncFn { .. }
+                        | JsVal::BuiltinPromise,
                     ) => {}
                     None => return None,
                 }
@@ -355,6 +374,24 @@ fn eval_stmt(
     gens: &mut Vec<GenInst>,
 ) -> Result<Flow, ()> {
     match stmt {
+        Stmt::Function {
+            local,
+            params,
+            body,
+            is_async: true,
+            is_generator: false,
+            ..
+        } => {
+            let param_ids = simple_param_locals(params).ok_or(())?;
+            env.insert(
+                *local,
+                JsVal::AsyncFn {
+                    params: param_ids,
+                    body: filter_gen_body(body),
+                },
+            );
+            Ok(Flow::Next)
+        }
         Stmt::Function { .. } => Ok(Flow::Next),
         Stmt::Declare { local, init, .. } => {
             let v = match init {
@@ -401,7 +438,7 @@ fn eval_stmt(
             left,
             right,
             body,
-            is_await: false,
+            is_await: _,
         } => {
             eval_for_of(left, right, body, env, gen_fns, fn_bind, gens)?;
             Ok(Flow::Next)
@@ -614,11 +651,29 @@ fn eval_expr(
             name,
             params,
             body,
-            is_async: false,
             is_generator: true,
             is_arrow: false,
             ..
         } => register_gen_fn_expr(*name, params, body, gen_fns, fn_bind),
+        Expr::Function {
+            params,
+            body,
+            is_async: true,
+            is_generator: false,
+            is_arrow: false,
+            ..
+        } => {
+            let param_ids = simple_param_locals(params).ok_or(Ev::U)?;
+            Ok(JsVal::AsyncFn {
+                params: param_ids,
+                body: filter_gen_body(body),
+            })
+        }
+        Expr::Unary {
+            op: UnaryOp::Await,
+            arg,
+            ..
+        } => eval_expr(arg, env, gen_fns, fn_bind, gens),
         // Class builder IIFE: `(function(){ … return ctor })()`
         Expr::Call {
             callee,
@@ -679,7 +734,7 @@ fn eval_call(
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<JsVal, Ev> {
-    // Method call: `it.next()` / `obj.m(args)` / `C.sgen(args)`.
+    // Method call: `it.next()` / `obj.m(args)` / `C.sgen(args)` / `.then` / `Promise.resolve`.
     if let Expr::Member {
         object,
         property,
@@ -728,6 +783,25 @@ fn eval_call(
             };
             return gen_throw(&obj, val, gen_fns, fn_bind, gens);
         }
+        if prop == "then" {
+            // Immediately-settled thenable: invoke onfulfill with `obj` as value.
+            if args.is_empty() || args.len() > 2 {
+                return Err(Ev::U);
+            }
+            let Arg::Expr(cb) = &args[0] else {
+                return Err(Ev::U);
+            };
+            return call_thenable_cb(cb, obj, env, gen_fns, fn_bind, gens);
+        }
+        if prop == "resolve" {
+            if !matches!(obj, JsVal::BuiltinPromise) || args.len() != 1 {
+                return Err(Ev::U);
+            }
+            let Arg::Expr(e) = &args[0] else {
+                return Err(Ev::U);
+            };
+            return eval_expr(e, env, gen_fns, fn_bind, gens);
+        }
         let method = lookup_prop(&obj, &prop)?;
         let this_val = match &obj {
             JsVal::Object { .. } | JsVal::Class { .. } => Some(obj),
@@ -736,9 +810,165 @@ fn eval_call(
         return spawn_gen_call(method, args, this_val, env, gen_fns, fn_bind, gens);
     }
 
-    // Call generator function: `g(args)` / IIFE → iterator.
+    // Call generator / async function: `g(args)` / IIFE → iterator or promise value.
     let c = eval_expr(callee, env, gen_fns, fn_bind, gens)?;
-    spawn_gen_call(c, args, None, env, gen_fns, fn_bind, gens)
+    match c {
+        JsVal::AsyncFn { params, body } => {
+            call_async_fn(&params, &body, args, env, gen_fns, fn_bind, gens)
+        }
+        other => spawn_gen_call(other, args, None, env, gen_fns, fn_bind, gens),
+    }
+}
+
+fn call_thenable_cb(
+    cb: &Expr,
+    value: JsVal,
+    env: &mut HashMap<LocalId, JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, Ev> {
+    let Expr::Function {
+        params,
+        body,
+        is_async: false,
+        is_generator: false,
+        ..
+    } = cb
+    else {
+        return Err(Ev::U);
+    };
+    let param_ids = simple_param_locals(params).ok_or(Ev::U)?;
+    let mut saved: HashMap<LocalId, Option<JsVal>> = HashMap::new();
+    for (i, pid) in param_ids.iter().enumerate() {
+        saved.insert(*pid, env.get(pid).cloned());
+        let v = if i == 0 {
+            value.clone()
+        } else {
+            JsVal::Undef
+        };
+        env.insert(*pid, v);
+    }
+    let mut ret = JsVal::Undef;
+    for stmt in body {
+        match stmt {
+            Stmt::Return { value: Some(e) } => {
+                ret = eval_expr(e, env, gen_fns, fn_bind, gens)?;
+                break;
+            }
+            Stmt::Return { value: None } => {
+                ret = JsVal::Undef;
+                break;
+            }
+            other => match eval_stmt(other, env, gen_fns, fn_bind, gens) {
+                Ok(Flow::Next) => {}
+                Ok(Flow::Throw(exc)) => {
+                    restore_params(env, &saved);
+                    return Err(Ev::Throw(exc));
+                }
+                Ok(_) | Err(()) => {
+                    restore_params(env, &saved);
+                    return Err(Ev::U);
+                }
+            },
+        }
+    }
+    restore_params(env, &saved);
+    Ok(ret)
+}
+
+fn restore_params(env: &mut HashMap<LocalId, JsVal>, saved: &HashMap<LocalId, Option<JsVal>>) {
+    for (pid, prev) in saved {
+        match prev {
+            Some(v) => {
+                env.insert(*pid, v.clone());
+            }
+            None => {
+                env.remove(pid);
+            }
+        }
+    }
+}
+
+fn call_async_fn(
+    params: &[LocalId],
+    body: &[Stmt],
+    args: &[Arg],
+    env: &mut HashMap<LocalId, JsVal>,
+    gen_fns: &mut Vec<GenFnRec>,
+    fn_bind: &mut HashMap<LocalId, usize>,
+    gens: &mut Vec<GenInst>,
+) -> Result<JsVal, Ev> {
+    if args.len() > params.len() {
+        return Err(Ev::U);
+    }
+    let mut arg_vals = Vec::new();
+    for a in args {
+        match a {
+            Arg::Expr(e) => arg_vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?),
+            _ => return Err(Ev::U),
+        }
+    }
+    // Nested bindings shadow outer; restore after.
+    let mut saved: HashMap<LocalId, Option<JsVal>> = HashMap::new();
+    for (i, pid) in params.iter().enumerate() {
+        saved.entry(*pid).or_insert_with(|| env.get(pid).cloned());
+        let v = if i < arg_vals.len() {
+            arg_vals[i].clone()
+        } else {
+            JsVal::Undef
+        };
+        env.insert(*pid, v);
+    }
+    // Hoist nested generator / async-gen decls inside async function body.
+    for stmt in body {
+        if let Stmt::Function {
+            local,
+            params: gp,
+            body: gbody,
+            is_generator: true,
+            ..
+        } = stmt
+        {
+            let param_ids = simple_param_locals(gp).ok_or(Ev::U)?;
+            let idx = gen_fns.len();
+            gen_fns.push(GenFnRec {
+                params: param_ids,
+                body: filter_gen_body(gbody),
+                name: None,
+            });
+            fn_bind.insert(*local, idx);
+            saved.entry(*local).or_insert_with(|| env.get(local).cloned());
+            env.insert(*local, JsVal::GenFn(idx));
+        }
+    }
+    let mut ret = JsVal::Undef;
+    for stmt in body {
+        match stmt {
+            Stmt::Function { .. } => {}
+            Stmt::Return { value: Some(e) } => {
+                ret = eval_expr(e, env, gen_fns, fn_bind, gens)?;
+                break;
+            }
+            Stmt::Return { value: None } => {
+                ret = JsVal::Undef;
+                break;
+            }
+            other => match eval_stmt(other, env, gen_fns, fn_bind, gens) {
+                Ok(Flow::Next) => {}
+                Ok(Flow::Throw(exc)) => {
+                    restore_params(env, &saved);
+                    return Err(Ev::Throw(exc));
+                }
+                Ok(_) | Err(()) => {
+                    restore_params(env, &saved);
+                    return Err(Ev::U);
+                }
+            },
+        }
+    }
+    restore_params(env, &saved);
+    Ok(ret)
 }
 
 fn eval_object_lit(
@@ -896,7 +1126,6 @@ fn try_eval_class_iife(
                 let Expr::Function {
                     params,
                     body: mbody,
-                    is_async: false,
                     is_generator: true,
                     ..
                 } = method_fn
@@ -1764,6 +1993,11 @@ fn eval_in_gen(
         Expr::Unary {
             op: UnaryOp::Void, ..
         } => Ok(JsVal::Undef),
+        Expr::Unary {
+            op: UnaryOp::Await,
+            arg,
+            ..
+        } => eval_in_gen(arg, gen_idx, gen_fns, fn_bind, gens),
         Expr::Array { elements, .. } => {
             let mut vals = Vec::new();
             for el in elements {
@@ -1800,7 +2034,6 @@ fn eval_in_gen(
             name,
             params,
             body,
-            is_async: false,
             is_generator: true,
             is_arrow: false,
             ..
@@ -1811,6 +2044,33 @@ fn eval_in_gen(
             optional: false,
             ..
         } => {
+            // `Promise.resolve(x)` inside async gen (Promise may be missing from gen env).
+            if let Expr::Member {
+                object,
+                property,
+                optional: false,
+                ..
+            } = callee.as_ref()
+            {
+                let prop = prop_name(property).map_err(|_| ())?;
+                if prop == "resolve" {
+                    let obj = match object.as_ref() {
+                        Expr::Local { id, .. } => gens[gen_idx]
+                            .env
+                            .get(id)
+                            .cloned()
+                            .unwrap_or(JsVal::BuiltinPromise),
+                        Expr::IdentName { name, .. } if name == "Promise" => JsVal::BuiltinPromise,
+                        _ => eval_in_gen(object, gen_idx, gen_fns, fn_bind, gens)?,
+                    };
+                    if matches!(obj, JsVal::BuiltinPromise) && args.len() == 1 {
+                        let Arg::Expr(e) = &args[0] else {
+                            return Err(());
+                        };
+                        return eval_in_gen(e, gen_idx, gen_fns, fn_bind, gens);
+                    }
+                }
+            }
             // Resolve callee in gen env; spawn if GenFn.
             let c = match callee.as_ref() {
                 Expr::Local { id, .. } => gens[gen_idx].env.get(id).cloned().ok_or(())?,
@@ -1818,7 +2078,6 @@ fn eval_in_gen(
                     name,
                     params,
                     body,
-                    is_async: false,
                     is_generator: true,
                     is_arrow: false,
                     ..
@@ -1967,7 +2226,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.12.08 generators return/throw)"
+            "; Draconic LLVM backend (N08.12 + N08.16.44 async generators)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
