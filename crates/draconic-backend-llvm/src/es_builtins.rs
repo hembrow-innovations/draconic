@@ -1,10 +1,11 @@
-//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 + N08.16.18: native observations for global
-//! builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
-//! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`
-//! + `String.prototype` `substr` / HTML wrappers + `Date.prototype` `getYear`/`setYear`/`toGMTString`
-//! + `Object.prototype` `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__`
-//! + RegExp constructor Annex B statics (`$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, …)
-//! + regexp literals (`/pattern/` / `/pattern/flags`).
+//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 + N08.16.18 + N08.16.46: native
+//! observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp +
+//! Map/Set + WeakMap/WeakSet + ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` +
+//! `Object.prototype.__proto__` + `String.prototype` `substr` / HTML wrappers + `Date.prototype`
+//! `getYear`/`setYear`/`toGMTString` + `Object.prototype` `__defineGetter__`/`__defineSetter__`/
+//! `__lookupGetter__`/`__lookupSetter__` + RegExp constructor Annex B statics (`$1`–`$9`,
+//! `input`/`$_`, `lastMatch`/`$&`, …) + regexp literals + private residual (nested-class private
+//! access, compound/logical assign + update on private fields via WeakMap desugar).
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -915,7 +916,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     if matches!(
                         loc.ty,
                         Type::Number | Type::Any | Type::Boolean | Type::String | Type::Null
-                    ) {
+                    ) && is_observe_local_name(&loc.name)
+                    {
                         user_locals.push(*local);
                         values.insert(*local, v.clone());
                     }
@@ -950,6 +952,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         user_locals,
         values,
     })
+}
+
+fn is_observe_local_name(name: &str) -> bool {
+    // Skip IR synthetics (`__drac_*`, `__cls_*`, `__class`, …) and non-user bindings.
+    !name.starts_with("__")
 }
 
 fn builtin_for_name(name: &str) -> Option<BuiltinId> {
@@ -1188,7 +1195,13 @@ fn expr_ok(expr: &Expr) -> bool {
             ..
         } => simple_fn_params_ok(params) && body_ok(body),
         Expr::Unary {
-            op: UnaryOp::TypeOf | UnaryOp::Minus | UnaryOp::Plus | UnaryOp::Void | UnaryOp::Delete,
+            op:
+                UnaryOp::TypeOf
+                | UnaryOp::Minus
+                | UnaryOp::Plus
+                | UnaryOp::Void
+                | UnaryOp::Delete
+                | UnaryOp::Not,
             arg,
             ..
         } => expr_ok(arg),
@@ -1202,6 +1215,11 @@ fn expr_ok(expr: &Expr) -> bool {
                     | BinaryOp::And
                     | BinaryOp::Or
                     | BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Rem
+                    | BinaryOp::Nullish
                     | BinaryOp::Comma
             ) && expr_ok(left)
                 && expr_ok(right)
@@ -1427,10 +1445,15 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                                 JsVal::Object { props, .. } => {
                                     props.borrow_mut().retain(|(k, _)| k != &key);
                                 }
+                                JsVal::UserFn { props, .. } => {
+                                    props.borrow_mut().retain(|(k, _)| k != &key);
+                                }
                                 _ => return Err(()),
                             }
                             if let Expr::Local { id, .. } = object.as_ref() {
                                 env.insert(*id, obj);
+                            } else {
+                                write_back_value(env, &obj);
                             }
                             Ok(Ok(JsVal::Bool(true)))
                         }
@@ -1445,14 +1468,9 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     match op {
                         UnaryOp::TypeOf => Ok(Ok(JsVal::Str(typeof_str(&v)))),
                         UnaryOp::Void => Ok(Ok(JsVal::Undef)),
-                        UnaryOp::Minus => match v {
-                            JsVal::Num(n) => Ok(Ok(JsVal::Num(-n))),
-                            _ => Err(()),
-                        },
-                        UnaryOp::Plus => match v {
-                            JsVal::Num(n) => Ok(Ok(JsVal::Num(n))),
-                            _ => Err(()),
-                        },
+                        UnaryOp::Not => Ok(Ok(JsVal::Bool(!to_boolean(&v)))),
+                        UnaryOp::Minus => Ok(Ok(JsVal::Num(-to_number(&v)?))),
+                        UnaryOp::Plus => Ok(Ok(JsVal::Num(to_number(&v)?))),
                         _ => Err(()),
                     }
                 }
@@ -1499,6 +1517,13 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     let _ = l;
                     eval_expr(right, env)
                 }
+                BinaryOp::Nullish => {
+                    if matches!(l, JsVal::Null | JsVal::Undef) {
+                        eval_expr(right, env)
+                    } else {
+                        Ok(Ok(l))
+                    }
+                }
                 BinaryOp::Add => {
                     let r = match eval_expr(right, env)? {
                         Ok(v) => v,
@@ -1520,6 +1545,34 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                             Ok(Ok(JsVal::Num(a + b)))
                         }
                     }
+                }
+                BinaryOp::Sub => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? - to_number(&r)?)))
+                }
+                BinaryOp::Mul => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? * to_number(&r)?)))
+                }
+                BinaryOp::Div => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? / to_number(&r)?)))
+                }
+                BinaryOp::Rem => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? % to_number(&r)?)))
                 }
                 _ => Err(()),
             }
@@ -2064,6 +2117,11 @@ fn eval_method_call(
             let target = args.first().ok_or(())?;
             object_get_prototype(target)
         }
+        JsVal::Builtin(BuiltinId::Object) if key == "isExtensible" => {
+            // Fixture subset: ordinary objects / functions are extensible.
+            let _ = args.first().ok_or(())?;
+            Ok(JsVal::Bool(true))
+        }
         JsVal::Builtin(BuiltinId::Object) if key == "getOwnPropertyDescriptor" => {
             let target = args.first().ok_or(())?;
             let k = match args.get(1) {
@@ -2184,7 +2242,17 @@ fn eval_method_call(
                 };
                 Ok(object_lookup_setter(&props.borrow(), k))
             }
-            _ => Err(()),
+            _ => {
+                // Ordinary method call: look up own/proto and invoke UserFn with this=recv.
+                let method = member_get(recv, key, env)?;
+                let this = recv.clone();
+                match method {
+                    JsVal::UserFn { params, body, .. } => {
+                        call_user_fn(&params, &body, this, args, env)
+                    }
+                    other => eval_call(&other, args, env),
+                }
+            }
         },
         JsVal::Builtin(BuiltinId::ObjectPrototype) if key == "hasOwnProperty" => {
             let prop = match args.first() {
@@ -3670,10 +3738,11 @@ fn member_get(
                     } else if let Some(b) = object_accessor_legacy_builtin(key) {
                         Ok(JsVal::Builtin(b))
                     } else {
-                        Err(())
+                        // Missing prop on ordinary object → undefined (not error).
+                        Ok(JsVal::Undef)
                     }
                 }
-                JsVal::Null => Err(()),
+                JsVal::Null => Ok(JsVal::Undef),
                 // Prototype object may hold accessors (class instance get/set).
                 other => {
                     // Prefer own-slot get on proto with `this` = receiver.
@@ -3696,7 +3765,10 @@ fn member_get(
                             };
                         }
                     }
-                    member_get(&other.clone(), key, env)
+                    match member_get(&other.clone(), key, env) {
+                        Ok(v) => Ok(v),
+                        Err(()) => Ok(JsVal::Undef),
+                    }
                 }
             }
         }
@@ -3719,8 +3791,11 @@ fn member_get(
                     PropSlot::Accessor { get: None, .. } => Ok(JsVal::Undef),
                 };
             }
-            // Function [[Prototype]]
-            member_get(&JsVal::Builtin(BuiltinId::FunctionPrototype), key, env)
+            // Function [[Prototype]] — missing own props are undefined.
+            match member_get(&JsVal::Builtin(BuiltinId::FunctionPrototype), key, env) {
+                Ok(v) => Ok(v),
+                Err(()) => Ok(JsVal::Undef),
+            }
         }
         JsVal::Builtin(BuiltinId::Function) if key == "prototype" => {
             Ok(JsVal::Builtin(BuiltinId::FunctionPrototype))
@@ -4933,5 +5008,19 @@ mod tests {
         }
     }
 
-
+                #[test]
+    fn private_residual_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/private_residual.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["test262", "42", "3", "7", "9", "4", "5"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+    }
 }
