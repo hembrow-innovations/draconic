@@ -98,3 +98,13 @@ fn function_caller_arguments_fixture_present() {
 fn function_caller_arguments_runs() {
     assert_fixture_runs_declared_targets("es/legacy/function_caller_arguments");
 }
+
+#[test]
+fn sloppy_this_fixture_present() {
+    assert_fixture_present("es/legacy/sloppy_this");
+}
+
+#[test]
+fn sloppy_this_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/sloppy_this");
+}

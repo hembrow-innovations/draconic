@@ -1,0 +1,52 @@
+// E17.02.06: non-strict `this` binding.
+// Bare call → global object; method call keeps receiver; strict bare → undefined;
+// .call/.apply primitive receiver → ToObject non-strict, primitive strict.
+
+function bare() {
+  return this === globalThis;
+}
+let a = bare();
+let b = (function () {
+  return this === globalThis;
+})();
+
+function strictBare() {
+  "use strict";
+  return this === undefined;
+}
+let c = strictBare();
+
+let recv = { id: 7 };
+recv.m = function () {
+  return this.id;
+};
+let d = recv.m();
+
+function typeOfThis() {
+  return typeof this;
+}
+let e = typeOfThis.call(1);
+let f = typeOfThis.call("x");
+let g = typeOfThis.apply(null, []);
+let h = typeOfThis.apply(undefined, []);
+
+function strictTypeOfThis() {
+  "use strict";
+  return typeof this;
+}
+let i = strictTypeOfThis.call(1);
+let j = strictTypeOfThis.call("x");
+let k = strictTypeOfThis.call(null);
+let l = strictTypeOfThis.call(undefined);
+
+// Nested bare call still gets globalThis (not outer this).
+let nestObj = {
+  id: 3,
+  outer: function () {
+    function inner() {
+      return this === globalThis;
+    }
+    return inner();
+  }
+};
+let m = nestObj.outer();
