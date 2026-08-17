@@ -2,14 +2,18 @@
 //!
 //! K01.01: parse own module path + dependencies map (path → version req).
 //! K01.02: write/round-trip `draconic.toml` with stable dependency order.
+//! K01.03: schema validation (module paths, version reqs, unknown fields) + diagnostics.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
-use serde::Deserialize;
 use toml::Value as TomlValue;
 
-/// Parsed `draconic.toml` (K01.01 subset: module path + deps).
+/// Known top-level keys in `draconic.toml` (K01.01–K01.03).
+/// K01.04 may extend this set (URL map).
+const KNOWN_TOP_LEVEL_KEYS: &[&str] = &["module", "dependencies"];
+
+/// Parsed `draconic.toml` (K01 subset: module path + deps).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     /// This package's module path (Go-like), e.g. `github.com/org/pkg`.
@@ -18,30 +22,52 @@ pub struct Manifest {
     pub dependencies: BTreeMap<String, String>,
 }
 
-/// Error while parsing a `draconic.toml` document.
+/// Error while parsing or validating a `draconic.toml` document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ManifestError {
-    /// Invalid TOML syntax or structure that serde/toml cannot decode.
+    /// Invalid TOML syntax.
     Toml(String),
+    /// Document root is not a table.
+    NotATable,
     /// Required top-level `module` string is missing.
     MissingModule,
     /// `module` is present but not a non-empty string.
     InvalidModule,
+    /// Own `module` path fails Go-like module path schema.
+    InvalidModulePath { path: String, reason: &'static str },
     /// `dependencies` is present but not a table of string → string.
     InvalidDependencies,
     /// A dependency entry has a non-string version requirement.
     InvalidDependencyValue { path: String },
+    /// A dependency key fails Go-like module path schema.
+    InvalidDependencyPath { path: String, reason: &'static str },
+    /// A dependency version requirement is empty or not a semver-shaped req.
+    InvalidVersionReq {
+        path: String,
+        req: String,
+        reason: &'static str,
+    },
+    /// Unknown top-level field (not part of the manifest schema).
+    UnknownField { field: String },
+    /// Package lists itself as a dependency.
+    SelfDependency { path: String },
 }
 
 impl fmt::Display for ManifestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ManifestError::Toml(msg) => write!(f, "invalid draconic.toml: {msg}"),
+            ManifestError::NotATable => {
+                write!(f, "draconic.toml: document root must be a table")
+            }
             ManifestError::MissingModule => {
                 write!(f, "draconic.toml: missing required field `module`")
             }
             ManifestError::InvalidModule => {
                 write!(f, "draconic.toml: `module` must be a non-empty string")
+            }
+            ManifestError::InvalidModulePath { path, reason } => {
+                write!(f, "draconic.toml: invalid module path `{path}`: {reason}")
             }
             ManifestError::InvalidDependencies => write!(
                 f,
@@ -51,15 +77,31 @@ impl fmt::Display for ManifestError {
                 f,
                 "draconic.toml: dependency `{path}` version requirement must be a string"
             ),
+            ManifestError::InvalidDependencyPath { path, reason } => write!(
+                f,
+                "draconic.toml: invalid dependency module path `{path}`: {reason}"
+            ),
+            ManifestError::InvalidVersionReq { path, req, reason } => write!(
+                f,
+                "draconic.toml: dependency `{path}` has invalid version requirement `{req}`: {reason}"
+            ),
+            ManifestError::UnknownField { field } => write!(
+                f,
+                "draconic.toml: unknown field `{field}` (expected one of: module, dependencies)"
+            ),
+            ManifestError::SelfDependency { path } => write!(
+                f,
+                "draconic.toml: package cannot depend on itself (`{path}`)"
+            ),
         }
     }
 }
 
 impl std::error::Error for ManifestError {}
 
-/// Parse a `draconic.toml` source string into a [`Manifest`].
+/// Parse a `draconic.toml` source string into a schema-valid [`Manifest`].
 ///
-/// Expected shape (K01.01):
+/// Expected shape (K01.01–K01.03):
 /// ```toml
 /// module = "github.com/org/pkg"
 ///
@@ -67,38 +109,258 @@ impl std::error::Error for ManifestError {}
 /// "github.com/other/lib" = "1.2.3"
 /// ```
 ///
-/// `dependencies` may be omitted (empty map). URL map and full schema validation
-/// are later K01 children.
+/// `dependencies` may be omitted (empty map). Performs structural decode plus
+/// schema validation (module paths, version requirements, unknown fields).
+/// Optional URL map is K01.04.
 pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
-    let raw: RawManifest = toml::from_str(src).map_err(|e| ManifestError::Toml(e.to_string()))?;
-
-    let module = match raw.module {
-        None => return Err(ManifestError::MissingModule),
-        Some(m) if m.is_empty() => return Err(ManifestError::InvalidModule),
-        Some(m) => m,
+    let value: TomlValue =
+        toml::from_str(src).map_err(|e| ManifestError::Toml(e.to_string()))?;
+    let table = match value {
+        TomlValue::Table(t) => t,
+        _ => return Err(ManifestError::NotATable),
     };
 
-    let dependencies = match raw.dependencies {
+    for key in table.keys() {
+        if !KNOWN_TOP_LEVEL_KEYS.contains(&key.as_str()) {
+            return Err(ManifestError::UnknownField {
+                field: key.clone(),
+            });
+        }
+    }
+
+    let module = match table.get("module") {
+        None => return Err(ManifestError::MissingModule),
+        Some(TomlValue::String(m)) if m.is_empty() => return Err(ManifestError::InvalidModule),
+        Some(TomlValue::String(m)) => m.clone(),
+        Some(_) => return Err(ManifestError::InvalidModule),
+    };
+
+    let dependencies = match table.get("dependencies") {
         None => BTreeMap::new(),
-        Some(TomlValue::Table(table)) => {
+        Some(TomlValue::Table(dep_table)) => {
             let mut deps = BTreeMap::new();
-            for (path, value) in table {
+            for (path, value) in dep_table {
                 let req = match value {
-                    TomlValue::String(s) => s,
+                    TomlValue::String(s) => s.clone(),
                     _ => {
-                        return Err(ManifestError::InvalidDependencyValue { path });
+                        return Err(ManifestError::InvalidDependencyValue {
+                            path: path.clone(),
+                        });
                     }
                 };
-                deps.insert(path, req);
+                deps.insert(path.clone(), req);
             }
             deps
         }
         Some(_) => return Err(ManifestError::InvalidDependencies),
     };
 
-    Ok(Manifest {
+    let manifest = Manifest {
         module,
         dependencies,
+    };
+    validate_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+/// Validate schema rules on an already-decoded [`Manifest`].
+///
+/// Checks Go-like module paths, semver-shaped version requirements, and
+/// rejects self-dependencies. Does not check unknown TOML fields (those are
+/// only visible during [`parse_manifest`]).
+pub fn validate_manifest(manifest: &Manifest) -> Result<(), ManifestError> {
+    if let Err(reason) = validate_module_path(&manifest.module) {
+        return Err(ManifestError::InvalidModulePath {
+            path: manifest.module.clone(),
+            reason,
+        });
+    }
+
+    for (path, req) in &manifest.dependencies {
+        if path == &manifest.module {
+            return Err(ManifestError::SelfDependency {
+                path: path.clone(),
+            });
+        }
+        if let Err(reason) = validate_module_path(path) {
+            return Err(ManifestError::InvalidDependencyPath {
+                path: path.clone(),
+                reason,
+            });
+        }
+        if let Err(reason) = validate_version_req(req) {
+            return Err(ManifestError::InvalidVersionReq {
+                path: path.clone(),
+                req: req.clone(),
+                reason,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Go-like module path: `host.tld/path…` with no empty/`.`/`..` segments.
+///
+/// Rules (v1):
+/// - non-empty, no leading/trailing whitespace
+/// - no leading/trailing `/`, no `//`
+/// - at least two `/`-separated segments
+/// - first segment looks like a domain (contains `.`)
+/// - segments are non-empty and not `.` / `..`
+/// - ASCII alphanumeric plus `.` `-` `_` only in segments
+fn validate_module_path(path: &str) -> Result<(), &'static str> {
+    if path.is_empty() {
+        return Err("must not be empty");
+    }
+    if path != path.trim() {
+        return Err("must not have leading or trailing whitespace");
+    }
+    if path.starts_with('/') || path.ends_with('/') {
+        return Err("must not start or end with '/'");
+    }
+    if path.contains("//") {
+        return Err("must not contain empty path segments");
+    }
+    if path.chars().any(|c| c.is_whitespace()) {
+        return Err("must not contain whitespace");
+    }
+
+    let segments: Vec<&str> = path.split('/').collect();
+    if segments.len() < 2 {
+        return Err(
+            "must contain at least two path segments (e.g. github.com/org/pkg)",
+        );
+    }
+
+    let host = segments[0];
+    if !host.contains('.') {
+        return Err("first path segment must look like a domain (contain '.')");
+    }
+
+    for seg in &segments {
+        if *seg == "." || *seg == ".." {
+            return Err("must not contain '.' or '..' path segments");
+        }
+        if seg.is_empty() {
+            return Err("must not contain empty path segments");
+        }
+        if !seg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return Err(
+                "segments may only contain ASCII letters, digits, '.', '-', '_'",
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Semver-shaped version requirement (exact or simple range). Full tag resolve is K04.
+///
+/// Accepted forms:
+/// - optional operator: `^` `~` `>=` `<=` `>` `<` `=`
+/// - optional leading `v`
+/// - `MAJOR.MINOR.PATCH` with optional `-prerelease` and/or `+build`
+/// - also `MAJOR.MINOR` or `MAJOR` (partial)
+fn validate_version_req(req: &str) -> Result<(), &'static str> {
+    if req.is_empty() {
+        return Err("must not be empty");
+    }
+    if req != req.trim() {
+        return Err("must not have leading or trailing whitespace");
+    }
+
+    let rest = strip_version_operator(req);
+    if rest.is_empty() {
+        return Err("missing version after operator");
+    }
+
+    let rest = rest.strip_prefix('v').unwrap_or(rest);
+    if rest.is_empty() {
+        return Err("missing version number");
+    }
+
+    // Split build metadata first (+…), then prerelease (-…).
+    let (core_and_pre, _build) = match rest.split_once('+') {
+        Some((left, build)) => {
+            if build.is_empty() || !is_semver_ident_chain(build) {
+                return Err("invalid build metadata");
+            }
+            (left, Some(build))
+        }
+        None => (rest, None),
+    };
+
+    let (core, pre) = match core_and_pre.split_once('-') {
+        Some((left, pre)) => {
+            if pre.is_empty() || !is_semver_ident_chain(pre) {
+                return Err("invalid prerelease identifier");
+            }
+            (left, Some(pre))
+        }
+        None => (core_and_pre, None),
+    };
+
+    if core.is_empty() {
+        return Err("missing numeric version core");
+    }
+
+    let parts: Vec<&str> = core.split('.').collect();
+    if parts.is_empty() || parts.len() > 3 {
+        return Err("version core must be MAJOR[.MINOR[.PATCH]]");
+    }
+    for part in &parts {
+        if part.is_empty() {
+            return Err("version core has an empty numeric component");
+        }
+        if !part.chars().all(|c| c.is_ascii_digit()) {
+            return Err("version core components must be decimal digits");
+        }
+        // Disallow leading zeros except plain "0".
+        if part.len() > 1 && part.starts_with('0') {
+            return Err("version core components must not have leading zeros");
+        }
+    }
+
+    // Prerelease/build only make sense with a full-ish version; allow with any core.
+    let _ = pre;
+
+    Ok(())
+}
+
+fn strip_version_operator(req: &str) -> &str {
+    if let Some(rest) = req.strip_prefix(">=") {
+        rest
+    } else if let Some(rest) = req.strip_prefix("<=") {
+        rest
+    } else if let Some(rest) = req.strip_prefix('>') {
+        rest
+    } else if let Some(rest) = req.strip_prefix('<') {
+        rest
+    } else if let Some(rest) = req.strip_prefix('^') {
+        rest
+    } else if let Some(rest) = req.strip_prefix('~') {
+        rest
+    } else if let Some(rest) = req.strip_prefix('=') {
+        rest
+    } else {
+        req
+    }
+}
+
+/// Dot-separated identifiers: alphanumeric and hyphen, non-empty parts (semver).
+fn is_semver_ident_chain(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    s.split('.').all(|part| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
     })
 }
 
@@ -152,14 +414,6 @@ fn toml_quoted_string(s: &str) -> String {
     }
     out.push('"');
     out
-}
-
-/// Intermediate decode so we can distinguish missing vs wrong-typed fields.
-#[derive(Debug, Deserialize)]
-struct RawManifest {
-    module: Option<String>,
-    #[serde(default)]
-    dependencies: Option<TomlValue>,
 }
 
 #[cfg(test)]
@@ -253,15 +507,8 @@ module = "github.com/org/pkg"
 
     #[test]
     fn reject_module_wrong_type() {
-        // `module` as integer → serde fails decoding Option<String> → Toml error
         let err = parse_manifest("module = 42").expect_err("wrong type");
-        assert!(
-            matches!(
-                err,
-                ManifestError::Toml(_) | ManifestError::InvalidModule
-            ),
-            "{err:?}"
-        );
+        assert_eq!(err, ManifestError::InvalidModule);
     }
 
     #[test]
@@ -370,10 +617,250 @@ module = \"github.com/acme/app\"
 
     #[test]
     fn write_escapes_quotes_in_module() {
+        // Constructed paths need not pass schema (write is serialization only).
         let m = manifest(r#"org/pkg"with"quotes"#, &[]);
         let s = write_manifest(&m);
         assert_eq!(s, "module = \"org/pkg\\\"with\\\"quotes\"\n");
-        let parsed = parse_manifest(&s).expect("parse");
-        assert_eq!(parsed, m);
+        // Re-parse will fail schema (quotes invalid in module path) — round-trip
+        // of schema-valid manifests is covered above.
+        assert!(parse_manifest(&s).is_err());
+    }
+
+    // --- K01.03: schema validation + diagnostics ---
+
+    #[test]
+    fn reject_module_path_no_slash() {
+        let err = parse_manifest(r#"module = "lonely""#).expect_err("no slash");
+        match &err {
+            ManifestError::InvalidModulePath { path, reason } => {
+                assert_eq!(path, "lonely");
+                assert!(!reason.is_empty(), "{reason}");
+            }
+            other => panic!("expected InvalidModulePath, got {other:?}"),
+        }
+        assert!(
+            err.to_string().contains("module path"),
+            "diagnostic should mention module path: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_module_path_no_domain_dot() {
+        let err = parse_manifest(r#"module = "localhost/pkg""#).expect_err("no domain dot");
+        match err {
+            ManifestError::InvalidModulePath { path, .. } => {
+                assert_eq!(path, "localhost/pkg");
+            }
+            other => panic!("expected InvalidModulePath, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_module_path_leading_slash() {
+        let err = parse_manifest(r#"module = "/github.com/org/pkg""#).expect_err("leading slash");
+        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reject_module_path_trailing_slash() {
+        let err =
+            parse_manifest(r#"module = "github.com/org/pkg/""#).expect_err("trailing slash");
+        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reject_module_path_empty_segment() {
+        let err =
+            parse_manifest(r#"module = "github.com//pkg""#).expect_err("empty segment");
+        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reject_module_path_dot_segment() {
+        let err =
+            parse_manifest(r#"module = "github.com/org/../evil""#).expect_err("dotdot");
+        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reject_module_path_whitespace() {
+        let err =
+            parse_manifest(r#"module = "github.com/org/my pkg""#).expect_err("whitespace");
+        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reject_dependency_path_invalid() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[dependencies]
+"not-a-path" = "1.0.0"
+"#,
+        )
+        .expect_err("bad dep path");
+        match &err {
+            ManifestError::InvalidDependencyPath { path, reason } => {
+                assert_eq!(path, "not-a-path");
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected InvalidDependencyPath, got {other:?}"),
+        }
+        assert!(
+            err.to_string().contains("dependency"),
+            "diagnostic should mention dependency: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_empty_version_req() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[dependencies]
+"github.com/org/lib" = ""
+"#,
+        )
+        .expect_err("empty version");
+        match &err {
+            ManifestError::InvalidVersionReq { path, req, reason } => {
+                assert_eq!(path, "github.com/org/lib");
+                assert_eq!(req, "");
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected InvalidVersionReq, got {other:?}"),
+        }
+        assert!(
+            err.to_string().contains("version"),
+            "diagnostic should mention version: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_non_semver_version_req() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[dependencies]
+"github.com/org/lib" = "latest"
+"#,
+        )
+        .expect_err("latest not semver");
+        assert!(
+            matches!(err, ManifestError::InvalidVersionReq { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn reject_branch_name_version_req() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[dependencies]
+"github.com/org/lib" = "main"
+"#,
+        )
+        .expect_err("branch not semver");
+        assert!(
+            matches!(err, ManifestError::InvalidVersionReq { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn accept_common_version_req_forms() {
+        let cases = [
+            "1.2.3",
+            "v1.2.3",
+            "^1.2.3",
+            "~1.0.0",
+            ">=1.0.0",
+            "<=2.0.0",
+            ">0.1.0",
+            "<3.0.0",
+            "1.2.3-alpha.1",
+            "1.0.0+build.7",
+        ];
+        for req in cases {
+            let src = format!(
+                r#"
+module = "github.com/acme/app"
+[dependencies]
+"github.com/org/lib" = "{req}"
+"#
+            );
+            let m = parse_manifest(&src).unwrap_or_else(|e| panic!("req {req:?}: {e}"));
+            assert_eq!(
+                m.dependencies.get("github.com/org/lib").map(String::as_str),
+                Some(req)
+            );
+        }
+    }
+
+    #[test]
+    fn reject_unknown_top_level_field() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+license = "MIT"
+"#,
+        )
+        .expect_err("unknown field");
+        match &err {
+            ManifestError::UnknownField { field } => assert_eq!(field, "license"),
+            other => panic!("expected UnknownField, got {other:?}"),
+        }
+        assert!(
+            err.to_string().contains("unknown") || err.to_string().contains("license"),
+            "diagnostic should name the field: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_self_dependency() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[dependencies]
+"github.com/acme/app" = "1.0.0"
+"#,
+        )
+        .expect_err("self dep");
+        match err {
+            ManifestError::SelfDependency { path } => {
+                assert_eq!(path, "github.com/acme/app");
+            }
+            other => panic!("expected SelfDependency, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_manifest_rejects_bad_constructed() {
+        let m = Manifest {
+            module: "not-valid".into(),
+            dependencies: BTreeMap::new(),
+        };
+        let err = validate_manifest(&m).expect_err("should fail schema");
+        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn validate_manifest_accepts_good() {
+        let m = manifest(
+            "github.com/acme/app",
+            &[("github.com/org/lib", "^1.2.3")],
+        );
+        validate_manifest(&m).expect("valid");
+    }
+
+    #[test]
+    fn module_wrong_type_is_invalid_module_not_opaque_toml() {
+        let err = parse_manifest("module = 42").expect_err("wrong type");
+        assert_eq!(err, ManifestError::InvalidModule);
+        assert!(
+            err.to_string().contains("module"),
+            "clear diagnostic: {err}"
+        );
     }
 }

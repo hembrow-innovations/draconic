@@ -188,8 +188,6 @@ dependencies = [
 name = "draconic-pkg"
 version = "0.1.0"
 dependencies = [
- "serde",
- "thiserror",
  "toml",
 ]
 

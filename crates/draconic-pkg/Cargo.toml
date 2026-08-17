@@ -6,6 +6,4 @@ license.workspace = true
 description = "Draconic package manifests, lockfiles, and module cache (Roadmap K)"
 
 [dependencies]
-serde.workspace = true
-thiserror.workspace = true
 toml.workspace = true
