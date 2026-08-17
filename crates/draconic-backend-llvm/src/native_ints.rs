@@ -1,4 +1,6 @@
 //! N01–N03.03: lower pure native scalar/layout/pointer Programs to LLVM IR.
+//! N08.17 / T06: JS `number` locals may mix with unboxed natives (dual-worlds
+//! boundary); `number` lowers as IEEE-754 double with explicit int↔float casts.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -74,6 +76,8 @@ fn scalar_of_type(ty: Type) -> Option<Scalar> {
         // Comparison / logical results are JS `boolean` in the checker; lower as i1
         // when already inside a native-scalar module.
         Type::Boolean => Some(Scalar(NativeType::Bool)),
+        // Dual-worlds (T06 / N08.17): JS `number` is unboxed IEEE-754 double on native.
+        Type::Number => Some(Scalar(NativeType::F64)),
         _ => None,
     }
 }
@@ -127,12 +131,14 @@ fn layout_align(shape: &ObjectShape) -> u32 {
 
 /// True when every **user-declared** local is a native scalar (`i*`/`u*`/`f*`/`bool`),
 /// a **native layout** shape (all-native fields), a **native pointer** (`*T`),
-/// or a **function declaration** binding, and the module has at least one native
-/// scalar, layout, or pointer local (N01–N03.03 surface).
+/// JS `number` (dual-worlds unboxed double), or a **function declaration** binding,
+/// and the module has at least one native scalar, layout, or pointer local
+/// (N01–N03.03 + N08.17 surface).
 ///
 /// Arrow / function-expression bindings are excluded so T05 erase fixtures that
-/// mix natives with callable values stay on the B08 hello stub. JS `boolean`
-/// locals alone also do not qualify. Globals (Object/Function builtins) ignored.
+/// mix natives with callable values stay on the B08 hello stub. JS `boolean` or
+/// pure-`number` locals alone also do not qualify (those stay on ES paths).
+/// Globals (Object/Function builtins) ignored.
 pub(crate) fn is_native_int_module(module: &Module) -> bool {
     let mut user = HashSet::new();
     collect_user_local_ids(&module.body, &mut user);
@@ -150,6 +156,8 @@ pub(crate) fn is_native_int_module(module: &Module) -> bool {
             Type::Native(_) => has_native = true,
             Type::Ptr(_) => has_native = true,
             Type::Shape(_) if native_layout_of(module, local.ty).is_some() => has_native = true,
+            // Dual-worlds: allow JS number alongside natives; alone does not claim this path.
+            Type::Number => {}
             Type::Function if fn_decl_locals.contains(&id) => {}
             _ => return false,
         }
@@ -861,6 +869,16 @@ impl<'a> Emitter<'a> {
                 .ok();
                 Ok(t)
             }
+            Type::Number => {
+                let v = self.emit_expr(expr, Some(Scalar(NativeType::F64)))?;
+                let t = self.fresh_tmp();
+                writeln!(
+                    self.body,
+                    "  {t} = fcmp one double {v}, 0.000000e+00"
+                )
+                .ok();
+                Ok(t)
+            }
             _ => Err(diag(
                 "native scalars: condition must be bool or native numeric",
             )),
@@ -868,6 +886,30 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_expr(
+        &mut self,
+        expr: &Expr,
+        expect: Option<Scalar>,
+    ) -> Result<String, Diagnostic> {
+        let v = self.emit_expr_uncast(expr, expect)?;
+        let Some(want) = expect else {
+            return Ok(v);
+        };
+        // Number literals are formatted directly in `want` width (contextual typing).
+        if matches!(expr, Expr::Number { .. }) {
+            return Ok(v);
+        }
+        // Dual-worlds: when the IR expression type is a different unboxed scalar
+        // than the destination, insert an explicit cast (`as` is erased at IR).
+        let Some(got) = scalar_of_type(expr.ty()) else {
+            return Ok(v);
+        };
+        if got == want || got.is_bool() || want.is_bool() {
+            return Ok(v);
+        }
+        self.coerce_scalar(&v, got, want)
+    }
+
+    fn emit_expr_uncast(
         &mut self,
         expr: &Expr,
         expect: Option<Scalar>,
@@ -891,9 +933,13 @@ impl<'a> Emitter<'a> {
             }
             Expr::Boolean { value, .. } => Ok(if *value { "1".into() } else { "0".into() }),
             Expr::Number { raw, ty } => {
+                // Prefer destination/native context so `let x: i32 = 0b1100` formats as
+                // int (binary/hex literals are not valid float constants). Bare
+                // `number` without expect is dual-worlds IEEE double.
                 let sty = match (ty, expect) {
                     (Type::Native(n), _) if !n.is_bool() => Scalar(*n),
                     (_, Some(s)) if !s.is_bool() => s,
+                    (Type::Number, _) => Scalar(NativeType::F64),
                     _ => {
                         return Err(diag(
                             "native scalars: number literal needs native numeric context",
@@ -936,6 +982,7 @@ impl<'a> Emitter<'a> {
                 }
                 let nty = match ty {
                     Type::Native(n) if !n.is_bool() => *n,
+                    Type::Number => NativeType::F64,
                     _ => {
                         return Err(diag("native scalars: unary result must be native numeric"))
                     }
@@ -1491,9 +1538,13 @@ impl<'a> Emitter<'a> {
             writeln!(self.body, "  store ptr {rhs}, ptr {slot}").ok();
             return Ok(rhs);
         }
-        let sty = match scalar_of_type(*ty) {
-            Some(s) => s,
-            None => self.local_scalar(*id)?,
+        // Prefer the local's storage type so `let c: i32; c = 1` stores i32 even
+        // when the RHS expression is still typed `number` in IR (contextual lit).
+        let sty = match self.local_scalar(*id) {
+            Ok(s) => s,
+            Err(_) => scalar_of_type(*ty).ok_or_else(|| {
+                diag("native scalars: assignment needs a native scalar local")
+            })?,
         };
         let ptr = self
             .allocas
@@ -1668,11 +1719,127 @@ impl<'a> Emitter<'a> {
         match local.ty {
             Type::Native(n) => Ok(Scalar(n)),
             Type::Boolean => Ok(Scalar(NativeType::Bool)),
+            Type::Number => Ok(Scalar(NativeType::F64)),
             _ => Err(diag(&format!(
                 "native scalars: local `{}` is not a native scalar",
                 local.name
             ))),
         }
+    }
+
+    /// Dual-worlds / width change: convert unboxed scalar `v` from `from` to `to`.
+    fn coerce_scalar(
+        &mut self,
+        v: &str,
+        from: Scalar,
+        to: Scalar,
+    ) -> Result<String, Diagnostic> {
+        if from == to {
+            return Ok(v.to_string());
+        }
+        if from.is_bool() || to.is_bool() {
+            return Err(diag(
+                "native scalars: cannot coerce bool across dual-worlds numeric boundary",
+            ));
+        }
+        let from_n = from.native();
+        let to_n = to.native();
+        let t = self.fresh_tmp();
+        match (from_n.is_float(), to_n.is_float()) {
+            (true, true) => {
+                if from_n.bit_width() < to_n.bit_width() {
+                    writeln!(
+                        self.body,
+                        "  {t} = fpext {} {v} to {}",
+                        llvm_ty(from_n),
+                        llvm_ty(to_n)
+                    )
+                    .ok();
+                } else if from_n.bit_width() > to_n.bit_width() {
+                    writeln!(
+                        self.body,
+                        "  {t} = fptrunc {} {v} to {}",
+                        llvm_ty(from_n),
+                        llvm_ty(to_n)
+                    )
+                    .ok();
+                } else {
+                    return Ok(v.to_string());
+                }
+            }
+            (false, true) => {
+                if from_n.is_signed() {
+                    writeln!(
+                        self.body,
+                        "  {t} = sitofp {} {v} to {}",
+                        llvm_ty(from_n),
+                        llvm_ty(to_n)
+                    )
+                    .ok();
+                } else {
+                    writeln!(
+                        self.body,
+                        "  {t} = uitofp {} {v} to {}",
+                        llvm_ty(from_n),
+                        llvm_ty(to_n)
+                    )
+                    .ok();
+                }
+            }
+            (true, false) => {
+                if to_n.is_signed() {
+                    writeln!(
+                        self.body,
+                        "  {t} = fptosi {} {v} to {}",
+                        llvm_ty(from_n),
+                        llvm_ty(to_n)
+                    )
+                    .ok();
+                } else {
+                    writeln!(
+                        self.body,
+                        "  {t} = fptoui {} {v} to {}",
+                        llvm_ty(from_n),
+                        llvm_ty(to_n)
+                    )
+                    .ok();
+                }
+            }
+            (false, false) => {
+                let from_w = from_n.bit_width();
+                let to_w = to_n.bit_width();
+                if from_w == to_w {
+                    return Ok(v.to_string());
+                } else if from_w < to_w {
+                    if from_n.is_signed() {
+                        writeln!(
+                            self.body,
+                            "  {t} = sext {} {v} to {}",
+                            llvm_ty(from_n),
+                            llvm_ty(to_n)
+                        )
+                        .ok();
+                    } else {
+                        writeln!(
+                            self.body,
+                            "  {t} = zext {} {v} to {}",
+                            llvm_ty(from_n),
+                            llvm_ty(to_n)
+                        )
+                        .ok();
+                    }
+                } else {
+                    writeln!(
+                        self.body,
+                        "  {t} = trunc {} {v} to {}",
+                        llvm_ty(from_n),
+                        llvm_ty(to_n)
+                    )
+                    .ok();
+                }
+            }
+        }
+        Ok(t)
     }
 
     fn local_layout(&self, id: LocalId) -> Option<&ObjectShape> {
@@ -1734,14 +1901,14 @@ fn scalar_operand_ty(
     right: &Expr,
     expect: Option<Scalar>,
 ) -> Result<Scalar, Diagnostic> {
-    if let Type::Native(n) = left.ty() {
-        if !n.is_bool() {
-            return Ok(Scalar(n));
+    if let Some(s) = scalar_of_type(left.ty()) {
+        if !s.is_bool() {
+            return Ok(s);
         }
     }
-    if let Type::Native(n) = right.ty() {
-        if !n.is_bool() {
-            return Ok(Scalar(n));
+    if let Some(s) = scalar_of_type(right.ty()) {
+        if !s.is_bool() {
+            return Ok(s);
         }
     }
     if let Some(s) = expect {

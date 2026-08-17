@@ -1,4 +1,6 @@
 id: types/dual/boundary_as
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 42\n42\n42\n42\n43\n84\n
 js.check: if (i !== 42) process.exit(1); if (back !== 42) process.exit(1); if (f !== 42) process.exit(1); if (j !== 43) process.exit(1); if (s !== 84) process.exit(1);
