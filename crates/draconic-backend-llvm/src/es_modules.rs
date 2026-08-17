@@ -359,6 +359,7 @@ fn eval_expr(
                 UnaryOp::Plus => Ok(JsVal::Num(to_number(&v))),
                 UnaryOp::Minus => Ok(JsVal::Num(-to_number(&v))),
                 UnaryOp::Not => Ok(JsVal::Num(if to_boolean(&v) { 0.0 } else { 1.0 })),
+                UnaryOp::TypeOf => Ok(JsVal::Str(typeof_str(&v))),
                 _ => Err(()),
             }
         }
@@ -421,10 +422,10 @@ fn eval_expr(
             let obj = eval_expr(object, env, functions, make_ns)?;
             let key = prop_key(property, env, functions, make_ns)?;
             match obj {
-                JsVal::Ns(map) => {
-                    let getter = map.get(&key).cloned().ok_or(())?;
-                    call_value(getter, &[], env, functions, make_ns)
-                }
+                JsVal::Ns(map) => match map.get(&key).cloned() {
+                    Some(getter) => call_value(getter, &[], env, functions, make_ns),
+                    None => Ok(JsVal::Undef),
+                },
                 _ => Err(()),
             }
         }
@@ -521,6 +522,16 @@ fn call_value(
     match eval_body(&frec.body, env, functions, make_ns)? {
         Flow::Normal => Ok(JsVal::Undef),
         Flow::Return(v) => Ok(v),
+    }
+}
+
+fn typeof_str(v: &JsVal) -> String {
+    match v {
+        JsVal::Undef => "undefined".to_string(),
+        JsVal::Num(_) => "number".to_string(),
+        JsVal::Str(_) => "string".to_string(),
+        JsVal::Fn(_) | JsVal::FnExpr(_) => "function".to_string(),
+        JsVal::Ns(_) | JsVal::Arr(_) => "object".to_string(),
     }
 }
 
