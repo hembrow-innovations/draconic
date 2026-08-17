@@ -1,8 +1,9 @@
-//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07: native observations for global builtins + Error
-//! ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
+//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16: native observations for global
+//! builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
 //! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`
 //! + `String.prototype` `substr` / HTML wrappers + `Date.prototype` `getYear`/`setYear`/`toGMTString`
-//! + `Object.prototype` `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__`.
+//! + `Object.prototype` `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__`
+//! + RegExp constructor Annex B statics (`$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, …).
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -15,7 +16,7 @@
 //! - E15.05: `JSON` / `JSON.parse` / `JSON.stringify` (primitives, objects, arrays)
 //! - E15.06: `Date` / `Date.now` / `Date.UTC` / `new Date(ms)` / `.getTime()` / `.valueOf()`
 //! - E15.07: `RegExp` / `new RegExp(pattern[, flags])` / call without `new` / `.source` /
-//!   `.flags` / `.test` / `.exec` (fixture subset: literals + `c+` + `i` flag)
+//!   `.flags` / `.test` / `.exec` (fixture subset: literals + `c+` + capturing groups + `i`)
 //! - E15.08: `Map` / `Set` — `new Map`/`new Set`, `.set`/`.get`/`.has`/`.size`,
 //!   `.add`/`.has`/`.size` (fixture subset; SameValueZero keys for num/str)
 //! - E15.09: `WeakMap` / `WeakSet` — `new WeakMap`/`new WeakSet`, `.set`/`.get`/`.has`/
@@ -32,6 +33,9 @@
 //! - E18.07: `Object.prototype.__defineGetter__` / `__defineSetter__` /
 //!   `__lookupGetter__` / `__lookupSetter__` (install/lookup accessors; `.call` this-binding;
 //!   simple function expressions as getter/setter)
+//! - E18.16: RegExp constructor Annex B statics (B.2.5): `$1`–`$9`, `input`/`$_`,
+//!   `lastMatch`/`$&`, `lastParen`/`$+`, `leftContext`/`$\``, `rightContext`/`$'`
+//!   after successful `exec`/`test` (unchanged on failure)
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -487,8 +491,66 @@ enum Flow {
     Return(JsVal),
 }
 
+/// Annex B RegExp constructor statics (B.2.5) — updated on successful match only.
+#[derive(Clone, Debug, Default)]
+struct RegExpStatics {
+    input: String,
+    /// `$1`…`$9`
+    dollar: [String; 9],
+    last_match: String,
+    last_paren: String,
+    left_context: String,
+    right_context: String,
+}
+
 thread_local! {
     static CURRENT_THIS: std::cell::RefCell<JsVal> = std::cell::RefCell::new(JsVal::Undef);
+    static REGEXP_STATICS: std::cell::RefCell<RegExpStatics> =
+        std::cell::RefCell::new(RegExpStatics::default());
+}
+
+fn reset_regexp_statics() {
+    REGEXP_STATICS.with(|cell| {
+        *cell.borrow_mut() = RegExpStatics::default();
+    });
+}
+
+fn update_regexp_statics(m: &ReMatch, input: &str) {
+    let chars: Vec<char> = input.chars().collect();
+    REGEXP_STATICS.with(|cell| {
+        let mut s = cell.borrow_mut();
+        s.input = input.to_string();
+        s.last_match = m.full.clone();
+        s.left_context = chars[..m.start].iter().collect();
+        s.right_context = chars[m.end..].iter().collect();
+        for i in 0..9 {
+            s.dollar[i] = m.captures.get(i).cloned().unwrap_or_default();
+        }
+        s.last_paren = m.captures.last().cloned().unwrap_or_default();
+    });
+}
+
+fn regexp_static_get(key: &str) -> Option<String> {
+    REGEXP_STATICS.with(|cell| {
+        let s = cell.borrow();
+        match key {
+            "input" | "$_" => Some(s.input.clone()),
+            "$1" => Some(s.dollar[0].clone()),
+            "$2" => Some(s.dollar[1].clone()),
+            "$3" => Some(s.dollar[2].clone()),
+            "$4" => Some(s.dollar[3].clone()),
+            "$5" => Some(s.dollar[4].clone()),
+            "$6" => Some(s.dollar[5].clone()),
+            "$7" => Some(s.dollar[6].clone()),
+            "$8" => Some(s.dollar[7].clone()),
+            "$9" => Some(s.dollar[8].clone()),
+            "lastMatch" | "$&" => Some(s.last_match.clone()),
+            "lastParen" | "$+" => Some(s.last_paren.clone()),
+            "leftContext" | "$`" => Some(s.left_context.clone()),
+            "rightContext" | "$'" => Some(s.right_context.clone()),
+            _ => None,
+        }
+    })
 }
 
 fn with_this<R>(this: JsVal, f: impl FnOnce() -> R) -> R {
@@ -522,6 +584,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if !body_ok(&module.body) {
         return None;
     }
+
+    // Isolate Annex B RegExp statics across classify runs.
+    reset_regexp_statics();
 
     let mut env: HashMap<LocalId, JsVal> = HashMap::new();
     for loc in &module.locals {
@@ -1631,12 +1696,26 @@ fn eval_method_call(
         JsVal::RegExpInst { source, flags } => match key {
             "test" => {
                 let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
-                Ok(JsVal::Bool(regexp_find(source, flags, &s).is_some()))
+                match regexp_find(source, flags, &s) {
+                    Some(m) => {
+                        update_regexp_statics(&m, &s);
+                        Ok(JsVal::Bool(true))
+                    }
+                    None => Ok(JsVal::Bool(false)),
+                }
             }
             "exec" => {
                 let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
                 match regexp_find(source, flags, &s) {
-                    Some(m) => Ok(JsVal::Array(vec![JsVal::Str(m)])),
+                    Some(m) => {
+                        update_regexp_statics(&m, &s);
+                        let mut arr = Vec::with_capacity(1 + m.captures.len());
+                        arr.push(JsVal::Str(m.full));
+                        for c in m.captures {
+                            arr.push(JsVal::Str(c));
+                        }
+                        Ok(JsVal::Array(arr))
+                    }
                     None => Ok(JsVal::Null),
                 }
             }
@@ -1971,23 +2050,65 @@ fn regexp_proto_method_name(id: BuiltinId) -> Option<&'static str> {
     }
 }
 
-/// Fixture-depth pattern atoms: literal char or `c+` (one-or-more of c).
-#[derive(Clone, Copy, Debug)]
+/// Fixture-depth pattern atoms: literal char, `c+` (one-or-more of c), or capturing `(…)`.
+#[derive(Clone, Debug)]
 enum ReAtom {
     Lit(char),
     Plus(char),
+    /// Capturing group; numbered left-to-right by appearance.
+    Group(Vec<ReAtom>),
+}
+
+/// Successful match result for `exec`/`test` + Annex B statics.
+#[derive(Clone, Debug)]
+struct ReMatch {
+    full: String,
+    /// Capturing groups in order (`$1`…); always defined strings in this subset.
+    captures: Vec<String>,
+    /// Char indices into the input string.
+    start: usize,
+    end: usize,
 }
 
 fn parse_regexp_atoms(pattern: &str) -> Result<Vec<ReAtom>, ()> {
     let chars: Vec<char> = pattern.chars().collect();
+    let (atoms, i) = parse_atoms_until(&chars, 0, false)?;
+    if i != chars.len() {
+        return Err(());
+    }
+    Ok(atoms)
+}
+
+/// Parse atoms until end (or `)` when `stop_on_close`).
+/// Returns `(atoms, index)` where index is at end or at the closing `)`.
+fn parse_atoms_until(
+    chars: &[char],
+    mut i: usize,
+    stop_on_close: bool,
+) -> Result<(Vec<ReAtom>, usize), ()> {
     let mut atoms = Vec::new();
-    let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        // No escapes / classes / groups / other quantifiers in this subset.
+        if c == ')' {
+            if stop_on_close {
+                return Ok((atoms, i));
+            }
+            return Err(());
+        }
+        if c == '(' {
+            i += 1;
+            let (inner, ni) = parse_atoms_until(chars, i, true)?;
+            if ni >= chars.len() || chars[ni] != ')' {
+                return Err(());
+            }
+            atoms.push(ReAtom::Group(inner));
+            i = ni + 1;
+            continue;
+        }
+        // No escapes / classes / other quantifiers in this subset.
         if matches!(
             c,
-            '\\' | '.' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '^' | '$'
+            '\\' | '.' | '*' | '?' | '[' | ']' | '{' | '}' | '|' | '^' | '$'
         ) {
             return Err(());
         }
@@ -2001,7 +2122,11 @@ fn parse_regexp_atoms(pattern: &str) -> Result<Vec<ReAtom>, ()> {
             i += 1;
         }
     }
-    Ok(atoms)
+    if stop_on_close {
+        // Unclosed `(`.
+        return Err(());
+    }
+    Ok((atoms, i))
 }
 
 fn char_eq(a: char, b: char, ignore_case: bool) -> bool {
@@ -2013,36 +2138,63 @@ fn char_eq(a: char, b: char, ignore_case: bool) -> bool {
 }
 
 /// First match of fixture-subset pattern in `input`, or None.
-fn regexp_find(pattern: &str, flags: &str, input: &str) -> Option<String> {
+fn regexp_find(pattern: &str, flags: &str, input: &str) -> Option<ReMatch> {
     let atoms = parse_regexp_atoms(pattern).ok()?;
     let ignore_case = flags.contains('i');
     let chars: Vec<char> = input.chars().collect();
     for start in 0..=chars.len() {
-        if let Some(end) = regexp_match_at(&atoms, &chars, start, ignore_case) {
-            return Some(chars[start..end].iter().collect());
+        let mut caps = Vec::new();
+        if let Some(end) = regexp_match_at(&atoms, &chars, start, ignore_case, &mut caps) {
+            let full: String = chars[start..end].iter().collect();
+            let captures: Vec<String> = caps
+                .into_iter()
+                .map(|(s, e)| chars[s..e].iter().collect())
+                .collect();
+            return Some(ReMatch {
+                full,
+                captures,
+                start,
+                end,
+            });
         }
     }
     None
 }
 
-fn regexp_match_at(atoms: &[ReAtom], input: &[char], start: usize, ignore_case: bool) -> Option<usize> {
+/// Match `atoms` at `start`. Appends capture spans `(start,end)` left-to-right.
+fn regexp_match_at(
+    atoms: &[ReAtom],
+    input: &[char],
+    start: usize,
+    ignore_case: bool,
+    captures: &mut Vec<(usize, usize)>,
+) -> Option<usize> {
     let mut pos = start;
     for atom in atoms {
-        match *atom {
+        match atom {
             ReAtom::Lit(c) => {
-                if pos >= input.len() || !char_eq(input[pos], c, ignore_case) {
+                if pos >= input.len() || !char_eq(input[pos], *c, ignore_case) {
                     return None;
                 }
                 pos += 1;
             }
             ReAtom::Plus(c) => {
-                if pos >= input.len() || !char_eq(input[pos], c, ignore_case) {
+                if pos >= input.len() || !char_eq(input[pos], *c, ignore_case) {
                     return None;
                 }
                 pos += 1;
-                while pos < input.len() && char_eq(input[pos], c, ignore_case) {
+                while pos < input.len() && char_eq(input[pos], *c, ignore_case) {
                     pos += 1;
                 }
+            }
+            ReAtom::Group(inner) => {
+                // Number this group before descending so outer groups get lower indices.
+                let idx = captures.len();
+                captures.push((0, 0));
+                let gstart = pos;
+                let end = regexp_match_at(inner, input, pos, ignore_case, captures)?;
+                captures[idx] = (gstart, end);
+                pos = end;
             }
         }
     }
@@ -2839,6 +2991,10 @@ fn member_get(
         JsVal::Builtin(BuiltinId::RegExp) if key == "prototype" => {
             Ok(JsVal::Builtin(BuiltinId::RegExpPrototype))
         }
+        // Annex B.2.5 RegExp constructor statics (getters return strings).
+        JsVal::Builtin(BuiltinId::RegExp) => regexp_static_get(key)
+            .map(JsVal::Str)
+            .ok_or(()),
         JsVal::Builtin(BuiltinId::RegExpPrototype) => regexp_proto_method_builtin(key)
             .map(JsVal::Builtin)
             .ok_or(()),
@@ -3549,7 +3705,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.07 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString / RegExp.prototype.compile / String.prototype trimLeft/trimRight / Object.prototype defineGetter/defineSetter/lookupGetter/lookupSetter)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString / RegExp.prototype.compile / String.prototype trimLeft/trimRight / Object.prototype defineGetter/defineSetter/lookupGetter/lookupSetter / RegExp Annex B statics)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -3993,6 +4149,37 @@ mod tests {
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
+    }
+
+    #[test]
+    fn regexp_statics_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/regexp_statics.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "abcd",
+            "xyabcdz",
+            "false",
+            "xx",
+            "yy",
+            "xxyy",
+            "c\"b\\00\"",
+            "c\"c\\00\"",
+            "c\"xy\\00\"",
+            "c\"z\\00\"",
+        ] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+        assert!(
+            ir.contains("c\"\\00\""),
+            "should emit empty string for $3:\n{ir}"
+        );
     }
 
     #[test]
