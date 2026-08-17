@@ -130,8 +130,10 @@ version = "0.1.0"
 dependencies = [
  "draconic-backend-js",
  "draconic-backend-llvm",
+ "draconic-diagnostics",
  "draconic-frontend",
  "draconic-ir",
+ "draconic-lsp",
 ]
 
 [[package]]
@@ -160,6 +162,15 @@ dependencies = [
  "draconic-ast",
  "draconic-diagnostics",
  "draconic-parser",
+]
+
+[[package]]
+name = "draconic-lsp"
+version = "0.1.0"
+dependencies = [
+ "draconic-check",
+ "draconic-diagnostics",
+ "draconic-frontend",
 ]
 
 [[package]]

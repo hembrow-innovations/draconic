@@ -231,6 +231,36 @@ impl BoundProgram {
     pub fn symbol(&self, id: SymbolId) -> &Symbol {
         &self.symbols[id.0 as usize]
     }
+
+    /// Smallest use-site identifier span that contains `offset` (UTF-8 bytes),
+    /// with the symbol it resolves to. Used by LSP hover / go-to-definition.
+    pub fn use_at_offset(&self, offset: u32) -> Option<(Span, SymbolId)> {
+        self.resolutions
+            .iter()
+            .filter(|(span, _)| span_contains_offset(**span, offset))
+            .min_by_key(|(span, _)| span.len())
+            .map(|(span, id)| (*span, *id))
+    }
+
+    /// Declaration symbol whose binding-name span contains `offset`, if any
+    /// (smallest span wins).
+    pub fn decl_at_offset(&self, offset: u32) -> Option<&Symbol> {
+        self.symbols
+            .iter()
+            .filter(|s| span_contains_offset(s.span, offset))
+            .min_by_key(|s| s.span.len())
+    }
+}
+
+fn span_contains_offset(span: Span, offset: u32) -> bool {
+    if span.is_dummy() {
+        return false;
+    }
+    // Half-open [start, end), plus the caret resting on the end of a non-empty span.
+    if span.start.0 == span.end.0 {
+        return offset == span.start.0;
+    }
+    offset >= span.start.0 && offset <= span.end.0
 }
 
 /// Bound program with inferred / checked types.
@@ -258,6 +288,15 @@ impl CheckedProgram {
 
     pub fn type_of_expr(&self, span: Span) -> Option<Type> {
         self.expr_types.get(&span).copied()
+    }
+
+    /// Smallest typed expression span containing `offset` (UTF-8 bytes).
+    pub fn expr_type_at_offset(&self, offset: u32) -> Option<(Span, Type)> {
+        self.expr_types
+            .iter()
+            .filter(|(span, _)| span_contains_offset(**span, offset))
+            .min_by_key(|(span, _)| span.len())
+            .map(|(span, ty)| (*span, *ty))
     }
 
     pub fn shapes(&self) -> &[ObjectShape] {

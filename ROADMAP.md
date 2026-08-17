@@ -513,6 +513,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.11 | done | native | Real native observations: labelled function declarations (E18.11) — `es/annex-b/labelled_function` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/labelled_function`, `crates/draconic-backend-llvm` |
 | N08.16.12 | done | native | Real native observations: FunctionDeclarations in `if` (E18.12) — `es/annex-b/if_function` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/if_function`, `crates/draconic-backend-llvm` |
 | N08.16.13 | done | native | Real native observations: block-level function declarations (E18.13) — `es/annex-b/block_function` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/block_function`, `crates/draconic-backend-llvm` |
+| N08.16.14 | done | native | Real native observations: `var` declarations (E18.14) — `es/annex-b/var_decl` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/var_decl`, `crates/draconic-backend-llvm` |
 | N08.17 | todo | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
@@ -529,7 +530,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | U03 | done | compiler | Source maps for JS emit | `crates/draconic-backend-js` |
 | U04 | done | compiler | `draconic check`: typecheck + bind, no emit; exit non-zero on errors | `crates/draconic-cli` |
 | U05 | todo | compiler | Formatter: `draconic fmt` idempotent on fixtures; stable style | `crates/draconic-cli`, `tests/integration` |
-| U06 | todo | compiler | LSP basics: diagnostics, hover types, go-to-definition | `crates/draconic-lsp` (or cli), `tests/integration` |
+| U06 | done | compiler | LSP basics: diagnostics, hover types, go-to-definition | `crates/draconic-lsp` (or cli), `tests/integration` |
 | U07 | todo | native | Native debug info: DWARF (or LLVM equivalent) mapping Draconic source lines | `crates/draconic-backend-llvm`, `tests/integration` |
 | U08 | todo | compiler | REPL: read-eval-print (js and/or embed); multi-line; last-value print | `crates/draconic-cli`, `tests/integration` |
 | U09 | todo | compiler | Error codes + suggestions: stable codes; help text for common classes | `crates/draconic-diagnostics`, `tests/conformance` (reject fixtures) |

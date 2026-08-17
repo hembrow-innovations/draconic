@@ -1,0 +1,11 @@
+[package]
+name = "draconic-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LSP analysis surface: diagnostics, hover types, go-to-definition (U06)"
+
+[dependencies]
+draconic-diagnostics.workspace = true
+draconic-check.workspace = true
+draconic-frontend.workspace = true

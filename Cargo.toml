@@ -13,6 +13,7 @@ members = [
     "crates/draconic-backend-llvm",
     "crates/draconic-runtime",
     "crates/draconic-embed",
+    "crates/draconic-lsp",
     "crates/draconic-cli",
     "tests/integration",
     "tests/conformance",
@@ -34,6 +35,7 @@ draconic-linker = { path = "crates/draconic-linker" }
 draconic-check = { path = "crates/draconic-check" }
 draconic-ir = { path = "crates/draconic-ir" }
 draconic-frontend = { path = "crates/draconic-frontend" }
+draconic-lsp = { path = "crates/draconic-lsp" }
 draconic-backend-js = { path = "crates/draconic-backend-js" }
 draconic-backend-llvm = { path = "crates/draconic-backend-llvm" }
 draconic-runtime = { path = "crates/draconic-runtime" }
