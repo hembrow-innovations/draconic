@@ -5,10 +5,13 @@
 //! K01.03: schema validation (module paths, version reqs, unknown fields) + diagnostics.
 //! K01.04: optional URL map (path → git URL); default derive `https://{module_path}.git`.
 //! K02.01: lock entry — path + version + git URL + commit OID + content hash SHA-256.
+//! K02.02: parse/write `draconic.lock`; reject malformed.
 
 mod lock;
 
-pub use lock::{LockEntry, LockEntryError};
+pub use lock::{
+    parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError,
+};
 
 use std::collections::BTreeMap;
 use std::fmt;

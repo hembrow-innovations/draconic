@@ -1,9 +1,13 @@
-//! Lockfile entry types for `draconic.lock` (Roadmap K02.01).
+//! Lockfile types for `draconic.lock` (Roadmap K02.01–K02.02).
 //!
 //! A lock entry pins one direct dependency: module path, resolved version,
 //! git URL, commit OID, and package-tree content hash (SHA-256).
+//! K02.02: parse/write the lock document; reject malformed input.
 
+use std::collections::BTreeMap;
 use std::fmt;
+
+use toml::Value as TomlValue;
 
 use crate::{validate_git_url, validate_module_path, validate_version_req};
 
@@ -168,6 +172,233 @@ fn validate_content_hash(hash: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Parsed `draconic.lock` document (K02.02).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockFile {
+    /// Format version (v1 = 1).
+    pub version: u32,
+    /// Pinned packages keyed by module path (sorted on write).
+    pub packages: BTreeMap<String, LockEntry>,
+}
+
+/// Error while parsing or validating a `draconic.lock` document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LockFileError {
+    /// Invalid TOML syntax.
+    Toml(String),
+    /// Document root is not a table.
+    NotATable,
+    /// Required top-level `version` is missing.
+    MissingVersion,
+    /// `version` is present but not a positive integer format id we support.
+    InvalidVersion { got: String },
+    /// Unsupported lock format version.
+    UnsupportedVersion { version: u32 },
+    /// Unknown top-level field.
+    UnknownField { field: String },
+    /// `package` is present but not an array of tables.
+    InvalidPackageArray,
+    /// A `[[package]]` table is missing a required string field.
+    MissingPackageField { field: &'static str },
+    /// A `[[package]]` field has the wrong type.
+    InvalidPackageField { field: &'static str },
+    /// Duplicate `path` among `[[package]]` entries.
+    DuplicatePath { path: String },
+    /// Package entry failed field validation.
+    Entry(LockEntryError),
+}
+
+impl fmt::Display for LockFileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LockFileError::Toml(msg) => write!(f, "invalid draconic.lock: {msg}"),
+            LockFileError::NotATable => {
+                write!(f, "draconic.lock: document root must be a table")
+            }
+            LockFileError::MissingVersion => {
+                write!(f, "draconic.lock: missing required field `version`")
+            }
+            LockFileError::InvalidVersion { got } => {
+                write!(f, "draconic.lock: `version` must be a positive integer, got {got}")
+            }
+            LockFileError::UnsupportedVersion { version } => {
+                write!(f, "draconic.lock: unsupported format version {version} (expected 1)")
+            }
+            LockFileError::UnknownField { field } => write!(
+                f,
+                "draconic.lock: unknown field `{field}` (expected one of: version, package)"
+            ),
+            LockFileError::InvalidPackageArray => write!(
+                f,
+                "draconic.lock: `package` must be an array of tables (`[[package]]`)"
+            ),
+            LockFileError::MissingPackageField { field } => {
+                write!(f, "draconic.lock: package entry missing required field `{field}`")
+            }
+            LockFileError::InvalidPackageField { field } => {
+                write!(f, "draconic.lock: package field `{field}` has invalid type")
+            }
+            LockFileError::DuplicatePath { path } => {
+                write!(f, "draconic.lock: duplicate package path `{path}`")
+            }
+            LockFileError::Entry(e) => write!(f, "draconic.lock: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for LockFileError {}
+
+const LOCK_FORMAT_VERSION: u32 = 1;
+const KNOWN_LOCK_TOP_LEVEL: &[&str] = &["version", "package"];
+const KNOWN_PACKAGE_KEYS: &[&str] = &[
+    "path",
+    "version",
+    "git_url",
+    "commit_oid",
+    "content_hash",
+];
+
+/// Parse a `draconic.lock` source string into a validated [`LockFile`].
+///
+/// Expected shape (K02.02):
+/// ```toml
+/// version = 1
+///
+/// [[package]]
+/// path = "github.com/org/lib"
+/// version = "1.2.3"
+/// git_url = "https://github.com/org/lib.git"
+/// commit_oid = "0123456789abcdef0123456789abcdef01234567"
+/// content_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+/// ```
+pub fn parse_lock(src: &str) -> Result<LockFile, LockFileError> {
+    let value: TomlValue =
+        toml::from_str(src).map_err(|e| LockFileError::Toml(e.to_string()))?;
+    let table = match value {
+        TomlValue::Table(t) => t,
+        _ => return Err(LockFileError::NotATable),
+    };
+
+    for key in table.keys() {
+        if !KNOWN_LOCK_TOP_LEVEL.contains(&key.as_str()) {
+            return Err(LockFileError::UnknownField {
+                field: key.clone(),
+            });
+        }
+    }
+
+    let version = match table.get("version") {
+        None => return Err(LockFileError::MissingVersion),
+        Some(TomlValue::Integer(n)) if *n > 0 && *n <= i64::from(u32::MAX) => *n as u32,
+        Some(other) => {
+            return Err(LockFileError::InvalidVersion {
+                got: other.to_string(),
+            });
+        }
+    };
+    if version != LOCK_FORMAT_VERSION {
+        return Err(LockFileError::UnsupportedVersion { version });
+    }
+
+    let mut packages = BTreeMap::new();
+    match table.get("package") {
+        None => {}
+        Some(TomlValue::Array(arr)) => {
+            for item in arr {
+                let pkg_table = match item {
+                    TomlValue::Table(t) => t,
+                    _ => return Err(LockFileError::InvalidPackageArray),
+                };
+                for key in pkg_table.keys() {
+                    if !KNOWN_PACKAGE_KEYS.contains(&key.as_str()) {
+                        return Err(LockFileError::UnknownField {
+                            field: format!("package.{key}"),
+                        });
+                    }
+                }
+                let path = require_pkg_string(pkg_table, "path")?;
+                let ver = require_pkg_string(pkg_table, "version")?;
+                let git_url = require_pkg_string(pkg_table, "git_url")?;
+                let commit_oid = require_pkg_string(pkg_table, "commit_oid")?;
+                let content_hash = require_pkg_string(pkg_table, "content_hash")?;
+                let entry = LockEntry::new(path.clone(), ver, git_url, commit_oid, content_hash)
+                    .map_err(LockFileError::Entry)?;
+                if packages.contains_key(&path) {
+                    return Err(LockFileError::DuplicatePath { path });
+                }
+                packages.insert(path, entry);
+            }
+        }
+        Some(_) => return Err(LockFileError::InvalidPackageArray),
+    }
+
+    Ok(LockFile { version, packages })
+}
+
+fn require_pkg_string(
+    table: &toml::map::Map<String, TomlValue>,
+    field: &'static str,
+) -> Result<String, LockFileError> {
+    match table.get(field) {
+        None => Err(LockFileError::MissingPackageField { field }),
+        Some(TomlValue::String(s)) => Ok(s.clone()),
+        Some(_) => Err(LockFileError::InvalidPackageField { field }),
+    }
+}
+
+/// Serialize a [`LockFile`] to a stable `draconic.lock` document.
+///
+/// Emit shape (K02.02):
+/// - `version = N` first
+/// - one `[[package]]` table per entry, paths in sorted (BTreeMap) order
+/// - fields: path, version, git_url, commit_oid, content_hash
+/// - trailing newline
+pub fn write_lock(lock: &LockFile) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("version = {}\n", lock.version));
+    for entry in lock.packages.values() {
+        out.push('\n');
+        out.push_str("[[package]]\n");
+        out.push_str("path = ");
+        out.push_str(&toml_quoted_string(&entry.path));
+        out.push('\n');
+        out.push_str("version = ");
+        out.push_str(&toml_quoted_string(&entry.version));
+        out.push('\n');
+        out.push_str("git_url = ");
+        out.push_str(&toml_quoted_string(&entry.git_url));
+        out.push('\n');
+        out.push_str("commit_oid = ");
+        out.push_str(&toml_quoted_string(&entry.commit_oid));
+        out.push('\n');
+        out.push_str("content_hash = ");
+        out.push_str(&toml_quoted_string(&entry.content_hash));
+        out.push('\n');
+    }
+    out
+}
+
+/// Quote a string as a TOML basic string (escape `\`, `"`, and control chars).
+fn toml_quoted_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +411,20 @@ mod tests {
 
     fn valid_entry() -> LockEntry {
         LockEntry::new(PATH, VERSION, GIT_URL, OID, HASH).expect("valid entry")
+    }
+
+    fn sample_lock_src() -> String {
+        format!(
+            r#"version = 1
+
+[[package]]
+path = "{PATH}"
+version = "{VERSION}"
+git_url = "{GIT_URL}"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        )
     }
 
     #[test]
@@ -289,5 +534,244 @@ mod tests {
         let mut c = a.clone();
         c.version = "9.9.9".into();
         assert_ne!(a, c);
+    }
+
+    // --- K02.02: parse / write lock; reject malformed ---
+
+    #[test]
+    fn parse_empty_packages() {
+        let lock = parse_lock("version = 1\n").expect("parse");
+        assert_eq!(lock.version, 1);
+        assert!(lock.packages.is_empty());
+    }
+
+    #[test]
+    fn parse_one_package() {
+        let lock = parse_lock(&sample_lock_src()).expect("parse");
+        assert_eq!(lock.version, 1);
+        assert_eq!(lock.packages.len(), 1);
+        let e = lock.packages.get(PATH).expect("path key");
+        assert_eq!(e.path, PATH);
+        assert_eq!(e.version, VERSION);
+        assert_eq!(e.git_url, GIT_URL);
+        assert_eq!(e.commit_oid, OID);
+        assert_eq!(e.content_hash, HASH);
+    }
+
+    #[test]
+    fn parse_two_packages() {
+        let src = format!(
+            r#"version = 1
+
+[[package]]
+path = "github.com/z/last"
+version = "3.0.0"
+git_url = "https://github.com/z/last.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+
+[[package]]
+path = "github.com/a/first"
+version = "1.0.0"
+git_url = "https://github.com/a/first.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        );
+        let lock = parse_lock(&src).expect("parse");
+        assert_eq!(lock.packages.len(), 2);
+        assert!(lock.packages.contains_key("github.com/a/first"));
+        assert!(lock.packages.contains_key("github.com/z/last"));
+    }
+
+    #[test]
+    fn write_empty_packages() {
+        let lock = LockFile {
+            version: 1,
+            packages: BTreeMap::new(),
+        };
+        assert_eq!(write_lock(&lock), "version = 1\n");
+    }
+
+    #[test]
+    fn write_one_package() {
+        let mut packages = BTreeMap::new();
+        packages.insert(PATH.to_string(), valid_entry());
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+        let expected = sample_lock_src();
+        assert_eq!(write_lock(&lock), expected);
+    }
+
+    #[test]
+    fn write_packages_sorted_by_path() {
+        let mut packages = BTreeMap::new();
+        packages.insert(
+            "github.com/z/last".into(),
+            LockEntry::new(
+                "github.com/z/last",
+                "3.0.0",
+                "https://github.com/z/last.git",
+                OID,
+                HASH,
+            )
+            .unwrap(),
+        );
+        packages.insert(
+            "github.com/a/first".into(),
+            LockEntry::new(
+                "github.com/a/first",
+                "1.0.0",
+                "https://github.com/a/first.git",
+                OID,
+                HASH,
+            )
+            .unwrap(),
+        );
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+        let written = write_lock(&lock);
+        let a_pos = written.find("github.com/a/first").expect("a");
+        let z_pos = written.find("github.com/z/last").expect("z");
+        assert!(a_pos < z_pos, "paths should be sorted: {written}");
+    }
+
+    #[test]
+    fn round_trip_parse_write() {
+        let original = parse_lock(&sample_lock_src()).expect("parse");
+        let written = write_lock(&original);
+        let again = parse_lock(&written).expect("reparse");
+        assert_eq!(again, original);
+        assert_eq!(write_lock(&again), written);
+    }
+
+    #[test]
+    fn reject_invalid_toml() {
+        let err = parse_lock("version = [").expect_err("bad toml");
+        assert!(matches!(err, LockFileError::Toml(_)), "{err:?}");
+    }
+
+    #[test]
+    fn reject_missing_version() {
+        let err = parse_lock("[[package]]\npath = \"x\"\n").expect_err("missing version");
+        assert_eq!(err, LockFileError::MissingVersion);
+    }
+
+    #[test]
+    fn reject_unsupported_format_version() {
+        let err = parse_lock("version = 99\n").expect_err("bad format");
+        match err {
+            LockFileError::UnsupportedVersion { version } => assert_eq!(version, 99),
+            other => panic!("expected UnsupportedVersion, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_version_wrong_type() {
+        let err = parse_lock("version = \"1\"\n").expect_err("string version");
+        assert!(matches!(err, LockFileError::InvalidVersion { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reject_unknown_top_level_field() {
+        let err = parse_lock("version = 1\nextra = true\n").expect_err("unknown");
+        match err {
+            LockFileError::UnknownField { field } => assert_eq!(field, "extra"),
+            other => panic!("expected UnknownField, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_package_not_array() {
+        let err = parse_lock("version = 1\npackage = \"nope\"\n").expect_err("not array");
+        assert_eq!(err, LockFileError::InvalidPackageArray);
+    }
+
+    #[test]
+    fn reject_missing_package_field() {
+        let src = r#"version = 1
+
+[[package]]
+path = "github.com/org/lib"
+version = "1.2.3"
+git_url = "https://github.com/org/lib.git"
+"#;
+        let err = parse_lock(src).expect_err("missing fields");
+        assert!(
+            matches!(err, LockFileError::MissingPackageField { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn reject_invalid_entry_fields() {
+        let src = format!(
+            r#"version = 1
+
+[[package]]
+path = "not-a-path"
+version = "{VERSION}"
+git_url = "{GIT_URL}"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        );
+        let err = parse_lock(&src).expect_err("bad path");
+        assert!(matches!(err, LockFileError::Entry(_)), "{err:?}");
+        assert!(err.to_string().contains("module path"), "{err}");
+    }
+
+    #[test]
+    fn reject_duplicate_path() {
+        let src = format!(
+            r#"version = 1
+
+[[package]]
+path = "{PATH}"
+version = "{VERSION}"
+git_url = "{GIT_URL}"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+
+[[package]]
+path = "{PATH}"
+version = "9.9.9"
+git_url = "{GIT_URL}"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        );
+        let err = parse_lock(&src).expect_err("duplicate");
+        match err {
+            LockFileError::DuplicatePath { path } => assert_eq!(path, PATH),
+            other => panic!("expected DuplicatePath, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_unknown_package_field() {
+        let src = format!(
+            r#"version = 1
+
+[[package]]
+path = "{PATH}"
+version = "{VERSION}"
+git_url = "{GIT_URL}"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+extra = true
+"#
+        );
+        let err = parse_lock(&src).expect_err("unknown pkg field");
+        match err {
+            LockFileError::UnknownField { field } => {
+                assert!(field.contains("extra"), "{field}");
+            }
+            other => panic!("expected UnknownField, got {other:?}"),
+        }
     }
 }
