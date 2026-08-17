@@ -105,3 +105,4 @@ let u = ch.hasBase(ch);
 let v = ch.hasExtra(ch);
 let w = ch.hasExtra({});
 let x = new Parent().hasBase(ch);
+let y = ch.hasExtra(new Parent());
