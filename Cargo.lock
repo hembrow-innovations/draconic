@@ -83,7 +83,9 @@ dependencies = [
  "draconic-backend-llvm",
  "draconic-conformance",
  "draconic-diagnostics",
+ "draconic-embed",
  "draconic-frontend",
+ "draconic-ir",
  "draconic-parser",
 ]
 

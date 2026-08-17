@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,7 +10,9 @@ use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir_with_debug, SourceDebug};
 use draconic_conformance::{load_path, run_fixture};
 use draconic_diagnostics::Diagnostic;
-use draconic_frontend::{check_path, compile_path};
+use draconic_embed::{eval_source, EmbedValue};
+use draconic_frontend::{check_path, compile_path, compile_source};
+use draconic_ir::Stmt;
 use draconic_parser::{parse, parse_module};
 
 fn main() -> ExitCode {
@@ -26,6 +29,7 @@ fn main() -> ExitCode {
         "fmt" => cmd_fmt(&args),
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
+        "repl" => cmd_repl(&args),
         "test" => cmd_test(&args),
         "help" | "-h" | "--help" => {
             print_usage();
@@ -572,6 +576,325 @@ fn cmd_test(args: &[String]) -> ExitCode {
 }
 
 
+/// ROADMAP U08: interactive read-eval-print (js default; optional embed).
+/// Multi-line when parse fails with Eof; prints last expression value.
+fn cmd_repl(args: &[String]) -> ExitCode {
+    let target = match parse_repl_args(args) {
+        Ok(t) => t,
+        Err(msg) => {
+            eprintln!("{msg}");
+            eprintln!("usage: draconic repl [--target js|embed]");
+            return ExitCode::from(2);
+        }
+    };
+
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+    let mut stdout = io::stdout();
+    let interactive = atty_stdout();
+
+    let mut session = String::new();
+    let mut buffer = String::new();
+
+    loop {
+        if interactive {
+            let prompt = if buffer.is_empty() { "> " } else { "... " };
+            let _ = write!(stdout, "{prompt}");
+            let _ = stdout.flush();
+        }
+
+        let mut line = String::new();
+        match stdin.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("error: read stdin failed: {e}");
+                return ExitCode::from(1);
+            }
+        }
+
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if buffer.is_empty() {
+            let t = trimmed.trim();
+            if t.is_empty() {
+                continue;
+            }
+            if matches!(t, ".exit" | ".quit") {
+                break;
+            }
+        }
+
+        if !buffer.is_empty() {
+            buffer.push('\n');
+        }
+        buffer.push_str(trimmed);
+
+        match repl_buffer_status(&buffer) {
+            ReplBufferStatus::Incomplete => continue,
+            ReplBufferStatus::Error(d) => {
+                eprintln!("error: {d}");
+                buffer.clear();
+                continue;
+            }
+            ReplBufferStatus::Complete => {}
+        }
+
+        let chunk = std::mem::take(&mut buffer);
+        match target {
+            ReplTarget::Js => match repl_eval_js(&session, &chunk) {
+                Ok(ReplEval { printed, new_session }) => {
+                    if let Some(text) = printed {
+                        println!("{text}");
+                    }
+                    session = new_session;
+                }
+                Err(msg) => eprintln!("error: {msg}"),
+            },
+            ReplTarget::Embed => match repl_eval_embed(&chunk) {
+                Ok(Some(text)) => println!("{text}"),
+                Ok(None) => {}
+                Err(msg) => eprintln!("error: {msg}"),
+            },
+        }
+    }
+
+    ExitCode::SUCCESS
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplTarget {
+    Js,
+    Embed,
+}
+
+fn parse_repl_args(args: &[String]) -> Result<ReplTarget, String> {
+    let mut target = ReplTarget::Js;
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        match a.as_str() {
+            "-h" | "--help" => {
+                return Err("usage: draconic repl [--target js|embed]".into());
+            }
+            "--target" => {
+                i += 1;
+                let val = args
+                    .get(i)
+                    .ok_or_else(|| "missing value for --target".to_string())?;
+                target = parse_repl_target(val)?;
+            }
+            t if let Some(rest) = t.strip_prefix("--target=") => {
+                target = parse_repl_target(rest)?;
+            }
+            other => {
+                return Err(format!("unknown option: {other}"));
+            }
+        }
+        i += 1;
+    }
+    Ok(target)
+}
+
+fn parse_repl_target(s: &str) -> Result<ReplTarget, String> {
+    match s {
+        "js" => Ok(ReplTarget::Js),
+        "embed" => Ok(ReplTarget::Embed),
+        other => Err(format!(
+            "unknown target: {other} (expected js or embed)"
+        )),
+    }
+}
+
+enum ReplBufferStatus {
+    Incomplete,
+    Complete,
+    Error(Diagnostic),
+}
+
+fn repl_buffer_status(source: &str) -> ReplBufferStatus {
+    match parse(source) {
+        Ok(_) => ReplBufferStatus::Complete,
+        Err(d) => {
+            let msg = d.to_string();
+            if msg.contains("Eof") || msg.contains("end of file") || msg.contains("end of input") {
+                ReplBufferStatus::Incomplete
+            } else {
+                // Script may fail where Module would succeed; try module before rejecting.
+                match parse_module(source) {
+                    Ok(_) => ReplBufferStatus::Complete,
+                    Err(d2) => {
+                        let msg2 = d2.to_string();
+                        if msg2.contains("Eof")
+                            || msg2.contains("end of file")
+                            || msg2.contains("end of input")
+                        {
+                            ReplBufferStatus::Incomplete
+                        } else {
+                            ReplBufferStatus::Error(d)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ReplEval {
+    printed: Option<String>,
+    new_session: String,
+}
+
+fn repl_eval_js(session: &str, chunk: &str) -> Result<ReplEval, String> {
+    let full = if session.is_empty() {
+        chunk.to_string()
+    } else {
+        format!("{session}\n{chunk}")
+    };
+
+    let module = compile_source(&full).map_err(|d| d.to_string())?;
+    let (js, has_last_expr) = emit_js_repl(&module).map_err(|d| d.to_string())?;
+
+    let work = run_work_dir().map_err(|e| e)?;
+    let artifact = work.join("repl.js");
+    fs::write(&artifact, &js).map_err(|e| format!("write temp JS failed: {e}"))?;
+
+    let output = Command::new("node")
+        .arg(&artifact)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("spawn node failed: {e}"))?;
+    let _ = fs::remove_dir_all(&work);
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if !output.status.success() {
+        let msg = stderr.trim();
+        if msg.is_empty() {
+            return Err(format!(
+                "node exited {}",
+                output.status.code().unwrap_or(1)
+            ));
+        }
+        return Err(msg.to_string());
+    }
+
+    // User console output (if any) already on stdout of node; last value is last line when we printed.
+    // We only inject a trailing print for last expression — surface it as the REPL result.
+    let printed = if has_last_expr {
+        let line = stdout.lines().last().unwrap_or("").trim();
+        // If the program itself printed, show full stdout; last line is still the value.
+        if stdout.lines().count() > 1 {
+            print!("{stdout}");
+            // Avoid double-printing last line via println below when we already printed all.
+            // Actually we printed full stdout including last value — return None.
+            let _ = line;
+            None
+        } else if line.is_empty() {
+            Some("undefined".to_string())
+        } else {
+            Some(line.to_string())
+        }
+    } else if !stdout.is_empty() {
+        print!("{stdout}");
+        None
+    } else {
+        None
+    };
+
+    Ok(ReplEval {
+        printed,
+        new_session: full,
+    })
+}
+
+/// Emit JS for REPL: if last top-level stmt is an expression, assign/print its value.
+fn emit_js_repl(module: &draconic_ir::Module) -> Result<(String, bool), Diagnostic> {
+    let mut module = module.clone();
+    let has_last_expr = matches!(module.body.last(), Some(Stmt::Expr { .. }));
+    if has_last_expr {
+        let expr_stmt = module.body.pop().expect("last expr");
+        let Stmt::Expr { expr } = expr_stmt else {
+            unreachable!();
+        };
+        if !module.body_spans.is_empty() {
+            module.body_spans.pop();
+        }
+        let prefix = emit_js(&module)?;
+        let expr_only = draconic_ir::Module {
+            locals: module.locals.clone(),
+            body: vec![Stmt::Expr { expr }],
+            body_spans: vec![draconic_diagnostics::Span::dummy()],
+            shapes: module.shapes.clone(),
+            has_extern_ffi: module.has_extern_ffi,
+        };
+        let expr_js = emit_js(&expr_only)?;
+        let expr_js = expr_js.trim().trim_end_matches(';').trim();
+        let mut out = String::new();
+        out.push_str(&prefix);
+        if !prefix.is_empty() && !prefix.ends_with('\n') {
+            out.push('\n');
+        }
+        // Inspect so strings/objects print like a REPL (not raw console.log quotes only).
+        out.push_str("const __draconic_util = require(\"util\");\n");
+        out.push_str("console.log(__draconic_util.inspect((\n");
+        out.push_str(expr_js);
+        out.push_str("\n), { depth: null, colors: false, compact: true }));\n");
+        Ok((out, true))
+    } else {
+        Ok((emit_js(&module)?, false))
+    }
+}
+
+fn repl_eval_embed(chunk: &str) -> Result<Option<String>, String> {
+    let value = eval_source(chunk).map_err(|d| d.to_string())?;
+    Ok(Some(format_embed_value(&value)))
+}
+
+fn format_embed_value(v: &EmbedValue) -> String {
+    match v {
+        EmbedValue::Undefined => "undefined".to_string(),
+        EmbedValue::Null => "null".to_string(),
+        EmbedValue::Boolean(b) => b.to_string(),
+        EmbedValue::Number(n) => {
+            if n.is_nan() {
+                "NaN".to_string()
+            } else if *n == f64::INFINITY {
+                "Infinity".to_string()
+            } else if *n == f64::NEG_INFINITY {
+                "-Infinity".to_string()
+            } else if *n == 0.0 && n.is_sign_negative() {
+                "-0".to_string()
+            } else {
+                // Prefer integer display when exact.
+                if n.fract() == 0.0 && n.abs() < 1e15 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{n}")
+                }
+            }
+        }
+        EmbedValue::String(s) => format!("'{s}'"),
+    }
+}
+
+fn atty_stdout() -> bool {
+    // Avoid extra crate: treat non-piped CI/tests as non-interactive (no prompts).
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        extern "C" {
+            fn isatty(fd: i32) -> i32;
+        }
+        // SAFETY: POSIX isatty on a valid stdout fd.
+        unsafe { isatty(io::stdout().as_raw_fd()) != 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
 /// Verbose version text for `draconic -V` / `--version` / `version` (U13).
 fn verbose_version() -> String {
     let pkg = env!("CARGO_PKG_VERSION");
@@ -698,6 +1021,7 @@ Usage:
                                                  Compile a Program to JS or a native binary
   draconic run [--target js|native] <file> [args...]
                                                  Build and execute a Program (default target: js)
+  draconic repl [--target js|embed]              Interactive read-eval-print (multi-line; last value)
   draconic test <path>                           Run conformance fixtures (dir or .drac file)
   draconic version | -V | --version              Print verbose version (commit, host, LLVM)
   draconic help                                  Show this help
