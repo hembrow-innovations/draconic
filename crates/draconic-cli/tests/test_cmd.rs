@@ -158,3 +158,83 @@ fn test_missing_path_reports_error() {
         "stderr={stderr}"
     );
 }
+
+/// ROADMAP U11: `draconic test --coverage` reports JS line coverage.
+#[test]
+fn test_coverage_reports_line_hits() {
+    let dir = temp_dir();
+    write(
+        &dir,
+        "cov.drac",
+        "let a = 1;\nlet b = 2;\nlet c = a + b;\n",
+    );
+    write(
+        &dir,
+        "cov.meta",
+        "\
+id: cov
+targets: js
+js.exit: 0
+js.check: if (c !== 3) process.exit(1);
+",
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg("--coverage").arg(&dir));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("coverage"),
+        "expected coverage section:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("lines") && (stdout.contains('%') || stdout.contains("/")),
+        "expected line counts:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("cov.drac") || stdout.contains("total:"),
+        "expected file or total line:\n{stdout}"
+    );
+    // Fully executed straight-line program should hit at least one line.
+    assert!(
+        !stdout.contains("0/0 lines") || stdout.contains("total:"),
+        "stdout={stdout}"
+    );
+    let total_ok = stdout.lines().any(|l| {
+        l.starts_with("total:")
+            && l.contains("lines")
+            && !l.contains("0/0")
+            && !l.contains("0/")
+    }) || stdout.lines().any(|l| {
+        l.contains("lines") && l.contains('%') && !l.contains("0%")
+    });
+    assert!(total_ok, "expected non-zero coverage hits:\n{stdout}");
+}
+
+#[test]
+fn test_coverage_flag_order_flexible() {
+    let dir = temp_dir();
+    write(&dir, "x.drac", "let n = 1;\n");
+    write(
+        &dir,
+        "x.meta",
+        "\
+id: x
+targets: js
+js.exit: 0
+js.check: if (n !== 1) process.exit(1);
+",
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir).arg("--coverage"));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(stdout.contains("coverage"), "stdout={stdout}");
+}
+
+#[test]
+fn help_lists_test_coverage() {
+    let (code, stdout, stderr) = run(draconic().arg("help"));
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(
+        stdout.contains("--coverage") || stdout.contains("coverage"),
+        "help should mention coverage:\n{stdout}"
+    );
+}

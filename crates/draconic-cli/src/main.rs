@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use draconic_ast::print_program;
 use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir_with_debug, SourceDebug};
-use draconic_conformance::{load_path, run_fixture};
+use draconic_conformance::{load_path, run_fixture_cov, CoverageReport};
 use draconic_diagnostics::Diagnostic;
 use draconic_embed::{eval_source, EmbedValue};
 use draconic_frontend::{check_path, compile_path, compile_source};
@@ -621,21 +621,18 @@ fn build_program(input: &Path, target: Target, out: &Path) -> Result<(), Diagnos
 }
 
 fn cmd_test(args: &[String]) -> ExitCode {
-    let path = match args.first() {
-        Some(p) if p != "-h" && p != "--help" => PathBuf::from(p),
-        _ => {
-            eprintln!("usage: draconic test <path>");
-            eprintln!("  <path>  fixture directory or single .drac file (with optional .meta)");
+    let opts = match parse_test_args(args) {
+        Ok(o) => o,
+        Err(msg) => {
+            eprintln!("{msg}");
+            eprintln!("usage: draconic test [--coverage] <path>");
+            eprintln!("  --coverage  report JS line coverage for fixture sources (U11)");
+            eprintln!("  <path>      fixture directory or single .drac file (with optional .meta)");
             return ExitCode::from(2);
         }
     };
 
-    if args.len() > 1 {
-        eprintln!("usage: draconic test <path>");
-        return ExitCode::from(2);
-    }
-
-    let fixtures = match load_path(&path) {
+    let fixtures = match load_path(&opts.path) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("error: {e}");
@@ -644,14 +641,21 @@ fn cmd_test(args: &[String]) -> ExitCode {
     };
 
     if fixtures.is_empty() {
-        eprintln!("error: no .drac fixtures under {}", path.display());
+        eprintln!("error: no .drac fixtures under {}", opts.path.display());
         return ExitCode::from(1);
     }
+
+    let mut coverage = if opts.coverage {
+        Some(CoverageReport::new())
+    } else {
+        None
+    };
 
     let mut passed = 0u32;
     let mut failed = 0u32;
     for fixture in &fixtures {
-        for result in run_fixture(fixture) {
+        let cov = coverage.as_mut();
+        for result in run_fixture_cov(fixture, cov) {
             if result.ok {
                 passed += 1;
                 println!(
@@ -671,6 +675,10 @@ fn cmd_test(args: &[String]) -> ExitCode {
         }
     }
 
+    if let Some(report) = &coverage {
+        print!("{}", report.format_summary());
+    }
+
     let total = passed + failed;
     if failed == 0 {
         println!("{passed} passed");
@@ -679,6 +687,38 @@ fn cmd_test(args: &[String]) -> ExitCode {
         println!("{passed} passed, {failed} failed, {total} total");
         ExitCode::from(1)
     }
+}
+
+struct TestOpts {
+    path: PathBuf,
+    coverage: bool,
+}
+
+fn parse_test_args(args: &[String]) -> Result<TestOpts, String> {
+    let mut coverage = false;
+    let mut path: Option<PathBuf> = None;
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        match a.as_str() {
+            "-h" | "--help" => {
+                return Err("usage: draconic test [--coverage] <path>".into());
+            }
+            "--coverage" => coverage = true,
+            other if other.starts_with('-') => {
+                return Err(format!("unknown option: {other}"));
+            }
+            other => {
+                if path.is_some() {
+                    return Err("usage: draconic test [--coverage] <path>".into());
+                }
+                path = Some(PathBuf::from(other));
+            }
+        }
+        i += 1;
+    }
+    let path = path.ok_or_else(|| "usage: draconic test [--coverage] <path>".to_string())?;
+    Ok(TestOpts { path, coverage })
 }
 
 
@@ -1128,7 +1168,7 @@ Usage:
   draconic run [--target js|native] <file> [args...]
                                                  Build and execute a Program (default target: js)
   draconic repl [--target js|embed]              Interactive read-eval-print (multi-line; last value)
-  draconic test <path>                           Run conformance fixtures (dir or .drac file)
+  draconic test [--coverage] <path>              Run conformance fixtures (dir or .drac file)
   draconic version | -V | --version              Print verbose version (commit, host, LLVM)
   draconic help                                  Show this help
 
@@ -1225,6 +1265,17 @@ mod tests {
         assert!(looks_like_script_path("./bin/tool"));
         assert!(!looks_like_script_path("--target"));
         assert!(!looks_like_script_path("build"));
+    }
+
+    #[test]
+    fn parse_test_args_coverage() {
+        let p = parse_test_args(&["--coverage".into(), "fix".into()]).unwrap();
+        assert!(p.coverage);
+        assert_eq!(p.path, PathBuf::from("fix"));
+        let p2 = parse_test_args(&["fix".into(), "--coverage".into()]).unwrap();
+        assert!(p2.coverage);
+        let p3 = parse_test_args(&["fix".into()]).unwrap();
+        assert!(!p3.coverage);
     }
 
     #[test]

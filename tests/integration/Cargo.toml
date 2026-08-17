@@ -14,3 +14,4 @@ draconic-backend-js.workspace = true
 draconic-backend-llvm.workspace = true
 draconic-lsp.workspace = true
 draconic-diagnostics.workspace = true
+draconic-conformance.workspace = true

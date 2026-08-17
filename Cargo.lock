@@ -136,6 +136,7 @@ dependencies = [
  "draconic-ast",
  "draconic-backend-js",
  "draconic-backend-llvm",
+ "draconic-conformance",
  "draconic-diagnostics",
  "draconic-frontend",
  "draconic-ir",

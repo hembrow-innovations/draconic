@@ -1,14 +1,20 @@
 //! Conformance harness: load fixtures, run on js + native runners (ROADMAP E00).
 
+mod coverage;
+
+pub use coverage::CoverageReport;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use draconic_backend_js::emit_js;
+use draconic_backend_js::{emit_js, emit_js_with_map, SourceMapOptions};
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
 use draconic_frontend::compile_path;
+
+use coverage::{instrument_js, read_hits, temp_cov_path, wrap_coverage_dump};
 
 /// Backend a fixture may target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,8 +294,17 @@ fn compile_module(source_path: &Path, _source: &str) -> Result<draconic_frontend
 
 /// Run one fixture on one target.
 pub fn run_fixture_target(fixture: &Fixture, target: Target) -> RunResult {
+    run_fixture_target_cov(fixture, target, None)
+}
+
+/// Run one fixture on one target, optionally collecting JS line coverage (U11).
+pub fn run_fixture_target_cov(
+    fixture: &Fixture,
+    target: Target,
+    coverage: Option<&mut CoverageReport>,
+) -> RunResult {
     let result = match target {
-        Target::Js => run_js(fixture),
+        Target::Js => run_js(fixture, coverage),
         Target::Native => run_native(fixture),
     };
     match result {
@@ -310,11 +325,22 @@ pub fn run_fixture_target(fixture: &Fixture, target: Target) -> RunResult {
 
 /// Run every declared target for a fixture.
 pub fn run_fixture(fixture: &Fixture) -> Vec<RunResult> {
+    run_fixture_cov(fixture, None)
+}
+
+/// Run every declared target; when `coverage` is `Some`, collect JS line hits (U11).
+pub fn run_fixture_cov(
+    fixture: &Fixture,
+    mut coverage: Option<&mut CoverageReport>,
+) -> Vec<RunResult> {
     fixture
         .targets
         .iter()
         .copied()
-        .map(|t| run_fixture_target(fixture, t))
+        .map(|t| {
+            let cov = coverage.as_deref_mut();
+            run_fixture_target_cov(fixture, t, cov)
+        })
         .collect()
 }
 
@@ -331,7 +357,7 @@ pub fn run_all(root: &Path) -> Result<Vec<RunResult>, String> {
     Ok(results)
 }
 
-fn run_js(fixture: &Fixture) -> Result<(), String> {
+fn run_js(fixture: &Fixture, mut coverage: Option<&mut CoverageReport>) -> Result<(), String> {
     let expect = &fixture.expect_js;
     if expect.error_contains.is_some() || expect.error_code.is_some() {
         return expect_compile_or_emit_error(
@@ -343,12 +369,41 @@ fn run_js(fixture: &Fixture) -> Result<(), String> {
     }
 
     let module = compile_module(&fixture.source_path, &fixture.source)?;
-    let js = emit_js(&module).map_err(|d| format!("emit_js: {d}"))?;
+
+    let (js_body, executable) = if coverage.is_some() {
+        let source_name = fixture
+            .source_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("program.drac");
+        let opts = SourceMapOptions::new(source_name).with_content(&fixture.source);
+        let emitted =
+            emit_js_with_map(&module, &opts).map_err(|d| format!("emit_js_with_map: {d}"))?;
+        if let Some(map) = &emitted.map {
+            instrument_js(&emitted.code, map)
+        } else {
+            (emitted.code, Default::default())
+        }
+    } else {
+        let js = emit_js(&module).map_err(|d| format!("emit_js: {d}"))?;
+        (js, Default::default())
+    };
 
     let script = if let Some(check) = &expect.check {
-        format!("{js}\n{check}")
+        format!("{js_body}\n{check}")
     } else {
-        js
+        js_body
+    };
+
+    let cov_path = if coverage.is_some() {
+        Some(temp_cov_path(&fixture.id))
+    } else {
+        None
+    };
+    let script = if let Some(path) = &cov_path {
+        wrap_coverage_dump(&script, path)
+    } else {
+        script
     };
 
     let output = Command::new("node")
@@ -363,6 +418,13 @@ fn run_js(fixture: &Fixture) -> Result<(), String> {
     let code = output.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if let (Some(report), Some(path)) = (coverage.as_deref_mut(), &cov_path) {
+        let hit = read_hits(path);
+        let display = fixture.source_path.display().to_string();
+        report.merge_file(&display, executable, hit);
+        let _ = fs::remove_file(path);
+    }
 
     if code != expect.exit {
         return Err(format!(
