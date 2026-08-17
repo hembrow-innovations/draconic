@@ -1,4 +1,4 @@
-//! N08.14.01–N08.14.09: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet.
+//! N08.14.01–N08.14.10: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet + ArrayBuffer/DataView/TypedArrays.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -16,11 +16,15 @@
 //!   `.add`/`.has`/`.size` (fixture subset; SameValueZero keys for num/str)
 //! - E15.09: `WeakMap` / `WeakSet` — `new WeakMap`/`new WeakSet`, `.set`/`.get`/`.has`/
 //!   `.delete`, `.add`/`.has`/`.delete` (object keys only; identity equality)
+//! - E15.10: `ArrayBuffer` / `DataView` / `Uint8Array` / `Int32Array` / `Float64Array`
+//!   (`new`, `.byteLength`/`.length`, index get/set, `getUint8`/`setUint8`; shared buffer)
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -83,6 +87,28 @@ enum BuiltinId {
     Set,
     WeakMap,
     WeakSet,
+    ArrayBuffer,
+    DataView,
+    Uint8Array,
+    Int32Array,
+    Float64Array,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TaKind {
+    U8,
+    I32,
+    F64,
+}
+
+impl TaKind {
+    fn bytes_per_element(self) -> usize {
+        match self {
+            TaKind::U8 => 1,
+            TaKind::I32 => 4,
+            TaKind::F64 => 8,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,6 +150,24 @@ enum JsVal {
     WeakSetInst {
         values: Vec<JsVal>,
     },
+    /// ArrayBuffer: shared byte storage (E15.10).
+    ArrayBufferInst {
+        id: u64,
+        bytes: Rc<RefCell<Vec<u8>>>,
+    },
+    /// TypedArray view over shared buffer (E15.10 fixture subset).
+    TypedArrayInst {
+        kind: TaKind,
+        buffer_id: u64,
+        bytes: Rc<RefCell<Vec<u8>>>,
+        length: usize,
+    },
+    /// DataView over shared buffer (E15.10 fixture subset).
+    DataViewInst {
+        buffer_id: u64,
+        bytes: Rc<RefCell<Vec<u8>>>,
+        byte_length: usize,
+    },
     Array(Vec<JsVal>),
     /// Plain object: identity id + insertion-ordered string keys.
     Object {
@@ -156,8 +200,113 @@ fn is_object_key(v: &JsVal) -> bool {
             | JsVal::SetInst { .. }
             | JsVal::WeakMapInst { .. }
             | JsVal::WeakSetInst { .. }
+            | JsVal::ArrayBufferInst { .. }
+            | JsVal::TypedArrayInst { .. }
+            | JsVal::DataViewInst { .. }
             | JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json)
     )
+}
+
+fn new_array_buffer(byte_len: usize) -> JsVal {
+    JsVal::ArrayBufferInst {
+        id: next_object_id(),
+        bytes: Rc::new(RefCell::new(vec![0u8; byte_len])),
+    }
+}
+
+fn typed_array_from_buffer(kind: TaKind, buf: &JsVal) -> Result<JsVal, ()> {
+    let JsVal::ArrayBufferInst { id, bytes } = buf else {
+        return Err(());
+    };
+    let blen = bytes.borrow().len();
+    let bpe = kind.bytes_per_element();
+    if blen % bpe != 0 {
+        return Err(());
+    }
+    Ok(JsVal::TypedArrayInst {
+        kind,
+        buffer_id: *id,
+        bytes: Rc::clone(bytes),
+        length: blen / bpe,
+    })
+}
+
+fn typed_array_from_length(kind: TaKind, len: usize) -> JsVal {
+    let blen = len.saturating_mul(kind.bytes_per_element());
+    let id = next_object_id();
+    let bytes = Rc::new(RefCell::new(vec![0u8; blen]));
+    JsVal::TypedArrayInst {
+        kind,
+        buffer_id: id,
+        bytes,
+        length: len,
+    }
+}
+
+fn typed_array_from_array(kind: TaKind, elems: &[JsVal]) -> Result<JsVal, ()> {
+    let ta = typed_array_from_length(kind, elems.len());
+    let JsVal::TypedArrayInst {
+        kind,
+        bytes,
+        length,
+        ..
+    } = &ta
+    else {
+        return Err(());
+    };
+    let bpe = kind.bytes_per_element();
+    let mut buf = bytes.borrow_mut();
+    for (i, el) in elems.iter().enumerate() {
+        if i >= *length {
+            break;
+        }
+        let n = match el {
+            JsVal::Num(n) => *n,
+            _ => return Err(()),
+        };
+        let off = i * bpe;
+        write_ta_elem(*kind, &mut buf, off, n)?;
+    }
+    drop(buf);
+    Ok(ta)
+}
+
+fn write_ta_elem(kind: TaKind, buf: &mut [u8], off: usize, n: f64) -> Result<(), ()> {
+    let bpe = kind.bytes_per_element();
+    if off + bpe > buf.len() {
+        return Err(());
+    }
+    match kind {
+        TaKind::U8 => buf[off] = n as u8,
+        TaKind::I32 => {
+            let i = n as i32;
+            buf[off..off + 4].copy_from_slice(&i.to_le_bytes());
+        }
+        TaKind::F64 => {
+            buf[off..off + 8].copy_from_slice(&n.to_le_bytes());
+        }
+    }
+    Ok(())
+}
+
+fn read_ta_elem(kind: TaKind, buf: &[u8], off: usize) -> Result<f64, ()> {
+    let bpe = kind.bytes_per_element();
+    if off + bpe > buf.len() {
+        return Err(());
+    }
+    Ok(match kind {
+        TaKind::U8 => buf[off] as f64,
+        TaKind::I32 => {
+            let mut b = [0u8; 4];
+            b.copy_from_slice(&buf[off..off + 4]);
+            i32::from_le_bytes(b) as f64
+        }
+        TaKind::F64 => {
+            let mut b = [0u8; 8];
+            b.copy_from_slice(&buf[off..off + 8]);
+            f64::from_le_bytes(b)
+        }
+    })
 }
 
 struct ModuleInfo {
@@ -234,6 +383,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     | JsVal::SetInst { .. }
                     | JsVal::WeakMapInst { .. }
                     | JsVal::WeakSetInst { .. }
+                    | JsVal::ArrayBufferInst { .. }
+                    | JsVal::TypedArrayInst { .. }
+                    | JsVal::DataViewInst { .. }
                     | JsVal::Array(_)
                     | JsVal::Object { .. },
                 ) => {}
@@ -286,6 +438,11 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "Set" => Some(BuiltinId::Set),
         "WeakMap" => Some(BuiltinId::WeakMap),
         "WeakSet" => Some(BuiltinId::WeakSet),
+        "ArrayBuffer" => Some(BuiltinId::ArrayBuffer),
+        "DataView" => Some(BuiltinId::DataView),
+        "Uint8Array" => Some(BuiltinId::Uint8Array),
+        "Int32Array" => Some(BuiltinId::Int32Array),
+        "Float64Array" => Some(BuiltinId::Float64Array),
         _ => None,
     }
 }
@@ -473,6 +630,16 @@ fn expr_ok(expr: &Expr) -> bool {
             value,
             ..
         } => expr_ok(value),
+        Expr::Assign {
+            target: AssignTarget::Member {
+                object,
+                property,
+                ..
+            },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => expr_ok(object) && expr_ok(property) && expr_ok(value),
         Expr::Array { elements, .. } => elements.iter().all(|el| match el {
             ArrayElement::Expr(e) => expr_ok(e),
             ArrayElement::Elision => true,
@@ -731,6 +898,35 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             env.insert(*id, v.clone());
             Ok(Ok(v))
         }
+        Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object,
+                    property,
+                    ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => {
+            let v = match eval_expr(value, env)? {
+                Ok(v) => v,
+                Err(flow) => return Ok(Err(flow)),
+            };
+            let mut obj = match eval_expr(object, env)? {
+                Ok(o) => o,
+                Err(flow) => return Ok(Err(flow)),
+            };
+            let key = match eval_key(property, env)? {
+                Ok(k) => k,
+                Err(flow) => return Ok(Err(flow)),
+            };
+            member_set(&mut obj, &key, v.clone())?;
+            if let Expr::Local { id, .. } = object.as_ref() {
+                env.insert(*id, obj);
+            }
+            Ok(Ok(v))
+        }
         Expr::Array { elements, .. } => {
             let mut out = Vec::new();
             for el in elements {
@@ -831,6 +1027,54 @@ fn eval_new(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
         }
         return Ok(JsVal::WeakSetInst {
             values: Vec::new(),
+        });
+    }
+    if *b == BuiltinId::ArrayBuffer {
+        let len = match args.first() {
+            Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => *n as usize,
+            _ => return Err(()),
+        };
+        return Ok(new_array_buffer(len));
+    }
+    if *b == BuiltinId::Uint8Array {
+        return match args.first() {
+            Some(buf @ JsVal::ArrayBufferInst { .. }) => typed_array_from_buffer(TaKind::U8, buf),
+            Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => {
+                Ok(typed_array_from_length(TaKind::U8, *n as usize))
+            }
+            Some(JsVal::Array(elems)) => typed_array_from_array(TaKind::U8, elems),
+            _ => Err(()),
+        };
+    }
+    if *b == BuiltinId::Int32Array {
+        return match args.first() {
+            Some(buf @ JsVal::ArrayBufferInst { .. }) => typed_array_from_buffer(TaKind::I32, buf),
+            Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => {
+                Ok(typed_array_from_length(TaKind::I32, *n as usize))
+            }
+            Some(JsVal::Array(elems)) => typed_array_from_array(TaKind::I32, elems),
+            _ => Err(()),
+        };
+    }
+    if *b == BuiltinId::Float64Array {
+        return match args.first() {
+            Some(buf @ JsVal::ArrayBufferInst { .. }) => typed_array_from_buffer(TaKind::F64, buf),
+            Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => {
+                Ok(typed_array_from_length(TaKind::F64, *n as usize))
+            }
+            Some(JsVal::Array(elems)) => typed_array_from_array(TaKind::F64, elems),
+            _ => Err(()),
+        };
+    }
+    if *b == BuiltinId::DataView {
+        let JsVal::ArrayBufferInst { id, bytes } = args.first().ok_or(())? else {
+            return Err(());
+        };
+        let byte_length = bytes.borrow().len();
+        return Ok(JsVal::DataViewInst {
+            buffer_id: *id,
+            bytes: Rc::clone(bytes),
+            byte_length,
         });
     }
     let name = error_ctor_name(*b).ok_or(())?;
@@ -1076,6 +1320,39 @@ fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal
                 let before = values.len();
                 values.retain(|ev| !strict_eq(ev, v));
                 Ok(JsVal::Bool(values.len() < before))
+            }
+            _ => Err(()),
+        },
+        JsVal::DataViewInst {
+            bytes,
+            byte_length,
+            ..
+        } => match key {
+            "getUint8" => {
+                let idx = match args.first() {
+                    Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => *n as usize,
+                    _ => return Err(()),
+                };
+                if idx >= *byte_length {
+                    return Err(());
+                }
+                let b = bytes.borrow()[idx];
+                Ok(JsVal::Num(b as f64))
+            }
+            "setUint8" => {
+                let idx = match args.first() {
+                    Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => *n as usize,
+                    _ => return Err(()),
+                };
+                let val = match args.get(1) {
+                    Some(JsVal::Num(n)) => *n as u8,
+                    _ => return Err(()),
+                };
+                if idx >= *byte_length {
+                    return Err(());
+                }
+                bytes.borrow_mut()[idx] = val;
+                Ok(JsVal::Undef)
             }
             _ => Err(()),
         },
@@ -1546,6 +1823,11 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "Set" => Ok(JsVal::Builtin(BuiltinId::Set)),
             "WeakMap" => Ok(JsVal::Builtin(BuiltinId::WeakMap)),
             "WeakSet" => Ok(JsVal::Builtin(BuiltinId::WeakSet)),
+            "ArrayBuffer" => Ok(JsVal::Builtin(BuiltinId::ArrayBuffer)),
+            "DataView" => Ok(JsVal::Builtin(BuiltinId::DataView)),
+            "Uint8Array" => Ok(JsVal::Builtin(BuiltinId::Uint8Array)),
+            "Int32Array" => Ok(JsVal::Builtin(BuiltinId::Int32Array)),
+            "Float64Array" => Ok(JsVal::Builtin(BuiltinId::Float64Array)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -1595,6 +1877,29 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
         },
         JsVal::MapInst { entries } if key == "size" => Ok(JsVal::Num(entries.len() as f64)),
         JsVal::SetInst { values } if key == "size" => Ok(JsVal::Num(values.len() as f64)),
+        JsVal::ArrayBufferInst { bytes, .. } if key == "byteLength" => {
+            Ok(JsVal::Num(bytes.borrow().len() as f64))
+        }
+        JsVal::TypedArrayInst { length, .. } if key == "length" => {
+            Ok(JsVal::Num(*length as f64))
+        }
+        JsVal::TypedArrayInst {
+            kind,
+            bytes,
+            length,
+            ..
+        } => {
+            let idx = key.parse::<usize>().map_err(|_| ())?;
+            if idx >= *length {
+                return Ok(JsVal::Undef);
+            }
+            let off = idx * kind.bytes_per_element();
+            let n = read_ta_elem(*kind, &bytes.borrow(), off)?;
+            Ok(JsVal::Num(n))
+        }
+        JsVal::DataViewInst { byte_length, .. } if key == "byteLength" => {
+            Ok(JsVal::Num(*byte_length as f64))
+        }
         JsVal::Array(elems) if key == "length" => Ok(JsVal::Num(elems.len() as f64)),
         JsVal::Array(elems) => {
             if let Ok(idx) = key.parse::<usize>() {
@@ -1615,6 +1920,29 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
     }
 }
 
+fn member_set(obj: &mut JsVal, key: &str, val: JsVal) -> Result<(), ()> {
+    match obj {
+        JsVal::TypedArrayInst {
+            kind,
+            bytes,
+            length,
+            ..
+        } => {
+            let idx = key.parse::<usize>().map_err(|_| ())?;
+            if idx >= *length {
+                return Err(());
+            }
+            let n = match val {
+                JsVal::Num(n) => n,
+                _ => return Err(()),
+            };
+            let off = idx * kind.bytes_per_element();
+            write_ta_elem(*kind, &mut bytes.borrow_mut(), off, n)
+        }
+        _ => Err(()),
+    }
+}
+
 fn typeof_str(v: &JsVal) -> String {
     match v {
         JsVal::Num(_) => "number".into(),
@@ -1630,7 +1958,10 @@ fn typeof_str(v: &JsVal) -> String {
         | JsVal::MapInst { .. }
         | JsVal::SetInst { .. }
         | JsVal::WeakMapInst { .. }
-        | JsVal::WeakSetInst { .. } => "object".into(),
+        | JsVal::WeakSetInst { .. }
+        | JsVal::ArrayBufferInst { .. }
+        | JsVal::TypedArrayInst { .. }
+        | JsVal::DataViewInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
         JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json) => {
@@ -1668,7 +1999,12 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::Map
             | BuiltinId::Set
             | BuiltinId::WeakMap
-            | BuiltinId::WeakSet,
+            | BuiltinId::WeakSet
+            | BuiltinId::ArrayBuffer
+            | BuiltinId::DataView
+            | BuiltinId::Uint8Array
+            | BuiltinId::Int32Array
+            | BuiltinId::Float64Array,
         ) => "function".into(),
     }
 }
@@ -1687,6 +2023,9 @@ fn to_boolean(v: &JsVal) -> bool {
         | JsVal::SetInst { .. }
         | JsVal::WeakMapInst { .. }
         | JsVal::WeakSetInst { .. }
+        | JsVal::ArrayBufferInst { .. }
+        | JsVal::TypedArrayInst { .. }
+        | JsVal::DataViewInst { .. }
         | JsVal::Array(_)
         | JsVal::Object { .. } => true,
     }
@@ -1719,6 +2058,33 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
         (JsVal::SetInst { values: a }, JsVal::SetInst { values: b }) => a == b,
         (JsVal::WeakMapInst { entries: a }, JsVal::WeakMapInst { entries: b }) => a == b,
         (JsVal::WeakSetInst { values: a }, JsVal::WeakSetInst { values: b }) => a == b,
+        (JsVal::ArrayBufferInst { id: a, .. }, JsVal::ArrayBufferInst { id: b, .. }) => a == b,
+        (
+            JsVal::TypedArrayInst {
+                kind: ka,
+                buffer_id: ba,
+                length: la,
+                ..
+            },
+            JsVal::TypedArrayInst {
+                kind: kb,
+                buffer_id: bb,
+                length: lb,
+                ..
+            },
+        ) => ka == kb && ba == bb && la == lb,
+        (
+            JsVal::DataViewInst {
+                buffer_id: a,
+                byte_length: la,
+                ..
+            },
+            JsVal::DataViewInst {
+                buffer_id: b,
+                byte_length: lb,
+                ..
+            },
+        ) => a == b && la == lb,
         (JsVal::Array(a), JsVal::Array(b)) => a == b,
         (JsVal::Object { id: a, .. }, JsVal::Object { id: b, .. }) => a == b,
         _ => false,
@@ -2058,7 +2424,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.09 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -2317,6 +2683,43 @@ mod tests {
         assert!(
             ir.contains("double 1") || ir.contains("double 1.0"),
             "should print wmGet=1:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn arraybuffer_typedarrays_classifies_and_emits() {
+        let src = include_str!(
+            "../../../tests/conformance/fixtures/es/builtins/arraybuffer_typedarrays.drac"
+        );
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["function", "true"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+        assert!(
+            ir.contains("double 8") || ir.contains("double 8.0"),
+            "should print blen/u8len=8:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 42") || ir.contains("double 42.0"),
+            "should print i32_0=42:\n{ir}"
+        );
+        assert!(
+            ir.contains("double -7") || ir.contains("double -7.0"),
+            "should print i32_1=-7:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 1.5"),
+            "should print f64_0=1.5:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 2.25"),
+            "should print f64_1=2.25:\n{ir}"
         );
     }
 }
