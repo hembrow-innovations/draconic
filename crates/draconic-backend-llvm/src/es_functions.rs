@@ -1,10 +1,11 @@
-//! N08.03.01–N08.03.07 + N08.16.11–N08.16.14: native observations for ES function
-//! declarations, expressions, and arrows (simple ident params + defaults + rest) —
-//! E03.01–E03.07 / `es/functions/*`, Annex B labelled function declarations —
+//! N08.03.01–N08.03.07 + N08.16.11–N08.16.14 + N08.16.24: native observations for ES
+//! function declarations, expressions, and arrows (simple ident params + defaults +
+//! rest) — E03.01–E03.07 / `es/functions/*`, Annex B labelled function declarations —
 //! E18.11 / `es/annex-b/labelled_function`, Annex B FunctionDeclarations in
-//! `if` — E18.12 / `es/annex-b/if_function`, block-level function declarations
-//! — E18.13 / `es/annex-b/block_function`, and `var` declarations (hoist, redeclare,
-//! uninit → undefined) — E18.14 / `es/annex-b/var_decl`.
+//! `if` — E18.12 / `es/annex-b/if_function`, block-level function declarations —
+//! E18.13 / `es/annex-b/block_function`, `var` declarations (hoist, redeclare,
+//! uninit → undefined) — E18.14 / `es/annex-b/var_decl`, and the `arguments` object
+//! (`arguments.length` / `arguments[i]`) — E18.24 / `es/annex-b/arguments_object`.
 //!
 //! Nested/non-escaping decls use extra by-value capture params. Function
 //! expressions and arrows are first-class as fn-id doubles; returned closures
@@ -19,6 +20,8 @@
 //! redecls share one outer slot (last activation wins).
 //! `var` is function/script-scoped: slots hoist to entry as undefined; same-name
 //! redecls share one primary; `typeof` of uninit is `"undefined"`.
+//! Non-arrow functions that read `arguments` receive a packed args buffer + argc;
+//! object-literal methods with static keys are callables via `obj.m(...)`.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -26,14 +29,16 @@ use std::fmt::Write as _;
 use draconic_ast::AssignOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, BindingKind, Expr, IrType as Type, Local, LocalId, Module, Param, Pattern,
-    Stmt,
+    Arg, AssignTarget, BindingKind, Expr, IrType as Type, Local, LocalId, Module, ObjectProp,
+    ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, PRINT_F64, PRINT_STR};
 
 const MAX_CAPS: usize = 8;
 /// Max trailing rest arguments packed into the stack buffer (fixture uses ≤3).
 const MAX_REST: usize = 8;
+/// Max call arity / `arguments` buffer length (fixture uses ≤3).
+const MAX_ARGS: usize = 8;
 /// qNaN payload marking JS `undefined` for default-parameter application.
 const UNDEF_BITS: u64 = 0x7FF8_0000_0000_0001;
 
@@ -58,6 +63,8 @@ struct FnInfo {
     defaults: Vec<Option<Expr>>,
     /// Last param `...rest` local, if any.
     rest: Option<LocalId>,
+    /// Implicit `arguments` local when body reads `arguments.length` / `arguments[i]`.
+    arguments: Option<LocalId>,
     captures: Vec<LocalId>,
     body: Vec<Stmt>,
     /// Named function expression recursive binding.
@@ -84,6 +91,8 @@ struct ModuleInfo {
     top_var_slots: HashSet<LocalId>,
     /// Per-function idx → hoisted `var` primary slots in that body.
     fn_var_slots: HashMap<usize, HashSet<LocalId>>,
+    /// Object local → static method name → fn idx (`{ m: function… }`).
+    obj_methods: HashMap<LocalId, HashMap<String, usize>>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -100,6 +109,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 
     // Collect every function (decl + expr) first so arities are known.
     collect_all_functions(&module.body, &by_id, &mut functions, &mut fn_binding)?;
+    let mut obj_methods = HashMap::new();
+    record_obj_methods(&module.body, &functions, &mut obj_methods);
     record_if_fn_bindings(
         &module.body,
         &by_id,
@@ -140,13 +151,21 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             &fn_arities,
             &functions,
             &fn_binding,
+            &obj_methods,
             &rest_locals,
         ) {
             return None;
         }
         for d in &f.defaults {
             if let Some(e) = d {
-                if !number_expr_ok(e, &by_id, &fn_arities, &functions, &fn_binding) {
+                if !number_expr_ok(
+                    e,
+                    &by_id,
+                    &fn_arities,
+                    &functions,
+                    &fn_binding,
+                    &obj_methods,
+                ) {
                     return None;
                 }
             }
@@ -165,6 +184,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             &if_fn_primary,
             &if_fn_slots,
             &var_primary,
+            &obj_methods,
             &mut has_fn,
             &mut user_locals,
             &mut string_locals,
@@ -203,7 +223,163 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         var_primary,
         top_var_slots,
         fn_var_slots,
+        obj_methods,
     })
+}
+
+/// Collect `{ m: function… }` static methods on object-literal declares.
+fn record_obj_methods(
+    stmts: &[Stmt],
+    functions: &[FnInfo],
+    out: &mut HashMap<LocalId, HashMap<String, usize>>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Declare {
+                local,
+                init: Some(Expr::Object { properties, .. }),
+                ..
+            } => {
+                let mut map = HashMap::new();
+                for p in properties {
+                    if let ObjectProp::Property {
+                        key: ObjectPropKey::Static(name),
+                        value: Expr::Function { params, .. },
+                    } = p
+                    {
+                        if let Some(idx) = find_fn_idx_by_param_patterns(params, functions) {
+                            map.insert(name.to_string_lossy(), idx);
+                        }
+                    }
+                }
+                if !map.is_empty() {
+                    out.insert(*local, map);
+                }
+            }
+            Stmt::Block { body } => record_obj_methods(body, functions, out),
+            Stmt::Labeled { body, .. } => {
+                record_obj_methods(std::slice::from_ref(body), functions, out)
+            }
+            Stmt::If {
+                consequent,
+                alternate,
+                ..
+            } => {
+                record_obj_methods(std::slice::from_ref(consequent), functions, out);
+                if let Some(a) = alternate {
+                    record_obj_methods(std::slice::from_ref(a), functions, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// First `arguments` local referenced via Member in `body`, if any.
+fn find_arguments_local(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> Option<LocalId> {
+    let mut found = None;
+    fn walk_expr(
+        expr: &Expr,
+        by_id: &HashMap<LocalId, &Local>,
+        found: &mut Option<LocalId>,
+    ) {
+        if found.is_some() {
+            return;
+        }
+        match expr {
+            Expr::Member { object, property, .. } => {
+                if let Expr::Local { id, .. } = object.as_ref() {
+                    if by_id.get(id).map(|l| l.name.as_str()) == Some("arguments") {
+                        *found = Some(*id);
+                        return;
+                    }
+                }
+                walk_expr(object, by_id, found);
+                walk_expr(property, by_id, found);
+            }
+            Expr::Unary { arg, .. } => walk_expr(arg, by_id, found),
+            Expr::Binary { left, right, .. } => {
+                walk_expr(left, by_id, found);
+                walk_expr(right, by_id, found);
+            }
+            Expr::Call { callee, args, .. } => {
+                walk_expr(callee, by_id, found);
+                for a in args {
+                    if let Arg::Expr(e) = a {
+                        walk_expr(e, by_id, found);
+                    }
+                }
+            }
+            Expr::Assign { value, .. } => walk_expr(value, by_id, found),
+            Expr::Conditional {
+                test,
+                consequent,
+                alternate,
+                ..
+            } => {
+                walk_expr(test, by_id, found);
+                walk_expr(consequent, by_id, found);
+                walk_expr(alternate, by_id, found);
+            }
+            Expr::Function { body, .. } => {
+                // Nested function has its own arguments — do not claim outer.
+                let _ = body;
+            }
+            _ => {}
+        }
+    }
+    fn walk_stmt(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>, found: &mut Option<LocalId>) {
+        if found.is_some() {
+            return;
+        }
+        match stmt {
+            Stmt::Return { value: Some(v) } => walk_expr(v, by_id, found),
+            Stmt::Declare { init: Some(e), .. } => walk_expr(e, by_id, found),
+            Stmt::Expr { expr } => walk_expr(expr, by_id, found),
+            Stmt::Block { body } => {
+                for s in body {
+                    walk_stmt(s, by_id, found);
+                }
+            }
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => {
+                walk_expr(test, by_id, found);
+                walk_stmt(consequent, by_id, found);
+                if let Some(a) = alternate {
+                    walk_stmt(a, by_id, found);
+                }
+            }
+            Stmt::Labeled { body, .. } => walk_stmt(body, by_id, found),
+            Stmt::Function { body, .. } => {
+                let _ = body;
+            }
+            _ => {}
+        }
+    }
+    for s in body {
+        walk_stmt(s, by_id, &mut found);
+    }
+    found
+}
+
+fn static_prop_name(property: &Expr) -> Option<String> {
+    match property {
+        Expr::String { value, .. } => Some(value.to_string_lossy()),
+        _ => None,
+    }
+}
+
+fn parse_nonneg_index(raw: &str) -> Option<usize> {
+    let cleaned: String = raw.chars().filter(|c| *c != '_').collect();
+    let f: f64 = cleaned.parse().ok()?;
+    if f.is_finite() && f >= 0.0 && f.fract() == 0.0 && f < (MAX_ARGS as f64) {
+        Some(f as usize)
+    } else {
+        None
+    }
 }
 
 /// Register a `var` local into a scope's primary-slot set (same name → share primary).
@@ -458,6 +634,7 @@ fn classify_top_stmt(
     if_fn_primary: &HashMap<LocalId, LocalId>,
     if_fn_slots: &HashSet<LocalId>,
     var_primary: &HashMap<LocalId, LocalId>,
+    obj_methods: &HashMap<LocalId, HashMap<String, usize>>,
     has_fn: &mut bool,
     user_locals: &mut Vec<LocalId>,
     string_locals: &mut HashSet<LocalId>,
@@ -478,6 +655,7 @@ fn classify_top_stmt(
             if_fn_primary,
             if_fn_slots,
             var_primary,
+            obj_methods,
             has_fn,
             user_locals,
             string_locals,
@@ -494,6 +672,7 @@ fn classify_top_stmt(
                 if_fn_primary,
                 if_fn_slots,
                 var_primary,
+                obj_methods,
                 has_fn,
                 user_locals,
                 string_locals,
@@ -506,7 +685,7 @@ fn classify_top_stmt(
             consequent,
             alternate,
         } => {
-            bool_expr_ok(test, by_id, fn_arities, functions, fn_binding)
+            bool_expr_ok(test, by_id, fn_arities, functions, fn_binding, obj_methods)
                 && classify_top_stmt(
                     consequent,
                     by_id,
@@ -516,6 +695,7 @@ fn classify_top_stmt(
                     if_fn_primary,
                     if_fn_slots,
                     var_primary,
+                    obj_methods,
                     has_fn,
                     user_locals,
                     string_locals,
@@ -532,6 +712,7 @@ fn classify_top_stmt(
                         if_fn_primary,
                         if_fn_slots,
                         var_primary,
+                        obj_methods,
                         has_fn,
                         user_locals,
                         string_locals,
@@ -553,7 +734,7 @@ fn classify_top_stmt(
                             }
                             return true;
                         }
-                        if !number_expr_ok(init, by_id, fn_arities, functions, fn_binding) {
+                        if !number_expr_ok(init, by_id, fn_arities, functions, fn_binding, obj_methods) {
                             // Call of if-clause function uses dynamic slot — still ok if callee is if-fn.
                             if !call_if_fn_ok(
                                 init,
@@ -562,6 +743,7 @@ fn classify_top_stmt(
                                 functions,
                                 fn_binding,
                                 if_fn_slots,
+                                obj_methods,
                             ) {
                                 return false;
                             }
@@ -606,6 +788,13 @@ fn classify_top_stmt(
                     };
                     matches!(init, Expr::Function { .. })
                 }
+                Type::Shape(_) | Type::Object => {
+                    // Object literal holding only static method functions (not observed).
+                    obj_methods.contains_key(local)
+                        && init
+                            .as_ref()
+                            .is_some_and(|e| matches!(e, Expr::Object { .. }))
+                }
                 _ => false,
             }
         }
@@ -615,7 +804,7 @@ fn classify_top_stmt(
                 op: AssignOp::Eq,
                 value,
                 ..
-            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding),
+            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding, obj_methods),
             _ => false,
         },
         _ => false,
@@ -664,6 +853,7 @@ fn call_if_fn_ok(
     functions: &[FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
     if_fn_slots: &HashSet<LocalId>,
+    obj_methods: &HashMap<LocalId, HashMap<String, usize>>,
 ) -> bool {
     let Expr::Call {
         callee,
@@ -678,7 +868,7 @@ fn call_if_fn_ok(
         return false;
     }
     if !args.iter().all(|a| match a {
-        Arg::Expr(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding),
+        Arg::Expr(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding, obj_methods),
         Arg::Spread(_) => false,
     }) {
         return false;
@@ -845,6 +1035,21 @@ fn collect_expr_fns(
             }
             Some(())
         }
+        Expr::Member { object, property, .. } => {
+            collect_expr_fns(object, by_id, out, fn_binding)?;
+            collect_expr_fns(property, by_id, out, fn_binding)
+        }
+        Expr::Object { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectProp::Property { value, .. } | ObjectProp::Accessor { value, .. } => {
+                        collect_expr_fns(value, by_id, out, fn_binding)?;
+                    }
+                    ObjectProp::Spread(e) => collect_expr_fns(e, by_id, out, fn_binding)?,
+                }
+            }
+            Some(())
+        }
         _ => Some(()),
     }
 }
@@ -901,19 +1106,26 @@ fn push_fn_with_bound(
     bound: &HashSet<LocalId>,
     out: &mut Vec<FnInfo>,
 ) -> Option<usize> {
+    let arguments = find_arguments_local(body, by_id);
+    let mut bound_ext = bound.clone();
+    if let Some(a) = arguments {
+        bound_ext.insert(a);
+    }
     let mut free = HashSet::new();
-    collect_free_in_body(body, bound, &mut free);
+    collect_free_in_body(body, &bound_ext, &mut free);
     for d in &defaults {
         if let Some(e) = d {
-            collect_free_in_expr(e, bound, &mut free);
+            collect_free_in_expr(e, &bound_ext, &mut free);
         }
     }
     // Nested free through nested Function decls/exprs already in body free collection
     // for exprs; nested Stmt::Function free handled via collect_free that skips nested
     // function bodies — re-walk nested decls:
     for stmt in body {
-        collect_nested_free_through(stmt, bound, by_id, &mut free)?;
+        collect_nested_free_through(stmt, &bound_ext, by_id, &mut free)?;
     }
+    // Never capture the implicit `arguments` object.
+    free.retain(|id| by_id.get(id).map(|l| l.name.as_str()) != Some("arguments"));
     let mut captures: Vec<LocalId> = free.into_iter().collect();
     captures.sort_by_key(|id| id.0);
     if captures.len() > MAX_CAPS {
@@ -931,6 +1143,7 @@ fn push_fn_with_bound(
         params,
         defaults,
         rest,
+        arguments,
         captures,
         body: body.to_vec(),
         name_local,
@@ -1041,6 +1254,20 @@ fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSe
             for a in args {
                 if let Arg::Expr(e) = a {
                     collect_free_in_expr(e, bound, free);
+                }
+            }
+        }
+        Expr::Member { object, property, .. } => {
+            collect_free_in_expr(object, bound, free);
+            collect_free_in_expr(property, bound, free);
+        }
+        Expr::Object { properties, .. } => {
+            for p in properties {
+                match p {
+                    ObjectProp::Property { value, .. } | ObjectProp::Accessor { value, .. } => {
+                        collect_free_in_expr(value, bound, free);
+                    }
+                    ObjectProp::Spread(e) => collect_free_in_expr(e, bound, free),
                 }
             }
         }
@@ -1164,6 +1391,9 @@ fn simple_params(
 }
 
 fn call_arity_ok(f: &FnInfo, args_len: usize) -> bool {
+    if f.arguments.is_some() {
+        return args_len <= MAX_ARGS;
+    }
     if f.rest.is_some() {
         if args_len >= f.params.len() {
             args_len - f.params.len() <= MAX_REST
@@ -1177,7 +1407,15 @@ fn call_arity_ok(f: &FnInfo, args_len: usize) -> bool {
     }
 }
 
-fn call_arity_ok_params(defaults: &[Option<Expr>], has_rest: bool, args_len: usize) -> bool {
+fn call_arity_ok_params(
+    defaults: &[Option<Expr>],
+    has_rest: bool,
+    has_arguments: bool,
+    args_len: usize,
+) -> bool {
+    if has_arguments {
+        return args_len <= MAX_ARGS;
+    }
     if has_rest {
         if args_len >= defaults.len() {
             args_len - defaults.len() <= MAX_REST
@@ -1233,6 +1471,7 @@ fn fn_body_ok(
     fn_arities: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
+    obj_methods: &HashMap<LocalId, HashMap<String, usize>>,
     rest_locals: &HashSet<LocalId>,
 ) -> bool {
     body.iter().all(|s| match s {
@@ -1248,14 +1487,14 @@ fn fn_body_ok(
                     && !*is_generator
                     && simple_params(params, by_id).is_some()
                     && nested_rest_locals(params, by_id).is_some_and(|rl| {
-                        fn_body_ok(body, by_id, fn_arities, functions, fn_binding, &rl)
+                        fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, &rl)
                     })
             }
-            _ => number_expr_ok(v, by_id, fn_arities, functions, fn_binding),
+            _ => number_expr_ok(v, by_id, fn_arities, functions, fn_binding, obj_methods),
         },
         Stmt::Return { value: None } => false,
         Stmt::Block { body } => {
-            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, rest_locals)
+            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, rest_locals)
         }
         Stmt::Declare { local, init, .. } => {
             let Some(loc) = by_id.get(local) else {
@@ -1276,10 +1515,10 @@ fn fn_body_ok(
                         && !*is_generator
                         && simple_params(params, by_id).is_some()
                         && nested_rest_locals(params, by_id).is_some_and(|rl| {
-                            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, &rl)
+                            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, &rl)
                         })
                 }
-                Some(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding),
+                Some(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding, obj_methods),
                 None => true,
             }
         }
@@ -1295,7 +1534,7 @@ fn fn_body_ok(
             }
             simple_params(params, by_id).is_some()
                 && nested_rest_locals(params, by_id).is_some_and(|rl| {
-                    fn_body_ok(body, by_id, fn_arities, functions, fn_binding, &rl)
+                    fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, &rl)
                 })
         }
         Stmt::If {
@@ -1303,13 +1542,14 @@ fn fn_body_ok(
             consequent,
             alternate,
         } => {
-            bool_expr_ok(test, by_id, fn_arities, functions, fn_binding)
+            bool_expr_ok(test, by_id, fn_arities, functions, fn_binding, obj_methods)
                 && fn_body_ok(
                     std::slice::from_ref(consequent),
                     by_id,
                     fn_arities,
                     functions,
                     fn_binding,
+                    obj_methods,
                     rest_locals,
                 )
                 && alternate.as_ref().is_none_or(|a| {
@@ -1319,6 +1559,7 @@ fn fn_body_ok(
                         fn_arities,
                         functions,
                         fn_binding,
+                        obj_methods,
                         rest_locals,
                     )
                 })
@@ -1350,6 +1591,7 @@ fn fn_body_ok(
                 fn_arities,
                 functions,
                 fn_binding,
+                obj_methods,
                 rest_locals,
             )
         }
@@ -1359,7 +1601,7 @@ fn fn_body_ok(
                 op: AssignOp::Eq,
                 value,
                 ..
-            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding),
+            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding, obj_methods),
             _ => false,
         },
         Stmt::Labeled { body, .. } => fn_body_ok(
@@ -1368,6 +1610,7 @@ fn fn_body_ok(
             fn_arities,
             functions,
             fn_binding,
+            obj_methods,
             rest_locals,
         ),
         _ => false,
@@ -1380,6 +1623,7 @@ fn bool_expr_ok(
     fn_arities: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
+    obj_methods: &HashMap<LocalId, HashMap<String, usize>>,
 ) -> bool {
     match expr {
         Expr::Boolean { .. } => true,
@@ -1393,10 +1637,10 @@ fn bool_expr_ok(
             matches!(
                 op,
                 Lt | LtEq | Gt | GtEq | EqEq | NotEq | EqEqEq | NotEqEq
-            ) && number_expr_ok(left, by_id, fn_arities, functions, fn_binding)
-                && number_expr_ok(right, by_id, fn_arities, functions, fn_binding)
+            ) && number_expr_ok(left, by_id, fn_arities, functions, fn_binding, obj_methods)
+                && number_expr_ok(right, by_id, fn_arities, functions, fn_binding, obj_methods)
         }
-        _ => number_expr_ok(expr, by_id, fn_arities, functions, fn_binding),
+        _ => number_expr_ok(expr, by_id, fn_arities, functions, fn_binding, obj_methods),
     }
 }
 
@@ -1406,6 +1650,7 @@ fn number_expr_ok(
     fn_arities: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
+    obj_methods: &HashMap<LocalId, HashMap<String, usize>>,
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
@@ -1425,12 +1670,12 @@ fn number_expr_ok(
             op: draconic_ast::UnaryOp::Plus | draconic_ast::UnaryOp::Minus,
             arg,
             ..
-        } => number_expr_ok(arg, by_id, fn_arities, functions, fn_binding),
+        } => number_expr_ok(arg, by_id, fn_arities, functions, fn_binding, obj_methods),
         Expr::Unary {
             op: draconic_ast::UnaryOp::Void,
             arg,
             ..
-        } => number_expr_ok(arg, by_id, fn_arities, functions, fn_binding)
+        } => number_expr_ok(arg, by_id, fn_arities, functions, fn_binding, obj_methods)
             || matches!(arg.as_ref(), Expr::Number { .. } | Expr::Local { .. }),
         Expr::Binary {
             left,
@@ -1440,8 +1685,8 @@ fn number_expr_ok(
         } => {
             use draconic_ast::BinaryOp::*;
             matches!(op, Add | Sub | Mul | Div | Rem)
-                && number_expr_ok(left, by_id, fn_arities, functions, fn_binding)
-                && number_expr_ok(right, by_id, fn_arities, functions, fn_binding)
+                && number_expr_ok(left, by_id, fn_arities, functions, fn_binding, obj_methods)
+                && number_expr_ok(right, by_id, fn_arities, functions, fn_binding, obj_methods)
         }
         Expr::Call {
             callee,
@@ -1453,7 +1698,7 @@ fn number_expr_ok(
                 return false;
             }
             if !args.iter().all(|a| match a {
-                Arg::Expr(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding),
+                Arg::Expr(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding, obj_methods),
                 Arg::Spread(_) => false,
             }) {
                 return false;
@@ -1462,6 +1707,27 @@ fn number_expr_ok(
                 Expr::Local { id, .. } => {
                     let Some(&idx) = fn_binding.get(id) else {
                         return fn_arities.get(id).is_some_and(|n| args.len() <= *n);
+                    };
+                    call_arity_ok(&functions[idx], args.len())
+                }
+                Expr::Member {
+                    object,
+                    property,
+                    computed,
+                    optional: opt_m,
+                    ..
+                } => {
+                    if *opt_m || *computed {
+                        return false;
+                    }
+                    let Expr::Local { id: oid, .. } = object.as_ref() else {
+                        return false;
+                    };
+                    let Some(name) = static_prop_name(property) else {
+                        return false;
+                    };
+                    let Some(&idx) = obj_methods.get(oid).and_then(|m| m.get(&name)) else {
+                        return false;
                     };
                     call_arity_ok(&functions[idx], args.len())
                 }
@@ -1475,17 +1741,22 @@ fn number_expr_ok(
                     !*is_async
                         && !*is_generator
                         && simple_params(params, by_id).is_some_and(|(_, defaults, rest)| {
-                            call_arity_ok_params(&defaults, rest.is_some(), args.len())
-                                && nested_rest_locals(params, by_id).is_some_and(|rl| {
-                                    fn_body_ok(
-                                        body,
-                                        by_id,
-                                        fn_arities,
-                                        functions,
-                                        fn_binding,
-                                        &rl,
-                                    )
-                                })
+                            call_arity_ok_params(
+                                &defaults,
+                                rest.is_some(),
+                                find_arguments_local(body, by_id).is_some(),
+                                args.len(),
+                            ) && nested_rest_locals(params, by_id).is_some_and(|rl| {
+                                fn_body_ok(
+                                    body,
+                                    by_id,
+                                    fn_arities,
+                                    functions,
+                                    fn_binding,
+                                    obj_methods,
+                                    &rl,
+                                )
+                            })
                         })
                 }
                 Expr::Call {
@@ -1499,7 +1770,7 @@ fn number_expr_ok(
                     }
                     if !inner_args.iter().all(|a| match a {
                         Arg::Expr(e) => {
-                            number_expr_ok(e, by_id, fn_arities, functions, fn_binding)
+                            number_expr_ok(e, by_id, fn_arities, functions, fn_binding, obj_methods)
                         }
                         Arg::Spread(_) => false,
                     }) {
@@ -1521,6 +1792,36 @@ fn number_expr_ok(
                     call_arity_ok(&functions[ret_idx], args.len())
                 }
                 _ => false,
+            }
+        }
+        Expr::Member {
+            object,
+            property,
+            computed,
+            optional,
+            ..
+        } => {
+            if *optional {
+                return false;
+            }
+            let Expr::Local { id, .. } = object.as_ref() else {
+                return false;
+            };
+            if by_id.get(id).map(|l| l.name.as_str()) != Some("arguments") {
+                return false;
+            }
+            if !*computed {
+                // arguments.length
+                matches!(
+                    property.as_ref(),
+                    Expr::String { value, .. } if value.to_string_lossy() == "length"
+                )
+            } else {
+                // arguments[N] with constant non-neg index
+                match property.as_ref() {
+                    Expr::Number { raw, .. } => parse_nonneg_index(raw).is_some_and(|i| i < MAX_ARGS),
+                    _ => false,
+                }
             }
         }
         _ => false,
@@ -1569,6 +1870,8 @@ struct Emitter<'a> {
     allocas: HashMap<LocalId, String>,
     /// Rest local → (buf ptr alloca, len i64 alloca).
     rest_slots: HashMap<LocalId, (String, String)>,
+    /// `arguments` local → (args buf ptr alloca, argc i64 alloca).
+    arguments_slots: HashMap<LocalId, (String, String)>,
     /// Annex B if-fn primary → i32 alloca (fn idx or -1).
     if_fn_slot_ptrs: HashMap<LocalId, String>,
     /// String typeof obs local → i32 alloca (0 = "undefined", 1 = "function").
@@ -1592,6 +1895,7 @@ impl<'a> Emitter<'a> {
             fn_names,
             allocas: HashMap::new(),
             rest_slots: HashMap::new(),
+            arguments_slots: HashMap::new(),
             if_fn_slot_ptrs: HashMap::new(),
             typeof_code_ptrs: HashMap::new(),
             str_globals: HashMap::new(),
@@ -1626,7 +1930,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.03.07 ES functions + defaults/rest via Runtime ABI)"
+            "; Draconic LLVM backend (N08.03.07+N08.16.24 ES functions + defaults/rest/arguments via Runtime ABI)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(&[PRINT_F64, PRINT_STR])).ok();
@@ -1647,6 +1951,7 @@ impl<'a> Emitter<'a> {
         self.label = 0;
         self.allocas.clear();
         self.rest_slots.clear();
+        self.arguments_slots.clear();
         self.if_fn_slot_ptrs.clear();
         self.typeof_code_ptrs.clear();
 
@@ -1836,12 +2141,14 @@ impl<'a> Emitter<'a> {
         let saved_label = self.label;
         let saved_allocas = std::mem::take(&mut self.allocas);
         let saved_rest = std::mem::take(&mut self.rest_slots);
+        let saved_args = std::mem::take(&mut self.arguments_slots);
         let saved_if_slots = std::mem::take(&mut self.if_fn_slot_ptrs);
 
         self.tmp = 0;
         self.label = 0;
         self.allocas.clear();
         self.rest_slots.clear();
+        self.arguments_slots.clear();
         self.if_fn_slot_ptrs.clear();
 
         let mut sig_parts = Vec::new();
@@ -1851,6 +2158,10 @@ impl<'a> Emitter<'a> {
         if f.rest.is_some() {
             sig_parts.push("ptr %rest_buf".into());
             sig_parts.push("i64 %rest_len".into());
+        }
+        if f.arguments.is_some() {
+            sig_parts.push("ptr %args_buf".into());
+            sig_parts.push("i64 %argc".into());
         }
         for (i, _) in f.captures.iter().enumerate() {
             sig_parts.push(format!("double %c{i}"));
@@ -1872,6 +2183,15 @@ impl<'a> Emitter<'a> {
             writeln!(entry, "  store ptr %rest_buf, ptr {buf_slot}").ok();
             writeln!(entry, "  store i64 %rest_len, ptr {len_slot}").ok();
             self.rest_slots.insert(rid, (buf_slot, len_slot));
+        }
+        if let Some(aid) = f.arguments {
+            let buf_slot = format!("%args_buf_slot{}", aid.0);
+            let len_slot = format!("%argc_slot{}", aid.0);
+            writeln!(entry, "  {buf_slot} = alloca ptr, align 8").ok();
+            writeln!(entry, "  {len_slot} = alloca i64, align 8").ok();
+            writeln!(entry, "  store ptr %args_buf, ptr {buf_slot}").ok();
+            writeln!(entry, "  store i64 %argc, ptr {len_slot}").ok();
+            self.arguments_slots.insert(aid, (buf_slot, len_slot));
         }
         for (i, cid) in f.captures.iter().enumerate() {
             let ptr = format!("%l{}", cid.0);
@@ -1943,6 +2263,7 @@ impl<'a> Emitter<'a> {
         self.label = saved_label;
         self.allocas = saved_allocas;
         self.rest_slots = saved_rest;
+        self.arguments_slots = saved_args;
         self.if_fn_slot_ptrs = saved_if_slots;
         Ok(())
     }
@@ -1963,6 +2284,10 @@ impl<'a> Emitter<'a> {
             Stmt::Declare { local, init, kind } => {
                 if self.info.fn_binding.contains_key(local) {
                     // Function binding — no number storage required for static calls.
+                    return Ok(());
+                }
+                if self.info.obj_methods.contains_key(local) {
+                    // Object holding static methods — methods resolved via obj_methods table.
                     return Ok(());
                 }
                 if self.info.string_locals.contains(local) {
@@ -2486,6 +2811,82 @@ impl<'a> Emitter<'a> {
                 }
                 self.emit_call(callee, args)
             }
+            Expr::Member {
+                object,
+                property,
+                computed,
+                optional,
+                ..
+            } => {
+                if *optional {
+                    return Err(diag("es_functions: optional member not supported"));
+                }
+                let Expr::Local { id, .. } = object.as_ref() else {
+                    return Err(diag("es_functions: member object must be local"));
+                };
+                let (buf_slot, len_slot) = self
+                    .arguments_slots
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("es_functions: arguments member outside args fn"))?;
+                if !*computed {
+                    // arguments.length
+                    if static_prop_name(property).as_deref() != Some("length") {
+                        return Err(diag("es_functions: only arguments.length supported"));
+                    }
+                    let argc = self.fresh();
+                    writeln!(self.body, "  {argc} = load i64, ptr {len_slot}").ok();
+                    let t = self.fresh();
+                    writeln!(self.body, "  {t} = sitofp i64 {argc} to double").ok();
+                    Ok(t)
+                } else {
+                    let Expr::Number { raw, .. } = property.as_ref() else {
+                        return Err(diag("es_functions: arguments index must be number const"));
+                    };
+                    let idx = parse_nonneg_index(raw)
+                        .ok_or_else(|| diag("es_functions: bad arguments index"))?;
+                    // if idx < argc load else undef
+                    let argc = self.fresh();
+                    writeln!(self.body, "  {argc} = load i64, ptr {len_slot}").ok();
+                    let in_range = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {in_range} = icmp ult i64 {idx}, {argc}"
+                    )
+                    .ok();
+                    let then_l = self.fresh_label("arg_ok");
+                    let else_l = self.fresh_label("arg_miss");
+                    let end_l = self.fresh_label("arg_end");
+                    writeln!(
+                        self.body,
+                        "  br i1 {in_range}, label %{then_l}, label %{else_l}"
+                    )
+                    .ok();
+                    writeln!(self.body, "{then_l}:").ok();
+                    let buf = self.fresh();
+                    writeln!(self.body, "  {buf} = load ptr, ptr {buf_slot}").ok();
+                    let gep = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {gep} = getelementptr inbounds double, ptr {buf}, i64 {idx}"
+                    )
+                    .ok();
+                    let loaded = self.fresh();
+                    writeln!(self.body, "  {loaded} = load double, ptr {gep}").ok();
+                    writeln!(self.body, "  br label %{end_l}").ok();
+                    writeln!(self.body, "{else_l}:").ok();
+                    let und = undef_double_const();
+                    writeln!(self.body, "  br label %{end_l}").ok();
+                    writeln!(self.body, "{end_l}:").ok();
+                    let phi = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {phi} = phi double [ {loaded}, %{then_l} ], [ {und}, %{else_l} ]"
+                    )
+                    .ok();
+                    Ok(phi)
+                }
+            }
             _ => Err(diag("es_functions: unsupported number expr")),
         }
     }
@@ -2530,6 +2931,29 @@ impl<'a> Emitter<'a> {
             Expr::Function { params, .. } => {
                 let idx = find_fn_idx_by_param_patterns(params, &self.info.functions)
                     .ok_or_else(|| diag("es_functions: IIFE unknown FunctionExpr"))?;
+                self.emit_direct_call(idx, &arg_vals)
+            }
+            Expr::Member {
+                object,
+                property,
+                computed,
+                optional,
+                ..
+            } => {
+                if *optional || *computed {
+                    return Err(diag("es_functions: unsupported method call form"));
+                }
+                let Expr::Local { id: oid, .. } = object.as_ref() else {
+                    return Err(diag("es_functions: method call object must be local"));
+                };
+                let name = static_prop_name(property)
+                    .ok_or_else(|| diag("es_functions: method name must be static"))?;
+                let idx = *self
+                    .info
+                    .obj_methods
+                    .get(oid)
+                    .and_then(|m| m.get(&name))
+                    .ok_or_else(|| diag(format!("es_functions: unknown method {name}")))?;
                 self.emit_direct_call(idx, &arg_vals)
             }
             Expr::Call {
@@ -2708,6 +3132,36 @@ impl<'a> Emitter<'a> {
             .ok();
             call_parts.push(format!("ptr {buf_ptr}"));
             call_parts.push(format!("i64 {rest_len}"));
+        }
+
+        if f.arguments.is_some() {
+            let argc = arg_vals.len();
+            if argc > MAX_ARGS {
+                return Err(diag("es_functions: too many arguments"));
+            }
+            let buf = self.fresh();
+            writeln!(
+                self.body,
+                "  {buf} = alloca [{MAX_ARGS} x double], align 8"
+            )
+            .ok();
+            for (i, v) in arg_vals.iter().enumerate() {
+                let gep = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {gep} = getelementptr inbounds [{MAX_ARGS} x double], ptr {buf}, i64 0, i64 {i}"
+                )
+                .ok();
+                writeln!(self.body, "  store double {v}, ptr {gep}").ok();
+            }
+            let buf_ptr = self.fresh();
+            writeln!(
+                self.body,
+                "  {buf_ptr} = getelementptr inbounds [{MAX_ARGS} x double], ptr {buf}, i64 0, i64 0"
+            )
+            .ok();
+            call_parts.push(format!("ptr {buf_ptr}"));
+            call_parts.push(format!("i64 {argc}"));
         }
 
         for c in caps {
