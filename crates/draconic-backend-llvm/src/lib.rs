@@ -7,6 +7,7 @@ mod es_builtins;
 mod es_call_spread;
 mod es_class_expr_name;
 mod es_classes;
+mod es_static_private_fields;
 mod es_static_private_methods;
 mod es_coercion;
 mod es_destructure_defaults;
@@ -52,6 +53,9 @@ use es_builtins::{emit_es_builtins, is_es_builtins_module};
 use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_class_expr_name::{emit_es_class_expr_name, is_es_class_expr_name_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
+use es_static_private_fields::{
+    emit_es_static_private_fields, is_es_static_private_fields_module,
+};
 use es_static_private_methods::{
     emit_es_static_private_methods, is_es_static_private_methods_module,
 };
@@ -278,6 +282,9 @@ fn emit_llvm_ir_raw(
     }
     if is_es_class_expr_name_module(module) {
         return emit_es_class_expr_name(module);
+    }
+    if is_es_static_private_fields_module(module) {
+        return emit_es_static_private_fields(module);
     }
     if is_es_static_private_methods_module(module) {
         return emit_es_static_private_methods(module);
