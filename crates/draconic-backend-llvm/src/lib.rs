@@ -23,7 +23,7 @@ mod es_nullish;
 mod es_object_destructure;
 mod es_objects;
 
-mod es_private_accessors;
+mod es_private_in;
 mod es_promise;
 mod es_proxies;
 mod es_tagged_template;
@@ -65,7 +65,7 @@ use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_object_destructure::{emit_es_object_destructure, is_es_object_destructure_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
 
-use es_private_accessors::{emit_es_private_accessors, is_es_private_accessors_module};
+use es_private_in::{emit_es_private_in, is_es_private_in_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_proxies::{emit_es_proxies, is_es_proxies_module};
 use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
@@ -167,6 +167,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_eval_module(module) {
         return emit_es_eval(module);
+    }
+    if is_es_private_in_module(module) {
+        return emit_es_private_in(module);
     }
     if is_es_proxies_module(module) {
         return emit_es_proxies(module);
@@ -377,7 +380,6 @@ mod tests {
     fn module_of(src: &str) -> Module {
         compile_source(src).expect("compile")
     }
-
 
     #[test]
     fn empty_program_emits_runtime_hello() {
