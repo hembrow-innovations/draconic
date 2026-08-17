@@ -4,6 +4,11 @@
 //! K01.02: write/round-trip `draconic.toml` with stable dependency order.
 //! K01.03: schema validation (module paths, version reqs, unknown fields) + diagnostics.
 //! K01.04: optional URL map (path → git URL); default derive `https://{module_path}.git`.
+//! K02.01: lock entry — path + version + git URL + commit OID + content hash SHA-256.
+
+mod lock;
+
+pub use lock::{LockEntry, LockEntryError};
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -286,7 +291,7 @@ pub fn resolve_git_url(manifest: &Manifest, module_path: &str) -> String {
 }
 
 /// Accept https (or git/ssh-style) clone URLs used as path→URL overrides.
-fn validate_git_url(url: &str) -> Result<(), &'static str> {
+pub(crate) fn validate_git_url(url: &str) -> Result<(), &'static str> {
     if url.is_empty() {
         return Err("must not be empty");
     }
@@ -341,7 +346,7 @@ fn validate_git_url(url: &str) -> Result<(), &'static str> {
 /// - first segment looks like a domain (contains `.`)
 /// - segments are non-empty and not `.` / `..`
 /// - ASCII alphanumeric plus `.` `-` `_` only in segments
-fn validate_module_path(path: &str) -> Result<(), &'static str> {
+pub(crate) fn validate_module_path(path: &str) -> Result<(), &'static str> {
     if path.is_empty() {
         return Err("must not be empty");
     }
@@ -397,7 +402,7 @@ fn validate_module_path(path: &str) -> Result<(), &'static str> {
 /// - optional leading `v`
 /// - `MAJOR.MINOR.PATCH` with optional `-prerelease` and/or `+build`
 /// - also `MAJOR.MINOR` or `MAJOR` (partial)
-fn validate_version_req(req: &str) -> Result<(), &'static str> {
+pub(crate) fn validate_version_req(req: &str) -> Result<(), &'static str> {
     if req.is_empty() {
         return Err("must not be empty");
     }
