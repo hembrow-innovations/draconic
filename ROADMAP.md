@@ -528,6 +528,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.26 | done | native | Real native observations: class public fields (E18.26) — `es/annex-b/class_fields` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/class_fields`, `crates/draconic-backend-llvm` |
 | N08.16.27 | done | native | Real native observations: `new.target` (E18.27) — `es/annex-b/new_target` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/new_target`, `crates/draconic-backend-llvm` |
 | N08.16.28 | done | native | Real native observations: object spread (E18.28) — `es/annex-b/object_spread` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/object_spread`, `crates/draconic-backend-llvm`, `crates/draconic-runtime` |
+| N08.16.29 | done | native | Real native observations: `export * from` (E18.29) — `es/annex-b/export_star` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/export_star`, `crates/draconic-backend-llvm` |
 | N08.17 | done | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
