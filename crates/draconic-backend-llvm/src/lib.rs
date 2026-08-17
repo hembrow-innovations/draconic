@@ -125,6 +125,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Annex B `Object.prototype` accessor legacy** (`__defineGetter__`/…) — N08.16.07
 /// - **Annex B labelled function declarations** (`L: function f(){…}`) — N08.16.11
 /// - **Annex B FunctionDeclarations in `if`** (`if (c) function f(){…}`) — N08.16.12
+/// - **Annex B block-level function declarations** (`{ function f(){…} }`) — N08.16.13
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -3135,6 +3136,41 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             stdout, "1\nundefined\n4\n5\n7\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
+    fn es_block_function_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/annex-b/block_function.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "block_function fixture must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_str"),
+            "should print typeof strings:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-16-13-block-fn").expect("workdir");
+        let bin = dir.join("block_function");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "1\nfunction\nundefined\n3\n4\n2\n5\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }

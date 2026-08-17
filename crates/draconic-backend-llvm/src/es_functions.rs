@@ -1,8 +1,9 @@
-//! N08.03.01–N08.03.07 + N08.16.11–N08.16.12: native observations for ES function
+//! N08.03.01–N08.03.07 + N08.16.11–N08.16.13: native observations for ES function
 //! declarations, expressions, and arrows (simple ident params + defaults + rest) —
 //! E03.01–E03.07 / `es/functions/*`, Annex B labelled function declarations —
-//! E18.11 / `es/annex-b/labelled_function`, and Annex B FunctionDeclarations in
-//! `if` — E18.12 / `es/annex-b/if_function`.
+//! E18.11 / `es/annex-b/labelled_function`, Annex B FunctionDeclarations in
+//! `if` — E18.12 / `es/annex-b/if_function`, and block-level function declarations
+//! — E18.13 / `es/annex-b/block_function`.
 //!
 //! Nested/non-escaping decls use extra by-value capture params. Function
 //! expressions and arrows are first-class as fn-id doubles; returned closures
@@ -13,6 +14,8 @@
 //! Labelled function declarations (`L: function f(){…}`) unwrap to ordinary decls.
 //! If-clause function decls (Annex B.3.4) bind only when the branch runs; same-name
 //! then/else share one slot; `typeof` on an unbound name is `"undefined"`.
+//! Block-level function decls (Annex B.3.2) activate when the block runs; same-name
+//! redecls share one outer slot (last activation wins).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -186,8 +189,55 @@ fn unwrap_if_fn_local(stmt: &Stmt) -> Option<LocalId> {
     }
 }
 
+/// Annex B.3.2 / B.3.4: deferred function binding slot; same-name redecls share the
+/// first primary (outer use binding). Last activation wins at runtime.
+fn register_annex_b_fn_slot(
+    local: LocalId,
+    by_id: &HashMap<LocalId, &Local>,
+    if_fn_primary: &mut HashMap<LocalId, LocalId>,
+    if_fn_slots: &mut HashSet<LocalId>,
+) {
+    if if_fn_primary.contains_key(&local) {
+        return;
+    }
+    let name = by_id.get(&local).map(|l| l.name.as_str());
+    if let Some(name) = name {
+        let mut shared: Option<LocalId> = None;
+        for &primary in if_fn_slots.iter() {
+            if by_id.get(&primary).is_some_and(|l| l.name == name) {
+                shared = Some(primary);
+                break;
+            }
+        }
+        if let Some(primary) = shared {
+            if_fn_primary.insert(local, primary);
+            return;
+        }
+    }
+    if_fn_primary.insert(local, local);
+    if_fn_slots.insert(local);
+}
+
+/// Register a block-level (or labelled) `function` as an Annex B deferred slot.
+fn register_block_level_fn(
+    stmt: &Stmt,
+    by_id: &HashMap<LocalId, &Local>,
+    if_fn_primary: &mut HashMap<LocalId, LocalId>,
+    if_fn_slots: &mut HashSet<LocalId>,
+) {
+    let mut s = stmt;
+    while let Stmt::Labeled { body, .. } = s {
+        s = body;
+    }
+    if let Stmt::Function { local, .. } = s {
+        register_annex_b_fn_slot(*local, by_id, if_fn_primary, if_fn_slots);
+    }
+}
+
 /// Annex B.3.4: if-clause function decls bind only when the branch runs; then/else
 /// same name share the consequent (first) local as the primary use binding.
+/// Annex B.3.2: block-level `function` decls bind when the block runs; same-name
+/// redecls share one outer slot.
 fn record_if_fn_bindings(
     stmts: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
@@ -211,23 +261,18 @@ fn record_if_fn_bindings(
                         });
                         if same {
                             // Uses resolve to the first (consequent) binding.
-                            if_fn_primary.insert(cl, cl);
+                            register_annex_b_fn_slot(cl, by_id, if_fn_primary, if_fn_slots);
                             if_fn_primary.insert(al, cl);
-                            if_fn_slots.insert(cl);
                         } else {
-                            if_fn_primary.insert(cl, cl);
-                            if_fn_primary.insert(al, al);
-                            if_fn_slots.insert(cl);
-                            if_fn_slots.insert(al);
+                            register_annex_b_fn_slot(cl, by_id, if_fn_primary, if_fn_slots);
+                            register_annex_b_fn_slot(al, by_id, if_fn_primary, if_fn_slots);
                         }
                     }
                     (Some(cl), None) => {
-                        if_fn_primary.insert(cl, cl);
-                        if_fn_slots.insert(cl);
+                        register_annex_b_fn_slot(cl, by_id, if_fn_primary, if_fn_slots);
                     }
                     (None, Some(al)) => {
-                        if_fn_primary.insert(al, al);
-                        if_fn_slots.insert(al);
+                        register_annex_b_fn_slot(al, by_id, if_fn_primary, if_fn_slots);
                     }
                     (None, None) => {
                         record_if_fn_bindings(
@@ -253,6 +298,9 @@ fn record_if_fn_bindings(
                 record_if_fn_bindings(body, by_id, fn_binding, if_fn_primary, if_fn_slots);
             }
             Stmt::Block { body } => {
+                for s in body {
+                    register_block_level_fn(s, by_id, if_fn_primary, if_fn_slots);
+                }
                 record_if_fn_bindings(body, by_id, fn_binding, if_fn_primary, if_fn_slots);
             }
             Stmt::Labeled { body, .. } => {
