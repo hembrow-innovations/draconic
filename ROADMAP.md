@@ -514,6 +514,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.12 | done | native | Real native observations: FunctionDeclarations in `if` (E18.12) — `es/annex-b/if_function` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/if_function`, `crates/draconic-backend-llvm` |
 | N08.16.13 | done | native | Real native observations: block-level function declarations (E18.13) — `es/annex-b/block_function` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/block_function`, `crates/draconic-backend-llvm` |
 | N08.16.14 | done | native | Real native observations: `var` declarations (E18.14) — `es/annex-b/var_decl` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/var_decl`, `crates/draconic-backend-llvm` |
+| N08.16.15 | done | native | Real native observations: `var` in `for` heads (E18.15) — `es/annex-b/var_for` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/var_for`, `crates/draconic-backend-llvm` |
 | N08.17 | done | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
