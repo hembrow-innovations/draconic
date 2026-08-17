@@ -1280,7 +1280,22 @@ void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value) {
 }
 
 void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
-    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
+    if (!obj || !key) {
+        return NULL;
+    }
+    /* N08.16.25: array exotic [[Get]] for decimal indexes + "length" (inttoptr). */
+    if (obj->tag == DRACONIC_TAG_ARRAY) {
+        if (strcmp(key, "length") == 0) {
+            return (void *)(intptr_t)obj->as.array.len;
+        }
+        char *end = NULL;
+        unsigned long idx = strtoul(key, &end, 10);
+        if (end && end != key && *end == '\0') {
+            return draconic_rt_array_get(obj, (size_t)idx);
+        }
+        return NULL;
+    }
+    if (obj->tag != DRACONIC_TAG_OBJECT) {
         return NULL;
     }
     /* N08.04.05: ordinary [[Get]] walks [[Prototype]] for missing own keys. */
@@ -1292,6 +1307,32 @@ void *draconic_rt_object_get(DraconicValue *obj, const char *key) {
         }
     }
     return NULL;
+}
+
+/* N08.16.25: object rest `{a, ...rest}` — copy own string keys not in exclude (NULL-terminated). */
+DraconicValue *draconic_rt_object_rest(DraconicValue *obj, const char **exclude) {
+    DraconicValue *out = draconic_rt_alloc_object();
+    if (!out || !obj || obj->tag != DRACONIC_TAG_OBJECT) {
+        return out;
+    }
+    for (DraconicProp *p = obj->as.object.props; p; p = p->next) {
+        if (!p->key) {
+            continue;
+        }
+        int skip = 0;
+        if (exclude) {
+            for (const char **e = exclude; *e; e++) {
+                if (strcmp(p->key, *e) == 0) {
+                    skip = 1;
+                    break;
+                }
+            }
+        }
+        if (!skip) {
+            draconic_rt_object_set(out, p->key, p->value);
+        }
+    }
+    return out;
 }
 
 void draconic_rt_object_set_symbol(DraconicValue *obj, int64_t sym, void *value) {
