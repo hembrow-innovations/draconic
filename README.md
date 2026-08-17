@@ -116,6 +116,17 @@ node .loop/opencode-loop.mjs 5 "run the draconic-loop skill once" -- -m xai/grok
 
 # Claude Code
 node .loop/claude-loop.mjs 10
+
+# One swarm wave (N fresh sessions; default serial, safe on one worktree)
+node .loop/opencode-swarm.mjs wave=10
+node .loop/opencode-swarm.mjs parallel wave=10   # concurrent; expect conflicts
+
+# Until ROADMAP todo=0 (outer loop holds no LLM context)
+node .loop/opencode-orchestrate.mjs wave=10
+node .loop/opencode-orchestrate.mjs parallel wave=10 MAX_WAVES=50
+
+# TUI: /swarm  |  /orchestrate
+# Status: node .loop/roadmap-status.mjs
 ```
 
 ## License
