@@ -1347,6 +1347,61 @@ DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj) {
     return obj->as.object.proto;
 }
 
+/* N08.16.19: copy own string-keyed props (shallow) for object rest. */
+void draconic_rt_object_copy_own(DraconicValue *dst, DraconicValue *src) {
+    if (!dst || !src || dst->tag != DRACONIC_TAG_OBJECT || src->tag != DRACONIC_TAG_OBJECT) {
+        return;
+    }
+    /* Copy in reverse so insertion order matches src after prepend-set. */
+    size_t n = 0;
+    for (DraconicProp *p = src->as.object.props; p; p = p->next) {
+        if (p->key) {
+            n++;
+        }
+    }
+    if (n == 0) {
+        return;
+    }
+    const char **keys = (const char **)calloc(n, sizeof(const char *));
+    void **vals = (void **)calloc(n, sizeof(void *));
+    if (!keys || !vals) {
+        free(keys);
+        free(vals);
+        fprintf(stderr, "draconic_rt: object_copy_own OOM\n");
+        abort();
+    }
+    size_t i = n;
+    for (DraconicProp *p = src->as.object.props; p; p = p->next) {
+        if (p->key) {
+            i--;
+            keys[i] = p->key;
+            vals[i] = p->value;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        draconic_rt_object_set(dst, keys[i], vals[i]);
+    }
+    free(keys);
+    free(vals);
+}
+
+void draconic_rt_object_delete(DraconicValue *obj, const char *key) {
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT || !key) {
+        return;
+    }
+    DraconicProp **pp = &obj->as.object.props;
+    while (*pp) {
+        DraconicProp *p = *pp;
+        if (p->key && strcmp(p->key, key) == 0) {
+            *pp = p->next;
+            free(p->key);
+            free(p);
+            return;
+        }
+        pp = &p->next;
+    }
+}
+
 /* --- Promise.allSettled (N06.08) --- */
 
 typedef struct {

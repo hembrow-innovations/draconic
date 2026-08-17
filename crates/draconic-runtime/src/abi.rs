@@ -338,6 +338,18 @@ pub const OBJECT_GET_PROTO: AbiFn = AbiFn {
     ret: "ptr",
     params: "ptr",
 };
+/// N08.16.19: shallow copy own string props (object rest).
+pub const OBJECT_COPY_OWN: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_copy_own",
+    ret: "void",
+    params: "ptr, ptr",
+};
+/// N08.16.19: delete own string prop (object rest exclusions).
+pub const OBJECT_DELETE: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_delete",
+    ret: "void",
+    params: "ptr, ptr",
+};
 pub const PROMISE_ALL_SETTLED: AbiFn = AbiFn {
     symbol: "draconic_rt_promise_all_settled",
     ret: "ptr",
