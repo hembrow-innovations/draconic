@@ -1,5 +1,6 @@
 //! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
+mod debug_info;
 mod es_arrays;
 mod es_param_dstr;
 mod es_builtins;
@@ -36,6 +37,8 @@ mod es_to_primitive;
 mod es_values;
 mod es_var_for;
 mod native_ints;
+
+pub use debug_info::SourceDebug;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -169,9 +172,37 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Private accessors** (`get`/`set #x` instance+static) — N08.16.40
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
+/// Emit LLVM IR text for a shared IR module (no DWARF).
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
+    emit_llvm_ir_inner(module, None)
+}
+
+/// Emit LLVM IR with DWARF debug info mapping Draconic source lines (U07).
+pub fn emit_llvm_ir_with_debug(
+    module: &Module,
+    debug: &SourceDebug,
+) -> Result<String, Diagnostic> {
+    emit_llvm_ir_inner(module, Some(debug))
+}
+
+fn emit_llvm_ir_inner(
+    module: &Module,
+    debug: Option<&SourceDebug>,
+) -> Result<String, Diagnostic> {
+    let ir = emit_llvm_ir_raw(module, debug)?;
+    if let Some(dbg) = debug {
+        Ok(debug_info::attach_debug_info(&ir, module, dbg))
+    } else {
+        Ok(ir)
+    }
+}
+
+fn emit_llvm_ir_raw(
+    module: &Module,
+    debug: Option<&SourceDebug>,
+) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
-        return emit_native_ints(module);
+        return emit_native_ints(module, debug);
     }
     if is_es_promise_module(module) {
         return emit_es_promise(module);
@@ -275,6 +306,7 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_empty_program(module) {
         return Ok(emit_empty_hello());
     }
+    let _ = debug;
     Err(unsupported_native_diagnostic())
 }
 
@@ -328,23 +360,64 @@ pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnost
         })?;
     }
 
-    let output = Command::new(&clang)
+    let want_debug = llvm_ir.contains("!llvm.dbg.cu");
+
+    // Object step first so DWARF from IR metadata is materialized (U07). Direct
+    // `clang file.ll -o bin` drops debug on Apple ld without a retained .o.
+    let obj_path = work.join("program.o");
+    let mut cc_obj = Command::new(&clang);
+    cc_obj
+        .arg("-c")
         .arg(&ll_path)
-        .arg(&rt_lib)
         .arg("-o")
-        .arg(out_bin)
-        .arg("-Wno-override-module")
+        .arg(&obj_path)
+        .arg("-Wno-override-module");
+    if want_debug {
+        cc_obj.arg("-g");
+    }
+    let output = cc_obj
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|e| Diagnostic::new(format!("spawn clang failed: {e}"), Span::dummy()))?;
+        .map_err(|e| Diagnostic::new(format!("spawn clang -c failed: {e}"), Span::dummy()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Diagnostic::new(
+            format!("clang -c failed: {stderr}"),
+            Span::dummy(),
+        ));
+    }
+
+    let mut cc_link = Command::new(&clang);
+    cc_link
+        .arg(&obj_path)
+        .arg(&rt_lib)
+        .arg("-o")
+        .arg(out_bin);
+    if want_debug {
+        cc_link.arg("-g");
+    }
+    let output = cc_link
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| Diagnostic::new(format!("spawn clang link failed: {e}"), Span::dummy()))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(Diagnostic::new(
-            format!("clang failed: {stderr}"),
+            format!("clang link failed: {stderr}"),
             Span::dummy(),
         ));
+    }
+
+    // macOS: DWARF lives in a .dSYM companion; generate it when we emitted debug.
+    if want_debug && cfg!(target_os = "macos") {
+        let _ = Command::new("dsymutil")
+            .arg(out_bin)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
     Ok(())
 }

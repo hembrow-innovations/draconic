@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp, UpdateOp};
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{Diagnostic, SourceFile, Span};
 use draconic_ir::{
     Arg, ArrayElement, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, NativeType,
     ObjectProp, ObjectPropKey, ObjectShape, Param, Pattern, Stmt, UpdateTarget,
@@ -14,6 +14,8 @@ use draconic_ir::{
 use draconic_runtime::abi::{
     llvm_declares, PRINT_BOOL, PRINT_F64, PRINT_I64, PRINT_U64, NATIVE_INT_DECLARES,
 };
+
+use crate::debug_info::{dbg_marker, SourceDebug};
 
 /// LLVM IR type spelling for a semantic native type (backend-owned mapping).
 fn llvm_ty(n: NativeType) -> &'static str {
@@ -290,14 +292,18 @@ fn collect_pattern_locals(pat: &Pattern, out: &mut HashSet<LocalId>) {
     }
 }
 
-pub(crate) fn emit_native_ints(module: &Module) -> Result<String, Diagnostic> {
-    let mut em = Emitter::new(module);
+pub(crate) fn emit_native_ints(
+    module: &Module,
+    debug: Option<&SourceDebug>,
+) -> Result<String, Diagnostic> {
+    let mut em = Emitter::new(module, debug);
     em.emit_module()?;
     Ok(em.finish())
 }
 
 struct Emitter<'a> {
     module: &'a Module,
+    debug: Option<&'a SourceDebug>,
     locals: HashMap<LocalId, &'a Local>,
     /// Alloca pointer SSA name per local: `%l{id}`
     allocas: HashMap<LocalId, String>,
@@ -311,10 +317,12 @@ struct Emitter<'a> {
     label: u32,
     /// Top-level native scalar locals to print at end of main (declare order).
     print_order: Vec<LocalId>,
+    /// Index into `module.body` while emitting top-level statements (for DWARF).
+    body_idx: usize,
 }
 
 impl<'a> Emitter<'a> {
-    fn new(module: &'a Module) -> Self {
+    fn new(module: &'a Module, debug: Option<&'a SourceDebug>) -> Self {
         let locals: HashMap<LocalId, &'a Local> =
             module.locals.iter().map(|l| (l.id, l)).collect();
         let mut fn_names = HashMap::new();
@@ -333,6 +341,7 @@ impl<'a> Emitter<'a> {
         }
         Self {
             module,
+            debug,
             locals,
             allocas: HashMap::new(),
             fn_names,
@@ -342,7 +351,28 @@ impl<'a> Emitter<'a> {
             tmp: 0,
             label: 0,
             print_order: Vec::new(),
+            body_idx: 0,
         }
+    }
+
+    fn emit_dbg_for_body_index(&mut self, idx: usize) {
+        let Some(debug) = self.debug else {
+            return;
+        };
+        let span = self
+            .module
+            .body_spans
+            .get(idx)
+            .copied()
+            .unwrap_or_else(Span::dummy);
+        let (line, col) = if span.is_dummy() {
+            (1, 1)
+        } else {
+            let file = SourceFile::new("src", &debug.source);
+            let loc = file.lookup(span.start);
+            (loc.line.max(1), loc.column.max(1))
+        };
+        writeln!(self.body, "{}", dbg_marker(line, col)).ok();
     }
 
     fn finish(self) -> String {
@@ -418,10 +448,12 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        for stmt in &self.module.body {
+        for (idx, stmt) in self.module.body.iter().enumerate() {
             if matches!(stmt, Stmt::Function { .. }) {
                 continue;
             }
+            self.body_idx = idx;
+            self.emit_dbg_for_body_index(idx);
             self.emit_stmt(stmt)?;
         }
 

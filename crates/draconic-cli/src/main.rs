@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_ast::print_program;
 use draconic_backend_js::emit_js;
-use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
+use draconic_backend_llvm::{build_native_binary, emit_llvm_ir_with_debug, SourceDebug};
 use draconic_conformance::{load_path, run_fixture};
 use draconic_diagnostics::Diagnostic;
 use draconic_frontend::{check_path, compile_path};
@@ -496,7 +496,14 @@ fn build_program(input: &Path, target: Target, out: &Path) -> Result<(), Diagnos
             })?;
         }
         Target::Native => {
-            let ll = emit_llvm_ir(&module)?;
+            let source = fs::read_to_string(input).map_err(|e| {
+                Diagnostic::new(
+                    format!("read {}: {e}", input.display()),
+                    draconic_diagnostics::Span::dummy(),
+                )
+            })?;
+            let debug = SourceDebug::from_path(input, source);
+            let ll = emit_llvm_ir_with_debug(&module, &debug)?;
             build_native_binary(&ll, out)?;
         }
     }
