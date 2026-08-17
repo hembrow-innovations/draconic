@@ -540,6 +540,82 @@ pub const ES_PROMISE_DECLARES: &[AbiFn] = &[
     OBJECT_GET,
 ];
 
+
+// --- Host I/O substrate (H00.02): error codes, handles, path boundary ---
+//
+// Stable integer codes shared with `draconic_rt.h` / `draconic_rt_host.c`.
+// No real fs/tcp/process yet — later H rows open handles and map OS errno.
+
+/// Success.
+pub const HOST_OK: i32 = 0;
+/// Invalid argument (bad UTF-8 path, null out-param, etc.).
+pub const HOST_E_INVAL: i32 = 1;
+/// No such file or directory.
+pub const HOST_E_NOENT: i32 = 2;
+/// Function not implemented / unsupported on this build.
+pub const HOST_E_NOSYS: i32 = 3;
+/// Bad file handle / closed handle.
+pub const HOST_E_BADF: i32 = 4;
+/// Already exists.
+pub const HOST_E_EXIST: i32 = 5;
+/// Permission denied.
+pub const HOST_E_PERM: i32 = 6;
+/// I/O error.
+pub const HOST_E_IO: i32 = 7;
+/// Out of memory.
+pub const HOST_E_NOMEM: i32 = 8;
+/// Resource temporarily unavailable / would block.
+pub const HOST_E_AGAIN: i32 = 9;
+/// Connection error (refused, reset, aborted).
+pub const HOST_E_CONN: i32 = 10;
+/// Address error (in use, not available).
+pub const HOST_E_ADDR: i32 = 11;
+
+/// Sentinel for an unset / closed host handle (`DraconicHostHandle`).
+pub const HOST_HANDLE_INVALID: i64 = -1;
+
+pub const HOST_HANDLE_IS_VALID: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_handle_is_valid",
+    ret: "i32",
+    params: "i64",
+};
+pub const HOST_HANDLE_CLOSE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_handle_close",
+    ret: "i32",
+    params: "i64",
+};
+pub const HOST_PATH_FROM_UTF8: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_from_utf8",
+    ret: "i32",
+    params: "ptr, i64, ptr",
+};
+pub const HOST_PATH_FREE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_free",
+    ret: "void",
+    params: "ptr",
+};
+
+pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
+pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
+pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
+pub const HOST_PATH_FREE_SYMBOL: &str = HOST_PATH_FREE.symbol;
+
+/// Host Runtime ABI symbols (H00.02 scaffold).
+pub const HOST_SYMBOLS: &[&str] = &[
+    HOST_HANDLE_IS_VALID_SYMBOL,
+    HOST_HANDLE_CLOSE_SYMBOL,
+    HOST_PATH_FROM_UTF8_SYMBOL,
+    HOST_PATH_FREE_SYMBOL,
+];
+
+/// Declares used when emitting host I/O calls (H01+).
+pub const HOST_DECLARES: &[AbiFn] = &[
+    HOST_HANDLE_IS_VALID,
+    HOST_HANDLE_CLOSE,
+    HOST_PATH_FROM_UTF8,
+    HOST_PATH_FREE,
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

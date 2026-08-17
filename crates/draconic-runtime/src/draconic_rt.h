@@ -152,6 +152,9 @@ int64_t draconic_rt_symbol_for(const char *key, size_t key_len);
 /* keyFor: malloc'd key bytes + *out_len; NULL if not from Symbol.for. */
 char *draconic_rt_symbol_key_for(int64_t id, size_t *out_len);
 
+/* Host I/O substrate (H00.02): error codes, handles, path boundary. */
+#include "draconic_rt_host.h"
+
 #ifdef __cplusplus
 }
 #endif

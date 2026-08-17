@@ -1,8 +1,12 @@
-//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.10); embed later (N07).
+//! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.10)
+//! + host I/O substrate (H00.02); embed later (N07).
 
 pub mod abi;
 pub use abi::*;
 pub use url::{parse_url, parse_url_js_polyfill, ParsedUrl};
+
+#[cfg(test)]
+mod host_abi_tests;
 
 
 /// L08.01: portable URL parse — scheme / host / path / query / hash.
@@ -172,14 +176,39 @@ pub fn c_runtime_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/draconic_rt.c")
 }
 
+/// Path to the Host I/O substrate C translation unit (`draconic_rt_host.c`, H00.02).
+pub fn c_host_runtime_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("src/draconic_rt_host.c")
+}
+
+/// Path to the Host I/O substrate header (`draconic_rt_host.h`, H00.02).
+pub fn c_host_runtime_header_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("src/draconic_rt_host.h")
+}
+
 /// Path to the public Runtime C header (`draconic_rt.h`).
 pub fn c_runtime_header_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src/draconic_rt.h")
 }
 
+/// All Runtime C translation units linked into `libdraconic_rt.a`.
+pub fn c_runtime_source_paths() -> Vec<PathBuf> {
+    vec![c_runtime_path(), c_host_runtime_path()]
+}
+
 /// C source for the Runtime (embedded for tests and tooling).
 pub fn c_runtime_source() -> &'static str {
     include_str!("draconic_rt.c")
+}
+
+/// C source for the Host I/O substrate (embedded for tests and tooling).
+pub fn c_host_runtime_source() -> &'static str {
+    include_str!("draconic_rt_host.c")
+}
+
+/// C header for the Host I/O substrate (embedded for tests and tooling).
+pub fn c_host_runtime_header_source() -> &'static str {
+    include_str!("draconic_rt_host.h")
 }
 
 /// C header for the Runtime ABI (embedded for tests and tooling).
@@ -194,44 +223,61 @@ pub fn print_hello() {
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
 ///
-/// Returns the path to the static archive. Callers link with the archive path
-/// (or `-L`/`-ldraconic_rt`) instead of recompiling `draconic_rt.c` each time.
+/// Compiles every path from [`c_runtime_source_paths`] (core + host substrate)
+/// into the archive. Callers link with the archive path (or `-L`/`-ldraconic_rt`)
+/// instead of recompiling C sources each time.
 pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
     let clang = find_clang().ok_or_else(|| {
         "clang not found (set CLANG or install a C toolchain)".to_string()
     })?;
     let ar = find_ar().ok_or_else(|| "ar not found (set AR or install binutils)".to_string())?;
 
-    let rt_c = c_runtime_path();
-    if !rt_c.is_file() {
-        return Err(format!("runtime C source missing: {}", rt_c.display()));
+    let sources = c_runtime_source_paths();
+    for src in &sources {
+        if !src.is_file() {
+            return Err(format!("runtime C source missing: {}", src.display()));
+        }
     }
 
     std::fs::create_dir_all(out_dir).map_err(|e| format!("create out_dir failed: {e}"))?;
 
-    let obj = out_dir.join("draconic_rt.o");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
     let archive = out_dir.join("libdraconic_rt.a");
+    let mut objs: Vec<PathBuf> = Vec::with_capacity(sources.len());
 
-    let compile = Command::new(&clang)
-        .arg("-c")
-        .arg(&rt_c)
-        .arg("-o")
-        .arg(&obj)
-        .arg("-I")
-        .arg(c_runtime_header_path().parent().unwrap_or_else(|| Path::new(".")))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("spawn clang failed: {e}"))?;
-    if !compile.status.success() {
-        let stderr = String::from_utf8_lossy(&compile.stderr);
-        return Err(format!("clang -c failed: {stderr}"));
+    for src in &sources {
+        let stem = src
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("draconic_rt");
+        let obj = out_dir.join(format!("{stem}.o"));
+        let compile = Command::new(&clang)
+            .arg("-c")
+            .arg(src)
+            .arg("-o")
+            .arg(&obj)
+            .arg("-I")
+            .arg(&header_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("spawn clang failed: {e}"))?;
+        if !compile.status.success() {
+            let stderr = String::from_utf8_lossy(&compile.stderr);
+            return Err(format!("clang -c {} failed: {stderr}", src.display()));
+        }
+        objs.push(obj);
     }
 
-    let archive_out = Command::new(&ar)
-        .arg("rcs")
-        .arg(&archive)
-        .arg(&obj)
+    let mut ar_cmd = Command::new(&ar);
+    ar_cmd.arg("rcs").arg(&archive);
+    for obj in &objs {
+        ar_cmd.arg(obj);
+    }
+    let archive_out = ar_cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -245,6 +291,29 @@ pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
         return Err(format!("static lib missing after ar: {}", archive.display()));
     }
     Ok(archive)
+}
+
+#[cfg(test)]
+fn test_which_clang() -> Option<PathBuf> {
+    find_clang()
+}
+
+#[cfg(test)]
+fn test_tempfile_dir() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let mut dir = std::env::temp_dir();
+    dir.push(format!(
+        "draconic-runtime-test-{}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
 fn find_clang() -> Option<PathBuf> {
