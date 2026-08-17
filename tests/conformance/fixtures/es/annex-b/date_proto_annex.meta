@@ -1,4 +1,6 @@
 id: es/annex-b/date_proto_annex
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\nfunction\n70\n1970\nThu, 01 Jan 1970 00:00:00 GMT\n1999\n2000\n-1\n70\n1970\nThu, 01 Jan 1970 00:00:00 GMT\n
 js.check: if (tgy !== "function") process.exit(1); if (tsy !== "function") process.exit(2); if (tgm !== "function") process.exit(3); if (gy0 !== full0 - 1900) process.exit(4); if (gm0 !== "Thu, 01 Jan 1970 00:00:00 GMT") process.exit(5); if (y99 !== 1999) process.exit(6); if (y2k !== 2000) process.exit(7); if (yneg !== -1) process.exit(8); if (via !== viaFull - 1900) process.exit(9); if (viaGm !== "Thu, 01 Jan 1970 00:00:00 GMT") process.exit(10); if (typeof tgy !== "string") process.exit(11);

@@ -1,7 +1,7 @@
-//! N08.14.01–N08.14.10 + N08.16.01–N08.16.03: native observations for global builtins + Error
+//! N08.14.01–N08.14.10 + N08.16.01–N08.16.04: native observations for global builtins + Error
 //! ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
 //! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`
-//! + `String.prototype` `substr` / HTML wrappers.
+//! + `String.prototype` `substr` / HTML wrappers + `Date.prototype` `getYear`/`setYear`/`toGMTString`.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -26,6 +26,8 @@
 //!   `["__proto__"]`; `Object.getPrototypeOf`; `hasOwnProperty.call`
 //! - E18.03: `String.prototype.substr` + HTML wrappers (`anchor`/`big`/…/`sup`);
 //!   `typeof` method; `String.prototype.substr.call`
+//! - E18.04: `Date.prototype.getYear` / `setYear` / `toGMTString` (+ `getFullYear` for
+//!   fixture); `typeof` on `Date.prototype.*`; `.call` this-binding
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -110,6 +112,12 @@ enum BuiltinId {
     Date,
     DateNow,
     DateUtc,
+    DatePrototype,
+    /// Annex B / fixture Date.prototype methods (unbound; `.call` supplies this).
+    DateGetYear,
+    DateSetYear,
+    DateToGmtString,
+    DateGetFullYear,
     RegExp,
     Map,
     Set,
@@ -1271,10 +1279,7 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
 
 fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, ()> {
     match recv {
-        JsVal::DateInst { ms } => match key {
-            "getTime" | "valueOf" if args.is_empty() => Ok(JsVal::Num(*ms)),
-            _ => Err(()),
-        },
+        JsVal::DateInst { ms } => eval_date_method(ms, key, args),
         JsVal::Str(s) => eval_string_method(s, key, args),
         JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
             let target = args.first().ok_or(())?;
@@ -1286,6 +1291,13 @@ fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal
             let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
             let method = string_annex_method_name(*id).ok_or(())?;
             eval_string_method(&this_s, method, &rest)
+        }
+        JsVal::Builtin(id) if key == "call" && is_date_proto_method(*id) => {
+            let this_arg = args.first().ok_or(())?;
+            let mut this = this_arg.clone();
+            let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
+            let method = date_proto_method_name(*id).ok_or(())?;
+            eval_method_call(&mut this, method, &rest)
         }
         JsVal::Builtin(BuiltinId::HasOwnProperty) if key == "call" => {
             let this_arg = args.first().ok_or(())?;
@@ -1679,6 +1691,140 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
     let doy = (153 * mp as u64 + 2) / 5 + d as u64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe as i64 - 719_468
+}
+
+/// Civil (y, m, d) from days since Unix epoch. Howard Hinnant algorithm.
+fn civil_from_days(z: i64) -> (i32, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
+const MS_PER_DAY: i64 = 86_400_000;
+
+/// Split UTC ms into (day number since epoch, time-within-day ms). Fixture uses UTC as local.
+fn split_date_ms(ms: f64) -> Result<(i64, i64), ()> {
+    if !ms.is_finite() {
+        return Err(());
+    }
+    let t = ms.trunc() as i64;
+    Ok((t.div_euclid(MS_PER_DAY), t.rem_euclid(MS_PER_DAY)))
+}
+
+fn date_full_year(ms: f64) -> Result<f64, ()> {
+    let (day, _) = split_date_ms(ms)?;
+    let (y, _, _) = civil_from_days(day);
+    Ok(y as f64)
+}
+
+/// Annex B.2.4 Date.prototype.getYear: YearFromTime(t) − 1900 (UTC-as-local for fixture).
+fn date_get_year(ms: f64) -> Result<f64, ()> {
+    Ok(date_full_year(ms)? - 1900.0)
+}
+
+/// Annex B.2.5 Date.prototype.setYear: MakeFullYear for 0–99 → 1900+y; keep mon/day/tod.
+fn date_set_year(ms: &mut f64, year_arg: &JsVal) -> Result<f64, ()> {
+    let y = to_number(year_arg)?;
+    if y.is_nan() {
+        *ms = f64::NAN;
+        return Ok(f64::NAN);
+    }
+    if !ms.is_finite() {
+        return Err(());
+    }
+    let (day, tod) = split_date_ms(*ms)?;
+    let (_oy, mon, dom) = civil_from_days(day);
+    let yi = y.trunc() as i64;
+    let yyyy = if (0..=99).contains(&yi) {
+        1900 + yi
+    } else {
+        yi
+    };
+    let new_day = days_from_civil(yyyy as i32, mon, dom);
+    let new_ms = (new_day * MS_PER_DAY + tod) as f64;
+    *ms = new_ms;
+    Ok(new_ms)
+}
+
+/// ECMA-262 Date.prototype.toUTCString / Annex B toGMTString.
+fn date_to_gmt_string(ms: f64) -> Result<String, ()> {
+    if !ms.is_finite() {
+        return Ok("Invalid Date".into());
+    }
+    let (day, tod) = split_date_ms(ms)?;
+    let (y, m, d) = civil_from_days(day);
+    // Epoch day 0 = Thursday.
+    let wd = day.rem_euclid(7) as usize;
+    const WDAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let hour = tod / 3_600_000;
+    let min = (tod % 3_600_000) / 60_000;
+    let sec = (tod % 60_000) / 1000;
+    Ok(format!(
+        "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
+        WDAYS[wd],
+        d,
+        MONTHS[(m - 1) as usize],
+        y,
+        hour,
+        min,
+        sec
+    ))
+}
+
+fn date_proto_method_builtin(key: &str) -> Option<BuiltinId> {
+    match key {
+        "getYear" => Some(BuiltinId::DateGetYear),
+        "setYear" => Some(BuiltinId::DateSetYear),
+        "toGMTString" => Some(BuiltinId::DateToGmtString),
+        "getFullYear" => Some(BuiltinId::DateGetFullYear),
+        "getTime" | "valueOf" => None, // instance-only in current fixtures
+        _ => None,
+    }
+}
+
+fn is_date_proto_method(id: BuiltinId) -> bool {
+    matches!(
+        id,
+        BuiltinId::DateGetYear
+            | BuiltinId::DateSetYear
+            | BuiltinId::DateToGmtString
+            | BuiltinId::DateGetFullYear
+    )
+}
+
+fn date_proto_method_name(id: BuiltinId) -> Option<&'static str> {
+    match id {
+        BuiltinId::DateGetYear => Some("getYear"),
+        BuiltinId::DateSetYear => Some("setYear"),
+        BuiltinId::DateToGmtString => Some("toGMTString"),
+        BuiltinId::DateGetFullYear => Some("getFullYear"),
+        _ => None,
+    }
+}
+
+fn eval_date_method(ms: &mut f64, key: &str, args: &[JsVal]) -> Result<JsVal, ()> {
+    match key {
+        "getTime" | "valueOf" if args.is_empty() => Ok(JsVal::Num(*ms)),
+        "getFullYear" if args.is_empty() => Ok(JsVal::Num(date_full_year(*ms)?)),
+        "getYear" if args.is_empty() => Ok(JsVal::Num(date_get_year(*ms)?)),
+        "toGMTString" if args.is_empty() => Ok(JsVal::Str(date_to_gmt_string(*ms)?)),
+        "setYear" => {
+            let arg = args.first().unwrap_or(&JsVal::Undef);
+            Ok(JsVal::Num(date_set_year(ms, arg)?))
+        }
+        _ => Err(()),
+    }
 }
 
 fn to_string_arg(v: &JsVal) -> Result<String, ()> {
@@ -2215,6 +2361,9 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
         JsVal::Builtin(BuiltinId::String) if key == "prototype" => {
             Ok(JsVal::Builtin(BuiltinId::StringPrototype))
         }
+        JsVal::Builtin(BuiltinId::Date) if key == "prototype" => {
+            Ok(JsVal::Builtin(BuiltinId::DatePrototype))
+        }
         JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
             Ok(JsVal::Builtin(BuiltinId::ObjectGetPrototypeOf))
         }
@@ -2225,6 +2374,9 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             .map(JsVal::Builtin)
             .ok_or(()),
         JsVal::Str(_) => string_annex_method_builtin(key)
+            .map(JsVal::Builtin)
+            .ok_or(()),
+        JsVal::Builtin(BuiltinId::DatePrototype) => date_proto_method_builtin(key)
             .map(JsVal::Builtin)
             .ok_or(()),
         JsVal::Builtin(BuiltinId::Array) if key == "isArray" => {
@@ -2253,15 +2405,13 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             },
             _ => Err(()),
         },
-        JsVal::DateInst { ms } => match key {
-            "getTime" | "valueOf" => {
-                // Bound-style: bare property get is not a number; methods via eval_method_call.
-                // typeof d.getTime is not in fixture; only call form is used.
-                let _ = ms;
-                Err(())
-            }
-            _ => Err(()),
-        },
+        JsVal::DateInst { ms } => {
+            let _ = ms;
+            // Bound methods via eval_method_call; bare get yields callable for typeof paths.
+            date_proto_method_builtin(key)
+                .map(JsVal::Builtin)
+                .ok_or(())
+        }
         JsVal::RegExpInst { source, flags } => match key {
             "source" => Ok(JsVal::Str(source.clone())),
             "flags" => Ok(JsVal::Str(flags.clone())),
@@ -2384,6 +2534,7 @@ fn typeof_str(v: &JsVal) -> String {
             BuiltinId::GlobalThis
                 | BuiltinId::ObjectPrototype
                 | BuiltinId::StringPrototype
+                | BuiltinId::DatePrototype
                 | BuiltinId::Json,
         ) => "object".into(),
         JsVal::Builtin(
@@ -2432,6 +2583,10 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::Date
             | BuiltinId::DateNow
             | BuiltinId::DateUtc
+            | BuiltinId::DateGetYear
+            | BuiltinId::DateSetYear
+            | BuiltinId::DateToGmtString
+            | BuiltinId::DateGetFullYear
             | BuiltinId::RegExp
             | BuiltinId::Map
             | BuiltinId::Set
@@ -2861,7 +3016,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.03 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.04 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -3247,6 +3402,36 @@ mod tests {
             r#"c"b\00""#,
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+    }
+
+    #[test]
+    fn date_proto_annex_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/date_proto_annex.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "function",
+            "Thu, 01 Jan 1970 00:00:00 GMT",
+            "double 70",
+            "double 1970",
+            "double 1999",
+            "double 2000",
+            "double -1",
+        ] {
+            assert!(
+                ir.contains(s)
+                    || (s.starts_with("double ")
+                        && ir.contains(&s["double ".len()..])
+                        && ir.contains("double")),
+                "missing {s:?} in emit:\n{ir}"
+            );
         }
     }
 }
