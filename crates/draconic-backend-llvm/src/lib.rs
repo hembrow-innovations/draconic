@@ -142,7 +142,8 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Annex B block-level function declarations** (`{ function f(){…} }`) — N08.16.13
 /// - **`var` declarations** (hoist/redeclare/uninit) — N08.16.14
 /// - **`var` in `for` heads** (for-in/of/classic + Annex B.3.5 init) — N08.16.15
-/// - **Annex B VariableStatements in Catch** (`catch (e) { var e … }`) — N08.16.17
+
+/// - **`arguments` object** (`arguments.length` / `arguments[i]`) — N08.16.24
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -3209,6 +3210,37 @@ mod tests {
     }
 
     #[test]
+    fn es_arguments_object_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/es/annex-b/arguments_object.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "arguments_object fixture must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 results:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-16-24-arguments").expect("workdir");
+        let bin = dir.join("arguments_object");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "5\n32\n1\n8\n3\n6\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn es_var_decl_prints_native() {
         let ir = emit_llvm_ir(&module_of(include_str!(
             "../../../tests/conformance/fixtures/es/annex-b/var_decl.drac"
@@ -3603,3 +3635,4 @@ mod tests {
     }
 
 }
+

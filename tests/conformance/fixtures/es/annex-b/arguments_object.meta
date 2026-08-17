@@ -1,4 +1,6 @@
 id: es/annex-b/arguments_object
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 5\n32\n1\n8\n3\n6\n
 js.check: if (a !== 5) process.exit(1); if (b !== 32) process.exit(2); if (c !== 1) process.exit(3); if (d !== 8) process.exit(4); if (e !== 3) process.exit(5); if (p !== 6) process.exit(6);
