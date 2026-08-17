@@ -1,4 +1,6 @@
 id: es/annex-b/destructure_defaults
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\n20\n21\n3\n4\n7\n1\n200\n201\n5\n8\n13\n9\n11\n2\n13\n1\n40\n41\n50\n50\n
 js.check: if (a !== 1) process.exit(1); if (b !== 20) process.exit(2); if (sum !== 21) process.exit(3); if (c !== 3) process.exit(4); if (d !== 4) process.exit(5); if (sum2 !== 7) process.exit(6); if (x !== 1) process.exit(7); if (y !== 200) process.exit(8); if (sum3 !== 201) process.exit(9); if (p !== 5) process.exit(10); if (q !== 8) process.exit(11); if (sum4 !== 13) process.exit(12); if (n !== 9) process.exit(13); if (u !== 11) process.exit(14); if (v !== 2) process.exit(15); if (s !== 13) process.exit(16); if (m !== 1) process.exit(17); if (n2 !== 40) process.exit(18); if (s2 !== 41) process.exit(19); if (k !== 50) process.exit(20); if (km !== 50) process.exit(21);

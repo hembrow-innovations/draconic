@@ -5,6 +5,7 @@ mod es_builtins;
 mod es_call_spread;
 mod es_classes;
 mod es_coercion;
+mod es_destructure_defaults;
 mod es_encoding;
 mod es_eval;
 mod es_exceptions;
@@ -35,6 +36,9 @@ use es_builtins::{emit_es_builtins, is_es_builtins_module};
 use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
 use es_coercion::{emit_es_coercion, is_es_coercion_module};
+use es_destructure_defaults::{
+    emit_es_destructure_defaults, is_es_destructure_defaults_module,
+};
 use es_encoding::{emit_es_encoding, is_es_encoding_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
@@ -195,8 +199,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     if is_es_classes_module(module) {
         return emit_es_classes(module);
     }
-    if is_es_object_destructure_module(module) {
-        return emit_es_object_destructure(module);
+
+    if is_es_destructure_defaults_module(module) {
+        return emit_es_destructure_defaults(module);
     }
     if is_es_objects_module(module) {
         return emit_es_objects(module);
