@@ -527,7 +527,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | U01 | done | compiler | `draconic test` runner integration | `crates/draconic-cli` |
 | U02 | done | compiler | Diagnostics: span, message, pretty print | `crates/draconic-diagnostics` |
 | U03 | done | compiler | Source maps for JS emit | `crates/draconic-backend-js` |
-| U04 | todo | compiler | `draconic check`: typecheck + bind, no emit; exit non-zero on errors | `crates/draconic-cli` |
+| U04 | done | compiler | `draconic check`: typecheck + bind, no emit; exit non-zero on errors | `crates/draconic-cli` |
 | U05 | todo | compiler | Formatter: `draconic fmt` idempotent on fixtures; stable style | `crates/draconic-cli`, `tests/integration` |
 | U06 | todo | compiler | LSP basics: diagnostics, hover types, go-to-definition | `crates/draconic-lsp` (or cli), `tests/integration` |
 | U07 | todo | native | Native debug info: DWARF (or LLVM equivalent) mapping Draconic source lines | `crates/draconic-backend-llvm`, `tests/integration` |

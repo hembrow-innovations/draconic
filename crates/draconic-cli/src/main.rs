@@ -7,7 +7,7 @@ use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
 use draconic_conformance::{load_path, run_fixture};
 use draconic_diagnostics::Diagnostic;
-use draconic_frontend::compile_path;
+use draconic_frontend::{check_path, compile_path};
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
@@ -19,6 +19,7 @@ fn main() -> ExitCode {
     let cmd = args.remove(0);
     match cmd.as_str() {
         "parse" => cmd_parse(&args),
+        "check" => cmd_check(&args),
         "build" => cmd_build(&args),
         "test" => cmd_test(&args),
         "help" | "-h" | "--help" => {
@@ -57,6 +58,29 @@ fn cmd_parse(args: &[String]) -> ExitCode {
             print!("{dump}");
             ExitCode::SUCCESS
         }
+        Err(d) => {
+            eprintln!("error: {d}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_check(args: &[String]) -> ExitCode {
+    let path = match args.first() {
+        Some(p) if p != "-h" && p != "--help" => PathBuf::from(p),
+        _ => {
+            eprintln!("usage: draconic check <file>");
+            return ExitCode::from(2);
+        }
+    };
+
+    if args.len() > 1 {
+        eprintln!("usage: draconic check <file>");
+        return ExitCode::from(2);
+    }
+
+    match check_path(&path) {
+        Ok(_) => ExitCode::SUCCESS,
         Err(d) => {
             eprintln!("error: {d}");
             ExitCode::from(1)
@@ -278,6 +302,7 @@ draconic — the Draconic toolchain
 
 Usage:
   draconic parse <file>                          Parse a Program and print the AST dump
+  draconic check <file>                          Typecheck + bind a Program (no emit)
   draconic build --target js|native <file> [-o <out>]
                                                  Compile a Program to JS or a native binary
   draconic test <path>                           Run conformance fixtures (dir or .drac file)
