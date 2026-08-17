@@ -541,6 +541,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.39 | done | native | Real native observations: static private methods (E18.38) — `es/annex-b/static_private_methods` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/static_private_methods`, `crates/draconic-backend-llvm` |
 | N08.16.40 | done | native | Real native observations: private accessors (E18.39) — `es/annex-b/private_accessors` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/annex-b/private_accessors`, `crates/draconic-backend-llvm` |
 | N08.16.41 | done | native | Real native observations: private brand check `#x in obj` (E18.40) — `es/annex-b/private_in` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/private_in`, `crates/draconic-backend-llvm` |
+| N08.16.42 | done | native | Real native observations: class static initialization blocks (E18.41) — `es/annex-b/static_blocks` asserts program results (`native.stdout`), not B08 hello | fixture `es/annex-b/static_blocks`, `crates/draconic-backend-llvm` |
 | N08.17 | done | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
