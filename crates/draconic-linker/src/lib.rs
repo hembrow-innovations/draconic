@@ -1332,7 +1332,8 @@ fn rewrite_stmt_dynamic_imports(stmt: &mut Stmt, ctx: &mut RewriteCtx<'_>) -> Re
         | Stmt::ExportNamedDeclaration { .. }
         | Stmt::ExportDefaultDeclaration { .. }
         | Stmt::ExportAllDeclaration { .. }
-        | Stmt::TypeAlias { .. } => {}
+        | Stmt::TypeAlias { .. }
+        | Stmt::ExternFunctionDeclaration { .. } => {}
     }
     Ok(())
 }
@@ -2054,6 +2055,18 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
             *span = spans.next();
             name.span = spans.next();
         }
+        Stmt::ExternFunctionDeclaration {
+            abi,
+            name,
+            params,
+            span,
+            ..
+        } => {
+            *span = spans.next();
+            abi.span = spans.next();
+            name.span = spans.next();
+            uniqueify_params_spans(params, spans);
+        }
     }
 }
 
@@ -2696,6 +2709,7 @@ fn stmt_has_top_level_await(stmt: &Stmt) -> bool {
         | Stmt::ExportDefaultDeclaration { .. }
         | Stmt::ExportAllDeclaration { .. }
         | Stmt::TypeAlias { .. }
+        | Stmt::ExternFunctionDeclaration { .. }
         | Stmt::Return { argument: None, .. } => false,
     }
 }
@@ -3621,7 +3635,8 @@ fn rename_stmt(stmt: &mut Stmt, renames: &HashMap<String, String>, scopes: &mut 
         | Stmt::ExportNamedDeclaration { .. }
         | Stmt::ExportDefaultDeclaration { .. }
         | Stmt::ExportAllDeclaration { .. }
-        | Stmt::TypeAlias { .. } => {}
+        | Stmt::TypeAlias { .. }
+        | Stmt::ExternFunctionDeclaration { .. } => {}
         Stmt::Block { body, .. } => {
             scopes.push();
             // declare nested first for TDZ-ish list, then rename bodies
@@ -4120,7 +4135,8 @@ fn stmt_span_approx(stmt: &Stmt) -> Span {
         | Stmt::ExportNamedDeclaration { span, .. }
         | Stmt::ExportDefaultDeclaration { span, .. }
         | Stmt::ExportAllDeclaration { span, .. }
-        | Stmt::TypeAlias { span, .. } => *span,
+        | Stmt::TypeAlias { span, .. }
+        | Stmt::ExternFunctionDeclaration { span, .. } => *span,
     }
 }
 

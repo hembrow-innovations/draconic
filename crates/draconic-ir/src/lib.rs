@@ -641,7 +641,8 @@ fn ast_stmt_span(stmt: &AstStmt) -> Span {
         | AstStmt::ExportNamedDeclaration { span, .. }
         | AstStmt::ExportDefaultDeclaration { span, .. }
         | AstStmt::ExportAllDeclaration { span, .. }
-        | AstStmt::TypeAlias { span, .. } => *span,
+        | AstStmt::TypeAlias { span, .. }
+        | AstStmt::ExternFunctionDeclaration { span, .. } => *span,
     }
 }
 
@@ -1023,6 +1024,8 @@ fn lower_stmt(
         }
         // Type aliases are erased (T02); no runtime value.
         AstStmt::TypeAlias { .. } => None,
+        // F06.03 will lower extern decls to IR/ABI; erase until then.
+        AstStmt::ExternFunctionDeclaration { .. } => None,
     }
 }
 

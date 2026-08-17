@@ -241,6 +241,11 @@ impl Parser {
             body.push(self.parse_function_decl()?);
             return Ok(());
         }
+        // F06.01: `extern "C" function name(…): T;` (declaration form only).
+        if self.is_extern_function_start() {
+            body.push(self.parse_extern_function_decl()?);
+            return Ok(());
+        }
         body.push(self.parse_stmt()?);
         Ok(())
     }
@@ -1171,6 +1176,72 @@ impl Parser {
         Ok(Stmt::Switch {
             discriminant,
             cases,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `extern "C" function …` — contextual `extern` + ABI string + `function`.
+    fn is_extern_function_start(&self) -> bool {
+        matches!(self.current().kind, TokenKind::Ident(ref n) if n == "extern")
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                Some(TokenKind::String(_))
+            )
+            && matches!(
+                self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                Some(TokenKind::Function)
+            )
+    }
+
+    /// `extern "C" function name(params): ret?;` — FFI decl, no body (F06.01).
+    fn parse_extern_function_decl(&mut self) -> Result<Stmt, Diagnostic> {
+        let start = self.current().span.start.0;
+        // contextual `extern`
+        self.bump();
+        let abi = self.expect_string_lit()?;
+        if abi.value.to_string_lossy() != "C" {
+            return Err(Diagnostic::new(
+                format!(
+                    "unsupported extern ABI {:?}; only \"C\" is supported",
+                    abi.value.to_string_lossy()
+                ),
+                abi.span,
+            ));
+        }
+        self.expect(&TokenKind::Function)?;
+        if self.check(&TokenKind::Star) {
+            return Err(Diagnostic::new(
+                "extern function declaration cannot be a generator".to_string(),
+                self.current_span(),
+            ));
+        }
+        let name_tok = self.expect_ident()?;
+        let name = Ident {
+            name: name_tok.ident_name(),
+            span: name_tok.span,
+        };
+        if self.check(&TokenKind::Lt) {
+            return Err(Diagnostic::new(
+                "extern function declaration cannot have type parameters".to_string(),
+                self.current_span(),
+            ));
+        }
+        self.expect(&TokenKind::LParen)?;
+        let params = self.parse_param_list()?;
+        self.expect(&TokenKind::RParen)?;
+        let return_type = self.parse_optional_type_ann()?;
+        if self.check(&TokenKind::LBrace) {
+            return Err(Diagnostic::new(
+                "extern function declaration cannot have a body".to_string(),
+                self.current_span(),
+            ));
+        }
+        let end = self.expect(&TokenKind::Semi)?.span.end.0;
+        Ok(Stmt::ExternFunctionDeclaration {
+            abi,
+            name,
+            params,
+            return_type,
             span: Span::new(start, end),
         })
     }
@@ -2126,6 +2197,14 @@ impl Parser {
         }
         if self.check(&TokenKind::LBracket) {
             return self.parse_tuple_type();
+        }
+        // `void` is a keyword (unary op) but also a type name (TS / C FFI returns).
+        if self.check(&TokenKind::Void) {
+            let sp = self.bump().span;
+            return Ok(draconic_ast::TypeAnn::Named {
+                name: "void".into(),
+                span: sp,
+            });
         }
         let err_span = self.current().span;
         let name_tok = self.expect_ident().map_err(|_| {
@@ -7228,7 +7307,8 @@ fn stmt_span(stmt: &Stmt) -> Span {
         | Stmt::ExportNamedDeclaration { span, .. }
         | Stmt::ExportDefaultDeclaration { span, .. }
         | Stmt::ExportAllDeclaration { span, .. }
-        | Stmt::TypeAlias { span, .. } => *span,
+        | Stmt::TypeAlias { span, .. }
+        | Stmt::ExternFunctionDeclaration { span, .. } => *span,
     }
 }
 
@@ -7747,6 +7827,112 @@ Program
           Number 1
 "
         );
+    }
+
+
+    /// F06.01: `extern "C" function` declarations (no body).
+    #[test]
+    fn parse_extern_c_function_decl() {
+        let dump =
+            parse_and_dump(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        assert_eq!(
+            dump,
+            "\
+Program
+  ExternFunctionDeclaration
+    abi: \"C\"
+    name: add
+    params:
+      name: a
+        type:
+          NamedType i32
+      name: b
+        type:
+          NamedType i32
+    returnType:
+      NamedType i32
+"
+        );
+    }
+
+    #[test]
+    fn parse_extern_c_function_pointer_param() {
+        let dump = parse_and_dump(r#"extern "C" function puts(s: *u8): i32;"#).unwrap();
+        assert_eq!(
+            dump,
+            "\
+Program
+  ExternFunctionDeclaration
+    abi: \"C\"
+    name: puts
+    params:
+      name: s
+        type:
+          PointerType
+            NamedType u8
+    returnType:
+      NamedType i32
+"
+        );
+    }
+
+    #[test]
+    fn parse_extern_c_function_no_params_no_return() {
+        let dump = parse_and_dump(r#"extern "C" function quit();"#).unwrap();
+        assert_eq!(
+            dump,
+            "\
+Program
+  ExternFunctionDeclaration
+    abi: \"C\"
+    name: quit
+"
+        );
+    }
+
+    #[test]
+    fn parse_extern_c_function_void_return() {
+        let dump = parse_and_dump(r#"extern "C" function free(p: *u8): void;"#).unwrap();
+        assert!(dump.contains("ExternFunctionDeclaration"), "got:\n{dump}");
+        assert!(dump.contains("returnType:"), "got:\n{dump}");
+        assert!(dump.contains("NamedType void"), "got:\n{dump}");
+    }
+
+    #[test]
+    fn parse_extern_c_function_rejects_body() {
+        let err = parse(r#"extern "C" function f(): i32 {}"#).unwrap_err();
+        assert!(
+            err.message.contains("cannot have a body"),
+            "got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn parse_extern_c_function_rejects_generator() {
+        let err = parse(r#"extern "C" function* g(): i32;"#).unwrap_err();
+        assert!(
+            err.message.contains("generator"),
+            "got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn parse_extern_c_function_rejects_non_c_abi() {
+        let err = parse(r#"extern "stdcall" function f(): i32;"#).unwrap_err();
+        assert!(
+            err.message.contains("unsupported extern ABI"),
+            "got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn parse_extern_remains_identifier() {
+        let dump = parse_and_dump("let extern = 1;").unwrap();
+        assert!(dump.contains("name: extern"), "got:\n{dump}");
+        assert!(!dump.contains("ExternFunctionDeclaration"), "got:\n{dump}");
     }
 
     #[test]

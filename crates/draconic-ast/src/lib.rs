@@ -363,6 +363,16 @@ pub enum Stmt {
         ty: TypeAnn,
         span: Span,
     },
+    /// `extern "C" function name(params): ret?;` — FFI function declaration (no body; F06).
+    ExternFunctionDeclaration {
+        /// ABI string literal (v1: `"C"`).
+        abi: StringLit,
+        name: Ident,
+        params: Vec<Param>,
+        /// Optional return type annotation (`: T` after the parameter list).
+        return_type: Option<TypeAnn>,
+        span: Span,
+    },
 }
 
 /// One type parameter: `T` in `function f<T>` / `type Box<T>`.
@@ -1485,6 +1495,26 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             indent(level + 1, out);
             out.push_str("type:\n");
             dump_type_ann(ty, level + 2, out);
+        }
+        Stmt::ExternFunctionDeclaration {
+            abi,
+            name,
+            params,
+            return_type,
+            ..
+        } => {
+            indent(level, out);
+            out.push_str("ExternFunctionDeclaration\n");
+            indent(level + 1, out);
+            out.push_str(&format!("abi: {:?}\n", abi.value.to_string_lossy()));
+            indent(level + 1, out);
+            out.push_str(&format!("name: {}\n", name.name));
+            dump_params(params, level + 1, out);
+            if let Some(ret) = return_type {
+                indent(level + 1, out);
+                out.push_str("returnType:\n");
+                dump_type_ann(ret, level + 2, out);
+            }
         }
         Stmt::ClassDeclaration {
             name,

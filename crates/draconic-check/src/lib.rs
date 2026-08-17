@@ -832,7 +832,8 @@ fn stmt_span(stmt: &Stmt) -> Span {
         | Stmt::ExportNamedDeclaration { span, .. }
         | Stmt::ExportDefaultDeclaration { span, .. }
         | Stmt::ExportAllDeclaration { span, .. }
-        | Stmt::TypeAlias { span, .. } => *span,
+        | Stmt::TypeAlias { span, .. }
+        | Stmt::ExternFunctionDeclaration { span, .. } => *span,
     }
 }
 
@@ -1751,6 +1752,8 @@ impl Binder {
                 Ok(())
             }
             Stmt::TypeAlias { .. } => Ok(()),
+            // F06.02 will bind/check extern signatures; parse-only for F06.01.
+            Stmt::ExternFunctionDeclaration { .. } => Ok(()),
             Stmt::Empty { .. } => Ok(()),
             Stmt::Block { body, .. } => {
                 self.push_scope();
@@ -3053,7 +3056,8 @@ impl<'a> Checker<'a> {
                     | Stmt::ExportNamedDeclaration { span, .. }
                     | Stmt::ExportDefaultDeclaration { span, .. }
                     | Stmt::ExportAllDeclaration { span, .. }
-                    | Stmt::TypeAlias { span, .. } => *span,
+                    | Stmt::TypeAlias { span, .. }
+                    | Stmt::ExternFunctionDeclaration { span, .. } => *span,
                 },
             )),
         }
@@ -3266,6 +3270,8 @@ impl<'a> Checker<'a> {
                 Ok(())
             }
             Stmt::TypeAlias { .. } => Ok(()),
+            // F06.02 will check extern signatures; accept parse surface for now.
+            Stmt::ExternFunctionDeclaration { .. } => Ok(()),
             Stmt::Let {
                 kind,
                 binding,
@@ -8269,7 +8275,8 @@ mod tests {
                 } => walk_expr(init, name, out),
                 Stmt::Let { init: None, .. }
                 | Stmt::Empty { .. }
-                | Stmt::TypeAlias { .. } => {}
+                | Stmt::TypeAlias { .. }
+                | Stmt::ExternFunctionDeclaration { .. } => {}
                 Stmt::Block { body, .. } => {
                     for s in body {
                         walk_stmt(s, name, out);
