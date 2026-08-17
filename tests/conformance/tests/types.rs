@@ -1576,3 +1576,52 @@ fn excess_prop_ok_runs() {
         );
     }
 }
+
+// --- F06.02: extern "C" signature checking (native ABI types only) ---
+
+#[test]
+fn extern_c_ok_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "types/extern_c_ok"),
+        "missing types/extern_c_ok fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn extern_c_ok_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "types/extern_c_ok")
+        .expect("types/extern_c_ok");
+    assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn extern_reject_fixtures_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    for want in [
+        "types/reject/extern_string_param",
+        "types/reject/extern_number_param",
+        "types/reject/extern_any_param",
+        "types/reject/extern_shape_param",
+        "types/reject/extern_unannotated_param",
+    ] {
+        assert!(
+            ids.iter().any(|id| *id == want),
+            "missing {want} fixture, got {ids:?}"
+        );
+    }
+}

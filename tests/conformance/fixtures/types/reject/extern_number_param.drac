@@ -1,0 +1,1 @@
+extern "C" function f(n: number): void;

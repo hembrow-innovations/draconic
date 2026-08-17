@@ -1,0 +1,4 @@
+extern "C" function add(a: i32, b: i32): i32;
+extern "C" function puts(s: *u8): i32;
+extern "C" function free(p: *u8): void;
+extern "C" function quit();

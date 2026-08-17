@@ -717,7 +717,7 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 | F05.02 | todo | native | Call dynamic symbol; missing lib → typed error | `tests/conformance` fixtures `ffi/link_dynamic` |
 | F06 | todo | compiler | Manual `extern` decls: parse + check signatures; IR/ABI surface | `crates/draconic-parser`, `crates/draconic-check`, `tests/conformance/types` |
 | F06.01 | done | compiler | Parse `extern "C"` function decls | `crates/draconic-parser` |
-| F06.02 | todo | compiler | Check extern signatures (native types only; reject JS-only types) | `crates/draconic-check` |
+| F06.02 | done | compiler | Check extern signatures (native types only; reject JS-only types) | `crates/draconic-check` |
 | F06.03 | todo | compiler | Lower extern decls to IR/ABI surface for LLVM | `crates/draconic-ir`, `crates/draconic-backend-llvm` |
 | F07 | todo | compiler | Bindgen-ish: generate externs from C header subset | `tests/integration`, `crates/draconic-cli` |
 | F07.01 | todo | compiler | Parse C header subset: functions with scalar/pointer params | `crates/draconic-cli`, `tests/integration` |

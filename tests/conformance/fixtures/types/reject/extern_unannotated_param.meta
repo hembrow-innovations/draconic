@@ -1,0 +1,4 @@
+id: types/reject/extern_unannotated_param
+targets: js
+js.error: must have a type annotation
+js.error_code: E0307

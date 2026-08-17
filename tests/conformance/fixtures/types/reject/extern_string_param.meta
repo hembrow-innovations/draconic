@@ -1,0 +1,4 @@
+id: types/reject/extern_string_param
+targets: js
+js.error: extern parameter
+js.error_code: E0307

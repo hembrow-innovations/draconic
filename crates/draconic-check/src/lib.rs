@@ -271,6 +271,11 @@ fn span_contains_offset(span: Span, offset: u32) -> bool {
     offset >= span.start.0 && offset <= span.end.0
 }
 
+/// `void` type annotation (keyword parsed as Named "void"); valid only as extern return (F06.02).
+fn is_void_type_ann(ann: &TypeAnn) -> bool {
+    matches!(ann, TypeAnn::Named { name, .. } if name == "void")
+}
+
 /// Bound program with inferred / checked types.
 #[derive(Debug)]
 pub struct CheckedProgram {
@@ -959,8 +964,12 @@ where
     for stmt in stmts {
         if top_level {
             let s = peel_labels(stmt);
-            if let Stmt::FunctionDeclaration { name, .. } = s {
-                out.push((name.name.clone(), name.span));
+            match s {
+                Stmt::FunctionDeclaration { name, .. }
+                | Stmt::ExternFunctionDeclaration { name, .. } => {
+                    out.push((name.name.clone(), name.span));
+                }
+                _ => {}
             }
         }
         collect_var_declared_names_stmt(stmt, &mut out);
@@ -1336,6 +1345,11 @@ impl Binder {
                         return Ok(());
                     }
                 }
+                self.declare(name.name.clone(), name.span, BindingKind::Function)?;
+                Ok(())
+            }
+            // F06.02: `extern "C" function` binds like a function declaration (no body).
+            Stmt::ExternFunctionDeclaration { name, .. } => {
                 self.declare(name.name.clone(), name.span, BindingKind::Function)?;
                 Ok(())
             }
@@ -1787,7 +1801,7 @@ impl Binder {
                 Ok(())
             }
             Stmt::TypeAlias { .. } => Ok(()),
-            // F06.02 will bind/check extern signatures; parse-only for F06.01.
+            // F06.02: name declared in list pass; no body or param scope to bind.
             Stmt::ExternFunctionDeclaration { .. } => Ok(()),
             Stmt::Empty { .. } => Ok(()),
             Stmt::Block { body, .. } => {
@@ -3309,8 +3323,14 @@ impl<'a> Checker<'a> {
                 Ok(())
             }
             Stmt::TypeAlias { .. } => Ok(()),
-            // F06.02 will check extern signatures; accept parse surface for now.
-            Stmt::ExternFunctionDeclaration { .. } => Ok(()),
+            // F06.02: bind as function; params/return must be native ABI types.
+            Stmt::ExternFunctionDeclaration {
+                name,
+                params,
+                return_type,
+                span,
+                ..
+            } => self.check_extern_function_declaration(name, params, return_type, *span),
             Stmt::Let {
                 kind,
                 binding,
@@ -5596,6 +5616,118 @@ impl<'a> Checker<'a> {
         };
         let sym = self.bound.symbol(sym_id);
         sym.name == name && sym.span == Span::dummy()
+    }
+
+    /// F06.02: check an `extern "C" function` declaration.
+    ///
+    /// - Binds the name as a callable `function`.
+    /// - Every parameter must be annotated with a native scalar or pointer type.
+    /// - Return type is optional / `void`, or native scalar / pointer.
+    /// - JS-only types (`string`, `number`, `any`, shapes, …) are rejected.
+    /// - Records a full `FnSig` so later call sites get arity/arg checking.
+    fn check_extern_function_declaration(
+        &mut self,
+        name: &draconic_ast::Ident,
+        params: &[Param],
+        return_type: &Option<TypeAnn>,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        let Some(id) = self
+            .bound
+            .symbols()
+            .iter()
+            .find(|s| s.span == name.span)
+            .map(|s| s.id)
+        else {
+            return Err(Diagnostic::new(
+                format!("extern function binding `{}` must be declared", name.name),
+                span,
+            ));
+        };
+        self.symbol_types[id.0 as usize] = Type::Function;
+
+        let mut param_types = Vec::with_capacity(params.len());
+        for p in params {
+            if p.rest {
+                return Err(Diagnostic::new(
+                    "extern parameter cannot be a rest parameter".to_string(),
+                    p.binding.span(),
+                )
+                .with_code(codes::INVALID_EXTERN_TYPE)
+                .with_help("C ABI parameters are fixed arity; remove `...`"));
+            }
+            if p.default.is_some() {
+                return Err(Diagnostic::new(
+                    "extern parameter cannot have a default value".to_string(),
+                    p.binding.span(),
+                )
+                .with_code(codes::INVALID_EXTERN_TYPE)
+                .with_help("C ABI parameters have no defaults; remove the initializer"));
+            }
+            if !matches!(p.binding, BindingPattern::Ident(_)) {
+                return Err(Diagnostic::new(
+                    "extern parameter must be a simple identifier".to_string(),
+                    p.binding.span(),
+                )
+                .with_code(codes::INVALID_EXTERN_TYPE)
+                .with_help("destructuring is not valid in an extern \"C\" signature"));
+            }
+            let Some(ann) = &p.type_ann else {
+                return Err(Diagnostic::new(
+                    "extern parameter must have a type annotation".to_string(),
+                    p.binding.span(),
+                )
+                .with_code(codes::INVALID_EXTERN_TYPE)
+                .with_help(
+                    "annotate with a native scalar or pointer type (e.g. `i32`, `*u8`)",
+                ));
+            };
+            if is_void_type_ann(ann) {
+                return Err(Diagnostic::new(
+                    "extern parameter type cannot be `void`".to_string(),
+                    ann.span(),
+                )
+                .with_code(codes::INVALID_EXTERN_TYPE)
+                .with_help("`void` is only valid as an extern return type"));
+            }
+            let ty = self.resolve_extern_abi_type(ann, "parameter")?;
+            param_types.push(Some(ty));
+        }
+
+        if let Some(ann) = return_type {
+            if !is_void_type_ann(ann) {
+                let _ = self.resolve_extern_abi_type(ann, "return")?;
+            }
+        }
+
+        // Always record a signature (including zero-param) so call sites check arity.
+        self.fn_sigs[id.0 as usize] = Some(FnSig {
+            param_types,
+            required: params.len(),
+            has_rest: false,
+        });
+        Ok(())
+    }
+
+    /// Resolve a type annotation for an extern ABI position: native scalar or `*T` only.
+    fn resolve_extern_abi_type(
+        &mut self,
+        ann: &TypeAnn,
+        role: &str,
+    ) -> Result<Type, Diagnostic> {
+        let ty = self.resolve_type_ann(ann)?;
+        if matches!(ty, Type::Native(_) | Type::Ptr(_)) {
+            return Ok(ty);
+        }
+        let pretty = format_type_full(ty, &self.shapes, &self.unions, &self.intersections);
+        Err(Diagnostic::new(
+            format!("extern {role} type must be a native scalar or pointer, got `{pretty}`"),
+            ann.span(),
+        )
+        .with_code(codes::INVALID_EXTERN_TYPE)
+        .with_help(
+            "use a native type such as `i32`, `i64`, `f64`, `bool`, or a pointer like `*u8`",
+        ))
     }
 
     /// Build a resolved call signature from a parameter list (T07.01).
@@ -8897,5 +9029,132 @@ mod tests {
     fn check_inferred_shape_call_ok() {
         let program = parse("let p = { a: 1 }; p();").unwrap();
         check(program).expect("inferred object-literal shape stays permissive when called");
+    }
+
+    // --- F06.02: extern "C" function signature checking ---
+
+    #[test]
+    fn bind_extern_function_declares_symbol() {
+        let program = parse(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        let bound = bind(program).unwrap();
+        let add = user_symbol(&bound, "add");
+        assert_eq!(add.kind, BindingKind::Function);
+    }
+
+    #[test]
+    fn check_extern_native_sig_ok() {
+        let program = parse(
+            r#"
+            extern "C" function add(a: i32, b: i32): i32;
+            extern "C" function puts(s: *u8): i32;
+            extern "C" function free(p: *u8): void;
+            extern "C" function quit();
+            "#,
+        )
+        .unwrap();
+        let checked = check(program).expect("valid extern signatures must typecheck");
+        let add = user_symbol(&checked.bound, "add");
+        assert_eq!(checked.type_of_symbol(add.id), Type::Function);
+    }
+
+    #[test]
+    fn check_extern_string_param_errors() {
+        let program = parse(r#"extern "C" function f(s: string): i32;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter") && err.message.contains("string"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_number_param_errors() {
+        let program = parse(r#"extern "C" function f(n: number): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter") && err.message.contains("number"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_any_param_errors() {
+        let program = parse(r#"extern "C" function f(x: any): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter") && err.message.contains("any"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_shape_param_errors() {
+        let program = parse(r#"extern "C" function f(o: { x: i32 }): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_unannotated_param_errors() {
+        let program = parse(r#"extern "C" function f(x): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("must have a type annotation"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_void_param_errors() {
+        let program = parse(r#"extern "C" function f(x: void): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("cannot be `void`"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_string_return_errors() {
+        let program = parse(r#"extern "C" function f(): string;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern return") && err.message.contains("string"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_call_arity_checked() {
+        let program = parse(
+            r#"
+            extern "C" function add(a: i32, b: i32): i32;
+            add(1);
+            "#,
+        )
+        .unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("expected at least 2") || err.message.contains("argument"),
+            "unexpected: {}",
+            err.message
+        );
     }
 }
