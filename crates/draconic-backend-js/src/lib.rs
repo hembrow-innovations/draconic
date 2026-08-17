@@ -11,7 +11,9 @@ pub use source_map::{
 use std::collections::HashMap;
 
 use draconic_ast::UnaryOp;
-use draconic_check::{host_api_unsupported_diagnostic, CompileTarget};
+use draconic_check::{
+    extern_unsupported_on_js_diagnostic, host_api_unsupported_diagnostic, CompileTarget,
+};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     ArrayPatternEl, AssignTarget, Expr, IrType, LocalId, Module, ObjectPatternEl, Pattern, Stmt,
@@ -32,6 +34,7 @@ pub struct EmittedJs {
 /// - Native scalars (`i32`, …), layout structs, and fixed arrays: polyfill/erase
 ///   (type annotations already gone at IR; values lower as ordinary JS numbers/objects/arrays).
 /// - Native pointers (`*T`, `&x`, `*p`, `*p = v`): hard-error (native-only).
+/// - `extern "C"` / FFI (`module.has_extern_ffi`): hard-error (F08.01).
 pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
     Ok(emit_js_full(module, None)?.code)
 }
@@ -194,6 +197,7 @@ fn emit_js_full(
     map_opts: Option<&SourceMapOptions<'_>>,
 ) -> Result<EmittedJs, Diagnostic> {
     reject_native_only(module)?;
+    reject_extern_ffi(module)?;
 
     let names: HashMap<LocalId, &str> = module
         .locals
@@ -241,6 +245,14 @@ fn reject_host_api_name(name: &str) -> Result<(), Diagnostic> {
         return Err(d);
     }
     Ok(())
+}
+
+/// F08.01: `extern "C"` / FFI is native-only — hard-error on the js backend.
+fn reject_extern_ffi(module: &Module) -> Result<(), Diagnostic> {
+    if !module.has_extern_ffi {
+        return Ok(());
+    }
+    Err(extern_unsupported_on_js_diagnostic("extern", Span::dummy()))
 }
 
 /// Reject IR that is native-only on the JS backend (N04).

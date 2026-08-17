@@ -1,0 +1,4 @@
+id: ffi/policy/extern_js_hard_error
+targets: js
+js.error: native-only
+js.error_code: E0401

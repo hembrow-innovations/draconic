@@ -1,0 +1,2 @@
+// F08.01: extern "C" / FFI is native-only — hard-error on js (N04 spirit).
+extern "C" function add(a: i32, b: i32): i32;

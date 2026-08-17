@@ -148,6 +148,8 @@ pub mod codes {
     pub const INVALID_EXTERN_TYPE: ErrorCode = ErrorCode(307);
     /// Host API is not available on the compile target (H00.01).
     pub const HOST_API_UNSUPPORTED: ErrorCode = ErrorCode(400);
+    /// `extern "C"` / FFI is native-only; unsupported on the js target (F08.01).
+    pub const EXTERN_UNSUPPORTED: ErrorCode = ErrorCode(401);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -336,6 +338,7 @@ mod tests {
         assert_eq!(codes::UNKNOWN_PROPERTY.label(), "E0306");
         assert_eq!(codes::INVALID_EXTERN_TYPE.label(), "E0307");
         assert_eq!(codes::HOST_API_UNSUPPORTED.label(), "E0400");
+        assert_eq!(codes::EXTERN_UNSUPPORTED.label(), "E0401");
         assert_eq!(codes::NOT_ASSIGNABLE.to_string(), "E0300");
     }
 

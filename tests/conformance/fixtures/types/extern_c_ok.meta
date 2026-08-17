@@ -1,3 +1,5 @@
 id: types/extern_c_ok
 targets: js
-js.exit: 0
+# F08.01: valid ABI signatures still parse/check on native; js hard-errors extern/FFI.
+js.error: native-only
+js.error_code: E0401

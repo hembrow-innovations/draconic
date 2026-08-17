@@ -18,6 +18,18 @@ use draconic_diagnostics::{codes, Diagnostic, Span};
 use std::collections::HashMap;
 use std::fmt;
 
+/// Hard diagnostic when `extern "C"` / FFI appears on the js target (F08.01).
+pub fn extern_unsupported_on_js_diagnostic(name: &str, span: Span) -> Diagnostic {
+    Diagnostic::new(
+        format!(
+            "extern \"C\" function `{name}` is unsupported on js target (native-only FFI)"
+        ),
+        span,
+    )
+    .with_code(codes::EXTERN_UNSUPPORTED)
+    .with_help("compile with the native backend, or remove the extern declaration")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SymbolId(pub u32);
 
@@ -5625,6 +5637,7 @@ impl<'a> Checker<'a> {
     /// - Return type is optional / `void`, or native scalar / pointer.
     /// - JS-only types (`string`, `number`, `any`, shapes, …) are rejected.
     /// - Records a full `FnSig` so later call sites get arity/arg checking.
+    /// - F08.01: when the compile target is js, hard-error (native-only FFI).
     fn check_extern_function_declaration(
         &mut self,
         name: &draconic_ast::Ident,
@@ -5632,6 +5645,11 @@ impl<'a> Checker<'a> {
         return_type: &Option<TypeAnn>,
         span: Span,
     ) -> Result<(), Diagnostic> {
+        // F08.01: `extern "C"` is native-only FFI — reject before signature detail on js.
+        if self.host_target == Some(CompileTarget::Js) {
+            return Err(extern_unsupported_on_js_diagnostic(&name.name, span));
+        }
+
         let Some(id) = self
             .bound
             .symbols()
@@ -9156,5 +9174,28 @@ mod tests {
             "unexpected: {}",
             err.message
         );
+    }
+
+    // --- F08.01: extern / FFI hard-error on js target ---
+
+    #[test]
+    fn check_for_target_js_rejects_extern() {
+        let program = parse(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        let err = check_for_target(program, CompileTarget::Js).expect_err("js hard diagnostic");
+        assert_eq!(err.code, Some(codes::EXTERN_UNSUPPORTED));
+        assert!(
+            err.message.contains("extern")
+                && err.message.contains("unsupported on js")
+                && err.message.contains("native-only"),
+            "got {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_for_target_native_allows_extern_sig() {
+        let program = parse(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        check_for_target(program, CompileTarget::Native)
+            .expect("native allows valid extern signatures");
     }
 }
