@@ -1,4 +1,6 @@
 id: es/annex-b/legacy_octal_string
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: A\n\n\nÿ\n\0\n\n8\n9\n 0\n\08\n?7\n8\nA\nxAy\n\n
 js.check: if (a !== "A") process.exit(1); if (b.length !== 1 || b.charCodeAt(0) !== 10) process.exit(2); if (c.length !== 1 || c.charCodeAt(0) !== 255) process.exit(3); if (d.length !== 1 || d.charCodeAt(0) !== 0) process.exit(4); if (e.length !== 1 || e.charCodeAt(0) !== 1) process.exit(5); if (f !== "8") process.exit(6); if (g !== "9") process.exit(7); if (h !== " 0") process.exit(8); if (i.length !== 2 || i.charCodeAt(0) !== 0 || i.charCodeAt(1) !== 56) process.exit(9); if (j !== "?7") process.exit(10); if (k.length !== 2 || k.charCodeAt(0) !== 3 || k.charCodeAt(1) !== 56) process.exit(11); if (m !== "A") process.exit(12); if (n !== "xAy") process.exit(13); if (o.length !== 3 || o.charCodeAt(0) !== 1 || o.charCodeAt(1) !== 2 || o.charCodeAt(2) !== 3) process.exit(14);
