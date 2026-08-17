@@ -145,12 +145,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         return None;
     }
     // Class lowering injects `new.target` into constructors, so bare class
-    // fixtures also set module_has_new_target. Reject failed evals that only
-    // produced Undef observations so they fall through to es_classes.
-    if !values
-        .values()
-        .any(|v| matches!(v, JsVal::Bool(_) | JsVal::Str(_)))
-    {
+    // fixtures also set module_has_new_target. The new_target fixture always
+    // observes booleans (`===` / identity). Reject string/undef-only folds
+    // (e.g. class_fields typeof/undefined) so they fall through to es_classes.
+    if !values.values().any(|v| matches!(v, JsVal::Bool(_))) {
         return None;
     }
     Some(ModuleInfo {
