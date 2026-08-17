@@ -1,6 +1,7 @@
-//! N08.14.01–N08.14.10 + N08.16.01–N08.16.02: native observations for global builtins + Error
+//! N08.14.01–N08.14.10 + N08.16.01–N08.16.03: native observations for global builtins + Error
 //! ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
-//! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`.
+//! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`
+//! + `String.prototype` `substr` / HTML wrappers.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -23,6 +24,8 @@
 //! - E18.01: `escape` / `unescape` (`typeof`, `globalThis` identity, basic call behavior)
 //! - E18.02: `Object.prototype.__proto__` get/set; object-literal `__proto__` vs computed
 //!   `["__proto__"]`; `Object.getPrototypeOf`; `hasOwnProperty.call`
+//! - E18.03: `String.prototype.substr` + HTML wrappers (`anchor`/`big`/…/`sup`);
+//!   `typeof` method; `String.prototype.substr.call`
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -60,10 +63,26 @@ enum BuiltinId {
     Function,
     Array,
     String,
+    StringPrototype,
     Boolean,
     ObjectPrototype,
     ObjectGetPrototypeOf,
     HasOwnProperty,
+    /// Annex B String.prototype methods (unbound; `.call` supplies this).
+    StrSubstr,
+    StrAnchor,
+    StrBig,
+    StrBlink,
+    StrBold,
+    StrFixed,
+    StrFontcolor,
+    StrFontsize,
+    StrItalics,
+    StrLink,
+    StrSmall,
+    StrStrike,
+    StrSub,
+    StrSup,
     ArrayIsArray,
     Error,
     TypeError,
@@ -1256,9 +1275,17 @@ fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal
             "getTime" | "valueOf" if args.is_empty() => Ok(JsVal::Num(*ms)),
             _ => Err(()),
         },
+        JsVal::Str(s) => eval_string_method(s, key, args),
         JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
             let target = args.first().ok_or(())?;
             object_get_prototype(target)
+        }
+        JsVal::Builtin(id) if key == "call" && is_string_annex_method(*id) => {
+            let this_arg = args.first().ok_or(())?;
+            let this_s = to_string_arg(this_arg)?;
+            let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
+            let method = string_annex_method_name(*id).ok_or(())?;
+            eval_string_method(&this_s, method, &rest)
         }
         JsVal::Builtin(BuiltinId::HasOwnProperty) if key == "call" => {
             let this_arg = args.first().ok_or(())?;
@@ -1677,6 +1704,180 @@ fn to_string_arg(v: &JsVal) -> Result<String, ()> {
     }
 }
 
+fn string_annex_method_builtin(key: &str) -> Option<BuiltinId> {
+    match key {
+        "substr" => Some(BuiltinId::StrSubstr),
+        "anchor" => Some(BuiltinId::StrAnchor),
+        "big" => Some(BuiltinId::StrBig),
+        "blink" => Some(BuiltinId::StrBlink),
+        "bold" => Some(BuiltinId::StrBold),
+        "fixed" => Some(BuiltinId::StrFixed),
+        "fontcolor" => Some(BuiltinId::StrFontcolor),
+        "fontsize" => Some(BuiltinId::StrFontsize),
+        "italics" => Some(BuiltinId::StrItalics),
+        "link" => Some(BuiltinId::StrLink),
+        "small" => Some(BuiltinId::StrSmall),
+        "strike" => Some(BuiltinId::StrStrike),
+        "sub" => Some(BuiltinId::StrSub),
+        "sup" => Some(BuiltinId::StrSup),
+        _ => None,
+    }
+}
+
+fn is_string_annex_method(id: BuiltinId) -> bool {
+    matches!(
+        id,
+        BuiltinId::StrSubstr
+            | BuiltinId::StrAnchor
+            | BuiltinId::StrBig
+            | BuiltinId::StrBlink
+            | BuiltinId::StrBold
+            | BuiltinId::StrFixed
+            | BuiltinId::StrFontcolor
+            | BuiltinId::StrFontsize
+            | BuiltinId::StrItalics
+            | BuiltinId::StrLink
+            | BuiltinId::StrSmall
+            | BuiltinId::StrStrike
+            | BuiltinId::StrSub
+            | BuiltinId::StrSup
+    )
+}
+
+fn string_annex_method_name(id: BuiltinId) -> Option<&'static str> {
+    match id {
+        BuiltinId::StrSubstr => Some("substr"),
+        BuiltinId::StrAnchor => Some("anchor"),
+        BuiltinId::StrBig => Some("big"),
+        BuiltinId::StrBlink => Some("blink"),
+        BuiltinId::StrBold => Some("bold"),
+        BuiltinId::StrFixed => Some("fixed"),
+        BuiltinId::StrFontcolor => Some("fontcolor"),
+        BuiltinId::StrFontsize => Some("fontsize"),
+        BuiltinId::StrItalics => Some("italics"),
+        BuiltinId::StrLink => Some("link"),
+        BuiltinId::StrSmall => Some("small"),
+        BuiltinId::StrStrike => Some("strike"),
+        BuiltinId::StrSub => Some("sub"),
+        BuiltinId::StrSup => Some("sup"),
+        _ => None,
+    }
+}
+
+/// ECMA-262 ToIntegerOrInfinity for Annex B substr (fixture subset: finite numbers).
+fn to_integer_or_infinity(v: &JsVal) -> Result<f64, ()> {
+    let n = match v {
+        JsVal::Num(n) => *n,
+        JsVal::Undef => f64::NAN,
+        JsVal::Str(s) => js_string_to_number(s),
+        JsVal::Bool(true) => 1.0,
+        JsVal::Bool(false) => 0.0,
+        JsVal::Null => 0.0,
+        _ => return Err(()),
+    };
+    if n.is_nan() {
+        return Ok(0.0);
+    }
+    if n.is_infinite() {
+        return Ok(n);
+    }
+    if n == 0.0 {
+        return Ok(0.0);
+    }
+    Ok(n.trunc())
+}
+
+/// Annex B.2.3.1 String.prototype.substr over UTF-16 code units.
+fn js_substr(s: &str, start: &JsVal, length: Option<&JsVal>) -> Result<String, ()> {
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let size = units.len() as f64;
+    let mut int_start = to_integer_or_infinity(start)?;
+    if int_start == f64::NEG_INFINITY {
+        int_start = 0.0;
+    } else if int_start < 0.0 {
+        int_start = (size + int_start).max(0.0);
+    } else {
+        int_start = int_start.min(size);
+    }
+    let int_length = match length {
+        None | Some(JsVal::Undef) => size,
+        Some(v) => to_integer_or_infinity(v)?,
+    };
+    let int_length = int_length.max(0.0).min(size - int_start);
+    let begin = int_start as usize;
+    let end = (int_start + int_length) as usize;
+    let slice = &units[begin..end.min(units.len())];
+    String::from_utf16(slice).map_err(|_| ())
+}
+
+/// ECMA-262 CreateHTML (Annex B.2.3).
+fn create_html(s: &str, tag: &str, attribute: &str, value: Option<&JsVal>) -> Result<String, ()> {
+    let mut p1 = format!("<{tag}");
+    if !attribute.is_empty() {
+        let v = to_string_arg(value.unwrap_or(&JsVal::Undef))?;
+        let escaped: String = v
+            .chars()
+            .flat_map(|c| {
+                if c == '"' {
+                    "&quot;".chars().collect::<Vec<_>>()
+                } else {
+                    vec![c]
+                }
+            })
+            .collect();
+        p1.push(' ');
+        p1.push_str(attribute);
+        p1.push_str("=\"");
+        p1.push_str(&escaped);
+        p1.push('"');
+    }
+    Ok(format!("{p1}>{s}</{tag}>"))
+}
+
+fn eval_string_method(this_s: &str, key: &str, args: &[JsVal]) -> Result<JsVal, ()> {
+    match key {
+        "substr" => {
+            let start = args.first().unwrap_or(&JsVal::Undef);
+            let length = args.get(1);
+            Ok(JsVal::Str(js_substr(this_s, start, length)?))
+        }
+        "anchor" => Ok(JsVal::Str(create_html(
+            this_s,
+            "a",
+            "name",
+            args.first(),
+        )?)),
+        "big" => Ok(JsVal::Str(create_html(this_s, "big", "", None)?)),
+        "blink" => Ok(JsVal::Str(create_html(this_s, "blink", "", None)?)),
+        "bold" => Ok(JsVal::Str(create_html(this_s, "b", "", None)?)),
+        "fixed" => Ok(JsVal::Str(create_html(this_s, "tt", "", None)?)),
+        "fontcolor" => Ok(JsVal::Str(create_html(
+            this_s,
+            "font",
+            "color",
+            args.first(),
+        )?)),
+        "fontsize" => Ok(JsVal::Str(create_html(
+            this_s,
+            "font",
+            "size",
+            args.first(),
+        )?)),
+        "italics" => Ok(JsVal::Str(create_html(this_s, "i", "", None)?)),
+        "link" => Ok(JsVal::Str(create_html(
+            this_s,
+            "a",
+            "href",
+            args.first(),
+        )?)),
+        "small" => Ok(JsVal::Str(create_html(this_s, "small", "", None)?)),
+        "strike" => Ok(JsVal::Str(create_html(this_s, "strike", "", None)?)),
+        "sub" => Ok(JsVal::Str(create_html(this_s, "sub", "", None)?)),
+        "sup" => Ok(JsVal::Str(create_html(this_s, "sup", "", None)?)),
+        _ => Err(()),
+    }
+}
+
 /// uriUnescaped = Alpha / DecimalDigit / "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
 fn is_uri_unescaped(b: u8) -> bool {
     b.is_ascii_alphanumeric()
@@ -2011,12 +2212,21 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
         JsVal::Builtin(BuiltinId::Object) if key == "prototype" => {
             Ok(JsVal::Builtin(BuiltinId::ObjectPrototype))
         }
+        JsVal::Builtin(BuiltinId::String) if key == "prototype" => {
+            Ok(JsVal::Builtin(BuiltinId::StringPrototype))
+        }
         JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
             Ok(JsVal::Builtin(BuiltinId::ObjectGetPrototypeOf))
         }
         JsVal::Builtin(BuiltinId::ObjectPrototype) if key == "hasOwnProperty" => {
             Ok(JsVal::Builtin(BuiltinId::HasOwnProperty))
         }
+        JsVal::Builtin(BuiltinId::StringPrototype) => string_annex_method_builtin(key)
+            .map(JsVal::Builtin)
+            .ok_or(()),
+        JsVal::Str(_) => string_annex_method_builtin(key)
+            .map(JsVal::Builtin)
+            .ok_or(()),
         JsVal::Builtin(BuiltinId::Array) if key == "isArray" => {
             Ok(JsVal::Builtin(BuiltinId::ArrayIsArray))
         }
@@ -2170,9 +2380,12 @@ fn typeof_str(v: &JsVal) -> String {
         | JsVal::DataViewInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
-        JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json) => {
-            "object".into()
-        }
+        JsVal::Builtin(
+            BuiltinId::GlobalThis
+                | BuiltinId::ObjectPrototype
+                | BuiltinId::StringPrototype
+                | BuiltinId::Json,
+        ) => "object".into(),
         JsVal::Builtin(
             BuiltinId::Object
             | BuiltinId::Function
@@ -2182,6 +2395,20 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::ArrayIsArray
             | BuiltinId::ObjectGetPrototypeOf
             | BuiltinId::HasOwnProperty
+            | BuiltinId::StrSubstr
+            | BuiltinId::StrAnchor
+            | BuiltinId::StrBig
+            | BuiltinId::StrBlink
+            | BuiltinId::StrBold
+            | BuiltinId::StrFixed
+            | BuiltinId::StrFontcolor
+            | BuiltinId::StrFontsize
+            | BuiltinId::StrItalics
+            | BuiltinId::StrLink
+            | BuiltinId::StrSmall
+            | BuiltinId::StrStrike
+            | BuiltinId::StrSub
+            | BuiltinId::StrSup
             | BuiltinId::Error
             | BuiltinId::TypeError
             | BuiltinId::RangeError
@@ -2634,7 +2861,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.02 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.03 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -2981,5 +3208,45 @@ mod tests {
             ir.contains("double 2") || ir.contains("double 2.0"),
             "missing 2:\n{ir}"
         );
+    }
+
+    #[test]
+    fn string_proto_annex_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/string_proto_annex.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "function",
+            "hello",
+            "ell",
+            "ello",
+            "lo",
+            "af",
+            "he",
+            // Quotes in HTML attrs are LLVM-escaped as \\22
+            r#"<a name=\22n\22>x</a>"#,
+            "<big>x</big>",
+            "<blink>x</blink>",
+            "<b>x</b>",
+            "<tt>x</tt>",
+            r#"<font color=\22red\22>x</font>"#,
+            r#"<font size=\223\22>x</font>"#,
+            "<i>x</i>",
+            r#"<a href=\22u\22>x</a>"#,
+            "<small>x</small>",
+            "<strike>x</strike>",
+            "<sub>x</sub>",
+            "<sup>x</sup>",
+            // via = "b"
+            r#"c"b\00""#,
+        ] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
     }
 }
