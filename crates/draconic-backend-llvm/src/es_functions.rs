@@ -1,7 +1,8 @@
-//! N08.03.01–N08.03.07: native observations for ES function declarations,
+//! N08.03.01–N08.03.07 + N08.16.11: native observations for ES function declarations,
 //! expressions, and arrows (simple ident params + defaults + rest) — E03.01–E03.07 /
 //! `es/functions/decl_return_call`, `params_call`, `nested_capture`,
-//! `function_expr`, `arrow`, `default_params`, `rest_params`.
+//! `function_expr`, `arrow`, `default_params`, `rest_params`, and Annex B labelled
+//! function declarations — E18.11 / `es/annex-b/labelled_function`.
 //!
 //! Nested/non-escaping decls use extra by-value capture params. Function
 //! expressions and arrows are first-class as fn-id doubles; returned closures
@@ -9,6 +10,7 @@
 //! Missing/undefined args use a NaN payload sentinel; callee applies defaults.
 //! Rest params pack trailing args into a stack buffer of doubles; `for-of` over
 //! the rest local iterates that buffer (no full JS array heap).
+//! Labelled function declarations (`L: function f(){…}`) unwrap to ordinary decls.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -107,37 +109,17 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 
     let mut has_fn = !functions.is_empty();
     for stmt in &module.body {
-        match stmt {
-            Stmt::Function { .. } => {
-                has_fn = true;
-            }
-            Stmt::Declare { local, init, .. } => {
-                let loc = by_id.get(local)?;
-                match loc.ty {
-                    Type::Number | Type::Any => {
-                        let init = init.as_ref()?;
-                        if matches!(init, Expr::Function { .. }) {
-                            // function value in any/number slot — still ok if bound
-                            if !fn_binding.contains_key(local) {
-                                return None;
-                            }
-                            continue;
-                        }
-                        if !number_expr_ok(init, &by_id, &fn_arities, &functions, &fn_binding) {
-                            return None;
-                        }
-                        user_locals.push(*local);
-                    }
-                    Type::Function => {
-                        let init = init.as_ref()?;
-                        if !matches!(init, Expr::Function { .. }) {
-                            return None;
-                        }
-                    }
-                    _ => return None,
-                }
-            }
-            _ => return None,
+        if !classify_top_stmt(
+            stmt,
+            &by_id,
+            &fn_arities,
+            &functions,
+            &fn_binding,
+            &mut has_fn,
+            &mut user_locals,
+            true,
+        ) {
+            return None;
         }
     }
 
@@ -149,6 +131,88 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         fn_binding,
         user_locals,
     })
+}
+
+fn classify_top_stmt(
+    stmt: &Stmt,
+    by_id: &HashMap<LocalId, &Local>,
+    fn_arities: &HashMap<LocalId, usize>,
+    functions: &[FnInfo],
+    fn_binding: &HashMap<LocalId, usize>,
+    has_fn: &mut bool,
+    user_locals: &mut Vec<LocalId>,
+    observe_declares: bool,
+) -> bool {
+    match stmt {
+        Stmt::Function { .. } => {
+            *has_fn = true;
+            true
+        }
+        Stmt::Labeled { body, .. } => classify_top_stmt(
+            body,
+            by_id,
+            fn_arities,
+            functions,
+            fn_binding,
+            has_fn,
+            user_locals,
+            observe_declares,
+        ),
+        Stmt::Block { body } => body.iter().all(|s| {
+            classify_top_stmt(
+                s,
+                by_id,
+                fn_arities,
+                functions,
+                fn_binding,
+                has_fn,
+                user_locals,
+                false,
+            )
+        }),
+        Stmt::Declare { local, init, .. } => {
+            let Some(loc) = by_id.get(local) else {
+                return false;
+            };
+            match loc.ty {
+                Type::Number | Type::Any => {
+                    let Some(init) = init.as_ref() else {
+                        return false;
+                    };
+                    if matches!(init, Expr::Function { .. }) {
+                        if !fn_binding.contains_key(local) {
+                            return false;
+                        }
+                        return true;
+                    }
+                    if !number_expr_ok(init, by_id, fn_arities, functions, fn_binding) {
+                        return false;
+                    }
+                    if observe_declares {
+                        user_locals.push(*local);
+                    }
+                    true
+                }
+                Type::Function => {
+                    let Some(init) = init.as_ref() else {
+                        return false;
+                    };
+                    matches!(init, Expr::Function { .. })
+                }
+                _ => false,
+            }
+        }
+        Stmt::Expr { expr } => match expr {
+            Expr::Assign {
+                target: AssignTarget::Local(_),
+                op: AssignOp::Eq,
+                value,
+                ..
+            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 fn collect_all_functions(
@@ -190,6 +254,9 @@ fn collect_all_functions(
                 }
             }
             Stmt::Block { body } => collect_all_functions(body, by_id, out, fn_binding)?,
+            Stmt::Labeled { body, .. } => {
+                collect_all_functions(std::slice::from_ref(body), by_id, out, fn_binding)?
+            }
             Stmt::If {
                 consequent,
                 alternate,
@@ -232,6 +299,9 @@ fn collect_exprs_in_body(
                 }
             }
             Stmt::Function { .. } => {}
+            Stmt::Labeled { body, .. } => {
+                collect_exprs_in_body(std::slice::from_ref(body), by_id, out, fn_binding)?
+            }
             Stmt::ForOf {
                 left,
                 right,
@@ -406,6 +476,9 @@ fn collect_bound_in_body(body: &[Stmt], bound: &mut HashSet<LocalId>) {
                 bound.insert(*local);
             }
             Stmt::Block { body } => collect_bound_in_body(body, bound),
+            Stmt::Labeled { body, .. } => {
+                collect_bound_in_body(std::slice::from_ref(body), bound)
+            }
             Stmt::If {
                 consequent,
                 alternate,
@@ -461,6 +534,9 @@ fn collect_free_in_body(body: &[Stmt], bound: &HashSet<LocalId>, free: &mut Hash
             }
             Stmt::Expr { expr } => collect_free_in_expr(expr, bound, free),
             Stmt::Function { .. } => {}
+            Stmt::Labeled { body, .. } => {
+                collect_free_in_body(std::slice::from_ref(body), bound, free)
+            }
             _ => {}
         }
     }
@@ -558,6 +634,7 @@ fn collect_nested_free_through(
             }
             Some(())
         }
+        Stmt::Labeled { body, .. } => collect_nested_free_through(body, outer_bound, by_id, free),
         Stmt::If {
             consequent,
             alternate,
@@ -804,6 +881,14 @@ fn fn_body_ok(
             } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding),
             _ => false,
         },
+        Stmt::Labeled { body, .. } => fn_body_ok(
+            std::slice::from_ref(body),
+            by_id,
+            fn_arities,
+            functions,
+            fn_binding,
+            rest_locals,
+        ),
         _ => false,
     })
 }
@@ -1078,11 +1163,9 @@ impl<'a> Emitter<'a> {
         }
         // Function-binding locals that are only used as call targets need no storage
         // when statically bound; assigns of FunctionExpr to unused-as-value slots skip.
+        // Block-scoped number locals allocate on demand in emit_top_stmt.
 
         for stmt in &self.module.body {
-            if matches!(stmt, Stmt::Function { .. }) {
-                continue;
-            }
             self.emit_top_stmt(stmt)?;
         }
 
@@ -1203,11 +1286,14 @@ impl<'a> Emitter<'a> {
                     // Function binding — no number storage required for static calls.
                     return Ok(());
                 }
-                let ptr = self
-                    .allocas
-                    .get(local)
-                    .cloned()
-                    .ok_or_else(|| diag("internal: missing alloca"))?;
+                let ptr = if let Some(p) = self.allocas.get(local).cloned() {
+                    p
+                } else {
+                    let p = format!("%l{}", local.0);
+                    self.allocas.insert(*local, p.clone());
+                    writeln!(self.body, "  {p} = alloca double, align 8").ok();
+                    p
+                };
                 let init = init
                     .as_ref()
                     .ok_or_else(|| diag("es_functions: declare requires init"))?;
@@ -1216,6 +1302,31 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::Function { .. } => Ok(()),
+            Stmt::Labeled { body, .. } => self.emit_top_stmt(body),
+            Stmt::Block { body } => {
+                for s in body {
+                    self.emit_top_stmt(s)?;
+                }
+                Ok(())
+            }
+            Stmt::Expr { expr } => match expr {
+                Expr::Assign {
+                    target: AssignTarget::Local(id),
+                    op: AssignOp::Eq,
+                    value,
+                    ..
+                } => {
+                    let ptr = self
+                        .allocas
+                        .get(id)
+                        .cloned()
+                        .ok_or_else(|| diag("es_functions: top assign missing alloca"))?;
+                    let v = self.emit_number_expr(value)?;
+                    writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    Ok(())
+                }
+                _ => Err(diag("es_functions: unsupported top-level expr stmt")),
+            },
             _ => Err(diag("es_functions: unsupported top-level stmt")),
         }
     }
@@ -1267,6 +1378,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::Function { .. } => Ok(()),
+            Stmt::Labeled { body, .. } => self.emit_fn_stmt(body),
             Stmt::If {
                 test,
                 consequent,
