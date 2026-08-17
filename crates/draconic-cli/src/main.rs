@@ -15,6 +15,8 @@ use draconic_frontend::{check_path, compile_path, compile_source};
 use draconic_ir::Stmt;
 use draconic_parser::{parse, parse_module};
 
+mod doc;
+
 fn main() -> ExitCode {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
     if args.is_empty() {
@@ -27,6 +29,7 @@ fn main() -> ExitCode {
         "parse" => cmd_parse(&args),
         "check" => cmd_check(&args),
         "fmt" => cmd_fmt(&args),
+        "doc" => cmd_doc(&args),
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
         "repl" => cmd_repl(&args),
@@ -159,6 +162,94 @@ fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
 
     let input = input.ok_or_else(|| "missing input file".to_string())?;
     Ok(CheckArgs { input, watch })
+}
+
+/// ROADMAP U12: `draconic doc` — extract `/** … */` docs → markdown or HTML.
+fn cmd_doc(args: &[String]) -> ExitCode {
+    let mut format = doc::DocFormat::Markdown;
+    let mut output: Option<PathBuf> = None;
+    let mut path: Option<PathBuf> = None;
+    let mut i = 0usize;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                eprintln!("usage: draconic doc [--format md|html] [-o <out>] <file>");
+                return ExitCode::from(2);
+            }
+            "--format" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    eprintln!("usage: draconic doc [--format md|html] [-o <out>] <file>");
+                    return ExitCode::from(2);
+                };
+                match doc::DocFormat::parse(v) {
+                    Some(f) => format = f,
+                    None => {
+                        eprintln!("unknown format: {v} (expected md or html)");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            "-o" | "--output" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    eprintln!("usage: draconic doc [--format md|html] [-o <out>] <file>");
+                    return ExitCode::from(2);
+                };
+                output = Some(PathBuf::from(v));
+            }
+            other if other.starts_with('-') => {
+                eprintln!("unknown option: {other}");
+                eprintln!("usage: draconic doc [--format md|html] [-o <out>] <file>");
+                return ExitCode::from(2);
+            }
+            other => {
+                if path.is_some() {
+                    eprintln!("usage: draconic doc [--format md|html] [-o <out>] <file>");
+                    return ExitCode::from(2);
+                }
+                path = Some(PathBuf::from(other));
+            }
+        }
+        i += 1;
+    }
+
+    let path = match path {
+        Some(p) => p,
+        None => {
+            eprintln!("usage: draconic doc [--format md|html] [-o <out>] <file>");
+            return ExitCode::from(2);
+        }
+    };
+
+    let source = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("failed to read {}: {e}", path.display());
+            return ExitCode::from(1);
+        }
+    };
+
+    let title = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Program");
+    let items = doc::extract_docs(&source);
+    let rendered = match format {
+        doc::DocFormat::Markdown => doc::render_markdown(title, &items),
+        doc::DocFormat::Html => doc::render_html(title, &items),
+    };
+
+    if let Some(out) = output {
+        if let Err(e) = fs::write(&out, &rendered) {
+            eprintln!("failed to write {}: {e}", out.display());
+            return ExitCode::from(1);
+        }
+    } else {
+        print!("{rendered}");
+    }
+    ExitCode::SUCCESS
 }
 
 /// ROADMAP U05: `draconic fmt` — parse → deterministic reprint (in-place).
@@ -1163,10 +1254,12 @@ Usage:
   draconic parse <file>                          Parse a Program and print the AST dump
   draconic check [--watch] <file>                Typecheck + bind a Program (no emit)
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
+  draconic doc [--format md|html] [-o <out>] <file>
+                                                 Extract /** doc comments */ to markdown or HTML
   draconic build --target js|native [--watch] <file> [-o <out>]
-                                                 Compile a Program to JS or a native binary
+                                                  Compile a Program to JS or a native binary
   draconic run [--target js|native] <file> [args...]
-                                                 Build and execute a Program (default target: js)
+                                                  Build and execute a Program (default target: js)
   draconic repl [--target js|embed]              Interactive read-eval-print (multi-line; last value)
   draconic test [--coverage] <path>              Run conformance fixtures (dir or .drac file)
   draconic version | -V | --version              Print verbose version (commit, host, LLVM)
