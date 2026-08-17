@@ -317,6 +317,12 @@ pub const OBJECT_SET: AbiFn = AbiFn {
     ret: "void",
     params: "ptr, ptr, ptr",
 };
+/// N08.16.25: object rest pattern — copy own keys excluding NULL-terminated list.
+pub const OBJECT_REST: AbiFn = AbiFn {
+    symbol: "draconic_rt_object_rest",
+    ret: "ptr",
+    params: "ptr, ptr",
+};
 /// N08.09.02: get/set own props keyed by Symbol id (i64).
 pub const OBJECT_GET_BY_SYMBOL: AbiFn = AbiFn {
     symbol: "draconic_rt_object_get_symbol",
