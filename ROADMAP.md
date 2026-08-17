@@ -684,7 +684,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K01.01 | done | compiler | Parse `draconic.toml`: own module path + deps map (path → version req) | `crates/draconic-pkg` |
 | K01.02 | done | compiler | Write/round-trip `draconic.toml` (stable order) | `crates/draconic-pkg` |
 | K01.03 | done | compiler | Manifest schema validation + diagnostics | `crates/draconic-pkg` |
-| K01.04 | todo | compiler | Optional URL map; default derive `https://{module_path}.git` | `crates/draconic-pkg` |
+| K01.04 | done | compiler | Optional URL map; default derive `https://{module_path}.git` | `crates/draconic-pkg` |
 | K02 | todo | compiler | Lockfile (`draconic.lock`): resolved pins | `crates/draconic-pkg` |
 | K02.01 | todo | compiler | Lock entry: path + version + git URL + commit OID + content hash SHA-256 | `crates/draconic-pkg` |
 | K02.02 | todo | compiler | Parse/write lock; reject malformed | `crates/draconic-pkg` |

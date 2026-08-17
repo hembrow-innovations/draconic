@@ -3,23 +3,25 @@
 //! K01.01: parse own module path + dependencies map (path → version req).
 //! K01.02: write/round-trip `draconic.toml` with stable dependency order.
 //! K01.03: schema validation (module paths, version reqs, unknown fields) + diagnostics.
+//! K01.04: optional URL map (path → git URL); default derive `https://{module_path}.git`.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
 use toml::Value as TomlValue;
 
-/// Known top-level keys in `draconic.toml` (K01.01–K01.03).
-/// K01.04 may extend this set (URL map).
-const KNOWN_TOP_LEVEL_KEYS: &[&str] = &["module", "dependencies"];
+/// Known top-level keys in `draconic.toml` (K01.01–K01.04).
+const KNOWN_TOP_LEVEL_KEYS: &[&str] = &["module", "dependencies", "urls"];
 
-/// Parsed `draconic.toml` (K01 subset: module path + deps).
+/// Parsed `draconic.toml` (K01: module path + deps + optional URL map).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     /// This package's module path (Go-like), e.g. `github.com/org/pkg`.
     pub module: String,
     /// Direct dependencies: module path → version requirement string.
     pub dependencies: BTreeMap<String, String>,
+    /// Optional path → git URL overrides when default derivation is wrong (K01.04).
+    pub urls: BTreeMap<String, String>,
 }
 
 /// Error while parsing or validating a `draconic.toml` document.
@@ -51,6 +53,18 @@ pub enum ManifestError {
     UnknownField { field: String },
     /// Package lists itself as a dependency.
     SelfDependency { path: String },
+    /// `urls` is present but not a table of string → string.
+    InvalidUrls,
+    /// A `urls` entry has a non-string git URL value.
+    InvalidUrlValue { path: String },
+    /// A `urls` key fails Go-like module path schema.
+    InvalidUrlPath { path: String, reason: &'static str },
+    /// A `urls` value is empty or not an acceptable git URL.
+    InvalidUrl {
+        path: String,
+        url: String,
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for ManifestError {
@@ -87,11 +101,27 @@ impl fmt::Display for ManifestError {
             ),
             ManifestError::UnknownField { field } => write!(
                 f,
-                "draconic.toml: unknown field `{field}` (expected one of: module, dependencies)"
+                "draconic.toml: unknown field `{field}` (expected one of: module, dependencies, urls)"
             ),
             ManifestError::SelfDependency { path } => write!(
                 f,
                 "draconic.toml: package cannot depend on itself (`{path}`)"
+            ),
+            ManifestError::InvalidUrls => write!(
+                f,
+                "draconic.toml: `urls` must be a table of module path → git URL strings"
+            ),
+            ManifestError::InvalidUrlValue { path } => write!(
+                f,
+                "draconic.toml: urls entry `{path}` git URL must be a string"
+            ),
+            ManifestError::InvalidUrlPath { path, reason } => write!(
+                f,
+                "draconic.toml: invalid urls module path `{path}`: {reason}"
+            ),
+            ManifestError::InvalidUrl { path, url, reason } => write!(
+                f,
+                "draconic.toml: urls entry `{path}` has invalid git URL `{url}`: {reason}"
             ),
         }
     }
@@ -101,17 +131,20 @@ impl std::error::Error for ManifestError {}
 
 /// Parse a `draconic.toml` source string into a schema-valid [`Manifest`].
 ///
-/// Expected shape (K01.01–K01.03):
+/// Expected shape (K01.01–K01.04):
 /// ```toml
 /// module = "github.com/org/pkg"
 ///
 /// [dependencies]
 /// "github.com/other/lib" = "1.2.3"
+///
+/// [urls]
+/// "github.com/other/lib" = "https://git.example.com/other/lib.git"
 /// ```
 ///
-/// `dependencies` may be omitted (empty map). Performs structural decode plus
-/// schema validation (module paths, version requirements, unknown fields).
-/// Optional URL map is K01.04.
+/// `dependencies` and `urls` may be omitted (empty maps). Performs structural
+/// decode plus schema validation (module paths, version requirements, git URLs,
+/// unknown fields).
 pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
     let value: TomlValue =
         toml::from_str(src).map_err(|e| ManifestError::Toml(e.to_string()))?;
@@ -155,9 +188,30 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
         Some(_) => return Err(ManifestError::InvalidDependencies),
     };
 
+    let urls = match table.get("urls") {
+        None => BTreeMap::new(),
+        Some(TomlValue::Table(url_table)) => {
+            let mut map = BTreeMap::new();
+            for (path, value) in url_table {
+                let url = match value {
+                    TomlValue::String(s) => s.clone(),
+                    _ => {
+                        return Err(ManifestError::InvalidUrlValue {
+                            path: path.clone(),
+                        });
+                    }
+                };
+                map.insert(path.clone(), url);
+            }
+            map
+        }
+        Some(_) => return Err(ManifestError::InvalidUrls),
+    };
+
     let manifest = Manifest {
         module,
         dependencies,
+        urls,
     };
     validate_manifest(&manifest)?;
     Ok(manifest)
@@ -165,9 +219,9 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
 
 /// Validate schema rules on an already-decoded [`Manifest`].
 ///
-/// Checks Go-like module paths, semver-shaped version requirements, and
-/// rejects self-dependencies. Does not check unknown TOML fields (those are
-/// only visible during [`parse_manifest`]).
+/// Checks Go-like module paths, semver-shaped version requirements, git URL
+/// overrides, and rejects self-dependencies. Does not check unknown TOML fields
+/// (those are only visible during [`parse_manifest`]).
 pub fn validate_manifest(manifest: &Manifest) -> Result<(), ManifestError> {
     if let Err(reason) = validate_module_path(&manifest.module) {
         return Err(ManifestError::InvalidModulePath {
@@ -197,7 +251,85 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), ManifestError> {
         }
     }
 
+    for (path, url) in &manifest.urls {
+        if let Err(reason) = validate_module_path(path) {
+            return Err(ManifestError::InvalidUrlPath {
+                path: path.clone(),
+                reason,
+            });
+        }
+        if let Err(reason) = validate_git_url(url) {
+            return Err(ManifestError::InvalidUrl {
+                path: path.clone(),
+                url: url.clone(),
+                reason,
+            });
+        }
+    }
+
     Ok(())
+}
+
+/// Default git URL for a module path: `https://{module_path}.git` (K01.04 / ADR-0009).
+pub fn default_git_url(module_path: &str) -> String {
+    format!("https://{module_path}.git")
+}
+
+/// Resolve the git URL for `module_path`: `[urls]` override if present, else
+/// [`default_git_url`].
+pub fn resolve_git_url(manifest: &Manifest, module_path: &str) -> String {
+    manifest
+        .urls
+        .get(module_path)
+        .cloned()
+        .unwrap_or_else(|| default_git_url(module_path))
+}
+
+/// Accept https (or git/ssh-style) clone URLs used as path→URL overrides.
+fn validate_git_url(url: &str) -> Result<(), &'static str> {
+    if url.is_empty() {
+        return Err("must not be empty");
+    }
+    if url != url.trim() {
+        return Err("must not have leading or trailing whitespace");
+    }
+    if url.chars().any(|c| c.is_whitespace()) {
+        return Err("must not contain whitespace");
+    }
+
+    if let Some(rest) = url.strip_prefix("https://") {
+        if rest.is_empty() || !rest.contains('.') {
+            return Err("https URL must include a host");
+        }
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        if rest.is_empty() || !rest.contains('.') {
+            return Err("http URL must include a host");
+        }
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("git@") {
+        // git@host:path
+        if !rest.contains(':') || !rest.contains('.') {
+            return Err("ssh git URL must look like git@host:path");
+        }
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("ssh://") {
+        if rest.is_empty() {
+            return Err("ssh URL must include a host");
+        }
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("git://") {
+        if rest.is_empty() || !rest.contains('.') {
+            return Err("git URL must include a host");
+        }
+        return Ok(());
+    }
+
+    Err("must start with https://, http://, git@, ssh://, or git://")
 }
 
 /// Go-like module path: `host.tld/path…` with no empty/`.`/`..` segments.
@@ -366,10 +498,11 @@ fn is_semver_ident_chain(s: &str) -> bool {
 
 /// Serialize a [`Manifest`] to a stable `draconic.toml` document.
 ///
-/// Emit shape (K01.02):
+/// Emit shape (K01.02 / K01.04):
 /// - `module = "…"` first
 /// - blank line then `[dependencies]` only when non-empty
 /// - dependency keys in sorted (BTreeMap) order, each quoted
+/// - blank line then `[urls]` only when non-empty (sorted keys)
 /// - trailing newline
 ///
 /// Round-trip: `parse_manifest(&write_manifest(m)) == Ok(m)` (equal after parse).
@@ -387,6 +520,17 @@ pub fn write_manifest(manifest: &Manifest) -> String {
             out.push_str(&toml_quoted_string(path));
             out.push_str(" = ");
             out.push_str(&toml_quoted_string(req));
+            out.push('\n');
+        }
+    }
+
+    if !manifest.urls.is_empty() {
+        out.push('\n');
+        out.push_str("[urls]\n");
+        for (path, url) in &manifest.urls {
+            out.push_str(&toml_quoted_string(path));
+            out.push_str(" = ");
+            out.push_str(&toml_quoted_string(url));
             out.push('\n');
         }
     }
@@ -421,9 +565,21 @@ mod tests {
     use super::*;
 
     fn manifest(module: &str, deps: &[(&str, &str)]) -> Manifest {
+        manifest_with_urls(module, deps, &[])
+    }
+
+    fn manifest_with_urls(
+        module: &str,
+        deps: &[(&str, &str)],
+        urls: &[(&str, &str)],
+    ) -> Manifest {
         Manifest {
             module: module.to_string(),
             dependencies: deps
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            urls: urls
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
@@ -440,6 +596,7 @@ module = "github.com/org/pkg"
         .expect("parse");
         assert_eq!(m.module, "github.com/org/pkg");
         assert!(m.dependencies.is_empty());
+        assert!(m.urls.is_empty());
     }
 
     #[test]
@@ -466,6 +623,7 @@ module = "github.com/acme/app"
                 .map(String::as_str),
             Some("^2.0")
         );
+        assert!(m.urls.is_empty());
     }
 
     #[test]
@@ -840,6 +998,7 @@ module = "github.com/acme/app"
         let m = Manifest {
             module: "not-valid".into(),
             dependencies: BTreeMap::new(),
+            urls: BTreeMap::new(),
         };
         let err = validate_manifest(&m).expect_err("should fail schema");
         assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
@@ -862,5 +1021,271 @@ module = "github.com/acme/app"
             err.to_string().contains("module"),
             "clear diagnostic: {err}"
         );
+    }
+
+    // --- K01.04: optional URL map + default derive ---
+
+    #[test]
+    fn default_git_url_derives_https_module_path_git() {
+        assert_eq!(
+            default_git_url("github.com/org/pkg"),
+            "https://github.com/org/pkg.git"
+        );
+        assert_eq!(
+            default_git_url("gitlab.com/group/sub/mod"),
+            "https://gitlab.com/group/sub/mod.git"
+        );
+    }
+
+    #[test]
+    fn resolve_git_url_uses_default_when_urls_empty() {
+        let m = manifest("github.com/acme/app", &[("github.com/org/lib", "1.0.0")]);
+        assert_eq!(
+            resolve_git_url(&m, "github.com/org/lib"),
+            "https://github.com/org/lib.git"
+        );
+        assert_eq!(
+            resolve_git_url(&m, "github.com/other/util"),
+            "https://github.com/other/util.git"
+        );
+    }
+
+    #[test]
+    fn resolve_git_url_prefers_urls_map_override() {
+        let m = manifest_with_urls(
+            "github.com/acme/app",
+            &[("github.com/org/lib", "1.0.0")],
+            &[(
+                "github.com/org/lib",
+                "https://git.example.com/mirror/lib.git",
+            )],
+        );
+        assert_eq!(
+            resolve_git_url(&m, "github.com/org/lib"),
+            "https://git.example.com/mirror/lib.git"
+        );
+        // Unmapped path still derives default.
+        assert_eq!(
+            resolve_git_url(&m, "github.com/other/util"),
+            "https://github.com/other/util.git"
+        );
+    }
+
+    #[test]
+    fn parse_urls_table() {
+        let m = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+
+[dependencies]
+"github.com/org/lib" = "1.2.3"
+
+[urls]
+"github.com/org/lib" = "https://git.example.com/org/lib.git"
+"github.com/private/tool" = "git@github.com:private/tool.git"
+"#,
+        )
+        .expect("parse");
+        assert_eq!(m.urls.len(), 2);
+        assert_eq!(
+            m.urls.get("github.com/org/lib").map(String::as_str),
+            Some("https://git.example.com/org/lib.git")
+        );
+        assert_eq!(
+            m.urls
+                .get("github.com/private/tool")
+                .map(String::as_str),
+            Some("git@github.com:private/tool.git")
+        );
+        assert_eq!(
+            resolve_git_url(&m, "github.com/org/lib"),
+            "https://git.example.com/org/lib.git"
+        );
+    }
+
+    #[test]
+    fn parse_empty_urls_table() {
+        let m = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+[urls]
+"#,
+        )
+        .expect("parse");
+        assert!(m.urls.is_empty());
+    }
+
+    #[test]
+    fn write_urls_sorted() {
+        let m = manifest_with_urls(
+            "github.com/acme/app",
+            &[],
+            &[
+                ("github.com/z/last", "https://z.example/last.git"),
+                ("github.com/a/first", "https://a.example/first.git"),
+            ],
+        );
+        let expected = "\
+module = \"github.com/acme/app\"
+
+[urls]
+\"github.com/a/first\" = \"https://a.example/first.git\"
+\"github.com/z/last\" = \"https://z.example/last.git\"
+";
+        assert_eq!(write_manifest(&m), expected);
+    }
+
+    #[test]
+    fn write_deps_then_urls() {
+        let m = manifest_with_urls(
+            "github.com/acme/app",
+            &[("github.com/org/lib", "1.0.0")],
+            &[("github.com/org/lib", "https://mirror.example/lib.git")],
+        );
+        let expected = "\
+module = \"github.com/acme/app\"
+
+[dependencies]
+\"github.com/org/lib\" = \"1.0.0\"
+
+[urls]
+\"github.com/org/lib\" = \"https://mirror.example/lib.git\"
+";
+        assert_eq!(write_manifest(&m), expected);
+    }
+
+    #[test]
+    fn write_omits_empty_urls_table() {
+        let m = manifest("github.com/org/pkg", &[]);
+        let s = write_manifest(&m);
+        assert!(!s.contains("[urls]"), "{s}");
+    }
+
+    #[test]
+    fn round_trip_with_urls() {
+        let original = manifest_with_urls(
+            "github.com/acme/app",
+            &[("github.com/org/lib", "1.2.3")],
+            &[("github.com/org/lib", "https://git.example.com/lib.git")],
+        );
+        let written = write_manifest(&original);
+        let parsed = parse_manifest(&written).expect("parse written");
+        assert_eq!(parsed, original);
+        let twice = write_manifest(&parsed);
+        assert_eq!(written, twice);
+    }
+
+    #[test]
+    fn reject_urls_not_table() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+urls = "nope"
+"#,
+        )
+        .expect_err("urls not table");
+        assert_eq!(err, ManifestError::InvalidUrls);
+    }
+
+    #[test]
+    fn reject_url_value_not_string() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+[urls]
+"github.com/org/lib" = 123
+"#,
+        )
+        .expect_err("url value not string");
+        match err {
+            ManifestError::InvalidUrlValue { path } => {
+                assert_eq!(path, "github.com/org/lib");
+            }
+            other => panic!("expected InvalidUrlValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_url_path_invalid() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[urls]
+"not-a-path" = "https://example.com/x.git"
+"#,
+        )
+        .expect_err("bad url path");
+        match &err {
+            ManifestError::InvalidUrlPath { path, reason } => {
+                assert_eq!(path, "not-a-path");
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected InvalidUrlPath, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_empty_url() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[urls]
+"github.com/org/lib" = ""
+"#,
+        )
+        .expect_err("empty url");
+        match &err {
+            ManifestError::InvalidUrl { path, url, reason } => {
+                assert_eq!(path, "github.com/org/lib");
+                assert_eq!(url, "");
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected InvalidUrl, got {other:?}"),
+        }
+        assert!(
+            err.to_string().contains("git URL") || err.to_string().contains("urls"),
+            "diagnostic: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_non_git_url_scheme() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[urls]
+"github.com/org/lib" = "ftp://example.com/lib"
+"#,
+        )
+        .expect_err("ftp not allowed");
+        assert!(
+            matches!(err, ManifestError::InvalidUrl { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn accept_common_git_url_forms() {
+        let cases = [
+            "https://github.com/org/lib.git",
+            "http://git.example.com/org/lib.git",
+            "git@github.com:org/lib.git",
+            "ssh://git@github.com/org/lib.git",
+            "git://github.com/org/lib.git",
+        ];
+        for url in cases {
+            let src = format!(
+                r#"
+module = "github.com/acme/app"
+[urls]
+"github.com/org/lib" = "{url}"
+"#
+            );
+            let m = parse_manifest(&src).unwrap_or_else(|e| panic!("url {url:?}: {e}"));
+            assert_eq!(
+                m.urls.get("github.com/org/lib").map(String::as_str),
+                Some(url)
+            );
+        }
     }
 }
