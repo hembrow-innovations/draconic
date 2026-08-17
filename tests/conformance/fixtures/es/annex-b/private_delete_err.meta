@@ -1,3 +1,4 @@
 id: es/annex-b/private_delete_err
-targets: js
+targets: js,native
 js.error: cannot delete private
+native.error: cannot delete private
