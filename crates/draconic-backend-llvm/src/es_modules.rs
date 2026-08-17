@@ -589,9 +589,9 @@ fn eval_expr(expr: &Expr, ctx: &mut EvalCtx<'_>) -> Result<JsVal, ()> {
             let obj = eval_expr(object, ctx)?;
             let key = prop_key(property, ctx)?;
             match obj {
-                JsVal::Ns(map) => {
-                    let getter = map.get(&key).cloned().ok_or(())?;
-                    call_value(getter, &[], None, ctx)
+                JsVal::Ns(map) => match map.get(&key).cloned() {
+                    Some(getter) => call_value(getter, &[], None, ctx),
+                    None => Ok(JsVal::Undef),
                 }
                 JsVal::Obj(oid) => {
                     let inst = ctx.heap.get(&oid).ok_or(())?.clone();
