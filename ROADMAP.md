@@ -567,7 +567,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | U07 | done | native | Native debug info: DWARF (or LLVM equivalent) mapping Draconic source lines | `crates/draconic-backend-llvm`, `tests/integration` |
 | U08 | done | compiler | REPL: read-eval-print (js and/or embed); multi-line; last-value print | `crates/draconic-cli`, `tests/integration` |
 | U09 | done | compiler | Error codes + suggestions: stable codes; help text for common classes | `crates/draconic-diagnostics`, `tests/conformance` (reject fixtures) |
-| U10 | todo | compiler | Watch mode: `draconic build --watch` / `check --watch` | `crates/draconic-cli`, `tests/integration` |
+| U10 | done | compiler | Watch mode: `draconic build --watch` / `check --watch` | `crates/draconic-cli`, `tests/integration` |
 | U11 | todo | both | Coverage: line coverage for `draconic test` on js and/or native | `crates/draconic-cli`, `tests/integration` |
 | U12 | todo | compiler | Doc comments → HTML/md: `draconic doc` extract/emit | `crates/draconic-cli`, `tests/integration` |
 | U13 | done | compiler | Verbose version: commit, host target, LLVM version (`draconic -V`) | `crates/draconic-cli` |

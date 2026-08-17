@@ -99,26 +99,66 @@ fn cmd_parse(args: &[String]) -> ExitCode {
 }
 
 fn cmd_check(args: &[String]) -> ExitCode {
-    let path = match args.first() {
-        Some(p) if p != "-h" && p != "--help" => PathBuf::from(p),
-        _ => {
-            eprintln!("usage: draconic check <file>");
+    let parsed = match parse_check_args(args) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            eprintln!("usage: draconic check [--watch] <file>");
             return ExitCode::from(2);
         }
     };
 
-    if args.len() > 1 {
-        eprintln!("usage: draconic check <file>");
-        return ExitCode::from(2);
+    if parsed.watch {
+        return run_watch_loop(&parsed.input, || {
+            match check_path(&parsed.input) {
+                Ok(_) => {
+                    touch_watch_marker();
+                    Ok(())
+                }
+                Err(d) => Err(d.to_string()),
+            }
+        });
     }
 
-    match check_path(&path) {
+    match check_path(&parsed.input) {
         Ok(_) => ExitCode::SUCCESS,
         Err(d) => {
             eprintln!("error: {d}");
             ExitCode::from(1)
         }
     }
+}
+
+#[derive(Debug)]
+struct CheckArgs {
+    input: PathBuf,
+    watch: bool,
+}
+
+fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
+    let mut watch = false;
+    let mut input: Option<PathBuf> = None;
+
+    for a in args {
+        match a.as_str() {
+            "-h" | "--help" => {
+                return Err("usage: draconic check [--watch] <file>".into());
+            }
+            "--watch" => watch = true,
+            other if other.starts_with('-') => {
+                return Err(format!("unknown option: {other}"));
+            }
+            other => {
+                if input.is_some() {
+                    return Err(format!("unexpected argument: {other}"));
+                }
+                input = Some(PathBuf::from(other));
+            }
+        }
+    }
+
+    let input = input.ok_or_else(|| "missing input file".to_string())?;
+    Ok(CheckArgs { input, watch })
 }
 
 /// ROADMAP U05: `draconic fmt` — parse → deterministic reprint (in-place).
@@ -213,6 +253,7 @@ struct BuildArgs {
     target: Target,
     input: PathBuf,
     output: Option<PathBuf>,
+    watch: bool,
 }
 
 fn cmd_build(args: &[String]) -> ExitCode {
@@ -220,7 +261,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{msg}");
-            eprintln!("usage: draconic build --target js|native <file> [-o <out>]");
+            eprintln!("usage: draconic build --target js|native [--watch] <file> [-o <out>]");
             return ExitCode::from(2);
         }
     };
@@ -230,12 +271,72 @@ fn cmd_build(args: &[String]) -> ExitCode {
         None => default_output(&parsed.input, parsed.target),
     };
 
+    if parsed.watch {
+        return run_watch_loop(&parsed.input, || {
+            build_program(&parsed.input, parsed.target, &out).map_err(|d| d.to_string())
+        });
+    }
+
     if let Err(d) = build_program(&parsed.input, parsed.target, &out) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
     }
 
     ExitCode::SUCCESS
+}
+
+/// Poll `path` mtime and re-run `action` on change. Initial run is immediate.
+/// Errors are printed; the loop continues. Exit with Ctrl-C (or kill in tests).
+fn run_watch_loop(path: &Path, mut action: impl FnMut() -> Result<(), String>) -> ExitCode {
+    let poll_ms = env::var("DRACONIC_WATCH_POLL_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(200)
+        .max(10);
+
+    eprintln!("watching {} (poll {poll_ms}ms)", path.display());
+
+    let mut last_stamp = file_watch_stamp(path);
+    if let Err(msg) = action() {
+        eprintln!("error: {msg}");
+    }
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(poll_ms));
+        let stamp = file_watch_stamp(path);
+        if stamp != last_stamp {
+            last_stamp = stamp;
+            if let Err(msg) = action() {
+                eprintln!("error: {msg}");
+            }
+        }
+    }
+}
+
+fn file_watch_stamp(path: &Path) -> Option<(u64, u64)> {
+    let meta = fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?;
+    let len = meta.len();
+    Some((modified.as_secs(), modified.subsec_nanos() as u64 ^ len))
+}
+
+/// Test hook: when `DRACONIC_WATCH_MARKER` is set, write an incrementing counter
+/// after each successful check (used by U10 integration tests).
+fn touch_watch_marker() {
+    let Some(path) = env::var_os("DRACONIC_WATCH_MARKER") else {
+        return;
+    };
+    let path = PathBuf::from(path);
+    let next = fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+        .saturating_add(1);
+    let _ = fs::write(&path, format!("{next}\n"));
 }
 
 /// ROADMAP U14: `draconic run` — build to a temp artifact and execute immediately.
@@ -401,6 +502,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     let mut target: Option<Target> = None;
     let mut output: Option<PathBuf> = None;
     let mut input: Option<PathBuf> = None;
+    let mut watch = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -429,8 +531,11 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             o if let Some(rest) = o.strip_prefix("--output=") => {
                 output = Some(PathBuf::from(rest));
             }
+            "--watch" => watch = true,
             "-h" | "--help" => {
-                return Err("usage: draconic build --target js|native <file> [-o <out>]".into());
+                return Err(
+                    "usage: draconic build --target js|native [--watch] <file> [-o <out>]".into(),
+                );
             }
             other if other.starts_with('-') => {
                 return Err(format!("unknown option: {other}"));
@@ -451,6 +556,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
         target,
         input,
         output,
+        watch,
     })
 }
 
@@ -1015,9 +1121,9 @@ draconic — the Draconic toolchain
 
 Usage:
   draconic parse <file>                          Parse a Program and print the AST dump
-  draconic check <file>                          Typecheck + bind a Program (no emit)
+  draconic check [--watch] <file>                Typecheck + bind a Program (no emit)
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
-  draconic build --target js|native <file> [-o <out>]
+  draconic build --target js|native [--watch] <file> [-o <out>]
                                                  Compile a Program to JS or a native binary
   draconic run [--target js|native] <file> [args...]
                                                  Build and execute a Program (default target: js)
@@ -1060,6 +1166,28 @@ mod tests {
         assert_eq!(p.target, Target::Js);
         assert_eq!(p.input, PathBuf::from("a.drac"));
         assert_eq!(p.output, Some(PathBuf::from("a.js")));
+        assert!(!p.watch);
+    }
+
+    #[test]
+    fn parse_build_args_watch() {
+        let args = vec![
+            "--target".into(),
+            "js".into(),
+            "--watch".into(),
+            "a.drac".into(),
+        ];
+        let p = parse_build_args(&args).unwrap();
+        assert!(p.watch);
+        assert_eq!(p.input, PathBuf::from("a.drac"));
+    }
+
+    #[test]
+    fn parse_check_args_watch() {
+        let args = vec!["--watch".into(), "a.drac".into()];
+        let p = parse_check_args(&args).unwrap();
+        assert!(p.watch);
+        assert_eq!(p.input, PathBuf::from("a.drac"));
     }
 
     #[test]
