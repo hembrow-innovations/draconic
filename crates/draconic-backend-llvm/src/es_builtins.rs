@@ -1,4 +1,4 @@
-//! N08.14.01–N08.14.07: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp.
+//! N08.14.01–N08.14.08: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -12,6 +12,8 @@
 //! - E15.06: `Date` / `Date.now` / `Date.UTC` / `new Date(ms)` / `.getTime()` / `.valueOf()`
 //! - E15.07: `RegExp` / `new RegExp(pattern[, flags])` / call without `new` / `.source` /
 //!   `.flags` / `.test` / `.exec` (fixture subset: literals + `c+` + `i` flag)
+//! - E15.08: `Map` / `Set` — `new Map`/`new Set`, `.set`/`.get`/`.has`/`.size`,
+//!   `.add`/`.has`/`.size` (fixture subset; SameValueZero keys for num/str)
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -74,6 +76,8 @@ enum BuiltinId {
     DateNow,
     DateUtc,
     RegExp,
+    Map,
+    Set,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -98,6 +102,14 @@ enum JsVal {
     RegExpInst {
         source: String,
         flags: String,
+    },
+    /// Map instance: insertion-ordered entries (E15.08 fixture subset).
+    MapInst {
+        entries: Vec<(JsVal, JsVal)>,
+    },
+    /// Set instance: insertion-ordered values (E15.08 fixture subset).
+    SetInst {
+        values: Vec<JsVal>,
     },
     Array(Vec<JsVal>),
     /// Plain object: insertion-ordered string keys.
@@ -174,6 +186,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     | JsVal::ErrorInst { .. }
                     | JsVal::DateInst { .. }
                     | JsVal::RegExpInst { .. }
+                    | JsVal::MapInst { .. }
+                    | JsVal::SetInst { .. }
                     | JsVal::Array(_)
                     | JsVal::Object(_),
                 ) => {}
@@ -222,6 +236,8 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "JSON" => Some(BuiltinId::Json),
         "Date" => Some(BuiltinId::Date),
         "RegExp" => Some(BuiltinId::RegExp),
+        "Map" => Some(BuiltinId::Map),
+        "Set" => Some(BuiltinId::Set),
         _ => None,
     }
 }
@@ -625,7 +641,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     _ => return Err(()),
                 }
             }
-            // Method call: recv.prop(args) — keep `this` for Date instance methods.
+            // Method call: recv.prop(args) — keep `this` for Date/Map/Set instance methods.
             if let Expr::Member {
                 object,
                 property,
@@ -633,7 +649,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 ..
             } = callee.as_ref()
             {
-                let obj = match eval_expr(object, env)? {
+                let mut obj = match eval_expr(object, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
@@ -641,7 +657,12 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     Ok(k) => k,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                return Ok(Ok(eval_method_call(&obj, &key, &arg_vals)?));
+                let result = eval_method_call(&mut obj, &key, &arg_vals)?;
+                // Write back mutated Map/Set (and any other instance) to local receiver.
+                if let Expr::Local { id, .. } = object.as_ref() {
+                    env.insert(*id, obj);
+                }
+                return Ok(Ok(result));
             }
             let c = match eval_expr(callee, env)? {
                 Ok(v) => v,
@@ -730,6 +751,23 @@ fn eval_new(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
     }
     if *b == BuiltinId::RegExp {
         return make_regexp(args);
+    }
+    if *b == BuiltinId::Map {
+        // Fixture: `new Map()` only (no iterable init).
+        if !args.is_empty() {
+            return Err(());
+        }
+        return Ok(JsVal::MapInst {
+            entries: Vec::new(),
+        });
+    }
+    if *b == BuiltinId::Set {
+        if !args.is_empty() {
+            return Err(());
+        }
+        return Ok(JsVal::SetInst {
+            values: Vec::new(),
+        });
     }
     let name = error_ctor_name(*b).ok_or(())?;
     if *b == BuiltinId::AggregateError {
@@ -826,7 +864,7 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
     }
 }
 
-fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, ()> {
+fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, ()> {
     match recv {
         JsVal::DateInst { ms } => match key {
             "getTime" | "valueOf" if args.is_empty() => Ok(JsVal::Num(*ms)),
@@ -851,11 +889,75 @@ fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, ()
             }
             _ => Err(()),
         },
+        JsVal::MapInst { entries } => match key {
+            "set" => {
+                let k = args.first().cloned().ok_or(())?;
+                let v = args.get(1).cloned().unwrap_or(JsVal::Undef);
+                if let Some((_, slot)) = entries
+                    .iter_mut()
+                    .find(|(ek, _)| same_value_zero(ek, &k))
+                {
+                    *slot = v;
+                } else {
+                    entries.push((k, v));
+                }
+                Ok(JsVal::MapInst {
+                    entries: entries.clone(),
+                })
+            }
+            "get" => {
+                let k = args.first().unwrap_or(&JsVal::Undef);
+                Ok(entries
+                    .iter()
+                    .find(|(ek, _)| same_value_zero(ek, k))
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or(JsVal::Undef))
+            }
+            "has" => {
+                let k = args.first().unwrap_or(&JsVal::Undef);
+                Ok(JsVal::Bool(
+                    entries.iter().any(|(ek, _)| same_value_zero(ek, k)),
+                ))
+            }
+            _ => Err(()),
+        },
+        JsVal::SetInst { values } => match key {
+            "add" => {
+                let v = args.first().cloned().ok_or(())?;
+                if !values.iter().any(|ev| same_value_zero(ev, &v)) {
+                    values.push(v);
+                }
+                Ok(JsVal::SetInst {
+                    values: values.clone(),
+                })
+            }
+            "has" => {
+                let v = args.first().unwrap_or(&JsVal::Undef);
+                Ok(JsVal::Bool(
+                    values.iter().any(|ev| same_value_zero(ev, v)),
+                ))
+            }
+            _ => Err(()),
+        },
         // Non-method: resolve property then call as bare function.
         other => {
             let c = member_get(other, key)?;
             eval_call(&c, args)
         }
+    }
+}
+
+/// ECMA-262 SameValueZero (Map/Set key equality): NaN≡NaN, +0≡-0, else ===.
+fn same_value_zero(a: &JsVal, b: &JsVal) -> bool {
+    match (a, b) {
+        (JsVal::Num(x), JsVal::Num(y)) => {
+            if x.is_nan() && y.is_nan() {
+                true
+            } else {
+                *x == *y
+            }
+        }
+        _ => strict_eq(a, b),
     }
 }
 
@@ -1300,6 +1402,8 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "JSON" => Ok(JsVal::Builtin(BuiltinId::Json)),
             "Date" => Ok(JsVal::Builtin(BuiltinId::Date)),
             "RegExp" => Ok(JsVal::Builtin(BuiltinId::RegExp)),
+            "Map" => Ok(JsVal::Builtin(BuiltinId::Map)),
+            "Set" => Ok(JsVal::Builtin(BuiltinId::Set)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -1347,6 +1451,8 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "flags" => Ok(JsVal::Str(flags.clone())),
             _ => Err(()),
         },
+        JsVal::MapInst { entries } if key == "size" => Ok(JsVal::Num(entries.len() as f64)),
+        JsVal::SetInst { values } if key == "size" => Ok(JsVal::Num(values.len() as f64)),
         JsVal::Array(elems) if key == "length" => Ok(JsVal::Num(elems.len() as f64)),
         JsVal::Array(elems) => {
             if let Ok(idx) = key.parse::<usize>() {
@@ -1378,7 +1484,9 @@ fn typeof_str(v: &JsVal) -> String {
         | JsVal::Object(_)
         | JsVal::ErrorInst { .. }
         | JsVal::DateInst { .. }
-        | JsVal::RegExpInst { .. } => "object".into(),
+        | JsVal::RegExpInst { .. }
+        | JsVal::MapInst { .. }
+        | JsVal::SetInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
         JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json) => {
@@ -1412,7 +1520,9 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::Date
             | BuiltinId::DateNow
             | BuiltinId::DateUtc
-            | BuiltinId::RegExp,
+            | BuiltinId::RegExp
+            | BuiltinId::Map
+            | BuiltinId::Set,
         ) => "function".into(),
     }
 }
@@ -1427,6 +1537,8 @@ fn to_boolean(v: &JsVal) -> bool {
         | JsVal::ErrorInst { .. }
         | JsVal::DateInst { .. }
         | JsVal::RegExpInst { .. }
+        | JsVal::MapInst { .. }
+        | JsVal::SetInst { .. }
         | JsVal::Array(_)
         | JsVal::Object(_) => true,
     }
@@ -1455,6 +1567,8 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
             },
         ) => n1 == n2 && m1 == m2 && e1 == e2,
         (JsVal::DateInst { ms: a }, JsVal::DateInst { ms: b }) => a == b,
+        (JsVal::MapInst { entries: a }, JsVal::MapInst { entries: b }) => a == b,
+        (JsVal::SetInst { values: a }, JsVal::SetInst { values: b }) => a == b,
         (JsVal::Array(a), JsVal::Array(b)) => a == b,
         (JsVal::Object(a), JsVal::Object(b)) => a == b,
         _ => false,
@@ -1794,7 +1908,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.07 global builtins / Error ctors / functions / URI / JSON / Date / RegExp)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.08 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -2011,5 +2125,28 @@ mod tests {
         for s in ["function", "true", "false", "a+b", "foo", "i", "FOO", "bar"] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
+    }
+
+    #[test]
+    fn map_set_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/builtins/map_set.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["function", "true", "false", "two"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+        assert!(
+            ir.contains("double 1") || ir.contains("double 1.0"),
+            "should print mGet=1 / sizes:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 2") || ir.contains("double 2.0"),
+            "should print mSize2/sSize3=2:\n{ir}"
+        );
     }
 }
