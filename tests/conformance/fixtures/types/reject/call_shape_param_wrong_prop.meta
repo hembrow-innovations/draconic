@@ -1,3 +1,4 @@
 id: types/reject/call_shape_param_wrong_prop
 targets: js
 js.error: not assignable
+js.error_code: E0300

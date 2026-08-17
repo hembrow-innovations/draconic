@@ -1,3 +1,4 @@
 id: types/reject/object_literal_excess_prop_nested
 targets: js
 js.error: excess property
+js.error_code: E0305

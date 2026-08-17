@@ -1,3 +1,4 @@
 id: types/reject/call_too_few
 targets: js
 js.error: expected at least 2
+js.error_code: E0303

@@ -1,3 +1,4 @@
 id: types/reject/call_too_many
 targets: js
 js.error: expected at most 1
+js.error_code: E0303

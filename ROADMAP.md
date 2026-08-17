@@ -533,7 +533,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | U06 | done | compiler | LSP basics: diagnostics, hover types, go-to-definition | `crates/draconic-lsp` (or cli), `tests/integration` |
 | U07 | todo | native | Native debug info: DWARF (or LLVM equivalent) mapping Draconic source lines | `crates/draconic-backend-llvm`, `tests/integration` |
 | U08 | todo | compiler | REPL: read-eval-print (js and/or embed); multi-line; last-value print | `crates/draconic-cli`, `tests/integration` |
-| U09 | todo | compiler | Error codes + suggestions: stable codes; help text for common classes | `crates/draconic-diagnostics`, `tests/conformance` (reject fixtures) |
+| U09 | done | compiler | Error codes + suggestions: stable codes; help text for common classes | `crates/draconic-diagnostics`, `tests/conformance` (reject fixtures) |
 | U10 | todo | compiler | Watch mode: `draconic build --watch` / `check --watch` | `crates/draconic-cli`, `tests/integration` |
 | U11 | todo | both | Coverage: line coverage for `draconic test` on js and/or native | `crates/draconic-cli`, `tests/integration` |
 | U12 | todo | compiler | Doc comments → HTML/md: `draconic doc` extract/emit | `crates/draconic-cli`, `tests/integration` |

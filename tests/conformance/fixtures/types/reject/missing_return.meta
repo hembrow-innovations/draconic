@@ -1,3 +1,4 @@
 id: types/reject/missing_return
 targets: js
 js.error: missing return
+js.error_code: E0304

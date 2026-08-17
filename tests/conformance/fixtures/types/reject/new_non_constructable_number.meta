@@ -1,3 +1,4 @@
 id: types/reject/new_non_constructable_number
 targets: js
 js.error: is not constructable
+js.error_code: E0302

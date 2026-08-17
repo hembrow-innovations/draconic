@@ -6,7 +6,7 @@ use draconic_ast::{
     ClassElement, Expr, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt, TypeAnn,
     UnaryOp,
 };
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -3245,6 +3245,10 @@ impl<'a> Checker<'a> {
                 "missing return: function with return type `{ret_ty}` may fall off the end without returning a value"
             ),
             stmt_span(body),
+        )
+        .with_code(codes::MISSING_RETURN)
+        .with_help(
+            "add a return on every path, or change the return type annotation",
         ))
     }
 
@@ -4195,6 +4199,10 @@ impl<'a> Checker<'a> {
                             return Err(Diagnostic::new(
                                 format!("type `{callee_s}` is not callable"),
                                 *span,
+                            )
+                            .with_code(codes::NOT_CALLABLE)
+                            .with_help(
+                                "only functions (and values with a call signature) can be called",
                             ));
                         }
                     }
@@ -4206,6 +4214,10 @@ impl<'a> Checker<'a> {
                         return Err(Diagnostic::new(
                             format!("type `{callee_ty}` is not callable"),
                             *span,
+                        )
+                        .with_code(codes::NOT_CALLABLE)
+                        .with_help(
+                            "only functions (and values with a call signature) can be called",
                         ));
                     }
                     // E19.13 / E19.59: JS values may lack [[Call]]; TypeError is runtime.
@@ -4234,7 +4246,9 @@ impl<'a> Checker<'a> {
                     return Err(Diagnostic::new(
                         format!("type `{callee_ty}` is not constructable"),
                         *span,
-                    ));
+                    )
+                    .with_code(codes::NOT_CONSTRUCTABLE)
+                    .with_help("only constructors and classes can be used with `new`"));
                 }
                 // T07.04: `new` of an annotated non-constructable value (e.g.
                 // `let x: number = 1; new x()`) is a compile diagnostic.
@@ -4252,7 +4266,9 @@ impl<'a> Checker<'a> {
                             return Err(Diagnostic::new(
                                 format!("type `{callee_s}` is not constructable"),
                                 *span,
-                            ));
+                            )
+                            .with_code(codes::NOT_CONSTRUCTABLE)
+                            .with_help("only constructors and classes can be used with `new`"));
                         }
                     }
                 }
@@ -4785,6 +4801,10 @@ impl<'a> Checker<'a> {
     ) -> Diagnostic {
         let obj_s = format_type_full(obj, &checker.shapes, &checker.unions, &checker.intersections);
         Diagnostic::new(format!("unknown property `{name}` on type `{obj_s}`"), span)
+            .with_code(codes::UNKNOWN_PROPERTY)
+            .with_help(
+                "check the property name, or extend the type annotation to include it",
+            )
     }
 
     /// Whether a type is entirely strict (annotated) shapes, recursing intersections.
@@ -5228,6 +5248,10 @@ impl<'a> Checker<'a> {
                 return Some(Diagnostic::new(
                     format!("object literal has excess property `{name}` not in annotated shape"),
                     *span,
+                )
+                .with_code(codes::EXCESS_PROPERTY)
+                .with_help(
+                    "remove the extra property, or add it to the annotated shape",
                 ));
             };
             if let (Expr::ObjectExpression { properties: inner, .. }, Type::Shape(inner_id)) =
@@ -5364,6 +5388,10 @@ impl<'a> Checker<'a> {
             Err(Diagnostic::new(
                 format!("type `{from_s}` is not assignable to type `{to_s}`"),
                 span,
+            )
+            .with_code(codes::NOT_ASSIGNABLE)
+            .with_help(
+                "change the value to match the expected type, or widen the annotation",
             ))
         }
     }
@@ -5570,7 +5598,9 @@ impl<'a> Checker<'a> {
                         arg_tys.len()
                     ),
                     span,
-                ));
+                )
+                .with_code(codes::WRONG_ARITY)
+                .with_help("pass the required number of arguments for this function"));
             }
             if !sig.has_rest && arg_tys.len() > sig.param_types.len() {
                 return Err(Diagnostic::new(
@@ -5580,7 +5610,9 @@ impl<'a> Checker<'a> {
                         arg_tys.len()
                     ),
                     span,
-                ));
+                )
+                .with_code(codes::WRONG_ARITY)
+                .with_help("pass the required number of arguments for this function"));
             }
         }
         for (i, want) in sig.param_types.iter().enumerate() {

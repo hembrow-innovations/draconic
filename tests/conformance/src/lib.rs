@@ -45,6 +45,9 @@ pub struct TargetExpect {
     /// When set, compile/emit must fail and the diagnostic message must contain this substring.
     /// Used for native-only features on the JS target (N04).
     pub error_contains: Option<String>,
+    /// When set, compile/emit must fail and the diagnostic string must contain this code
+    /// (e.g. `E0300`). Additive with `error_contains` (U09).
+    pub error_code: Option<String>,
 }
 
 /// One conformance fixture loaded from disk.
@@ -226,11 +229,13 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             "js.check" => meta.expect_js.check = Some(unescape(value)),
             "js.stdout" => meta.expect_js.stdout = Some(unescape(value)),
             "js.error" => meta.expect_js.error_contains = Some(unescape(value)),
+            "js.error_code" => meta.expect_js.error_code = Some(value.to_string()),
             "native.exit" => {
                 meta.expect_native.exit = parse_exit(value, lineno + 1)?;
             }
             "native.stdout" => meta.expect_native.stdout = Some(unescape(value)),
             "native.error" => meta.expect_native.error_contains = Some(unescape(value)),
+            "native.error_code" => meta.expect_native.error_code = Some(value.to_string()),
             "native.check" => {
                 return Err(format!(
                     "meta line {}: native.check is not supported",
@@ -328,8 +333,13 @@ pub fn run_all(root: &Path) -> Result<Vec<RunResult>, String> {
 
 fn run_js(fixture: &Fixture) -> Result<(), String> {
     let expect = &fixture.expect_js;
-    if let Some(needle) = &expect.error_contains {
-        return expect_compile_or_emit_error(fixture, Target::Js, needle);
+    if expect.error_contains.is_some() || expect.error_code.is_some() {
+        return expect_compile_or_emit_error(
+            fixture,
+            Target::Js,
+            expect.error_contains.as_deref(),
+            expect.error_code.as_deref(),
+        );
     }
 
     let module = compile_module(&fixture.source_path, &fixture.source)?;
@@ -373,8 +383,13 @@ fn run_js(fixture: &Fixture) -> Result<(), String> {
 
 fn run_native(fixture: &Fixture) -> Result<(), String> {
     let expect = &fixture.expect_native;
-    if let Some(needle) = &expect.error_contains {
-        return expect_compile_or_emit_error(fixture, Target::Native, needle);
+    if expect.error_contains.is_some() || expect.error_code.is_some() {
+        return expect_compile_or_emit_error(
+            fixture,
+            Target::Native,
+            expect.error_contains.as_deref(),
+            expect.error_code.as_deref(),
+        );
     }
 
     let module = compile_module(&fixture.source_path, &fixture.source)?;
@@ -412,22 +427,41 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
     Ok(())
 }
 
-/// Expect frontend or backend emit to fail with a message containing `needle`.
+/// Expect frontend or backend emit to fail.
+///
+/// `message_needle` (from `js.error` / `native.error`) and `code_needle` (from
+/// `js.error_code` / `native.error_code`) are optional; when set, the error
+/// string must contain each. At least one should be set by the caller.
 fn expect_compile_or_emit_error(
     fixture: &Fixture,
     target: Target,
-    needle: &str,
+    message_needle: Option<&str>,
+    code_needle: Option<&str>,
 ) -> Result<(), String> {
+    let match_needles = |msg: &str| -> Result<(), String> {
+        if let Some(needle) = message_needle {
+            if !msg.contains(needle) {
+                return Err(format!(
+                    "{} error did not contain message {needle:?}\ngot: {msg}",
+                    target.as_str()
+                ));
+            }
+        }
+        if let Some(code) = code_needle {
+            if !msg.contains(code) {
+                return Err(format!(
+                    "{} error did not contain code {code:?}\ngot: {msg}",
+                    target.as_str()
+                ));
+            }
+        }
+        Ok(())
+    };
+
     let module = match compile_module(&fixture.source_path, &fixture.source) {
         Ok(m) => m,
         Err(msg) => {
-            if msg.contains(needle) {
-                return Ok(());
-            }
-            return Err(format!(
-                "{} compile error did not contain {needle:?}\ngot: {msg}",
-                target.as_str()
-            ));
+            return match_needles(&msg);
         }
     };
     let err = match target {
@@ -437,13 +471,9 @@ fn expect_compile_or_emit_error(
             .map(|d| format!("emit_llvm_ir: {d}")),
     };
     match err {
-        Some(msg) if msg.contains(needle) => Ok(()),
-        Some(msg) => Err(format!(
-            "{} emit error did not contain {needle:?}\ngot: {msg}",
-            target.as_str()
-        )),
+        Some(msg) => match_needles(&msg),
         None => Err(format!(
-            "{} expected emit/compile error containing {needle:?}, but succeeded",
+            "{} expected emit/compile error (message={message_needle:?}, code={code_needle:?}), but succeeded",
             target.as_str()
         )),
     }
@@ -513,5 +543,23 @@ native.stdout: 10\\n3\\n13\\n
     #[test]
     fn unescape_newlines() {
         assert_eq!(unescape(r"hello\n"), "hello\n");
+    }
+
+    #[test]
+    fn parse_meta_error_code() {
+        let meta = parse_meta(
+            "\
+id: types/reject/call_type_mismatch
+targets: js
+js.error: not assignable
+js.error_code: E0300
+",
+        )
+        .unwrap();
+        assert_eq!(
+            meta.expect_js.error_contains.as_deref(),
+            Some("not assignable")
+        );
+        assert_eq!(meta.expect_js.error_code.as_deref(), Some("E0300"));
     }
 }

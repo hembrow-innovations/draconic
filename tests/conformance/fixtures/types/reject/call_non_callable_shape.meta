@@ -1,3 +1,4 @@
 id: types/reject/call_non_callable_shape
 targets: js
 js.error: is not callable
+js.error_code: E0301

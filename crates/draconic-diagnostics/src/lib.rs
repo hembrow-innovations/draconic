@@ -105,10 +105,55 @@ impl<'a> SourceFile<'a> {
     }
 }
 
+/// Stable diagnostic code (`E0300`, …). Displayed as `E` + four zero-padded digits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ErrorCode(pub u32);
+
+impl ErrorCode {
+    pub const fn new(n: u32) -> Self {
+        Self(n)
+    }
+
+    /// Canonical label, e.g. `E0300`.
+    pub fn label(self) -> String {
+        format!("E{:04}", self.0)
+    }
+}
+
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "E{:04}", self.0)
+    }
+}
+
+/// Common checker diagnostic codes (U09). Stable once assigned.
+pub mod codes {
+    use super::ErrorCode;
+
+    /// Type is not assignable to expected type.
+    pub const NOT_ASSIGNABLE: ErrorCode = ErrorCode(300);
+    /// Value is not callable.
+    pub const NOT_CALLABLE: ErrorCode = ErrorCode(301);
+    /// Value is not constructable with `new`.
+    pub const NOT_CONSTRUCTABLE: ErrorCode = ErrorCode(302);
+    /// Wrong number of arguments at a call.
+    pub const WRONG_ARITY: ErrorCode = ErrorCode(303);
+    /// Annotated non-void function may fall off the end without returning.
+    pub const MISSING_RETURN: ErrorCode = ErrorCode(304);
+    /// Object literal has a property absent from the annotated shape.
+    pub const EXCESS_PROPERTY: ErrorCode = ErrorCode(305);
+    /// Property read/write names a key absent from an annotated shape.
+    pub const UNKNOWN_PROPERTY: ErrorCode = ErrorCode(306);
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub message: String,
     pub span: Span,
+    /// Optional stable error code (U09).
+    pub code: Option<ErrorCode>,
+    /// Optional help / suggestion line shown under the caret in pretty output.
+    pub help: Option<String>,
 }
 
 impl Diagnostic {
@@ -116,24 +161,44 @@ impl Diagnostic {
         Self {
             message: message.into(),
             span,
+            code: None,
+            help: None,
         }
+    }
+
+    pub fn with_code(mut self, code: ErrorCode) -> Self {
+        self.code = Some(code);
+        self
+    }
+
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
     }
 
     /// Rustc-style multi-line diagnostic with source snippet and caret underline.
     ///
     /// ```text
-    /// error: message
+    /// error[E0300]: message
     ///  --> name:line:col
     ///   |
     /// N | source line
     ///   |     ^^^^
+    ///   = help: suggestion
     /// ```
     ///
-    /// Dummy / empty spans omit the snippet and caret.
+    /// Without a code the header is `error: message`. Dummy / empty spans omit
+    /// the snippet and caret. Help is omitted when unset.
     pub fn pretty(&self, file: &SourceFile<'_>) -> String {
         let loc = file.lookup(self.span.start);
         let mut out = String::new();
-        out.push_str("error: ");
+        if let Some(code) = self.code {
+            out.push_str("error[");
+            out.push_str(&code.label());
+            out.push_str("]: ");
+        } else {
+            out.push_str("error: ");
+        }
         out.push_str(&self.message);
         out.push('\n');
         out.push_str(" --> ");
@@ -145,6 +210,11 @@ impl Diagnostic {
         out.push('\n');
 
         if self.span.is_dummy() || self.span.len() == 0 {
+            if let Some(help) = &self.help {
+                out.push_str("  = help: ");
+                out.push_str(help);
+                out.push('\n');
+            }
             return out;
         }
 
@@ -190,17 +260,34 @@ impl Diagnostic {
         }
         out.push('\n');
 
+        if let Some(help) = &self.help {
+            out.push_str("  = help: ");
+            out.push_str(help);
+            out.push('\n');
+        }
+
         out
     }
 }
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} at {}..{}",
-            self.message, self.span.start.0, self.span.end.0
-        )
+        if let Some(code) = self.code {
+            write!(
+                f,
+                "[{}] {} at {}..{}",
+                code.label(),
+                self.message,
+                self.span.start.0,
+                self.span.end.0
+            )
+        } else {
+            write!(
+                f,
+                "{} at {}..{}",
+                self.message, self.span.start.0, self.span.end.0
+            )
+        }
     }
 }
 
@@ -228,7 +315,38 @@ mod tests {
         let d = Diagnostic::new("unexpected token", Span::new(4, 5));
         assert_eq!(d.message, "unexpected token");
         assert_eq!(d.span, Span::new(4, 5));
+        assert_eq!(d.code, None);
+        assert_eq!(d.help, None);
         assert_eq!(d.to_string(), "unexpected token at 4..5");
+    }
+
+    #[test]
+    fn error_code_label_is_stable() {
+        assert_eq!(ErrorCode::new(300).label(), "E0300");
+        assert_eq!(codes::NOT_ASSIGNABLE.label(), "E0300");
+        assert_eq!(codes::NOT_CALLABLE.label(), "E0301");
+        assert_eq!(codes::NOT_CONSTRUCTABLE.label(), "E0302");
+        assert_eq!(codes::WRONG_ARITY.label(), "E0303");
+        assert_eq!(codes::MISSING_RETURN.label(), "E0304");
+        assert_eq!(codes::EXCESS_PROPERTY.label(), "E0305");
+        assert_eq!(codes::UNKNOWN_PROPERTY.label(), "E0306");
+        assert_eq!(codes::NOT_ASSIGNABLE.to_string(), "E0300");
+    }
+
+    #[test]
+    fn diagnostic_with_code_and_help_defaults_off() {
+        let d = Diagnostic::new("type mismatch", Span::new(0, 1))
+            .with_code(codes::NOT_ASSIGNABLE)
+            .with_help("widen the annotation or change the value");
+        assert_eq!(d.code, Some(codes::NOT_ASSIGNABLE));
+        assert_eq!(
+            d.help.as_deref(),
+            Some("widen the annotation or change the value")
+        );
+        assert_eq!(
+            d.to_string(),
+            "[E0300] type mismatch at 0..1"
+        );
     }
 
     #[test]
@@ -284,6 +402,28 @@ error: unresolved identifier `foo`
     }
 
     #[test]
+    fn pretty_print_with_code_and_help() {
+        let src = "let x: string = 1;\n";
+        // "1" at bytes 16..17
+        let d = Diagnostic::new("type `number` is not assignable to type `string`", Span::new(16, 17))
+            .with_code(codes::NOT_ASSIGNABLE)
+            .with_help("change the value to match the expected type, or widen the annotation");
+        let file = SourceFile::new("main.drac", src);
+        let pretty = d.pretty(&file);
+        assert_eq!(
+            pretty,
+            "\
+error[E0300]: type `number` is not assignable to type `string`
+ --> main.drac:1:17
+  |
+1 | let x: string = 1;
+  |                 ^
+  = help: change the value to match the expected type, or widen the annotation
+"
+        );
+    }
+
+    #[test]
     fn pretty_print_multiline_source_points_at_correct_line() {
         let src = "let a = 1;\nlet b = c;\n";
         // "c" is on line 2: bytes — line1 "let a = 1;\n" = 11 bytes, then "let b = c;"
@@ -313,6 +453,21 @@ error: unresolved identifier `c`
             "\
 error: io failure
  --> out.js:1:1
+"
+        );
+    }
+
+    #[test]
+    fn pretty_print_dummy_span_still_shows_help() {
+        let d = Diagnostic::new("io failure", Span::dummy()).with_help("check the path");
+        let file = SourceFile::new("out.js", "");
+        let pretty = d.pretty(&file);
+        assert_eq!(
+            pretty,
+            "\
+error: io failure
+ --> out.js:1:1
+  = help: check the path
 "
         );
     }

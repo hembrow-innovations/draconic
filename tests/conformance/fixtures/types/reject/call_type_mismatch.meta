@@ -1,3 +1,4 @@
 id: types/reject/call_type_mismatch
 targets: js
 js.error: not assignable
+js.error_code: E0300
