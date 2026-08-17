@@ -27,7 +27,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "version" | "-V" | "--version" => {
-            println!("draconic {}", env!("CARGO_PKG_VERSION"));
+            print!("{}", verbose_version());
             ExitCode::SUCCESS
         }
         other => {
@@ -295,6 +295,120 @@ fn cmd_test(args: &[String]) -> ExitCode {
     }
 }
 
+
+/// Verbose version text for `draconic -V` / `--version` / `version` (U13).
+fn verbose_version() -> String {
+    let pkg = env!("CARGO_PKG_VERSION");
+    let commit = env!("DRACONIC_GIT_COMMIT");
+    let host = env!("DRACONIC_TARGET");
+    let llvm = detect_llvm_version().unwrap_or_else(|| "unknown".to_string());
+    format!(
+        "draconic {pkg}\n\
+         commit: {commit}\n\
+         host: {host}\n\
+         LLVM: {llvm}\n"
+    )
+}
+
+fn detect_llvm_version() -> Option<String> {
+    for bin in [
+        "llvm-config",
+        "/opt/homebrew/opt/llvm@22/bin/llvm-config",
+        "/opt/homebrew/opt/llvm/bin/llvm-config",
+        "/usr/local/opt/llvm/bin/llvm-config",
+    ] {
+        if let Some(v) = run_version_line(bin, &["--version"]) {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+
+    let mut clang_candidates: Vec<String> = Vec::new();
+    if let Ok(p) = env::var("CLANG") {
+        clang_candidates.push(p);
+    }
+    clang_candidates.extend(
+        [
+            "clang",
+            "/usr/bin/clang",
+            "/opt/homebrew/opt/llvm@22/bin/clang",
+            "/opt/homebrew/opt/llvm/bin/clang",
+        ]
+        .into_iter()
+        .map(str::to_string),
+    );
+
+    for clang in clang_candidates {
+        if let Some(text) = run_version_text(&clang, &["--version"]) {
+            if let Some(v) = parse_clang_llvm_version(&text) {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+fn run_version_line(bin: &str, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new(bin)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines().next().map(|l| l.trim().to_string())
+}
+
+fn run_version_text(bin: &str, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new(bin)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if text.trim().is_empty() {
+        text = String::from_utf8_lossy(&output.stderr).into_owned();
+    }
+    Some(text)
+}
+
+fn parse_clang_llvm_version(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        if let Some(idx) = lower.find("llvm version") {
+            let rest = line[idx + "llvm version".len()..].trim();
+            let ver = rest.split_whitespace().next().unwrap_or("").trim();
+            if !ver.is_empty() {
+                return Some(ver.to_string());
+            }
+        }
+    }
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        if let Some(idx) = lower.find("version ") {
+            let rest = &line[idx + "version ".len()..];
+            let ver = rest
+                .split(|c: char| c.is_whitespace() || c == '(')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !ver.is_empty() && ver.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                return Some(ver.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn print_usage() {
     println!(
         "\
@@ -306,7 +420,7 @@ Usage:
   draconic build --target js|native <file> [-o <out>]
                                                  Compile a Program to JS or a native binary
   draconic test <path>                           Run conformance fixtures (dir or .drac file)
-  draconic version                               Print version
+  draconic version | -V | --version              Print verbose version (commit, host, LLVM)
   draconic help                                  Show this help
 "
     );
@@ -377,5 +491,41 @@ mod tests {
         let js = fs::read_to_string(&out).unwrap();
         assert!(js.contains("let x"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verbose_version_contains_required_fields() {
+        let v = verbose_version();
+        assert!(v.starts_with("draconic "), "{v}");
+        assert!(v.contains("commit:"), "{v}");
+        assert!(v.contains("host:"), "{v}");
+        assert!(v.contains("LLVM:"), "{v}");
+        let host = v
+            .lines()
+            .find(|l| l.starts_with("host:"))
+            .expect("host line");
+        assert!(
+            host.contains('-') || host.contains("unknown"),
+            "host should be a triple or unknown: {host}"
+        );
+    }
+
+    #[test]
+    fn parse_clang_llvm_version_prefers_llvm_line() {
+        let text = "clang version 18.1.8\nTarget: x86_64-unknown-linux-gnu\nLLVM version 18.1.8\n";
+        assert_eq!(
+            parse_clang_llvm_version(text).as_deref(),
+            Some("18.1.8")
+        );
+    }
+
+    #[test]
+    fn parse_clang_llvm_version_apple_banner() {
+        let text =
+            "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\n";
+        assert_eq!(
+            parse_clang_llvm_version(text).as_deref(),
+            Some("21.0.0")
+        );
     }
 }
