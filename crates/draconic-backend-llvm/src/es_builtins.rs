@@ -85,6 +85,10 @@ enum BuiltinId {
     StrStrike,
     StrSub,
     StrSup,
+    /// ES2019 `trimStart` / Annex B `trimLeft` (same function object).
+    StrTrimStart,
+    /// ES2019 `trimEnd` / Annex B `trimRight` (same function object).
+    StrTrimEnd,
     ArrayIsArray,
     Error,
     TypeError,
@@ -1974,6 +1978,9 @@ fn string_annex_method_builtin(key: &str) -> Option<BuiltinId> {
         "strike" => Some(BuiltinId::StrStrike),
         "sub" => Some(BuiltinId::StrSub),
         "sup" => Some(BuiltinId::StrSup),
+        // Annex B aliases share identity with trimStart/trimEnd.
+        "trimStart" | "trimLeft" => Some(BuiltinId::StrTrimStart),
+        "trimEnd" | "trimRight" => Some(BuiltinId::StrTrimEnd),
         _ => None,
     }
 }
@@ -1995,6 +2002,8 @@ fn is_string_annex_method(id: BuiltinId) -> bool {
             | BuiltinId::StrStrike
             | BuiltinId::StrSub
             | BuiltinId::StrSup
+            | BuiltinId::StrTrimStart
+            | BuiltinId::StrTrimEnd
     )
 }
 
@@ -2014,6 +2023,9 @@ fn string_annex_method_name(id: BuiltinId) -> Option<&'static str> {
         BuiltinId::StrStrike => Some("strike"),
         BuiltinId::StrSub => Some("sub"),
         BuiltinId::StrSup => Some("sup"),
+        // Canonical names for `.call` dispatch (aliases share BuiltinId).
+        BuiltinId::StrTrimStart => Some("trimStart"),
+        BuiltinId::StrTrimEnd => Some("trimEnd"),
         _ => None,
     }
 }
@@ -2088,6 +2100,31 @@ fn create_html(s: &str, tag: &str, attribute: &str, value: Option<&JsVal>) -> Re
     Ok(format!("{p1}>{s}</{tag}>"))
 }
 
+/// ECMA-262 TrimString whitespace (fixture subset + common WhiteSpace/LineTerminator).
+fn is_trim_ws(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0009}'
+            | '\u{000B}'
+            | '\u{000C}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{FEFF}'
+            | '\u{000A}'
+            | '\u{000D}'
+            | '\u{2028}'
+            | '\u{2029}'
+    ) || c.is_whitespace()
+}
+
+fn js_trim_start(s: &str) -> String {
+    s.trim_start_matches(is_trim_ws).to_string()
+}
+
+fn js_trim_end(s: &str) -> String {
+    s.trim_end_matches(is_trim_ws).to_string()
+}
+
 fn eval_string_method(this_s: &str, key: &str, args: &[JsVal]) -> Result<JsVal, ()> {
     match key {
         "substr" => {
@@ -2128,6 +2165,8 @@ fn eval_string_method(this_s: &str, key: &str, args: &[JsVal]) -> Result<JsVal, 
         "strike" => Ok(JsVal::Str(create_html(this_s, "strike", "", None)?)),
         "sub" => Ok(JsVal::Str(create_html(this_s, "sub", "", None)?)),
         "sup" => Ok(JsVal::Str(create_html(this_s, "sup", "", None)?)),
+        "trimStart" | "trimLeft" => Ok(JsVal::Str(js_trim_start(this_s))),
+        "trimEnd" | "trimRight" => Ok(JsVal::Str(js_trim_end(this_s))),
         _ => Err(()),
     }
 }
@@ -2675,6 +2714,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::StrStrike
             | BuiltinId::StrSub
             | BuiltinId::StrSup
+            | BuiltinId::StrTrimStart
+            | BuiltinId::StrTrimEnd
             | BuiltinId::Error
             | BuiltinId::TypeError
             | BuiltinId::RangeError
@@ -3132,7 +3173,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.05 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString / RegExp.prototype.compile)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.06 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString / RegExp.prototype.compile / String.prototype trimLeft/trimRight)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -3573,6 +3614,31 @@ mod tests {
             "y+",
             "i",
             "g",
+        ] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+    }
+
+    #[test]
+    fn string_trim_left_right_classifies_and_emits() {
+        let src = include_str!(
+            "../../../tests/conformance/fixtures/es/annex-b/string_trim_left_right.drac"
+        );
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "function",
+            "true",
+            "hi  ",
+            "  hi",
+            "nospace",
+            // viaL/viaR
+            r#"c"z\00""#,
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
