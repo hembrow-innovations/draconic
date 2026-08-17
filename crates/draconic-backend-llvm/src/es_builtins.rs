@@ -1,9 +1,10 @@
-//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16: native observations for global
+//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 + N08.16.18: native observations for global
 //! builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
 //! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`
 //! + `String.prototype` `substr` / HTML wrappers + `Date.prototype` `getYear`/`setYear`/`toGMTString`
 //! + `Object.prototype` `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__`
-//! + RegExp constructor Annex B statics (`$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, …).
+//! + RegExp constructor Annex B statics (`$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, …)
+//! + regexp literals (`/pattern/` / `/pattern/flags`).
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -36,6 +37,9 @@
 //! - E18.16: RegExp constructor Annex B statics (B.2.5): `$1`–`$9`, `input`/`$_`,
 //!   `lastMatch`/`$&`, `lastParen`/`$+`, `leftContext`/`$\``, `rightContext`/`$'`
 //!   after successful `exec`/`test` (unchanged on failure)
+//! - E18.18: regexp literals `/pattern/` / `/pattern/flags`; `typeof` `"object"`;
+//!   `.source`/`.flags`/`.test`/`.exec` parity with `new RegExp` (subset: `c+`, `\/`,
+//!   simple `[…]` classes, `i`)
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -747,6 +751,7 @@ fn stmt_has_builtin_surface(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bo
 
 fn expr_has_builtin_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
+        Expr::RegExp { .. } => true,
         Expr::Local { id, .. } => by_id.get(id).is_some_and(|l| builtin_for_name(&l.name).is_some()),
         Expr::Unary { arg, .. } => expr_has_builtin_surface(arg, by_id),
         Expr::Binary { left, right, .. } => {
@@ -867,6 +872,7 @@ fn user_fn_from_expr(expr: &Expr) -> Option<JsVal> {
 fn expr_ok(expr: &Expr) -> bool {
     match expr {
         Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => true,
+        Expr::RegExp { .. } => true,
         Expr::Local { .. } | Expr::This { .. } => true,
         Expr::Function {
             name: None,
@@ -1036,6 +1042,18 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         Expr::Boolean { value, .. } => Ok(Ok(JsVal::Bool(*value))),
         Expr::String { value, .. } => Ok(Ok(JsVal::Str(js_string_to_utf8(value)))),
         Expr::Null { .. } => Ok(Ok(JsVal::Null)),
+        Expr::RegExp {
+            pattern, flags, ..
+        } => {
+            if !regexp_flags_ok(flags) {
+                return Err(());
+            }
+            parse_regexp_atoms(pattern)?;
+            Ok(Ok(JsVal::RegExpInst {
+                source: pattern.clone(),
+                flags: flags.clone(),
+            }))
+        }
         Expr::Local { id, .. } => {
             let v = env.get(id).cloned().ok_or(())?;
             Ok(Ok(v))
@@ -2050,13 +2068,16 @@ fn regexp_proto_method_name(id: BuiltinId) -> Option<&'static str> {
     }
 }
 
-/// Fixture-depth pattern atoms: literal char, `c+` (one-or-more of c), or capturing `(…)`.
+/// Fixture-depth pattern atoms: literal char, `c+` (one-or-more of c), capturing `(…)`,
+/// identity escapes (`\/`), or simple `[…]` character classes.
 #[derive(Clone, Debug)]
 enum ReAtom {
     Lit(char),
     Plus(char),
     /// Capturing group; numbered left-to-right by appearance.
     Group(Vec<ReAtom>),
+    /// Simple character class `[abc]` (no ranges/escapes/negation in this subset).
+    Class(Vec<char>),
 }
 
 /// Successful match result for `exec`/`test` + Annex B statics.
@@ -2105,11 +2126,43 @@ fn parse_atoms_until(
             i = ni + 1;
             continue;
         }
-        // No escapes / classes / other quantifiers in this subset.
-        if matches!(
-            c,
-            '\\' | '.' | '*' | '?' | '[' | ']' | '{' | '}' | '|' | '^' | '$'
-        ) {
+        // Identity escapes (fixture: `\/`); store escaped char as literal.
+        if c == '\\' {
+            if i + 1 >= chars.len() {
+                return Err(());
+            }
+            let esc = chars[i + 1];
+            // Reject other metachar quantifiers after escape in this subset.
+            if i + 2 < chars.len() && chars[i + 2] == '+' {
+                atoms.push(ReAtom::Plus(esc));
+                i += 3;
+            } else {
+                atoms.push(ReAtom::Lit(esc));
+                i += 2;
+            }
+            continue;
+        }
+        // Simple character class `[…]` (no `^` negation, ranges, or escapes).
+        if c == '[' {
+            i += 1;
+            let mut class_chars = Vec::new();
+            while i < chars.len() && chars[i] != ']' {
+                let cc = chars[i];
+                if matches!(cc, '\\' | '[' | '^') {
+                    return Err(());
+                }
+                class_chars.push(cc);
+                i += 1;
+            }
+            if i >= chars.len() || chars[i] != ']' || class_chars.is_empty() {
+                return Err(());
+            }
+            i += 1; // closing `]`
+            atoms.push(ReAtom::Class(class_chars));
+            continue;
+        }
+        // No other classes / other quantifiers in this subset.
+        if matches!(c, '.' | '*' | '?' | ']' | '{' | '}' | '|' | '^' | '$') {
             return Err(());
         }
         if i + 1 < chars.len() && chars[i + 1] == '+' {
@@ -2186,6 +2239,17 @@ fn regexp_match_at(
                 while pos < input.len() && char_eq(input[pos], *c, ignore_case) {
                     pos += 1;
                 }
+            }
+            ReAtom::Class(set) => {
+                if pos >= input.len() {
+                    return None;
+                }
+                let ch = input[pos];
+                let ok = set.iter().any(|c| char_eq(ch, *c, ignore_case));
+                if !ok {
+                    return None;
+                }
+                pos += 1;
             }
             ReAtom::Group(inner) => {
                 // Number this group before descending so outer groups get lower indices.
@@ -3705,7 +3769,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString / RegExp.prototype.compile / String.prototype trimLeft/trimRight / Object.prototype defineGetter/defineSetter/lookupGetter/lookupSetter / RegExp Annex B statics)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 + N08.16.18 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__ / String.prototype substr+HTML / Date.prototype getYear/setYear/toGMTString / RegExp.prototype.compile / String.prototype trimLeft/trimRight / Object.prototype defineGetter/defineSetter/lookupGetter/lookupSetter / RegExp Annex B statics / regexp literals)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -3920,6 +3984,33 @@ mod tests {
             "must not use hello stub:\n{ir}"
         );
         for s in ["function", "true", "false", "a+b", "foo", "i", "FOO", "bar"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+    }
+
+    #[test]
+    fn regexp_literal_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/regexp_literal.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in [
+            "a+b",
+            "true",
+            "false",
+            "foo",
+            "i",
+            "FOO",
+            "[a/]",
+            "object",
+            // src3 = a\/b → LLVM c"a\5C/b\00"
+            r#"c"a\5C/b\00""#,
+        ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
     }
