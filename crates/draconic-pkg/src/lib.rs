@@ -1,6 +1,7 @@
 //! Package manager support: `draconic.toml` manifests and related types (Roadmap K).
 //!
 //! K01.01: parse own module path + dependencies map (path → version req).
+//! K01.02: write/round-trip `draconic.toml` with stable dependency order.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -101,6 +102,58 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
     })
 }
 
+/// Serialize a [`Manifest`] to a stable `draconic.toml` document.
+///
+/// Emit shape (K01.02):
+/// - `module = "…"` first
+/// - blank line then `[dependencies]` only when non-empty
+/// - dependency keys in sorted (BTreeMap) order, each quoted
+/// - trailing newline
+///
+/// Round-trip: `parse_manifest(&write_manifest(m)) == Ok(m)` (equal after parse).
+/// Rewrite is byte-identical: `write_manifest(&parse_manifest(write(m))?) == write(m)`.
+pub fn write_manifest(manifest: &Manifest) -> String {
+    let mut out = String::new();
+    out.push_str("module = ");
+    out.push_str(&toml_quoted_string(&manifest.module));
+    out.push('\n');
+
+    if !manifest.dependencies.is_empty() {
+        out.push('\n');
+        out.push_str("[dependencies]\n");
+        for (path, req) in &manifest.dependencies {
+            out.push_str(&toml_quoted_string(path));
+            out.push_str(" = ");
+            out.push_str(&toml_quoted_string(req));
+            out.push('\n');
+        }
+    }
+
+    out
+}
+
+/// Quote a string as a TOML basic string (escape `\`, `"`, and control chars).
+fn toml_quoted_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                // Other controls as TOML \uXXXX
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// Intermediate decode so we can distinguish missing vs wrong-typed fields.
 #[derive(Debug, Deserialize)]
 struct RawManifest {
@@ -112,6 +165,16 @@ struct RawManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn manifest(module: &str, deps: &[(&str, &str)]) -> Manifest {
+        Manifest {
+            module: module.to_string(),
+            dependencies: deps
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
 
     #[test]
     fn parse_module_only() {
@@ -229,5 +292,88 @@ module = "github.com/org/pkg"
             }
             other => panic!("expected InvalidDependencyValue, got {other:?}"),
         }
+    }
+
+    // --- K01.02: write / round-trip ---
+
+    #[test]
+    fn write_module_only() {
+        let m = manifest("github.com/org/pkg", &[]);
+        assert_eq!(write_manifest(&m), "module = \"github.com/org/pkg\"\n");
+    }
+
+    #[test]
+    fn write_module_and_deps_sorted() {
+        // Insert out of order; emit must be sorted by path.
+        let m = manifest(
+            "github.com/acme/app",
+            &[
+                ("github.com/z/last", "3.0.0"),
+                ("github.com/a/first", "1.0.0"),
+                ("github.com/m/mid", "^2.0"),
+            ],
+        );
+        let expected = "\
+module = \"github.com/acme/app\"
+
+[dependencies]
+\"github.com/a/first\" = \"1.0.0\"
+\"github.com/m/mid\" = \"^2.0\"
+\"github.com/z/last\" = \"3.0.0\"
+";
+        assert_eq!(write_manifest(&m), expected);
+    }
+
+    #[test]
+    fn write_omits_empty_dependencies_table() {
+        let m = manifest("github.com/org/pkg", &[]);
+        let s = write_manifest(&m);
+        assert!(!s.contains("[dependencies]"), "{s}");
+        assert!(s.ends_with('\n'));
+    }
+
+    #[test]
+    fn round_trip_parse_write_eq() {
+        let original = manifest(
+            "github.com/acme/app",
+            &[
+                ("github.com/org/lib", "1.2.3"),
+                ("github.com/other/util", "^2.0"),
+            ],
+        );
+        let written = write_manifest(&original);
+        let parsed = parse_manifest(&written).expect("parse written");
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn round_trip_module_only() {
+        let original = manifest("github.com/org/pkg", &[]);
+        let written = write_manifest(&original);
+        let parsed = parse_manifest(&written).expect("parse written");
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn rewrite_is_byte_identical() {
+        let m = manifest(
+            "github.com/acme/app",
+            &[
+                ("github.com/z/last", "3.0.0"),
+                ("github.com/a/first", "1.0.0"),
+            ],
+        );
+        let once = write_manifest(&m);
+        let twice = write_manifest(&parse_manifest(&once).expect("parse"));
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn write_escapes_quotes_in_module() {
+        let m = manifest(r#"org/pkg"with"quotes"#, &[]);
+        let s = write_manifest(&m);
+        assert_eq!(s, "module = \"org/pkg\\\"with\\\"quotes\"\n");
+        let parsed = parse_manifest(&s).expect("parse");
+        assert_eq!(parsed, m);
     }
 }
