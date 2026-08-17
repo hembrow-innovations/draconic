@@ -1,5 +1,5 @@
 //! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.10)
-//! + host I/O substrate (H00.02); embed later (N07).
+//! + host I/O substrate (H00.02–H00.03); embed later (N07).
 
 pub mod abi;
 pub use abi::*;
@@ -7,6 +7,8 @@ pub use url::{parse_url, parse_url_js_polyfill, ParsedUrl};
 
 #[cfg(test)]
 mod host_abi_tests;
+#[cfg(test)]
+mod host_bytes_tests;
 
 
 /// L08.01: portable URL parse — scheme / host / path / query / hash.

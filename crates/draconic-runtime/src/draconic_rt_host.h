@@ -1,5 +1,5 @@
-/* Host I/O Runtime substrate ABI (H00.02).
-   Error codes, opaque handles, UTF-8 path encoding at the OS boundary.
+/* Host I/O Runtime substrate ABI (H00.02–H00.03).
+   Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary.
    Included from draconic_rt.h; also usable standalone by host.c. */
 #ifndef DRACONIC_RT_HOST_H
 #define DRACONIC_RT_HOST_H
@@ -43,6 +43,54 @@ DraconicHostError draconic_rt_host_path_from_utf8(
     size_t len,
     char **out_path);
 void draconic_rt_host_path_free(char *path);
+
+/* --- I/O bytes boundary (H00.03) -------------------------------------------
+   Contiguous byte regions used as OS read/write buffers. Models ArrayBuffer
+   storage and Uint8Array views (byteOffset + byteLength). Not C strings:
+   embedded 0x00 is payload. Views borrow storage; they do not own it. */
+
+typedef struct DraconicHostBytes {
+    uint8_t *data;
+    size_t len;
+} DraconicHostBytes;
+
+/* Borrow a view over raw storage. data may be NULL only when len == 0. */
+DraconicHostError draconic_rt_host_bytes_from_raw(
+    uint8_t *data,
+    size_t len,
+    DraconicHostBytes *out);
+
+/* Uint8Array-style subview: parent[byte_offset, byte_offset + byte_length).
+   Bounds-checked (offset+length must not exceed parent->len). */
+DraconicHostError draconic_rt_host_bytes_view(
+    const DraconicHostBytes *parent,
+    size_t byte_offset,
+    size_t byte_length,
+    DraconicHostBytes *out);
+
+/* Allocate zero-filled storage (ArrayBuffer-like backing).
+   On OK: *out_data is malloc'd (len==0 → NULL). Free with
+   draconic_rt_host_bytes_storage_free. */
+DraconicHostError draconic_rt_host_bytes_alloc(
+    size_t len,
+    uint8_t **out_data);
+void draconic_rt_host_bytes_storage_free(uint8_t *data);
+
+/* OS read path: copy into the view from an external source.
+   *out_n = min(dst->len, src_len) bytes written. */
+DraconicHostError draconic_rt_host_bytes_copy_in(
+    DraconicHostBytes *dst,
+    const uint8_t *src,
+    size_t src_len,
+    size_t *out_n);
+
+/* OS write path: copy out of the view into an external destination.
+   *out_n = min(dst_cap, src->len) bytes written. */
+DraconicHostError draconic_rt_host_bytes_copy_out(
+    const DraconicHostBytes *src,
+    uint8_t *dst,
+    size_t dst_cap,
+    size_t *out_n);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,4 @@
+id: host/bytes/arraybuffer_uint8_io_buffer
+targets: native
+native.exit: 0
+native.stdout: 6\n6\n0\n255\n128\n42\n0\n1\n99\n99\n

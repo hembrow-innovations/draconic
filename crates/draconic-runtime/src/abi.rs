@@ -541,10 +541,11 @@ pub const ES_PROMISE_DECLARES: &[AbiFn] = &[
 ];
 
 
-// --- Host I/O substrate (H00.02): error codes, handles, path boundary ---
+// --- Host I/O substrate (H00.02–H00.03): errors, handles, path, bytes ---
 //
 // Stable integer codes shared with `draconic_rt.h` / `draconic_rt_host.c`.
 // No real fs/tcp/process yet — later H rows open handles and map OS errno.
+// H00.03: DraconicHostBytes views model ArrayBuffer / Uint8Array OS buffers.
 
 /// Success.
 pub const HOST_OK: i32 = 0;
@@ -595,17 +596,61 @@ pub const HOST_PATH_FREE: AbiFn = AbiFn {
     params: "ptr",
 };
 
+/* H00.03: I/O bytes boundary (ArrayBuffer / Uint8Array as OS buffers). */
+pub const HOST_BYTES_FROM_RAW: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_bytes_from_raw",
+    ret: "i32",
+    params: "ptr, i64, ptr",
+};
+pub const HOST_BYTES_VIEW: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_bytes_view",
+    ret: "i32",
+    params: "ptr, i64, i64, ptr",
+};
+pub const HOST_BYTES_ALLOC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_bytes_alloc",
+    ret: "i32",
+    params: "i64, ptr",
+};
+pub const HOST_BYTES_STORAGE_FREE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_bytes_storage_free",
+    ret: "void",
+    params: "ptr",
+};
+pub const HOST_BYTES_COPY_IN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_bytes_copy_in",
+    ret: "i32",
+    params: "ptr, ptr, i64, ptr",
+};
+pub const HOST_BYTES_COPY_OUT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_bytes_copy_out",
+    ret: "i32",
+    params: "ptr, ptr, i64, ptr",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
 pub const HOST_PATH_FREE_SYMBOL: &str = HOST_PATH_FREE.symbol;
+pub const HOST_BYTES_FROM_RAW_SYMBOL: &str = HOST_BYTES_FROM_RAW.symbol;
+pub const HOST_BYTES_VIEW_SYMBOL: &str = HOST_BYTES_VIEW.symbol;
+pub const HOST_BYTES_ALLOC_SYMBOL: &str = HOST_BYTES_ALLOC.symbol;
+pub const HOST_BYTES_STORAGE_FREE_SYMBOL: &str = HOST_BYTES_STORAGE_FREE.symbol;
+pub const HOST_BYTES_COPY_IN_SYMBOL: &str = HOST_BYTES_COPY_IN.symbol;
+pub const HOST_BYTES_COPY_OUT_SYMBOL: &str = HOST_BYTES_COPY_OUT.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes boundary).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
     HOST_PATH_FROM_UTF8_SYMBOL,
     HOST_PATH_FREE_SYMBOL,
+    HOST_BYTES_FROM_RAW_SYMBOL,
+    HOST_BYTES_VIEW_SYMBOL,
+    HOST_BYTES_ALLOC_SYMBOL,
+    HOST_BYTES_STORAGE_FREE_SYMBOL,
+    HOST_BYTES_COPY_IN_SYMBOL,
+    HOST_BYTES_COPY_OUT_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -614,6 +659,12 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_HANDLE_CLOSE,
     HOST_PATH_FROM_UTF8,
     HOST_PATH_FREE,
+    HOST_BYTES_FROM_RAW,
+    HOST_BYTES_VIEW,
+    HOST_BYTES_ALLOC,
+    HOST_BYTES_STORAGE_FREE,
+    HOST_BYTES_COPY_IN,
+    HOST_BYTES_COPY_OUT,
 ];
 
 #[cfg(test)]
