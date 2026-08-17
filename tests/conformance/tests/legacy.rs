@@ -108,3 +108,13 @@ fn sloppy_this_fixture_present() {
 fn sloppy_this_runs() {
     assert_fixture_runs_declared_targets("es/legacy/sloppy_this");
 }
+
+#[test]
+fn implicit_global_fixture_present() {
+    assert_fixture_present("es/legacy/implicit_global");
+}
+
+#[test]
+fn implicit_global_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/implicit_global");
+}

@@ -1,0 +1,51 @@
+// E17.02.07: implicit globals (non-strict PutValue on unresolvable IdentifierReference).
+// Assign creates a global property; read-back and globalThis identity; nested function
+// assign; "use strict" assign → ReferenceError; typeof unresolvable → "undefined".
+
+// Top-level simple assign → global property.
+ig_top_e170207 = 42;
+let a = ig_top_e170207;
+let b = globalThis.ig_top_e170207;
+let c = a === b;
+
+// Nested function body assign still creates a global (not a local).
+function nestAssign() {
+  ig_nested_e170207 = 7;
+  return ig_nested_e170207;
+}
+let d = nestAssign();
+let e = globalThis.ig_nested_e170207;
+let f = d === e && e === 7;
+
+// Reassign updates the same global property.
+ig_top_e170207 = 99;
+let g = ig_top_e170207 === 99 && globalThis.ig_top_e170207 === 99;
+
+// typeof unresolvable IdentifierReference → "undefined" (no ReferenceError).
+let h = typeof ig_missing_e170207;
+
+// Strict-mode assign to unresolvable → ReferenceError; does not create a property.
+function strictAssign() {
+  "use strict";
+  try {
+    ig_strict_e170207 = 1;
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError;
+  }
+}
+let i = strictAssign();
+let j = typeof globalThis.ig_strict_e170207 === "undefined";
+
+// delete of a created global (non-strict IdentifierReference) removes it.
+ig_del_e170207 = 3;
+let k = delete ig_del_e170207;
+let l = typeof ig_del_e170207 === "undefined";
+let m = typeof globalThis.ig_del_e170207 === "undefined";
+
+// Function expression body: same global PutValue semantics.
+let fe = function () {
+  ig_fe_e170207 = 11;
+  return ig_fe_e170207 === 11 && globalThis.ig_fe_e170207 === 11;
+};
+let n = fe();
