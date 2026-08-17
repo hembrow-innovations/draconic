@@ -517,7 +517,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.17 | todo | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
 | N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
-| N09.02 | todo | native | GC mark correctness: rooted object property values stay live across collect (trace object props) | `crates/draconic-runtime` tests |
+| N09.02 | done | native | GC mark correctness: rooted object property values stay live across collect (trace object props) | `crates/draconic-runtime` tests |
 
 ---
 

@@ -1,7 +1,9 @@
 //! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.10); embed later (N07).
 
 pub mod abi;
+pub mod url;
 pub use abi::*;
+pub use url::{parse_url, parse_url_js_polyfill, ParsedUrl};
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -647,6 +649,177 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "gc-stress-ok\n", "stdout={stdout:?}");
+    }
+
+    /// N09.02: rooted object must keep property-slot heap values live across collect.
+    ///
+    /// Only the outer object is rooted. Own string-key props, symbol-key props,
+    /// nested object props, and [[Prototype]] hold other heap values that must
+    /// survive mark. Unreachable garbage must still be swept.
+    #[test]
+    fn gc_mark_traces_rooted_object_property_values() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_gc_mark_props");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <string.h>
+            #include <stdint.h>
+
+            int main(void) {
+                draconic_rt_gc_init();
+
+                /* Graph (only `root` is rooted):
+                 *   root.name  -> string "alice"
+                 *   root.child -> child
+                 *     child.x  -> string "nested"
+                 *   root[sym]  -> string "sym-val"   (symbol key)
+                 *   root.[[Prototype]] -> proto
+                 *     proto.p  -> string "from-proto"
+                 * Plus one unreachable garbage string.
+                 */
+                DraconicValue *root = draconic_rt_alloc_object();
+                DraconicValue *name = draconic_rt_alloc_string("alice", 5);
+                DraconicValue *child = draconic_rt_alloc_object();
+                DraconicValue *nested = draconic_rt_alloc_string("nested", 6);
+                DraconicValue *sym_val = draconic_rt_alloc_string("sym-val", 7);
+                DraconicValue *proto = draconic_rt_alloc_object();
+                DraconicValue *from_proto = draconic_rt_alloc_string("from-proto", 10);
+                DraconicValue *garbage = draconic_rt_alloc_string("garbage", 7);
+
+                if (!root || !name || !child || !nested || !sym_val
+                    || !proto || !from_proto || !garbage) {
+                    fprintf(stderr, "alloc failed\n");
+                    return 1;
+                }
+
+                draconic_rt_object_set(root, "name", name);
+                draconic_rt_object_set(root, "child", child);
+                draconic_rt_object_set(child, "x", nested);
+                draconic_rt_object_set_symbol(root, 42, sym_val);
+                draconic_rt_object_set(proto, "p", from_proto);
+                draconic_rt_object_set_proto(root, proto);
+
+                /* Non-heap prop value must not crash mark (inttoptr-style). */
+                draconic_rt_object_set(root, "tag", (void *)(intptr_t)99);
+
+                if (draconic_rt_gc_live_count() != 8) {
+                    fprintf(stderr, "pre-collect live want 8 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 2;
+                }
+
+                /* Root only the outer object — not name/child/nested/etc. */
+                draconic_rt_gc_root_push(root);
+                draconic_rt_gc_collect();
+
+                /* All 7 reachable heap values stay live; garbage is swept. */
+                if (draconic_rt_gc_live_count() != 7) {
+                    fprintf(stderr, "after collect live want 7 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 3;
+                }
+
+                /* Property values remain readable and uncorrupted. */
+                DraconicValue *got_name =
+                    (DraconicValue *)draconic_rt_object_get(root, "name");
+                if (!draconic_rt_is_string(got_name)
+                    || draconic_rt_string_len(got_name) != 5
+                    || memcmp(draconic_rt_string_data(got_name), "alice", 5) != 0) {
+                    fprintf(stderr, "rooted prop name corrupted\n");
+                    return 4;
+                }
+
+                DraconicValue *got_child =
+                    (DraconicValue *)draconic_rt_object_get(root, "child");
+                if (!draconic_rt_is_object(got_child)) {
+                    fprintf(stderr, "rooted prop child lost\n");
+                    return 5;
+                }
+                DraconicValue *got_nested =
+                    (DraconicValue *)draconic_rt_object_get(got_child, "x");
+                if (!draconic_rt_is_string(got_nested)
+                    || draconic_rt_string_len(got_nested) != 6
+                    || memcmp(draconic_rt_string_data(got_nested), "nested", 6) != 0) {
+                    fprintf(stderr, "nested prop value corrupted\n");
+                    return 6;
+                }
+
+                DraconicValue *got_sym =
+                    (DraconicValue *)draconic_rt_object_get_symbol(root, 42);
+                if (!draconic_rt_is_string(got_sym)
+                    || draconic_rt_string_len(got_sym) != 7
+                    || memcmp(draconic_rt_string_data(got_sym), "sym-val", 7) != 0) {
+                    fprintf(stderr, "symbol prop value corrupted\n");
+                    return 7;
+                }
+
+                DraconicValue *got_proto = draconic_rt_object_get_proto(root);
+                if (!draconic_rt_is_object(got_proto)) {
+                    fprintf(stderr, "proto lost after collect\n");
+                    return 8;
+                }
+                /* [[Get]] walks prototype — proves proto + its prop stayed live. */
+                DraconicValue *got_p =
+                    (DraconicValue *)draconic_rt_object_get(root, "p");
+                if (!draconic_rt_is_string(got_p)
+                    || draconic_rt_string_len(got_p) != 10
+                    || memcmp(draconic_rt_string_data(got_p), "from-proto", 10) != 0) {
+                    fprintf(stderr, "proto prop value corrupted\n");
+                    return 9;
+                }
+
+                if ((intptr_t)draconic_rt_object_get(root, "tag") != 99) {
+                    fprintf(stderr, "non-heap prop tag corrupted\n");
+                    return 10;
+                }
+
+                draconic_rt_gc_root_pop();
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 0) {
+                    fprintf(stderr, "after unroot live want 0 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 11;
+                }
+
+                puts("gc-mark-props-ok");
+                draconic_rt_gc_shutdown();
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link gc mark props test");
+
+        let output = Command::new(&bin).output().expect("run rt_gc_mark_props");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "gc mark props binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "gc-mark-props-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

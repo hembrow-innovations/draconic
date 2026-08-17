@@ -533,7 +533,7 @@ static void mark_value(DraconicValue *v) {
     }
     v->marked = 1;
     if (v->tag == DRACONIC_TAG_OBJECT) {
-        /* N08.04.05: keep [[Prototype]] live; own props may hold GC ptrs. */
+        /* N08.04.05 / N09.02: keep [[Prototype]] and own prop values live. */
         mark_value(v->as.object.proto);
         for (DraconicProp *p = v->as.object.props; p; p = p->next) {
             mark_value((DraconicValue *)p->value);
