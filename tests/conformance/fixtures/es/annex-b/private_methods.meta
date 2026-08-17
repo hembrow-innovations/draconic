@@ -1,4 +1,6 @@
 id: es/annex-b/private_methods
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 3\n10\n12\nundefined\nundefined\nhi world\n8\n101\n100\n2\n#m\n#g\n#a\n#ag\n#sm\n#sg\n#sa\n#sag\n
 js.check: if (a !== 3) process.exit(1); if (b !== 10) process.exit(2); if (c !== 12) process.exit(3); if (d !== "undefined") process.exit(4); if (e !== "undefined") process.exit(5); if (f !== "hi world") process.exit(6); if (g !== 8) process.exit(7); if (h !== 101) process.exit(8); if (i !== 100) process.exit(9); if (j !== 2) process.exit(10); if (k !== "#m") process.exit(11); if (l !== "#g") process.exit(12); if (mName !== "#a") process.exit(13); if (o !== "#ag") process.exit(14); if (nmSm !== "#sm") process.exit(15); if (nmSg !== "#sg") process.exit(16); if (nmSa !== "#sa") process.exit(17); if (nmSag !== "#sag") process.exit(18);
