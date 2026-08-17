@@ -1347,6 +1347,41 @@ DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj) {
     return obj->as.object.proto;
 }
 
+/* N08.16.28: `{...src}` — copy own enumerable string-keyed props onto dest.
+ * Prop list is newest-first; apply oldest-first to preserve insertion order. */
+void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src) {
+    if (!dest || dest->tag != DRACONIC_TAG_OBJECT) {
+        return;
+    }
+    if (!src || src->tag != DRACONIC_TAG_OBJECT) {
+        return;
+    }
+    size_t n = 0;
+    for (DraconicProp *p = src->as.object.props; p; p = p->next) {
+        if (p->key) {
+            n++;
+        }
+    }
+    if (n == 0) {
+        return;
+    }
+    DraconicProp **ordered = (DraconicProp **)malloc(n * sizeof(DraconicProp *));
+    if (!ordered) {
+        fprintf(stderr, "draconic_rt: object_spread OOM\n");
+        abort();
+    }
+    size_t i = n;
+    for (DraconicProp *p = src->as.object.props; p; p = p->next) {
+        if (p->key) {
+            ordered[--i] = p;
+        }
+    }
+    for (size_t j = 0; j < n; j++) {
+        draconic_rt_object_set(dest, ordered[j]->key, ordered[j]->value);
+    }
+    free(ordered);
+}
+
 /* --- Promise.allSettled (N06.08) --- */
 
 typedef struct {

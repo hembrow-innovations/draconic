@@ -131,6 +131,9 @@ void *draconic_rt_object_get_symbol(DraconicValue *obj, int64_t sym);
 /* N08.04.05: set/get ordinary object [[Prototype]] (nullable). */
 void draconic_rt_object_set_proto(DraconicValue *obj, DraconicValue *proto);
 DraconicValue *draconic_rt_object_get_proto(DraconicValue *obj);
+/* N08.16.28: CopyDataProperties — own enumerable string keys from src → dest.
+ * null/undefined/non-object src is a no-op (ES object spread). */
+void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src);
 
 /* --- Promise.allSettled (N06.08): array of promises/values →
        promise of [{status,value|reason}, …] --- */
