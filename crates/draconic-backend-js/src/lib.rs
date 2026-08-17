@@ -11,9 +11,11 @@ pub use source_map::{
 use std::collections::HashMap;
 
 use draconic_ast::UnaryOp;
+use draconic_check::{host_api_unsupported_diagnostic, CompileTarget};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     ArrayPatternEl, AssignTarget, Expr, IrType, LocalId, Module, ObjectPatternEl, Pattern, Stmt,
+    UpdateTarget,
 };
 use source_map::SourceMapBuilder;
 
@@ -233,6 +235,14 @@ fn native_only_diag(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(message, Span::dummy())
 }
 
+/// Hard-error free host API names that the H00.01 registry marks unavailable on js.
+fn reject_host_api_name(name: &str) -> Result<(), Diagnostic> {
+    if let Some(d) = host_api_unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()) {
+        return Err(d);
+    }
+    Ok(())
+}
+
 /// Reject IR that is native-only on the JS backend (N04).
 fn reject_native_only(module: &Module) -> Result<(), Diagnostic> {
     for local in &module.locals {
@@ -401,8 +411,8 @@ fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
         } => Err(native_only_diag(
             "native pointer store `*p = …` is native-only (cannot emit JS)",
         )),
+        Expr::IdentName { name, .. } => reject_host_api_name(name),
         Expr::Local { .. }
-        | Expr::IdentName { .. }
         | Expr::Number { .. }
         | Expr::BigInt { .. }
         | Expr::String { .. }
@@ -441,7 +451,16 @@ fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
             reject_native_only_assign_target(target)?;
             reject_native_only_expr(value)
         }
-        Expr::Update { .. } => Ok(()),
+        Expr::Update { target, .. } => match target {
+            UpdateTarget::Local(_) => Ok(()),
+            UpdateTarget::Name(name) => reject_host_api_name(name),
+            UpdateTarget::Member {
+                object, property, ..
+            } => {
+                reject_native_only_expr(object)?;
+                reject_native_only_expr(property)
+            }
+        },
         Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
             reject_native_only_expr(callee)?;
             for a in args {
@@ -508,7 +527,8 @@ fn reject_native_only_expr(expr: &Expr) -> Result<(), Diagnostic> {
 
 fn reject_native_only_assign_target(target: &AssignTarget) -> Result<(), Diagnostic> {
     match target {
-        AssignTarget::Local(_) | AssignTarget::Name(_) => Ok(()),
+        AssignTarget::Local(_) => Ok(()),
+        AssignTarget::Name(name) => reject_host_api_name(name),
         AssignTarget::Deref(_) => Err(native_only_diag(
             "native pointer store `*p = …` is native-only (cannot emit JS)",
         )),
@@ -535,7 +555,8 @@ fn reject_native_only_assign_target(target: &AssignTarget) -> Result<(), Diagnos
 
 fn reject_native_only_pattern(pat: &Pattern) -> Result<(), Diagnostic> {
     match pat {
-        Pattern::Local(_) | Pattern::Name(_) => Ok(()),
+        Pattern::Local(_) => Ok(()),
+        Pattern::Name(name) => reject_host_api_name(name),
         Pattern::Member {
             object, property, ..
         } => {

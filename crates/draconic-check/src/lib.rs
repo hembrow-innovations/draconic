@@ -1,5 +1,13 @@
 //! Binder (scopes + symbol resolution) and Checker (TypeScript-inspired).
-//! Binder: ROADMAP B04. Checker: ROADMAP B05.
+//! Binder: ROADMAP B04. Checker: ROADMAP B05. Host API registry: H00.01.
+
+mod host_api;
+
+pub use host_api::{
+    host_apis, is_available as host_api_is_available, is_host_api, lookup as lookup_host_api,
+    unsupported_diagnostic as host_api_unsupported_diagnostic, CompileTarget, HostApiEntry,
+    HostAvailability,
+};
 
 use draconic_ast::{
     Arg, ArrayElement, ArrayPatternElement, ArrowBody, BinaryOp, BindingKind, BindingPattern,
@@ -383,19 +391,40 @@ pub fn bind_module(program: Program) -> Result<BoundProgram, Diagnostic> {
 
 pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
     // Script goal: top-level `await` / `for await` rejected.
-    check_with_module_goal(program, false)
+    // No host-target policy (call [`check_for_target`] when the backend is known).
+    check_with_module_goal(program, false, None)
 }
 
 /// Check a Program under the Module goal (E19.28): top-level `await` and
 /// `for await` are allowed (async module). Nested non-async functions still
 /// reject `await`.
 pub fn check_module(program: Program) -> Result<CheckedProgram, Diagnostic> {
-    check_with_module_goal(program, true)
+    check_with_module_goal(program, true, None)
+}
+
+/// Check a Script-goal Program for a specific compile target (H00.01).
+///
+/// Free references to registered host APIs that are unavailable on `target`
+/// produce a hard diagnostic ([`codes::HOST_API_UNSUPPORTED`]).
+pub fn check_for_target(
+    program: Program,
+    target: CompileTarget,
+) -> Result<CheckedProgram, Diagnostic> {
+    check_with_module_goal(program, false, Some(target))
+}
+
+/// Check a Module-goal Program for a specific compile target (H00.01).
+pub fn check_module_for_target(
+    program: Program,
+    target: CompileTarget,
+) -> Result<CheckedProgram, Diagnostic> {
+    check_with_module_goal(program, true, Some(target))
 }
 
 fn check_with_module_goal(
     program: Program,
     module_goal: bool,
+    target: Option<CompileTarget>,
 ) -> Result<CheckedProgram, Diagnostic> {
     let bound = if module_goal {
         bind_module(program)?
@@ -405,6 +434,7 @@ fn check_with_module_goal(
     let mut checker = Checker::new(&bound);
     // Module evaluation may be async when the body uses top-level await.
     checker.in_async = module_goal;
+    checker.host_target = target;
     checker.check_program()?;
     let symbol_types = checker.symbol_types;
     let expr_types = checker.expr_types;
@@ -2831,6 +2861,8 @@ struct Checker<'a> {
     in_generator: bool,
     /// Expected return type from an enclosing annotated function (T01).
     expected_return: Option<Type>,
+    /// When set, free host API references are checked against this target (H00.01).
+    host_target: Option<CompileTarget>,
 }
 
 impl<'a> Checker<'a> {
@@ -2879,6 +2911,7 @@ impl<'a> Checker<'a> {
             in_async: false,
             in_generator: false,
             expected_return: None,
+            host_target: None,
         }
     }
 
@@ -3806,6 +3839,14 @@ impl<'a> Checker<'a> {
                     ty
                 } else {
                     // Free / with-chain name (Object Environment).
+                    // H00.01: free host API refs hard-error when unavailable on target.
+                    if let Some(target) = self.host_target {
+                        if let Some(d) =
+                            host_api::unsupported_diagnostic(&id.name, target, id.span)
+                        {
+                            return Err(d);
+                        }
+                    }
                     self.record(id.span, Type::Any);
                     Type::Any
                 }

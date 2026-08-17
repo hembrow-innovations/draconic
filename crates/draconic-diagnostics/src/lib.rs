@@ -144,6 +144,8 @@ pub mod codes {
     pub const EXCESS_PROPERTY: ErrorCode = ErrorCode(305);
     /// Property read/write names a key absent from an annotated shape.
     pub const UNKNOWN_PROPERTY: ErrorCode = ErrorCode(306);
+    /// Host API is not available on the compile target (H00.01).
+    pub const HOST_API_UNSUPPORTED: ErrorCode = ErrorCode(400);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -330,6 +332,7 @@ mod tests {
         assert_eq!(codes::MISSING_RETURN.label(), "E0304");
         assert_eq!(codes::EXCESS_PROPERTY.label(), "E0305");
         assert_eq!(codes::UNKNOWN_PROPERTY.label(), "E0306");
+        assert_eq!(codes::HOST_API_UNSUPPORTED.label(), "E0400");
         assert_eq!(codes::NOT_ASSIGNABLE.to_string(), "E0300");
     }
 

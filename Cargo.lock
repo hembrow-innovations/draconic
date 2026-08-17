@@ -46,9 +46,11 @@ name = "draconic-backend-js"
 version = "0.1.0"
 dependencies = [
  "draconic-ast",
+ "draconic-check",
  "draconic-diagnostics",
  "draconic-frontend",
  "draconic-ir",
+ "draconic-runtime",
 ]
 
 [[package]]

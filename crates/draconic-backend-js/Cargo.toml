@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 draconic-ast.workspace = true
+draconic-check.workspace = true
 draconic-ir.workspace = true
 draconic-diagnostics.workspace = true
 draconic-runtime.workspace = true

@@ -1,0 +1,2 @@
+// H00.01: native-only host API scaffold (H06) must hard-error on js.
+tcpListen(8080);
