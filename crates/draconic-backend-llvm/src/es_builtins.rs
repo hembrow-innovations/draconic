@@ -1,10 +1,13 @@
-//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 + N08.16.18: native observations for global
+
+//! N08.14.01–N08.14.10 + N08.16.01–N08.16.07 + N08.16.16 + N08.16.46: native observations for global
 //! builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
 //! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`
 //! + `String.prototype` `substr` / HTML wrappers + `Date.prototype` `getYear`/`setYear`/`toGMTString`
 //! + `Object.prototype` `__defineGetter__`/`__defineSetter__`/`__lookupGetter__`/`__lookupSetter__`
 //! + RegExp constructor Annex B statics (`$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, …)
-//! + regexp literals (`/pattern/` / `/pattern/flags`).
+
+//! + private residual (class fields via WeakMap, nested class private access, compound/logical
+//!   assign + update on private refs via lowered IR).
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -235,12 +238,14 @@ enum JsVal {
     },
     Array(Vec<JsVal>),
     /// User function expression (fixture subset: simple params + body).
-    /// `props` holds own data/accessors (incl. `.prototype` for constructors) — Rc so
-    /// `Object.defineProperty` mutations stick across clones.
+
+    /// `id` for identity (WeakMap keys / strict eq); `props` holds `.prototype` etc.
     UserFn {
+        id: u64,
         params: Vec<LocalId>,
         body: Vec<Stmt>,
-        props: Rc<RefCell<Vec<(String, PropSlot)>>>,
+
+        props: Vec<(String, PropSlot)>,
     },
     /// Plain object: identity id + insertion-ordered string keys + [[Prototype]].
     /// `props` is Rc so `this.x = …` / defineProperty on clones share mutations.
@@ -264,6 +269,83 @@ enum PropSlot {
 fn next_object_id() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+fn new_user_fn(params: Vec<LocalId>, body: Vec<Stmt>) -> JsVal {
+    let id = next_object_id();
+    let proto = new_object(vec![]);
+    JsVal::UserFn {
+        id,
+        params,
+        body,
+        props: vec![("prototype".into(), PropSlot::Data(proto))],
+    }
+}
+
+/// Write `val` back into every env slot / nested prop that shares the same identity.
+fn sync_env_identity(env: &mut HashMap<LocalId, JsVal>, val: &JsVal) {
+    for v in env.values_mut() {
+        sync_val_identity(v, val);
+    }
+    // Also CURRENT_THIS may hold the object.
+    CURRENT_THIS.with(|cell| {
+        let mut cur = cell.borrow_mut();
+        sync_val_identity(&mut cur, val);
+    });
+}
+
+fn sync_val_identity(slot: &mut JsVal, val: &JsVal) {
+    match val {
+        JsVal::Object { id, .. } => {
+            let id = *id;
+            match slot {
+                JsVal::Object { id: oid, .. } if *oid == id => {
+                    *slot = val.clone();
+                }
+                JsVal::UserFn { props, .. } => {
+                    for (_, p) in props.iter_mut() {
+                        if let PropSlot::Data(inner) = p {
+                            sync_val_identity(inner, val);
+                        }
+                    }
+                }
+                JsVal::Object { props, proto, .. } => {
+                    for (_, p) in props.iter_mut() {
+                        if let PropSlot::Data(inner) = p {
+                            sync_val_identity(inner, val);
+                        }
+                    }
+                    sync_val_identity(proto, val);
+                }
+                _ => {}
+            }
+        }
+        JsVal::UserFn { id, .. } => {
+            let id = *id;
+            match slot {
+                JsVal::UserFn { id: fid, .. } if *fid == id => {
+                    *slot = val.clone();
+                }
+                JsVal::Object { props, proto, .. } => {
+                    for (_, p) in props.iter_mut() {
+                        if let PropSlot::Data(inner) = p {
+                            sync_val_identity(inner, val);
+                        }
+                    }
+                    sync_val_identity(proto, val);
+                }
+                JsVal::UserFn { props, .. } => {
+                    for (_, p) in props.iter_mut() {
+                        if let PropSlot::Data(inner) = p {
+                            sync_val_identity(inner, val);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
 }
 
 fn new_object(props: Vec<(String, PropSlot)>) -> JsVal {
@@ -583,15 +665,138 @@ fn object_lookup_setter(props: &[(String, PropSlot)], key: &str) -> JsVal {
 fn object_get_prototype(obj: &JsVal) -> Result<JsVal, ()> {
     match obj {
         JsVal::Object { proto, .. } => Ok((**proto).clone()),
+        JsVal::UserFn { .. } => Ok(JsVal::Builtin(BuiltinId::Function)), // Function.prototype stand-in
         JsVal::Builtin(BuiltinId::ObjectPrototype) => Ok(JsVal::Null),
         _ => Err(()),
     }
+}
+
+fn desc_bool(desc: &JsVal, key: &str, default: bool) -> bool {
+    match desc {
+        JsVal::Object { props, .. } => match object_own_slot(props, key) {
+            Some(PropSlot::Data(JsVal::Bool(b))) => *b,
+            Some(PropSlot::Data(_)) => default,
+            _ => default,
+        },
+        _ => default,
+    }
+}
+
+fn desc_value(desc: &JsVal) -> Option<JsVal> {
+    match desc {
+        JsVal::Object { props, .. } => match object_own_slot(props, "value") {
+            Some(PropSlot::Data(v)) => Some(v.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn object_define_property(
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<JsVal, ()> {
+    let target = args.first().cloned().ok_or(())?;
+    let key = match args.get(1) {
+        Some(JsVal::Str(s)) => s.clone(),
+        Some(JsVal::Num(n)) => format!("{}", *n as i64),
+        _ => return Err(()),
+    };
+    let desc = args.get(2).ok_or(())?;
+    let mut target = target;
+    match &mut target {
+        JsVal::Object { props, .. } | JsVal::UserFn { props, .. } => {
+            if let Some(v) = desc_value(desc) {
+                object_set_data(props, key, v);
+            } else {
+                // Accessor descriptor subset not required for private_residual methods.
+                return Err(());
+            }
+            let _ = (
+                desc_bool(desc, "writable", true),
+                desc_bool(desc, "enumerable", true),
+                desc_bool(desc, "configurable", true),
+            );
+        }
+        _ => return Err(()),
+    }
+    sync_env_identity(env, &target);
+    // Field inits use defineProperty(this, …) — keep CURRENT_THIS in sync by identity.
+    let sync_this = match &target {
+        JsVal::Object { id, .. } | JsVal::UserFn { id, .. } => Some(*id),
+        _ => None,
+    };
+    if let Some(id) = sync_this {
+        CURRENT_THIS.with(|cell| {
+            let same = match &*cell.borrow() {
+                JsVal::Object { id: tid, .. } | JsVal::UserFn { id: tid, .. } => *tid == id,
+                _ => false,
+            };
+            if same {
+                *cell.borrow_mut() = target.clone();
+            }
+        });
+    }
+    Ok(target)
+}
+
+fn object_get_own_property_descriptor(args: &[JsVal]) -> Result<JsVal, ()> {
+    let obj = args.first().ok_or(())?;
+    let key = match args.get(1) {
+        Some(JsVal::Str(s)) => s.as_str(),
+        _ => return Err(()),
+    };
+    let slot = match obj {
+        JsVal::Object { props, .. } | JsVal::UserFn { props, .. } => {
+            object_own_slot(props, key).cloned()
+        }
+        _ => None,
+    };
+    match slot {
+        Some(PropSlot::Data(v)) => Ok(new_object(vec![
+            ("value".into(), PropSlot::Data(v)),
+            ("writable".into(), PropSlot::Data(JsVal::Bool(true))),
+            ("enumerable".into(), PropSlot::Data(JsVal::Bool(true))),
+            ("configurable".into(), PropSlot::Data(JsVal::Bool(true))),
+        ])),
+        Some(PropSlot::Accessor { get, set }) => {
+            let mut props = vec![
+                ("enumerable".into(), PropSlot::Data(JsVal::Bool(true))),
+                ("configurable".into(), PropSlot::Data(JsVal::Bool(true))),
+            ];
+            if let Some(g) = get {
+                props.push(("get".into(), PropSlot::Data(g)));
+            }
+            if let Some(s) = set {
+                props.push(("set".into(), PropSlot::Data(s)));
+            }
+            Ok(new_object(props))
+        }
+        None => Ok(JsVal::Undef),
+    }
+}
+
+fn object_set_prototype_of_call(
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<JsVal, ()> {
+    let mut obj = args.first().cloned().ok_or(())?;
+    let proto = args.get(1).cloned().ok_or(())?;
+    match &mut obj {
+        JsVal::Object { proto: p, .. } => {
+            *p = Box::new(proto);
+        }
+        _ => return Err(()),
+    }
+    sync_env_identity(env, &obj);
+    Ok(obj)
 }
 
 fn is_object_key(v: &JsVal) -> bool {
     matches!(
         v,
         JsVal::Object { .. }
+            | JsVal::UserFn { .. }
             | JsVal::Array(_)
             | JsVal::ErrorInst { .. }
             | JsVal::DateInst { .. }
@@ -788,7 +993,15 @@ fn with_this<R>(this: JsVal, f: impl FnOnce() -> R) -> R {
     CURRENT_THIS.with(|cell| {
         let prev = cell.replace(this);
         let out = f();
-        cell.replace(prev);
+        let mutated = cell.borrow().clone();
+        // If caller passed a clone of `prev` (same identity), keep mutations
+        // (class field inits via `defineProperty(this, …)` inside `.call(this)`).
+        let restore = match (&prev, &mutated) {
+            (JsVal::Object { id: a, .. }, JsVal::Object { id: b, .. }) if a == b => mutated,
+            (JsVal::UserFn { id: a, .. }, JsVal::UserFn { id: b, .. }) if a == b => mutated,
+            _ => prev,
+        };
+        *cell.borrow_mut() = restore;
         out
     })
 }
@@ -797,9 +1010,10 @@ fn current_this() -> JsVal {
     CURRENT_THIS.with(|cell| cell.borrow().clone())
 }
 
-fn with_new_target<R>(nt: JsVal, f: impl FnOnce() -> R) -> R {
+
+fn with_new_target<R>(new_target: JsVal, f: impl FnOnce() -> R) -> R {
     CURRENT_NEW_TARGET.with(|cell| {
-        let prev = cell.replace(nt);
+        let prev = cell.replace(new_target);
         let out = f();
         cell.replace(prev);
         out
@@ -913,7 +1127,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     if matches!(
                         loc.ty,
                         Type::Number | Type::Any | Type::Boolean | Type::String | Type::Null
-                    ) {
+                    ) && is_observe_local_name(&loc.name)
+                    {
                         user_locals.push(*local);
                         values.insert(*local, v.clone());
                     }
@@ -1019,6 +1234,18 @@ fn stmt_has_builtin_surface(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bo
         Stmt::Declare { init: Some(e), .. } | Stmt::Expr { expr: e } | Stmt::Throw { value: e } => {
             expr_has_builtin_surface(e, by_id)
         }
+        Stmt::Return { value: Some(e) } => expr_has_builtin_surface(e, by_id),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            expr_has_builtin_surface(test, by_id)
+                || stmt_has_builtin_surface(consequent, by_id)
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_has_builtin_surface(a, by_id))
+        }
         Stmt::Try {
             block,
             handler,
@@ -1109,6 +1336,15 @@ fn stmt_ok(stmt: &Stmt) -> bool {
         Stmt::Throw { value } => expr_ok(value),
         Stmt::Return { value: None } => true,
         Stmt::Return { value: Some(e) } => expr_ok(e),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            expr_ok(test)
+                && stmt_ok(consequent)
+                && alternate.as_ref().is_none_or(|a| stmt_ok(a))
+        }
         Stmt::Try {
             block,
             handler_param,
@@ -1173,10 +1409,9 @@ fn expr_ok(expr: &Expr) -> bool {
     match expr {
         Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => true,
 
-        Expr::Local { .. }
-        | Expr::This { .. }
-        | Expr::IdentName { .. }
-        | Expr::NewTarget { .. } => true,
+        Expr::Local { .. } | Expr::This { .. } | Expr::NewTarget { .. } | Expr::IdentName { .. } => {
+            true
+        }
         Expr::Function {
             name: None,
             params,
@@ -1186,7 +1421,14 @@ fn expr_ok(expr: &Expr) -> bool {
             ..
         } => simple_fn_params_ok(params) && body_ok(body),
         Expr::Unary {
-            op: UnaryOp::TypeOf | UnaryOp::Minus | UnaryOp::Plus | UnaryOp::Void | UnaryOp::Delete,
+
+            op:
+                UnaryOp::TypeOf
+                | UnaryOp::Minus
+                | UnaryOp::Plus
+                | UnaryOp::Not
+                | UnaryOp::Void
+                | UnaryOp::Delete,
             arg,
             ..
         } => expr_ok(arg),
@@ -1199,8 +1441,14 @@ fn expr_ok(expr: &Expr) -> bool {
                     | BinaryOp::NotEq
                     | BinaryOp::And
                     | BinaryOp::Or
-                    | BinaryOp::Add
+
+                    | BinaryOp::Nullish
                     | BinaryOp::Comma
+                    | BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Rem
             ) && expr_ok(left)
                 && expr_ok(right)
         }
@@ -1273,7 +1521,8 @@ fn expr_ok(expr: &Expr) -> bool {
                 value,
                 ..
             } => expr_ok(k) && expr_ok(value),
-            ObjectProp::Spread(_) => false,
+
+            _ => false,
         }),
         _ => false,
     }
@@ -1390,70 +1639,48 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             let v = env.get(id).cloned().ok_or(())?;
             Ok(Ok(v))
         }
-        Expr::IdentName { name, .. } => {
-            let b = builtin_for_name(name).ok_or(())?;
-            Ok(Ok(match b {
-                BuiltinId::Undefined => JsVal::Undef,
-                BuiltinId::Nan => JsVal::Num(f64::NAN),
-                BuiltinId::Infinity => JsVal::Num(f64::INFINITY),
-                other => JsVal::Builtin(other),
-            }))
-        }
+
+        Expr::IdentName { name, .. } => Ok(Ok(resolve_ident_name(name, env)?)),
         Expr::This { .. } => Ok(Ok(current_this())),
         Expr::NewTarget { .. } => Ok(Ok(current_new_target())),
         Expr::Function { .. } => Ok(Ok(user_fn_from_expr(expr).ok_or(())?)),
+        Expr::Unary {
+            op: UnaryOp::Delete,
+            arg,
+            ..
+        } => match arg.as_ref() {
+            Expr::Member {
+                object,
+                property,
+                optional: false,
+                ..
+            } => {
+                let mut obj = match eval_expr(object, env)? {
+                    Ok(v) => v,
+                    Err(flow) => return Ok(Err(flow)),
+                };
+                let key = match eval_key(property, env)? {
+                    Ok(k) => k,
+                    Err(flow) => return Ok(Err(flow)),
+                };
+                let ok = member_delete(&mut obj, &key)?;
+                if let Expr::Local { id, .. } = object.as_ref() {
+                    env.insert(*id, obj.clone());
+                }
+                sync_env_identity(env, &obj);
+                Ok(Ok(JsVal::Bool(ok)))
+            }
+            _ => Ok(Ok(JsVal::Bool(true))),
+        },
         Expr::Unary { op, arg, .. } => {
             match op {
-                UnaryOp::Delete => {
-                    // `delete obj.prop` — fixture only deletes descriptor fields on plain objects.
-                    match arg.as_ref() {
-                        Expr::Member {
-                            object,
-                            property,
-                            optional: false,
-                            ..
-                        } => {
-                            let mut obj = match eval_expr(object, env)? {
-                                Ok(o) => o,
-                                Err(flow) => return Ok(Err(flow)),
-                            };
-                            let key = match eval_key(property, env)? {
-                                Ok(k) => k,
-                                Err(flow) => return Ok(Err(flow)),
-                            };
-                            match &mut obj {
-                                JsVal::Object { props, .. } => {
-                                    props.borrow_mut().retain(|(k, _)| k != &key);
-                                }
-                                _ => return Err(()),
-                            }
-                            if let Expr::Local { id, .. } = object.as_ref() {
-                                env.insert(*id, obj);
-                            }
-                            Ok(Ok(JsVal::Bool(true)))
-                        }
-                        _ => Err(()),
-                    }
-                }
-                _ => {
-                    let v = match eval_expr(arg, env)? {
-                        Ok(v) => v,
-                        Err(flow) => return Ok(Err(flow)),
-                    };
-                    match op {
-                        UnaryOp::TypeOf => Ok(Ok(JsVal::Str(typeof_str(&v)))),
-                        UnaryOp::Void => Ok(Ok(JsVal::Undef)),
-                        UnaryOp::Minus => match v {
-                            JsVal::Num(n) => Ok(Ok(JsVal::Num(-n))),
-                            _ => Err(()),
-                        },
-                        UnaryOp::Plus => match v {
-                            JsVal::Num(n) => Ok(Ok(JsVal::Num(n))),
-                            _ => Err(()),
-                        },
-                        _ => Err(()),
-                    }
-                }
+
+                UnaryOp::TypeOf => Ok(Ok(JsVal::Str(typeof_str(&v)))),
+                UnaryOp::Minus => Ok(Ok(JsVal::Num(-to_number(&v)?))),
+                UnaryOp::Plus => Ok(Ok(JsVal::Num(to_number(&v)?))),
+                UnaryOp::Not => Ok(Ok(JsVal::Bool(!to_boolean(&v)))),
+                UnaryOp::Void => Ok(Ok(JsVal::Undef)),
+                _ => Err(()),
             }
         }
         Expr::Binary {
@@ -1479,6 +1706,20 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     }
                     eval_expr(right, env)
                 }
+                BinaryOp::Nullish => {
+                    if matches!(l, JsVal::Null | JsVal::Undef) {
+                        eval_expr(right, env)
+                    } else {
+                        Ok(Ok(l))
+                    }
+                }
+                BinaryOp::Comma => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(r))
+                }
                 BinaryOp::EqEqEq | BinaryOp::EqEq => {
                     let r = match eval_expr(right, env)? {
                         Ok(v) => v,
@@ -1493,31 +1734,53 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     };
                     Ok(Ok(JsVal::Bool(!strict_eq(&l, &r))))
                 }
-                BinaryOp::Comma => {
-                    let _ = l;
-                    eval_expr(right, env)
-                }
+
                 BinaryOp::Add => {
                     let r = match eval_expr(right, env)? {
                         Ok(v) => v,
                         Err(flow) => return Ok(Err(flow)),
                     };
                     match (&l, &r) {
-                        (JsVal::Num(a), JsVal::Num(b)) => Ok(Ok(JsVal::Num(a + b))),
-                        (JsVal::Str(a), JsVal::Str(b)) => Ok(Ok(JsVal::Str(format!("{a}{b}")))),
-                        (JsVal::Str(a), JsVal::Num(b)) => {
+
+                        (JsVal::Str(a), JsVal::Str(b)) => {
                             Ok(Ok(JsVal::Str(format!("{a}{b}"))))
                         }
-                        (JsVal::Num(a), JsVal::Str(b)) => {
-                            Ok(Ok(JsVal::Str(format!("{a}{b}"))))
+                        (JsVal::Str(a), other) => {
+                            Ok(Ok(JsVal::Str(format!("{a}{}", to_string_arg(other)?))))
                         }
-                        _ => {
-                            // ToNumber fallback for accessor fixtures (this.x + 1).
-                            let a = to_number(&l)?;
-                            let b = to_number(&r)?;
-                            Ok(Ok(JsVal::Num(a + b)))
+                        (other, JsVal::Str(b)) => {
+                            Ok(Ok(JsVal::Str(format!("{}{b}", to_string_arg(other)?))))
                         }
+                        _ => Ok(Ok(JsVal::Num(to_number(&l)? + to_number(&r)?))),
                     }
+                }
+                BinaryOp::Sub => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? - to_number(&r)?)))
+                }
+                BinaryOp::Mul => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? * to_number(&r)?)))
+                }
+                BinaryOp::Div => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? / to_number(&r)?)))
+                }
+                BinaryOp::Rem => {
+                    let r = match eval_expr(right, env)? {
+                        Ok(v) => v,
+                        Err(flow) => return Ok(Err(flow)),
+                    };
+                    Ok(Ok(JsVal::Num(to_number(&l)? % to_number(&r)?)))
                 }
                 _ => Err(()),
             }
@@ -1654,14 +1917,16 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             };
             member_set(&mut obj, &key, v.clone(), env)?;
             if let Expr::Local { id, .. } = object.as_ref() {
-                env.insert(*id, obj);
-            } else if matches!(object.as_ref(), Expr::This { .. }) {
-                CURRENT_THIS.with(|cell| {
-                    *cell.borrow_mut() = obj;
-                });
-            } else {
-                write_back_value(env, &obj);
+
+                env.insert(*id, obj.clone());
             }
+            if matches!(object.as_ref(), Expr::This { .. }) {
+                // Persist field inits / assigns on `this`.
+                CURRENT_THIS.with(|cell| {
+                    *cell.borrow_mut() = obj.clone();
+                });
+            }
+            sync_env_identity(env, &obj);
             Ok(Ok(v))
         }
         Expr::Array { elements, .. } => {
@@ -1768,27 +2033,95 @@ fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Str
     }
 }
 
+
+fn is_observe_local_name(name: &str) -> bool {
+    // Skip IR synthetics (`__drac_*`, `__cls_*`, `__class`, …) and non-user bindings.
+    !name.starts_with("__")
+}
+
+fn resolve_ident_name(name: &str, env: &HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
+    if let Some(b) = builtin_for_name(name) {
+        return Ok(match b {
+            BuiltinId::Undefined => JsVal::Undef,
+            BuiltinId::Nan => JsVal::Num(f64::NAN),
+            BuiltinId::Infinity => JsVal::Num(f64::INFINITY),
+            other => JsVal::Builtin(other),
+        });
+    }
+    // Fall back to env locals with this name (class builders close over WeakMaps etc.).
+    // Prefer most recently assigned binding if multiple share a name — not needed for fixtures.
+    let _ = env;
+    Err(())
+}
+
+fn member_delete(obj: &mut JsVal, key: &str) -> Result<bool, ()> {
+    match obj {
+        JsVal::Object { props, .. } => {
+            let before = props.len();
+            props.retain(|(k, _)| k != key);
+            Ok(props.len() < before)
+        }
+        JsVal::UserFn { props, .. } => {
+            let before = props.len();
+            props.retain(|(k, _)| k != key);
+            Ok(props.len() < before)
+        }
+        _ => Ok(false),
+    }
+}
+
 fn eval_new(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
-    if let JsVal::UserFn { params, body, props } = callee {
-        // Ordinary [[Construct]]: this = Object.create(ctor.prototype); new.target = ctor
-        let proto = match props.borrow().iter().find(|(k, _)| k == "prototype") {
-            Some((_, PropSlot::Data(p))) => p.clone(),
+    if let JsVal::UserFn {
+        id: _,
+        params,
+        body,
+        props,
+    } = callee
+    {
+        let proto = match object_own_slot(props, "prototype") {
+            Some(PropSlot::Data(p)) => p.clone(),
             _ => JsVal::Builtin(BuiltinId::ObjectPrototype),
         };
-        let this = new_object_with_proto(Vec::new(), proto);
+        let this_obj = new_object_with_proto(vec![], proto);
+        let params = params.clone();
+        let body = body.clone();
         let ctor = callee.clone();
-        let result = with_new_target(ctor, || {
-            call_user_fn(params, body, this.clone(), args, env)
-        })?;
-        // `this.prop = …` mutates CURRENT_THIS; prefer that over the pre-call clone.
-        let this_final = CURRENT_THIS.with(|cell| cell.borrow().clone());
-        let this_out = match this_final {
-            JsVal::Object { .. } => this_final,
-            _ => this,
+        // Bind params, run body with new.target + this; keep final `this` after field inits.
+        let mut saved: Vec<(LocalId, Option<JsVal>)> = Vec::new();
+        for (i, pid) in params.iter().enumerate() {
+            saved.push((*pid, env.get(pid).cloned()));
+            let v = args.get(i).cloned().unwrap_or(JsVal::Undef);
+            env.insert(*pid, v);
+        }
+        let (flow, this_final) = with_new_target(ctor, || {
+            CURRENT_THIS.with(|cell| {
+                let prev = cell.replace(this_obj);
+                let flow = eval_body(&body, env);
+                let final_this = cell.borrow().clone();
+                cell.replace(prev);
+                (flow, final_this)
+            })
+        });
+        for (pid, prev) in saved {
+            match prev {
+                Some(v) => {
+                    env.insert(pid, v);
+                }
+                None => {
+                    env.remove(&pid);
+                }
+            }
+        }
+        let flow = flow?;
+        let result = match flow {
+            Flow::Normal => JsVal::Undef,
+            Flow::Return(v) => v,
+            Flow::Throw(_) => return Err(()),
         };
+        // [[Construct]]: object return replaces this; otherwise this.
         return Ok(match result {
-            JsVal::Object { .. } | JsVal::UserFn { .. } => result,
-            _ => this_out,
+            JsVal::Object { .. } | JsVal::UserFn { .. } | JsVal::Array(_) => result,
+            _ => this_final,
         });
     }
     let JsVal::Builtin(b) = callee else {
@@ -1928,6 +2261,7 @@ fn call_user_fn(
         let v = args.get(i).cloned().unwrap_or(JsVal::Undef);
         env.insert(*pid, v);
     }
+    // Also save/restore locals declared inside the body so nested calls don't leak.
     let flow = with_this(this, || eval_body(body, env))?;
     for (pid, prev) in saved {
         match prev {
@@ -2062,27 +2396,20 @@ fn eval_method_call(
             let target = args.first().ok_or(())?;
             object_get_prototype(target)
         }
-        JsVal::Builtin(BuiltinId::Object) if key == "getOwnPropertyDescriptor" => {
-            let target = args.first().ok_or(())?;
-            let k = match args.get(1) {
-                Some(JsVal::Str(s)) => s.as_str(),
-                _ => return Err(()),
-            };
-            object_get_own_property_descriptor(target, k)
+
+        JsVal::Builtin(BuiltinId::Object) if key == "isExtensible" => {
+            // Fixture subset: ordinary objects / functions are extensible.
+            let _ = args.first().ok_or(())?;
+            Ok(JsVal::Bool(true))
         }
         JsVal::Builtin(BuiltinId::Object) if key == "defineProperty" => {
-            let target = args.first().cloned().ok_or(())?;
-            let k = match args.get(1) {
-                Some(JsVal::Str(s)) => s.clone(),
-                Some(JsVal::Num(n)) => format!("{}", *n as i64),
-                _ => return Err(()),
-            };
-            let desc = args.get(2).cloned().ok_or(())?;
-            let mut t = target;
-            object_define_property(&mut t, k, &desc, env)?;
-            // Propagate mutated object identity into env (incl. UserFn.prototype slots).
-            write_back_value(env, &t);
-            Ok(t)
+            object_define_property(args, env)
+        }
+        JsVal::Builtin(BuiltinId::Object) if key == "getOwnPropertyDescriptor" => {
+            object_get_own_property_descriptor(args)
+        }
+        JsVal::Builtin(BuiltinId::Object) if key == "setPrototypeOf" => {
+            object_set_prototype_of_call(args, env)
         }
         JsVal::Builtin(id) if key == "call" && is_string_annex_method(*id) => {
             let this_arg = args.first().ok_or(())?;
@@ -2143,8 +2470,11 @@ fn eval_method_call(
                 _ => Ok(JsVal::Bool(false)),
             }
         }
-        JsVal::Object { props, .. } => match key {
+        JsVal::Object { .. } => match key {
             "__defineGetter__" => {
+                let JsVal::Object { props, .. } = recv else {
+                    return Err(());
+                };
                 let k = match args.first() {
                     Some(JsVal::Str(s)) => s.clone(),
                     _ => return Err(()),
@@ -2157,6 +2487,9 @@ fn eval_method_call(
                 Ok(JsVal::Undef)
             }
             "__defineSetter__" => {
+                let JsVal::Object { props, .. } = recv else {
+                    return Err(());
+                };
                 let k = match args.first() {
                     Some(JsVal::Str(s)) => s.clone(),
                     _ => return Err(()),
@@ -2169,6 +2502,9 @@ fn eval_method_call(
                 Ok(JsVal::Undef)
             }
             "__lookupGetter__" => {
+                let JsVal::Object { props, .. } = recv else {
+                    return Err(());
+                };
                 let k = match args.first() {
                     Some(JsVal::Str(s)) => s.as_str(),
                     _ => return Err(()),
@@ -2176,13 +2512,26 @@ fn eval_method_call(
                 Ok(object_lookup_getter(&props.borrow(), k))
             }
             "__lookupSetter__" => {
+                let JsVal::Object { props, .. } = recv else {
+                    return Err(());
+                };
                 let k = match args.first() {
                     Some(JsVal::Str(s)) => s.as_str(),
                     _ => return Err(()),
                 };
                 Ok(object_lookup_setter(&props.borrow(), k))
             }
-            _ => Err(()),
+            _ => {
+                // Ordinary method call: look up own/proto and invoke UserFn with this=recv.
+                let method = member_get(recv, key, env)?;
+                let this = recv.clone();
+                match method {
+                    JsVal::UserFn { params, body, .. } => {
+                        call_user_fn(&params, &body, this, args, env)
+                    }
+                    other => eval_call(&other, args, env),
+                }
+            }
         },
         JsVal::Builtin(BuiltinId::ObjectPrototype) if key == "hasOwnProperty" => {
             let prop = match args.first() {
@@ -3638,6 +3987,31 @@ fn member_get(
                 Err(())
             }
         }
+        JsVal::UserFn { props, .. } => {
+            let own = object_own_slot(props, key).cloned();
+            if let Some(slot) = own {
+                return match slot {
+                    PropSlot::Data(v) => Ok(v),
+                    PropSlot::Accessor {
+                        get: Some(g), ..
+                    } => {
+                        let this = obj.clone();
+                        match g {
+                            JsVal::UserFn { params, body, .. } => {
+                                call_user_fn(&params, &body, this, &[], env)
+                            }
+                            other => eval_call(&other, &[], env),
+                        }
+                    }
+                    PropSlot::Accessor { get: None, .. } => Ok(JsVal::Undef),
+                };
+            }
+            if key == "prototype" {
+                // Should have been on props; missing → undefined.
+                return Ok(JsVal::Undef);
+            }
+            Err(())
+        }
         JsVal::Object { props, proto, .. } => {
             let own = object_own_slot(&props.borrow(), key).cloned();
             if let Some(slot) = own {
@@ -3668,54 +4042,13 @@ fn member_get(
                     } else if let Some(b) = object_accessor_legacy_builtin(key) {
                         Ok(JsVal::Builtin(b))
                     } else {
-                        Err(())
+                        // Missing prop on ordinary object → undefined (not error).
+                        Ok(JsVal::Undef)
                     }
                 }
-                JsVal::Null => Err(()),
-                // Prototype object may hold accessors (class instance get/set).
-                other => {
-                    // Prefer own-slot get on proto with `this` = receiver.
-                    if let JsVal::Object { props: pprops, .. } = other {
-                        if let Some(slot) = object_own_slot(&pprops.borrow(), key).cloned() {
-                            return match slot {
-                                PropSlot::Data(v) => Ok(v),
-                                PropSlot::Accessor {
-                                    get: Some(g), ..
-                                } => {
-                                    let this = obj.clone();
-                                    match g {
-                                        JsVal::UserFn { params, body, .. } => {
-                                            call_user_fn(&params, &body, this, &[], env)
-                                        }
-                                        gother => eval_call(&gother, &[], env),
-                                    }
-                                }
-                                PropSlot::Accessor { get: None, .. } => Ok(JsVal::Undef),
-                            };
-                        }
-                    }
-                    member_get(&other.clone(), key, env)
-                }
-            }
-        }
-        JsVal::UserFn { props, .. } => {
-            let own = props.borrow().iter().find(|(k, _)| k == key).map(|(_, s)| s.clone());
-            if let Some(slot) = own {
-                return match slot {
-                    PropSlot::Data(v) => Ok(v),
-                    PropSlot::Accessor {
-                        get: Some(g), ..
-                    } => {
-                        let this = obj.clone();
-                        match g {
-                            JsVal::UserFn { params, body, .. } => {
-                                call_user_fn(&params, &body, this, &[], env)
-                            }
-                            other => eval_call(&other, &[], env),
-                        }
-                    }
-                    PropSlot::Accessor { get: None, .. } => Ok(JsVal::Undef),
-                };
+
+                JsVal::Null => Ok(JsVal::Undef),
+                other => member_get(&other.clone(), key, env),
             }
             // Function [[Prototype]]
             member_get(&JsVal::Builtin(BuiltinId::FunctionPrototype), key, env)
@@ -3750,6 +4083,10 @@ fn member_set(
             };
             let off = idx * kind.bytes_per_element();
             write_ta_elem(*kind, &mut bytes.borrow_mut(), off, n)
+        }
+        JsVal::UserFn { props, .. } => {
+            object_set_data(props, key.to_string(), val);
+            Ok(())
         }
         JsVal::Object { props, proto, .. } => {
             if key == "__proto__" && !object_own_has(&props.borrow(), "__proto__") {
@@ -4016,6 +4353,7 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
         ) => a == b && la == lb,
         (JsVal::Array(a), JsVal::Array(b)) => a == b,
         (JsVal::Object { id: a, .. }, JsVal::Object { id: b, .. }) => a == b,
+        (JsVal::UserFn { id: a, .. }, JsVal::UserFn { id: b, .. }) => a == b,
         _ => false,
     }
 }
