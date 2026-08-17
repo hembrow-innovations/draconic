@@ -122,6 +122,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Annex B `Object.prototype.__proto__`** — N08.16.02
 /// - **Annex B `RegExp.prototype.compile`** — N08.16.05
 /// - **Annex B `String.prototype.trimLeft`/`trimRight`** — N08.16.06
+/// - **Annex B `Object.prototype` accessor legacy** (`__defineGetter__`/…) — N08.16.07
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
