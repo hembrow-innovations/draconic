@@ -1,4 +1,6 @@
 id: es/annex-b/static_private_methods
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\n2\n2\nundefined\nundefined\n3\n5\nhi world\n8\n101\n100\n7\n3\n
 js.check: if (a !== 1) process.exit(1); if (b !== 2) process.exit(2); if (c !== 2) process.exit(3); if (d !== "undefined") process.exit(4); if (e !== "undefined") process.exit(5); if (f !== 3) process.exit(6); if (g !== 5) process.exit(7); if (h !== "hi world") process.exit(8); if (i !== 8) process.exit(9); if (j !== 101) process.exit(10); if (k !== 100) process.exit(11); if (l !== 7) process.exit(12); if (n !== 3) process.exit(13);
