@@ -1,4 +1,6 @@
 id: es/annex-b/private_accessors
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\n10\nundefined\n10\n5\n1\n7\nundefined\nundefined\n1\n2\n3\n7\n
 js.check: if (a !== 1) process.exit(1); if (b !== 10) process.exit(2); if (c !== "undefined") process.exit(3); if (e !== 10) process.exit(4); if (f !== 5) process.exit(5); if (g !== 1) process.exit(6); if (h !== 7) process.exit(7); if (i !== "undefined") process.exit(8); if (j !== "undefined") process.exit(9); if (k !== 1) process.exit(10); if (l !== 2) process.exit(11); if (m !== 3) process.exit(12); if (n !== 7) process.exit(13);
