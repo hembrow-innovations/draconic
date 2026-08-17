@@ -775,7 +775,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | L01 | todo | both | Encoding: UTF-8 bytes↔string, Base64, hex | `tests/conformance` fixtures `stdlib/encoding` |
-| L01.01 | todo | both | UTF-8 encode/decode: string ↔ bytes; invalid UTF-8 error | `tests/conformance` fixtures `stdlib/encoding` |
+| L01.01 | done | both | UTF-8 encode/decode: string ↔ bytes; invalid UTF-8 error | `tests/conformance` fixtures `stdlib/encoding` |
 | L01.02 | todo | both | Base64 encode/decode | `tests/conformance` fixtures `stdlib/encoding` |
 | L01.03 | todo | both | Hex encode/decode | `tests/conformance` fixtures `stdlib/encoding` |
 | L02 | todo | both | Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set) | `tests/conformance` fixtures `stdlib/collections` |

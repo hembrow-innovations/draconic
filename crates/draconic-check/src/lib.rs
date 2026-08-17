@@ -1149,6 +1149,9 @@ impl Binder {
         binder.install_builtin("Float64Array", BindingKind::Const);
         binder.install_builtin("BigInt64Array", BindingKind::Const);
         binder.install_builtin("BigUint64Array", BindingKind::Const);
+        // L01.01: UTF-8 TextEncoder / TextDecoder (WHATWG Encoding; portable)
+        binder.install_builtin("TextEncoder", BindingKind::Const);
+        binder.install_builtin("TextDecoder", BindingKind::Const);
         // E16.01: direct eval
         binder.install_builtin("eval", BindingKind::Const);
         // E18.01: Annex B escape / unescape
@@ -2845,7 +2848,8 @@ impl<'a> Checker<'a> {
                     | "ArrayBuffer" | "DataView" | "Int8Array" | "Uint8Array"
                     | "Uint8ClampedArray" | "Int16Array" | "Uint16Array" | "Int32Array"
                     | "Uint32Array" | "Float32Array" | "Float64Array" | "BigInt64Array"
-                    | "BigUint64Array" | "eval" | "escape" | "unescape" | "ShadowRealm" => {
+                    | "BigUint64Array" | "TextEncoder" | "TextDecoder" | "eval" | "escape"
+                    | "unescape" | "ShadowRealm" => {
                         Type::Function
                     }
                     "NaN" | "Infinity" => Type::Number,

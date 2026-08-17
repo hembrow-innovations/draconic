@@ -1,0 +1,16 @@
+let te = typeof TextEncoder;
+let td = typeof TextDecoder;
+let ge = globalThis.TextEncoder === TextEncoder;
+let gd = globalThis.TextDecoder === TextDecoder;
+let enc = new TextEncoder();
+let bytes = enc.encode("café");
+let len = bytes.length;
+let b0 = bytes[0];
+let b1 = bytes[1];
+let b2 = bytes[2];
+let b3 = bytes[3];
+let b4 = bytes[4];
+let dec = new TextDecoder();
+let s = dec.decode(bytes);
+let empty = new TextDecoder().decode(new TextEncoder().encode(""));
+let hi = new TextDecoder().decode(new TextEncoder().encode("hi"));

@@ -602,6 +602,8 @@ fn is_user_binding_name(name: &str) -> bool {
             | "Float64Array"
             | "BigInt64Array"
             | "BigUint64Array"
+            | "TextEncoder"
+            | "TextDecoder"
             | "eval"
             | "escape"
             | "unescape"

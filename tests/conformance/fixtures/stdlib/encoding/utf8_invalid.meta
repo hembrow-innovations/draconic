@@ -1,0 +1,6 @@
+id: stdlib/encoding/utf8_invalid
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\nhi\n
+js.check: if (ok !== 1) process.exit(1); if (s !== "hi") process.exit(2);

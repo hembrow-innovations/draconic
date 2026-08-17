@@ -1,0 +1,6 @@
+id: stdlib/encoding/utf8_roundtrip
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\ntrue\ntrue\n5\n99\n97\n102\n195\n169\ncafé\n\nhi\n
+js.check: if (te !== "function") process.exit(1); if (td !== "function") process.exit(2); if (ge !== true) process.exit(3); if (gd !== true) process.exit(4); if (len !== 5) process.exit(5); if (b0 !== 99) process.exit(6); if (b1 !== 97) process.exit(7); if (b2 !== 102) process.exit(8); if (b3 !== 195) process.exit(9); if (b4 !== 169) process.exit(10); if (s !== "café") process.exit(11); if (empty !== "") process.exit(12); if (hi !== "hi") process.exit(13);

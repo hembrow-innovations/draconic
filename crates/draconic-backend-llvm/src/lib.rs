@@ -5,6 +5,7 @@ mod es_builtins;
 mod es_call_spread;
 mod es_classes;
 mod es_coercion;
+mod es_encoding;
 mod es_eval;
 mod es_exceptions;
 mod es_expr;
@@ -32,6 +33,7 @@ use es_builtins::{emit_es_builtins, is_es_builtins_module};
 use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
 use es_coercion::{emit_es_coercion, is_es_coercion_module};
+use es_encoding::{emit_es_encoding, is_es_encoding_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
@@ -140,6 +142,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_proxies_module(module) {
         return emit_es_proxies(module);
+    }
+    if is_es_encoding_module(module) {
+        return emit_es_encoding(module);
     }
     if is_es_builtins_module(module) {
         return emit_es_builtins(module);

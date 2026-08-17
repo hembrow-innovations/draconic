@@ -1,0 +1,9 @@
+let ok = 0;
+try {
+  let d = new TextDecoder("utf-8", { fatal: true });
+  d.decode(new Uint8Array([255]));
+  ok = -1;
+} catch (e) {
+  ok = e.name === "TypeError" ? 1 : -2;
+}
+let s = new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([104, 105]));
