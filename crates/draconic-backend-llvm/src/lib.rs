@@ -119,6 +119,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Map/Set** (`new Map`/`new Set`, `.set`/`.get`/`.has`/`.size`, `.add`/`.has`/`.size`) — N08.14.08
 /// - **Legacy `with`** (Object Environment get/put; nested `with`) — N08.15
 /// - **Annex B `escape`/`unescape`** — N08.16.01
+/// - **Annex B `Object.prototype.__proto__`** — N08.16.02
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {

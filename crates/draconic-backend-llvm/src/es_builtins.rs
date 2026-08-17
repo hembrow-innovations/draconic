@@ -1,6 +1,6 @@
-//! N08.14.01–N08.14.10 + N08.16.01: native observations for global builtins + Error ctors +
-//! functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet + ArrayBuffer/DataView/
-//! TypedArrays + Annex B `escape`/`unescape`.
+//! N08.14.01–N08.14.10 + N08.16.01–N08.16.02: native observations for global builtins + Error
+//! ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet +
+//! ArrayBuffer/DataView/TypedArrays + Annex B `escape`/`unescape` + `Object.prototype.__proto__`.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -21,6 +21,8 @@
 //! - E15.10: `ArrayBuffer` / `DataView` / `Uint8Array` / `Int32Array` / `Float64Array`
 //!   (`new`, `.byteLength`/`.length`, index get/set, `getUint8`/`setUint8`; shared buffer)
 //! - E18.01: `escape` / `unescape` (`typeof`, `globalThis` identity, basic call behavior)
+//! - E18.02: `Object.prototype.__proto__` get/set; object-literal `__proto__` vs computed
+//!   `["__proto__"]`; `Object.getPrototypeOf`; `hasOwnProperty.call`
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
@@ -60,6 +62,8 @@ enum BuiltinId {
     String,
     Boolean,
     ObjectPrototype,
+    ObjectGetPrototypeOf,
+    HasOwnProperty,
     ArrayIsArray,
     Error,
     TypeError,
@@ -174,10 +178,11 @@ enum JsVal {
         byte_length: usize,
     },
     Array(Vec<JsVal>),
-    /// Plain object: identity id + insertion-ordered string keys.
+    /// Plain object: identity id + insertion-ordered string keys + [[Prototype]].
     Object {
         id: u64,
         props: Vec<(String, JsVal)>,
+        proto: Box<JsVal>,
     },
 }
 
@@ -187,9 +192,30 @@ fn next_object_id() -> u64 {
 }
 
 fn new_object(props: Vec<(String, JsVal)>) -> JsVal {
+    new_object_with_proto(props, JsVal::Builtin(BuiltinId::ObjectPrototype))
+}
+
+fn new_object_with_proto(props: Vec<(String, JsVal)>, proto: JsVal) -> JsVal {
     JsVal::Object {
         id: next_object_id(),
         props,
+        proto: Box::new(proto),
+    }
+}
+
+fn object_own_has(props: &[(String, JsVal)], key: &str) -> bool {
+    props.iter().any(|(k, _)| k == key)
+}
+
+fn object_own_get(props: &[(String, JsVal)], key: &str) -> Option<JsVal> {
+    props.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+}
+
+fn object_get_prototype(obj: &JsVal) -> Result<JsVal, ()> {
+    match obj {
+        JsVal::Object { proto, .. } => Ok((**proto).clone()),
+        JsVal::Builtin(BuiltinId::ObjectPrototype) => Ok(JsVal::Null),
+        _ => Err(()),
     }
 }
 
@@ -657,6 +683,10 @@ fn expr_ok(expr: &Expr) -> bool {
                 key: ObjectPropKey::Static(_),
                 value,
             } => expr_ok(value),
+            ObjectProp::Property {
+                key: ObjectPropKey::Computed(k),
+                value,
+            } => expr_ok(k) && expr_ok(value),
             _ => false,
         }),
         _ => false,
@@ -950,6 +980,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         }
         Expr::Object { properties, .. } => {
             let mut props = Vec::new();
+            let mut proto = JsVal::Builtin(BuiltinId::ObjectPrototype);
             for p in properties {
                 match p {
                     ObjectProp::Property {
@@ -961,6 +992,30 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                             Err(flow) => return Ok(Err(flow)),
                         };
                         let key = js_string_to_utf8(k);
+                        // Annex B / ES: static `__proto__` in object literal sets [[Prototype]].
+                        if key == "__proto__" {
+                            proto = v;
+                            continue;
+                        }
+                        if let Some((_, slot)) = props.iter_mut().find(|(n, _)| n == &key) {
+                            *slot = v;
+                        } else {
+                            props.push((key, v));
+                        }
+                    }
+                    ObjectProp::Property {
+                        key: ObjectPropKey::Computed(ke),
+                        value,
+                    } => {
+                        let key = match eval_key(ke, env)? {
+                            Ok(k) => k,
+                            Err(flow) => return Ok(Err(flow)),
+                        };
+                        let v = match eval_expr(value, env)? {
+                            Ok(v) => v,
+                            Err(flow) => return Ok(Err(flow)),
+                        };
+                        // Computed `["__proto__"]` is an own data property (not [[Prototype]]).
                         if let Some((_, slot)) = props.iter_mut().find(|(n, _)| n == &key) {
                             *slot = v;
                         } else {
@@ -970,7 +1025,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     _ => return Err(()),
                 }
             }
-            Ok(Ok(new_object(props)))
+            Ok(Ok(new_object_with_proto(props, proto)))
         }
         _ => Err(()),
     }
@@ -1183,6 +1238,14 @@ fn eval_call(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
         BuiltinId::DateNow => Ok(JsVal::Num(date_now_ms())),
         BuiltinId::DateUtc => Ok(JsVal::Num(date_utc(args)?)),
         BuiltinId::RegExp => make_regexp(args),
+        BuiltinId::ObjectGetPrototypeOf => {
+            let target = args.first().ok_or(())?;
+            object_get_prototype(target)
+        }
+        BuiltinId::HasOwnProperty => {
+            // Direct call without this binding is not supported for fixture depth.
+            Err(())
+        }
         _ => Err(()),
     }
 }
@@ -1193,6 +1256,30 @@ fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal
             "getTime" | "valueOf" if args.is_empty() => Ok(JsVal::Num(*ms)),
             _ => Err(()),
         },
+        JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
+            let target = args.first().ok_or(())?;
+            object_get_prototype(target)
+        }
+        JsVal::Builtin(BuiltinId::HasOwnProperty) if key == "call" => {
+            let this_arg = args.first().ok_or(())?;
+            let prop = match args.get(1) {
+                Some(JsVal::Str(s)) => s.as_str(),
+                _ => return Err(()),
+            };
+            match this_arg {
+                JsVal::Object { props, .. } => Ok(JsVal::Bool(object_own_has(props, prop))),
+                _ => Ok(JsVal::Bool(false)),
+            }
+        }
+        JsVal::Builtin(BuiltinId::ObjectPrototype) if key == "hasOwnProperty" => {
+            let prop = match args.first() {
+                Some(JsVal::Str(s)) => s.as_str(),
+                _ => return Err(()),
+            };
+            // Bare call without `.call` uses Object.prototype as this — not in fixture.
+            let _ = prop;
+            Err(())
+        }
         JsVal::Builtin(BuiltinId::Date) => match key {
             "now" if args.is_empty() => Ok(JsVal::Num(date_now_ms())),
             "UTC" => Ok(JsVal::Num(date_utc(args)?)),
@@ -1924,6 +2011,12 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
         JsVal::Builtin(BuiltinId::Object) if key == "prototype" => {
             Ok(JsVal::Builtin(BuiltinId::ObjectPrototype))
         }
+        JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
+            Ok(JsVal::Builtin(BuiltinId::ObjectGetPrototypeOf))
+        }
+        JsVal::Builtin(BuiltinId::ObjectPrototype) if key == "hasOwnProperty" => {
+            Ok(JsVal::Builtin(BuiltinId::HasOwnProperty))
+        }
         JsVal::Builtin(BuiltinId::Array) if key == "isArray" => {
             Ok(JsVal::Builtin(BuiltinId::ArrayIsArray))
         }
@@ -1997,13 +2090,25 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
                 Err(())
             }
         }
-        JsVal::Object { props, .. } => {
-            for (k, v) in props {
-                if k == key {
-                    return Ok(v.clone());
-                }
+        JsVal::Object { props, proto, .. } => {
+            if let Some(v) = object_own_get(props, key) {
+                return Ok(v);
             }
-            Err(())
+            // Annex B accessor: missing own `__proto__` → [[Prototype]].
+            if key == "__proto__" {
+                return Ok((**proto).clone());
+            }
+            match proto.as_ref() {
+                JsVal::Builtin(BuiltinId::ObjectPrototype) => {
+                    if key == "hasOwnProperty" {
+                        Ok(JsVal::Builtin(BuiltinId::HasOwnProperty))
+                    } else {
+                        Err(())
+                    }
+                }
+                JsVal::Null => Err(()),
+                other => member_get(other, key),
+            }
         }
         _ => Err(()),
     }
@@ -2027,6 +2132,18 @@ fn member_set(obj: &mut JsVal, key: &str, val: JsVal) -> Result<(), ()> {
             };
             let off = idx * kind.bytes_per_element();
             write_ta_elem(*kind, &mut bytes.borrow_mut(), off, n)
+        }
+        JsVal::Object { props, proto, .. } => {
+            if key == "__proto__" && !object_own_has(props, "__proto__") {
+                *proto = Box::new(val);
+                return Ok(());
+            }
+            if let Some((_, slot)) = props.iter_mut().find(|(k, _)| k == key) {
+                *slot = val;
+            } else {
+                props.push((key.to_string(), val));
+            }
+            Ok(())
         }
         _ => Err(()),
     }
@@ -2063,6 +2180,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::String
             | BuiltinId::Boolean
             | BuiltinId::ArrayIsArray
+            | BuiltinId::ObjectGetPrototypeOf
+            | BuiltinId::HasOwnProperty
             | BuiltinId::Error
             | BuiltinId::TypeError
             | BuiltinId::RangeError
@@ -2515,7 +2634,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.10 + N08.16.01–N08.16.02 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet / ArrayBuffer/DataView/TypedArrays / escape/unescape / Object.prototype.__proto__)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -2835,5 +2954,32 @@ mod tests {
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
+    }
+
+    #[test]
+    fn object_proto_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/annex-b/object_proto.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        // a,d,g,i,j,k true; h false; b,e = 9; c = 1; f = 2
+        assert!(ir.contains("true"), "missing true:\n{ir}");
+        assert!(ir.contains("false"), "missing false:\n{ir}");
+        assert!(
+            ir.contains("double 9") || ir.contains("double 9.0"),
+            "missing 9:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 1") || ir.contains("double 1.0"),
+            "missing 1:\n{ir}"
+        );
+        assert!(
+            ir.contains("double 2") || ir.contains("double 2.0"),
+            "missing 2:\n{ir}"
+        );
     }
 }
