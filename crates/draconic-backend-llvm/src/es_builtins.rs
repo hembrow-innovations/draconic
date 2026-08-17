@@ -1,4 +1,4 @@
-//! N08.14.01–N08.14.08: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set.
+//! N08.14.01–N08.14.09: native observations for global builtins + Error ctors + functions + URI + JSON + Date + RegExp + Map/Set + WeakMap/WeakSet.
 //!
 //! Compile-time evaluation of:
 //! - E15.01: `undefined`, `globalThis`, `Object`/`Function`/`Array`/`String`/`Boolean`
@@ -14,11 +14,14 @@
 //!   `.flags` / `.test` / `.exec` (fixture subset: literals + `c+` + `i` flag)
 //! - E15.08: `Map` / `Set` — `new Map`/`new Set`, `.set`/`.get`/`.has`/`.size`,
 //!   `.add`/`.has`/`.size` (fixture subset; SameValueZero keys for num/str)
+//! - E15.09: `WeakMap` / `WeakSet` — `new WeakMap`/`new WeakSet`, `.set`/`.get`/`.has`/
+//!   `.delete`, `.add`/`.has`/`.delete` (object keys only; identity equality)
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
@@ -78,6 +81,8 @@ enum BuiltinId {
     RegExp,
     Map,
     Set,
+    WeakMap,
+    WeakSet,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,9 +116,48 @@ enum JsVal {
     SetInst {
         values: Vec<JsVal>,
     },
+    /// WeakMap instance: object-key entries (E15.09 fixture subset).
+    WeakMapInst {
+        entries: Vec<(JsVal, JsVal)>,
+    },
+    /// WeakSet instance: object values (E15.09 fixture subset).
+    WeakSetInst {
+        values: Vec<JsVal>,
+    },
     Array(Vec<JsVal>),
-    /// Plain object: insertion-ordered string keys.
-    Object(Vec<(String, JsVal)>),
+    /// Plain object: identity id + insertion-ordered string keys.
+    Object {
+        id: u64,
+        props: Vec<(String, JsVal)>,
+    },
+}
+
+fn next_object_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+fn new_object(props: Vec<(String, JsVal)>) -> JsVal {
+    JsVal::Object {
+        id: next_object_id(),
+        props,
+    }
+}
+
+fn is_object_key(v: &JsVal) -> bool {
+    matches!(
+        v,
+        JsVal::Object { .. }
+            | JsVal::Array(_)
+            | JsVal::ErrorInst { .. }
+            | JsVal::DateInst { .. }
+            | JsVal::RegExpInst { .. }
+            | JsVal::MapInst { .. }
+            | JsVal::SetInst { .. }
+            | JsVal::WeakMapInst { .. }
+            | JsVal::WeakSetInst { .. }
+            | JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json)
+    )
 }
 
 struct ModuleInfo {
@@ -188,8 +232,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     | JsVal::RegExpInst { .. }
                     | JsVal::MapInst { .. }
                     | JsVal::SetInst { .. }
+                    | JsVal::WeakMapInst { .. }
+                    | JsVal::WeakSetInst { .. }
                     | JsVal::Array(_)
-                    | JsVal::Object(_),
+                    | JsVal::Object { .. },
                 ) => {}
                 None => return None,
             }
@@ -238,6 +284,8 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "RegExp" => Some(BuiltinId::RegExp),
         "Map" => Some(BuiltinId::Map),
         "Set" => Some(BuiltinId::Set),
+        "WeakMap" => Some(BuiltinId::WeakMap),
+        "WeakSet" => Some(BuiltinId::WeakSet),
         _ => None,
     }
 }
@@ -719,7 +767,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     _ => return Err(()),
                 }
             }
-            Ok(Ok(JsVal::Object(props)))
+            Ok(Ok(new_object(props)))
         }
         _ => Err(()),
     }
@@ -766,6 +814,22 @@ fn eval_new(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
             return Err(());
         }
         return Ok(JsVal::SetInst {
+            values: Vec::new(),
+        });
+    }
+    if *b == BuiltinId::WeakMap {
+        if !args.is_empty() {
+            return Err(());
+        }
+        return Ok(JsVal::WeakMapInst {
+            entries: Vec::new(),
+        });
+    }
+    if *b == BuiltinId::WeakSet {
+        if !args.is_empty() {
+            return Err(());
+        }
+        return Ok(JsVal::WeakSetInst {
             values: Vec::new(),
         });
     }
@@ -936,6 +1000,82 @@ fn eval_method_call(recv: &mut JsVal, key: &str, args: &[JsVal]) -> Result<JsVal
                 Ok(JsVal::Bool(
                     values.iter().any(|ev| same_value_zero(ev, v)),
                 ))
+            }
+            _ => Err(()),
+        },
+        JsVal::WeakMapInst { entries } => match key {
+            "set" => {
+                let k = args.first().cloned().ok_or(())?;
+                if !is_object_key(&k) {
+                    return Err(());
+                }
+                let v = args.get(1).cloned().unwrap_or(JsVal::Undef);
+                if let Some((_, slot)) = entries.iter_mut().find(|(ek, _)| strict_eq(ek, &k)) {
+                    *slot = v;
+                } else {
+                    entries.push((k, v));
+                }
+                Ok(JsVal::WeakMapInst {
+                    entries: entries.clone(),
+                })
+            }
+            "get" => {
+                let k = args.first().unwrap_or(&JsVal::Undef);
+                if !is_object_key(k) {
+                    return Ok(JsVal::Undef);
+                }
+                Ok(entries
+                    .iter()
+                    .find(|(ek, _)| strict_eq(ek, k))
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or(JsVal::Undef))
+            }
+            "has" => {
+                let k = args.first().unwrap_or(&JsVal::Undef);
+                if !is_object_key(k) {
+                    return Ok(JsVal::Bool(false));
+                }
+                Ok(JsVal::Bool(entries.iter().any(|(ek, _)| strict_eq(ek, k))))
+            }
+            "delete" => {
+                let k = args.first().unwrap_or(&JsVal::Undef);
+                if !is_object_key(k) {
+                    return Ok(JsVal::Bool(false));
+                }
+                let before = entries.len();
+                entries.retain(|(ek, _)| !strict_eq(ek, k));
+                Ok(JsVal::Bool(entries.len() < before))
+            }
+            _ => Err(()),
+        },
+        JsVal::WeakSetInst { values } => match key {
+            "add" => {
+                let v = args.first().cloned().ok_or(())?;
+                if !is_object_key(&v) {
+                    return Err(());
+                }
+                if !values.iter().any(|ev| strict_eq(ev, &v)) {
+                    values.push(v);
+                }
+                Ok(JsVal::WeakSetInst {
+                    values: values.clone(),
+                })
+            }
+            "has" => {
+                let v = args.first().unwrap_or(&JsVal::Undef);
+                if !is_object_key(v) {
+                    return Ok(JsVal::Bool(false));
+                }
+                Ok(JsVal::Bool(values.iter().any(|ev| strict_eq(ev, v))))
+            }
+            "delete" => {
+                let v = args.first().unwrap_or(&JsVal::Undef);
+                if !is_object_key(v) {
+                    return Ok(JsVal::Bool(false));
+                }
+                let before = values.len();
+                values.retain(|ev| !strict_eq(ev, v));
+                Ok(JsVal::Bool(values.len() < before))
             }
             _ => Err(()),
         },
@@ -1404,6 +1544,8 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "RegExp" => Ok(JsVal::Builtin(BuiltinId::RegExp)),
             "Map" => Ok(JsVal::Builtin(BuiltinId::Map)),
             "Set" => Ok(JsVal::Builtin(BuiltinId::Set)),
+            "WeakMap" => Ok(JsVal::Builtin(BuiltinId::WeakMap)),
+            "WeakSet" => Ok(JsVal::Builtin(BuiltinId::WeakSet)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -1461,7 +1603,7 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
                 Err(())
             }
         }
-        JsVal::Object(props) => {
+        JsVal::Object { props, .. } => {
             for (k, v) in props {
                 if k == key {
                     return Ok(v.clone());
@@ -1481,12 +1623,14 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Undef => "undefined".into(),
         JsVal::Null
         | JsVal::Array(_)
-        | JsVal::Object(_)
+        | JsVal::Object { .. }
         | JsVal::ErrorInst { .. }
         | JsVal::DateInst { .. }
         | JsVal::RegExpInst { .. }
         | JsVal::MapInst { .. }
-        | JsVal::SetInst { .. } => "object".into(),
+        | JsVal::SetInst { .. }
+        | JsVal::WeakMapInst { .. }
+        | JsVal::WeakSetInst { .. } => "object".into(),
         JsVal::Builtin(BuiltinId::Undefined) => "undefined".into(),
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
         JsVal::Builtin(BuiltinId::GlobalThis | BuiltinId::ObjectPrototype | BuiltinId::Json) => {
@@ -1522,7 +1666,9 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::DateUtc
             | BuiltinId::RegExp
             | BuiltinId::Map
-            | BuiltinId::Set,
+            | BuiltinId::Set
+            | BuiltinId::WeakMap
+            | BuiltinId::WeakSet,
         ) => "function".into(),
     }
 }
@@ -1539,8 +1685,10 @@ fn to_boolean(v: &JsVal) -> bool {
         | JsVal::RegExpInst { .. }
         | JsVal::MapInst { .. }
         | JsVal::SetInst { .. }
+        | JsVal::WeakMapInst { .. }
+        | JsVal::WeakSetInst { .. }
         | JsVal::Array(_)
-        | JsVal::Object(_) => true,
+        | JsVal::Object { .. } => true,
     }
 }
 
@@ -1569,8 +1717,10 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
         (JsVal::DateInst { ms: a }, JsVal::DateInst { ms: b }) => a == b,
         (JsVal::MapInst { entries: a }, JsVal::MapInst { entries: b }) => a == b,
         (JsVal::SetInst { values: a }, JsVal::SetInst { values: b }) => a == b,
+        (JsVal::WeakMapInst { entries: a }, JsVal::WeakMapInst { entries: b }) => a == b,
+        (JsVal::WeakSetInst { values: a }, JsVal::WeakSetInst { values: b }) => a == b,
         (JsVal::Array(a), JsVal::Array(b)) => a == b,
-        (JsVal::Object(a), JsVal::Object(b)) => a == b,
+        (JsVal::Object { id: a, .. }, JsVal::Object { id: b, .. }) => a == b,
         _ => false,
     }
 }
@@ -1740,7 +1890,7 @@ impl<'a> JsonParser<'a> {
         let mut props = Vec::new();
         if self.peek() == Some(b'}') {
             self.i += 1;
-            return Ok(JsVal::Object(props));
+            return Ok(new_object(props));
         }
         loop {
             self.skip_ws();
@@ -1758,7 +1908,7 @@ impl<'a> JsonParser<'a> {
             }
             self.skip_ws();
             match self.bump()? {
-                b'}' => return Ok(JsVal::Object(props)),
+                b'}' => return Ok(new_object(props)),
                 b',' => {}
                 _ => return Err(()),
             }
@@ -1801,7 +1951,7 @@ fn json_stringify(v: &JsVal) -> Result<String, ()> {
             out.push(']');
             Ok(out)
         }
-        JsVal::Object(props) => {
+        JsVal::Object { props, .. } => {
             let mut out = String::from("{");
             let mut first = true;
             for (k, val) in props {
@@ -1908,7 +2058,7 @@ impl Emitter {
 
         writeln!(
             self.out,
-            "; Draconic LLVM backend (N08.14.01–N08.14.08 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set)"
+            "; Draconic LLVM backend (N08.14.01–N08.14.09 global builtins / Error ctors / functions / URI / JSON / Date / RegExp / Map/Set / WeakMap/WeakSet)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -2147,6 +2297,26 @@ mod tests {
         assert!(
             ir.contains("double 2") || ir.contains("double 2.0"),
             "should print mSize2/sSize3=2:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn weak_map_set_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/builtins/weak_map_set.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        for s in ["function", "true", "false", "two"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+        assert!(
+            ir.contains("double 1") || ir.contains("double 1.0"),
+            "should print wmGet=1:\n{ir}"
         );
     }
 }

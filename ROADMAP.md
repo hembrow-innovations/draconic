@@ -496,6 +496,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.14.06 | done | native | Real native observations: global `Date` (E15.06) — `es/builtins/date` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/builtins/date`, `crates/draconic-backend-llvm` |
 | N08.14.07 | done | native | Real native observations: global `RegExp` (E15.07) — `es/builtins/regexp` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/builtins/regexp`, `crates/draconic-backend-llvm` |
 | N08.14.08 | done | native | Real native observations: global `Map` / `Set` (E15.08) — `es/builtins/map_set` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/builtins/map_set`, `crates/draconic-backend-llvm` |
+| N08.14.09 | done | native | Real native observations: global `WeakMap` / `WeakSet` (E15.09) — `es/builtins/weak_map_set` asserts program results (native.stdout), not B08 hello | `tests/conformance` fixture `es/builtins/weak_map_set`, `crates/draconic-backend-llvm` |
 | N08.15 | todo | native | Real native observations: legacy `with` (E17) | `tests/conformance` fixtures `es/legacy` |
 | N08.16 | todo | native | Real native observations: annex-b / late ES (E18 children) | `tests/conformance` fixtures `es/annex-b` |
 | N08.17 | todo | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
