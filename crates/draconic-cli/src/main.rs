@@ -3,11 +3,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use draconic_ast::print_program;
 use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
 use draconic_conformance::{load_path, run_fixture};
 use draconic_diagnostics::Diagnostic;
 use draconic_frontend::{check_path, compile_path};
+use draconic_parser::{parse, parse_module};
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
@@ -20,6 +22,7 @@ fn main() -> ExitCode {
     match cmd.as_str() {
         "parse" => cmd_parse(&args),
         "check" => cmd_check(&args),
+        "fmt" => cmd_fmt(&args),
         "build" => cmd_build(&args),
         "test" => cmd_test(&args),
         "help" | "-h" | "--help" => {
@@ -86,6 +89,87 @@ fn cmd_check(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// ROADMAP U05: `draconic fmt` — parse → deterministic reprint (in-place).
+/// `--check` exits 1 when the file is not already formatted (no write).
+fn cmd_fmt(args: &[String]) -> ExitCode {
+    let mut check_only = false;
+    let mut path: Option<PathBuf> = None;
+
+    for a in args {
+        match a.as_str() {
+            "-h" | "--help" => {
+                eprintln!("usage: draconic fmt [--check] <file>");
+                return ExitCode::from(2);
+            }
+            "--check" => check_only = true,
+            other if other.starts_with('-') => {
+                eprintln!("unknown option: {other}");
+                eprintln!("usage: draconic fmt [--check] <file>");
+                return ExitCode::from(2);
+            }
+            other => {
+                if path.is_some() {
+                    eprintln!("usage: draconic fmt [--check] <file>");
+                    return ExitCode::from(2);
+                }
+                path = Some(PathBuf::from(other));
+            }
+        }
+    }
+
+    let path = match path {
+        Some(p) => p,
+        None => {
+            eprintln!("usage: draconic fmt [--check] <file>");
+            return ExitCode::from(2);
+        }
+    };
+
+    let source = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("failed to read {}: {e}", path.display());
+            return ExitCode::from(1);
+        }
+    };
+
+    let formatted = match format_source(&source) {
+        Ok(s) => s,
+        Err(d) => {
+            eprintln!("error: {d}");
+            return ExitCode::from(1);
+        }
+    };
+
+    if check_only {
+        if source == formatted {
+            return ExitCode::SUCCESS;
+        }
+        eprintln!("{}: would reformat", path.display());
+        return ExitCode::from(1);
+    }
+
+    if source != formatted {
+        if let Err(e) = fs::write(&path, &formatted) {
+            eprintln!("failed to write {}: {e}", path.display());
+            return ExitCode::from(1);
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+/// Parse Script-first, then Module (same policy as frontend load, without link).
+fn format_source(source: &str) -> Result<String, Diagnostic> {
+    let program = match parse(source) {
+        Ok(p) => p,
+        Err(script_err) => match parse_module(source) {
+            Ok(p) => p,
+            Err(_) => return Err(script_err),
+        },
+    };
+    Ok(print_program(&program))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,6 +501,7 @@ draconic — the Draconic toolchain
 Usage:
   draconic parse <file>                          Parse a Program and print the AST dump
   draconic check <file>                          Typecheck + bind a Program (no emit)
+  draconic fmt [--check] <file>                  Format a Program in-place (or check only)
   draconic build --target js|native <file> [-o <out>]
                                                  Compile a Program to JS or a native binary
   draconic test <path>                           Run conformance fixtures (dir or .drac file)

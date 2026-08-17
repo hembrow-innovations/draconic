@@ -9,6 +9,7 @@ name = "draconic"
 path = "src/main.rs"
 
 [dependencies]
+draconic-ast.workspace = true
 draconic-parser.workspace = true
 draconic-frontend.workspace = true
 draconic-backend-js.workspace = true

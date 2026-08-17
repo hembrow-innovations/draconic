@@ -2,6 +2,9 @@ use draconic_diagnostics::Span;
 pub use draconic_lexer::JsString;
 use std::fmt;
 
+mod print;
+pub use print::print_program;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub body: Vec<Stmt>,
