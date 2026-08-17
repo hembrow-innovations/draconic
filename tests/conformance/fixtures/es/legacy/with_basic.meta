@@ -1,4 +1,6 @@
 id: es/legacy/with_basic
-targets: js
+targets: js,native
 js.exit: 0
+native.exit: 0
+native.stdout: 1\n2\n10\n20\n3\n
 js.check: if (a !== 1) process.exit(1); if (b !== 2) process.exit(2); if (obj.y !== 2) process.exit(3); if (c !== 20) process.exit(4); if (inner !== 3) process.exit(5);

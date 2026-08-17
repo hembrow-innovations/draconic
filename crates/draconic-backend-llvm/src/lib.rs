@@ -10,6 +10,7 @@ mod es_exceptions;
 mod es_expr;
 mod es_functions;
 mod es_generators;
+mod es_legacy;
 mod es_modules;
 mod es_nullish;
 mod es_objects;
@@ -36,6 +37,7 @@ use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
 use es_functions::{emit_es_functions, is_es_functions_module};
 use es_generators::{emit_es_generators, is_es_generators_module};
+use es_legacy::{emit_es_legacy, is_es_legacy_module};
 use es_modules::{emit_es_modules, is_es_modules_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
@@ -115,6 +117,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Date** (`Date`/`Date.now`/`Date.UTC`/`new Date(ms)`/`.getTime`/`.valueOf`) — N08.14.06
 /// - **RegExp** (`RegExp`/`new RegExp`/`.source`/`.flags`/`.test`/`.exec`) — N08.14.07
 /// - **Map/Set** (`new Map`/`new Set`, `.set`/`.get`/`.has`/`.size`, `.add`/`.has`/`.size`) — N08.14.08
+/// - **Legacy `with`** (Object Environment get/put; nested `with`) — N08.15
 /// - **Empty program** — B08 Runtime hello demo only (`main` calls
 ///   `draconic_rt_hello`)
 pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
@@ -141,6 +144,9 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
     }
     if is_es_exceptions_module(module) {
         return emit_es_exceptions(module);
+    }
+    if is_es_legacy_module(module) {
+        return emit_es_legacy(module);
     }
     if is_es_nullish_module(module) {
         return emit_es_nullish(module);
@@ -189,7 +195,7 @@ fn unsupported_native_diagnostic() -> Diagnostic {
     Diagnostic::new(
         "native target: unsupported IR (no LLVM lowering for this program; \
             supported: native scalars/layouts, Promise/async subset, eval/Function fold, \
-            ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, ES generators (function*/yield/next/for-of), ES Proxy basics/set/has/delete/apply/construct, ES global builtins basics + Error constructors, linked ESM modules (named/default/namespace/cyclic), empty hello)",
+            ES expressions (arithmetic/comparison/logical/bitwise/pow/conditional/assign/compound-assign/update/comma/typeof/void/delete/nullish/logical-assign/if-else/while/do-while/for/for-in/for-of/break/continue/switch/labeled), ES function decl/expr/arrow/return/call (simple params+defaults+rest, nested+capture, IIFE/named/HOF), ES object lit + property access/assignment + method this, ES class decl (base ctor+methods), ES array lit + index/length, ES throw/try/catch, ES generators (function*/yield/next/for-of), ES Proxy basics/set/has/delete/apply/construct, ES global builtins basics + Error constructors, linked ESM modules (named/default/namespace/cyclic), legacy with, empty hello)",
         Span::dummy(),
     )
 }
@@ -3354,6 +3360,68 @@ mod tests {
             stdout, "200\n100\n100\nfunction\ntrue\n3\nhi\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
+    }
+
+    #[test]
+    fn es_legacy_with_basic_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/legacy/with_basic.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit with_basic");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_legacy must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "es_legacy must print numbers:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-legacy-with").expect("workdir");
+        let bin = dir.join("with_basic");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "1\n2\n10\n20\n3\n", "stdout={stdout:?}");
+    }
+
+    #[test]
+    fn es_legacy_with_nested_prints_native() {
+        let ir = emit_llvm_ir(&module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/legacy/with_nested.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        ))
+        .expect("emit with_nested");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "es_legacy must not use hello stub:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-legacy-with-nested").expect("workdir");
+        let bin = dir.join("with_nested");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "1\n2\n7\n", "stdout={stdout:?}");
     }
 
 }
