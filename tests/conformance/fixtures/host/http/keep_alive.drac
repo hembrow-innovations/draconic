@@ -1,0 +1,23 @@
+// H10.04: HTTP/1.1 keep-alive — two requests on one TCP connection.
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+tcpWrite(c, "GET /a HTTP/1.1\r\nHost: x\r\nConnection: keep-alive\r\n\r\n");
+let raw1 = tcpRead(a, 4096);
+let req1 = httpParseRequest(raw1);
+let path1 = req1.path;
+let resp1 = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\nConnection: keep-alive\r\n", path1);
+tcpWrite(a, resp1);
+let out1 = tcpRead(c, 4096);
+stdoutWrite(out1);
+tcpWrite(c, "GET /b HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+let raw2 = tcpRead(a, 4096);
+let req2 = httpParseRequest(raw2);
+let path2 = req2.path;
+let resp2 = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\nConnection: close\r\n", path2);
+tcpWrite(a, resp2);
+let out2 = tcpRead(c, 4096);
+stdoutWrite(out2);
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);

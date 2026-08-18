@@ -1,0 +1,4 @@
+id: host/http/keep_alive
+targets: native
+native.exit: 0
+native.stdout: HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: keep-alive\r\nContent-Length: 2\r\n\r\n/aHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: 2\r\n\r\n/b

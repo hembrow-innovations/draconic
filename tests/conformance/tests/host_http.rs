@@ -1,4 +1,4 @@
-//! ROADMAP H10.01–H10.03: HTTP/1.1 request parse, response write, server one-shot.
+//! ROADMAP H10.01–H10.04: HTTP/1.1 parse, write, one-shot server, keep-alive.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -162,4 +162,26 @@ fn server_oneshot_runs_native() {
         Some("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 6\r\n\r\n/hello")
     );
     assert_fixture_runs("host/http/server_oneshot");
+}
+
+#[test]
+fn keep_alive_runs_native() {
+    assert_fixture_present("host/http/keep_alive");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/keep_alive")
+        .expect("host/http/keep_alive");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: keep-alive\r\nContent-Length: 2\r\n\r\n/a\
+HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: 2\r\n\r\n/b"
+        )
+    );
+    assert_fixture_runs("host/http/keep_alive");
 }

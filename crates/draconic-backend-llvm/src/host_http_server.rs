@@ -1,8 +1,8 @@
-//! H10.03: HTTP/1.1 server one-shot — TCP accept + parse + handler + write + close.
+//! H10.03–H10.04: HTTP/1.1 server over TCP — one-shot and keep-alive.
 //!
 //! Combines host TCP (listen/accept/connect/read/write/close) with HTTP parse/write
-//! so a Program can serve one request on loopback:
-//! accept → `tcpRead` → `httpParseRequest` → `httpWriteResponse` → `tcpWrite` → close.
+//! so a Program can serve one or more requests on loopback without closing between:
+//! accept → (`tcpRead` → `httpParseRequest` → `httpWriteResponse` → `tcpWrite`)+ → close.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -470,7 +470,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_http_server (H10.03 one-shot TCP+HTTP)"
+            "; Draconic LLVM host_http_server (H10.03/H10.04 TCP+HTTP)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
