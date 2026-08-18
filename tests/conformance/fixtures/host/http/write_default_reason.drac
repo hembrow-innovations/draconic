@@ -1,0 +1,2 @@
+// H10.02: empty reason → default phrase; empty headers; empty body; auto CL 0.
+let msg = httpWriteResponse(404, "", "", "");

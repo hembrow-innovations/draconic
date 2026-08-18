@@ -464,6 +464,22 @@ DraconicHostError draconic_rt_host_http_request_header(
     const char *name,
     char **out_value);
 
+/* --- HTTP/1.1 response write (H10.02) --------------------------------------
+   Format a complete plaintext HTTP/1.1 response message (status-line + headers
+   + body). status must be 100..599. reason may be empty → default phrase for
+   common codes (else empty reason-phrase). headers is optional extra header
+   lines ("Name: value\r\n"…); Content-Length is auto-appended when absent
+   (case-insensitive). body may be NULL when body_len==0.
+   On OK: *out_msg is malloc'd NUL-terminated wire bytes (caller frees). */
+
+DraconicHostError draconic_rt_host_http_write_response(
+    int32_t status,
+    const char *reason,
+    const char *headers,
+    const uint8_t *body,
+    size_t body_len,
+    char **out_msg);
+
 #ifdef __cplusplus
 }
 #endif

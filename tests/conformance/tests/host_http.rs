@@ -1,4 +1,4 @@
-//! ROADMAP H10.01: HTTP/1.1 request parse — line + headers + Content-Length body.
+//! ROADMAP H10.01–H10.02: HTTP/1.1 request parse + response write.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -85,4 +85,62 @@ fn parse_malformed_runs_native() {
         Some("EINVAL\n")
     );
     assert_fixture_runs("host/http/parse_malformed");
+}
+
+#[test]
+fn write_ok_runs_native() {
+    assert_fixture_present("host/http/write_ok");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/write_ok")
+        .expect("host/http/write_ok");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello\n")
+    );
+    assert_fixture_runs("host/http/write_ok");
+}
+
+#[test]
+fn write_default_reason_runs_native() {
+    assert_fixture_present("host/http/write_default_reason");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/write_default_reason")
+        .expect("host/http/write_default_reason");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n\n")
+    );
+    assert_fixture_runs("host/http/write_default_reason");
+}
+
+#[test]
+fn write_bad_status_runs_native() {
+    assert_fixture_present("host/http/write_bad_status");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/write_bad_status")
+        .expect("host/http/write_bad_status");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(fixture.expect_native.exit, 1);
+    assert_eq!(
+        fixture.expect_native.stderr.as_deref(),
+        Some("EINVAL\n")
+    );
+    assert_fixture_runs("host/http/write_bad_status");
 }

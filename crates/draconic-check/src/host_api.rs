@@ -85,6 +85,7 @@ pub struct HostApiEntry {
 /// - `udpBind` / `udpLocalPort` / `udpSendTo` / `udpRecvFrom` / `closeUdp` (H08.01): native-only UDP.
 /// - `dnsLookup` (H09.01): native-only DNS hostname → IPv4 address string[]; failure → HostError EADDR.
 /// - `httpParseRequest` / `httpRequestHeader` (H10.01): native-only HTTP/1.1 request parse.
+/// - `httpWriteResponse` (H10.02): native-only HTTP/1.1 response format (status+headers+body).
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -420,6 +421,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "httpRequestHeader",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H10.01 HTTP/1.1 request header lookup (case-insensitive)",
+    },
+    HostApiEntry {
+        name: "httpWriteResponse",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H10.02 HTTP/1.1 response write → status-line + headers + body",
     },
 ];
 
@@ -789,6 +795,7 @@ mod tests {
             "dnsLookup",
             "httpParseRequest",
             "httpRequestHeader",
+            "httpWriteResponse",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

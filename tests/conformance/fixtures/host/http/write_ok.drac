@@ -1,0 +1,2 @@
+// H10.02: httpWriteResponse — status-line + headers + body; auto Content-Length.
+let msg = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", "hello");

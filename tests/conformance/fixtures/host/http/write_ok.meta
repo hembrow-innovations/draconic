@@ -1,0 +1,4 @@
+id: host/http/write_ok
+targets: native
+native.exit: 0
+native.stdout: HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello\n

@@ -189,6 +189,10 @@ fn host_abi_fn_shapes() {
         HOST_HTTP_REQUEST_HEADER.declare(),
         "declare i32 @draconic_rt_host_http_request_header(ptr, i64, ptr, ptr)"
     );
+    assert_eq!(
+        HOST_HTTP_WRITE_RESPONSE.declare(),
+        "declare i32 @draconic_rt_host_http_write_response(i32, ptr, ptr, ptr, i64, ptr)"
+    );
 }
 
 #[test]
@@ -2844,4 +2848,96 @@ fn host_http_parse_request_line_headers_body() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1001-ok\n");
+}
+
+#[test]
+fn host_http_write_response_status_headers_body() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_http_h1002.c");
+    let bin = dir.join("rt_host_http_h1002");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        int main(void) {
+            DraconicHostError err;
+            char *msg = NULL;
+            const char *want =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello";
+
+            err = draconic_rt_host_http_write_response(
+                200, "OK", "Content-Type: text/plain\r\n",
+                (const uint8_t *)"hello", 5, &msg);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (!msg || strcmp(msg, want) != 0) return 2;
+            free(msg);
+            msg = NULL;
+
+            /* default reason + empty body */
+            err = draconic_rt_host_http_write_response(
+                404, "", "", NULL, 0, &msg);
+            if (err != DRACONIC_HOST_OK) return 3;
+            want = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+            if (!msg || strcmp(msg, want) != 0) return 4;
+            free(msg);
+            msg = NULL;
+
+            /* existing Content-Length not duplicated */
+            err = draconic_rt_host_http_write_response(
+                200, "OK", "Content-Length: 3\r\n",
+                (const uint8_t *)"abc", 3, &msg);
+            if (err != DRACONIC_HOST_OK) return 5;
+            want = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc";
+            if (!msg || strcmp(msg, want) != 0) return 6;
+            free(msg);
+            msg = NULL;
+
+            /* bad status */
+            err = draconic_rt_host_http_write_response(
+                99, "X", "", NULL, 0, &msg);
+            if (err != DRACONIC_HOST_E_INVAL) return 7;
+            if (msg) return 8;
+
+            puts("http-h1002-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for http H10.02 smoke");
+
+    let output = Command::new(&bin).output().expect("run http h1002");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "http H10.02 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1002-ok\n");
 }

@@ -1,0 +1,2 @@
+// H10.02: status outside 100..599 → EINVAL.
+httpWriteResponse(99, "Nope", "", "");

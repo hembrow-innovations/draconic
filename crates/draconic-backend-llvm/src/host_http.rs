@@ -1,8 +1,9 @@
-//! H10.01: native HTTP/1.1 request parse.
+//! H10.01–H10.02: native HTTP/1.1 request parse + response write.
 //!
 //! - `httpParseRequest(raw)` → HttpReq; `.method` / `.path` / `.version` / `.body`
 //! - `httpRequestHeader(req, name)` → string (empty if missing; case-insensitive)
-//! - Malformed request → stderr `EINVAL` + exit 1
+//! - `httpWriteResponse(status, reason, headers, body)` → wire message string
+//! - Malformed / bad status → stderr `EINVAL` + exit 1
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -10,8 +11,8 @@ use std::fmt::Write as _;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_REQUEST_HEADER, HOST_PROCESS_EXIT,
-    HOST_STDERR_WRITE, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_REQUEST_HEADER,
+    HOST_HTTP_WRITE_RESPONSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, PRINT_STR,
 };
 
 pub(crate) fn is_host_http_module(module: &Module) -> bool {
@@ -28,6 +29,7 @@ pub(crate) fn emit_host_http(module: &Module) -> Result<String, Diagnostic> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     String,
+    Number,
     /// Opaque parse result: method/path/version/body + raw/raw_len for headers.
     HttpReq,
 }
@@ -97,6 +99,16 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             Some(())
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 4 && is_named_callee(callee, "httpWriteResponse") =>
+        {
+            ctx.has_http = true;
+            classify_number_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_string_arg(arg_expr(&args[2])?, ctx)?;
+            classify_string_arg(arg_expr(&args[3])?, ctx)?;
+            Some(())
+        }
         _ => None,
     }
 }
@@ -118,6 +130,16 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             Some(SlotTy::String)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 4 && is_named_callee(callee, "httpWriteResponse") =>
+        {
+            ctx.has_http = true;
+            classify_number_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_string_arg(arg_expr(&args[2])?, ctx)?;
+            classify_string_arg(arg_expr(&args[3])?, ctx)?;
+            Some(SlotTy::String)
+        }
         Expr::Member {
             object,
             property,
@@ -132,6 +154,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
         }
         Expr::String { .. } => Some(SlotTy::String),
+        Expr::Number { .. } => Some(SlotTy::Number),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         _ => None,
     }
@@ -157,6 +180,35 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
                 _ => None,
             }
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 4 && is_named_callee(callee, "httpWriteResponse") =>
+        {
+            ctx.has_http = true;
+            classify_number_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_string_arg(arg_expr(&args[2])?, ctx)?;
+            classify_string_arg(arg_expr(&args[3])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "httpRequestHeader") =>
+        {
+            ctx.has_http = true;
+            classify_req_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+fn classify_number_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
+    match expr {
+        Expr::Number { .. } => Some(()),
+        Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
+            SlotTy::Number => Some(()),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -293,7 +345,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_http (H10.01 httpParseRequest + httpRequestHeader)"
+            "; Draconic LLVM host_http (H10.01 parse + H10.02 writeResponse)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
@@ -301,6 +353,7 @@ impl<'a> Emitter<'a> {
             PRINT_STR,
             HOST_HTTP_PARSE_REQUEST,
             HOST_HTTP_REQUEST_HEADER,
+            HOST_HTTP_WRITE_RESPONSE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
         ]));
@@ -312,6 +365,10 @@ impl<'a> Emitter<'a> {
                 SlotTy::String => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+                }
+                SlotTy::Number => {
+                    let ptr = self.slot_ptr(*id)?;
+                    writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
                 SlotTy::HttpReq => {
                     for f in ["method", "path", "version", "body", "raw"] {
@@ -420,6 +477,11 @@ impl<'a> Emitter<'a> {
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::Number => {
+                        let v = self.emit_number_expr(init)?;
+                        let ptr = self.slot_ptr(*local)?;
+                        writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    }
                     SlotTy::HttpReq => {
                         self.emit_http_req_into(*local, init)?;
                     }
@@ -436,9 +498,6 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "httpParseRequest") =>
             {
-                // discard result
-                let tmp_id = LocalId(u32::MAX); // unused path — emit parse into scratch
-                let _ = tmp_id;
                 let raw = self.emit_string_expr(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_http: parse raw"))?,
                 )?;
@@ -470,6 +529,17 @@ impl<'a> Emitter<'a> {
                 let _ = self.emit_header_call(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_http: header req"))?,
                     arg_expr(&args[1]).ok_or_else(|| diag("host_http: header name"))?,
+                )?;
+                Ok(())
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 4 && is_named_callee(callee, "httpWriteResponse") =>
+            {
+                let _ = self.emit_write_response(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http: status"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http: reason"))?,
+                    arg_expr(&args[2]).ok_or_else(|| diag("host_http: headers"))?,
+                    arg_expr(&args[3]).ok_or_else(|| diag("host_http: body"))?,
                 )?;
                 Ok(())
             }
@@ -536,6 +606,36 @@ impl<'a> Emitter<'a> {
         Ok(v)
     }
 
+    fn emit_write_response(
+        &mut self,
+        status: &Expr,
+        reason: &Expr,
+        headers: &Expr,
+        body: &Expr,
+    ) -> Result<String, Diagnostic> {
+        let st_f = self.emit_number_expr(status)?;
+        let st_i = self.fresh();
+        writeln!(self.body, "  {st_i} = fptosi double {st_f} to i32").ok();
+        let r = self.emit_string_expr(reason)?;
+        let h = self.emit_string_expr(headers)?;
+        let b = self.emit_string_expr(body)?;
+        let blen = self.emit_cstr_len(&b)?;
+        let out = self.fresh();
+        let rc = self.fresh();
+        writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
+        writeln!(self.body, "  store ptr null, ptr {out}").ok();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(i32 {st_i}, ptr {r}, ptr {h}, ptr {b}, i64 {blen}, ptr {out})",
+            HOST_HTTP_WRITE_RESPONSE.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)?;
+        let v = self.fresh();
+        writeln!(self.body, "  {v} = load ptr, ptr {out}").ok();
+        Ok(v)
+    }
+
     fn emit_req_raw(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
         match expr {
             Expr::Local { id, .. } => {
@@ -548,6 +648,28 @@ impl<'a> Emitter<'a> {
                 Ok((raw, len))
             }
             _ => Err(diag("host_http: req must be local")),
+        }
+    }
+
+    fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Number { raw, .. } => {
+                let t = self.fresh();
+                let lit = if raw.contains('.') || raw.contains('e') || raw.contains('E') {
+                    raw.clone()
+                } else {
+                    format!("{raw}.0")
+                };
+                writeln!(self.body, "  {t} = fadd double {lit}, 0.0").ok();
+                Ok(t)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_http: unsupported number expr")),
         }
     }
 
@@ -569,6 +691,16 @@ impl<'a> Emitter<'a> {
                 self.emit_header_call(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_http: header req"))?,
                     arg_expr(&args[1]).ok_or_else(|| diag("host_http: header name"))?,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 4 && is_named_callee(callee, "httpWriteResponse") =>
+            {
+                self.emit_write_response(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http: status"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http: reason"))?,
+                    arg_expr(&args[2]).ok_or_else(|| diag("host_http: headers"))?,
+                    arg_expr(&args[3]).ok_or_else(|| diag("host_http: body"))?,
                 )
             }
             Expr::Member {
@@ -635,5 +767,17 @@ mod tests {
         assert!(is_host_http_module(&m));
         let ir = emit_host_http(&m).expect("emit");
         assert!(ir.contains("EINVAL"), "{ir}");
+    }
+
+    #[test]
+    fn emit_http_write_response() {
+        let m = lower_src(
+            r#"
+            let msg = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", "hello");
+            "#,
+        );
+        assert!(is_host_http_module(&m));
+        let ir = emit_host_http(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
     }
 }

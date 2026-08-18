@@ -1,8 +1,8 @@
     /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
     H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09 DNS,
-    H10.01 HTTP/1.1 request parse).
+    H10.01 HTTP/1.1 request parse, H10.02 response write).
     Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-    process, stdio, path, fs, TCP, UDP, DNS, HTTP parse, async readiness + Promise ops. */
+    process, stdio, path, fs, TCP, UDP, DNS, HTTP, async readiness + Promise ops. */
 
 #include "draconic_rt_host.h"
 
@@ -3731,5 +3731,200 @@ DraconicHostError draconic_rt_host_http_request_header(
         return DRACONIC_HOST_E_NOMEM;
     }
     *out_value = dup;
+    return DRACONIC_HOST_OK;
+}
+
+/* --- HTTP/1.1 response write (H10.02) ------------------------------------- */
+
+static const char *host_http_default_reason(int32_t status) {
+    switch (status) {
+    case 200:
+        return "OK";
+    case 201:
+        return "Created";
+    case 204:
+        return "No Content";
+    case 301:
+        return "Moved Permanently";
+    case 302:
+        return "Found";
+    case 304:
+        return "Not Modified";
+    case 400:
+        return "Bad Request";
+    case 401:
+        return "Unauthorized";
+    case 403:
+        return "Forbidden";
+    case 404:
+        return "Not Found";
+    case 405:
+        return "Method Not Allowed";
+    case 500:
+        return "Internal Server Error";
+    case 502:
+        return "Bad Gateway";
+    case 503:
+        return "Service Unavailable";
+    default:
+        return "";
+    }
+}
+
+/* True if headers block already has Content-Length (case-insensitive). */
+static int host_http_headers_have_content_length(const char *headers) {
+    const char *p;
+    size_t n;
+    if (!headers || headers[0] == '\0') {
+        return 0;
+    }
+    n = strlen(headers);
+    p = headers;
+    while ((size_t)(p - headers) < n) {
+        const char *line = p;
+        const char *eol = p;
+        size_t line_len;
+        while ((size_t)(eol - headers) < n
+            && !(eol[0] == '\r' && (size_t)(eol - headers) + 1 < n && eol[1] == '\n')
+            && *eol != '\n') {
+            eol++;
+        }
+        line_len = (size_t)(eol - line);
+        if (line_len >= 14
+            && host_http_ascii_ieq(line, 14, "Content-Length")) {
+            if (line_len == 14 || line[14] == ':' || line[14] == ' ' || line[14] == '\t') {
+                return 1;
+            }
+        }
+        if ((size_t)(eol - headers) + 1 < n && eol[0] == '\r' && eol[1] == '\n') {
+            p = eol + 2;
+        } else if ((size_t)(eol - headers) < n && *eol == '\n') {
+            p = eol + 1;
+        } else {
+            break;
+        }
+    }
+    return 0;
+}
+
+DraconicHostError draconic_rt_host_http_write_response(
+    int32_t status,
+    const char *reason,
+    const char *headers,
+    const uint8_t *body,
+    size_t body_len,
+    char **out_msg) {
+    const char *r;
+    const char *hdrs;
+    size_t hdrs_len;
+    int need_cl;
+    char status_buf[16];
+    char cl_buf[64];
+    size_t status_len;
+    size_t reason_len;
+    size_t cl_len;
+    size_t total;
+    char *msg;
+    size_t off;
+    int n;
+
+    if (!out_msg) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_msg = NULL;
+
+    if (status < 100 || status > 599) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (body_len > 0 && !body) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    if (reason && reason[0] != '\0') {
+        r = reason;
+    } else {
+        r = host_http_default_reason(status);
+    }
+    reason_len = strlen(r);
+
+    hdrs = headers ? headers : "";
+    hdrs_len = strlen(hdrs);
+    /* Ensure header block ends with CRLF when non-empty and missing terminator. */
+    need_cl = !host_http_headers_have_content_length(hdrs);
+
+    n = snprintf(status_buf, sizeof(status_buf), "%d", (int)status);
+    if (n < 0 || (size_t)n >= sizeof(status_buf)) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    status_len = (size_t)n;
+
+    cl_len = 0;
+    if (need_cl) {
+        n = snprintf(
+            cl_buf,
+            sizeof(cl_buf),
+            "Content-Length: %llu\r\n",
+            (unsigned long long)body_len);
+        if (n < 0 || (size_t)n >= sizeof(cl_buf)) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        cl_len = (size_t)n;
+    }
+
+    /* "HTTP/1.1 " + status + " " + reason + "\r\n" + headers + [?CRLF] + cl + "\r\n" + body */
+    total = 9 + status_len + 1 + reason_len + 2 + hdrs_len;
+    if (hdrs_len > 0) {
+        int ends_crlf = hdrs_len >= 2
+            && hdrs[hdrs_len - 2] == '\r'
+            && hdrs[hdrs_len - 1] == '\n';
+        if (!ends_crlf) {
+            total += 2; /* append CRLF */
+        }
+    }
+    total += cl_len + 2 + body_len;
+
+    msg = (char *)malloc(total + 1);
+    if (!msg) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    off = 0;
+    memcpy(msg + off, "HTTP/1.1 ", 9);
+    off += 9;
+    memcpy(msg + off, status_buf, status_len);
+    off += status_len;
+    msg[off++] = ' ';
+    if (reason_len > 0) {
+        memcpy(msg + off, r, reason_len);
+        off += reason_len;
+    }
+    msg[off++] = '\r';
+    msg[off++] = '\n';
+
+    if (hdrs_len > 0) {
+        memcpy(msg + off, hdrs, hdrs_len);
+        off += hdrs_len;
+        if (!(hdrs_len >= 2 && hdrs[hdrs_len - 2] == '\r' && hdrs[hdrs_len - 1] == '\n')) {
+            msg[off++] = '\r';
+            msg[off++] = '\n';
+        }
+    }
+    if (need_cl) {
+        memcpy(msg + off, cl_buf, cl_len);
+        off += cl_len;
+    }
+    msg[off++] = '\r';
+    msg[off++] = '\n';
+    if (body_len > 0) {
+        memcpy(msg + off, body, body_len);
+        off += body_len;
+    }
+    msg[off] = '\0';
+    if (off != total) {
+        free(msg);
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    *out_msg = msg;
     return DRACONIC_HOST_OK;
 }

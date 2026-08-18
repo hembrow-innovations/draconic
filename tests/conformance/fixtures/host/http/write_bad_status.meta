@@ -1,0 +1,4 @@
+id: host/http/write_bad_status
+targets: native
+native.exit: 1
+native.stderr: EINVAL\n
