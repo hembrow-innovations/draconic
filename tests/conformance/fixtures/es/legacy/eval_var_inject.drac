@@ -1,0 +1,96 @@
+// E17.02.11: Direct eval binding injection (non-strict).
+// eval("var x=…") / eval("function f(){…}") introduce bindings in the caller's
+// VariableEnvironment; "use strict" direct eval keeps var/function local to eval.
+
+// Non-strict: var from direct eval is visible in caller.
+function sloppyVar() {
+  eval("var x = 41");
+  return x + 1;
+}
+let a = sloppyVar();
+
+// Non-strict: function declaration from direct eval is callable in caller.
+function sloppyFn() {
+  eval("function injected() { return 7; }");
+  return injected();
+}
+let b = sloppyFn();
+
+// Non-strict: var inject into nested function; does not leak to outer lexical.
+function outerNoLeak() {
+  function inner() {
+    eval("var onlyInner = 3");
+    return onlyInner;
+  }
+  let v = inner();
+  let missing = typeof onlyInner;
+  return v === 3 && missing === "undefined";
+}
+let c = outerNoLeak();
+
+// Non-strict: re-eval updates the same var binding.
+function sloppyReassign() {
+  eval("var n = 1");
+  eval("n = 2");
+  return n;
+}
+let d = sloppyReassign();
+
+// Non-strict: multiple vars in one eval string.
+function sloppyMulti() {
+  eval("var p = 10; var q = 20");
+  return p + q;
+}
+let e = sloppyMulti();
+
+// Strict: var from direct eval stays local to eval; caller typeof is undefined.
+function strictVar() {
+  "use strict";
+  eval("var y = 1");
+  return typeof y;
+}
+let f = strictVar();
+
+// Strict: function from direct eval is not visible in caller.
+function strictFn() {
+  "use strict";
+  eval("function hidden() { return 1; }");
+  return typeof hidden;
+}
+let g = strictFn();
+
+// Strict: eval body can still use its own var (return value of eval).
+function strictEvalReturn() {
+  "use strict";
+  return eval("var z = 9; z");
+}
+let h = strictEvalReturn();
+
+// Non-strict top-level direct eval var becomes global property.
+eval("var e170211_top = 55");
+let i = e170211_top;
+let j = globalThis.e170211_top;
+let k = i === 55 && j === 55;
+
+// Indirect eval always uses global scope (not caller) — contrast with direct.
+function indirectVsDirect() {
+  (0, eval)("var e170211_ind = 66");
+  let globalOk = globalThis.e170211_ind === 66;
+  let localMissing = typeof e170211_ind_local === "undefined";
+  // Direct inject into this function:
+  eval("var e170211_ind_local = 77");
+  let localOk = e170211_ind_local === 77;
+  return globalOk && localMissing && localOk;
+}
+let l = indirectVsDirect();
+
+// Non-strict: function expression body direct eval injects into that function.
+let fe = function () {
+  eval("var fev = 4");
+  return fev === 4;
+};
+let m = fe();
+
+// Cleanup top-level globals created by this fixture.
+delete globalThis.e170211_top;
+delete globalThis.e170211_ind;

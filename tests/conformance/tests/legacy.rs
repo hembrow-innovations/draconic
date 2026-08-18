@@ -148,3 +148,13 @@ fn eval_arguments_idents_fixture_present() {
 fn eval_arguments_idents_runs() {
     assert_fixture_runs_declared_targets("es/legacy/eval_arguments_idents");
 }
+
+#[test]
+fn eval_var_inject_fixture_present() {
+    assert_fixture_present("es/legacy/eval_var_inject");
+}
+
+#[test]
+fn eval_var_inject_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/eval_var_inject");
+}
