@@ -649,7 +649,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H11.02 | done | native | TLS server wrap: cert/key; accept TLS connection — `tlsServerWrap(conn, certPath, keyPath)` PEM; handshake; reuse `tlsRead`/`tlsWrite`/`closeTls` | `tests/conformance` fixtures `host/net/tls`, `crates/draconic-runtime` |
 | H11.03 | done | native | HTTPS: HTTP/1.1 over TLS loopback | `tests/conformance` fixtures `host/net/tls` |
 | H12 | todo | native | WebSocket | `tests/conformance/host/net/ws` |
-| H12.01 | todo | native | WebSocket handshake (HTTP/1.1 upgrade) server-side | `tests/conformance` fixtures `host/net/ws` |
+| H12.01 | done | native | WebSocket handshake (HTTP/1.1 upgrade) server-side | `tests/conformance` fixtures `host/net/ws` |
 | H12.02 | todo | native | WebSocket frames: text/binary; close; ping/pong | `tests/conformance` fixtures `host/net/ws` |
 | H12.03 | todo | native | WebSocket client dial + echo e2e | `tests/conformance` fixtures `host/net/ws` |
 | H13 | todo | native | HTTP/2 (later; not v1 bar) | `tests/conformance/host/http2` |

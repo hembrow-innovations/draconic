@@ -1,4 +1,4 @@
-//! H10.03–H10.05 + H11.03: HTTP/1.1 server + client over TCP or TLS.
+//! H10.03–H10.05 + H11.03 + H12.01: HTTP/1.1 server + client over TCP or TLS.
 //!
 //! Combines host TCP (listen/accept/connect/read/write/close) with HTTP parse/write
 //! so a Program can serve one or more requests on loopback without closing between:
@@ -8,6 +8,8 @@
 //!
 //! H11.03 HTTPS: same shapes with `tlsClientWrap` / `tlsServerWrap` + `tlsRead` /
 //! `tlsWrite` / `closeTls` instead of plain TCP I/O (dual-process loopback).
+//!
+//! H12.01: `wsHandshakeResponse(key)` → RFC 6455 101 upgrade response bytes.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -19,7 +21,8 @@ use draconic_runtime::abi::{
     HOST_HTTP_RESPONSE_HEADER, HOST_HTTP_WRITE_REQUEST, HOST_HTTP_WRITE_RESPONSE,
     HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT,
     HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, HOST_TLS_CLIENT_WRAP,
-    HOST_TLS_READ, HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE, PRINT_I64, PRINT_STR,
+    HOST_TLS_READ, HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE, HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64,
+    PRINT_STR,
 };
 
 pub(crate) fn is_host_http_server_module(module: &Module) -> bool {
@@ -201,6 +204,12 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[3])?, ctx)
         }
         Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+        {
+            ctx.has_http = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)
+        }
+        Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "httpResponseHeader") =>
         {
             ctx.has_http = true;
@@ -318,6 +327,13 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             Some(SlotTy::String)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+        {
+            ctx.has_http = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::String)
+        }
         Expr::Member {
             object,
             property,
@@ -424,6 +440,12 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_res_arg(arg_expr(&args[0])?, ctx)?;
             classify_string_arg(arg_expr(&args[1])?, ctx)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+        {
+            ctx.has_http = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)
+        }
         _ => None,
     }
 }
@@ -442,6 +464,11 @@ fn classify_bytes_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         }
         Expr::Call { callee, args, .. }
             if args.len() == 4 && is_named_callee(callee, "httpWriteRequest") =>
+        {
+            classify_string_arg(expr, ctx)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
         {
             classify_string_arg(expr, ctx)
         }
@@ -682,6 +709,7 @@ impl<'a> Emitter<'a> {
             HOST_HTTP_WRITE_REQUEST,
             HOST_HTTP_PARSE_RESPONSE,
             HOST_HTTP_RESPONSE_HEADER,
+            HOST_WS_HANDSHAKE_RESPONSE,
             HOST_STDOUT_WRITE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
@@ -1076,6 +1104,15 @@ impl<'a> Emitter<'a> {
                 let n = self.emit_cstr_len(&s)?;
                 Ok((s, n))
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+            {
+                let s = self.emit_ws_handshake(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: ws key"))?,
+                )?;
+                let n = self.emit_cstr_len(&s)?;
+                Ok((s, n))
+            }
             Expr::Member {
                 object,
                 property,
@@ -1399,6 +1436,24 @@ impl<'a> Emitter<'a> {
         Ok(v)
     }
 
+    fn emit_ws_handshake(&mut self, key: &Expr) -> Result<String, Diagnostic> {
+        let k = self.emit_string_expr(key)?;
+        let out = self.fresh();
+        let rc = self.fresh();
+        writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
+        writeln!(self.body, "  store ptr null, ptr {out}").ok();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(ptr {k}, ptr {out})",
+            HOST_WS_HANDSHAKE_RESPONSE.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)?;
+        let v = self.fresh();
+        writeln!(self.body, "  {v} = load ptr, ptr {out}").ok();
+        Ok(v)
+    }
+
     fn emit_response_header(&mut self, res: &Expr, name: &Expr) -> Result<String, Diagnostic> {
         let id = match res {
             Expr::Local { id, .. } => *id,
@@ -1465,6 +1520,13 @@ impl<'a> Emitter<'a> {
                 self.emit_response_header(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: res"))?,
                     arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: header name"))?,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+            {
+                self.emit_ws_handshake(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: ws key"))?,
                 )
             }
             Expr::Member {

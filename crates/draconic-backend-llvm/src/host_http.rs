@@ -6,6 +6,7 @@
 //! - `httpWriteRequest(method, path, headers, body)` → wire message string (H10.05)
 //! - `httpParseResponse(raw)` → HttpRes; `.version` / `.status` / `.reason` / `.body`
 //! - `httpResponseHeader(res, name)` → string (H10.05)
+//! - `wsHandshakeResponse(secWebSocketKey)` → 101 upgrade response (H12.01 / RFC 6455)
 //! - Malformed / bad status → stderr `EINVAL` + exit 1
 
 use std::collections::HashMap;
@@ -16,7 +17,8 @@ use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_PARSE_RESPONSE,
     HOST_HTTP_REQUEST_HEADER, HOST_HTTP_RESPONSE_HEADER, HOST_HTTP_WRITE_REQUEST,
-    HOST_HTTP_WRITE_RESPONSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, PRINT_I64, PRINT_STR,
+    HOST_HTTP_WRITE_RESPONSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_WS_HANDSHAKE_RESPONSE,
+    PRINT_I64, PRINT_STR,
 };
 
 pub(crate) fn is_host_http_module(module: &Module) -> bool {
@@ -140,6 +142,13 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             Some(())
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+        {
+            ctx.has_http = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(())
+        }
         _ => None,
     }
 }
@@ -194,6 +203,13 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_http = true;
             classify_res_arg(arg_expr(&args[0])?, ctx)?;
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(SlotTy::String)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+        {
+            ctx.has_http = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
             Some(SlotTy::String)
         }
         Expr::Member {
@@ -257,6 +273,13 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             classify_string_arg(arg_expr(&args[2])?, ctx)?;
             classify_string_arg(arg_expr(&args[3])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+        {
+            ctx.has_http = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
             Some(())
         }
         Expr::Call { callee, args, .. }
@@ -465,6 +488,7 @@ impl<'a> Emitter<'a> {
             HOST_HTTP_WRITE_REQUEST,
             HOST_HTTP_PARSE_RESPONSE,
             HOST_HTTP_RESPONSE_HEADER,
+            HOST_WS_HANDSHAKE_RESPONSE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
         ]));
@@ -727,6 +751,14 @@ impl<'a> Emitter<'a> {
                 )?;
                 Ok(())
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+            {
+                let _ = self.emit_ws_handshake(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http: ws key"))?,
+                )?;
+                Ok(())
+            }
             _ => Err(diag("host_http: unsupported expr stmt")),
         }
     }
@@ -891,6 +923,24 @@ impl<'a> Emitter<'a> {
         Ok(v)
     }
 
+    fn emit_ws_handshake(&mut self, key: &Expr) -> Result<String, Diagnostic> {
+        let k = self.emit_string_expr(key)?;
+        let out = self.fresh();
+        let rc = self.fresh();
+        writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
+        writeln!(self.body, "  store ptr null, ptr {out}").ok();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(ptr {k}, ptr {out})",
+            HOST_WS_HANDSHAKE_RESPONSE.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)?;
+        let v = self.fresh();
+        writeln!(self.body, "  {v} = load ptr, ptr {out}").ok();
+        Ok(v)
+    }
+
     fn emit_msg_raw(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
         match expr {
             Expr::Local { id, .. } => {
@@ -1001,6 +1051,13 @@ impl<'a> Emitter<'a> {
                     arg_expr(&args[3]).ok_or_else(|| diag("host_http: body"))?,
                 )
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
+            {
+                self.emit_ws_handshake(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http: ws key"))?,
+                )
+            }
             Expr::Member {
                 object,
                 property,
@@ -1083,6 +1140,21 @@ mod tests {
         assert!(is_host_http_module(&m));
         let ir = emit_host_http(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
+    }
+
+    #[test]
+    fn emit_ws_handshake_response() {
+        let m = lower_src(
+            r#"
+            let msg = wsHandshakeResponse("dGhlIHNhbXBsZSBub25jZQ==");
+            "#,
+        );
+        assert!(is_host_http_module(&m));
+        let ir = emit_host_http(&m).expect("emit");
+        assert!(
+            ir.contains("draconic_rt_host_ws_handshake_response"),
+            "{ir}"
+        );
     }
 
     #[test]

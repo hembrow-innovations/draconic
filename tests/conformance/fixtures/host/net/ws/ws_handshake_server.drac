@@ -1,0 +1,17 @@
+// H12.01: WebSocket handshake server-side over TCP (RFC 6455 sample key).
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+tcpWrite(c, "GET /chat HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n");
+let raw = tcpRead(a, 4096);
+let req = httpParseRequest(raw);
+let path = req.path;
+let resp = wsHandshakeResponse("dGhlIHNhbXBsZSBub25jZQ==");
+tcpWrite(a, resp);
+let out = tcpRead(c, 4096);
+stdoutWrite(path);
+stdoutWrite("\n");
+stdoutWrite(out);
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);

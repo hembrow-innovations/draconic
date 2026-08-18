@@ -1,0 +1,4 @@
+id: host/net/ws/ws_handshake_empty_key
+targets: native
+native.exit: 1
+native.stderr: EINVAL\n

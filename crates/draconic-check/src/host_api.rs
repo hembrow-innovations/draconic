@@ -92,6 +92,7 @@ pub struct HostApiEntry {
 /// - H10.07: HTTP listen helpers (`httpParseRequest` / `httpRequestHeader` / `httpWriteResponse`
 ///   and client parse/write) hard-error on js until optional Node bridge.
 /// - `tlsClientWrap` / `tlsServerWrap` / `tlsRead` / `tlsWrite` / `closeTls` (H11.01/H11.02): native-only TLS.
+/// - `wsHandshakeResponse` (H12.01): native-only WebSocket server opening handshake (RFC 6455).
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -473,6 +474,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         availability: HostAvailability::NATIVE_ONLY,
         note: "H10.05 HTTP/1.1 response header lookup (case-insensitive)",
     },
+    HostApiEntry {
+        name: "wsHandshakeResponse",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.01 WebSocket server opening handshake response from Sec-WebSocket-Key",
+    },
 ];
 
 /// All known host API entries.
@@ -850,6 +856,7 @@ mod tests {
             "tlsRead",
             "tlsWrite",
             "closeTls",
+            "wsHandshakeResponse",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

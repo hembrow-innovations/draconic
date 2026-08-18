@@ -1,0 +1,2 @@
+// H12.01: wsHandshakeResponse — RFC 6455 server opening handshake (sample key).
+let msg = wsHandshakeResponse("dGhlIHNhbXBsZSBub25jZQ==");

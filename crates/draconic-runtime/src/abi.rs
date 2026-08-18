@@ -1098,6 +1098,12 @@ pub const HOST_HTTP_RESPONSE_HEADER: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, i64, ptr, ptr",
 };
+/* H12.01: WebSocket server opening handshake response (RFC 6455). */
+pub const HOST_WS_HANDSHAKE_RESPONSE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_handshake_response",
+    ret: "i32",
+    params: "ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1220,10 +1226,11 @@ pub const HOST_HTTP_WRITE_RESPONSE_SYMBOL: &str = HOST_HTTP_WRITE_RESPONSE.symbo
 pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
 pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
-    pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
-    pub const HOST_TLS_SERVER_WRAP_SYMBOL: &str = HOST_TLS_SERVER_WRAP.symbol;
-    pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
-    pub const HOST_TLS_WRITE_SYMBOL: &str = HOST_TLS_WRITE.symbol;
+pub const HOST_WS_HANDSHAKE_RESPONSE_SYMBOL: &str = HOST_WS_HANDSHAKE_RESPONSE.symbol;
+pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
+pub const HOST_TLS_SERVER_WRAP_SYMBOL: &str = HOST_TLS_SERVER_WRAP.symbol;
+pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
+pub const HOST_TLS_WRITE_SYMBOL: &str = HOST_TLS_WRITE.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H11.01).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -1306,6 +1313,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_REQUEST_HEADER_SYMBOL,
     HOST_HTTP_WRITE_RESPONSE_SYMBOL,
     HOST_HTTP_WRITE_REQUEST_SYMBOL,
+    HOST_WS_HANDSHAKE_RESPONSE_SYMBOL,
     HOST_TLS_CLIENT_WRAP_SYMBOL,
     HOST_TLS_SERVER_WRAP_SYMBOL,
     HOST_TLS_READ_SYMBOL,
@@ -1397,6 +1405,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_HTTP_WRITE_REQUEST,
     HOST_HTTP_PARSE_RESPONSE,
     HOST_HTTP_RESPONSE_HEADER,
+    HOST_WS_HANDSHAKE_RESPONSE,
     HOST_TLS_CLIENT_WRAP,
     HOST_TLS_SERVER_WRAP,
     HOST_TLS_READ,

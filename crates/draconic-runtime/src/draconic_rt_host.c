@@ -4203,6 +4203,188 @@ DraconicHostError draconic_rt_host_http_response_header(
     return draconic_rt_host_http_request_header(data, len, name, out_value);
 }
 
+/* --- WebSocket handshake response (H12.01 / RFC 6455) -------------------- */
+
+#define HOST_WS_GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+static uint32_t host_sha1_rol(uint32_t v, int n) {
+    return (v << n) | (v >> (32 - n));
+}
+
+static void host_sha1(const uint8_t *data, size_t len, uint8_t out[20]) {
+    uint32_t h0 = 0x67452301u;
+    uint32_t h1 = 0xEFCDAB89u;
+    uint32_t h2 = 0x98BADCFEu;
+    uint32_t h3 = 0x10325476u;
+    uint32_t h4 = 0xC3D2E1F0u;
+    size_t bit_len = len * 8;
+    size_t pad_len = (len + 1 + 8 + 63) / 64 * 64;
+    uint8_t *msg;
+    size_t i, chunk;
+
+    msg = (uint8_t *)calloc(1, pad_len);
+    if (!msg) {
+        memset(out, 0, 20);
+        return;
+    }
+    if (len > 0 && data) {
+        memcpy(msg, data, len);
+    }
+    msg[len] = 0x80;
+    msg[pad_len - 8] = (uint8_t)((bit_len >> 56) & 0xff);
+    msg[pad_len - 7] = (uint8_t)((bit_len >> 48) & 0xff);
+    msg[pad_len - 6] = (uint8_t)((bit_len >> 40) & 0xff);
+    msg[pad_len - 5] = (uint8_t)((bit_len >> 32) & 0xff);
+    msg[pad_len - 4] = (uint8_t)((bit_len >> 24) & 0xff);
+    msg[pad_len - 3] = (uint8_t)((bit_len >> 16) & 0xff);
+    msg[pad_len - 2] = (uint8_t)((bit_len >> 8) & 0xff);
+    msg[pad_len - 1] = (uint8_t)(bit_len & 0xff);
+
+    for (chunk = 0; chunk < pad_len; chunk += 64) {
+        uint32_t w[80];
+        uint32_t a, b, c, d, e;
+        for (i = 0; i < 16; i++) {
+            size_t o = chunk + i * 4;
+            w[i] = ((uint32_t)msg[o] << 24) | ((uint32_t)msg[o + 1] << 16)
+                | ((uint32_t)msg[o + 2] << 8) | (uint32_t)msg[o + 3];
+        }
+        for (i = 16; i < 80; i++) {
+            w[i] = host_sha1_rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+        }
+        a = h0;
+        b = h1;
+        c = h2;
+        d = h3;
+        e = h4;
+        for (i = 0; i < 80; i++) {
+            uint32_t f, k, temp;
+            if (i < 20) {
+                f = (b & c) | ((~b) & d);
+                k = 0x5A827999u;
+            } else if (i < 40) {
+                f = b ^ c ^ d;
+                k = 0x6ED9EBA1u;
+            } else if (i < 60) {
+                f = (b & c) | (b & d) | (c & d);
+                k = 0x8F1BBCDCu;
+            } else {
+                f = b ^ c ^ d;
+                k = 0xCA62C1D6u;
+            }
+            temp = host_sha1_rol(a, 5) + f + e + k + w[i];
+            e = d;
+            d = c;
+            c = host_sha1_rol(b, 30);
+            b = a;
+            a = temp;
+        }
+        h0 += a;
+        h1 += b;
+        h2 += c;
+        h3 += d;
+        h4 += e;
+    }
+    free(msg);
+
+    out[0] = (uint8_t)(h0 >> 24);
+    out[1] = (uint8_t)(h0 >> 16);
+    out[2] = (uint8_t)(h0 >> 8);
+    out[3] = (uint8_t)h0;
+    out[4] = (uint8_t)(h1 >> 24);
+    out[5] = (uint8_t)(h1 >> 16);
+    out[6] = (uint8_t)(h1 >> 8);
+    out[7] = (uint8_t)h1;
+    out[8] = (uint8_t)(h2 >> 24);
+    out[9] = (uint8_t)(h2 >> 16);
+    out[10] = (uint8_t)(h2 >> 8);
+    out[11] = (uint8_t)h2;
+    out[12] = (uint8_t)(h3 >> 24);
+    out[13] = (uint8_t)(h3 >> 16);
+    out[14] = (uint8_t)(h3 >> 8);
+    out[15] = (uint8_t)h3;
+    out[16] = (uint8_t)(h4 >> 24);
+    out[17] = (uint8_t)(h4 >> 16);
+    out[18] = (uint8_t)(h4 >> 8);
+    out[19] = (uint8_t)h4;
+}
+
+static void host_b64_encode_20(const uint8_t in[20], char out[29]) {
+    static const char tbl[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i, o = 0;
+    for (i = 0; i + 2 < 20; i += 3) {
+        uint32_t n = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8) | (uint32_t)in[i + 2];
+        out[o++] = tbl[(n >> 18) & 63];
+        out[o++] = tbl[(n >> 12) & 63];
+        out[o++] = tbl[(n >> 6) & 63];
+        out[o++] = tbl[n & 63];
+    }
+    /* 20 % 3 == 2 → one leftover pair + padding */
+    {
+        uint32_t n = ((uint32_t)in[18] << 16) | ((uint32_t)in[19] << 8);
+        out[o++] = tbl[(n >> 18) & 63];
+        out[o++] = tbl[(n >> 12) & 63];
+        out[o++] = tbl[(n >> 6) & 63];
+        out[o++] = '=';
+    }
+    out[o] = '\0';
+}
+
+DraconicHostError draconic_rt_host_ws_handshake_response(
+    const char *sec_websocket_key,
+    char **out_msg) {
+    size_t key_len;
+    size_t concat_len;
+    uint8_t *concat;
+    uint8_t digest[20];
+    char accept[29];
+    static const char prefix[] =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: ";
+    static const char suffix[] = "\r\n\r\n";
+    size_t total;
+    char *msg;
+    size_t off;
+
+    if (!out_msg) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_msg = NULL;
+    if (!sec_websocket_key || sec_websocket_key[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    key_len = strlen(sec_websocket_key);
+    concat_len = key_len + sizeof(HOST_WS_GUID) - 1;
+    concat = (uint8_t *)malloc(concat_len);
+    if (!concat) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    memcpy(concat, sec_websocket_key, key_len);
+    memcpy(concat + key_len, HOST_WS_GUID, sizeof(HOST_WS_GUID) - 1);
+    host_sha1(concat, concat_len, digest);
+    free(concat);
+    host_b64_encode_20(digest, accept);
+
+    total = (sizeof(prefix) - 1) + strlen(accept) + (sizeof(suffix) - 1);
+    msg = (char *)malloc(total + 1);
+    if (!msg) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    off = 0;
+    memcpy(msg + off, prefix, sizeof(prefix) - 1);
+    off += sizeof(prefix) - 1;
+    memcpy(msg + off, accept, strlen(accept));
+    off += strlen(accept);
+    memcpy(msg + off, suffix, sizeof(suffix) - 1);
+    off += sizeof(suffix) - 1;
+    msg[off] = '\0';
+    *out_msg = msg;
+    return DRACONIC_HOST_OK;
+}
+
 /* --- TLS client wrap (H11.01) -------------------------------------------- */
 
 #if defined(__APPLE__)

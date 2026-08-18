@@ -1,0 +1,4 @@
+id: host/net/ws/ws_handshake_response
+targets: native
+native.exit: 0
+native.stdout: HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n\n

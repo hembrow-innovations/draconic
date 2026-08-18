@@ -206,6 +206,10 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_http_response_header(ptr, i64, ptr, ptr)"
     );
     assert_eq!(
+        HOST_WS_HANDSHAKE_RESPONSE.declare(),
+        "declare i32 @draconic_rt_host_ws_handshake_response(ptr, ptr)"
+    );
+    assert_eq!(
         HOST_TLS_CLIENT_WRAP.declare(),
         "declare i32 @draconic_rt_host_tls_client_wrap(i64, ptr, i32, ptr)"
     );
@@ -3028,6 +3032,84 @@ fn host_http_write_response_status_headers_body() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1002-ok\n");
+}
+
+#[test]
+fn host_ws_handshake_response_rfc6455_sample() {
+    // H12.01: RFC 6455 §1.3 sample key → Sec-WebSocket-Accept.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_ws_h1201.c");
+    let bin = dir.join("rt_host_ws_h1201");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        int main(void) {
+            DraconicHostError err;
+            char *msg = NULL;
+            const char *want =
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"
+                "\r\n";
+
+            err = draconic_rt_host_ws_handshake_response(
+                "dGhlIHNhbXBsZSBub25jZQ==", &msg);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (!msg || strcmp(msg, want) != 0) {
+                fprintf(stderr, "got=[%s]\n", msg ? msg : "(null)");
+                return 2;
+            }
+            free(msg);
+            msg = NULL;
+
+            err = draconic_rt_host_ws_handshake_response("", &msg);
+            if (err != DRACONIC_HOST_E_INVAL) return 3;
+            if (msg) return 4;
+
+            err = draconic_rt_host_ws_handshake_response(NULL, &msg);
+            if (err != DRACONIC_HOST_E_INVAL) return 5;
+
+            puts("ws-h1201-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+    };
+    assert!(status.success(), "clang failed for ws H12.01 smoke");
+
+    let output = Command::new(&bin).output().expect("run ws h1201");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "ws H12.01 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ws-h1201-ok\n");
 }
 
 #[test]

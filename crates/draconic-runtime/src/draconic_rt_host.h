@@ -518,6 +518,18 @@ DraconicHostError draconic_rt_host_http_response_header(
     const char *name,
     char **out_value);
 
+/* --- WebSocket handshake response (H12.01) ---------------------------------
+   RFC 6455 server opening handshake response from Sec-WebSocket-Key.
+   On OK: *out_msg is malloc'd wire bytes for:
+     HTTP/1.1 101 Switching Protocols
+     Upgrade: websocket
+     Connection: Upgrade
+     Sec-WebSocket-Accept: base64(SHA1(key + GUID))
+   Empty/NULL key → INVAL. Caller frees *out_msg. */
+DraconicHostError draconic_rt_host_ws_handshake_response(
+    const char *sec_websocket_key,
+    char **out_msg);
+
 /* --- TLS client/server wrap (H11.01 / H11.02) ------------------------------
    Wrap an existing TCP connection handle as a TLS client or server session.
    Takes ownership of the TCP conn handle (it becomes invalid); *out_tls is a
