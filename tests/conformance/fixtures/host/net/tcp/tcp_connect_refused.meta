@@ -1,0 +1,4 @@
+id: host/net/tcp/tcp_connect_refused
+targets: native
+native.exit: 1
+native.stderr: ECONN\n

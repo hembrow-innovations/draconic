@@ -78,7 +78,8 @@ pub struct HostApiEntry {
 /// - `nowMs` (H05.01): both — wall clock ms since Unix epoch (`Date.now` equivalent).
 /// - `monotonicMs` (H05.02): both — monotonic clock ms for durations (not wall epoch).
 /// - `tcpListen` / `tcpLocalPort` / `closeTcp` (H06.01): native-only TCP listen + port query + close.
-/// - `tcpAccept` / `tcpConnect` / `tcpPeerAddress` / `tcpPeerPort` (H06.02): accept + peer; minimal connect for loopback.
+/// - `tcpAccept` / `tcpPeerAddress` / `tcpPeerPort` (H06.02): accept + peer.
+/// - `tcpConnect` (H06.02–H06.03): dial IPv4 host:port; refused/timeout → HostError ECONN.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -328,7 +329,7 @@ const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "tcpConnect",
         availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.02 TCP connect (IPv4 host:port)",
+        note: "H06.03 TCP connect dial host:port; refused/timeout → ECONN",
     },
     HostApiEntry {
         name: "tcpPeerAddress",

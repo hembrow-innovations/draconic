@@ -1651,3 +1651,87 @@ fn host_tcp_accept_peer_loopback() {
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0602-ok\n");
 }
+
+#[test]
+fn host_tcp_connect_dial_and_refused() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_tcp_h0603.c");
+    let bin = dir.join("rt_host_tcp_h0603");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+
+        int main(void) {
+            DraconicHostError err;
+            DraconicHostHandle listen_h = DRACONIC_HOST_HANDLE_INVALID;
+            DraconicHostHandle client_h = DRACONIC_HOST_HANDLE_INVALID;
+            int32_t port = 0;
+            int32_t closed_port = 0;
+
+            /* Dial success: listen + connect to bound port. */
+            err = draconic_rt_host_tcp_listen(0, 8, &listen_h);
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_tcp_local_port(listen_h, &port);
+            if (err != DRACONIC_HOST_OK) return 2;
+            if (port <= 0 || port > 65535) return 3;
+
+            err = draconic_rt_host_tcp_connect("127.0.0.1", port, &client_h);
+            if (err != DRACONIC_HOST_OK) return 4;
+            if (!draconic_rt_host_handle_is_valid(client_h)) return 5;
+            err = draconic_rt_host_handle_close(client_h);
+            if (err != DRACONIC_HOST_OK) return 6;
+            client_h = DRACONIC_HOST_HANDLE_INVALID;
+
+            /* Refused: close listener then dial same port → E_CONN. */
+            closed_port = port;
+            err = draconic_rt_host_handle_close(listen_h);
+            if (err != DRACONIC_HOST_OK) return 7;
+            listen_h = DRACONIC_HOST_HANDLE_INVALID;
+
+            err = draconic_rt_host_tcp_connect("127.0.0.1", closed_port, &client_h);
+            if (err != DRACONIC_HOST_E_CONN) return 8;
+            if (draconic_rt_host_handle_is_valid(client_h)) return 9;
+
+            /* Invalid host / port stay E_INVAL (not E_CONN). */
+            err = draconic_rt_host_tcp_connect("not-an-ipv4", 80, &client_h);
+            if (err != DRACONIC_HOST_E_INVAL) return 10;
+            err = draconic_rt_host_tcp_connect("127.0.0.1", 70000, &client_h);
+            if (err != DRACONIC_HOST_E_INVAL) return 11;
+
+            puts("tcp-h0603-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for tcp H06.03 smoke");
+
+    let output = Command::new(&bin).output().expect("run tcp h0603");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "tcp H06.03 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0603-ok\n");
+}

@@ -1829,16 +1829,17 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
     return DRACONIC_HOST_OK;
 }
 
-/* --- TCP listen/accept/connect/peer (H06.01–H06.02) ---------------------- */
+/* --- TCP listen/accept/connect/peer (H06.01–H06.03) ---------------------- */
 
 #if !defined(_WIN32)
 static DraconicHostError host_tcp_errno_map(void) {
     if (errno == EADDRINUSE || errno == EADDRNOTAVAIL) {
         return DRACONIC_HOST_E_ADDR;
     }
+    /* H06.03: refused / reset / unreachable / timed-out connect → E_CONN. */
     if (errno == ECONNREFUSED || errno == ECONNRESET || errno == ENETUNREACH
         || errno == EHOSTUNREACH || errno == ETIMEDOUT) {
-        return DRACONIC_HOST_E_IO;
+        return DRACONIC_HOST_E_CONN;
     }
     if (errno == EACCES
 #if defined(EPERM)

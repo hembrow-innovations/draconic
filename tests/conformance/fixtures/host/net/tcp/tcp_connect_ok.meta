@@ -1,0 +1,4 @@
+id: host/net/tcp/tcp_connect_ok
+targets: native
+native.exit: 0
+native.stdout: number\ntrue\n

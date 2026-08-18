@@ -1,4 +1,4 @@
-//! ROADMAP H06.01–H06.02: TCP listen/accept/peer + ephemeral local port.
+//! ROADMAP H06.01–H06.03: TCP listen/accept/connect/peer + refused → ECONN.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -63,4 +63,40 @@ fn tcp_accept_peer_runs_native() {
         "must target native"
     );
     assert_fixture_runs("host/net/tcp/tcp_accept_peer");
+}
+
+#[test]
+fn tcp_connect_ok_runs_native() {
+    assert_fixture_present("host/net/tcp/tcp_connect_ok");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tcp/tcp_connect_ok")
+        .expect("host/net/tcp/tcp_connect_ok");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_fixture_runs("host/net/tcp/tcp_connect_ok");
+}
+
+#[test]
+fn tcp_connect_refused_runs_native() {
+    assert_fixture_present("host/net/tcp/tcp_connect_refused");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tcp/tcp_connect_refused")
+        .expect("host/net/tcp/tcp_connect_refused");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(fixture.expect_native.exit, 1, "refused → exit 1");
+    assert_eq!(
+        fixture.expect_native.stderr.as_deref(),
+        Some("ECONN\n"),
+        "refused → stderr ECONN"
+    );
+    assert_fixture_runs("host/net/tcp/tcp_connect_refused");
 }

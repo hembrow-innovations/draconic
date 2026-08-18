@@ -1,4 +1,4 @@
-//! H06.01–H06.02: native TCP — listen/accept/connect/peer + close.
+//! H06.01–H06.03: native TCP — listen/accept/connect/peer + close.
 //!
 //! - `tcpListen(port)` / `tcpListen(port, backlog)` → listen handle (number)
 //! - `tcpLocalPort(h)` → bound port (ephemeral when listen port was 0)
@@ -7,6 +7,9 @@
 //! - `tcpPeerAddress(conn)` → peer IPv4 string
 //! - `tcpPeerPort(conn)` → peer port number
 //! - `closeTcp(h)` → close listen/conn handle via Runtime handle_close
+//!
+//! Host errors: `E_CONN` (refused/reset/timeout) → stderr `ECONN` + exit 1;
+//! other non-OK → `EIO` + exit 1.
 //!
 //! Prints string (`typeof` / peer address) and bool locals used in range checks.
 
@@ -307,24 +310,42 @@ impl<'a> Emitter<'a> {
         p
     }
 
-    fn emit_check_rc(&mut self, rc: &str) -> Result<(), Diagnostic> {
-        let ok = self.fresh_label("tcp_ok");
-        let bad = self.fresh_label("tcp_err");
-        let cmp = self.fresh();
-        writeln!(self.body, "  {cmp} = icmp eq i32 {rc}, 0").ok();
-        writeln!(self.body, "  br i1 {cmp}, label %{ok}, label %{bad}").ok();
-        writeln!(self.body, "{bad}:").ok();
-        let msg = self.emit_cstr_ptr("EIO\n");
-        let n = self.fresh();
-        writeln!(self.body, "  {n} = add i64 0, 4").ok();
+    fn emit_host_err_exit(&mut self, code: &str) -> Result<(), Diagnostic> {
+        let msg = format!("{code}\n");
+        let p = self.emit_cstr_ptr(&msg);
+        let n = msg.len();
         writeln!(
             self.body,
             "  {}",
-            HOST_STDERR_WRITE.call(&format!("ptr {msg}, i64 {n}"))
+            HOST_STDERR_WRITE.call(&format!("ptr {p}, i64 {n}"))
         )
         .ok();
         writeln!(self.body, "  {}", HOST_PROCESS_EXIT.call("i32 1")).ok();
         writeln!(self.body, "  unreachable").ok();
+        Ok(())
+    }
+
+    fn emit_check_rc(&mut self, rc: &str) -> Result<(), Diagnostic> {
+        // HOST_OK=0, HOST_E_CONN=10 (refused/reset/timeout)
+        let ok = self.fresh_label("tcp_ok");
+        let bad = self.fresh_label("tcp_err");
+        let conn_l = self.fresh_label("tcp_econn");
+        let other_l = self.fresh_label("tcp_eio");
+        let cmp = self.fresh();
+        writeln!(self.body, "  {cmp} = icmp eq i32 {rc}, 0").ok();
+        writeln!(self.body, "  br i1 {cmp}, label %{ok}, label %{bad}").ok();
+        writeln!(self.body, "{bad}:").ok();
+        let is_conn = self.fresh();
+        writeln!(self.body, "  {is_conn} = icmp eq i32 {rc}, 10").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is_conn}, label %{conn_l}, label %{other_l}"
+        )
+        .ok();
+        writeln!(self.body, "{conn_l}:").ok();
+        self.emit_host_err_exit("ECONN")?;
+        writeln!(self.body, "{other_l}:").ok();
+        self.emit_host_err_exit("EIO")?;
         writeln!(self.body, "{ok}:").ok();
         Ok(())
     }
@@ -332,7 +353,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_tcp (H06.01–H06.02 listen/accept/connect/peer)"
+            "; Draconic LLVM host_tcp (H06.01–H06.03 listen/accept/connect/peer)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
@@ -816,5 +837,20 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_tcp_connect"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tcp_peer_address"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tcp_peer_port"), "{ir}");
+    }
+
+    #[test]
+    fn emit_tcp_connect_maps_econn() {
+        let m = lower_src(
+            r#"
+            let c = tcpConnect("127.0.0.1", 1);
+            closeTcp(c);
+            "#,
+        );
+        assert!(is_host_tcp_module(&m));
+        let ir = emit_host_tcp(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tcp_connect"), "{ir}");
+        assert!(ir.contains("ECONN\\0A") || ir.contains("ECONN\\n") || ir.contains("c\"ECONN"), "{ir}");
+        assert!(ir.contains("icmp eq i32") && ir.contains(", 10"), "{ir}");
     }
 }

@@ -1,0 +1,7 @@
+// H06.03 native: dial closed port → stderr ECONN + exit 1 (refused → E_CONN).
+// Bind ephemeral, close listener, then connect to that port (nothing listening).
+let s = tcpListen(0);
+let p = tcpLocalPort(s);
+closeTcp(s);
+let c = tcpConnect("127.0.0.1", p);
+closeTcp(c);

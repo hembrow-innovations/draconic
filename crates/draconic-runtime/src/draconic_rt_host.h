@@ -304,12 +304,13 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
     int32_t whence,
     int64_t *out_pos);
 
-/* --- TCP listen/accept (H06.01–H06.02) -------------------------------------
+/* --- TCP listen/accept/connect (H06.01–H06.03) -----------------------------
    Bind IPv4 TCP listener. port 0 → OS ephemeral; backlog <= 0 → 128.
    On OK: *out_h is a live listen handle (close with handle_close).
    tcp_local_port: getsockname bound port (1..65535).
    accept: blocking accept → connection handle; peer via peer_address/port.
-   connect: dial IPv4 host:port → connection handle (loopback for accept tests).
+   connect: dial IPv4 dotted host:port → connection handle.
+   Connection refused / reset / unreachable / ETIMEDOUT → DRACONIC_HOST_E_CONN.
    peer_address: malloc'd dotted IPv4 (free with path_free). */
 
 DraconicHostError draconic_rt_host_tcp_listen(
