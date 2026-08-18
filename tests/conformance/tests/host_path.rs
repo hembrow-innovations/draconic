@@ -1,4 +1,4 @@
-//! ROADMAP H03.01–H03.02: pathJoin / pathNormalize / dirname / basename / extname / isAbsolute.
+//! ROADMAP H03.01–H03.03: pathJoin / pathNormalize / dirname / basename / extname / isAbsolute / pathResolve.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -87,4 +87,14 @@ fn path_is_absolute_fixture_present() {
 #[test]
 fn path_is_absolute_runs_js_and_native() {
     assert_fixture_runs("host/path/path_is_absolute");
+}
+
+#[test]
+fn path_resolve_fixture_present() {
+    assert_fixture_present("host/path/path_resolve");
+}
+
+#[test]
+fn path_resolve_runs_js_and_native() {
+    assert_fixture_runs("host/path/path_resolve");
 }

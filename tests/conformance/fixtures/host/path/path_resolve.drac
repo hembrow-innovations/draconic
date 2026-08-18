@@ -1,0 +1,10 @@
+// H03.03: pathResolve — absolute path from segments; relative uses cwd.
+let a = pathResolve("/foo", "bar");
+let b = pathResolve("/foo", "/bar");
+let c = pathResolve("a", "b", "/c", "d");
+let d = pathResolve("/foo/bar", "./baz");
+let e = pathResolve("/foo/bar", "/tmp/file/");
+let f = pathResolve("/var/lib", "../", "file/");
+let g = pathResolve("/foo", "..", "bar");
+let h = pathIsAbsolute(pathResolve("relative"));
+let i = pathIsAbsolute(pathResolve());

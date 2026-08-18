@@ -1,0 +1,6 @@
+id: host/path/path_resolve
+targets: js,native
+js.exit: 0
+js.check: if (a !== "/foo/bar") process.exit(1); if (b !== "/bar") process.exit(2); if (c !== "/c/d") process.exit(3); if (d !== "/foo/bar/baz") process.exit(4); if (e !== "/tmp/file") process.exit(5); if (f !== "/var/file") process.exit(6); if (g !== "/bar") process.exit(7); if (h !== true) process.exit(8); if (i !== true) process.exit(9);
+native.exit: 0
+native.stdout: /foo/bar\n/bar\n/c/d\n/foo/bar/baz\n/tmp/file\n/var/file\n/bar\ntrue\ntrue\n

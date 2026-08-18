@@ -345,6 +345,7 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_path_basename",
         "draconic_rt_host_path_extname",
         "draconic_rt_host_path_is_absolute",
+        "draconic_rt_host_path_resolve",
     ] {
         assert!(
             out.contains(sym),
@@ -1529,6 +1530,31 @@ fn host_path_dirname_basename_extname_is_absolute() {
             if (draconic_rt_host_path_is_absolute("foo") != 0) return 10;
             if (draconic_rt_host_path_is_absolute("\\foo") != 1) return 11;
             if (draconic_rt_host_path_is_absolute("") != 0) return 12;
+
+            {
+                const char *parts1[] = {"/foo", "bar"};
+                s = draconic_rt_host_path_resolve(2, parts1);
+                if (!expect_str(s, "/foo/bar", "resolve abs+rel")) return 13;
+                free(s);
+            }
+            {
+                const char *parts2[] = {"/foo", "/bar"};
+                s = draconic_rt_host_path_resolve(2, parts2);
+                if (!expect_str(s, "/bar", "resolve abs wins")) return 14;
+                free(s);
+            }
+            {
+                const char *parts3[] = {"/foo/bar", "/tmp/file/"};
+                s = draconic_rt_host_path_resolve(2, parts3);
+                if (!expect_str(s, "/tmp/file", "resolve strip trail")) return 15;
+                free(s);
+            }
+            {
+                s = draconic_rt_host_path_resolve(0, NULL);
+                if (!s || s[0] != '/') return 16;
+                if (draconic_rt_host_path_is_absolute(s) != 1) return 17;
+                free(s);
+            }
 
             puts("path-h0302-ok");
             return 0;

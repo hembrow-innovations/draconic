@@ -170,7 +170,7 @@ fn module_uses_stdin_read(module: &Module) -> bool {
     })
 }
 
-/// H03.01–H03.02: free host path APIs.
+/// H03.01–H03.03: free host path APIs.
 fn module_uses_path(module: &Module) -> bool {
     module.body.iter().any(|s| {
         stmt_uses_ident_name(s, "pathJoin")
@@ -179,6 +179,7 @@ fn module_uses_path(module: &Module) -> bool {
             || stmt_uses_ident_name(s, "pathBasename")
             || stmt_uses_ident_name(s, "pathExtname")
             || stmt_uses_ident_name(s, "pathIsAbsolute")
+            || stmt_uses_ident_name(s, "pathResolve")
     })
 }
 

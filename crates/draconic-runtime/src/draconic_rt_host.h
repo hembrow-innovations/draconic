@@ -291,6 +291,11 @@ char *draconic_rt_host_path_extname(const char *path);
 /* 1 if path starts with `/` or `\`; 0 otherwise (NULL/empty → 0). */
 int32_t draconic_rt_host_path_is_absolute(const char *path);
 
+/* Resolve segments right-to-left to an absolute path (Node path.resolve).
+   Relative tails prepend cwd (H16.01). Empty n → cwd. parts may be NULL when n==0.
+   No trailing slash except root "/". */
+char *draconic_rt_host_path_resolve(size_t n, const char *const *parts);
+
 /* --- Filesystem read (H04.01) ----------------------------------------------
    Whole-file read. Missing path → DRACONIC_HOST_E_NOENT. Path NULL/empty →
    DRACONIC_HOST_E_INVAL. Caller frees out buffers with free() (or

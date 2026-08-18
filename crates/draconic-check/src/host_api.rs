@@ -76,6 +76,7 @@ pub struct HostApiEntry {
 /// - `stdinReadLine` / `stdinReadBytes` (H02.03): both — blocking line/bytes from stdin.
 /// - `pathJoin` / `pathNormalize` (H03.01): both — pure path string ops (no I/O).
 /// - `pathDirname` / `pathBasename` / `pathExtname` / `pathIsAbsolute` (H03.02): both.
+/// - `pathResolve` (H03.03): both — absolute path from segments; relative uses cwd.
 /// - `readFileText` / `readFileBytes` (H04.01): both — whole-file read; missing → HostError ENOENT.
 /// - `writeFileText` / `writeFileBytes` / `appendFileText` / `appendFileBytes` (H04.02): both — create/truncate or append.
 /// - `exists` / `stat` (H04.03): both — path exists bool; stat `{size,isFile,isDir,mtime}` (missing → ENOENT).
@@ -274,6 +275,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "pathIsAbsolute",
         availability: HostAvailability::BOTH,
         note: "H03.02 path isAbsolute",
+    },
+    HostApiEntry {
+        name: "pathResolve",
+        availability: HostAvailability::BOTH,
+        note: "H03.03 path resolve (cwd-relative)",
     },
     HostApiEntry {
         name: "readFileText",
@@ -866,6 +872,20 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn registry_lists_path_resolve_both() {
+        let name = "pathResolve";
+        let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+        assert!(entry.availability.js, "{name}");
+        assert!(entry.availability.native, "{name}");
+        assert!(is_available(name, CompileTarget::Js), "{name}");
+        assert!(is_available(name, CompileTarget::Native), "{name}");
+        assert!(
+            unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+            "{name}"
+        );
     }
 
     #[test]

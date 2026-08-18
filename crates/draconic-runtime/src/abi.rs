@@ -957,6 +957,12 @@ pub const HOST_PATH_IS_ABSOLUTE: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr",
 };
+/* H03.03: path.resolve (malloc'd C string; free with path_free). */
+pub const HOST_PATH_RESOLVE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_resolve",
+    ret: "ptr",
+    params: "i64, ptr",
+};
 
 /* H04.01: whole-file read (bytes + UTF-8 text). */
 pub const HOST_FS_READ_FILE: AbiFn = AbiFn {
@@ -1344,6 +1350,7 @@ pub const HOST_PATH_DIRNAME_SYMBOL: &str = HOST_PATH_DIRNAME.symbol;
 pub const HOST_PATH_BASENAME_SYMBOL: &str = HOST_PATH_BASENAME.symbol;
 pub const HOST_PATH_EXTNAME_SYMBOL: &str = HOST_PATH_EXTNAME.symbol;
 pub const HOST_PATH_IS_ABSOLUTE_SYMBOL: &str = HOST_PATH_IS_ABSOLUTE.symbol;
+pub const HOST_PATH_RESOLVE_SYMBOL: &str = HOST_PATH_RESOLVE.symbol;
 pub const HOST_FS_READ_FILE_SYMBOL: &str = HOST_FS_READ_FILE.symbol;
 pub const HOST_FS_READ_TEXT_SYMBOL: &str = HOST_FS_READ_TEXT.symbol;
 pub const HOST_FS_WRITE_FILE_SYMBOL: &str = HOST_FS_WRITE_FILE.symbol;
@@ -1447,6 +1454,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PATH_BASENAME_SYMBOL,
     HOST_PATH_EXTNAME_SYMBOL,
     HOST_PATH_IS_ABSOLUTE_SYMBOL,
+    HOST_PATH_RESOLVE_SYMBOL,
     HOST_FS_READ_FILE_SYMBOL,
     HOST_FS_READ_TEXT_SYMBOL,
     HOST_FS_WRITE_FILE_SYMBOL,
@@ -1548,6 +1556,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PATH_BASENAME,
     HOST_PATH_EXTNAME,
     HOST_PATH_IS_ABSOLUTE,
+    HOST_PATH_RESOLVE,
     HOST_FS_READ_FILE,
     HOST_FS_READ_TEXT,
     HOST_FS_WRITE_FILE,
@@ -2082,10 +2091,11 @@ if (typeof globalThis !== "undefined") {
 "#
 }
 
-/// JS polyfill for path helpers (H03.01–H03.02).
+/// JS polyfill for path helpers (H03.01–H03.03).
 ///
-/// Pure string ops (no I/O). POSIX-style `/` output; input accepts `/` and `\`.
-/// Empty normalize/join → `"."`. Matches Node `path.posix` for `/` inputs.
+/// Pure string ops except `pathResolve` (uses cwd). POSIX-style `/` output;
+/// input accepts `/` and `\`. Empty normalize/join → `"."`. Matches Node
+/// `path.posix` for `/` inputs; `pathResolve` matches Node `path.resolve`.
 pub fn path_js_polyfill() -> &'static str {
     r#"function pathNormalize(path) {
   var src = path == null ? "" : String(path);
@@ -2199,6 +2209,37 @@ function pathIsAbsolute(path) {
   var c = src.charAt(0);
   return c === "/" || c === "\\";
 }
+function pathResolve() {
+  var resolvedPath = "";
+  var resolvedAbsolute = false;
+  for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
+    var path;
+    if (i >= 0) {
+      path = arguments[i] == null ? "" : String(arguments[i]);
+    } else if (typeof process !== "undefined" && process && typeof process.cwd === "function") {
+      path = process.cwd();
+    } else if (typeof cwd === "function") {
+      path = String(cwd());
+    } else {
+      path = "/";
+    }
+    if (path.length === 0) continue;
+    resolvedPath = path + "/" + resolvedPath;
+    resolvedAbsolute = path.charAt(0) === "/" || path.charAt(0) === "\\";
+  }
+  resolvedPath = pathNormalize(resolvedPath);
+  if (resolvedAbsolute) {
+    if (resolvedPath.length > 1 && resolvedPath.charAt(resolvedPath.length - 1) === "/") {
+      resolvedPath = resolvedPath.slice(0, -1);
+    }
+    if (resolvedPath.length === 0) return "/";
+    if (resolvedPath.charAt(0) !== "/" && resolvedPath.charAt(0) !== "\\") {
+      resolvedPath = "/" + resolvedPath;
+    }
+    return resolvedPath.replace(/\\/g, "/");
+  }
+  return resolvedPath.length > 0 ? resolvedPath : ".";
+}
 if (typeof globalThis !== "undefined") {
   globalThis.pathJoin = pathJoin;
   globalThis.pathNormalize = pathNormalize;
@@ -2206,6 +2247,7 @@ if (typeof globalThis !== "undefined") {
   globalThis.pathBasename = pathBasename;
   globalThis.pathExtname = pathExtname;
   globalThis.pathIsAbsolute = pathIsAbsolute;
+  globalThis.pathResolve = pathResolve;
 }
 "#
 }

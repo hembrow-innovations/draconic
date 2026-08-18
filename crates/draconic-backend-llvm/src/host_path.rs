@@ -1,7 +1,7 @@
-//! H03.01–H03.02: native observations for path string helpers.
+//! H03.01–H03.03: native observations for path string helpers.
 //!
-//! Pure string path ops via Runtime ABI. String locals auto-printed via `print_str`;
-//! bool locals (`pathIsAbsolute`) via `print_bool`.
+//! Path ops via Runtime ABI (`pathResolve` uses cwd). String locals auto-printed
+//! via `print_str`; bool locals (`pathIsAbsolute`) via `print_bool`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -10,7 +10,8 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_PATH_BASENAME, HOST_PATH_DIRNAME, HOST_PATH_EXTNAME,
-    HOST_PATH_IS_ABSOLUTE, HOST_PATH_JOIN, HOST_PATH_NORMALIZE, PRINT_BOOL, PRINT_STR,
+    HOST_PATH_IS_ABSOLUTE, HOST_PATH_JOIN, HOST_PATH_NORMALIZE, HOST_PATH_RESOLVE, PRINT_BOOL,
+    PRINT_STR,
 };
 
 pub(crate) fn is_host_path_module(module: &Module) -> bool {
@@ -92,6 +93,13 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_path = true;
             Some(SlotTy::String)
         }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "pathResolve") => {
+            for a in args {
+                classify_string_arg(arg_expr(a)?, ctx)?;
+            }
+            ctx.has_path = true;
+            Some(SlotTy::String)
+        }
         Expr::Call { callee, args, .. } if is_named_callee(callee, "pathDirname") => {
             if args.len() != 1 {
                 return None;
@@ -137,6 +145,21 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             SlotTy::String => Some(()),
             SlotTy::Bool => None,
         },
+        // Nested path helpers that yield strings (e.g. pathIsAbsolute(pathResolve(...))).
+        Expr::Call { callee, args, .. }
+            if is_named_callee(callee, "pathResolve")
+                || is_named_callee(callee, "pathJoin")
+                || is_named_callee(callee, "pathNormalize")
+                || is_named_callee(callee, "pathDirname")
+                || is_named_callee(callee, "pathBasename")
+                || is_named_callee(callee, "pathExtname") =>
+        {
+            for a in args {
+                classify_string_arg(arg_expr(a)?, ctx)?;
+            }
+            ctx.has_path = true;
+            Some(())
+        }
         _ => None,
     }
 }
@@ -251,6 +274,7 @@ impl<'a> Emitter<'a> {
             HOST_PATH_BASENAME,
             HOST_PATH_EXTNAME,
             HOST_PATH_IS_ABSOLUTE,
+            HOST_PATH_RESOLVE,
         ];
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
@@ -393,44 +417,10 @@ impl<'a> Emitter<'a> {
                 Ok(r)
             }
             Expr::Call { callee, args, .. } if is_named_callee(callee, "pathJoin") => {
-                let n = args.len();
-                let r = self.fresh();
-                if n == 0 {
-                    writeln!(
-                        self.body,
-                        "  {}",
-                        HOST_PATH_JOIN.call_to(&r, "i64 0, ptr null")
-                    )
-                    .ok();
-                    return Ok(r);
-                }
-                let arr = self.fresh();
-                writeln!(self.body, "  {arr} = alloca [{n} x ptr], align 8").ok();
-                for (i, a) in args.iter().enumerate() {
-                    let s = self.emit_string_expr(
-                        arg_expr(a).ok_or_else(|| diag("host_path: pathJoin arg"))?,
-                    )?;
-                    let ep = self.fresh();
-                    writeln!(
-                        self.body,
-                        "  {ep} = getelementptr inbounds [{n} x ptr], ptr {arr}, i64 0, i64 {i}"
-                    )
-                    .ok();
-                    writeln!(self.body, "  store ptr {s}, ptr {ep}").ok();
-                }
-                let base = self.fresh();
-                writeln!(
-                    self.body,
-                    "  {base} = getelementptr inbounds [{n} x ptr], ptr {arr}, i64 0, i64 0"
-                )
-                .ok();
-                writeln!(
-                    self.body,
-                    "  {}",
-                    HOST_PATH_JOIN.call_to(&r, &format!("i64 {n}, ptr {base}"))
-                )
-                .ok();
-                Ok(r)
+                self.emit_variadic_path_call(args, "pathJoin", HOST_PATH_JOIN)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "pathResolve") => {
+                self.emit_variadic_path_call(args, "pathResolve", HOST_PATH_RESOLVE)
             }
             Expr::Call { callee, args, .. } if is_named_callee(callee, "pathDirname") => {
                 self.emit_unary_path_call(args, "pathDirname", HOST_PATH_DIRNAME)
@@ -462,6 +452,52 @@ impl<'a> Emitter<'a> {
             self.body,
             "  {}",
             abi.call_to(&r, &format!("ptr {a}"))
+        )
+        .ok();
+        Ok(r)
+    }
+
+    fn emit_variadic_path_call(
+        &mut self,
+        args: &[Arg],
+        name: &str,
+        abi: draconic_runtime::abi::AbiFn,
+    ) -> Result<String, Diagnostic> {
+        let n = args.len();
+        let r = self.fresh();
+        if n == 0 {
+            writeln!(
+                self.body,
+                "  {}",
+                abi.call_to(&r, "i64 0, ptr null")
+            )
+            .ok();
+            return Ok(r);
+        }
+        let arr = self.fresh();
+        writeln!(self.body, "  {arr} = alloca [{n} x ptr], align 8").ok();
+        for (i, a) in args.iter().enumerate() {
+            let s = self.emit_string_expr(
+                arg_expr(a).ok_or_else(|| diag(&format!("host_path: {name} arg")))?,
+            )?;
+            let ep = self.fresh();
+            writeln!(
+                self.body,
+                "  {ep} = getelementptr inbounds [{n} x ptr], ptr {arr}, i64 0, i64 {i}"
+            )
+            .ok();
+            writeln!(self.body, "  store ptr {s}, ptr {ep}").ok();
+        }
+        let base = self.fresh();
+        writeln!(
+            self.body,
+            "  {base} = getelementptr inbounds [{n} x ptr], ptr {arr}, i64 0, i64 0"
+        )
+        .ok();
+        writeln!(
+            self.body,
+            "  {}",
+            abi.call_to(&r, &format!("i64 {n}, ptr {base}"))
         )
         .ok();
         Ok(r)
@@ -533,5 +569,19 @@ mod tests {
         let ir = emit_host_path(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_path_is_absolute"));
         assert!(ir.contains("draconic_rt_print_bool"));
+    }
+
+    #[test]
+    fn path_resolve_emits() {
+        let m = lower_src(
+            r#"
+            let a = pathResolve("/foo", "bar");
+            let b = pathResolve("/foo", "/bar");
+            let c = pathResolve();
+            "#,
+        );
+        assert!(is_host_path_module(&m));
+        let ir = emit_host_path(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_path_resolve"), "{ir}");
     }
 }

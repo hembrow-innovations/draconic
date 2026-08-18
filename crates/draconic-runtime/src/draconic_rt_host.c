@@ -1748,7 +1748,7 @@ DraconicHostError draconic_rt_host_stdin_read_bytes(
     return DRACONIC_HOST_OK;
 }
 
-/* --- Path helpers (H03.01–H03.02): join/normalize/dirname/basename/extname/isAbsolute --- */
+/* --- Path helpers (H03.01–H03.03): join/normalize/dirname/basename/extname/isAbsolute/resolve --- */
 
 static int host_path_is_sep(char c) {
     return c == '/' || c == '\\';
@@ -2112,6 +2112,96 @@ int32_t draconic_rt_host_path_is_absolute(const char *path) {
         return 0;
     }
     return host_path_is_sep(path[0]) ? 1 : 0;
+}
+
+/* Prepend `path + '/' + resolved` into a new malloc'd string. */
+static char *host_path_resolve_prepend(const char *path, char *resolved) {
+    size_t pl = strlen(path);
+    size_t rl = strlen(resolved);
+    char *next = (char *)malloc(pl + 1 + rl + 1);
+    if (!next) {
+        free(resolved);
+        return NULL;
+    }
+    memcpy(next, path, pl);
+    next[pl] = '/';
+    memcpy(next + pl + 1, resolved, rl + 1);
+    free(resolved);
+    return next;
+}
+
+/* H03.03: path.resolve — right-to-left until absolute; else prepend cwd. */
+char *draconic_rt_host_path_resolve(size_t n, const char *const *parts) {
+    char *resolved = NULL;
+    char *cwd_owned = NULL;
+    int resolved_abs = 0;
+    size_t i;
+    char *norm;
+    size_t nlen;
+
+    resolved = host_path_strdup_lit("");
+    if (!resolved) {
+        return NULL;
+    }
+
+    i = n;
+    while (i > 0 && !resolved_abs) {
+        const char *path;
+        i--;
+        path = (parts && parts[i]) ? parts[i] : "";
+        if (path[0] == '\0') {
+            continue;
+        }
+        resolved = host_path_resolve_prepend(path, resolved);
+        if (!resolved) {
+            return NULL;
+        }
+        resolved_abs = host_path_is_sep(path[0]);
+    }
+
+    if (!resolved_abs) {
+        cwd_owned = draconic_rt_host_cwd();
+        if (cwd_owned && cwd_owned[0] != '\0') {
+            resolved = host_path_resolve_prepend(cwd_owned, resolved);
+            if (!resolved) {
+                free(cwd_owned);
+                return NULL;
+            }
+            resolved_abs = host_path_is_sep(cwd_owned[0]);
+        }
+        free(cwd_owned);
+    }
+
+    norm = draconic_rt_host_path_normalize(resolved);
+    free(resolved);
+    if (!norm) {
+        return NULL;
+    }
+
+    if (resolved_abs) {
+        nlen = strlen(norm);
+        if (nlen > 1 && norm[nlen - 1] == '/') {
+            norm[nlen - 1] = '\0';
+        }
+        if (norm[0] == '\0') {
+            free(norm);
+            return host_path_strdup_lit("/");
+        }
+        if (!host_path_is_sep(norm[0])) {
+            size_t m = strlen(norm);
+            char *abs = (char *)malloc(m + 2);
+            if (!abs) {
+                free(norm);
+                return NULL;
+            }
+            abs[0] = '/';
+            memcpy(abs + 1, norm, m + 1);
+            free(norm);
+            return abs;
+        }
+        return norm;
+    }
+    return norm;
 }
 
 /* --- Filesystem read (H04.01) -------------------------------------------- */
