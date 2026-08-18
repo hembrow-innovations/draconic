@@ -631,7 +631,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H07.03 | done | native | Concurrent connections without starving job queue | `tests/conformance` fixtures `host/net/async` |
 | H08 | todo | native | UDP | `tests/conformance/host/net/udp` |
 | H08.01 | done | native | UDP bind; sendto/recvfrom; close | `tests/conformance` fixtures `host/net/udp`, `crates/draconic-runtime` |
-| H08.02 | todo | native | UDP loopback e2e | `tests/conformance` fixtures `host/net/udp` |
+| H08.02 | done | native | UDP loopback e2e | `tests/conformance` fixtures `host/net/udp` |
 | H09 | todo | native | DNS | `tests/conformance/host/net/dns` |
 | H09.01 | todo | native | DNS lookup hostname → addresses; failure errors | `tests/conformance` fixtures `host/net/dns`, `crates/draconic-runtime` |
 | H09.02 | todo | native | Connect-by-name (H09.01 + H06.03) | `tests/conformance` fixtures `host/net/dns` |

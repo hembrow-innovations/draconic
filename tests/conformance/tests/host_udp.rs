@@ -1,4 +1,4 @@
-//! ROADMAP H08.01: UDP bind; sendto/recvfrom; close.
+//! ROADMAP H08.01–H08.02: UDP bind/sendto/recvfrom + loopback e2e.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -61,4 +61,23 @@ fn udp_sendto_recvfrom_runs_native() {
         Some("udp-hi6\n")
     );
     assert_fixture_runs("host/net/udp/udp_sendto_recvfrom");
+}
+
+#[test]
+fn udp_loopback_echo_runs_native() {
+    assert_fixture_present("host/net/udp/udp_loopback_echo");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/udp/udp_loopback_echo")
+        .expect("host/net/udp/udp_loopback_echo");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("echo-me7\n")
+    );
+    assert_fixture_runs("host/net/udp/udp_loopback_echo");
 }

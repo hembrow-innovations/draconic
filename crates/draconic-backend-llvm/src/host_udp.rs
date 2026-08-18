@@ -1,10 +1,11 @@
-//! H08.01: native UDP — bind/sendto/recvfrom/close.
+//! H08.01–H08.02: native UDP — bind/sendto/recvfrom/close + loopback e2e.
 //!
 //! - `udpBind(port)` → socket handle (number); port 0 → ephemeral
 //! - `udpLocalPort(h)` → bound port
-//! - `udpSendTo(h, data, host, port)` → send datagram (string data)
+//! - `udpSendTo(h, data, host, port)` → send datagram (string or DynBytes)
 //! - `udpRecvFrom(h, maxLen)` → DynBytes payload
 //! - `closeUdp(h)` → close via Runtime handle_close
+//! - loopback e2e: two sockets, A→B then B echoes A (H08.02)
 //!
 //! Host errors: non-OK → stderr `EIO` + exit 1.
 
@@ -392,7 +393,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_udp (H08.01 bind/sendto/recvfrom)"
+            "; Draconic LLVM host_udp (H08.01–H08.02 bind/sendto/recvfrom/e2e)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[

@@ -1,0 +1,13 @@
+// H08.02: UDP loopback e2e — bind A/B, A→B, B echoes A, print payload+len, close.
+let a = udpBind(0);
+let pa = udpLocalPort(a);
+let b = udpBind(0);
+let pb = udpLocalPort(b);
+udpSendTo(a, "echo-me", "127.0.0.1", pb);
+let req = udpRecvFrom(b, 64);
+udpSendTo(b, req, "127.0.0.1", pa);
+let res = udpRecvFrom(a, 64);
+stdoutWrite(res);
+let n = res.length;
+closeUdp(a);
+closeUdp(b);
