@@ -1,10 +1,13 @@
-//! H10.03–H10.05: HTTP/1.1 server + client over TCP.
+//! H10.03–H10.05 + H11.03: HTTP/1.1 server + client over TCP or TLS.
 //!
 //! Combines host TCP (listen/accept/connect/read/write/close) with HTTP parse/write
 //! so a Program can serve one or more requests on loopback without closing between:
 //! accept → (`tcpRead` → `httpParseRequest` → `httpWriteResponse` → `tcpWrite`)+ → close.
 //!
 //! H10.05 client path: `httpWriteRequest` + `tcpWrite` + `tcpRead` + `httpParseResponse`.
+//!
+//! H11.03 HTTPS: same shapes with `tlsClientWrap` / `tlsServerWrap` + `tlsRead` /
+//! `tlsWrite` / `closeTls` instead of plain TCP I/O (dual-process loopback).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -15,7 +18,8 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_PARSE_RESPONSE,
     HOST_HTTP_RESPONSE_HEADER, HOST_HTTP_WRITE_REQUEST, HOST_HTTP_WRITE_RESPONSE,
     HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT,
-    HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, PRINT_I64, PRINT_STR,
+    HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, HOST_TLS_CLIENT_WRAP,
+    HOST_TLS_READ, HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE, PRINT_I64, PRINT_STR,
 };
 
 pub(crate) fn is_host_http_server_module(module: &Module) -> bool {
@@ -145,13 +149,15 @@ fn is_client_observation(expr: &Expr, ctx: &ClassifyCtx) -> bool {
 fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::Call { callee, args, .. }
-            if args.len() == 1 && is_named_callee(callee, "closeTcp") =>
+            if args.len() == 1
+                && (is_named_callee(callee, "closeTcp") || is_named_callee(callee, "closeTls")) =>
         {
             ctx.has_tcp = true;
             classify_handle_arg(arg_expr(&args[0])?, ctx)
         }
         Expr::Call { callee, args, .. }
-            if args.len() == 2 && is_named_callee(callee, "tcpWrite") =>
+            if args.len() == 2
+                && (is_named_callee(callee, "tcpWrite") || is_named_callee(callee, "tlsWrite")) =>
         {
             ctx.has_tcp = true;
             classify_handle_arg(arg_expr(&args[0])?, ctx)?;
@@ -241,12 +247,31 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             Some(SlotTy::Number)
         }
         Expr::Call { callee, args, .. }
-            if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
+            if args.len() == 2
+                && (is_named_callee(callee, "tcpRead") || is_named_callee(callee, "tlsRead")) =>
         {
             ctx.has_tcp = true;
             classify_handle_arg(arg_expr(&args[0])?, ctx)?;
             classify_number_arg(arg_expr(&args[1])?, ctx)?;
             Some(SlotTy::DynBytes)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 3 && is_named_callee(callee, "tlsClientWrap") =>
+        {
+            ctx.has_tcp = true;
+            classify_handle_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_number_arg(arg_expr(&args[2])?, ctx)?;
+            Some(SlotTy::Handle)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 3 && is_named_callee(callee, "tlsServerWrap") =>
+        {
+            ctx.has_tcp = true;
+            classify_handle_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_string_arg(arg_expr(&args[2])?, ctx)?;
+            Some(SlotTy::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "httpParseRequest") =>
@@ -634,7 +659,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_http_server (H10.03–H10.05 TCP+HTTP)"
+            "; Draconic LLVM host_http_server (H10.03–H10.05 TCP+HTTP; H11.03 TLS)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
@@ -647,6 +672,10 @@ impl<'a> Emitter<'a> {
             HOST_TCP_CONNECT,
             HOST_TCP_READ,
             HOST_TCP_WRITE,
+            HOST_TLS_CLIENT_WRAP,
+            HOST_TLS_SERVER_WRAP,
+            HOST_TLS_READ,
+            HOST_TLS_WRITE,
             HOST_HANDLE_CLOSE,
             HOST_HTTP_PARSE_REQUEST,
             HOST_HTTP_WRITE_RESPONSE,
@@ -818,13 +847,16 @@ impl<'a> Emitter<'a> {
     fn emit_dynbytes_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
-                if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
+                if args.len() == 2
+                    && (is_named_callee(callee, "tcpRead")
+                        || is_named_callee(callee, "tlsRead")) =>
             {
+                let is_tls = is_named_callee(callee, "tlsRead");
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: tcpRead handle"))?,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: read handle"))?,
                 )?;
                 let max_f = self.emit_number_expr(
-                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: tcpRead maxLen"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: read maxLen"))?,
                 )?;
                 let max_i = self.fresh();
                 writeln!(self.body, "  {max_i} = fptosi double {max_f} to i64").ok();
@@ -837,10 +869,14 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
                 writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
                 writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                let sym = if is_tls {
+                    HOST_TLS_READ.symbol
+                } else {
+                    HOST_TCP_READ.symbol
+                };
                 writeln!(
                     self.body,
-                    "  {rc} = call i32 @{}(i64 {h}, i64 {max_i}, ptr {out_data}, ptr {out_len})",
-                    HOST_TCP_READ.symbol
+                    "  {rc} = call i32 @{sym}(i64 {h}, i64 {max_i}, ptr {out_data}, ptr {out_len})"
                 )
                 .ok();
                 self.emit_check_rc(&rc)?;
@@ -852,7 +888,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  store i64 {n}, ptr {len_slot}").ok();
                 Ok(())
             }
-            _ => Err(diag("host_http_server: expected tcpRead for DynBytes")),
+            _ => Err(diag("host_http_server: expected tcpRead/tlsRead for DynBytes")),
         }
     }
 
@@ -927,10 +963,12 @@ impl<'a> Emitter<'a> {
     fn emit_expr_stmt(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
-                if args.len() == 1 && is_named_callee(callee, "closeTcp") =>
+                if args.len() == 1
+                    && (is_named_callee(callee, "closeTcp")
+                        || is_named_callee(callee, "closeTls")) =>
             {
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: closeTcp"))?,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: close handle"))?,
                 )?;
                 let rc = self.fresh();
                 writeln!(
@@ -942,19 +980,26 @@ impl<'a> Emitter<'a> {
                 self.emit_check_rc(&rc)
             }
             Expr::Call { callee, args, .. }
-                if args.len() == 2 && is_named_callee(callee, "tcpWrite") =>
+                if args.len() == 2
+                    && (is_named_callee(callee, "tcpWrite")
+                        || is_named_callee(callee, "tlsWrite")) =>
             {
+                let is_tls = is_named_callee(callee, "tlsWrite");
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: tcpWrite handle"))?,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: write handle"))?,
                 )?;
                 let (d, n) = self.emit_bytes_ptr_len(
-                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: tcpWrite data"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: write data"))?,
                 )?;
                 let rc = self.fresh();
+                let sym = if is_tls {
+                    HOST_TLS_WRITE.symbol
+                } else {
+                    HOST_TCP_WRITE.symbol
+                };
                 writeln!(
                     self.body,
-                    "  {rc} = call i32 @{}(i64 {h}, ptr {d}, i64 {n})",
-                    HOST_TCP_WRITE.symbol
+                    "  {rc} = call i32 @{sym}(i64 {h}, ptr {d}, i64 {n})"
                 )
                 .ok();
                 self.emit_check_rc(&rc)
@@ -1132,6 +1177,74 @@ impl<'a> Emitter<'a> {
                     self.body,
                     "  {rc} = call i32 @{}(ptr {host}, i32 {port_i}, ptr {out_h})",
                     HOST_TCP_CONNECT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 3 && is_named_callee(callee, "tlsClientWrap") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: tlsClientWrap conn"))?,
+                )?;
+                let name = self.emit_string_expr(
+                    arg_expr(&args[1])
+                        .ok_or_else(|| diag("host_http_server: tlsClientWrap serverName"))?,
+                )?;
+                let insecure_f = self.emit_number_expr(
+                    arg_expr(&args[2])
+                        .ok_or_else(|| diag("host_http_server: tlsClientWrap insecure"))?,
+                )?;
+                let insecure_i = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {insecure_i} = fptosi double {insecure_f} to i32"
+                )
+                .ok();
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {name}, i32 {insecure_i}, ptr {out_h})",
+                    HOST_TLS_CLIENT_WRAP.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 3 && is_named_callee(callee, "tlsServerWrap") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: tlsServerWrap conn"))?,
+                )?;
+                let cert = self.emit_string_expr(
+                    arg_expr(&args[1])
+                        .ok_or_else(|| diag("host_http_server: tlsServerWrap certPath"))?,
+                )?;
+                let key = self.emit_string_expr(
+                    arg_expr(&args[2])
+                        .ok_or_else(|| diag("host_http_server: tlsServerWrap keyPath"))?,
+                )?;
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {cert}, ptr {key}, ptr {out_h})",
+                    HOST_TLS_SERVER_WRAP.symbol
                 )
                 .ok();
                 self.emit_check_rc(&rc)?;
@@ -1422,6 +1535,59 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_http_parse_request"), "{ir}");
         assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tcp_write"), "{ir}");
+    }
+
+    #[test]
+    fn emit_https_client_ir() {
+        // H11.03: HTTP/1.1 client over TLS (insecure).
+        let m = lower_src(
+            r#"
+            let c = tcpConnect("127.0.0.1", 4433);
+            let t = tlsClientWrap(c, "localhost", 1);
+            let reqMsg = httpWriteRequest("GET", "/hello", "Host: localhost\r\n", "");
+            tlsWrite(t, reqMsg);
+            let out = tlsRead(t, 4096);
+            let res = httpParseResponse(out);
+            let v = res.version;
+            let st = res.status;
+            let r = res.reason;
+            let b = res.body;
+            closeTls(t);
+            "#,
+        );
+        assert!(is_host_http_server_module(&m));
+        let ir = emit_host_http_server(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tls_client_wrap"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tls_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tls_read"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_write_request"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_parse_response"), "{ir}");
+    }
+
+    #[test]
+    fn emit_https_server_ir() {
+        // H11.03: HTTP/1.1 server over TLS.
+        let m = lower_src(
+            r#"
+            let s = tcpListen(4433);
+            let a = tcpAccept(s);
+            let t = tlsServerWrap(a, "/tmp/cert.pem", "/tmp/key.pem");
+            let raw = tlsRead(t, 4096);
+            let req = httpParseRequest(raw);
+            let path = req.path;
+            let resp = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", path);
+            tlsWrite(t, resp);
+            closeTls(t);
+            closeTcp(s);
+            "#,
+        );
+        assert!(is_host_http_server_module(&m));
+        let ir = emit_host_http_server(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tls_server_wrap"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tls_read"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tls_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_parse_request"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
     }
 
     #[test]

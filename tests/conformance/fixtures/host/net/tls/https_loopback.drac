@@ -1,0 +1,13 @@
+// H11.03: HTTPS client shape — HTTP/1.1 over TLS (insecure).
+// Standalone run: connect to closed port → ECONN. Dual-process e2e in host_tls.
+let c = tcpConnect("127.0.0.1", 1);
+let t = tlsClientWrap(c, "localhost", 1);
+let reqMsg = httpWriteRequest("GET", "/hello", "Host: localhost\r\n", "");
+tlsWrite(t, reqMsg);
+let out = tlsRead(t, 4096);
+let res = httpParseResponse(out);
+let v = res.version;
+let st = res.status;
+let r = res.reason;
+let b = res.body;
+closeTls(t);

@@ -647,7 +647,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H11 | todo | native | TLS | `tests/conformance/host/net/tls` |
 | H11.01 | done | native | TLS client wrap: trust roots / insecure-test mode — `tlsClientWrap(conn, serverName, insecure)`; system trust roots when insecure=0; skip verify when insecure=1; `tlsRead`/`tlsWrite`/`closeTls` | `tests/conformance` fixtures `host/net/tls`, `crates/draconic-runtime` |
 | H11.02 | done | native | TLS server wrap: cert/key; accept TLS connection — `tlsServerWrap(conn, certPath, keyPath)` PEM; handshake; reuse `tlsRead`/`tlsWrite`/`closeTls` | `tests/conformance` fixtures `host/net/tls`, `crates/draconic-runtime` |
-| H11.03 | todo | native | HTTPS: HTTP/1.1 over TLS loopback | `tests/conformance` fixtures `host/net/tls` |
+| H11.03 | done | native | HTTPS: HTTP/1.1 over TLS loopback | `tests/conformance` fixtures `host/net/tls` |
 | H12 | todo | native | WebSocket | `tests/conformance/host/net/ws` |
 | H12.01 | todo | native | WebSocket handshake (HTTP/1.1 upgrade) server-side | `tests/conformance` fixtures `host/net/ws` |
 | H12.02 | todo | native | WebSocket frames: text/binary; close; ping/pong | `tests/conformance` fixtures `host/net/ws` |

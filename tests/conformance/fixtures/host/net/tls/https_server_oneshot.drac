@@ -1,0 +1,18 @@
+// H11.03: HTTPS server shape — TLS wrap + HTTP parse/respond.
+// Standalone: missing PEM paths → EIO (peer present so accept does not hang).
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let t = tlsServerWrap(
+  a,
+  "/nonexistent/draconic-h1103-cert.pem",
+  "/nonexistent/draconic-h1103-key.pem"
+);
+let raw = tlsRead(t, 4096);
+let req = httpParseRequest(raw);
+let path = req.path;
+let resp = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", path);
+tlsWrite(t, resp);
+closeTls(t);
+closeTcp(c);
+closeTcp(s);
