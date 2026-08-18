@@ -3049,11 +3049,21 @@ impl<'a> Checker<'a> {
                 expr: Expr::Ident(id),
                 ..
             } => {
-                let sym = self.bound.resolve(id.span).ok_or_else(|| {
-                    Diagnostic::new(format!("unresolved identifier `{}`", id.name), id.span)
-                })?;
-                let ty = self.symbol_types[sym.0 as usize];
-                self.record(id.span, ty);
+                // E17.02.09 / E19.05: free IdentifierReference is runtime PutValue
+                // (non-strict creates a global; strict → ReferenceError), not a check error.
+                if let Some(sym) = self.bound.resolve(id.span) {
+                    let ty = self.symbol_types[sym.0 as usize];
+                    self.record(id.span, ty);
+                } else {
+                    if let Some(target) = self.host_target {
+                        if let Some(d) =
+                            host_api::unsupported_diagnostic(&id.name, target, id.span)
+                        {
+                            return Err(d);
+                        }
+                    }
+                    self.record(id.span, Type::Any);
+                }
                 Ok(())
             }
             Stmt::Expression {
@@ -7433,6 +7443,18 @@ mod tests {
         let z_span = find_ident_use(&bound.program, "z");
         assert!(bound.resolve(x_span).is_none());
         assert!(bound.resolve(z_span).is_none());
+    }
+
+    // E17.02.09: for-in/of left free IdentifierReference is runtime PutValue, not check error.
+    #[test]
+    fn check_free_for_in_of_left_ok() {
+        let src = "for (k in {a: 1}) {} for (v of [2]) {}";
+        let bound = bind(parse(src).unwrap()).expect("free for-in/of left binds");
+        check(parse(src).unwrap()).expect("free for-in/of left checks");
+        let k_span = find_ident_use(&bound.program, "k");
+        let v_span = find_ident_use(&bound.program, "v");
+        assert!(bound.resolve(k_span).is_none());
+        assert!(bound.resolve(v_span).is_none());
     }
 
     #[test]

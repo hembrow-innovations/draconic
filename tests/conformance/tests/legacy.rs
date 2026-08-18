@@ -128,3 +128,13 @@ fn future_reserved_idents_fixture_present() {
 fn future_reserved_idents_runs() {
     assert_fixture_runs_declared_targets("es/legacy/future_reserved_idents");
 }
+
+#[test]
+fn for_in_of_implicit_global_fixture_present() {
+    assert_fixture_present("es/legacy/for_in_of_implicit_global");
+}
+
+#[test]
+fn for_in_of_implicit_global_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/for_in_of_implicit_global");
+}

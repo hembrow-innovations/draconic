@@ -1,0 +1,89 @@
+// E17.02.09: implicit globals via for-in / for-of LHS (non-strict PutValue).
+// Unresolvable IdentifierReference as left-hand side creates a global property.
+
+// for-in: bare left → global property named with the key.
+function forInTop() {
+  for (ig_forin_e170209 in { alpha: 1 }) {
+  }
+  return ig_forin_e170209;
+}
+let a = forInTop();
+let b = globalThis.ig_forin_e170209;
+let c = a === "alpha" && a === b;
+
+// for-of: bare left → global property holds the iterated value.
+function forOfTop() {
+  for (ig_forof_e170209 of [7, 8]) {
+  }
+  return ig_forof_e170209;
+}
+let d = forOfTop();
+let e = globalThis.ig_forof_e170209;
+let f = d === 8 && d === e;
+
+// Nested function: still a global, not a local.
+function nestForIn() {
+  function inner() {
+    for (ig_nested_forin_e170209 in { nested: 1 }) {
+    }
+  }
+  inner();
+  return ig_nested_forin_e170209 === "nested"
+    && globalThis.ig_nested_forin_e170209 === "nested";
+}
+let g = nestForIn();
+
+// Function expression body.
+let fe = function () {
+  for (ig_fe_forof_e170209 of ["fe"]) {
+  }
+  return ig_fe_forof_e170209 === "fe"
+    && globalThis.ig_fe_forof_e170209 === "fe";
+};
+let h = fe();
+
+// Multiple keys: last key wins on the same global.
+function multiKeys() {
+  for (ig_multi_e170209 in { a: 1, b: 2, c: 3 }) {
+  }
+  return ig_multi_e170209 === "c"
+    && globalThis.ig_multi_e170209 === "c";
+}
+let i = multiKeys();
+
+// Strict-mode for-in left unresolvable → ReferenceError; no property created.
+function strictForIn() {
+  "use strict";
+  try {
+    for (ig_strict_forin_e170209 in { x: 1 }) {
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError;
+  }
+}
+let j = strictForIn();
+let k = typeof globalThis.ig_strict_forin_e170209 === "undefined";
+
+// Strict-mode for-of left unresolvable → ReferenceError.
+function strictForOf() {
+  "use strict";
+  try {
+    for (ig_strict_forof_e170209 of [1]) {
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError;
+  }
+}
+let l = strictForOf();
+let m = typeof globalThis.ig_strict_forof_e170209 === "undefined";
+
+// Declared left still works (not an implicit global).
+function declaredLeft() {
+  let local;
+  for (local in { kept: 1 }) {
+  }
+  return local === "kept" && typeof globalThis.local === "undefined";
+}
+let n = declaredLeft();
