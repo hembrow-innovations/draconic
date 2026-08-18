@@ -304,14 +304,17 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
     int32_t whence,
     int64_t *out_pos);
 
-/* --- TCP listen/accept/connect (H06.01–H06.03) -----------------------------
+/* --- TCP listen/accept/connect/io (H06.01–H06.04) --------------------------
    Bind IPv4 TCP listener. port 0 → OS ephemeral; backlog <= 0 → 128.
    On OK: *out_h is a live listen handle (close with handle_close).
    tcp_local_port: getsockname bound port (1..65535).
    accept: blocking accept → connection handle; peer via peer_address/port.
    connect: dial IPv4 dotted host:port → connection handle.
    Connection refused / reset / unreachable / ETIMEDOUT → DRACONIC_HOST_E_CONN.
-   peer_address: malloc'd dotted IPv4 (free with path_free). */
+   peer_address: malloc'd dotted IPv4 (free with path_free).
+   tcp_read: up to max_len bytes (partial OK); peer close → empty (len 0).
+   tcp_write: write all bytes (loop); empty len OK.
+   tcp_shutdown: how 0=RD, 1=WR, 2=RDWR (POSIX SHUT_*); default use 1=WR. */
 
 DraconicHostError draconic_rt_host_tcp_listen(
     int32_t port,
@@ -333,6 +336,18 @@ DraconicHostError draconic_rt_host_tcp_peer_port(
 DraconicHostError draconic_rt_host_tcp_peer_address(
     DraconicHostHandle conn_h,
     char **out_addr);
+DraconicHostError draconic_rt_host_tcp_read(
+    DraconicHostHandle conn_h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_tcp_write(
+    DraconicHostHandle conn_h,
+    const uint8_t *data,
+    size_t len);
+DraconicHostError draconic_rt_host_tcp_shutdown(
+    DraconicHostHandle conn_h,
+    int32_t how);
 
 #ifdef __cplusplus
 }

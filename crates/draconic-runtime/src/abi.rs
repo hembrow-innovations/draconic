@@ -945,7 +945,7 @@ pub const HOST_FS_HANDLE_SEEK: AbiFn = AbiFn {
     ret: "i32",
     params: "i64, i64, i32, ptr",
 };
-/* H06.01–H06.02: TCP listen/accept/connect/peer (close via HOST_HANDLE_CLOSE). */
+/* H06.01–H06.04: TCP listen/accept/connect/peer/read/write/shutdown. */
 pub const HOST_TCP_LISTEN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_listen",
     ret: "i32",
@@ -975,6 +975,21 @@ pub const HOST_TCP_PEER_ADDRESS: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_peer_address",
     ret: "i32",
     params: "i64, ptr",
+};
+pub const HOST_TCP_READ: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_read",
+    ret: "i32",
+    params: "i64, i64, ptr, ptr",
+};
+pub const HOST_TCP_WRITE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_write",
+    ret: "i32",
+    params: "i64, ptr, i64",
+};
+pub const HOST_TCP_SHUTDOWN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_shutdown",
+    ret: "i32",
+    params: "i64, i32",
 };
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
@@ -1035,8 +1050,11 @@ pub const HOST_TCP_ACCEPT_SYMBOL: &str = HOST_TCP_ACCEPT.symbol;
 pub const HOST_TCP_CONNECT_SYMBOL: &str = HOST_TCP_CONNECT.symbol;
 pub const HOST_TCP_PEER_PORT_SYMBOL: &str = HOST_TCP_PEER_PORT.symbol;
 pub const HOST_TCP_PEER_ADDRESS_SYMBOL: &str = HOST_TCP_PEER_ADDRESS.symbol;
+pub const HOST_TCP_READ_SYMBOL: &str = HOST_TCP_READ.symbol;
+pub const HOST_TCP_WRITE_SYMBOL: &str = HOST_TCP_WRITE.symbol;
+pub const HOST_TCP_SHUTDOWN_SYMBOL: &str = HOST_TCP_SHUTDOWN.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.02).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.04).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -1096,6 +1114,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_TCP_CONNECT_SYMBOL,
     HOST_TCP_PEER_PORT_SYMBOL,
     HOST_TCP_PEER_ADDRESS_SYMBOL,
+    HOST_TCP_READ_SYMBOL,
+    HOST_TCP_WRITE_SYMBOL,
+    HOST_TCP_SHUTDOWN_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1158,6 +1179,9 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_TCP_CONNECT,
     HOST_TCP_PEER_PORT,
     HOST_TCP_PEER_ADDRESS,
+    HOST_TCP_READ,
+    HOST_TCP_WRITE,
+    HOST_TCP_SHUTDOWN,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

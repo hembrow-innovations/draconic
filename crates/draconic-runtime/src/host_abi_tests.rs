@@ -113,6 +113,18 @@ fn host_abi_fn_shapes() {
         HOST_TCP_PEER_ADDRESS.declare(),
         "declare i32 @draconic_rt_host_tcp_peer_address(i64, ptr)"
     );
+    assert_eq!(
+        HOST_TCP_READ.declare(),
+        "declare i32 @draconic_rt_host_tcp_read(i64, i64, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_TCP_WRITE.declare(),
+        "declare i32 @draconic_rt_host_tcp_write(i64, ptr, i64)"
+    );
+    assert_eq!(
+        HOST_TCP_SHUTDOWN.declare(),
+        "declare i32 @draconic_rt_host_tcp_shutdown(i64, i32)"
+    );
 }
 
 #[test]
@@ -1734,4 +1746,114 @@ fn host_tcp_connect_dial_and_refused() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0603-ok\n");
+}
+
+#[test]
+fn host_tcp_read_write_partial_shutdown() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_tcp_h0604.c");
+    let bin = dir.join("rt_host_tcp_h0604");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <stdlib.h>
+        #include <string.h>
+
+        int main(void) {
+            DraconicHostError err;
+            DraconicHostHandle listen_h = DRACONIC_HOST_HANDLE_INVALID;
+            DraconicHostHandle client_h = DRACONIC_HOST_HANDLE_INVALID;
+            DraconicHostHandle accept_h = DRACONIC_HOST_HANDLE_INVALID;
+            int32_t port = 0;
+            uint8_t *data = NULL;
+            size_t len = 0;
+
+            err = draconic_rt_host_tcp_listen(0, 8, &listen_h);
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_tcp_local_port(listen_h, &port);
+            if (err != DRACONIC_HOST_OK) return 2;
+            err = draconic_rt_host_tcp_connect("127.0.0.1", port, &client_h);
+            if (err != DRACONIC_HOST_OK) return 3;
+            err = draconic_rt_host_tcp_accept(listen_h, &accept_h);
+            if (err != DRACONIC_HOST_OK) return 4;
+
+            err = draconic_rt_host_tcp_write(client_h, (const uint8_t *)"hello-tcp", 9);
+            if (err != DRACONIC_HOST_OK) return 5;
+            err = draconic_rt_host_tcp_read(accept_h, 64, &data, &len);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (len != 9 || !data || memcmp(data, "hello-tcp", 9) != 0) return 7;
+            free(data);
+            data = NULL;
+
+            /* Partial read: write 6, read max 3 twice. */
+            err = draconic_rt_host_tcp_write(client_h, (const uint8_t *)"abcdef", 6);
+            if (err != DRACONIC_HOST_OK) return 8;
+            err = draconic_rt_host_tcp_read(accept_h, 3, &data, &len);
+            if (err != DRACONIC_HOST_OK) return 9;
+            if (len != 3 || !data || memcmp(data, "abc", 3) != 0) return 10;
+            free(data);
+            data = NULL;
+            err = draconic_rt_host_tcp_read(accept_h, 64, &data, &len);
+            if (err != DRACONIC_HOST_OK) return 11;
+            if (len != 3 || !data || memcmp(data, "def", 3) != 0) return 12;
+            free(data);
+            data = NULL;
+
+            /* Shutdown write → peer read returns empty EOF. */
+            err = draconic_rt_host_tcp_shutdown(client_h, 1);
+            if (err != DRACONIC_HOST_OK) return 13;
+            err = draconic_rt_host_tcp_read(accept_h, 64, &data, &len);
+            if (err != DRACONIC_HOST_OK) return 14;
+            if (len != 0 || data != NULL) return 15;
+
+            err = draconic_rt_host_tcp_write(DRACONIC_HOST_HANDLE_INVALID, (const uint8_t *)"x", 1);
+            if (err != DRACONIC_HOST_E_BADF) return 16;
+            err = draconic_rt_host_tcp_read(DRACONIC_HOST_HANDLE_INVALID, 8, &data, &len);
+            if (err != DRACONIC_HOST_E_BADF) return 17;
+            err = draconic_rt_host_tcp_shutdown(client_h, 99);
+            if (err != DRACONIC_HOST_E_INVAL) return 18;
+
+            err = draconic_rt_host_handle_close(accept_h);
+            if (err != DRACONIC_HOST_OK) return 19;
+            err = draconic_rt_host_handle_close(client_h);
+            if (err != DRACONIC_HOST_OK) return 20;
+            err = draconic_rt_host_handle_close(listen_h);
+            if (err != DRACONIC_HOST_OK) return 21;
+
+            puts("tcp-h0604-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for tcp H06.04 smoke");
+
+    let output = Command::new(&bin).output().expect("run tcp h0604");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "tcp H06.04 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0604-ok\n");
 }

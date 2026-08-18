@@ -1,0 +1,4 @@
+id: host/net/tcp/tcp_read_write
+targets: native
+native.exit: 0
+native.stdout: hello-tcpabcdef9\n3\n3\n0\n

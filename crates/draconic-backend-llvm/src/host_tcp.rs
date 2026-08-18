@@ -1,4 +1,4 @@
-//! H06.01–H06.03: native TCP — listen/accept/connect/peer + close.
+//! H06.01–H06.04: native TCP — listen/accept/connect/peer + read/write/shutdown.
 //!
 //! - `tcpListen(port)` / `tcpListen(port, backlog)` → listen handle (number)
 //! - `tcpLocalPort(h)` → bound port (ephemeral when listen port was 0)
@@ -6,12 +6,13 @@
 //! - `tcpConnect(host, port)` → connection handle (IPv4 dotted host)
 //! - `tcpPeerAddress(conn)` → peer IPv4 string
 //! - `tcpPeerPort(conn)` → peer port number
+//! - `tcpWrite(conn, data)` → write string/bytes (all bytes)
+//! - `tcpRead(conn, maxLen)` → DynBytes; `.length` + `stdoutWrite`
+//! - `tcpShutdown(conn)` / `tcpShutdown(conn, how)` — how 0=RD 1=WR 2=RDWR (default WR)
 //! - `closeTcp(h)` → close listen/conn handle via Runtime handle_close
 //!
 //! Host errors: `E_CONN` (refused/reset/timeout) → stderr `ECONN` + exit 1;
 //! other non-OK → `EIO` + exit 1.
-//!
-//! Prints string (`typeof` / peer address) and bool locals used in range checks.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -21,8 +22,9 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE,
-    HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_PEER_ADDRESS,
-    HOST_TCP_PEER_PORT, PRINT_BOOL, PRINT_STR,
+    HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT,
+    HOST_TCP_PEER_ADDRESS, HOST_TCP_PEER_PORT, HOST_TCP_READ, HOST_TCP_SHUTDOWN, HOST_TCP_WRITE,
+    PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_tcp_module(module: &Module) -> bool {
@@ -42,6 +44,7 @@ enum SlotTy {
     Number,
     Bool,
     String,
+    DynBytes,
 }
 
 struct ModuleInfo {
@@ -75,6 +78,30 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     })
 }
 
+fn is_dynbytes_length(expr: &Expr, ctx: &ClassifyCtx) -> bool {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            computed: false,
+            ..
+        } => {
+            let name = match string_lit(property) {
+                Some(n) => n,
+                None => return false,
+            };
+            if name != "length" {
+                return false;
+            }
+            match object.as_ref() {
+                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&SlotTy::DynBytes),
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
 fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
     match stmt {
         Stmt::Declare { local, init, .. } => {
@@ -82,7 +109,11 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            if matches!(ty, SlotTy::Bool | SlotTy::String) {
+            // Auto-print bools/strings always; numbers only from DynBytes.length
+            // (ports etc. must not pollute native.stdout).
+            if matches!(ty, SlotTy::Bool | SlotTy::String)
+                || (ty == SlotTy::Number && is_dynbytes_length(init, ctx))
+            {
                 ctx.print_locals.push((*local, ty));
             }
             Some(())
@@ -102,6 +133,46 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.has_tcp = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
             Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "tcpWrite") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            let dt = classify_expr(arg_expr(&args[1])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            if !matches!(dt, SlotTy::String | SlotTy::DynBytes) {
+                return None;
+            }
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpShutdown") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            if args.len() == 2 {
+                let ht2 = classify_expr(arg_expr(&args[1])?, ctx)?;
+                if ht2 != SlotTy::Number {
+                    return None;
+                }
+            }
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "stdoutWrite") =>
+        {
+            let t = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if matches!(t, SlotTy::String | SlotTy::DynBytes) {
+                Some(())
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -170,6 +241,30 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
             Some(SlotTy::Number)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            let mt = classify_expr(arg_expr(&args[1])?, ctx)?;
+            if ht != SlotTy::Handle || mt != SlotTy::Number {
+                return None;
+            }
+            Some(SlotTy::DynBytes)
+        }
+        Expr::Member {
+            object,
+            property,
+            computed: false,
+            ..
+        } => {
+            let ot = classify_expr(object, ctx)?;
+            let name = string_lit(property)?;
+            match (ot, name.as_str()) {
+                (SlotTy::DynBytes, "length") => Some(SlotTy::Number),
+                _ => None,
+            }
+        }
         Expr::Binary {
             op: BinaryOp::Gt
                 | BinaryOp::GtEq
@@ -204,6 +299,13 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         Expr::Number { .. } => Some(SlotTy::Number),
         Expr::String { .. } => Some(SlotTy::String),
+        _ => None,
+    }
+}
+
+fn string_lit(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::String { value, .. } => Some(value.to_string_lossy().to_string()),
         _ => None,
     }
 }
@@ -245,6 +347,7 @@ struct Emitter<'a> {
     next_label: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
+    slot_of: HashMap<LocalId, SlotTy>,
 }
 
 impl<'a> Emitter<'a> {
@@ -252,6 +355,10 @@ impl<'a> Emitter<'a> {
         let mut local_name = HashMap::new();
         for Local { id, name, .. } in &module.locals {
             local_name.insert(*id, name.clone());
+        }
+        let mut slot_of = HashMap::new();
+        for (id, ty) in &info.slots {
+            slot_of.insert(*id, *ty);
         }
         Self {
             module,
@@ -262,6 +369,7 @@ impl<'a> Emitter<'a> {
             next_label: 0,
             str_globals: Vec::new(),
             local_name,
+            slot_of,
         }
     }
 
@@ -287,6 +395,14 @@ impl<'a> Emitter<'a> {
             .get(&id)
             .ok_or_else(|| diag("host_tcp: unknown local"))?;
         Ok(format!("%slot_{name}"))
+    }
+
+    fn slot_len_ptr(&self, id: LocalId) -> Result<String, Diagnostic> {
+        let name = self
+            .local_name
+            .get(&id)
+            .ok_or_else(|| diag("host_tcp: unknown local"))?;
+        Ok(format!("%slot_{name}_len"))
     }
 
     fn intern_cstr(&mut self, s: &str) -> String {
@@ -326,7 +442,6 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_check_rc(&mut self, rc: &str) -> Result<(), Diagnostic> {
-        // HOST_OK=0, HOST_E_CONN=10 (refused/reset/timeout)
         let ok = self.fresh_label("tcp_ok");
         let bad = self.fresh_label("tcp_err");
         let conn_l = self.fresh_label("tcp_econn");
@@ -353,12 +468,13 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_tcp (H06.01–H06.03 listen/accept/connect/peer)"
+            "; Draconic LLVM host_tcp (H06.01–H06.04 listen/accept/connect/io)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
             GC_INIT,
             PRINT_STR,
+            PRINT_F64,
             PRINT_BOOL,
             HOST_TCP_LISTEN,
             HOST_TCP_LOCAL_PORT,
@@ -366,7 +482,11 @@ impl<'a> Emitter<'a> {
             HOST_TCP_CONNECT,
             HOST_TCP_PEER_PORT,
             HOST_TCP_PEER_ADDRESS,
+            HOST_TCP_READ,
+            HOST_TCP_WRITE,
+            HOST_TCP_SHUTDOWN,
             HOST_HANDLE_CLOSE,
+            HOST_STDOUT_WRITE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
         ]));
@@ -374,12 +494,24 @@ impl<'a> Emitter<'a> {
 
         for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
-            let llvm_ty = match ty {
-                SlotTy::Handle | SlotTy::Number => "double",
-                SlotTy::Bool => "i8",
-                SlotTy::String => "ptr",
-            };
-            writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
+            match ty {
+                SlotTy::Handle | SlotTy::Number => {
+                    writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
+                }
+                SlotTy::Bool => {
+                    writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
+                }
+                SlotTy::String => {
+                    writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+                }
+                SlotTy::DynBytes => {
+                    let lp = self.slot_len_ptr(*id)?;
+                    writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+                    writeln!(self.body, "  {lp} = alloca i64, align 8").ok();
+                    writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
+                    writeln!(self.body, "  store i64 0, ptr {lp}").ok();
+                }
+            }
         }
 
         for stmt in &self.module.body {
@@ -399,7 +531,12 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Handle | SlotTy::Number => {}
+                SlotTy::Number => {
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+                }
+                SlotTy::Handle | SlotTy::DynBytes => {}
             }
         }
 
@@ -434,11 +571,9 @@ impl<'a> Emitter<'a> {
                     .ok_or_else(|| diag("host_tcp: declare needs init"))?;
                 let ptr = self.slot_ptr(*local)?;
                 let ty = self
-                    .info
-                    .slots
-                    .iter()
-                    .find(|(id, _)| id == local)
-                    .map(|(_, t)| *t)
+                    .slot_of
+                    .get(local)
+                    .copied()
                     .ok_or_else(|| diag("host_tcp: unknown slot"))?;
                 match ty {
                     SlotTy::Handle => {
@@ -457,11 +592,53 @@ impl<'a> Emitter<'a> {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
                 }
                 Ok(())
             }
             Stmt::Expr { expr, .. } => self.emit_expr_stmt(expr),
             _ => Err(diag("host_tcp: unsupported stmt")),
+        }
+    }
+
+    fn emit_dynbytes_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpRead handle"))?,
+                )?;
+                let max_f = self.emit_number_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tcpRead maxLen"))?,
+                )?;
+                let max_i = self.fresh();
+                writeln!(self.body, "  {max_i} = fptosi double {max_f} to i64").ok();
+                let data_slot = self.slot_ptr(local)?;
+                let len_slot = self.slot_len_ptr(local)?;
+                let out_data = self.fresh();
+                let out_len = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_data} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
+                writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, i64 {max_i}, ptr {out_data}, ptr {out_len})",
+                    HOST_TCP_READ.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let d = self.fresh();
+                let n = self.fresh();
+                writeln!(self.body, "  {d} = load ptr, ptr {out_data}").ok();
+                writeln!(self.body, "  {n} = load i64, ptr {out_len}").ok();
+                writeln!(self.body, "  store ptr {d}, ptr {data_slot}").ok();
+                writeln!(self.body, "  store i64 {n}, ptr {len_slot}").ok();
+                Ok(())
+            }
+            _ => Err(diag("host_tcp: expected tcpRead for DynBytes")),
         }
     }
 
@@ -482,7 +659,176 @@ impl<'a> Emitter<'a> {
                 .ok();
                 self.emit_check_rc(&rc)
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "tcpWrite") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpWrite handle"))?,
+                )?;
+                let (d, n) = self.emit_bytes_ptr_len(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tcpWrite data"))?,
+                )?;
+                let rc = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {d}, i64 {n})",
+                    HOST_TCP_WRITE.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)
+            }
+            Expr::Call { callee, args, .. }
+                if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpShutdown") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpShutdown handle"))?,
+                )?;
+                let how_i = if args.len() == 2 {
+                    let hf = self.emit_number_expr(
+                        arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tcpShutdown how"))?,
+                    )?;
+                    let hi = self.fresh();
+                    writeln!(self.body, "  {hi} = fptosi double {hf} to i32").ok();
+                    hi
+                } else {
+                    "1".to_string()
+                };
+                let rc = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, i32 {how_i})",
+                    HOST_TCP_SHUTDOWN.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "stdoutWrite") =>
+            {
+                self.emit_stdout_write(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: stdoutWrite arg"))?,
+                )
+            }
             _ => Err(diag("host_tcp: unsupported expr stmt")),
+        }
+    }
+
+    fn emit_bytes_ptr_len(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
+        match expr {
+            Expr::String { value, .. } => {
+                let s = value.to_string_lossy();
+                let p = self.emit_cstr_ptr(&s);
+                Ok((p, s.len().to_string()))
+            }
+            Expr::Local { id, .. } => match self.slot_of.get(id) {
+                Some(SlotTy::DynBytes) => {
+                    let dp = self.slot_ptr(*id)?;
+                    let lp = self.slot_len_ptr(*id)?;
+                    let d = self.fresh();
+                    let n = self.fresh();
+                    writeln!(self.body, "  {d} = load ptr, ptr {dp}").ok();
+                    writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
+                    Ok((d, n))
+                }
+                Some(SlotTy::String) => {
+                    let sp = self.slot_ptr(*id)?;
+                    let s = self.fresh();
+                    writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
+                    let n = self.emit_cstr_len(&s)?;
+                    Ok((s, n))
+                }
+                _ => Err(diag("host_tcp: bytes arg unsupported")),
+            },
+            _ => Err(diag("host_tcp: bytes arg unsupported")),
+        }
+    }
+
+    fn emit_cstr_len(&mut self, s: &str) -> Result<String, Diagnostic> {
+        let i = self.fresh();
+        let loop_l = format!("wlen_loop_{}", self.next_tmp);
+        let done_l = format!("wlen_done_{}", self.next_tmp);
+        let inc_l = format!("wlen_inc_{}", self.next_tmp);
+        self.next_tmp += 1;
+        writeln!(self.body, "  {i} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 0, ptr {i}").ok();
+        writeln!(self.body, "  br label %{loop_l}").ok();
+        writeln!(self.body, "{loop_l}:").ok();
+        let iv = self.fresh();
+        writeln!(self.body, "  {iv} = load i64, ptr {i}").ok();
+        let cp = self.fresh();
+        writeln!(
+            self.body,
+            "  {cp} = getelementptr inbounds i8, ptr {s}, i64 {iv}"
+        )
+        .ok();
+        let ch = self.fresh();
+        writeln!(self.body, "  {ch} = load i8, ptr {cp}").ok();
+        let is0 = self.fresh();
+        writeln!(self.body, "  {is0} = icmp eq i8 {ch}, 0").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is0}, label %{done_l}, label %{inc_l}"
+        )
+        .ok();
+        writeln!(self.body, "{inc_l}:").ok();
+        let iv2 = self.fresh();
+        let iv3 = self.fresh();
+        writeln!(self.body, "  {iv2} = load i64, ptr {i}").ok();
+        writeln!(self.body, "  {iv3} = add i64 {iv2}, 1").ok();
+        writeln!(self.body, "  store i64 {iv3}, ptr {i}").ok();
+        writeln!(self.body, "  br label %{loop_l}").ok();
+        writeln!(self.body, "{done_l}:").ok();
+        let n = self.fresh();
+        writeln!(self.body, "  {n} = load i64, ptr {i}").ok();
+        Ok(n)
+    }
+
+    fn emit_stdout_write(&mut self, arg: &Expr) -> Result<(), Diagnostic> {
+        match arg {
+            Expr::String { value, .. } => {
+                let s = value.to_string_lossy();
+                let p = self.emit_cstr_ptr(&s);
+                let n = s.len();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    HOST_STDOUT_WRITE.call(&format!("ptr {p}, i64 {n}"))
+                )
+                .ok();
+                Ok(())
+            }
+            Expr::Local { id, .. } => match self.slot_of.get(id) {
+                Some(SlotTy::DynBytes) => {
+                    let dp = self.slot_ptr(*id)?;
+                    let lp = self.slot_len_ptr(*id)?;
+                    let d = self.fresh();
+                    let n = self.fresh();
+                    writeln!(self.body, "  {d} = load ptr, ptr {dp}").ok();
+                    writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        HOST_STDOUT_WRITE.call(&format!("ptr {d}, i64 {n}"))
+                    )
+                    .ok();
+                    Ok(())
+                }
+                Some(SlotTy::String) => {
+                    let sp = self.slot_ptr(*id)?;
+                    let s = self.fresh();
+                    writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
+                    let n = self.emit_cstr_len(&s)?;
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        HOST_STDOUT_WRITE.call(&format!("ptr {s}, i64 {n}"))
+                    )
+                    .ok();
+                    Ok(())
+                }
+                _ => Err(diag("host_tcp: stdoutWrite unsupported arg")),
+            },
+            _ => Err(diag("host_tcp: stdoutWrite unsupported arg")),
         }
     }
 
@@ -650,6 +996,27 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {fv} = sitofp i32 {iv} to double").ok();
                 Ok(fv)
             }
+            Expr::Member {
+                object,
+                property,
+                computed: false,
+                ..
+            } => {
+                let name = string_lit(property).ok_or_else(|| diag("host_tcp: bad prop"))?;
+                match object.as_ref() {
+                    Expr::Local { id, .. }
+                        if name == "length" && self.slot_of.get(id) == Some(&SlotTy::DynBytes) =>
+                    {
+                        let lp = self.slot_len_ptr(*id)?;
+                        let n = self.fresh();
+                        let f = self.fresh();
+                        writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
+                        writeln!(self.body, "  {f} = sitofp i64 {n} to double").ok();
+                        Ok(f)
+                    }
+                    _ => Err(diag("host_tcp: unsupported member number")),
+                }
+            }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
@@ -747,41 +1114,17 @@ impl<'a> Emitter<'a> {
 
     fn emit_typeof(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
         match arg {
-            Expr::Call { callee, args, .. }
-                if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpListen") =>
-            {
-                Ok(self.emit_cstr_ptr("number"))
-            }
-            Expr::Call { callee, args, .. }
-                if args.len() == 1
-                    && (is_named_callee(callee, "tcpLocalPort")
-                        || is_named_callee(callee, "tcpPeerPort")
-                        || is_named_callee(callee, "tcpAccept")) =>
-            {
-                Ok(self.emit_cstr_ptr("number"))
-            }
-            Expr::Call { callee, args, .. }
-                if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
-            {
-                Ok(self.emit_cstr_ptr("number"))
-            }
-            Expr::Call { callee, args, .. }
-                if args.len() == 1 && is_named_callee(callee, "tcpPeerAddress") =>
-            {
-                Ok(self.emit_cstr_ptr("string"))
-            }
             Expr::Local { id, .. } => {
                 let ty = self
-                    .info
-                    .slots
-                    .iter()
-                    .find(|(i, _)| i == id)
-                    .map(|(_, t)| *t)
+                    .slot_of
+                    .get(id)
+                    .copied()
                     .ok_or_else(|| diag("host_tcp: typeof unknown local"))?;
                 let s = match ty {
                     SlotTy::Handle | SlotTy::Number => "number",
                     SlotTy::Bool => "boolean",
                     SlotTy::String => "string",
+                    SlotTy::DynBytes => "object",
                 };
                 Ok(self.emit_cstr_ptr(s))
             }
@@ -850,7 +1193,38 @@ mod tests {
         assert!(is_host_tcp_module(&m));
         let ir = emit_host_tcp(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_tcp_connect"), "{ir}");
-        assert!(ir.contains("ECONN\\0A") || ir.contains("ECONN\\n") || ir.contains("c\"ECONN"), "{ir}");
+        assert!(
+            ir.contains("ECONN\\0A") || ir.contains("ECONN\\n") || ir.contains("c\"ECONN"),
+            "{ir}"
+        );
         assert!(ir.contains("icmp eq i32") && ir.contains(", 10"), "{ir}");
+    }
+
+    #[test]
+    fn emit_tcp_read_write_shutdown() {
+        let m = lower_src(
+            r#"
+            let s = tcpListen(0);
+            let p = tcpLocalPort(s);
+            let c = tcpConnect("127.0.0.1", p);
+            let a = tcpAccept(s);
+            tcpWrite(c, "hello-tcp");
+            let u = tcpRead(a, 64);
+            let n = u.length;
+            stdoutWrite(u);
+            tcpShutdown(c);
+            let eof = tcpRead(a, 64);
+            let en = eof.length;
+            closeTcp(a);
+            closeTcp(c);
+            closeTcp(s);
+            "#,
+        );
+        assert!(is_host_tcp_module(&m));
+        let ir = emit_host_tcp(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tcp_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_read"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_shutdown"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
     }
 }

@@ -1829,7 +1829,7 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
     return DRACONIC_HOST_OK;
 }
 
-/* --- TCP listen/accept/connect/peer (H06.01–H06.03) ---------------------- */
+/* --- TCP listen/accept/connect/peer/io (H06.01–H06.04) ------------------- */
 
 #if !defined(_WIN32)
 static DraconicHostError host_tcp_errno_map(void) {
@@ -2124,6 +2124,132 @@ DraconicHostError draconic_rt_host_tcp_peer_address(
     }
     memcpy(dup, buf, strlen(buf) + 1);
     *out_addr = dup;
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_read(
+    DraconicHostHandle conn_h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+#if defined(_WIN32)
+    (void)conn_h;
+    (void)max_len;
+    (void)out_data;
+    (void)out_len;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    uint8_t *buf = NULL;
+    size_t got = 0;
+    ssize_t n;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    fd = host_handle_tcp_conn_fd(conn_h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (max_len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    buf = (uint8_t *)malloc(max_len);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    n = read(fd, buf, max_len);
+    if (n < 0) {
+        free(buf);
+        return host_tcp_errno_map();
+    }
+    got = (size_t)n;
+    if (got == 0) {
+        free(buf);
+        *out_data = NULL;
+        *out_len = 0;
+        return DRACONIC_HOST_OK;
+    }
+    if (got < max_len) {
+        uint8_t *shrunk = (uint8_t *)realloc(buf, got);
+        if (shrunk) {
+            buf = shrunk;
+        }
+    }
+    *out_data = buf;
+    *out_len = got;
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_write(
+    DraconicHostHandle conn_h,
+    const uint8_t *data,
+    size_t len) {
+#if defined(_WIN32)
+    (void)conn_h;
+    (void)data;
+    (void)len;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    size_t off = 0;
+
+    fd = host_handle_tcp_conn_fd(conn_h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (!data) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    while (off < len) {
+        ssize_t n = write(fd, data + off, len - off);
+        if (n < 0) {
+            return host_tcp_errno_map();
+        }
+        if (n == 0) {
+            return DRACONIC_HOST_E_IO;
+        }
+        off += (size_t)n;
+    }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_shutdown(
+    DraconicHostHandle conn_h,
+    int32_t how) {
+#if defined(_WIN32)
+    (void)conn_h;
+    (void)how;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    int sh;
+
+    fd = host_handle_tcp_conn_fd(conn_h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    /* Map 0/1/2 → SHUT_RD/SHUT_WR/SHUT_RDWR. */
+    if (how == 0) {
+        sh = SHUT_RD;
+    } else if (how == 1) {
+        sh = SHUT_WR;
+    } else if (how == 2) {
+        sh = SHUT_RDWR;
+    } else {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (shutdown(fd, sh) < 0) {
+        return host_tcp_errno_map();
+    }
     return DRACONIC_HOST_OK;
 #endif
 }

@@ -1,0 +1,21 @@
+// H06.04: tcpWrite / tcpRead bytes; partial read; tcpShutdown → EOF.
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+tcpWrite(c, "hello-tcp");
+let u = tcpRead(a, 64);
+let n = u.length;
+stdoutWrite(u);
+tcpWrite(c, "abcdef");
+let part = tcpRead(a, 3);
+let pn = part.length;
+stdoutWrite(part);
+let rest = tcpRead(a, 64);
+let rn = rest.length;
+stdoutWrite(rest);
+tcpShutdown(c);
+let eof = tcpRead(a, 64);
+let en = eof.length;
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);

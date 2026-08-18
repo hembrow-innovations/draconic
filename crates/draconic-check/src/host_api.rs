@@ -80,6 +80,7 @@ pub struct HostApiEntry {
 /// - `tcpListen` / `tcpLocalPort` / `closeTcp` (H06.01): native-only TCP listen + port query + close.
 /// - `tcpAccept` / `tcpPeerAddress` / `tcpPeerPort` (H06.02): accept + peer.
 /// - `tcpConnect` (H06.02–H06.03): dial IPv4 host:port; refused/timeout → HostError ECONN.
+/// - `tcpRead` / `tcpWrite` / `tcpShutdown` (H06.04): connection bytes + half-close.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -340,6 +341,21 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "tcpPeerPort",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H06.02 TCP peer port",
+    },
+    HostApiEntry {
+        name: "tcpRead",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.04 TCP read bytes (partial OK)",
+    },
+    HostApiEntry {
+        name: "tcpWrite",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.04 TCP write bytes",
+    },
+    HostApiEntry {
+        name: "tcpShutdown",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.04 TCP shutdown (0=RD 1=WR 2=RDWR)",
     },
 ];
 
@@ -694,6 +710,9 @@ mod tests {
             "tcpConnect",
             "tcpPeerAddress",
             "tcpPeerPort",
+            "tcpRead",
+            "tcpWrite",
+            "tcpShutdown",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

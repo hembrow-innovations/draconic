@@ -1,4 +1,4 @@
-//! ROADMAP H06.01–H06.03: TCP listen/accept/connect/peer + refused → ECONN.
+//! ROADMAP H06.01–H06.04: TCP listen/accept/connect/peer + read/write/shutdown.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -99,4 +99,23 @@ fn tcp_connect_refused_runs_native() {
         "refused → stderr ECONN"
     );
     assert_fixture_runs("host/net/tcp/tcp_connect_refused");
+}
+
+#[test]
+fn tcp_read_write_runs_native() {
+    assert_fixture_present("host/net/tcp/tcp_read_write");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tcp/tcp_read_write")
+        .expect("host/net/tcp/tcp_read_write");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("hello-tcpabcdef9\n3\n3\n0\n")
+    );
+    assert_fixture_runs("host/net/tcp/tcp_read_write");
 }
