@@ -1,4 +1,4 @@
-//! H05.03–H05.04: timers via Runtime timer + job queue ABI.
+//! H05.03–H05.05: timers via Runtime timer + job queue ABI.
 //!
 //! Supported subset for conformance:
 //! - top-level number/bool/string locals
@@ -9,8 +9,9 @@
 //! - comparison `id > 0` / `ticks >= n`
 //! - `if (test) { … }` in timer callbacks (clear after N ticks)
 //!
-//! End of main: `job_drain` (promotes due timers, runs callbacks), then print
-//! observation locals (numbers, strings, bools) in declaration order.
+//! End of main: `job_drain` (promotes due timers, sleeps until future timers
+//! are due — H05.05 — runs callbacks), then print observation locals
+//! (numbers, strings, bools) in declaration order.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -383,7 +384,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_timers (H05.03–H05.04 timers)"
+            "; Draconic LLVM host_timers (H05.03–H05.05 timers)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(HOST_TIMER_DECLARES)).ok();
@@ -1186,6 +1187,21 @@ mod tests {
         let ir = emit_host_timers(&m).expect("emit");
         assert!(ir.contains("draconic_rt_timer_set_interval"), "{ir}");
         assert!(ir.contains("draconic_rt_timer_clear"), "{ir}");
+        assert!(ir.contains("draconic_rt_job_drain"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_nonzero_delay_timer_wait() {
+        let m = ir_of(
+            r#"
+            let fired = 0;
+            setTimeout(function () { fired = 1; }, 40);
+            let t = typeof setTimeout;
+            "#,
+        );
+        assert!(is_host_timer_module(&m));
+        let ir = emit_host_timers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_timer_set"), "{ir}");
         assert!(ir.contains("draconic_rt_job_drain"), "{ir}");
     }
 }

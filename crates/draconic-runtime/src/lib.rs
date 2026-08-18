@@ -2995,6 +2995,107 @@ mod tests {
         assert_eq!(stdout, "interval-ok\n", "stdout={stdout:?}");
     }
 
+    /// H05.05: job_drain waits for a future timer (OS sleep), fires it, and
+    /// does not return early while the timer is still pending.
+    #[test]
+    fn timer_drain_waits_for_future_due() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main_timer_wait.c");
+        let bin = dir.join("rt_timer_wait");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+#if defined(_WIN32)
+            #include <windows.h>
+            static double wall_ms(void) {
+                FILETIME ft;
+                ULARGE_INTEGER u;
+                const uint64_t epoch_diff_100ns = 116444736000000000ULL;
+                GetSystemTimeAsFileTime(&ft);
+                u.LowPart = ft.dwLowDateTime;
+                u.HighPart = ft.dwHighDateTime;
+                if (u.QuadPart < epoch_diff_100ns) return 0.0;
+                return (double)((u.QuadPart - epoch_diff_100ns) / 10000ULL);
+            }
+#else
+            #include <sys/time.h>
+            static double wall_ms(void) {
+                struct timeval tv;
+                if (gettimeofday(&tv, NULL) != 0) return 0.0;
+                return ((double)tv.tv_sec * 1000.0) + ((double)tv.tv_usec / 1000.0);
+            }
+#endif
+
+            static int g_fired;
+
+            static void on_fire(void *data) {
+                (void)data;
+                g_fired = 1;
+            }
+
+            int main(void) {
+                const double delay_ms = 40.0;
+                double t0 = wall_ms();
+                int64_t id = draconic_rt_timer_set(on_fire, NULL, delay_ms);
+                if (id <= 0) {
+                    fprintf(stderr, "timer id invalid\n");
+                    return 1;
+                }
+                draconic_rt_job_drain();
+                double elapsed = wall_ms() - t0;
+                if (g_fired != 1) {
+                    fprintf(stderr, "fired want 1 got %d\n", g_fired);
+                    return 2;
+                }
+                /* Must have waited ~delay (not return immediately). */
+                if (elapsed < 25.0) {
+                    fprintf(stderr, "elapsed too small: %g (busy-return?)\n", elapsed);
+                    return 3;
+                }
+                /* Must not busy-spin for seconds. */
+                if (elapsed > 2000.0) {
+                    fprintf(stderr, "elapsed too large: %g (spin?)\n", elapsed);
+                    return 4;
+                }
+                puts("timer-wait-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link timer wait test");
+
+        let output = Command::new(&bin).output().expect("run rt_timer_wait");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "timer wait binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "timer-wait-ok\n", "stdout={stdout:?}");
+    }
+
     fn which_clang() -> Option<PathBuf> {
         find_clang()
     }

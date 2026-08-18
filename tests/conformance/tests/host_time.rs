@@ -1,4 +1,4 @@
-//! ROADMAP H05.01–H05.04: wall clock, monotonic clock, timers.
+//! ROADMAP H05.01–H05.05: wall clock, monotonic clock, timers, run-loop wait.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -77,4 +77,14 @@ fn set_interval_fixture_present() {
 #[test]
 fn set_interval_runs_js_and_native() {
     assert_fixture_runs("host/time/set_interval");
+}
+
+#[test]
+fn timer_wait_fixture_present() {
+    assert_fixture_present("host/time/timer_wait");
+}
+
+#[test]
+fn timer_wait_runs_js_and_native() {
+    assert_fixture_runs("host/time/timer_wait");
 }

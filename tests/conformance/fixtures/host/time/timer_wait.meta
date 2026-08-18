@@ -1,0 +1,6 @@
+id: host/time/timer_wait
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { if (t_st !== "function") process.exit(1); if (fired !== 1) process.exit(2); }, 100);
+native.exit: 0
+native.stdout: 1\nfunction\n

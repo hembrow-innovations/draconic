@@ -7,7 +7,9 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
+#include <errno.h>
 #include <sys/time.h>
+#include <time.h>
 #endif
 
 /* Native Runtime C ABI (N05–N06.10). Linked into LLVM native binaries. */
@@ -802,6 +804,72 @@ static int timer_promote_due(void) {
     return promoted;
 }
 
+/* H05.05: earliest wait until a non-cancelled, not-yet-enqueued timer is due.
+   Returns 1 and writes ms (>= 0) into *out_ms; 0 if no waiting timers. */
+static int timer_next_wait_ms(double *out_ms) {
+    double now = timer_now_ms();
+    int found = 0;
+    double best = 0.0;
+    for (DraconicTimer *t = g_timer_head; t; t = t->next) {
+        if (t->cancelled || t->enqueued) {
+            continue;
+        }
+        double wait = t->due_ms - now;
+        if (!found || wait < best) {
+            best = wait;
+            found = 1;
+        }
+    }
+    if (!found) {
+        return 0;
+    }
+    *out_ms = best < 0.0 ? 0.0 : best;
+    return 1;
+}
+
+/* Sleep until deadline without busy-spinning the CPU (H05.05). */
+static void timer_sleep_ms(double ms) {
+    if (ms <= 0.0 || ms != ms) {
+        return;
+    }
+    /* Cap one sleep so a huge delay still yields to the OS in slices. */
+    if (ms > 60000.0) {
+        ms = 60000.0;
+    }
+#if defined(_WIN32)
+    {
+        DWORD dw = (DWORD)(ms + 0.5);
+        if (dw < 1) {
+            dw = 1;
+        }
+        Sleep(dw);
+    }
+#else
+    {
+        struct timespec req;
+        struct timespec rem;
+        req.tv_sec = (time_t)(ms / 1000.0);
+        req.tv_nsec = (long)((ms - ((double)req.tv_sec * 1000.0)) * 1000000.0);
+        if (req.tv_nsec < 0) {
+            req.tv_nsec = 0;
+        }
+        if (req.tv_nsec >= 1000000000L) {
+            req.tv_sec += 1;
+            req.tv_nsec -= 1000000000L;
+        }
+        if (req.tv_sec == 0 && req.tv_nsec == 0) {
+            req.tv_nsec = 1000000L; /* 1ms floor when waiting */
+        }
+        rem = req;
+        while (nanosleep(&rem, &rem) != 0) {
+            if (errno != EINTR) {
+                break;
+            }
+        }
+    }
+#endif
+}
+
 static int64_t timer_alloc(
     DraconicJobFn fn,
     void *data,
@@ -877,8 +945,21 @@ void draconic_rt_job_drain(void) {
             fn(data);
         }
         /* H05.03: promote due timers into jobs, then drain again. */
-        if (timer_promote_due() == 0) {
-            break;
+        if (timer_promote_due() > 0) {
+            continue;
+        }
+        /* H05.05: future timers — sleep until next due; do not busy-spin. */
+        {
+            double wait_ms = 0.0;
+            if (!timer_next_wait_ms(&wait_ms)) {
+                break;
+            }
+            if (wait_ms <= 0.0) {
+                /* Clock granularity / skew: brief yield, then retry promote. */
+                timer_sleep_ms(1.0);
+            } else {
+                timer_sleep_ms(wait_ms);
+            }
         }
     }
     g_job_draining = 0;

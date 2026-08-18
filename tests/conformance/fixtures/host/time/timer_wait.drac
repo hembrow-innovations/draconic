@@ -1,0 +1,6 @@
+// H05.05: job_drain waits for non-zero delay timers (not busy-spin / early exit).
+let fired = 0;
+setTimeout(function () {
+  fired = 1;
+}, 40);
+let t_st = typeof setTimeout;
