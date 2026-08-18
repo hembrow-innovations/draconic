@@ -5,6 +5,7 @@
 #include "draconic_rt_host.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -17,19 +18,43 @@
 #include <process.h>
 #include <tlhelp32.h>
 #include <windows.h>
-/* getenv / _putenv_s; _getpid; _mkdir / _rmdir / _unlink */
+/* getenv / _putenv_s; _getpid; _mkdir / _rmdir / _unlink; _open/_read/_write/_lseeki64/_close */
 #else
 #include <dirent.h>
 #include <unistd.h>
-/* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink */
+/* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink; open/read/write/lseek/close */
 #endif
 
-/* --- Handle table (slots filled by later open/listen/etc.) --- */
+/* --- Handle table (slots filled by open/listen/etc.) --- */
 
 #define DRACONIC_HOST_HANDLE_SLOTS 256
+#define DRACONIC_HOST_HANDLE_KIND_NONE 0
+#define DRACONIC_HOST_HANDLE_KIND_FILE 1
 
-/* Live flags for 1-based handle ids. H04/H06 open paths will set slots. */
+/* Live flags + kind + OS fd for 1-based handle ids. */
 static uint8_t g_host_handle_live[DRACONIC_HOST_HANDLE_SLOTS];
+static uint8_t g_host_handle_kind[DRACONIC_HOST_HANDLE_SLOTS];
+static int g_host_handle_fd[DRACONIC_HOST_HANDLE_SLOTS];
+
+static DraconicHostError host_handle_alloc(
+    uint8_t kind,
+    int fd,
+    DraconicHostHandle *out_h) {
+    size_t i;
+    if (!out_h) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    for (i = 0; i < DRACONIC_HOST_HANDLE_SLOTS; i++) {
+        if (g_host_handle_live[i] == 0) {
+            g_host_handle_live[i] = 1;
+            g_host_handle_kind[i] = kind;
+            g_host_handle_fd[i] = fd;
+            *out_h = (DraconicHostHandle)(i + 1);
+            return DRACONIC_HOST_OK;
+        }
+    }
+    return DRACONIC_HOST_E_NOMEM;
+}
 
 int draconic_rt_host_handle_is_valid(DraconicHostHandle h) {
     if (h < 1 || h > (DraconicHostHandle)DRACONIC_HOST_HANDLE_SLOTS) {
@@ -38,11 +63,35 @@ int draconic_rt_host_handle_is_valid(DraconicHostHandle h) {
     return g_host_handle_live[(size_t)h - 1] != 0;
 }
 
+static int host_handle_fd(DraconicHostHandle h) {
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return -1;
+    }
+    if (g_host_handle_kind[(size_t)h - 1] != DRACONIC_HOST_HANDLE_KIND_FILE) {
+        return -1;
+    }
+    return g_host_handle_fd[(size_t)h - 1];
+}
+
 DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
+    size_t i;
     if (!draconic_rt_host_handle_is_valid(h)) {
         return DRACONIC_HOST_E_BADF;
     }
-    g_host_handle_live[(size_t)h - 1] = 0;
+    i = (size_t)h - 1;
+    if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE) {
+        int fd = g_host_handle_fd[i];
+        if (fd >= 0) {
+#if defined(_WIN32)
+            (void)_close(fd);
+#else
+            (void)close(fd);
+#endif
+        }
+    }
+    g_host_handle_live[i] = 0;
+    g_host_handle_kind[i] = DRACONIC_HOST_HANDLE_KIND_NONE;
+    g_host_handle_fd[i] = -1;
     return DRACONIC_HOST_OK;
 }
 
@@ -1505,4 +1554,208 @@ DraconicHostError draconic_rt_host_fs_copy_file(const char *from, const char *to
     err = draconic_rt_host_fs_write_file(to, data, len);
     free(data);
     return err;
+}
+
+/* --- Open handle: open / read / write / seek / close (H04.06) -------------- */
+
+static int host_fs_parse_open_mode(const char *mode, int *out_flags) {
+    int flags = 0;
+    if (!mode || !out_flags) {
+        return 0;
+    }
+    if (strcmp(mode, "r") == 0) {
+        flags = O_RDONLY;
+    } else if (strcmp(mode, "w") == 0) {
+        flags = O_WRONLY | O_CREAT | O_TRUNC;
+    } else if (strcmp(mode, "a") == 0) {
+        flags = O_WRONLY | O_CREAT | O_APPEND;
+    } else if (strcmp(mode, "r+") == 0) {
+        flags = O_RDWR;
+    } else if (strcmp(mode, "w+") == 0) {
+        flags = O_RDWR | O_CREAT | O_TRUNC;
+    } else if (strcmp(mode, "a+") == 0) {
+        flags = O_RDWR | O_CREAT | O_APPEND;
+    } else {
+        return 0;
+    }
+#if defined(_WIN32)
+    flags |= O_BINARY;
+#endif
+    *out_flags = flags;
+    return 1;
+}
+
+DraconicHostError draconic_rt_host_fs_open(
+    const char *path,
+    const char *mode,
+    DraconicHostHandle *out_h) {
+    int flags = 0;
+    int fd;
+    DraconicHostError err;
+
+    if (!path || path[0] == '\0' || !mode || !out_h) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (!host_fs_parse_open_mode(mode, &flags)) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+#if defined(_WIN32)
+    fd = _open(path, flags, _S_IREAD | _S_IWRITE);
+#else
+    fd = open(path, flags, 0666);
+#endif
+    if (fd < 0) {
+        return host_fs_errno_map();
+    }
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_FILE, fd, out_h);
+    if (err != DRACONIC_HOST_OK) {
+#if defined(_WIN32)
+        (void)_close(fd);
+#else
+        (void)close(fd);
+#endif
+        return err;
+    }
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_fs_handle_read(
+    DraconicHostHandle h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    int fd;
+    uint8_t *buf = NULL;
+    size_t got = 0;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    fd = host_handle_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (max_len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    buf = (uint8_t *)malloc(max_len);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+#if defined(_WIN32)
+    {
+        int n = _read(fd, buf, (unsigned int)(max_len > 0x7fffffffu ? 0x7fffffffu : max_len));
+        if (n < 0) {
+            free(buf);
+            return host_fs_errno_map();
+        }
+        got = (size_t)n;
+    }
+#else
+    {
+        ssize_t n = read(fd, buf, max_len);
+        if (n < 0) {
+            free(buf);
+            return host_fs_errno_map();
+        }
+        got = (size_t)n;
+    }
+#endif
+    if (got == 0) {
+        free(buf);
+        *out_data = NULL;
+        *out_len = 0;
+        return DRACONIC_HOST_OK;
+    }
+    if (got < max_len) {
+        uint8_t *shrunk = (uint8_t *)realloc(buf, got);
+        if (shrunk) {
+            buf = shrunk;
+        }
+    }
+    *out_data = buf;
+    *out_len = got;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_fs_handle_write(
+    DraconicHostHandle h,
+    const uint8_t *data,
+    size_t len) {
+    int fd;
+    size_t off = 0;
+
+    fd = host_handle_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (!data) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    while (off < len) {
+#if defined(_WIN32)
+        int n = _write(
+            fd,
+            data + off,
+            (unsigned int)((len - off) > 0x7fffffffu ? 0x7fffffffu : (len - off)));
+        if (n < 0) {
+            return host_fs_errno_map();
+        }
+        if (n == 0) {
+            return DRACONIC_HOST_E_IO;
+        }
+        off += (size_t)n;
+#else
+        ssize_t n = write(fd, data + off, len - off);
+        if (n < 0) {
+            return host_fs_errno_map();
+        }
+        if (n == 0) {
+            return DRACONIC_HOST_E_IO;
+        }
+        off += (size_t)n;
+#endif
+    }
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_fs_handle_seek(
+    DraconicHostHandle h,
+    int64_t offset,
+    int32_t whence,
+    int64_t *out_pos) {
+    int fd;
+    int w;
+    int64_t pos;
+
+    fd = host_handle_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (whence == 0) {
+        w = SEEK_SET;
+    } else if (whence == 1) {
+        w = SEEK_CUR;
+    } else if (whence == 2) {
+        w = SEEK_END;
+    } else {
+        return DRACONIC_HOST_E_INVAL;
+    }
+#if defined(_WIN32)
+    pos = _lseeki64(fd, (long long)offset, w);
+#else
+    pos = (int64_t)lseek(fd, (off_t)offset, w);
+#endif
+    if (pos < 0) {
+        return host_fs_errno_map();
+    }
+    if (out_pos) {
+        *out_pos = pos;
+    }
+    return DRACONIC_HOST_OK;
 }

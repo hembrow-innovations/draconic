@@ -38,3 +38,13 @@ fn tcp_listen_js_hard_error_fixture_present() {
 fn tcp_listen_js_hard_error_on_js() {
     assert_fixture_runs_js("host/policy/tcp_listen_js_hard_error");
 }
+
+#[test]
+fn open_file_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/open_file_js_hard_error");
+}
+
+#[test]
+fn open_file_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/open_file_js_hard_error");
+}

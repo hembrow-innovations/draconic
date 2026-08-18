@@ -1,4 +1,4 @@
-//! ROADMAP H04.01–H04.05: whole-file + directory + rename/copy/delete host APIs.
+//! ROADMAP H04.01–H04.06: whole-file + directory + rename/copy/delete + open handle host APIs.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -188,4 +188,10 @@ fn copy_file_runs() {
 fn delete_file_runs() {
     assert_fixture_present("host/fs/delete_file");
     assert_fixture_runs("host/fs/delete_file");
+}
+
+#[test]
+fn open_handle_rw_runs() {
+    assert_fixture_present("host/fs/open_handle_rw");
+    assert_fixture_runs("host/fs/open_handle_rw");
 }

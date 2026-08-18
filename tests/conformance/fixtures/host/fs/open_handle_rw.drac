@@ -1,0 +1,8 @@
+// H04.06: openFile / fileWrite / fileSeek / fileRead / closeFile (native).
+let h = openFile("/tmp/draconic_h0406_open.txt", "w+");
+fileWrite(h, "hello-h0406");
+fileSeek(h, 0);
+let u = fileRead(h, 64);
+let n = u.length;
+stdoutWrite(u);
+closeFile(h);

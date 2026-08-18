@@ -1,0 +1,2 @@
+// H04.06: openFile is native-only — hard-error on js.
+openFile("x.txt", "r");

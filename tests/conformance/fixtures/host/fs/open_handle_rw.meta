@@ -1,0 +1,4 @@
+id: host/fs/open_handle_rw
+targets: native
+native.exit: 0
+native.stdout: hello-h040611\n

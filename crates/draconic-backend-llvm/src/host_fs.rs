@@ -1,4 +1,4 @@
-//! H04.01–H04.05: native observations for file + directory host APIs.
+//! H04.01–H04.06: native observations for file + directory host APIs.
 //!
 //! - `readFileText(path)` → string (auto-printed)
 //! - `readFileBytes(path)` → dynamic bytes; `.length` + `stdoutWrite`
@@ -9,6 +9,7 @@
 //! - `mkdir(path)` / `mkdirAll(path)` / `rmdir(path)` / `removeFile(path)`
 //! - `readdir(path)` → string[]; `.length` + index `[i]`
 //! - `renameFile(from, to)` / `copyFile(from, to)`
+//! - `openFile(path, mode)` → handle; `fileWrite` / `fileRead` / `fileSeek` / `closeFile`
 //!
 //! Missing path (read/write/stat/dir): stderr `ENOENT` + exit 1 (typed HostError on js).
 
@@ -20,9 +21,10 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_FS_APPEND_FILE,
-    HOST_FS_APPEND_TEXT, HOST_FS_COPY_FILE, HOST_FS_EXISTS, HOST_FS_MKDIR, HOST_FS_MKDIR_ALL,
-    HOST_FS_READ_FILE, HOST_FS_READ_TEXT, HOST_FS_READDIR, HOST_FS_REMOVE_FILE, HOST_FS_RENAME_FILE,
-    HOST_FS_RMDIR, HOST_FS_STAT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT, HOST_PROCESS_EXIT,
+    HOST_FS_APPEND_TEXT, HOST_FS_COPY_FILE, HOST_FS_EXISTS, HOST_FS_HANDLE_READ, HOST_FS_HANDLE_SEEK,
+    HOST_FS_HANDLE_WRITE, HOST_FS_MKDIR, HOST_FS_MKDIR_ALL, HOST_FS_OPEN, HOST_FS_READ_FILE,
+    HOST_FS_READ_TEXT, HOST_FS_READDIR, HOST_FS_REMOVE_FILE, HOST_FS_RENAME_FILE, HOST_FS_RMDIR,
+    HOST_FS_STAT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT, HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT,
     HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
@@ -47,6 +49,8 @@ enum SlotTy {
     Stat,
     /// GC string array from `readdir` (`.length` + index).
     Array,
+    /// Open file handle (`openFile`); not auto-printed.
+    Handle,
 }
 
 struct ModuleInfo {
@@ -68,6 +72,11 @@ struct ModuleInfo {
     needs_remove_file: bool,
     needs_rename_file: bool,
     needs_copy_file: bool,
+    needs_open: bool,
+    needs_handle_read: bool,
+    needs_handle_write: bool,
+    needs_handle_seek: bool,
+    needs_close_file: bool,
 }
 
 struct ClassifyCtx {
@@ -90,6 +99,11 @@ struct ClassifyCtx {
     needs_remove_file: bool,
     needs_rename_file: bool,
     needs_copy_file: bool,
+    needs_open: bool,
+    needs_handle_read: bool,
+    needs_handle_write: bool,
+    needs_handle_seek: bool,
+    needs_close_file: bool,
     has_fs: bool,
 }
 
@@ -114,6 +128,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_remove_file: false,
         needs_rename_file: false,
         needs_copy_file: false,
+        needs_open: false,
+        needs_handle_read: false,
+        needs_handle_write: false,
+        needs_handle_seek: false,
+        needs_close_file: false,
         has_fs: false,
     };
     for stmt in &module.body {
@@ -141,6 +160,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_remove_file: ctx.needs_remove_file,
         needs_rename_file: ctx.needs_rename_file,
         needs_copy_file: ctx.needs_copy_file,
+        needs_open: ctx.needs_open,
+        needs_handle_read: ctx.needs_handle_read,
+        needs_handle_write: ctx.needs_handle_write,
+        needs_handle_seek: ctx.needs_handle_seek,
+        needs_close_file: ctx.needs_close_file,
     })
 }
 
@@ -155,7 +179,7 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
                 SlotTy::String | SlotTy::Number | SlotTy::Bool => {
                     ctx.print_locals.push((*local, ty));
                 }
-                SlotTy::DynBytes | SlotTy::Stat | SlotTy::Array => {}
+                SlotTy::DynBytes | SlotTy::Stat | SlotTy::Array | SlotTy::Handle => {}
             }
             Some(())
         }
@@ -295,6 +319,56 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             Some(())
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "fileWrite") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_handle_write = true;
+            classify_handle_arg(arg_expr(&args[0])?, ctx)?;
+            classify_bytes_or_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if (args.len() == 2 || args.len() == 3) && is_named_callee(callee, "fileSeek") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_handle_seek = true;
+            classify_handle_arg(arg_expr(&args[0])?, ctx)?;
+            classify_number_arg(arg_expr(&args[1])?, ctx)?;
+            if args.len() == 3 {
+                classify_number_arg(arg_expr(&args[2])?, ctx)?;
+            }
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "closeFile") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_close_file = true;
+            classify_handle_arg(arg_expr(&args[0])?, ctx)?;
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+fn classify_handle_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
+    match expr {
+        Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
+            SlotTy::Handle | SlotTy::Number => Some(()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn classify_number_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
+    match expr {
+        Expr::Number { .. } => Some(()),
+        Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
+            SlotTy::Number | SlotTy::Handle => Some(()),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -326,6 +400,24 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             ctx.has_fs = true;
             ctx.needs_bytes = true;
+            Some(SlotTy::DynBytes)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "openFile") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            ctx.has_fs = true;
+            ctx.needs_open = true;
+            Some(SlotTy::Handle)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "fileRead") =>
+        {
+            classify_handle_arg(arg_expr(&args[0])?, ctx)?;
+            classify_number_arg(arg_expr(&args[1])?, ctx)?;
+            ctx.has_fs = true;
+            ctx.needs_handle_read = true;
             Some(SlotTy::DynBytes)
         }
         Expr::Call { callee, args, .. }
@@ -559,7 +651,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_fs (H04.01–H04.04 file + directory)"
+            "; Draconic LLVM host_fs (H04.01–H04.06 file + directory + open handle)"
         )
         .ok();
         let mut decls = vec![
@@ -622,6 +714,21 @@ impl<'a> Emitter<'a> {
         if self.info.needs_copy_file {
             decls.push(HOST_FS_COPY_FILE);
         }
+        if self.info.needs_open {
+            decls.push(HOST_FS_OPEN);
+        }
+        if self.info.needs_handle_read {
+            decls.push(HOST_FS_HANDLE_READ);
+        }
+        if self.info.needs_handle_write {
+            decls.push(HOST_FS_HANDLE_WRITE);
+        }
+        if self.info.needs_handle_seek {
+            decls.push(HOST_FS_HANDLE_SEEK);
+        }
+        if self.info.needs_close_file {
+            decls.push(HOST_HANDLE_CLOSE);
+        }
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
@@ -631,7 +738,7 @@ impl<'a> Emitter<'a> {
                 SlotTy::String | SlotTy::Array => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::Number => {
+                SlotTy::Number | SlotTy::Handle => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
                 SlotTy::Bool => {
@@ -677,7 +784,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
-                SlotTy::DynBytes | SlotTy::Stat | SlotTy::Array => {}
+                SlotTy::DynBytes | SlotTy::Stat | SlotTy::Array | SlotTy::Handle => {}
             }
         }
 
@@ -766,6 +873,11 @@ impl<'a> Emitter<'a> {
                     }
                     SlotTy::DynBytes => {
                         self.emit_read_bytes_into(*local, init)?;
+                    }
+                    SlotTy::Handle => {
+                        let v = self.emit_handle_expr(init)?;
+                        let ptr = self.slot_ptr(*local)?;
+                        writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
                     SlotTy::Number => {
                         let v = self.emit_number_expr(init)?;
@@ -945,6 +1057,36 @@ impl<'a> Emitter<'a> {
                     arg_expr(&args[0]).ok_or_else(|| diag("host_fs: copyFile from"))?,
                     arg_expr(&args[1]).ok_or_else(|| diag("host_fs: copyFile to"))?,
                     HOST_FS_COPY_FILE.symbol,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "fileWrite") =>
+            {
+                self.emit_file_write(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: fileWrite handle"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: fileWrite data"))?,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if (args.len() == 2 || args.len() == 3) && is_named_callee(callee, "fileSeek") =>
+            {
+                let whence = if args.len() == 3 {
+                    Some(arg_expr(&args[2]).ok_or_else(|| diag("host_fs: fileSeek whence"))?)
+                } else {
+                    None
+                };
+                self.emit_file_seek(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: fileSeek handle"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: fileSeek offset"))?,
+                    whence,
+                )?;
+                Ok(())
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "closeFile") =>
+            {
+                self.emit_close_file(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: closeFile handle"))?,
                 )
             }
             _ => Err(diag("host_fs: unsupported expr stmt")),
@@ -1336,8 +1478,151 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  store i64 {n}, ptr {len_slot}").ok();
                 Ok(())
             }
-            _ => Err(diag("host_fs: expected readFileBytes")),
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "fileRead") => {
+                if args.len() != 2 {
+                    return Err(diag("host_fs: fileRead expects 2 args"));
+                }
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: fileRead handle"))?,
+                )?;
+                let max_f = self.emit_number_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: fileRead maxLen"))?,
+                )?;
+                let max_i = self.fresh();
+                writeln!(self.body, "  {max_i} = fptosi double {max_f} to i64").ok();
+                let data_slot = self.slot_ptr(local)?;
+                let len_slot = self.slot_len_ptr(local)?;
+                let out_data = self.fresh();
+                let out_len = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_data} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
+                writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, i64 {max_i}, ptr {out_data}, ptr {out_len})",
+                    HOST_FS_HANDLE_READ.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let d = self.fresh();
+                let n = self.fresh();
+                writeln!(self.body, "  {d} = load ptr, ptr {out_data}").ok();
+                writeln!(self.body, "  {n} = load i64, ptr {out_len}").ok();
+                writeln!(self.body, "  store ptr {d}, ptr {data_slot}").ok();
+                writeln!(self.body, "  store i64 {n}, ptr {len_slot}").ok();
+                Ok(())
+            }
+            _ => Err(diag("host_fs: expected readFileBytes or fileRead")),
         }
+    }
+
+    fn emit_handle_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "openFile") => {
+                if args.len() != 2 {
+                    return Err(diag("host_fs: openFile expects 2 args"));
+                }
+                let path = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: openFile path"))?,
+                )?;
+                let mode = self.emit_string_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: openFile mode"))?,
+                )?;
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {path}, ptr {mode}, ptr {out_h})",
+                    HOST_FS_OPEN.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_fs: expected openFile handle")),
+        }
+    }
+
+    fn emit_handle_i64(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        let f = self.emit_handle_expr(expr)?;
+        let i = self.fresh();
+        writeln!(self.body, "  {i} = fptosi double {f} to i64").ok();
+        Ok(i)
+    }
+
+    fn emit_file_write(&mut self, handle: &Expr, data: &Expr) -> Result<(), Diagnostic> {
+        let h = self.emit_handle_i64(handle)?;
+        let (d, n) = self.emit_bytes_ptr_len(data)?;
+        let rc = self.fresh();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(i64 {h}, ptr {d}, i64 {n})",
+            HOST_FS_HANDLE_WRITE.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)
+    }
+
+    fn emit_file_seek(
+        &mut self,
+        handle: &Expr,
+        offset: &Expr,
+        whence: Option<&Expr>,
+    ) -> Result<String, Diagnostic> {
+        let h = self.emit_handle_i64(handle)?;
+        let off_f = self.emit_number_expr(offset)?;
+        let off_i = self.fresh();
+        writeln!(self.body, "  {off_i} = fptosi double {off_f} to i64").ok();
+        let wh_i = if let Some(w) = whence {
+            let wf = self.emit_number_expr(w)?;
+            let wi = self.fresh();
+            writeln!(self.body, "  {wi} = fptosi double {wf} to i32").ok();
+            wi
+        } else {
+            "0".to_string()
+        };
+        let out_pos = self.fresh();
+        let rc = self.fresh();
+        writeln!(self.body, "  {out_pos} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 0, ptr {out_pos}").ok();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(i64 {h}, i64 {off_i}, i32 {wh_i}, ptr {out_pos})",
+            HOST_FS_HANDLE_SEEK.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)?;
+        let iv = self.fresh();
+        let fv = self.fresh();
+        writeln!(self.body, "  {iv} = load i64, ptr {out_pos}").ok();
+        writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+        Ok(fv)
+    }
+
+    fn emit_close_file(&mut self, handle: &Expr) -> Result<(), Diagnostic> {
+        let h = self.emit_handle_i64(handle)?;
+        let rc = self.fresh();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(i64 {h})",
+            HOST_HANDLE_CLOSE.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)
     }
 
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
@@ -1678,5 +1963,27 @@ mod tests {
         let ir = emit_host_fs(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_rmdir"), "{ir}");
         assert!(ir.contains("draconic_rt_host_fs_remove_file"), "{ir}");
+    }
+
+    #[test]
+    fn open_handle_emits() {
+        let m = lower_src(
+            r#"
+            let h = openFile("/tmp/h0406.txt", "w+");
+            fileWrite(h, "hello-h0406");
+            fileSeek(h, 0);
+            let u = fileRead(h, 64);
+            let n = u.length;
+            stdoutWrite(u);
+            closeFile(h);
+            "#,
+        );
+        assert!(is_host_fs_module(&m));
+        let ir = emit_host_fs(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_fs_open"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_fs_handle_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_fs_handle_seek"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_fs_handle_read"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
     }
 }

@@ -267,6 +267,32 @@ DraconicHostError draconic_rt_host_fs_remove_file(const char *path);
 DraconicHostError draconic_rt_host_fs_rename_file(const char *from, const char *to);
 DraconicHostError draconic_rt_host_fs_copy_file(const char *from, const char *to);
 
+/* --- Open handle (H04.06) --------------------------------------------------
+    open: path + mode string "r"|"w"|"a"|"r+"|"w+"|"a+" → live file handle.
+    handle_read: up to max_len bytes from current offset (EOF → empty).
+    handle_write: write all bytes at current offset (append modes honor O_APPEND).
+    handle_seek: whence 0=SET, 1=CUR, 2=END; *out_pos new absolute offset.
+    close: draconic_rt_host_handle_close (closes OS fd). */
+
+DraconicHostError draconic_rt_host_fs_open(
+    const char *path,
+    const char *mode,
+    DraconicHostHandle *out_h);
+DraconicHostError draconic_rt_host_fs_handle_read(
+    DraconicHostHandle h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_fs_handle_write(
+    DraconicHostHandle h,
+    const uint8_t *data,
+    size_t len);
+DraconicHostError draconic_rt_host_fs_handle_seek(
+    DraconicHostHandle h,
+    int64_t offset,
+    int32_t whence,
+    int64_t *out_pos);
+
 #ifdef __cplusplus
 }
 #endif

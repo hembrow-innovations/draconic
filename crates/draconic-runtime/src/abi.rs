@@ -870,6 +870,27 @@ pub const HOST_FS_COPY_FILE: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, ptr",
 };
+/* H04.06: open handle open/read/write/seek (close via HOST_HANDLE_CLOSE). */
+pub const HOST_FS_OPEN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_open",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
+pub const HOST_FS_HANDLE_READ: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_handle_read",
+    ret: "i32",
+    params: "i64, i64, ptr, ptr",
+};
+pub const HOST_FS_HANDLE_WRITE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_handle_write",
+    ret: "i32",
+    params: "i64, ptr, i64",
+};
+pub const HOST_FS_HANDLE_SEEK: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_handle_seek",
+    ret: "i32",
+    params: "i64, i64, i32, ptr",
+};
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -917,6 +938,10 @@ pub const HOST_FS_RMDIR_SYMBOL: &str = HOST_FS_RMDIR.symbol;
 pub const HOST_FS_REMOVE_FILE_SYMBOL: &str = HOST_FS_REMOVE_FILE.symbol;
 pub const HOST_FS_RENAME_FILE_SYMBOL: &str = HOST_FS_RENAME_FILE.symbol;
 pub const HOST_FS_COPY_FILE_SYMBOL: &str = HOST_FS_COPY_FILE.symbol;
+pub const HOST_FS_OPEN_SYMBOL: &str = HOST_FS_OPEN.symbol;
+pub const HOST_FS_HANDLE_READ_SYMBOL: &str = HOST_FS_HANDLE_READ.symbol;
+pub const HOST_FS_HANDLE_WRITE_SYMBOL: &str = HOST_FS_HANDLE_WRITE.symbol;
+pub const HOST_FS_HANDLE_SEEK_SYMBOL: &str = HOST_FS_HANDLE_SEEK.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H04).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -966,6 +991,10 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_FS_REMOVE_FILE_SYMBOL,
     HOST_FS_RENAME_FILE_SYMBOL,
     HOST_FS_COPY_FILE_SYMBOL,
+    HOST_FS_OPEN_SYMBOL,
+    HOST_FS_HANDLE_READ_SYMBOL,
+    HOST_FS_HANDLE_WRITE_SYMBOL,
+    HOST_FS_HANDLE_SEEK_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1016,6 +1045,10 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_FS_REMOVE_FILE,
     HOST_FS_RENAME_FILE,
     HOST_FS_COPY_FILE,
+    HOST_FS_OPEN,
+    HOST_FS_HANDLE_READ,
+    HOST_FS_HANDLE_WRITE,
+    HOST_FS_HANDLE_SEEK,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
