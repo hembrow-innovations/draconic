@@ -1,0 +1,2 @@
+// H06.06: tcpAccept is native-only — hard-error on js until optional Node bridge.
+tcpAccept(0);

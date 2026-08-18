@@ -1,4 +1,4 @@
-//! ROADMAP H00.01: host API registry — js unsupported → hard diagnostic.
+//! ROADMAP H00.01 / H06.06: host API registry — js unsupported → hard diagnostic.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -37,6 +37,16 @@ fn tcp_listen_js_hard_error_fixture_present() {
 #[test]
 fn tcp_listen_js_hard_error_on_js() {
     assert_fixture_runs_js("host/policy/tcp_listen_js_hard_error");
+}
+
+#[test]
+fn tcp_accept_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/tcp_accept_js_hard_error");
+}
+
+#[test]
+fn tcp_accept_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/tcp_accept_js_hard_error");
 }
 
 #[test]

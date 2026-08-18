@@ -81,6 +81,7 @@ pub struct HostApiEntry {
 /// - `tcpAccept` / `tcpPeerAddress` / `tcpPeerPort` (H06.02): accept + peer.
 /// - `tcpConnect` (H06.02–H06.03): dial IPv4 host:port; refused/timeout → HostError ECONN.
 /// - `tcpRead` / `tcpWrite` / `tcpShutdown` (H06.04): connection bytes + half-close.
+/// - H06.06: all TCP listen/accept (and related) APIs hard-error on js until optional Node bridge.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -754,8 +755,26 @@ mod tests {
     }
 
     #[test]
+    fn check_for_target_js_rejects_free_tcp_accept() {
+        let program = parse("tcpAccept(0);").unwrap();
+        let err = check_for_target(program, CompileTarget::Js).expect_err("js hard diagnostic");
+        assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED));
+        assert!(
+            err.message.contains("tcpAccept") && err.message.contains("unsupported on js"),
+            "got {}",
+            err.message
+        );
+    }
+
+    #[test]
     fn check_for_target_native_allows_free_tcp_listen() {
         let program = parse("tcpListen(8080);").unwrap();
+        check_for_target(program, CompileTarget::Native).expect("native allows host API ref");
+    }
+
+    #[test]
+    fn check_for_target_native_allows_free_tcp_accept() {
+        let program = parse("tcpAccept(0);").unwrap();
         check_for_target(program, CompileTarget::Native).expect("native allows host API ref");
     }
 
