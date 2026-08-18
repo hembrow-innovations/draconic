@@ -1,0 +1,2 @@
+// H01.03: exit() with no args → status 0 (default).
+exit();

@@ -118,6 +118,9 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_env_get",
         "draconic_rt_host_env_set",
         "draconic_rt_host_env_delete",
+        "draconic_rt_host_process_exit",
+        "draconic_rt_host_process_set_exit_code",
+        "draconic_rt_host_process_get_exit_code",
     ] {
         assert!(
             out.contains(sym),
@@ -231,6 +234,51 @@ int main(void) {
         String::from_utf8_lossy(&out.stdout)
     );
     assert_eq!(String::from_utf8_lossy(&out.stdout), "ok\n");
+}
+
+#[test]
+fn host_process_exit_code_and_exit() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_exit.c");
+    let bin = dir.join("rt_host_exit");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+int main(void) {
+    if (draconic_rt_host_process_get_exit_code() != 0) return 1;
+    draconic_rt_host_process_set_exit_code(5);
+    if (draconic_rt_host_process_get_exit_code() != 5) return 2;
+    /* Immediate terminate with 7 (never returns). */
+    draconic_rt_host_process_exit(7);
+    return 99;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg(format!("-I{}", header_dir.display()))
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("clang link");
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(7),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// Clang link smoke: path boundary + handle close/is_valid (no real fs/tcp).

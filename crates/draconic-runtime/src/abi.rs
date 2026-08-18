@@ -701,6 +701,23 @@ pub const HOST_ENV_DELETE: AbiFn = AbiFn {
     params: "ptr",
 };
 
+/* H01.03: process exit / exitCode. */
+pub const HOST_PROCESS_EXIT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_exit",
+    ret: "void",
+    params: "i32",
+};
+pub const HOST_PROCESS_SET_EXIT_CODE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_set_exit_code",
+    ret: "void",
+    params: "i32",
+};
+pub const HOST_PROCESS_GET_EXIT_CODE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_get_exit_code",
+    ret: "i32",
+    params: "",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -717,6 +734,9 @@ pub const HOST_PROCESS_USER_ARG_SYMBOL: &str = HOST_PROCESS_USER_ARG.symbol;
 pub const HOST_ENV_GET_SYMBOL: &str = HOST_ENV_GET.symbol;
 pub const HOST_ENV_SET_SYMBOL: &str = HOST_ENV_SET.symbol;
 pub const HOST_ENV_DELETE_SYMBOL: &str = HOST_ENV_DELETE.symbol;
+pub const HOST_PROCESS_EXIT_SYMBOL: &str = HOST_PROCESS_EXIT.symbol;
+pub const HOST_PROCESS_SET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_SET_EXIT_CODE.symbol;
+pub const HOST_PROCESS_GET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_GET_EXIT_CODE.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -736,6 +756,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_ENV_GET_SYMBOL,
     HOST_ENV_SET_SYMBOL,
     HOST_ENV_DELETE_SYMBOL,
+    HOST_PROCESS_EXIT_SYMBOL,
+    HOST_PROCESS_SET_EXIT_CODE_SYMBOL,
+    HOST_PROCESS_GET_EXIT_CODE_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -756,6 +779,9 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_ENV_GET,
     HOST_ENV_SET,
     HOST_ENV_DELETE,
+    HOST_PROCESS_EXIT,
+    HOST_PROCESS_SET_EXIT_CODE,
+    HOST_PROCESS_GET_EXIT_CODE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -800,6 +826,43 @@ if (typeof globalThis !== "undefined") {
   globalThis.envGet = envGet;
   globalThis.envSet = envSet;
   globalThis.envDelete = envDelete;
+}
+"#
+}
+
+/// JS polyfill for `exit` / `exitCode` / `setExitCode` (H01.03).
+///
+/// Node bridge via `process.exit` and `process.exitCode`. Bare `exit()` uses
+/// the deferred code (default 0).
+pub fn process_exit_js_polyfill() -> &'static str {
+    r#"var __draconic_exitCode = 0;
+function exitCode() {
+  if (typeof process !== "undefined" && process && process.exitCode != null && process.exitCode !== undefined) {
+    return Number(process.exitCode) | 0;
+  }
+  return __draconic_exitCode | 0;
+}
+function setExitCode(code) {
+  var n = (code === undefined || code === null) ? 0 : (Number(code) | 0);
+  __draconic_exitCode = n;
+  if (typeof process !== "undefined" && process) process.exitCode = n;
+}
+function exit(code) {
+  var n;
+  if (arguments.length === 0 || code === undefined || code === null) {
+    n = exitCode();
+  } else {
+    n = Number(code) | 0;
+  }
+  if (typeof process !== "undefined" && process && typeof process.exit === "function") {
+    process.exit(n);
+  }
+  throw new Error("exit(" + n + ")");
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.exit = exit;
+  globalThis.exitCode = exitCode;
+  globalThis.setExitCode = setExitCode;
 }
 "#
 }

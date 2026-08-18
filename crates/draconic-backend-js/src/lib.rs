@@ -73,6 +73,15 @@ fn module_uses_process_env(module: &Module) -> bool {
     })
 }
 
+/// H01.03: free host APIs `exit` / `exitCode` / `setExitCode`.
+fn module_uses_process_exit(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "exit")
+            || stmt_uses_ident_name(s, "exitCode")
+            || stmt_uses_ident_name(s, "setExitCode")
+    })
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -372,6 +381,13 @@ fn emit_js_full(
     // H01.02: `envGet` / `envSet` / `envDelete` Node bridge.
     if module_uses_process_env(module) {
         out.push_str(draconic_runtime::process_env_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H01.03: `exit` / `exitCode` / `setExitCode` Node bridge.
+    if module_uses_process_exit(module) {
+        out.push_str(draconic_runtime::process_exit_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

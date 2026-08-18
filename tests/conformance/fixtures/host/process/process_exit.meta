@@ -1,0 +1,4 @@
+id: host/process/process_exit
+targets: js,native
+js.exit: 7
+native.exit: 7

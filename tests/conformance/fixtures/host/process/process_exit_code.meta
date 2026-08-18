@@ -1,0 +1,6 @@
+id: host/process/process_exit_code
+targets: js,native
+js.exit: 5
+js.check: if (code !== 5) process.exit(1);
+native.exit: 5
+native.stdout: 5\n

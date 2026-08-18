@@ -1,11 +1,12 @@
-//! H01.01 / H01.02: native observations for process host APIs.
+//! H01.01 / H01.02 / H01.03: native observations for process host APIs.
 //!
 //! - `processArgs()` — user program args as string[]
 //! - `envGet` / `envSet` / `envDelete` — string env; missing get → undefined
+//! - `exit` / `exitCode` / `setExitCode` — terminate / deferred status (default 0)
 //!
 //! Prints number locals via `print_f64` and string / maybe-string locals via
 //! `print_str` (null maybe-string prints as `undefined`). `main` takes OS
-//! argc/argv when processArgs is used.
+//! argc/argv when processArgs is used. Exit-only modules return deferred code.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -15,7 +16,8 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_ENV_DELETE,
-    HOST_ENV_GET, HOST_ENV_SET, HOST_PROCESS_SET_ARGV, HOST_PROCESS_USER_ARG,
+    HOST_ENV_GET, HOST_ENV_SET, HOST_PROCESS_EXIT, HOST_PROCESS_GET_EXIT_CODE,
+    HOST_PROCESS_SET_ARGV, HOST_PROCESS_SET_EXIT_CODE, HOST_PROCESS_USER_ARG,
     HOST_PROCESS_USER_ARGC, PRINT_F64, PRINT_STR,
 };
 
@@ -45,6 +47,7 @@ struct ModuleInfo {
     print_locals: Vec<(LocalId, SlotTy)>,
     needs_argv: bool,
     needs_env: bool,
+    needs_exit: bool,
 }
 
 struct ClassifyCtx {
@@ -53,6 +56,7 @@ struct ClassifyCtx {
     slot_of: HashMap<LocalId, SlotTy>,
     has_process_args: bool,
     has_env: bool,
+    has_exit: bool,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -62,13 +66,18 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         slot_of: HashMap::new(),
         has_process_args: false,
         has_env: false,
+        has_exit: false,
     };
 
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
     }
 
-    if !(ctx.has_process_args || ctx.has_env) || ctx.print_locals.is_empty() {
+    if !(ctx.has_process_args || ctx.has_env || ctx.has_exit) {
+        return None;
+    }
+    // Exit-only modules (e.g. `exit(7);`) have no print locals.
+    if ctx.print_locals.is_empty() && !ctx.has_exit {
         return None;
     }
     Some(ModuleInfo {
@@ -76,6 +85,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         print_locals: ctx.print_locals,
         needs_argv: ctx.has_process_args,
         needs_env: ctx.has_env,
+        needs_exit: ctx.has_exit,
     })
 }
 
@@ -118,6 +128,18 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
                     classify_expr(arg_expr(&args[0])?, ctx)?;
                     Some(())
                 }
+                "exit" if args.is_empty() || args.len() == 1 => {
+                    ctx.has_exit = true;
+                    if args.len() == 1 {
+                        classify_expr(arg_expr(&args[0])?, ctx)?;
+                    }
+                    Some(())
+                }
+                "setExitCode" if args.len() == 1 => {
+                    ctx.has_exit = true;
+                    classify_expr(arg_expr(&args[0])?, ctx)?;
+                    Some(())
+                }
                 _ => None,
             }
         }
@@ -145,6 +167,28 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         }
         Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "envDelete") => {
             ctx.has_env = true;
+            classify_expr(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if args.is_empty() && is_named_callee(callee, "exitCode") =>
+        {
+            ctx.has_exit = true;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if (args.is_empty() || args.len() == 1) && is_named_callee(callee, "exit") =>
+        {
+            ctx.has_exit = true;
+            if args.len() == 1 {
+                classify_expr(arg_expr(&args[0])?, ctx)?;
+            }
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "setExitCode") =>
+        {
+            ctx.has_exit = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
             Some(SlotTy::Number)
         }
@@ -224,6 +268,8 @@ struct Emitter<'a> {
     out: String,
     next_tmp: u32,
     str_globals: HashMap<String, String>,
+    /// After `exit()` emits `unreachable`, skip further body/print/ret.
+    terminated: bool,
 }
 
 impl<'a> Emitter<'a> {
@@ -238,6 +284,7 @@ impl<'a> Emitter<'a> {
             out: String::new(),
             next_tmp: 0,
             str_globals: HashMap::new(),
+            terminated: false,
         }
     }
 
@@ -284,7 +331,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_process (H01 processArgs / env)"
+            "; Draconic LLVM host_process (H01 processArgs / env / exit)"
         )
         .ok();
         let mut decls = vec![GC_INIT, PRINT_F64, PRINT_STR];
@@ -302,6 +349,13 @@ impl<'a> Emitter<'a> {
         if info.needs_env {
             decls.extend([HOST_ENV_GET, HOST_ENV_SET, HOST_ENV_DELETE]);
         }
+        if info.needs_exit {
+            decls.extend([
+                HOST_PROCESS_EXIT,
+                HOST_PROCESS_SET_EXIT_CODE,
+                HOST_PROCESS_GET_EXIT_CODE,
+            ]);
+        }
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
@@ -315,31 +369,37 @@ impl<'a> Emitter<'a> {
         }
 
         for stmt in &self.module.body {
+            if self.terminated {
+                break;
+            }
             self.emit_stmt(stmt)?;
         }
 
-        for (id, kind) in &info.print_locals {
-            let ptr = self.slot_ptr(*id)?;
-            match kind {
-                SlotTy::Number => {
-                    let v = self.fresh();
-                    writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
-                    writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+        if !self.terminated {
+            for (id, kind) in &info.print_locals {
+                let ptr = self.slot_ptr(*id)?;
+                match kind {
+                    SlotTy::Number => {
+                        let v = self.fresh();
+                        writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+                    }
+                    SlotTy::String => {
+                        let v = self.fresh();
+                        writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                        writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+                    }
+                    SlotTy::MaybeString => {
+                        self.emit_print_maybe_string(ptr)?;
+                    }
+                    SlotTy::Array => {}
                 }
-                SlotTy::String => {
-                    let v = self.fresh();
-                    writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
-                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
-                }
-                SlotTy::MaybeString => {
-                    self.emit_print_maybe_string(ptr)?;
-                }
-                SlotTy::Array => {}
             }
         }
 
         // Emit string globals before main.
         let body = std::mem::take(&mut self.body);
+        let terminated = self.terminated;
         for (content, gname) in &self.str_globals {
             let n = content.len() + 1;
             let esc = escape_llvm_string(content);
@@ -369,7 +429,20 @@ impl<'a> Emitter<'a> {
             .ok();
         }
         self.out.push_str(&body);
-        writeln!(self.out, "  ret i32 0").ok();
+        if !terminated {
+            if info.needs_exit {
+                let code = self.fresh();
+                writeln!(
+                    self.out,
+                    "  {}",
+                    HOST_PROCESS_GET_EXIT_CODE.call_to(&code, "")
+                )
+                .ok();
+                writeln!(self.out, "  ret i32 {code}").ok();
+            } else {
+                writeln!(self.out, "  ret i32 0").ok();
+            }
+        }
         writeln!(self.out, "}}").ok();
         Ok(())
     }
@@ -465,6 +538,49 @@ impl<'a> Emitter<'a> {
                             self.body,
                             "  {_rc} = call i32 @{}(ptr {k})",
                             HOST_ENV_DELETE.symbol
+                        )
+                        .ok();
+                        Ok(())
+                    }
+                    "exit" if args.is_empty() || args.len() == 1 => {
+                        let code_i32 = if args.is_empty() {
+                            let c = self.fresh();
+                            writeln!(
+                                self.body,
+                                "  {}",
+                                HOST_PROCESS_GET_EXIT_CODE.call_to(&c, "")
+                            )
+                            .ok();
+                            c
+                        } else {
+                            let f = self.emit_number_expr(arg_expr(&args[0]).ok_or_else(|| {
+                                diag("host_process: exit code")
+                            })?)?;
+                            let c = self.fresh();
+                            writeln!(self.body, "  {c} = fptosi double {f} to i32").ok();
+                            c
+                        };
+                        writeln!(
+                            self.body,
+                            "  call void @{}(i32 {code_i32})",
+                            HOST_PROCESS_EXIT.symbol
+                        )
+                        .ok();
+                        // exit never returns; terminate this block (no further insts).
+                        writeln!(self.body, "  unreachable").ok();
+                        self.terminated = true;
+                        Ok(())
+                    }
+                    "setExitCode" if args.len() == 1 => {
+                        let f = self.emit_number_expr(arg_expr(&args[0]).ok_or_else(|| {
+                            diag("host_process: setExitCode code")
+                        })?)?;
+                        let c = self.fresh();
+                        writeln!(self.body, "  {c} = fptosi double {f} to i32").ok();
+                        writeln!(
+                            self.body,
+                            "  call void @{}(i32 {c})",
+                            HOST_PROCESS_SET_EXIT_CODE.symbol
                         )
                         .ok();
                         Ok(())
@@ -596,6 +712,20 @@ impl<'a> Emitter<'a> {
                 let v = self.fresh();
                 writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                 Ok(v)
+            }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "exitCode") =>
+            {
+                let c = self.fresh();
+                let f = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    HOST_PROCESS_GET_EXIT_CODE.call_to(&c, "")
+                )
+                .ok();
+                writeln!(self.body, "  {f} = sitofp i32 {c} to double").ok();
+                Ok(f)
             }
             _ => Err(diag("host_process: expected number expr")),
         }
@@ -854,5 +984,30 @@ mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn classifies_exit_and_exit_code() {
+        let m = lower_src(
+            r#"
+            setExitCode(5);
+            let code = exitCode();
+            "#,
+        );
+        assert!(is_host_process_module(&m));
+        let ir = emit_host_process(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_process_set_exit_code"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_process_get_exit_code"), "{ir}");
+        assert!(ir.contains("ret i32"), "{ir}");
+        let m2 = lower_src("exit(7);");
+        assert!(is_host_process_module(&m2));
+        let ir2 = emit_host_process(&m2).expect("emit");
+        assert!(ir2.contains("draconic_rt_host_process_exit"), "{ir2}");
+        assert!(ir2.contains("unreachable"), "{ir2}");
+        let m3 = lower_src("exit();");
+        assert!(is_host_process_module(&m3));
+        let ir3 = emit_host_process(&m3).expect("emit");
+        assert!(ir3.contains("draconic_rt_host_process_exit"), "{ir3}");
+        assert!(ir3.contains("draconic_rt_host_process_get_exit_code"), "{ir3}");
     }
 }

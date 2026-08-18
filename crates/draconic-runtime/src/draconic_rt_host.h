@@ -115,6 +115,17 @@ int32_t draconic_rt_host_env_set(const char *key, const char *value);
 /* Delete env key. 0 ok (including already-missing), nonzero error. */
 int32_t draconic_rt_host_env_delete(const char *key);
 
+/* --- Process exit (H01.03) -------------------------------------------------
+   Immediate terminate via exit(code). Deferred exitCode used when main returns
+   without calling exit (default 0). */
+
+/* Terminate process with status code (does not return). */
+void draconic_rt_host_process_exit(int32_t code);
+/* Set deferred exit status (returned from main if exit() not called). */
+void draconic_rt_host_process_set_exit_code(int32_t code);
+/* Get deferred exit status (default 0). */
+int32_t draconic_rt_host_process_get_exit_code(void);
+
 #ifdef __cplusplus
 }
 #endif

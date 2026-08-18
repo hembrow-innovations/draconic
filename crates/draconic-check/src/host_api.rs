@@ -62,6 +62,7 @@ pub struct HostApiEntry {
 ///
 /// - `processArgs` (H01.01): both targets — user program args as string[].
 /// - `envGet` / `envSet` / `envDelete` (H01.02): both — string env; missing get → undefined.
+/// - `exit` / `exitCode` / `setExitCode` (H01.03): both — terminate / deferred status (default 0).
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -83,6 +84,21 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "envDelete",
         availability: HostAvailability::BOTH,
         note: "H01.02 env delete",
+    },
+    HostApiEntry {
+        name: "exit",
+        availability: HostAvailability::BOTH,
+        note: "H01.03 process exit",
+    },
+    HostApiEntry {
+        name: "exitCode",
+        availability: HostAvailability::BOTH,
+        note: "H01.03 get exit code",
+    },
+    HostApiEntry {
+        name: "setExitCode",
+        availability: HostAvailability::BOTH,
+        note: "H01.03 set exit code",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -169,6 +185,21 @@ mod tests {
     #[test]
     fn registry_lists_env_apis_both() {
         for name in ["envGet", "envSet", "envDelete"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_exit_apis_both() {
+        for name in ["exit", "exitCode", "setExitCode"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

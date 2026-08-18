@@ -1,0 +1,3 @@
+// H01.03: setExitCode / exitCode — deferred status; main returns code without exit().
+setExitCode(5);
+let code = exitCode();

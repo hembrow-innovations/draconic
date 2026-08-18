@@ -1,0 +1,2 @@
+// H01.03: exit(code) terminates with status.
+exit(7);

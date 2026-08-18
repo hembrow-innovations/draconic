@@ -1,6 +1,6 @@
-/* Host I/O Runtime substrate (H00.02–H00.03, H01.01 process argv, H01.02 env).
+/* Host I/O Runtime substrate (H00.02–H00.03, H01 process argv/env/exit).
    Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process user-args + env. Later H rows open handles and map errno. */
+   process user-args + env + exit. Later H rows open handles and map errno. */
 
 #include "draconic_rt_host.h"
 
@@ -410,4 +410,21 @@ int32_t draconic_rt_host_env_delete(const char *key) {
 #else
     return unsetenv(key) == 0 ? 0 : -1;
 #endif
+}
+
+/* --- Process exit (H01.03) --- */
+
+static int32_t g_process_exit_code;
+
+void draconic_rt_host_process_exit(int32_t code) {
+    g_process_exit_code = code;
+    exit((int)code);
+}
+
+void draconic_rt_host_process_set_exit_code(int32_t code) {
+    g_process_exit_code = code;
+}
+
+int32_t draconic_rt_host_process_get_exit_code(void) {
+    return g_process_exit_code;
 }
