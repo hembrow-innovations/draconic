@@ -205,6 +205,18 @@ fn host_abi_fn_shapes() {
         HOST_HTTP_RESPONSE_HEADER.declare(),
         "declare i32 @draconic_rt_host_http_response_header(ptr, i64, ptr, ptr)"
     );
+    assert_eq!(
+        HOST_TLS_CLIENT_WRAP.declare(),
+        "declare i32 @draconic_rt_host_tls_client_wrap(i64, ptr, i32, ptr)"
+    );
+    assert_eq!(
+        HOST_TLS_READ.declare(),
+        "declare i32 @draconic_rt_host_tls_read(i64, i64, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_TLS_WRITE.declare(),
+        "declare i32 @draconic_rt_host_tls_write(i64, ptr, i64)"
+    );
 }
 
 #[test]
@@ -291,14 +303,16 @@ int main(int argc, char **argv) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin)
         .args(["alpha", "beta"])
@@ -347,14 +361,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin).output().expect("run");
     assert!(
@@ -393,14 +409,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin).output().expect("run");
     assert_eq!(
@@ -438,14 +456,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin).output().expect("run");
     assert!(
@@ -500,14 +520,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin).output().expect("run");
     assert!(
@@ -547,14 +569,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin).output().expect("run");
     assert!(
@@ -592,14 +616,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin).output().expect("run");
     assert!(
@@ -637,14 +663,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let out = Command::new(&bin).output().expect("run");
     assert!(
@@ -695,14 +723,16 @@ int main(void) {
         .parent()
         .expect("header parent")
         .to_path_buf();
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg(format!("-I{}", header_dir.display()))
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("clang link");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+        };
     assert!(status.success(), "link failed");
     let mut child = Command::new(&bin)
         .stdin(Stdio::piped())
@@ -837,15 +867,17 @@ fn host_abi_path_and_handles_link_smoke() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(
         status.success(),
         "clang failed to link host ABI smoke against libdraconic_rt.a"
@@ -936,15 +968,17 @@ fn host_path_dirname_basename_extname_is_absolute() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for path H03.02 smoke");
 
     let output = Command::new(&bin).output().expect("run path h0302");
@@ -1032,15 +1066,17 @@ fn host_fs_read_text_and_bytes() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for fs H04.01 smoke");
 
     let output = Command::new(&bin).output().expect("run fs h0401");
@@ -1147,15 +1183,17 @@ fn host_fs_write_append_text_and_bytes() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for fs H04.02 smoke");
 
     let output = Command::new(&bin).output().expect("run fs h0402");
@@ -1238,15 +1276,17 @@ fn host_fs_exists_and_stat() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for fs H04.03 smoke");
 
     let output = Command::new(&bin).output().expect("run fs h0403");
@@ -1348,15 +1388,17 @@ fn host_fs_dir_ops() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for fs H04.04 smoke");
 
     let output = Command::new(&bin).output().expect("run fs h0404");
@@ -1452,15 +1494,17 @@ fn host_fs_rename_and_copy() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for fs H04.05 smoke");
 
     let output = Command::new(&bin).output().expect("run fs h0405");
@@ -1554,15 +1598,17 @@ fn host_fs_open_handle_rw_seek_close() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for fs H04.06 smoke");
 
     let output = Command::new(&bin).output().expect("run fs h0406");
@@ -1627,15 +1673,17 @@ fn host_tcp_listen_ephemeral_local_port_close() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H06.01 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0601");
@@ -1723,15 +1771,17 @@ fn host_tcp_accept_peer_loopback() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H06.02 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0602");
@@ -1808,15 +1858,17 @@ fn host_tcp_connect_dial_and_refused() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H06.03 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0603");
@@ -1918,15 +1970,17 @@ fn host_tcp_read_write_partial_shutdown() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H06.04 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0604");
@@ -2092,15 +2146,17 @@ fn host_tcp_nonblocking_io_wait_via_job_drain() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H07.01 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0701");
@@ -2243,15 +2299,17 @@ fn host_tcp_async_promises_via_job_drain() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H07.02 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0702");
@@ -2382,15 +2440,17 @@ fn host_tcp_async_concurrent_does_not_starve_job_queue() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H07.03 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0703");
@@ -2478,15 +2538,17 @@ fn host_udp_bind_sendto_recvfrom_close() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for udp H08.01 smoke");
 
     let output = Command::new(&bin).output().expect("run udp h0801");
@@ -2578,15 +2640,17 @@ fn host_udp_loopback_echo_e2e() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for udp H08.02 smoke");
 
     let output = Command::new(&bin).output().expect("run udp h0802");
@@ -2657,15 +2721,17 @@ fn host_dns_lookup_loopback_and_failure() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for dns H09.01 smoke");
 
     let output = Command::new(&bin).output().expect("run dns h0901");
@@ -2728,15 +2794,17 @@ fn host_tcp_connect_by_name_localhost() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for tcp H09.02 smoke");
 
     let output = Command::new(&bin).output().expect("run tcp h0902");
@@ -2841,15 +2909,17 @@ fn host_http_parse_request_line_headers_body() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for http H10.01 smoke");
 
     let output = Command::new(&bin).output().expect("run http h1001");
@@ -2933,15 +3003,17 @@ fn host_http_write_response_status_headers_body() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for http H10.02 smoke");
 
     let output = Command::new(&bin).output().expect("run http h1002");
@@ -3051,15 +3123,17 @@ fn host_http_client_write_request_parse_response() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(status.success(), "clang failed for http H10.05 smoke");
 
     let output = Command::new(&bin).output().expect("run http h1005");
@@ -3070,4 +3144,151 @@ fn host_http_client_write_request_parse_response() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1005-ok\n");
+}
+
+#[test]
+fn host_tls_client_wrap_insecure_against_openssl_s_server() {
+    // H11.01: insecure TLS client wrap + read/write against openssl s_server.
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let openssl = ["openssl", "/usr/bin/openssl", "/opt/homebrew/bin/openssl"]
+        .iter()
+        .map(std::path::PathBuf::from)
+        .find(|p| {
+            p.is_file()
+                || Command::new(p)
+                    .arg("version")
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+        });
+    let openssl = match openssl {
+        Some(p) => p,
+        None => return, // skip when openssl missing
+    };
+
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let cert = dir.join("cert.pem");
+    let key = dir.join("key.pem");
+    let gen = Command::new(&openssl)
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+        ])
+        .arg(&key)
+        .arg("-out")
+        .arg(&cert)
+        .args(["-days", "1", "-nodes", "-subj", "/CN=localhost"])
+        .output()
+        .expect("openssl req");
+    assert!(
+        gen.status.success(),
+        "openssl req failed: {}",
+        String::from_utf8_lossy(&gen.stderr)
+    );
+
+    // Ephemeral port via bind port 0 helper: pick free port in Rust.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let mut server = Command::new(&openssl)
+        .args(["s_server", "-accept"])
+        .arg(port.to_string())
+        .arg("-cert")
+        .arg(&cert)
+        .arg("-key")
+        .arg(&key)
+        .arg("-www")
+        .arg("-quiet")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn openssl s_server");
+
+    // Wait until port accepts.
+    for _ in 0..50 {
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    let main_c = dir.join("main_tls.c");
+    let bin = dir.join("rt_host_tls");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    std::fs::write(
+        &main_c,
+        format!(
+            r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+int main(void) {{
+    DraconicHostHandle tcp = DRACONIC_HOST_HANDLE_INVALID;
+    DraconicHostHandle tls = DRACONIC_HOST_HANDLE_INVALID;
+    DraconicHostError err;
+    uint8_t *data = NULL;
+    size_t len = 0;
+    const char *req = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
+    err = draconic_rt_host_tcp_connect("127.0.0.1", {port}, &tcp);
+    if (err != DRACONIC_HOST_OK) {{ fprintf(stderr, "connect %d\n", err); return 1; }}
+    err = draconic_rt_host_tls_client_wrap(tcp, "localhost", 1, &tls);
+    if (err != DRACONIC_HOST_OK) {{ fprintf(stderr, "wrap %d\n", err); return 2; }}
+    err = draconic_rt_host_tls_write(tls, (const uint8_t *)req, strlen(req));
+    if (err != DRACONIC_HOST_OK) {{ fprintf(stderr, "write %d\n", err); return 3; }}
+    err = draconic_rt_host_tls_read(tls, 4096, &data, &len);
+    if (err != DRACONIC_HOST_OK) {{ fprintf(stderr, "read %d\n", err); return 4; }}
+    if (!data || len < 4) {{ fprintf(stderr, "empty\n"); return 5; }}
+    fwrite(data, 1, len, stdout);
+    free(data);
+    (void)draconic_rt_host_handle_close(tls);
+    printf("\nTLS-OK\n");
+    return 0;
+}}
+"#,
+            port = port
+        ),
+    )
+    .unwrap();
+
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link tls")
+    };
+    assert!(status.success(), "link tls client failed");
+
+    let out = Command::new(&bin).output().expect("run tls client");
+    let _ = server.kill();
+    let _ = server.wait();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "tls client failed: {:?}\nstdout={stdout}\nstderr={stderr}",
+        out.status
+    );
+    assert!(
+        stdout.contains("HTTP") || stdout.contains("TLS-OK"),
+        "stdout={stdout}"
+    );
+    assert!(stdout.contains("TLS-OK"), "stdout={stdout}");
 }

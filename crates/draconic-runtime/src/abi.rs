@@ -945,6 +945,22 @@ pub const HOST_FS_HANDLE_SEEK: AbiFn = AbiFn {
     ret: "i32",
     params: "i64, i64, i32, ptr",
 };
+/* H11.01: TLS client wrap + read/write. */
+pub const HOST_TLS_CLIENT_WRAP: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tls_client_wrap",
+    ret: "i32",
+    params: "i64, ptr, i32, ptr",
+};
+pub const HOST_TLS_READ: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tls_read",
+    ret: "i32",
+    params: "i64, i64, ptr, ptr",
+};
+pub const HOST_TLS_WRITE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tls_write",
+    ret: "i32",
+    params: "i64, ptr, i64",
+};
 /* H06.01–H06.04: TCP listen/accept/connect/peer/read/write/shutdown. */
 pub const HOST_TCP_LISTEN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_listen",
@@ -1199,8 +1215,11 @@ pub const HOST_HTTP_WRITE_RESPONSE_SYMBOL: &str = HOST_HTTP_WRITE_RESPONSE.symbo
 pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
 pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
+pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
+pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
+pub const HOST_TLS_WRITE_SYMBOL: &str = HOST_TLS_WRITE.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H10.02).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H11.01).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -1281,6 +1300,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_REQUEST_HEADER_SYMBOL,
     HOST_HTTP_WRITE_RESPONSE_SYMBOL,
     HOST_HTTP_WRITE_REQUEST_SYMBOL,
+    HOST_TLS_CLIENT_WRAP_SYMBOL,
+    HOST_TLS_READ_SYMBOL,
+    HOST_TLS_WRITE_SYMBOL,
     HOST_HTTP_PARSE_RESPONSE_SYMBOL,
     HOST_HTTP_RESPONSE_HEADER_SYMBOL,
 ];
@@ -1368,6 +1390,9 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_HTTP_WRITE_REQUEST,
     HOST_HTTP_PARSE_RESPONSE,
     HOST_HTTP_RESPONSE_HEADER,
+    HOST_TLS_CLIENT_WRAP,
+    HOST_TLS_READ,
+    HOST_TLS_WRITE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

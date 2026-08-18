@@ -469,6 +469,7 @@ pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnost
     if want_debug {
         cc_link.arg("-g");
     }
+    draconic_runtime::apply_runtime_link_flags(&mut cc_link);
     let output = cc_link
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

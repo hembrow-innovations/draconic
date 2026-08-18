@@ -1,0 +1,4 @@
+id: host/net/tls/tls_client_plain_peer_fails
+targets: native
+native.exit: 1
+native.stderr: EIO\n

@@ -1,10 +1,16 @@
     /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
     H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09 DNS,
-    H10.01 HTTP/1.1 request parse, H10.02 response write).
+    H10.01 HTTP/1.1 request parse, H10.02 response write, H11.01 TLS client).
     Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-    process, stdio, path, fs, TCP, UDP, DNS, HTTP, async readiness + Promise ops. */
+    process, stdio, path, fs, TCP, UDP, DNS, HTTP, TLS, async readiness + Promise ops. */
 
 #include "draconic_rt_host.h"
+
+#if defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/SecureTransport.h>
+#include <Security/Security.h>
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -50,11 +56,14 @@ void draconic_rt_promise_reject(DraconicValue *p, void *reason);
 #define DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN 2
 #define DRACONIC_HOST_HANDLE_KIND_TCP_CONN 3
 #define DRACONIC_HOST_HANDLE_KIND_UDP 4
+#define DRACONIC_HOST_HANDLE_KIND_TLS_CONN 5
 
 /* Live flags + kind + OS fd for 1-based handle ids. */
 static uint8_t g_host_handle_live[DRACONIC_HOST_HANDLE_SLOTS];
 static uint8_t g_host_handle_kind[DRACONIC_HOST_HANDLE_SLOTS];
 static int g_host_handle_fd[DRACONIC_HOST_HANDLE_SLOTS];
+/* TLS: SSLContextRef (macOS) or NULL; parallel to handle slots. */
+static void *g_host_handle_tls_ctx[DRACONIC_HOST_HANDLE_SLOTS];
 
 static DraconicHostError host_handle_alloc(
     uint8_t kind,
@@ -69,6 +78,7 @@ static DraconicHostError host_handle_alloc(
             g_host_handle_live[i] = 1;
             g_host_handle_kind[i] = kind;
             g_host_handle_fd[i] = fd;
+            g_host_handle_tls_ctx[i] = NULL;
             *out_h = (DraconicHostHandle)(i + 1);
             return DRACONIC_HOST_OK;
         }
@@ -98,6 +108,9 @@ static void host_io_cancel_handle(DraconicHostHandle h);
 /* H07.02: reject pending Promise async ops for a handle (defined below). */
 static void host_tcp_async_cancel_handle(DraconicHostHandle h);
 
+/* H11.01: tear down TLS context before closing fd (defined below). */
+static void host_tls_ctx_dispose(void *ctx);
+
 DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
     size_t i;
     if (!draconic_rt_host_handle_is_valid(h)) {
@@ -106,10 +119,15 @@ DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
     i = (size_t)h - 1;
     host_tcp_async_cancel_handle(h);
     host_io_cancel_handle(h);
+    if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TLS_CONN) {
+        host_tls_ctx_dispose(g_host_handle_tls_ctx[i]);
+        g_host_handle_tls_ctx[i] = NULL;
+    }
     if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE
         || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN
         || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_CONN
-        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_UDP) {
+        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_UDP
+        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TLS_CONN) {
         int fd = g_host_handle_fd[i];
         if (fd >= 0) {
 #if defined(_WIN32)
@@ -122,6 +140,7 @@ DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
     g_host_handle_live[i] = 0;
     g_host_handle_kind[i] = DRACONIC_HOST_HANDLE_KIND_NONE;
     g_host_handle_fd[i] = -1;
+    g_host_handle_tls_ctx[i] = NULL;
     return DRACONIC_HOST_OK;
 }
 
@@ -4183,3 +4202,361 @@ DraconicHostError draconic_rt_host_http_response_header(
     /* Same wire layout as request (start-line + headers + body). */
     return draconic_rt_host_http_request_header(data, len, name, out_value);
 }
+
+/* --- TLS client wrap (H11.01) -------------------------------------------- */
+
+#if defined(__APPLE__)
+static OSStatus host_tls_io_read(SSLConnectionRef connection, void *data, size_t *dataLength) {
+    int fd = (int)(intptr_t)connection;
+    size_t want = *dataLength;
+    ssize_t n;
+    uint8_t *p = (uint8_t *)data;
+    size_t got = 0;
+    if (fd < 0 || !data || !dataLength) {
+        return errSecParam;
+    }
+    while (got < want) {
+        n = read(fd, p + got, want - got);
+        if (n == 0) {
+            *dataLength = got;
+            return got == 0 ? errSSLClosedGraceful : noErr;
+        }
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                *dataLength = got;
+                return errSSLWouldBlock;
+            }
+            return errSSLClosedAbort;
+        }
+        got += (size_t)n;
+    }
+    *dataLength = got;
+    return noErr;
+}
+
+static OSStatus host_tls_io_write(SSLConnectionRef connection, const void *data, size_t *dataLength) {
+    int fd = (int)(intptr_t)connection;
+    size_t want = *dataLength;
+    ssize_t n;
+    const uint8_t *p = (const uint8_t *)data;
+    size_t sent = 0;
+    if (fd < 0 || !data || !dataLength) {
+        return errSecParam;
+    }
+    while (sent < want) {
+        n = write(fd, p + sent, want - sent);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                *dataLength = sent;
+                return errSSLWouldBlock;
+            }
+            return errSSLClosedAbort;
+        }
+        if (n == 0) {
+            *dataLength = sent;
+            return errSSLClosedAbort;
+        }
+        sent += (size_t)n;
+    }
+    *dataLength = sent;
+    return noErr;
+}
+
+static void host_tls_ctx_dispose(void *ctx) {
+    SSLContextRef ssl = (SSLContextRef)ctx;
+    if (ssl) {
+        (void)SSLClose(ssl);
+        CFRelease(ssl);
+    }
+}
+
+static DraconicHostError host_tls_steal_tcp_fd(DraconicHostHandle h, int *out_fd) {
+    size_t i;
+    if (!out_fd) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_fd = -1;
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    i = (size_t)h - 1;
+    if (g_host_handle_kind[i] != DRACONIC_HOST_HANDLE_KIND_TCP_CONN) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    host_tcp_async_cancel_handle(h);
+    host_io_cancel_handle(h);
+    *out_fd = g_host_handle_fd[i];
+    g_host_handle_live[i] = 0;
+    g_host_handle_kind[i] = DRACONIC_HOST_HANDLE_KIND_NONE;
+    g_host_handle_fd[i] = -1;
+    g_host_handle_tls_ctx[i] = NULL;
+    return DRACONIC_HOST_OK;
+}
+
+static int host_handle_tls_fd(DraconicHostHandle h) {
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return -1;
+    }
+    if (g_host_handle_kind[(size_t)h - 1] != DRACONIC_HOST_HANDLE_KIND_TLS_CONN) {
+        return -1;
+    }
+    return g_host_handle_fd[(size_t)h - 1];
+}
+
+static SSLContextRef host_handle_tls_ctx(DraconicHostHandle h) {
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return NULL;
+    }
+    if (g_host_handle_kind[(size_t)h - 1] != DRACONIC_HOST_HANDLE_KIND_TLS_CONN) {
+        return NULL;
+    }
+    return (SSLContextRef)g_host_handle_tls_ctx[(size_t)h - 1];
+}
+
+DraconicHostError draconic_rt_host_tls_client_wrap(
+    DraconicHostHandle tcp_conn,
+    const char *server_name,
+    int32_t insecure,
+    DraconicHostHandle *out_tls) {
+    int fd = -1;
+    SSLContextRef ctx = NULL;
+    OSStatus st;
+    DraconicHostError err;
+    DraconicHostHandle tls_h = DRACONIC_HOST_HANDLE_INVALID;
+    size_t i;
+
+    if (!out_tls) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_tls = DRACONIC_HOST_HANDLE_INVALID;
+    if (!server_name) {
+        server_name = "";
+    }
+
+    err = host_tls_steal_tcp_fd(tcp_conn, &fd);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+
+    ctx = SSLCreateContext(NULL, kSSLClientSide, kSSLStreamType);
+    if (!ctx) {
+        (void)close(fd);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    st = SSLSetIOFuncs(ctx, host_tls_io_read, host_tls_io_write);
+    if (st != noErr) {
+        CFRelease(ctx);
+        (void)close(fd);
+        return DRACONIC_HOST_E_IO;
+    }
+    st = SSLSetConnection(ctx, (SSLConnectionRef)(intptr_t)fd);
+    if (st != noErr) {
+        CFRelease(ctx);
+        (void)close(fd);
+        return DRACONIC_HOST_E_IO;
+    }
+    if (server_name[0] != '\0') {
+        st = SSLSetPeerDomainName(ctx, server_name, strlen(server_name));
+        if (st != noErr) {
+            CFRelease(ctx);
+            (void)close(fd);
+            return DRACONIC_HOST_E_INVAL;
+        }
+    }
+    if (insecure) {
+        /* Break on server auth so we can continue without trust evaluation. */
+        st = SSLSetSessionOption(ctx, kSSLSessionOptionBreakOnServerAuth, true);
+        if (st != noErr) {
+            CFRelease(ctx);
+            (void)close(fd);
+            return DRACONIC_HOST_E_IO;
+        }
+    }
+
+    /* Bound handshake so plain-TCP peers fail closed instead of hanging. */
+    {
+        struct timeval tv;
+        tv.tv_sec = 2;
+        tv.tv_usec = 0;
+        (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    }
+
+    {
+        time_t deadline = time(NULL) + 3;
+        for (;;) {
+            if (time(NULL) > deadline) {
+                CFRelease(ctx);
+                (void)close(fd);
+                return DRACONIC_HOST_E_IO;
+            }
+            st = SSLHandshake(ctx);
+            if (st == noErr) {
+                break;
+            }
+            if (st == errSSLServerAuthCompleted && insecure) {
+                /* Skip cert validation in insecure-test mode; resume handshake. */
+                continue;
+            }
+            if (st == errSSLWouldBlock) {
+                continue;
+            }
+            CFRelease(ctx);
+            (void)close(fd);
+            if (st == errSSLXCertChainInvalid || st == errSSLHostNameMismatch
+                || st == errSSLPeerHandshakeFail || st == errSSLNegotiation) {
+                return DRACONIC_HOST_E_CONN;
+            }
+            return DRACONIC_HOST_E_IO;
+        }
+    }
+
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_TLS_CONN, fd, &tls_h);
+    if (err != DRACONIC_HOST_OK) {
+        (void)SSLClose(ctx);
+        CFRelease(ctx);
+        (void)close(fd);
+        return err;
+    }
+    i = (size_t)tls_h - 1;
+    g_host_handle_tls_ctx[i] = ctx;
+    *out_tls = tls_h;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_tls_read(
+    DraconicHostHandle tls_h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    SSLContextRef ctx;
+    uint8_t *buf = NULL;
+    size_t processed = 0;
+    OSStatus st;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    if (max_len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    ctx = host_handle_tls_ctx(tls_h);
+    if (!ctx) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    buf = (uint8_t *)malloc(max_len);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    st = SSLRead(ctx, buf, max_len, &processed);
+    if (st == errSSLClosedGraceful || st == errSSLClosedNoNotify) {
+        free(buf);
+        *out_data = NULL;
+        *out_len = 0;
+        return DRACONIC_HOST_OK;
+    }
+    if (st != noErr && st != errSSLWouldBlock) {
+        free(buf);
+        return DRACONIC_HOST_E_IO;
+    }
+    if (processed == 0) {
+        free(buf);
+        *out_data = NULL;
+        *out_len = 0;
+        return DRACONIC_HOST_OK;
+    }
+    *out_data = buf;
+    *out_len = processed;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_tls_write(
+    DraconicHostHandle tls_h,
+    const uint8_t *data,
+    size_t len) {
+    SSLContextRef ctx;
+    size_t off = 0;
+    OSStatus st;
+
+    ctx = host_handle_tls_ctx(tls_h);
+    if (!ctx) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (!data) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    while (off < len) {
+        size_t processed = 0;
+        st = SSLWrite(ctx, data + off, len - off, &processed);
+        if (st != noErr && st != errSSLWouldBlock) {
+            return DRACONIC_HOST_E_IO;
+        }
+        if (processed == 0 && st == errSSLWouldBlock) {
+            continue;
+        }
+        if (processed == 0) {
+            return DRACONIC_HOST_E_IO;
+        }
+        off += processed;
+    }
+    return DRACONIC_HOST_OK;
+}
+
+#else /* !__APPLE__ */
+
+static void host_tls_ctx_dispose(void *ctx) {
+    (void)ctx;
+}
+
+DraconicHostError draconic_rt_host_tls_client_wrap(
+    DraconicHostHandle tcp_conn,
+    const char *server_name,
+    int32_t insecure,
+    DraconicHostHandle *out_tls) {
+    (void)tcp_conn;
+    (void)server_name;
+    (void)insecure;
+    if (out_tls) {
+        *out_tls = DRACONIC_HOST_HANDLE_INVALID;
+    }
+    return DRACONIC_HOST_E_NOSYS;
+}
+
+DraconicHostError draconic_rt_host_tls_read(
+    DraconicHostHandle tls_h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    (void)tls_h;
+    (void)max_len;
+    if (out_data) {
+        *out_data = NULL;
+    }
+    if (out_len) {
+        *out_len = 0;
+    }
+    return DRACONIC_HOST_E_NOSYS;
+}
+
+DraconicHostError draconic_rt_host_tls_write(
+    DraconicHostHandle tls_h,
+    const uint8_t *data,
+    size_t len) {
+    (void)tls_h;
+    (void)data;
+    (void)len;
+    return DRACONIC_HOST_E_NOSYS;
+}
+
+#endif /* __APPLE__ */

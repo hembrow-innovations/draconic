@@ -223,6 +223,15 @@ pub fn print_hello() {
     println!("hello");
 }
 
+/// Extra clang link flags required when linking the Runtime static lib.
+/// H11.01: Secure Transport on macOS (`Security` + `CoreFoundation`).
+pub fn apply_runtime_link_flags(cmd: &mut Command) {
+    if cfg!(target_os = "macos") {
+        cmd.arg("-framework").arg("Security");
+        cmd.arg("-framework").arg("CoreFoundation");
+    }
+}
+
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).
 ///
 /// Compiles every path from [`c_runtime_source_paths`] (core + host substrate)
@@ -256,13 +265,17 @@ pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
             .and_then(|s| s.to_str())
             .unwrap_or("draconic_rt");
         let obj = out_dir.join(format!("{stem}.o"));
-        let compile = Command::new(&clang)
+        let mut compile_cmd = Command::new(&clang);
+        compile_cmd
             .arg("-c")
             .arg(src)
             .arg("-o")
             .arg(&obj)
             .arg("-I")
             .arg(&header_dir)
+            // H11.01 Secure Transport APIs are deprecated in favor of Network.framework.
+            .arg("-Wno-deprecated-declarations");
+        let compile = compile_cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -557,15 +570,17 @@ mod tests {
         .unwrap();
 
         /* Link consumer against the archive only — not draconic_rt.c. */
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(
             status.success(),
             "clang failed to link against libdraconic_rt.a"
@@ -863,15 +878,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link gc stress test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_stress");
@@ -1034,15 +1051,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link gc mark props test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_mark_props");
@@ -1311,15 +1330,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link gc cycles test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_cycles");
@@ -1488,15 +1509,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link gc root stack test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_root_stack");
@@ -1648,15 +1671,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link gc auto-collect test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_auto");
@@ -1856,15 +1881,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link promise test");
 
         let output = Command::new(&bin).output().expect("run rt_promise");
@@ -1986,15 +2013,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link promise construct test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_construct");
@@ -2129,15 +2158,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link promise all test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_all");
@@ -2249,15 +2280,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link promise race test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_race");
@@ -2390,15 +2423,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link promise allSettled test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_all_settled");
@@ -2553,15 +2588,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link promise any test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_any");
@@ -2673,15 +2710,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link promise finally test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_finally");
@@ -2797,15 +2836,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link job queue test");
 
         let output = Command::new(&bin).output().expect("run rt_job_queue");
@@ -2891,15 +2932,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link timer test");
 
         let output = Command::new(&bin).output().expect("run rt_timer");
@@ -2973,15 +3016,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link interval test");
 
         let output = Command::new(&bin).output().expect("run rt_interval");
@@ -3074,15 +3119,17 @@ mod tests {
         )
         .unwrap();
 
-        let status = Command::new(&clang)
-            .arg(&main_c)
-            .arg(&archive)
-            .arg("-I")
-            .arg(&header_dir)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .expect("spawn clang");
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+            };
         assert!(status.success(), "clang failed to link timer wait test");
 
         let output = Command::new(&bin).output().expect("run rt_timer_wait");

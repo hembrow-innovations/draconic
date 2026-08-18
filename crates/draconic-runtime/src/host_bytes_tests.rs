@@ -286,15 +286,17 @@ fn host_bytes_io_boundary_link_smoke() {
     )
     .unwrap();
 
-    let status = Command::new(&clang)
-        .arg(&main_c)
-        .arg(&archive)
-        .arg("-I")
-        .arg(&header_dir)
-        .arg("-o")
-        .arg(&bin)
-        .status()
-        .expect("spawn clang");
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+        };
     assert!(
         status.success(),
         "clang failed to link host bytes smoke against libdraconic_rt.a"

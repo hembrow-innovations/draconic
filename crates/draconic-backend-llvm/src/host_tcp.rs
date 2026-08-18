@@ -1,4 +1,4 @@
-//! H06.01–H06.05: native TCP — listen/accept/connect/peer + read/write/shutdown + loopback echo.
+//! H06.01–H06.05 + H11.01: native TCP + TLS client wrap.
 //!
 //! - `tcpListen(port)` / `tcpListen(port, backlog)` → listen handle (number)
 //! - `tcpLocalPort(h)` → bound port (ephemeral when listen port was 0)
@@ -10,6 +10,8 @@
 //! - `tcpRead(conn, maxLen)` → DynBytes; `.length` + `stdoutWrite`
 //! - `tcpShutdown(conn)` / `tcpShutdown(conn, how)` — how 0=RD 1=WR 2=RDWR (default WR)
 //! - `closeTcp(h)` → close listen/conn handle via Runtime handle_close
+//! - `tlsClientWrap(conn, serverName, insecure)` → TLS handle (takes TCP conn)
+//! - `tlsRead` / `tlsWrite` / `closeTls` — application data + close TLS+TCP
 //!
 //! Host errors: `E_CONN` (refused/reset/timeout) → stderr `ECONN` + exit 1;
 //! `E_ADDR` (DNS resolve failure on connect-by-name) → stderr `EADDR` + exit 1;
@@ -25,7 +27,7 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE,
     HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT,
     HOST_TCP_PEER_ADDRESS, HOST_TCP_PEER_PORT, HOST_TCP_READ, HOST_TCP_SHUTDOWN, HOST_TCP_WRITE,
-    PRINT_BOOL, PRINT_F64, PRINT_STR,
+    HOST_TLS_CLIENT_WRAP, HOST_TLS_READ, HOST_TLS_WRITE, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_tcp_module(module: &Module) -> bool {
@@ -129,14 +131,17 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
 
 fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
-        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "closeTcp") =>
+        Expr::Call { callee, args, .. }
+            if args.len() == 1
+                && (is_named_callee(callee, "closeTcp") || is_named_callee(callee, "closeTls")) =>
         {
             ctx.has_tcp = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
             Some(())
         }
         Expr::Call { callee, args, .. }
-            if args.len() == 2 && is_named_callee(callee, "tcpWrite") =>
+            if args.len() == 2
+                && (is_named_callee(callee, "tcpWrite") || is_named_callee(callee, "tlsWrite")) =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
@@ -181,6 +186,38 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
 
 fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
     match expr {
+        Expr::Call { callee, args, .. }
+            if args.len() == 3 && is_named_callee(callee, "tlsClientWrap") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            let nt = classify_expr(arg_expr(&args[1])?, ctx)?;
+            if nt != SlotTy::String {
+                return None;
+            }
+            let it = classify_expr(arg_expr(&args[2])?, ctx)?;
+            if it != SlotTy::Number {
+                return None;
+            }
+            Some(SlotTy::Handle)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "tlsRead") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            let mt = classify_expr(arg_expr(&args[1])?, ctx)?;
+            if mt != SlotTy::Number {
+                return None;
+            }
+            Some(SlotTy::DynBytes)
+        }
         Expr::Call { callee, args, .. }
             if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpListen") =>
         {
@@ -498,6 +535,9 @@ impl<'a> Emitter<'a> {
             HOST_TCP_READ,
             HOST_TCP_WRITE,
             HOST_TCP_SHUTDOWN,
+            HOST_TLS_CLIENT_WRAP,
+            HOST_TLS_READ,
+            HOST_TLS_WRITE,
             HOST_HANDLE_CLOSE,
             HOST_STDOUT_WRITE,
             HOST_STDERR_WRITE,
@@ -617,13 +657,15 @@ impl<'a> Emitter<'a> {
     fn emit_dynbytes_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
-                if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
+                if args.len() == 2
+                    && (is_named_callee(callee, "tcpRead") || is_named_callee(callee, "tlsRead")) =>
             {
+                let is_tls = is_named_callee(callee, "tlsRead");
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpRead handle"))?,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: read handle"))?,
                 )?;
                 let max_f = self.emit_number_expr(
-                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tcpRead maxLen"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: read maxLen"))?,
                 )?;
                 let max_i = self.fresh();
                 writeln!(self.body, "  {max_i} = fptosi double {max_f} to i64").ok();
@@ -636,10 +678,14 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
                 writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
                 writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                let sym = if is_tls {
+                    HOST_TLS_READ.symbol
+                } else {
+                    HOST_TCP_READ.symbol
+                };
                 writeln!(
                     self.body,
-                    "  {rc} = call i32 @{}(i64 {h}, i64 {max_i}, ptr {out_data}, ptr {out_len})",
-                    HOST_TCP_READ.symbol
+                    "  {rc} = call i32 @{sym}(i64 {h}, i64 {max_i}, ptr {out_data}, ptr {out_len})"
                 )
                 .ok();
                 self.emit_check_rc(&rc)?;
@@ -651,17 +697,18 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  store i64 {n}, ptr {len_slot}").ok();
                 Ok(())
             }
-            _ => Err(diag("host_tcp: expected tcpRead for DynBytes")),
+            _ => Err(diag("host_tcp: expected tcpRead/tlsRead for DynBytes")),
         }
     }
 
     fn emit_expr_stmt(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
-                if args.len() == 1 && is_named_callee(callee, "closeTcp") =>
+                if args.len() == 1
+                    && (is_named_callee(callee, "closeTcp") || is_named_callee(callee, "closeTls")) =>
             {
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: closeTcp handle"))?,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: close handle"))?,
                 )?;
                 let rc = self.fresh();
                 writeln!(
@@ -673,19 +720,25 @@ impl<'a> Emitter<'a> {
                 self.emit_check_rc(&rc)
             }
             Expr::Call { callee, args, .. }
-                if args.len() == 2 && is_named_callee(callee, "tcpWrite") =>
+                if args.len() == 2
+                    && (is_named_callee(callee, "tcpWrite") || is_named_callee(callee, "tlsWrite")) =>
             {
+                let is_tls = is_named_callee(callee, "tlsWrite");
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpWrite handle"))?,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: write handle"))?,
                 )?;
                 let (d, n) = self.emit_bytes_ptr_len(
-                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tcpWrite data"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: write data"))?,
                 )?;
                 let rc = self.fresh();
+                let sym = if is_tls {
+                    HOST_TLS_WRITE.symbol
+                } else {
+                    HOST_TCP_WRITE.symbol
+                };
                 writeln!(
                     self.body,
-                    "  {rc} = call i32 @{}(i64 {h}, ptr {d}, i64 {n})",
-                    HOST_TCP_WRITE.symbol
+                    "  {rc} = call i32 @{sym}(i64 {h}, ptr {d}, i64 {n})"
                 )
                 .ok();
                 self.emit_check_rc(&rc)
@@ -924,6 +977,41 @@ impl<'a> Emitter<'a> {
                     self.body,
                     "  {rc} = call i32 @{}(ptr {host}, i32 {port_i}, ptr {out_h})",
                     HOST_TCP_CONNECT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 3 && is_named_callee(callee, "tlsClientWrap") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tlsClientWrap conn"))?,
+                )?;
+                let name = self.emit_string_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tlsClientWrap serverName"))?,
+                )?;
+                let insecure_f = self.emit_number_expr(
+                    arg_expr(&args[2]).ok_or_else(|| diag("host_tcp: tlsClientWrap insecure"))?,
+                )?;
+                let insecure_i = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {insecure_i} = fptosi double {insecure_f} to i32"
+                )
+                .ok();
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {name}, i32 {insecure_i}, ptr {out_h})",
+                    HOST_TLS_CLIENT_WRAP.symbol
                 )
                 .ok();
                 self.emit_check_rc(&rc)?;
@@ -1285,6 +1373,26 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_tcp_write"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tcp_read"), "{ir}");
         assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
+    }
+
+    #[test]
+    fn emit_tls_client_wrap_read_write() {
+        let m = lower_src(
+            r#"
+            let c = tcpConnect("127.0.0.1", 443);
+            let t = tlsClientWrap(c, "localhost", 1);
+            tlsWrite(t, "hi");
+            let res = tlsRead(t, 64);
+            stdoutWrite(res);
+            closeTls(t);
+            "#,
+        );
+        assert!(is_host_tcp_module(&m));
+        let ir = emit_host_tcp(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tls_client_wrap"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tls_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tls_read"), "{ir}");
         assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
     }
 }

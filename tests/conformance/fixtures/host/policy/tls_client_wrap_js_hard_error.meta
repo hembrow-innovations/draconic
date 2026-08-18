@@ -1,0 +1,4 @@
+id: host/policy/tls_client_wrap_js_hard_error
+targets: js
+js.error: unsupported on js
+js.error_code: E0400

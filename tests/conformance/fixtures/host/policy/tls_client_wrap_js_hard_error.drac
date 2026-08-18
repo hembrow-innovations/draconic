@@ -1,0 +1,2 @@
+// H11.01: TLS client APIs are native-only until optional JS bridge.
+tlsClientWrap(1, "localhost", 1);

@@ -1,0 +1,8 @@
+// H11.01: tlsClientWrap against a plain TCP peer must fail (handshake → EIO/ECONN).
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let t = tlsClientWrap(c, "localhost", 1);
+closeTls(t);
+closeTcp(a);
+closeTcp(s);

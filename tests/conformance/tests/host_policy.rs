@@ -88,3 +88,13 @@ fn http_request_header_js_hard_error_fixture_present() {
 fn http_request_header_js_hard_error_on_js() {
     assert_fixture_runs_js("host/policy/http_request_header_js_hard_error");
 }
+
+#[test]
+fn tls_client_wrap_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/tls_client_wrap_js_hard_error");
+}
+
+#[test]
+fn tls_client_wrap_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/tls_client_wrap_js_hard_error");
+}

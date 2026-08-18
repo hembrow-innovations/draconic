@@ -91,6 +91,7 @@ pub struct HostApiEntry {
 /// - H10.04: same surface, two request/response cycles on one connection (keep-alive).
 /// - H10.07: HTTP listen helpers (`httpParseRequest` / `httpRequestHeader` / `httpWriteResponse`
 ///   and client parse/write) hard-error on js until optional Node bridge.
+/// - `tlsClientWrap` / `tlsRead` / `tlsWrite` / `closeTls` (H11.01): native-only TLS client wrap.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -316,6 +317,26 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "clearInterval",
         availability: HostAvailability::BOTH,
         note: "H05.04 clearInterval",
+    },
+    HostApiEntry {
+        name: "tlsClientWrap",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H11.01 TLS client wrap TCP conn (serverName, insecure)",
+    },
+    HostApiEntry {
+        name: "tlsRead",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H11.01 TLS read application data",
+    },
+    HostApiEntry {
+        name: "tlsWrite",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H11.01 TLS write application data",
+    },
+    HostApiEntry {
+        name: "closeTls",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H11.01 close TLS handle (and underlying TCP)",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -819,6 +840,10 @@ mod tests {
             "httpWriteRequest",
             "httpParseResponse",
             "httpResponseHeader",
+            "tlsClientWrap",
+            "tlsRead",
+            "tlsWrite",
+            "closeTls",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");
