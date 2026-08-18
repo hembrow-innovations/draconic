@@ -1,0 +1,6 @@
+id: host/fs/remove_file
+targets: js,native
+js.exit: 0
+js.check: if (gone !== false) process.exit(1);
+native.exit: 0
+native.stdout: false\n

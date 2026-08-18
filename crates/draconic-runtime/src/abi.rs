@@ -833,6 +833,32 @@ pub const HOST_FS_STAT: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, ptr, ptr, ptr, ptr",
 };
+/* H04.04: mkdir / readdir / rmdir / removeFile. */
+pub const HOST_FS_MKDIR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_mkdir",
+    ret: "i32",
+    params: "ptr",
+};
+pub const HOST_FS_MKDIR_ALL: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_mkdir_all",
+    ret: "i32",
+    params: "ptr",
+};
+pub const HOST_FS_READDIR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_readdir",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
+pub const HOST_FS_RMDIR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_rmdir",
+    ret: "i32",
+    params: "ptr",
+};
+pub const HOST_FS_REMOVE_FILE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_remove_file",
+    ret: "i32",
+    params: "ptr",
+};
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -873,6 +899,11 @@ pub const HOST_FS_WRITE_TEXT_SYMBOL: &str = HOST_FS_WRITE_TEXT.symbol;
 pub const HOST_FS_APPEND_TEXT_SYMBOL: &str = HOST_FS_APPEND_TEXT.symbol;
 pub const HOST_FS_EXISTS_SYMBOL: &str = HOST_FS_EXISTS.symbol;
 pub const HOST_FS_STAT_SYMBOL: &str = HOST_FS_STAT.symbol;
+pub const HOST_FS_MKDIR_SYMBOL: &str = HOST_FS_MKDIR.symbol;
+pub const HOST_FS_MKDIR_ALL_SYMBOL: &str = HOST_FS_MKDIR_ALL.symbol;
+pub const HOST_FS_READDIR_SYMBOL: &str = HOST_FS_READDIR.symbol;
+pub const HOST_FS_RMDIR_SYMBOL: &str = HOST_FS_RMDIR.symbol;
+pub const HOST_FS_REMOVE_FILE_SYMBOL: &str = HOST_FS_REMOVE_FILE.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H04).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -915,6 +946,11 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_FS_APPEND_TEXT_SYMBOL,
     HOST_FS_EXISTS_SYMBOL,
     HOST_FS_STAT_SYMBOL,
+    HOST_FS_MKDIR_SYMBOL,
+    HOST_FS_MKDIR_ALL_SYMBOL,
+    HOST_FS_READDIR_SYMBOL,
+    HOST_FS_RMDIR_SYMBOL,
+    HOST_FS_REMOVE_FILE_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -958,6 +994,11 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_FS_APPEND_TEXT,
     HOST_FS_EXISTS,
     HOST_FS_STAT,
+    HOST_FS_MKDIR,
+    HOST_FS_MKDIR_ALL,
+    HOST_FS_READDIR,
+    HOST_FS_RMDIR,
+    HOST_FS_REMOVE_FILE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -1303,7 +1344,7 @@ if (typeof globalThis !== "undefined") {
 "#
 }
 
-/// JS polyfill for host file APIs (H04.01–H04.03).
+/// JS polyfill for host file APIs (H04.01–H04.04).
 ///
 /// Node `fs` bridge. Missing path → throw `Error` with `.code === "ENOENT"`
 /// and `.name === "HostError"`. `exists` returns boolean (no throw).
@@ -1320,6 +1361,9 @@ pub fn fs_read_js_polyfill() -> &'static str {
 function __draconic_host_fs_catch(p, err) {
   if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
     __draconic_host_fs_err("ENOENT", p, err);
+  }
+  if (err && err.code === "EEXIST") {
+    __draconic_host_fs_err("EEXIST", p, err);
   }
   if (err && (err.code === "EACCES" || err.code === "EPERM")) {
     __draconic_host_fs_err("EPERM", p, err);
@@ -1409,6 +1453,51 @@ function stat(path) {
     __draconic_host_fs_catch(p, err);
   }
 }
+function mkdir(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    fs.mkdirSync(p);
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function mkdirAll(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    fs.mkdirSync(p, { recursive: true });
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function readdir(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    return fs.readdirSync(p);
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function rmdir(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    fs.rmdirSync(p);
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function removeFile(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    fs.unlinkSync(p);
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
 if (typeof globalThis !== "undefined") {
   globalThis.readFileText = readFileText;
   globalThis.readFileBytes = readFileBytes;
@@ -1418,6 +1507,11 @@ if (typeof globalThis !== "undefined") {
   globalThis.appendFileBytes = appendFileBytes;
   globalThis.exists = exists;
   globalThis.stat = stat;
+  globalThis.mkdir = mkdir;
+  globalThis.mkdirAll = mkdirAll;
+  globalThis.readdir = readdir;
+  globalThis.rmdir = rmdir;
+  globalThis.removeFile = removeFile;
 }
 "#
 }

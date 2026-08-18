@@ -12,13 +12,16 @@
 #include <sys/stat.h>
 
 #if defined(_WIN32)
+#include <direct.h>
+#include <io.h>
 #include <process.h>
 #include <tlhelp32.h>
 #include <windows.h>
-/* getenv / _putenv_s; _getpid */
+/* getenv / _putenv_s; _getpid; _mkdir / _rmdir / _unlink */
 #else
+#include <dirent.h>
 #include <unistd.h>
-/* setenv / unsetenv; getpid / getppid */
+/* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink */
 #endif
 
 /* --- Handle table (slots filled by later open/listen/etc.) --- */
@@ -1209,4 +1212,260 @@ DraconicHostError draconic_rt_host_fs_stat(
 #endif
     *out_mtime_ms = ms;
     return DRACONIC_HOST_OK;
+}
+
+/* --- Filesystem directory ops (H04.04) ----------------------------------- */
+
+static DraconicHostError host_fs_errno_map(void) {
+    if (errno == ENOENT || errno == ENOTDIR) {
+        return DRACONIC_HOST_E_NOENT;
+    }
+    if (errno == EEXIST) {
+        return DRACONIC_HOST_E_EXIST;
+    }
+    if (errno == EACCES
+#if defined(EPERM)
+        || errno == EPERM
+#endif
+    ) {
+        return DRACONIC_HOST_E_PERM;
+    }
+    if (errno == ENOMEM) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    return DRACONIC_HOST_E_IO;
+}
+
+static DraconicHostError host_fs_mkdir_one(const char *path) {
+#if defined(_WIN32)
+    if (_mkdir(path) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#else
+    if (mkdir(path, 0755) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#endif
+    return host_fs_errno_map();
+}
+
+DraconicHostError draconic_rt_host_fs_mkdir(const char *path) {
+    if (!path || path[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    return host_fs_mkdir_one(path);
+}
+
+DraconicHostError draconic_rt_host_fs_mkdir_all(const char *path) {
+    char *buf;
+    size_t len;
+    size_t i;
+    DraconicHostError err;
+    struct stat st;
+
+    if (!path || path[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    /* Already a directory → OK (mkdir -p). */
+    if (stat(path, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            return DRACONIC_HOST_OK;
+        }
+        return DRACONIC_HOST_E_EXIST;
+    }
+
+    len = strlen(path);
+    buf = (char *)malloc(len + 1);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    memcpy(buf, path, len + 1);
+
+    /* Walk components; create each prefix. Skip drive letter on Windows. */
+    i = 0;
+#if defined(_WIN32)
+    if (len >= 2 && ((buf[0] >= 'A' && buf[0] <= 'Z') || (buf[0] >= 'a' && buf[0] <= 'z'))
+        && buf[1] == ':') {
+        i = 2;
+    }
+#endif
+    if (buf[i] == '/' || buf[i] == '\\') {
+        i++;
+    }
+    for (; i < len; i++) {
+        if (buf[i] == '/' || buf[i] == '\\') {
+            char save = buf[i];
+            buf[i] = '\0';
+            if (buf[0] != '\0' && !(buf[0] == '/' && buf[1] == '\0')) {
+                err = host_fs_mkdir_one(buf);
+                if (err != DRACONIC_HOST_OK && err != DRACONIC_HOST_E_EXIST) {
+                    free(buf);
+                    return err;
+                }
+            }
+            buf[i] = save;
+        }
+    }
+    err = host_fs_mkdir_one(buf);
+    free(buf);
+    if (err == DRACONIC_HOST_E_EXIST) {
+        if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+            return DRACONIC_HOST_OK;
+        }
+    }
+    return err;
+}
+
+DraconicHostError draconic_rt_host_fs_readdir(
+    const char *path,
+    char ***out_names,
+    int64_t *out_count) {
+    char **names = NULL;
+    size_t count = 0;
+    size_t cap = 0;
+
+    if (!path || path[0] == '\0' || !out_names || !out_count) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_names = NULL;
+    *out_count = 0;
+
+#if defined(_WIN32)
+    {
+        char pattern[MAX_PATH];
+        WIN32_FIND_DATAA fd;
+        HANDLE h;
+        size_t plen = strlen(path);
+        if (plen + 3 >= sizeof(pattern)) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        memcpy(pattern, path, plen);
+        if (plen > 0 && path[plen - 1] != '/' && path[plen - 1] != '\\') {
+            pattern[plen++] = '\\';
+        }
+        pattern[plen++] = '*';
+        pattern[plen] = '\0';
+        h = FindFirstFileA(pattern, &fd);
+        if (h == INVALID_HANDLE_VALUE) {
+            DWORD e = GetLastError();
+            if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) {
+                return DRACONIC_HOST_E_NOENT;
+            }
+            return DRACONIC_HOST_E_IO;
+        }
+        do {
+            const char *name = fd.cFileName;
+            char *copy;
+            char **grown;
+            if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                continue;
+            }
+            if (count == cap) {
+                size_t ncap = cap == 0 ? 8 : cap * 2;
+                grown = (char **)realloc(names, ncap * sizeof(char *));
+                if (!grown) {
+                    FindClose(h);
+                    while (count > 0) {
+                        free(names[--count]);
+                    }
+                    free(names);
+                    return DRACONIC_HOST_E_NOMEM;
+                }
+                names = grown;
+                cap = ncap;
+            }
+            copy = (char *)malloc(strlen(name) + 1);
+            if (!copy) {
+                FindClose(h);
+                while (count > 0) {
+                    free(names[--count]);
+                }
+                free(names);
+                return DRACONIC_HOST_E_NOMEM;
+            }
+            memcpy(copy, name, strlen(name) + 1);
+            names[count++] = copy;
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+#else
+    {
+        DIR *dir = opendir(path);
+        struct dirent *ent;
+        if (!dir) {
+            return host_fs_errno_map();
+        }
+        while ((ent = readdir(dir)) != NULL) {
+            const char *name = ent->d_name;
+            char *copy;
+            char **grown;
+            if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                continue;
+            }
+            if (count == cap) {
+                size_t ncap = cap == 0 ? 8 : cap * 2;
+                grown = (char **)realloc(names, ncap * sizeof(char *));
+                if (!grown) {
+                    closedir(dir);
+                    while (count > 0) {
+                        free(names[--count]);
+                    }
+                    free(names);
+                    return DRACONIC_HOST_E_NOMEM;
+                }
+                names = grown;
+                cap = ncap;
+            }
+            copy = (char *)malloc(strlen(name) + 1);
+            if (!copy) {
+                closedir(dir);
+                while (count > 0) {
+                    free(names[--count]);
+                }
+                free(names);
+                return DRACONIC_HOST_E_NOMEM;
+            }
+            memcpy(copy, name, strlen(name) + 1);
+            names[count++] = copy;
+        }
+        closedir(dir);
+    }
+#endif
+
+    *out_names = names;
+    *out_count = (int64_t)count;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_fs_rmdir(const char *path) {
+    if (!path || path[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+#if defined(_WIN32)
+    if (_rmdir(path) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#else
+    if (rmdir(path) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#endif
+    return host_fs_errno_map();
+}
+
+DraconicHostError draconic_rt_host_fs_remove_file(const char *path) {
+    if (!path || path[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+#if defined(_WIN32)
+    if (_unlink(path) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#else
+    if (unlink(path) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#endif
+    return host_fs_errno_map();
 }

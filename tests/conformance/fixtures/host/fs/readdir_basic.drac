@@ -1,0 +1,11 @@
+// H04.04: readdir — names as string[]; single file → length 1 + name.
+// Fresh empty dir each run via mkdirAll + remove prior file + rmdir + mkdirAll.
+mkdirAll("/tmp/draconic_h0404_readdir");
+writeFileText("/tmp/draconic_h0404_readdir/only.txt", "x");
+removeFile("/tmp/draconic_h0404_readdir/only.txt");
+rmdir("/tmp/draconic_h0404_readdir");
+mkdirAll("/tmp/draconic_h0404_readdir");
+writeFileText("/tmp/draconic_h0404_readdir/only.txt", "x");
+let names = readdir("/tmp/draconic_h0404_readdir");
+let n = names.length;
+let a0 = names[0];

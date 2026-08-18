@@ -1,0 +1,6 @@
+id: host/fs/mkdir_all
+targets: js,native
+js.exit: 0
+js.check: if (a !== true) process.exit(1); if (isD !== true) process.exit(2);
+native.exit: 0
+native.stdout: true\ntrue\n

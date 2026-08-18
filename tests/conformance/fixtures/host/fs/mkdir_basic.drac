@@ -1,0 +1,8 @@
+// H04.04: mkdir — create one directory level; exists + stat isDir.
+// Ensure parent exists; clear child (mkdirAll+rmdir) then plain mkdir.
+mkdirAll("/tmp/draconic_h0404_mkdir_parent/child");
+rmdir("/tmp/draconic_h0404_mkdir_parent/child");
+mkdir("/tmp/draconic_h0404_mkdir_parent/child");
+let a = exists("/tmp/draconic_h0404_mkdir_parent/child");
+let s = stat("/tmp/draconic_h0404_mkdir_parent/child");
+let isD = s.isDir;

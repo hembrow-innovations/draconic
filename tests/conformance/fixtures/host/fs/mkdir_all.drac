@@ -1,0 +1,5 @@
+// H04.04: mkdirAll — recursive parents; nested path exists as dir.
+mkdirAll("/tmp/draconic_h0404_mkall/a/b");
+let a = exists("/tmp/draconic_h0404_mkall/a/b");
+let s = stat("/tmp/draconic_h0404_mkall/a/b");
+let isD = s.isDir;

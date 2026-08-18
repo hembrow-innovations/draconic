@@ -1046,3 +1046,113 @@ fn host_fs_exists_and_stat() {
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0403-ok\n");
 }
+
+#[test]
+fn host_fs_dir_ops() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_fs_h0404.c");
+    let bin = dir.join("rt_host_fs_h0404");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    let base = dir.join("h0404");
+    let base_path = base.to_string_lossy().replace('\\', "\\\\");
+    let nested = base.join("a").join("b");
+    let nested_path = nested.to_string_lossy().replace('\\', "\\\\");
+    let file_path = base
+        .join("only.txt")
+        .to_string_lossy()
+        .replace('\\', "\\\\");
+    let child = base.join("child");
+    let child_path = child.to_string_lossy().replace('\\', "\\\\");
+
+    std::fs::write(
+        &main_c,
+        format!(
+            r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <stdlib.h>
+        #include <string.h>
+
+        int main(void) {{
+            DraconicHostError err;
+            char **names = NULL;
+            int64_t count = 0;
+
+            err = draconic_rt_host_fs_mkdir_all("{nested_path}");
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (draconic_rt_host_fs_exists("{nested_path}") != 1) return 2;
+
+            err = draconic_rt_host_fs_mkdir("{child_path}");
+            if (err != DRACONIC_HOST_OK) return 3;
+            err = draconic_rt_host_fs_mkdir("{child_path}");
+            if (err != DRACONIC_HOST_E_EXIST) return 4;
+
+            {{
+                FILE *f = fopen("{file_path}", "w");
+                if (!f) return 5;
+                fputs("x", f);
+                fclose(f);
+            }}
+
+            err = draconic_rt_host_fs_readdir("{base_path}", &names, &count);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (count < 2) return 7; /* child dir + only.txt at least */
+            {{
+                int found = 0;
+                for (int64_t i = 0; i < count; i++) {{
+                    if (names[i] && strcmp(names[i], "only.txt") == 0) found = 1;
+                    free(names[i]);
+                }}
+                free(names);
+                names = NULL;
+                if (!found) return 8;
+            }}
+
+            err = draconic_rt_host_fs_remove_file("{file_path}");
+            if (err != DRACONIC_HOST_OK) return 9;
+            if (draconic_rt_host_fs_exists("{file_path}") != 0) return 10;
+
+            err = draconic_rt_host_fs_rmdir("{child_path}");
+            if (err != DRACONIC_HOST_OK) return 11;
+            if (draconic_rt_host_fs_exists("{child_path}") != 0) return 12;
+
+            err = draconic_rt_host_fs_mkdir(NULL);
+            if (err != DRACONIC_HOST_E_INVAL) return 13;
+            err = draconic_rt_host_fs_readdir("{base_path}/__no_such__", &names, &count);
+            if (err != DRACONIC_HOST_E_NOENT) return 14;
+
+            puts("fs-h0404-ok");
+            return 0;
+        }}
+        "#
+        ),
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for fs H04.04 smoke");
+
+    let output = Command::new(&bin).output().expect("run fs h0404");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "fs H04.04 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0404-ok\n");
+}

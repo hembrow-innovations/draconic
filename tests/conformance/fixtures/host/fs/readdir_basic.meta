@@ -1,0 +1,6 @@
+id: host/fs/readdir_basic
+targets: js,native
+js.exit: 0
+js.check: if (n !== 1) process.exit(1); if (a0 !== "only.txt") process.exit(2);
+native.exit: 0
+native.stdout: 1\nonly.txt\n

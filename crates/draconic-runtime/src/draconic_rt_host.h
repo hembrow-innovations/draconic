@@ -242,6 +242,23 @@ DraconicHostError draconic_rt_host_fs_stat(
     int32_t *out_is_dir,
     double *out_mtime_ms);
 
+/* --- Filesystem directory ops (H04.04) -------------------------------------
+   mkdir: create one directory (non-recursive). EEXIST if path already exists.
+   mkdir_all: create path and parents (like mkdir -p); OK if path is already a dir.
+   readdir: entry names only (no "." / ".."). On OK: *out_names is malloc'd array of
+   *out_count malloc'd NUL-terminated names (caller frees each name + the array).
+   rmdir: remove empty directory. remove_file: unlink a regular file.
+   Missing path → NOENT; path NULL/empty → INVAL. */
+
+DraconicHostError draconic_rt_host_fs_mkdir(const char *path);
+DraconicHostError draconic_rt_host_fs_mkdir_all(const char *path);
+DraconicHostError draconic_rt_host_fs_readdir(
+    const char *path,
+    char ***out_names,
+    int64_t *out_count);
+DraconicHostError draconic_rt_host_fs_rmdir(const char *path);
+DraconicHostError draconic_rt_host_fs_remove_file(const char *path);
+
 #ifdef __cplusplus
 }
 #endif

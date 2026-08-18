@@ -1,0 +1,4 @@
+// H04.04: rmdir — remove empty directory.
+mkdirAll("/tmp/draconic_h0404_rmdir");
+rmdir("/tmp/draconic_h0404_rmdir");
+let gone = exists("/tmp/draconic_h0404_rmdir");

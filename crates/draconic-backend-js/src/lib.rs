@@ -124,7 +124,7 @@ fn module_uses_path(module: &Module) -> bool {
     })
 }
 
-/// H04.01–H04.03: free host file-read / write / append / exists / stat APIs.
+/// H04.01–H04.04: free host file-read / write / append / exists / stat / dir APIs.
 fn module_uses_fs_read(module: &Module) -> bool {
     module.body.iter().any(|s| {
         stmt_uses_ident_name(s, "readFileText")
@@ -135,6 +135,11 @@ fn module_uses_fs_read(module: &Module) -> bool {
             || stmt_uses_ident_name(s, "appendFileBytes")
             || stmt_uses_ident_name(s, "exists")
             || stmt_uses_ident_name(s, "stat")
+            || stmt_uses_ident_name(s, "mkdir")
+            || stmt_uses_ident_name(s, "mkdirAll")
+            || stmt_uses_ident_name(s, "readdir")
+            || stmt_uses_ident_name(s, "rmdir")
+            || stmt_uses_ident_name(s, "removeFile")
     })
 }
 

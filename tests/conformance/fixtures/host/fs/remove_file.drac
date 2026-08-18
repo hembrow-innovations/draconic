@@ -1,0 +1,4 @@
+// H04.04: removeFile — delete a regular file.
+writeFileText("/tmp/draconic_h0404_rmf.txt", "x");
+removeFile("/tmp/draconic_h0404_rmf.txt");
+let gone = exists("/tmp/draconic_h0404_rmf.txt");
