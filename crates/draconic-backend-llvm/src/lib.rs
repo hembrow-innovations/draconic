@@ -44,6 +44,7 @@ mod host_http;
 mod host_http_server;
 mod host_path;
 mod host_process;
+mod host_signals;
 mod host_stdio;
 mod host_tcp;
 mod host_tcp_async;
@@ -111,6 +112,7 @@ use host_http::{emit_host_http, is_host_http_module};
 use host_http_server::{emit_host_http_server, is_host_http_server_module};
 use host_path::{emit_host_path, is_host_path_module};
 use host_process::{emit_host_process, is_host_process_module};
+use host_signals::{emit_host_signals, is_host_signal_module};
 use host_stdio::{emit_host_stdio, is_host_stdio_module};
 use host_tcp::{emit_host_tcp, is_host_tcp_module};
 use host_tcp_async::{emit_host_tcp_async, is_host_tcp_async_module};
@@ -240,6 +242,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_process_module(module) {
         return emit_host_process(module);
+    }
+    if is_host_signal_module(module) {
+        return emit_host_signals(module);
     }
     if is_host_stdio_module(module) {
         return emit_host_stdio(module);

@@ -64,6 +64,8 @@ pub struct HostApiEntry {
 /// - `envGet` / `envSet` / `envDelete` (H01.02): both — string env; missing get → undefined.
 /// - `exit` / `exitCode` / `setExitCode` (H01.03): both — terminate / deferred status (default 0).
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
+/// - `onSignal` / `raiseSignal` (H14.01): native-only — SIGINT/SIGTERM watch via job queue;
+///   default without watch is OS terminate (SIG_DFL).
 /// - `stdoutWrite` (H02.01): both — write string or Uint8Array bytes to stdout.
 /// - `stderrWrite` (H02.02): both — write string or Uint8Array bytes to stderr.
 /// - `stdinReadLine` / `stdinReadBytes` (H02.03): both — blocking line/bytes from stdin.
@@ -142,6 +144,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "ppid",
         availability: HostAvailability::BOTH,
         note: "H01.04 process ppid",
+    },
+    HostApiEntry {
+        name: "onSignal",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H14.01 signal watch SIGINT/SIGTERM → job",
+    },
+    HostApiEntry {
+        name: "raiseSignal",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H14.01 raise SIGINT/SIGTERM to self",
     },
     HostApiEntry {
         name: "stdoutWrite",
@@ -915,6 +927,8 @@ mod tests {
             "wsClientHandshakeRequest",
             "wsClientCheckAccept",
             "wsEncodeTextClient",
+            "onSignal",
+            "raiseSignal",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

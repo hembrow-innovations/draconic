@@ -770,6 +770,34 @@ pub const HOST_PROCESS_PPID: AbiFn = AbiFn {
     params: "",
 };
 
+/* H14.01: signal watch / raise / poll (native). */
+pub const HOST_SIGNAL_WATCH: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_signal_watch",
+    ret: "i32",
+    params: "i32, ptr, ptr",
+};
+pub const HOST_SIGNAL_RAISE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_signal_raise",
+    ret: "i32",
+    params: "i32",
+};
+pub const HOST_SIGNAL_POLL: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_signal_poll",
+    ret: "i32",
+    params: "",
+};
+
+/// Declares for H14.01 signal native emit.
+pub const HOST_SIGNAL_DECLARES: &[AbiFn] = &[
+    GC_INIT,
+    PRINT_I64,
+    PRINT_BOOL,
+    PRINT_STR,
+    JOB_DRAIN,
+    HOST_SIGNAL_WATCH,
+    HOST_SIGNAL_RAISE,
+];
+
 /* H05.01: wall clock ms since Unix epoch (double / JS Number). */
 pub const HOST_NOW_MS: AbiFn = AbiFn {
     symbol: "draconic_rt_host_now_ms",
@@ -1213,6 +1241,9 @@ pub const HOST_PROCESS_SET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_SET_EXIT_CODE.s
 pub const HOST_PROCESS_GET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_GET_EXIT_CODE.symbol;
 pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
 pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
+pub const HOST_SIGNAL_WATCH_SYMBOL: &str = HOST_SIGNAL_WATCH.symbol;
+pub const HOST_SIGNAL_RAISE_SYMBOL: &str = HOST_SIGNAL_RAISE.symbol;
+pub const HOST_SIGNAL_POLL_SYMBOL: &str = HOST_SIGNAL_POLL.symbol;
 pub const HOST_NOW_MS_SYMBOL: &str = HOST_NOW_MS.symbol;
 pub const HOST_MONOTONIC_MS_SYMBOL: &str = HOST_MONOTONIC_MS.symbol;
 pub const HOST_STDOUT_WRITE_SYMBOL: &str = HOST_STDOUT_WRITE.symbol;
@@ -1311,6 +1342,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_GET_EXIT_CODE_SYMBOL,
     HOST_PROCESS_PID_SYMBOL,
     HOST_PROCESS_PPID_SYMBOL,
+    HOST_SIGNAL_WATCH_SYMBOL,
+    HOST_SIGNAL_RAISE_SYMBOL,
+    HOST_SIGNAL_POLL_SYMBOL,
     HOST_NOW_MS_SYMBOL,
     HOST_MONOTONIC_MS_SYMBOL,
     HOST_STDOUT_WRITE_SYMBOL,

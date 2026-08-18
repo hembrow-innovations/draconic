@@ -1,0 +1,4 @@
+id: host/process/signal_watch_sigint
+targets: native
+native.exit: 0
+native.stdout: 1\n

@@ -934,9 +934,14 @@ __attribute__((weak)) int draconic_rt_host_io_poll(double timeout_ms) {
     (void)timeout_ms;
     return 0;
 }
+/* H14.01: promote pending signals into jobs (strong def in host.c). */
+__attribute__((weak)) int draconic_rt_host_signal_poll(void) {
+    return 0;
+}
 #else
 int draconic_rt_host_io_pending(void);
 int draconic_rt_host_io_poll(double timeout_ms);
+int draconic_rt_host_signal_poll(void);
 #endif
 
 void draconic_rt_job_drain(void) {
@@ -961,6 +966,10 @@ void draconic_rt_job_drain(void) {
         }
         /* H05.03: promote due timers into jobs, then drain again. */
         if (timer_promote_due() > 0) {
+            continue;
+        }
+        /* H14.01: promote pending signal watches into jobs. */
+        if (draconic_rt_host_signal_poll() > 0) {
             continue;
         }
         /* H07.01: non-blocking IO readiness — poll with timer-aware timeout. */

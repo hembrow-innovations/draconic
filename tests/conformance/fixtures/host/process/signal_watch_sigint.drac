@@ -1,0 +1,6 @@
+// H14.01: onSignal("SIGINT") → handler job after raiseSignal.
+let n = 0;
+onSignal("SIGINT", function () {
+  n = n + 1;
+});
+raiseSignal("SIGINT");

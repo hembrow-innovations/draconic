@@ -574,6 +574,126 @@ int32_t draconic_rt_host_process_ppid(void) {
 #endif
 }
 
+/* --- Process signals (H14.01) ---
+   Default terminate: when no watch is installed, OS SIG_DFL remains (process
+   terminates on SIGINT/SIGTERM). Watch installs a SA_RESTART handler that only
+   sets a flag; draconic_rt_host_signal_poll enqueues the user job. */
+
+#if !defined(_WIN32)
+#include <signal.h>
+#endif
+
+#if defined(_WIN32)
+static volatile int g_sigint_pending;
+static volatile int g_sigterm_pending;
+#else
+static volatile sig_atomic_t g_sigint_pending;
+static volatile sig_atomic_t g_sigterm_pending;
+#endif
+static DraconicHostSignalFn g_sigint_fn;
+static void *g_sigint_data;
+static DraconicHostSignalFn g_sigterm_fn;
+static void *g_sigterm_data;
+static int g_sigint_watched;
+static int g_sigterm_watched;
+
+#if !defined(_WIN32)
+static void host_signal_handler(int signo) {
+    if (signo == SIGINT) {
+        g_sigint_pending = 1;
+    } else if (signo == SIGTERM) {
+        g_sigterm_pending = 1;
+    }
+}
+
+static int host_sig_os(int32_t sig) {
+    if (sig == DRACONIC_HOST_SIG_INT) {
+        return SIGINT;
+    }
+    if (sig == DRACONIC_HOST_SIG_TERM) {
+        return SIGTERM;
+    }
+    return -1;
+}
+#endif
+
+DraconicHostError draconic_rt_host_signal_watch(
+    int32_t sig,
+    DraconicHostSignalFn fn,
+    void *data
+) {
+    if (!fn) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+#if defined(_WIN32)
+    (void)sig;
+    (void)data;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    {
+        int os = host_sig_os(sig);
+        struct sigaction sa;
+        if (os < 0) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        if (sig == DRACONIC_HOST_SIG_INT) {
+            g_sigint_fn = fn;
+            g_sigint_data = data;
+            g_sigint_watched = 1;
+        } else {
+            g_sigterm_fn = fn;
+            g_sigterm_data = data;
+            g_sigterm_watched = 1;
+        }
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = host_signal_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;
+        if (sigaction(os, &sa, NULL) != 0) {
+            return DRACONIC_HOST_E_IO;
+        }
+        return DRACONIC_HOST_OK;
+    }
+#endif
+}
+
+DraconicHostError draconic_rt_host_signal_raise(int32_t sig) {
+#if defined(_WIN32)
+    (void)sig;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    {
+        int os = host_sig_os(sig);
+        if (os < 0) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        if (raise(os) != 0) {
+            return DRACONIC_HOST_E_IO;
+        }
+        return DRACONIC_HOST_OK;
+    }
+#endif
+}
+
+int draconic_rt_host_signal_poll(void) {
+    int n = 0;
+    if (g_sigint_pending) {
+        g_sigint_pending = 0;
+        if (g_sigint_watched && g_sigint_fn) {
+            draconic_rt_job_enqueue(g_sigint_fn, g_sigint_data);
+            n++;
+        }
+    }
+    if (g_sigterm_pending) {
+        g_sigterm_pending = 0;
+        if (g_sigterm_watched && g_sigterm_fn) {
+            draconic_rt_job_enqueue(g_sigterm_fn, g_sigterm_data);
+            n++;
+        }
+    }
+    return n;
+}
+
 /* --- Wall clock (H05.01) --- */
 
 double draconic_rt_host_now_ms(void) {

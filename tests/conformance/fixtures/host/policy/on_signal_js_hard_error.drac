@@ -1,0 +1,2 @@
+// H14.01: native-only signal watch must hard-error on js.
+onSignal("SIGTERM", function () {});

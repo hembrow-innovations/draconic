@@ -108,3 +108,23 @@ fn tls_client_wrap_js_hard_error_on_js() {
 fn tls_server_wrap_js_hard_error_on_js() {
     assert_fixture_runs_js("host/policy/tls_server_wrap_js_hard_error");
 }
+
+#[test]
+fn on_signal_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/on_signal_js_hard_error");
+}
+
+#[test]
+fn on_signal_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/on_signal_js_hard_error");
+}
+
+#[test]
+fn raise_signal_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/raise_signal_js_hard_error");
+}
+
+#[test]
+fn raise_signal_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/raise_signal_js_hard_error");
+}

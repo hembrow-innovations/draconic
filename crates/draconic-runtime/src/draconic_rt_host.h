@@ -132,6 +132,31 @@ int32_t draconic_rt_host_process_get_exit_code(void);
 int32_t draconic_rt_host_process_pid(void);
 int32_t draconic_rt_host_process_ppid(void);
 
+/* --- Process signals (H14.01) ----------------------------------------------
+   Portable signal codes (not necessarily OS signo values):
+     DRACONIC_HOST_SIG_INT  = SIGINT
+     DRACONIC_HOST_SIG_TERM = SIGTERM
+   Default (no watch): OS default terminate (SIG_DFL) remains in effect.
+   With watch: delivery sets a flag; job_drain promotes handlers onto the job
+   queue (async-signal-safe path only flags; user code runs as a job). */
+
+#define DRACONIC_HOST_SIG_INT 2
+#define DRACONIC_HOST_SIG_TERM 15
+
+typedef void (*DraconicHostSignalFn)(void *data);
+
+/* Install watch for SIGINT or SIGTERM. Handler runs via job queue after poll.
+   Replaces prior watch for that signal. fn must be non-NULL. */
+DraconicHostError draconic_rt_host_signal_watch(
+    int32_t sig,
+    DraconicHostSignalFn fn,
+    void *data);
+/* Raise signal to the current process (tests / self-notify). */
+DraconicHostError draconic_rt_host_signal_raise(int32_t sig);
+/* Promote pending signal deliveries into job queue. Returns jobs enqueued.
+   Called from draconic_rt_job_drain. */
+int draconic_rt_host_signal_poll(void);
+
 /* --- Wall clock (H05.01) ---------------------------------------------------
    Milliseconds since Unix epoch (UTC), as IEEE-754 double (JS Number). */
 

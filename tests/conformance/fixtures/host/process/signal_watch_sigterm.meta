@@ -1,0 +1,4 @@
+id: host/process/signal_watch_sigterm
+targets: native
+native.exit: 0
+native.stdout: 1\nfunction\nfunction\n

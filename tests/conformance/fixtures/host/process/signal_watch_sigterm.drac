@@ -1,0 +1,8 @@
+// H14.01: onSignal("SIGTERM") → handler job after raiseSignal; typeof.
+let fired = 0;
+onSignal("SIGTERM", function () {
+  fired = 1;
+});
+raiseSignal("SIGTERM");
+let t_on = typeof onSignal;
+let t_raise = typeof raiseSignal;
