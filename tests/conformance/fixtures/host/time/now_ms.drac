@@ -1,0 +1,7 @@
+// H05.01: nowMs() — wall clock ms since Unix epoch (real OS time).
+let t = typeof nowMs();
+let a = nowMs();
+let b = nowMs();
+let ok_range = a > 1600000000000;
+let ok_future = a < 4000000000000;
+let ok_order = b >= a;

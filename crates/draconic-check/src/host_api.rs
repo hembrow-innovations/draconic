@@ -75,6 +75,7 @@ pub struct HostApiEntry {
 /// - `mkdir` / `mkdirAll` / `readdir` / `rmdir` / `removeFile` (H04.04): both — dir create/list/remove + file delete.
 /// - `renameFile` / `copyFile` (H04.05): both — rename/move and copy regular files (`removeFile` is delete).
 /// - `openFile` / `fileRead` / `fileWrite` / `fileSeek` / `closeFile` (H04.06): native-only open handles.
+/// - `nowMs` (H05.01): both — wall clock ms since Unix epoch (`Date.now` equivalent).
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -271,6 +272,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "closeFile",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H04.06 close file handle",
+    },
+    HostApiEntry {
+        name: "nowMs",
+        availability: HostAvailability::BOTH,
+        note: "H05.01 wall clock ms",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -566,6 +572,16 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn registry_lists_now_ms_both() {
+        let entry = lookup("nowMs").expect("nowMs registered");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_available("nowMs", CompileTarget::Js));
+        assert!(is_available("nowMs", CompileTarget::Native));
+        assert!(unsupported_diagnostic("nowMs", CompileTarget::Js, Span::dummy()).is_none());
     }
 
     #[test]

@@ -89,6 +89,14 @@ fn module_uses_process_pid(module: &Module) -> bool {
     })
 }
 
+/// H05.01: free host API `nowMs`.
+fn module_uses_now_ms(module: &Module) -> bool {
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "nowMs"))
+}
+
 /// H02.01: free host API `stdoutWrite`.
 fn module_uses_stdout_write(module: &Module) -> bool {
     module
@@ -458,6 +466,13 @@ fn emit_js_full(
     // H01.04: `pid` / `ppid` Node bridge.
     if module_uses_process_pid(module) {
         out.push_str(draconic_runtime::process_pid_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H05.01: `nowMs` wall clock.
+    if module_uses_now_ms(module) {
+        out.push_str(draconic_runtime::now_ms_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

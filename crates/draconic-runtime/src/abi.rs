@@ -730,6 +730,13 @@ pub const HOST_PROCESS_PPID: AbiFn = AbiFn {
     params: "",
 };
 
+/* H05.01: wall clock ms since Unix epoch (double / JS Number). */
+pub const HOST_NOW_MS: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_now_ms",
+    ret: "double",
+    params: "",
+};
+
 /* H02.01: stdout write (raw bytes; no automatic newline). */
 pub const HOST_STDOUT_WRITE: AbiFn = AbiFn {
     symbol: "draconic_rt_host_stdout_write",
@@ -913,6 +920,7 @@ pub const HOST_PROCESS_SET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_SET_EXIT_CODE.s
 pub const HOST_PROCESS_GET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_GET_EXIT_CODE.symbol;
 pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
 pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
+pub const HOST_NOW_MS_SYMBOL: &str = HOST_NOW_MS.symbol;
 pub const HOST_STDOUT_WRITE_SYMBOL: &str = HOST_STDOUT_WRITE.symbol;
 pub const HOST_STDERR_WRITE_SYMBOL: &str = HOST_STDERR_WRITE.symbol;
 pub const HOST_STDIN_READ_LINE_SYMBOL: &str = HOST_STDIN_READ_LINE.symbol;
@@ -943,7 +951,7 @@ pub const HOST_FS_HANDLE_READ_SYMBOL: &str = HOST_FS_HANDLE_READ.symbol;
 pub const HOST_FS_HANDLE_WRITE_SYMBOL: &str = HOST_FS_HANDLE_WRITE.symbol;
 pub const HOST_FS_HANDLE_SEEK_SYMBOL: &str = HOST_FS_HANDLE_SEEK.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H04).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H05.01).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -966,6 +974,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_GET_EXIT_CODE_SYMBOL,
     HOST_PROCESS_PID_SYMBOL,
     HOST_PROCESS_PPID_SYMBOL,
+    HOST_NOW_MS_SYMBOL,
     HOST_STDOUT_WRITE_SYMBOL,
     HOST_STDERR_WRITE_SYMBOL,
     HOST_STDIN_READ_LINE_SYMBOL,
@@ -1020,6 +1029,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_GET_EXIT_CODE,
     HOST_PROCESS_PID,
     HOST_PROCESS_PPID,
+    HOST_NOW_MS,
     HOST_STDOUT_WRITE,
     HOST_STDERR_WRITE,
     HOST_STDIN_READ_LINE,
@@ -1153,6 +1163,19 @@ function ppid() {
 if (typeof globalThis !== "undefined") {
   globalThis.pid = pid;
   globalThis.ppid = ppid;
+}
+"#
+}
+
+/// JS polyfill for `nowMs()` (H05.01).
+///
+/// Node/browser wall clock via `Date.now()` (ms since Unix epoch).
+pub fn now_ms_js_polyfill() -> &'static str {
+    r#"function nowMs() {
+  return Date.now();
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.nowMs = nowMs;
 }
 "#
 }

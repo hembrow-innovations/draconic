@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #if defined(_WIN32)
 #include <direct.h>
@@ -21,6 +22,7 @@
 /* getenv / _putenv_s; _getpid; _mkdir / _rmdir / _unlink; _open/_read/_write/_lseeki64/_close */
 #else
 #include <dirent.h>
+#include <sys/time.h>
 #include <unistd.h>
 /* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink; open/read/write/lseek/close */
 #endif
@@ -522,6 +524,34 @@ int32_t draconic_rt_host_process_ppid(void) {
     }
 #else
     return (int32_t)getppid();
+#endif
+}
+
+/* --- Wall clock (H05.01) --- */
+
+double draconic_rt_host_now_ms(void) {
+#if defined(_WIN32)
+    {
+        /* FILETIME is 100-ns intervals since 1601-01-01 UTC. */
+        FILETIME ft;
+        ULARGE_INTEGER u;
+        const uint64_t epoch_diff_100ns = 116444736000000000ULL;
+        GetSystemTimeAsFileTime(&ft);
+        u.LowPart = ft.dwLowDateTime;
+        u.HighPart = ft.dwHighDateTime;
+        if (u.QuadPart < epoch_diff_100ns) {
+            return 0.0;
+        }
+        return (double)((u.QuadPart - epoch_diff_100ns) / 10000ULL);
+    }
+#else
+    {
+        struct timeval tv;
+        if (gettimeofday(&tv, NULL) != 0) {
+            return 0.0;
+        }
+        return ((double)tv.tv_sec * 1000.0) + ((double)tv.tv_usec / 1000.0);
+    }
 #endif
 }
 

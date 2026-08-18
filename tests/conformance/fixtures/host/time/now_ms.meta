@@ -1,0 +1,6 @@
+id: host/time/now_ms
+targets: js,native
+js.exit: 0
+js.check: if (t !== "number") process.exit(1); if (ok_range !== true) process.exit(2); if (ok_future !== true) process.exit(3); if (ok_order !== true) process.exit(4); var n = nowMs(); if (!(n > 1600000000000 && n < 4000000000000)) process.exit(5); if (Math.abs(n - Date.now()) > 60000) process.exit(6);
+native.exit: 0
+native.stdout: number\ntrue\ntrue\ntrue\n

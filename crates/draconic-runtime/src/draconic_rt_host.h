@@ -132,6 +132,11 @@ int32_t draconic_rt_host_process_get_exit_code(void);
 int32_t draconic_rt_host_process_pid(void);
 int32_t draconic_rt_host_process_ppid(void);
 
+/* --- Wall clock (H05.01) ---------------------------------------------------
+   Milliseconds since Unix epoch (UTC), as IEEE-754 double (JS Number). */
+
+double draconic_rt_host_now_ms(void);
+
 /* --- Stdout write (H02.01) -------------------------------------------------
    Write raw bytes to OS stdout. data may be NULL only when len == 0.
    Binary-safe (embedded 0x00 is payload). No automatic newline. */

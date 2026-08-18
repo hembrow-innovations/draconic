@@ -1,0 +1,7 @@
+// H05.01: Date.now() — wall clock ms via Runtime (not compile-time fold).
+let t = typeof Date.now();
+let a = Date.now();
+let b = Date.now();
+let ok_range = a > 1600000000000;
+let ok_future = a < 4000000000000;
+let ok_order = b >= a;
