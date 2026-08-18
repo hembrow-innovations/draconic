@@ -441,6 +441,8 @@ mod tests {
             GC_ROOT_POP_SYMBOL,
             GC_COLLECT_SYMBOL,
             GC_LIVE_COUNT_SYMBOL,
+            GC_SET_ALLOC_THRESHOLD_SYMBOL,
+            GC_ALLOC_THRESHOLD_SYMBOL,
         ] {
             assert!(src.contains(sym), "C runtime must export {sym}");
         }
@@ -745,6 +747,8 @@ mod tests {
                 size_t i;
 
                 draconic_rt_gc_init();
+                /* N09.01 measures explicit collect; disable N09.05 auto-collect. */
+                draconic_rt_gc_set_alloc_threshold(0);
 
                 /* Wave 1: many allocs (mix strings + empty objects); root only K. */
                 for (i = 0; i < N_ALLOC; i++) {
@@ -1504,6 +1508,166 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "gc-root-stack-ok\n", "stdout={stdout:?}");
+    }
+
+    /// N09.05: alloc-path threshold triggers collect without explicit gc_collect.
+    ///
+    /// With a low threshold, many unrooted allocs must reclaim garbage so
+    /// live_count stays bounded near the rooted set; rooted payloads survive.
+    #[test]
+    fn gc_auto_collect_on_alloc_pressure() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main.c");
+        let bin = dir.join("rt_gc_auto");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <string.h>
+            #include <stdint.h>
+
+            enum { THRESHOLD = 32, N_ALLOC = 400, K_ROOT = 8 };
+
+            int main(void) {
+                char buf[32];
+                DraconicValue *kept[K_ROOT];
+                size_t i;
+                size_t peak_live = 0;
+                size_t live;
+
+                draconic_rt_gc_init();
+                draconic_rt_gc_set_alloc_threshold(THRESHOLD);
+                if (draconic_rt_gc_alloc_threshold() != (size_t)THRESHOLD) {
+                    fprintf(stderr, "threshold getter mismatch\n");
+                    return 1;
+                }
+
+                /* Root a small set first so they stay live across auto-collects. */
+                for (i = 0; i < K_ROOT; i++) {
+                    int n = snprintf(buf, sizeof(buf), "keep%zu", i);
+                    if (n < 0) {
+                        fprintf(stderr, "snprintf keep failed\n");
+                        return 2;
+                    }
+                    kept[i] = draconic_rt_alloc_string(buf, (size_t)n);
+                    if (!kept[i]) {
+                        fprintf(stderr, "keep alloc failed\n");
+                        return 3;
+                    }
+                    draconic_rt_gc_root_push(kept[i]);
+                }
+
+                /* Flood unrooted garbage — no explicit collect. */
+                for (i = 0; i < N_ALLOC; i++) {
+                    DraconicValue *v;
+                    if ((i & 1u) == 0) {
+                        int n = snprintf(buf, sizeof(buf), "g%zu", i);
+                        if (n < 0) {
+                            fprintf(stderr, "snprintf garbage failed\n");
+                            return 4;
+                        }
+                        v = draconic_rt_alloc_string(buf, (size_t)n);
+                    } else {
+                        v = draconic_rt_alloc_object();
+                    }
+                    if (!v) {
+                        fprintf(stderr, "garbage alloc failed at %zu\n", i);
+                        return 5;
+                    }
+                    live = draconic_rt_gc_live_count();
+                    if (live > peak_live) {
+                        peak_live = live;
+                    }
+                }
+
+                live = draconic_rt_gc_live_count();
+                /* Must have auto-collected: live far below K_ROOT + N_ALLOC. */
+                if (live > (size_t)(K_ROOT + THRESHOLD + 8)) {
+                    fprintf(stderr, "live not bounded: live=%zu peak=%zu\n",
+                            live, peak_live);
+                    return 6;
+                }
+                if (peak_live > (size_t)(K_ROOT + THRESHOLD + 8)) {
+                    fprintf(stderr, "peak not bounded: peak=%zu\n", peak_live);
+                    return 7;
+                }
+                /* Roots must still be intact without any explicit collect. */
+                for (i = 0; i < K_ROOT; i++) {
+                    char expect[32];
+                    int n = snprintf(expect, sizeof(expect), "keep%zu", i);
+                    if (n < 0
+                        || !draconic_rt_is_string(kept[i])
+                        || draconic_rt_string_len(kept[i]) != (size_t)n
+                        || memcmp(draconic_rt_string_data(kept[i]), expect, (size_t)n) != 0) {
+                        fprintf(stderr, "rooted keep%zu corrupted\n", i);
+                        return 8;
+                    }
+                }
+
+                /* Threshold 0 disables auto-collect: live can grow unbounded. */
+                draconic_rt_gc_set_alloc_threshold(0);
+                {
+                    size_t before = draconic_rt_gc_live_count();
+                    for (i = 0; i < 80; i++) {
+                        if (!draconic_rt_alloc_object()) {
+                            fprintf(stderr, "disable-path alloc failed\n");
+                            return 9;
+                        }
+                    }
+                    live = draconic_rt_gc_live_count();
+                    if (live < before + 80) {
+                        fprintf(stderr, "threshold 0 still collected: before=%zu live=%zu\n",
+                                before, live);
+                        return 10;
+                    }
+                }
+
+                for (i = 0; i < K_ROOT; i++) {
+                    draconic_rt_gc_root_pop();
+                }
+                draconic_rt_gc_collect();
+                if (draconic_rt_gc_live_count() != 0) {
+                    fprintf(stderr, "final live want 0 got %zu\n",
+                            draconic_rt_gc_live_count());
+                    return 11;
+                }
+
+                puts("gc-auto-ok");
+                draconic_rt_gc_shutdown();
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link gc auto-collect test");
+
+        let output = Command::new(&bin).output().expect("run rt_gc_auto");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "gc auto-collect binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "gc-auto-ok\n", "stdout={stdout:?}");
     }
 
     #[test]

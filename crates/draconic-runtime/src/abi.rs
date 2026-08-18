@@ -176,6 +176,16 @@ pub const GC_LIVE_COUNT: AbiFn = AbiFn {
     ret: "i64",
     params: "",
 };
+pub const GC_SET_ALLOC_THRESHOLD: AbiFn = AbiFn {
+    symbol: "draconic_rt_gc_set_alloc_threshold",
+    ret: "void",
+    params: "i64",
+};
+pub const GC_ALLOC_THRESHOLD: AbiFn = AbiFn {
+    symbol: "draconic_rt_gc_alloc_threshold",
+    ret: "i64",
+    params: "",
+};
 pub const STRING_DATA: AbiFn = AbiFn {
     symbol: "draconic_rt_string_data",
     ret: "ptr",
@@ -427,6 +437,8 @@ pub const GC_ROOT_PUSH_SYMBOL: &str = GC_ROOT_PUSH.symbol;
 pub const GC_ROOT_POP_SYMBOL: &str = GC_ROOT_POP.symbol;
 pub const GC_COLLECT_SYMBOL: &str = GC_COLLECT.symbol;
 pub const GC_LIVE_COUNT_SYMBOL: &str = GC_LIVE_COUNT.symbol;
+pub const GC_SET_ALLOC_THRESHOLD_SYMBOL: &str = GC_SET_ALLOC_THRESHOLD.symbol;
+pub const GC_ALLOC_THRESHOLD_SYMBOL: &str = GC_ALLOC_THRESHOLD.symbol;
 pub const STRING_DATA_SYMBOL: &str = STRING_DATA.symbol;
 pub const STRING_LEN_SYMBOL: &str = STRING_LEN.symbol;
 pub const IS_STRING_SYMBOL: &str = IS_STRING.symbol;
@@ -479,6 +491,8 @@ pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
     GC_ROOT_POP_SYMBOL,
     GC_COLLECT_SYMBOL,
     GC_LIVE_COUNT_SYMBOL,
+    GC_SET_ALLOC_THRESHOLD_SYMBOL,
+    GC_ALLOC_THRESHOLD_SYMBOL,
     STRING_DATA_SYMBOL,
     STRING_LEN_SYMBOL,
     IS_STRING_SYMBOL,

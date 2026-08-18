@@ -393,6 +393,10 @@ typedef struct DraconicValue DraconicValue;
 static DraconicValue *g_heap_head = NULL;
 static size_t g_live_count = 0;
 static int g_gc_inited = 0;
+/* N09.05: auto-collect when live_count reaches threshold (0 = off). */
+#define GC_ALLOC_THRESHOLD_DEFAULT 1024
+static size_t g_gc_alloc_threshold = GC_ALLOC_THRESHOLD_DEFAULT;
+static int g_gc_collecting = 0;
 
 /* N09.04: growable root stack (historic fixed max was 64). */
 #define ROOT_STACK_INITIAL 64
@@ -404,6 +408,8 @@ void draconic_rt_gc_init(void) {
     g_heap_head = NULL;
     g_live_count = 0;
     g_root_sp = 0;
+    g_gc_collecting = 0;
+    g_gc_alloc_threshold = GC_ALLOC_THRESHOLD_DEFAULT;
     if (!g_roots) {
         g_roots = (DraconicValue **)calloc(ROOT_STACK_INITIAL, sizeof(DraconicValue *));
         g_root_cap = g_roots ? ROOT_STACK_INITIAL : 0;
@@ -460,15 +466,40 @@ void draconic_rt_gc_shutdown(void) {
     g_heap_head = NULL;
     g_live_count = 0;
     g_root_sp = 0;
+    g_gc_collecting = 0;
+    g_gc_alloc_threshold = GC_ALLOC_THRESHOLD_DEFAULT;
     free(g_roots);
     g_roots = NULL;
     g_root_cap = 0;
     g_gc_inited = 0;
 }
 
+void draconic_rt_gc_set_alloc_threshold(size_t threshold) {
+    if (!g_gc_inited) {
+        draconic_rt_gc_init();
+    }
+    g_gc_alloc_threshold = threshold;
+}
+
+size_t draconic_rt_gc_alloc_threshold(void) {
+    if (!g_gc_inited) {
+        draconic_rt_gc_init();
+    }
+    return g_gc_alloc_threshold;
+}
+
+/* Forward decl: heap_alloc may trigger auto-collect (N09.05). */
+void draconic_rt_gc_collect(void);
+
 static DraconicValue *heap_alloc(DraconicTag tag) {
     if (!g_gc_inited) {
         draconic_rt_gc_init();
+    }
+    /* N09.05: reclaim unrooted garbage before growing past the threshold. */
+    if (g_gc_alloc_threshold > 0
+        && !g_gc_collecting
+        && g_live_count >= g_gc_alloc_threshold) {
+        draconic_rt_gc_collect();
     }
     DraconicValue *v = (DraconicValue *)calloc(1, sizeof(DraconicValue));
     if (!v) {
@@ -576,6 +607,11 @@ static void mark_value(DraconicValue *v) {
 }
 
 void draconic_rt_gc_collect(void) {
+    if (g_gc_collecting) {
+        return;
+    }
+    g_gc_collecting = 1;
+
     /* mark */
     for (size_t i = 0; i < g_root_sp; i++) {
         mark_value(g_roots[i]);
@@ -594,6 +630,8 @@ void draconic_rt_gc_collect(void) {
             link = &cur->next;
         }
     }
+
+    g_gc_collecting = 0;
 }
 
 size_t draconic_rt_gc_live_count(void) {

@@ -45,7 +45,7 @@ Never silent wrong code, never hello-stub success for unsupported IR, never eras
 | No volume stress | Hello alloc 1–2 values; no “many allocate / retain / drop” | `crates/draconic-runtime` tests: N allocs, root subset, collect, assert `live_count` + no crash |
 | Object props not traced in mark | `mark_value` walks promise/array edges; **object `props` values not marked** | Stress + correctness: rooted object holding heap children must keep children live across collect |
 | Root stack hard limit | ~~Overflow `abort`s at 64~~ → **N09.04 done** (growable stack) | Document limit or grow; stress deep root push/pop |
-| No automatic collect on pressure | Collect is explicit only | Later: alloc-path threshold collect (separate Loop) |
+| No automatic collect on pressure | ~~Collect is explicit only~~ → **N09.05 done** (alloc-path threshold; 0 disables) | Default threshold 1024; `draconic_rt_gc_set_alloc_threshold` |
 | Cycles | No dedicated cycle fixture | Graph of mutual refs + unroot + collect → live_count 0 |
 | Closures / exotic JS values | Heap tags incomplete vs full ES | Track with N08 ES surface; GC tags grow with Runtime value kinds |
 

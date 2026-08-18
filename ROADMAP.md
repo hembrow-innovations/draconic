@@ -555,6 +555,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N09.02 | done | native | GC mark correctness: rooted object property values stay live across collect (trace object props) | `crates/draconic-runtime` tests |
 | N09.03 | done | native | GC cycles: mutual object/array refs; unrooted cycle → live_count 0; rooted cycle member keeps whole cycle live | `crates/draconic-runtime` tests |
 | N09.04 | done | native | GC root stack growth: push/pop beyond fixed 64 without abort; deep roots stay live across collect | `crates/draconic-runtime` tests |
+| N09.05 | done | native | GC auto-collect on alloc pressure: threshold on alloc path; unrooted garbage reclaimed without explicit collect; roots survive | `crates/draconic-runtime` tests |
 
 ---
 

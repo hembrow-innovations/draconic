@@ -48,6 +48,9 @@ void draconic_rt_gc_root_push(DraconicValue *v);
 void draconic_rt_gc_root_pop(void);
 void draconic_rt_gc_collect(void);
 size_t draconic_rt_gc_live_count(void);
+/* N09.05: auto-collect when live_count reaches threshold after alloc; 0 disables. */
+void draconic_rt_gc_set_alloc_threshold(size_t threshold);
+size_t draconic_rt_gc_alloc_threshold(void);
 
 const char *draconic_rt_string_data(DraconicValue *v);
 size_t draconic_rt_string_len(DraconicValue *v);
