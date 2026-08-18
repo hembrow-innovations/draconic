@@ -1,0 +1,4 @@
+id: host/net/tcp/tcp_loopback_echo
+targets: native
+native.exit: 0
+native.stdout: echo-me7\n

@@ -1,4 +1,4 @@
-//! H06.01–H06.04: native TCP — listen/accept/connect/peer + read/write/shutdown.
+//! H06.01–H06.05: native TCP — listen/accept/connect/peer + read/write/shutdown + loopback echo.
 //!
 //! - `tcpListen(port)` / `tcpListen(port, backlog)` → listen handle (number)
 //! - `tcpLocalPort(h)` → bound port (ephemeral when listen port was 0)
@@ -1226,5 +1226,34 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_tcp_read"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tcp_shutdown"), "{ir}");
         assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
+    }
+
+    #[test]
+    fn emit_tcp_loopback_echo() {
+        let m = lower_src(
+            r#"
+            let s = tcpListen(0);
+            let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+            let a = tcpAccept(s);
+            tcpWrite(c, "echo-me");
+            let req = tcpRead(a, 64);
+            tcpWrite(a, req);
+            let res = tcpRead(c, 64);
+            stdoutWrite(res);
+            let n = res.length;
+            closeTcp(a);
+            closeTcp(c);
+            closeTcp(s);
+            "#,
+        );
+        assert!(is_host_tcp_module(&m));
+        let ir = emit_host_tcp(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tcp_listen"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_connect"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_accept"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_read"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
     }
 }

@@ -1,4 +1,4 @@
-//! ROADMAP H06.01–H06.04: TCP listen/accept/connect/peer + read/write/shutdown.
+//! ROADMAP H06.01–H06.05: TCP listen/accept/connect/peer + read/write/shutdown + loopback echo.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -118,4 +118,23 @@ fn tcp_read_write_runs_native() {
         Some("hello-tcpabcdef9\n3\n3\n0\n")
     );
     assert_fixture_runs("host/net/tcp/tcp_read_write");
+}
+
+#[test]
+fn tcp_loopback_echo_runs_native() {
+    assert_fixture_present("host/net/tcp/tcp_loopback_echo");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tcp/tcp_loopback_echo")
+        .expect("host/net/tcp/tcp_loopback_echo");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("echo-me7\n")
+    );
+    assert_fixture_runs("host/net/tcp/tcp_loopback_echo");
 }

@@ -1,0 +1,13 @@
+// H06.05: TCP loopback e2e — listen + connect + accept + echo + close.
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+tcpWrite(c, "echo-me");
+let req = tcpRead(a, 64);
+tcpWrite(a, req);
+let res = tcpRead(c, 64);
+stdoutWrite(res);
+let n = res.length;
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);
