@@ -36,9 +36,10 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <unistd.h>
-/* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink; open/read/write/lseek/close;
-   socket/bind/listen/getsockname; getaddrinfo; poll */
+/* setenv / unsetenv; getpid / getppid; fork/execvp/waitpid; mkdir / rmdir / unlink;
+   open/read/write/lseek/close; socket/bind/listen/getsockname; getaddrinfo; poll */
 #endif
 
 /* Core job queue + Promise (draconic_rt.c) — H07.01/H07.02. */
@@ -571,6 +572,95 @@ int32_t draconic_rt_host_process_ppid(void) {
     }
 #else
     return (int32_t)getppid();
+#endif
+}
+
+/* --- Process run / spawn+wait (H15.01) --- */
+
+int32_t draconic_rt_host_process_run(
+    int32_t argc,
+    const char **argv,
+    const char *cwd,
+    int32_t env_n,
+    const char **env_keys,
+    const char **env_vals) {
+    int32_t i;
+
+    if (argc < 1 || !argv || !argv[0]) {
+        return -1;
+    }
+    for (i = 0; i < argc; i++) {
+        if (!argv[i]) {
+            return -1;
+        }
+    }
+    if (env_n > 0) {
+        if (!env_keys || !env_vals) {
+            return -1;
+        }
+        for (i = 0; i < env_n; i++) {
+            if (!env_keys[i] || !env_vals[i]) {
+                return -1;
+            }
+        }
+    }
+
+#if defined(_WIN32)
+    /* v1: posix-first; Windows CreateProcess path deferred. */
+    (void)cwd;
+    (void)env_n;
+    (void)env_keys;
+    (void)env_vals;
+    return -1;
+#else
+    {
+        char **av;
+        pid_t child;
+        int status;
+
+        av = (char **)malloc((size_t)(argc + 1) * sizeof(char *));
+        if (!av) {
+            return -1;
+        }
+        for (i = 0; i < argc; i++) {
+            av[i] = (char *)argv[i];
+        }
+        av[argc] = NULL;
+
+        child = fork();
+        if (child < 0) {
+            free(av);
+            return -1;
+        }
+        if (child == 0) {
+            if (cwd && cwd[0] != '\0') {
+                if (chdir(cwd) != 0) {
+                    _exit(127);
+                }
+            }
+            if (env_n > 0) {
+                for (i = 0; i < env_n; i++) {
+                    if (setenv(env_keys[i], env_vals[i], 1) != 0) {
+                        _exit(127);
+                    }
+                }
+            }
+            execvp(av[0], av);
+            _exit(127);
+        }
+
+        free(av);
+        if (waitpid(child, &status, 0) < 0) {
+            return -1;
+        }
+        if (WIFEXITED(status)) {
+            return (int32_t)WEXITSTATUS(status);
+        }
+        if (WIFSIGNALED(status)) {
+            return (int32_t)(128 + WTERMSIG(status));
+        }
+        return -1;
+    }
 #endif
 }
 

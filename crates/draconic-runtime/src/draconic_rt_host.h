@@ -132,6 +132,21 @@ int32_t draconic_rt_host_process_get_exit_code(void);
 int32_t draconic_rt_host_process_pid(void);
 int32_t draconic_rt_host_process_ppid(void);
 
+/* --- Process run / spawn+wait (H15.01) ------------------------------------
+   Spawn argv[0] with argv[0..argc), wait for exit, return status.
+   cwd NULL → inherit; else chdir in child before exec.
+   env_n > 0 → setenv each key/val in child (subset merge onto inherited env).
+   env_n <= 0 or keys/vals NULL → inherit env unchanged.
+   Returns: exit status 0–255; signal death → 128+signo; spawn/wait fail → -1. */
+
+int32_t draconic_rt_host_process_run(
+    int32_t argc,
+    const char **argv,
+    const char *cwd,
+    int32_t env_n,
+    const char **env_keys,
+    const char **env_vals);
+
 /* --- Process signals (H14.01 / H14.02) ------------------------------------
    Portable signal codes (not necessarily OS signo values):
      DRACONIC_HOST_SIG_INT  = SIGINT

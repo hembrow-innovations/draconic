@@ -659,7 +659,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H14.01 | done | native | Signal watch: SIGINT/SIGTERM → handler/job; default terminate documented | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
 | H14.02 | done | native | Signal ignore / restore default | `tests/conformance` fixtures `host/process` |
 | H15 | todo | both | Subprocess | `tests/conformance/host/process/subprocess` |
-| H15.01 | todo | both | spawn/run: argv, env subset, cwd; wait exit code | `tests/conformance` fixtures `host/process` |
+| H15.01 | done | both | spawn/run: argv, env subset, cwd; wait exit code | `tests/conformance` fixtures `host/process` |
 | H15.02 | todo | both | Capture stdout/stderr; write stdin; kill child | `tests/conformance` fixtures `host/process` |
 | H15.03 | todo | native | Async subprocess exit via job queue / Promise | `tests/conformance` fixtures `host/process` |
 | H16 | todo | both | OS misc | `tests/conformance/host/os` |

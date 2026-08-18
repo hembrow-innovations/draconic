@@ -315,6 +315,7 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_get_exit_code",
         "draconic_rt_host_process_pid",
         "draconic_rt_host_process_ppid",
+        "draconic_rt_host_process_run",
         "draconic_rt_host_signal_watch",
         "draconic_rt_host_signal_ignore",
         "draconic_rt_host_signal_restore",
@@ -559,6 +560,76 @@ int main(void) {
     assert!(pp >= 0, "ppid={pp}");
     // Child binary has its own pid; ppid should be this test process.
     assert_eq!(pp as u32, std::process::id());
+}
+
+#[test]
+fn host_process_run_argv_cwd_env() {
+    // H15.01: spawn+wait exit code; cwd; env subset merge.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_process_run.c");
+    let bin = dir.join("rt_host_process_run");
+    // Unique marker file so cwd is proven without relying on /tmp symlink path.
+    let marker_dir = dir.join("cwd_marker_dir");
+    std::fs::create_dir_all(&marker_dir).unwrap();
+    std::fs::write(marker_dir.join("H1501_MARKER"), b"x").unwrap();
+    let marker_dir_c = marker_dir.to_string_lossy().replace('\\', "\\\\");
+    std::fs::write(
+        &main_c,
+        format!(
+            r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+int main(void) {{
+    const char *argv_exit[] = {{ "/bin/sh", "-c", "exit 42" }};
+    int32_t c = draconic_rt_host_process_run(3, argv_exit, NULL, 0, NULL, NULL);
+    if (c != 42) {{ printf("exit=%d\n", (int)c); return 1; }}
+
+    const char *argv_cwd[] = {{ "/bin/sh", "-c", "test -f H1501_MARKER" }};
+    c = draconic_rt_host_process_run(3, argv_cwd, "{marker_dir_c}", 0, NULL, NULL);
+    if (c != 0) {{ printf("cwd=%d\n", (int)c); return 2; }}
+
+    const char *argv_env[] = {{ "/bin/sh", "-c", "test \"$DRACONIC_H1501_ENV\" = hello" }};
+    const char *ek[] = {{ "DRACONIC_H1501_ENV" }};
+    const char *ev[] = {{ "hello" }};
+    c = draconic_rt_host_process_run(3, argv_env, NULL, 1, ek, ev);
+    if (c != 0) {{ printf("env=%d\n", (int)c); return 3; }}
+
+    c = draconic_rt_host_process_run(0, NULL, NULL, 0, NULL, NULL);
+    if (c != -1) {{ printf("bad=%d\n", (int)c); return 4; }}
+
+    printf("ok\n");
+    return 0;
+}}
+"#,
+            marker_dir_c = marker_dir_c
+        ),
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+    };
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
 }
 
 #[test]

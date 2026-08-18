@@ -1,0 +1,6 @@
+// H15.01: processRun(argv, cwd) — child chdir before exec (physical path).
+let code = processRun(
+  ["/bin/sh", "-c", "test \"$(pwd -P)\" = \"$(cd / && pwd -P)\""],
+  "/"
+);
+let ok = code === 0;

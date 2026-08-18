@@ -1,0 +1,4 @@
+// H15.01: processRun(argv) — spawn, wait, exit code.
+let t = typeof processRun;
+let code = processRun(["/bin/sh", "-c", "exit 42"]);
+let ok = code === 42;

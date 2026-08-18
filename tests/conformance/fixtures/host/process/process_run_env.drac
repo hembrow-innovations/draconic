@@ -1,0 +1,7 @@
+// H15.01: processRun(argv, cwd|null, env) — env subset merge onto inherited env.
+let code = processRun(
+  ["/bin/sh", "-c", "test \"$DRACONIC_H1501_ENV\" = hello"],
+  null,
+  { DRACONIC_H1501_ENV: "hello" }
+);
+let ok = code === 0;

@@ -64,6 +64,7 @@ pub struct HostApiEntry {
 /// - `envGet` / `envSet` / `envDelete` (H01.02): both — string env; missing get → undefined.
 /// - `exit` / `exitCode` / `setExitCode` (H01.03): both — terminate / deferred status (default 0).
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
+/// - `processRun` (H15.01): both — spawn argv, optional cwd + env subset, wait exit code.
 /// - `onSignal` / `raiseSignal` (H14.01): native-only — SIGINT/SIGTERM watch via job queue;
 ///   default without watch is OS terminate (SIG_DFL).
 /// - `ignoreSignal` / `restoreSignal` (H14.02): native-only — SIG_IGN / SIG_DFL disposition.
@@ -145,6 +146,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "ppid",
         availability: HostAvailability::BOTH,
         note: "H01.04 process ppid",
+    },
+    HostApiEntry {
+        name: "processRun",
+        availability: HostAvailability::BOTH,
+        note: "H15.01 spawn/run argv + optional cwd/env; wait exit code",
     },
     HostApiEntry {
         name: "onSignal",
@@ -671,6 +677,18 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn registry_lists_process_run_both() {
+        let entry = lookup("processRun").expect("processRun registered");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_available("processRun", CompileTarget::Js));
+        assert!(is_available("processRun", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("processRun", CompileTarget::Js, Span::dummy()).is_none()
+        );
     }
 
     #[test]

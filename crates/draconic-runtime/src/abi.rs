@@ -770,6 +770,13 @@ pub const HOST_PROCESS_PPID: AbiFn = AbiFn {
     params: "",
 };
 
+/* H15.01: processRun — spawn argv, optional cwd/env subset, wait exit code. */
+pub const HOST_PROCESS_RUN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_run",
+    ret: "i32",
+    params: "i32, ptr, ptr, i32, ptr, ptr",
+};
+
 /* H14.01 / H14.02: signal watch / ignore / restore / raise / poll (native). */
 pub const HOST_SIGNAL_WATCH: AbiFn = AbiFn {
     symbol: "draconic_rt_host_signal_watch",
@@ -1634,6 +1641,42 @@ function ppid() {
 if (typeof globalThis !== "undefined") {
   globalThis.pid = pid;
   globalThis.ppid = ppid;
+}
+"#
+}
+
+/// JS polyfill for `processRun` (H15.01).
+///
+/// Node bridge via `child_process.spawnSync`. argv[0] is the program; remaining
+/// elements are args. Optional cwd (null/undefined → inherit). Optional env
+/// object merges onto `process.env` (subset override). Returns exit status;
+/// spawn failure → -1; killed by signal → 128.
+pub fn process_run_js_polyfill() -> &'static str {
+    r#"function processRun(argv, cwd, env) {
+  var cp = require("child_process");
+  var a = Array.isArray(argv) ? argv.map(function (x) { return String(x); }) : [];
+  if (a.length < 1) return -1;
+  var opts = { encoding: "utf8", stdio: ["ignore", "ignore", "ignore"] };
+  if (cwd != null && cwd !== undefined) opts.cwd = String(cwd);
+  if (env != null && env !== undefined && typeof env === "object") {
+    var base = (typeof process !== "undefined" && process && process.env) ? process.env : {};
+    var merged = {};
+    for (var k in base) {
+      if (Object.prototype.hasOwnProperty.call(base, k)) merged[k] = base[k];
+    }
+    for (var ek in env) {
+      if (Object.prototype.hasOwnProperty.call(env, ek)) merged[ek] = String(env[ek]);
+    }
+    opts.env = merged;
+  }
+  var r = cp.spawnSync(a[0], a.slice(1), opts);
+  if (!r || r.error) return -1;
+  if (r.status != null && r.status !== undefined) return Number(r.status) | 0;
+  if (r.signal) return 128;
+  return -1;
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.processRun = processRun;
 }
 "#
 }
