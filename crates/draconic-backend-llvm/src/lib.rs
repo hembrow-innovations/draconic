@@ -185,6 +185,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Generators** (function* + yield/yield* + return/throw + `.next()` + for-of) — N08.12.01–N08.12.08
 /// - **Async generators** (`async function*` / methods + `.next().then` + `await` + `for await`) — N08.16.44
 /// - **`for await` over arrays** (`let`/`const`/assign + break/continue) — N08.16.43.01
+/// - **`for await` over `Symbol.asyncIterator` custom async iterables** — N08.16.43.02
 /// - **Proxy basics** (`new Proxy`, empty-handler get, `get` trap) — N08.13.01
 /// - **Proxy set** (empty-handler set pass-through; `set` trap; assign result) — N08.13.02
 /// - **Proxy has/`in`** (empty-handler pass-through; `has` trap; plain `in`) — N08.13.03
@@ -578,6 +579,41 @@ mod tests {
 
     fn module_of(src: &str) -> Module {
         compile_source(src).expect("compile")
+    }
+
+    #[test]
+    fn for_await_of_custom_async_iterable_prints_native() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/conformance/fixtures/es/annex-b/for_await_of.drac"
+        ))
+        .expect("read");
+        let m = module_of(&src);
+        assert!(
+            crate::es_generators::is_es_generators_module(&m),
+            "expected es_generators classify to accept for_await_of"
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "for_await_of must not use hello stub:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-n08-for-await-of").expect("workdir");
+        let bin = dir.join("for_await_of");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = std::process::Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "6\n9\n30\n6\n3\n4\n",
+            "stdout={:?}",
+            String::from_utf8_lossy(&output.stdout)
+        );
     }
 
     #[test]
@@ -3926,6 +3962,4 @@ mod tests {
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
-
 }
-
