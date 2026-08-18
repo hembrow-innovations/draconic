@@ -94,6 +94,7 @@ pub struct HostApiEntry {
 /// - H06.06: all TCP listen/accept (and related) APIs hard-error on js until optional Node bridge.
 /// - `udpBind` / `udpLocalPort` / `udpSendTo` / `udpRecvFrom` / `closeUdp` (H08.01): native-only UDP.
 /// - `dnsLookup` (H09.01): native-only DNS hostname → IPv4 address string[]; failure → HostError EADDR.
+/// - H09.03: `dnsLookup` hard-error on js until optional Node bridge.
 /// - `httpParseRequest` / `httpRequestHeader` (H10.01): native-only HTTP/1.1 request parse.
 /// - `httpWriteResponse` (H10.02): native-only HTTP/1.1 response format (status+headers+body).
 /// - H10.03: compose TCP accept + parse + write + close (server one-shot; see `host_http_server`).
@@ -1187,6 +1188,18 @@ mod tests {
         assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED));
         assert!(
             err.message.contains("tcpAccept") && err.message.contains("unsupported on js"),
+            "got {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_for_target_js_rejects_dns_lookup() {
+        let program = parse("dnsLookup(\"localhost\");").unwrap();
+        let err = check_for_target(program, CompileTarget::Js).expect_err("js hard diagnostic");
+        assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED));
+        assert!(
+            err.message.contains("dnsLookup") && err.message.contains("unsupported on js"),
             "got {}",
             err.message
         );

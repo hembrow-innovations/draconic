@@ -1,0 +1,2 @@
+// H09.03: DNS lookup is native-only — hard-error on js until optional Node bridge.
+dnsLookup("localhost");
