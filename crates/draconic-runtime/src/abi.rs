@@ -225,10 +225,15 @@ pub const JOB_PENDING: AbiFn = AbiFn {
     params: "",
 };
 
-// --- Host timers (H05.03) ---
+// --- Host timers (H05.03–H05.04) ---
 
 pub const TIMER_SET: AbiFn = AbiFn {
     symbol: "draconic_rt_timer_set",
+    ret: "i64",
+    params: "ptr, ptr, double",
+};
+pub const TIMER_SET_INTERVAL: AbiFn = AbiFn {
+    symbol: "draconic_rt_timer_set_interval",
     ret: "i64",
     params: "ptr, ptr, double",
 };
@@ -460,6 +465,7 @@ pub const JOB_ENQUEUE_SYMBOL: &str = JOB_ENQUEUE.symbol;
 pub const JOB_DRAIN_SYMBOL: &str = JOB_DRAIN.symbol;
 pub const JOB_PENDING_SYMBOL: &str = JOB_PENDING.symbol;
 pub const TIMER_SET_SYMBOL: &str = TIMER_SET.symbol;
+pub const TIMER_SET_INTERVAL_SYMBOL: &str = TIMER_SET_INTERVAL.symbol;
 pub const TIMER_CLEAR_SYMBOL: &str = TIMER_CLEAR.symbol;
 pub const PROMISE_NEW_SYMBOL: &str = PROMISE_NEW.symbol;
 pub const IS_PROMISE_SYMBOL: &str = IS_PROMISE.symbol;
@@ -517,10 +523,14 @@ pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
 /// Job queue ABI symbols (N06.01).
 pub const JOB_QUEUE_SYMBOLS: &[&str] = &[JOB_ENQUEUE_SYMBOL, JOB_DRAIN_SYMBOL, JOB_PENDING_SYMBOL];
 
-/// Host timer ABI symbols (H05.03).
-pub const TIMER_SYMBOLS: &[&str] = &[TIMER_SET_SYMBOL, TIMER_CLEAR_SYMBOL];
+/// Host timer ABI symbols (H05.03–H05.04).
+pub const TIMER_SYMBOLS: &[&str] = &[
+    TIMER_SET_SYMBOL,
+    TIMER_SET_INTERVAL_SYMBOL,
+    TIMER_CLEAR_SYMBOL,
+];
 
-/// Declares for H05.03 setTimeout / clearTimeout native emit.
+/// Declares for H05.03–H05.04 timer native emit.
 pub const HOST_TIMER_DECLARES: &[AbiFn] = &[
     GC_INIT,
     PRINT_I64,
@@ -528,6 +538,7 @@ pub const HOST_TIMER_DECLARES: &[AbiFn] = &[
     PRINT_STR,
     JOB_DRAIN,
     TIMER_SET,
+    TIMER_SET_INTERVAL,
     TIMER_CLEAR,
 ];
 
@@ -1257,6 +1268,28 @@ pub fn set_timeout_js_polyfill() -> &'static str {
   }
   globalThis.setTimeout = setTimeout;
   globalThis.clearTimeout = clearTimeout;
+})();
+"#
+}
+
+/// JS polyfill for `setInterval` / `clearInterval` (H05.04).
+///
+/// Bridges to the host event loop (Node/browser). Interval coerced with
+/// ToNumber; missing/NaN/negative → 0.
+pub fn set_interval_js_polyfill() -> &'static str {
+    r#"(function () {
+  var _si = globalThis.setInterval.bind(globalThis);
+  var _ci = globalThis.clearInterval.bind(globalThis);
+  function setInterval(fn, delay) {
+    var d = delay == null ? 0 : +delay;
+    if (!(d > 0)) d = 0;
+    return _si(fn, d);
+  }
+  function clearInterval(id) {
+    return _ci(id);
+  }
+  globalThis.setInterval = setInterval;
+  globalThis.clearInterval = clearInterval;
 })();
 "#
 }

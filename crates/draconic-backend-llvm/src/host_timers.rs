@@ -1,12 +1,13 @@
-//! H05.03: `setTimeout` / `clearTimeout` via Runtime timer + job queue ABI.
+//! H05.03–H05.04: timers via Runtime timer + job queue ABI.
 //!
 //! Supported subset for conformance:
 //! - top-level number/bool/string locals
-//! - `setTimeout(function () { … }, delay)` with number assigns in body
-//! - nested `setTimeout` inside timer callbacks
-//! - `clearTimeout(id)`
-//! - `typeof setTimeout` / `typeof clearTimeout`
-//! - comparison `id > 0`
+//! - `setTimeout` / `setInterval(function () { … }, delay)` with number assigns
+//! - nested `setTimeout` / `setInterval` inside timer callbacks
+//! - `clearTimeout(id)` / `clearInterval(id)`
+//! - `typeof` on timer host APIs
+//! - comparison `id > 0` / `ticks >= n`
+//! - `if (test) { … }` in timer callbacks (clear after N ticks)
 //!
 //! End of main: `job_drain` (promotes due timers, runs callbacks), then print
 //! observation locals (numbers, strings, bools) in declaration order.
@@ -19,7 +20,7 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_TIMER_DECLARES, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR,
-    TIMER_CLEAR, TIMER_SET,
+    TIMER_CLEAR, TIMER_SET, TIMER_SET_INTERVAL,
 };
 
 pub(crate) fn is_host_timer_module(module: &Module) -> bool {
@@ -115,7 +116,11 @@ fn kind_from_init(expr: &Expr) -> Option<SlotKind> {
                 | BinaryOp::NotEqEq,
             ..
         } => Some(SlotKind::Bool),
-        Expr::Call { callee, .. } if is_named_callee(callee, "setTimeout") => Some(SlotKind::Number),
+        Expr::Call { callee, .. }
+            if is_named_callee(callee, "setTimeout") || is_named_callee(callee, "setInterval") =>
+        {
+            Some(SlotKind::Number)
+        }
         Expr::Number { .. } => Some(SlotKind::Number),
         Expr::Boolean { .. } => Some(SlotKind::Bool),
         Expr::String { .. } => Some(SlotKind::String),
@@ -155,12 +160,31 @@ fn check_stmt(stmt: &Stmt, uses: &mut bool) -> Result<(), String> {
     }
 }
 
+fn is_timer_set_name(name: &str) -> bool {
+    name == "setTimeout" || name == "setInterval"
+}
+
+fn is_timer_clear_name(name: &str) -> bool {
+    name == "clearTimeout" || name == "clearInterval"
+}
+
+fn is_timer_api_name(name: &str) -> bool {
+    is_timer_set_name(name) || is_timer_clear_name(name)
+}
+
 fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {
     match expr {
-        Expr::Call { callee, args, .. } if is_named_callee(callee, "setTimeout") => {
+        Expr::Call { callee, args, .. }
+            if is_named_callee(callee, "setTimeout") || is_named_callee(callee, "setInterval") =>
+        {
             *uses = true;
+            let name = if is_named_callee(callee, "setInterval") {
+                "setInterval"
+            } else {
+                "setTimeout"
+            };
             if args.len() != 2 {
-                return Err("setTimeout expects (fn, delay)".into());
+                return Err(format!("{name} expects (fn, delay)"));
             }
             let fn_expr = arg_expr(&args[0])?;
             match fn_expr {
@@ -181,14 +205,17 @@ fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {
                         check_timer_body_stmt(s, uses)?;
                     }
                 }
-                _ => return Err("setTimeout callback must be function expression".into()),
+                _ => return Err(format!("{name} callback must be function expression")),
             }
             check_expr(arg_expr(&args[1])?, uses)
         }
-        Expr::Call { callee, args, .. } if is_named_callee(callee, "clearTimeout") => {
+        Expr::Call { callee, args, .. }
+            if is_named_callee(callee, "clearTimeout")
+                || is_named_callee(callee, "clearInterval") =>
+        {
             *uses = true;
             if args.len() != 1 {
-                return Err("clearTimeout expects (id)".into());
+                return Err("clearTimeout/clearInterval expects (id)".into());
             }
             check_expr(arg_expr(&args[0])?, uses)
         }
@@ -205,7 +232,7 @@ fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {
             arg,
             ..
         } => {
-            if is_named_callee(arg, "setTimeout") || is_named_callee(arg, "clearTimeout") {
+            if matches!(&**arg, Expr::IdentName { name, .. } if is_timer_api_name(name)) {
                 *uses = true;
                 Ok(())
             } else {
@@ -220,7 +247,7 @@ fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {
         | Expr::Number { .. }
         | Expr::Boolean { .. }
         | Expr::String { .. } => Ok(()),
-        Expr::IdentName { name, .. } if name == "setTimeout" || name == "clearTimeout" => {
+        Expr::IdentName { name, .. } if is_timer_api_name(name) => {
             *uses = true;
             Ok(())
         }
@@ -235,6 +262,18 @@ fn check_timer_body_stmt(stmt: &Stmt, uses: &mut bool) -> Result<(), String> {
         Stmt::Block { body } => {
             for s in body {
                 check_timer_body_stmt(s, uses)?;
+            }
+            Ok(())
+        }
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            check_expr(test, uses)?;
+            check_timer_body_stmt(consequent, uses)?;
+            if let Some(alt) = alternate {
+                check_timer_body_stmt(alt, uses)?;
             }
             Ok(())
         }
@@ -344,7 +383,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_timers (H05.03 setTimeout/clearTimeout)"
+            "; Draconic LLVM host_timers (H05.03–H05.04 timers)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(HOST_TIMER_DECLARES)).ok();
@@ -451,6 +490,11 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => self.emit_if(test, consequent, alternate.as_deref()),
             _ => Err(diag("host_timer: unsupported stmt")),
         }
     }
@@ -524,12 +568,22 @@ impl<'a> Emitter<'a> {
             } => self.emit_binary(*op, left, right),
             Expr::Call { callee, args, .. } if is_named_callee(callee, "setTimeout") => {
                 if self.in_callback {
-                    self.emit_set_timeout_in_callback(args)
+                    self.emit_timer_set_in_callback(args, false)
                 } else {
-                    self.emit_set_timeout(args)
+                    self.emit_timer_set(args, false)
                 }
             }
-            Expr::Call { callee, args, .. } if is_named_callee(callee, "clearTimeout") => {
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "setInterval") => {
+                if self.in_callback {
+                    self.emit_timer_set_in_callback(args, true)
+                } else {
+                    self.emit_timer_set(args, true)
+                }
+            }
+            Expr::Call { callee, args, .. }
+                if is_named_callee(callee, "clearTimeout")
+                    || is_named_callee(callee, "clearInterval") =>
+            {
                 self.emit_clear_timeout(args)
             }
             Expr::Assign {
@@ -545,12 +599,51 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(v)
             }
-            Expr::IdentName { name, .. } if name == "setTimeout" || name == "clearTimeout" => {
+            Expr::IdentName { name, .. } if is_timer_api_name(name) => {
                 // Only valid under typeof — return dummy.
                 Ok("null".into())
             }
             _ => Err(diag("host_timer: unsupported expr")),
         }
+    }
+
+    fn emit_if(
+        &mut self,
+        test: &Expr,
+        consequent: &Stmt,
+        alternate: Option<&Stmt>,
+    ) -> Result<(), Diagnostic> {
+        let cond = self.emit_expr(test)?;
+        // cond may be i8 bool or i1 from icmp — normalize to i1
+        let cond_i1 = self.fresh();
+        writeln!(self.body, "  {cond_i1} = icmp ne i8 {cond}, 0").ok();
+        let then_l = format!("if.then.{}", self.tmp);
+        let else_l = format!("if.else.{}", self.tmp);
+        let end_l = format!("if.end.{}", self.tmp);
+        self.tmp += 1;
+        if alternate.is_some() {
+            writeln!(
+                self.body,
+                "  br i1 {cond_i1}, label %{then_l}, label %{else_l}"
+            )
+            .ok();
+        } else {
+            writeln!(
+                self.body,
+                "  br i1 {cond_i1}, label %{then_l}, label %{end_l}"
+            )
+            .ok();
+        }
+        writeln!(self.body, "{then_l}:").ok();
+        self.emit_stmt(consequent)?;
+        writeln!(self.body, "  br label %{end_l}").ok();
+        if let Some(alt) = alternate {
+            writeln!(self.body, "{else_l}:").ok();
+            self.emit_stmt(alt)?;
+            writeln!(self.body, "  br label %{end_l}").ok();
+        }
+        writeln!(self.body, "{end_l}:").ok();
+        Ok(())
     }
 
     fn load_capture(&mut self, pos: usize) -> Result<String, Diagnostic> {
@@ -639,10 +732,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_typeof(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
-        let s = if is_named_callee(arg, "setTimeout") || is_named_callee(arg, "clearTimeout") {
-            "function"
-        } else {
-            return Err(diag("host_timer: typeof only on setTimeout/clearTimeout"));
+        let s = match arg {
+            Expr::IdentName { name, .. } if is_timer_api_name(name) => "function",
+            _ => return Err(diag("host_timer: typeof only on timer host APIs")),
         };
         let g = self.intern_cstr(s);
         let n = s.len() + 1;
@@ -701,14 +793,14 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_set_timeout(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+    fn emit_timer_set(&mut self, args: &[Arg], repeating: bool) -> Result<String, Diagnostic> {
         let fn_expr = match &args[0] {
             Arg::Expr(e) => e,
-            _ => return Err(diag("setTimeout bad arg")),
+            _ => return Err(diag("timer set bad arg")),
         };
         let delay_expr = match &args[1] {
             Arg::Expr(e) => e,
-            _ => return Err(diag("setTimeout bad delay")),
+            _ => return Err(diag("timer set bad delay")),
         };
         let Expr::Function {
             params,
@@ -716,7 +808,7 @@ impl<'a> Emitter<'a> {
             ..
         } = fn_expr
         else {
-            return Err(diag("setTimeout needs function"));
+            return Err(diag("timer set needs function"));
         };
         let _ = params;
         let (fn_name, data_op) = self.emit_timer_callback(body)?;
@@ -724,10 +816,15 @@ impl<'a> Emitter<'a> {
         let delay_d = self.fresh();
         writeln!(self.body, "  {delay_d} = sitofp i64 {delay_i} to double").ok();
         let id = self.fresh();
+        let abi = if repeating {
+            TIMER_SET_INTERVAL
+        } else {
+            TIMER_SET
+        };
         writeln!(
             self.body,
             "  {}",
-            TIMER_SET.call_to(&id, &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}"))
+            abi.call_to(&id, &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}"))
         )
         .ok();
         Ok(id)
@@ -745,9 +842,9 @@ impl<'a> Emitter<'a> {
 
     fn emit_timer_callback(&mut self, body: &[Stmt]) -> Result<(String, String), Diagnostic> {
         let fn_name = self.fresh_fn("timer");
-        let mut assigned = HashSet::new();
-        collect_assigned_locals(body, &mut assigned);
-        let mut captures: Vec<LocalId> = assigned
+        let mut used = HashSet::new();
+        collect_used_locals(body, &mut used);
+        let mut captures: Vec<LocalId> = used
             .into_iter()
             .filter(|id| {
                 matches!(
@@ -828,6 +925,11 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => self.emit_if(test, consequent, alternate.as_deref()),
             Stmt::Return { value } => {
                 if let Some(e) = value {
                     let _ = self.emit_expr(e)?;
@@ -838,49 +940,29 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_set_timeout_in_callback(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+    fn emit_timer_set_in_callback(
+        &mut self,
+        args: &[Arg],
+        repeating: bool,
+    ) -> Result<String, Diagnostic> {
         // Nested timer: build another helper; captures are top-level allocas.
-        // We need allocas available — they live in main. Pass main's capture env
-        // by rebuilding from reaction_captures paths (pointers to main stack —
-        // **invalid** after main returns, but job_drain runs before main returns).
-        //
-        // For nested setTimeout inside a timer job, main is still on stack
-        // (drain called from main). Nested callback captures use the same
-        // alloca pointers stored in the outer env.
-        //
-        // Simpler approach for fixture: nested only assigns `nested = 1` with
-        // no outer local reads except the assign target. emit_timer_callback
-        // already handles that when called from main body. From callback we
-        // must call emit_timer_callback but it uses self.body which is the
-        // helper body — and allocas map still points to main %lN names which
-        // are NOT in scope in the helper!
-        //
-        // Fix: for nested timers, pass the same %data pointer if captures are
-        // a subset of current captures, or build env from current %data.
-        //
-        // Fixture nested only assigns `nested` — capture is one alloca.
-        // When outer callback runs, %data is that alloca (or env). Nested
-        // callback also assigns nested — same capture.
-        //
-        // Implementation: emit nested helper that uses same capture layout as
-        // if scheduled from main, but data_operand = current %data when the
-        // nested capture set equals current reaction_captures, else error.
+        // job_drain runs before main returns, so main stack allocas stay valid.
 
         let fn_expr = match &args[0] {
             Arg::Expr(e) => e,
-            _ => return Err(diag("nested setTimeout bad arg")),
+            _ => return Err(diag("nested timer bad arg")),
         };
         let delay_expr = match &args[1] {
             Arg::Expr(e) => e,
-            _ => return Err(diag("nested setTimeout bad delay")),
+            _ => return Err(diag("nested timer bad delay")),
         };
         let Expr::Function { body, .. } = fn_expr else {
-            return Err(diag("nested setTimeout needs function"));
+            return Err(diag("nested timer needs function"));
         };
 
-        let mut assigned = HashSet::new();
-        collect_assigned_locals(body, &mut assigned);
-        let mut captures: Vec<LocalId> = assigned
+        let mut used = HashSet::new();
+        collect_used_locals(body, &mut used);
+        let mut captures: Vec<LocalId> = used
             .into_iter()
             .filter(|id| {
                 matches!(
@@ -891,10 +973,8 @@ impl<'a> Emitter<'a> {
             .collect();
         captures.sort_by_key(|id| id.0);
 
-        // Require nested captures ⊆ outer captures; pass through %data when equal
-        // single-capture or rebuild — for fixture, both assign only `nested`.
+        // Require nested captures ⊆ outer captures; pass through %data when equal.
         if captures != self.reaction_captures && !captures.is_empty() {
-            // If nested is subset of one-element outer, still ok when equal.
             for c in &captures {
                 if !self.reaction_captures.contains(c) {
                     return Err(diag("nested timer capture not in outer env"));
@@ -975,52 +1055,77 @@ impl<'a> Emitter<'a> {
         let delay_d = self.fresh();
         writeln!(self.body, "  {delay_d} = sitofp i64 {delay_i} to double").ok();
         let id = self.fresh();
+        let abi = if repeating {
+            TIMER_SET_INTERVAL
+        } else {
+            TIMER_SET
+        };
         writeln!(
             self.body,
             "  {}",
-            TIMER_SET.call_to(&id, &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}"))
+            abi.call_to(&id, &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}"))
         )
         .ok();
         Ok(id)
     }
 }
 
-fn collect_assigned_locals(body: &[Stmt], out: &mut HashSet<LocalId>) {
+fn collect_used_locals(body: &[Stmt], out: &mut HashSet<LocalId>) {
     for stmt in body {
         match stmt {
-            Stmt::Expr { expr } => collect_assigned_in_expr(expr, out),
-            Stmt::Block { body } => collect_assigned_locals(body, out),
+            Stmt::Expr { expr } => collect_used_in_expr(expr, out),
+            Stmt::Block { body } => collect_used_locals(body, out),
+            Stmt::If {
+                test,
+                consequent,
+                alternate,
+            } => {
+                collect_used_in_expr(test, out);
+                collect_used_locals(std::slice::from_ref(consequent.as_ref()), out);
+                if let Some(alt) = alternate {
+                    collect_used_locals(std::slice::from_ref(alt.as_ref()), out);
+                }
+            }
+            Stmt::Return { value } => {
+                if let Some(e) = value {
+                    collect_used_in_expr(e, out);
+                }
+            }
             _ => {}
         }
     }
 }
 
-fn collect_assigned_in_expr(expr: &Expr, out: &mut HashSet<LocalId>) {
+fn collect_used_in_expr(expr: &Expr, out: &mut HashSet<LocalId>) {
     match expr {
+        Expr::Local { id, .. } => {
+            out.insert(*id);
+        }
         Expr::Assign {
             target: AssignTarget::Local(id),
             value,
             ..
         } => {
             out.insert(*id);
-            collect_assigned_in_expr(value, out);
+            collect_used_in_expr(value, out);
         }
         Expr::Call { callee, args, .. } => {
-            if is_named_callee(callee, "setTimeout") {
+            if is_named_callee(callee, "setTimeout") || is_named_callee(callee, "setInterval") {
                 if let Some(Arg::Expr(Expr::Function { body, .. })) = args.first() {
-                    collect_assigned_locals(body, out);
+                    collect_used_locals(body, out);
                 }
             }
             for a in args {
                 if let Arg::Expr(e) = a {
-                    collect_assigned_in_expr(e, out);
+                    collect_used_in_expr(e, out);
                 }
             }
         }
         Expr::Binary { left, right, .. } => {
-            collect_assigned_in_expr(left, out);
-            collect_assigned_in_expr(right, out);
+            collect_used_in_expr(left, out);
+            collect_used_in_expr(right, out);
         }
+        Expr::Unary { arg, .. } => collect_used_in_expr(arg, out),
         _ => {}
     }
 }
@@ -1061,5 +1166,26 @@ mod tests {
         assert!(is_host_timer_module(&m));
         let ir = emit_host_timers(&m).expect("emit");
         assert!(ir.contains("draconic_rt_timer_clear"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_set_interval_fixture() {
+        let m = ir_of(
+            r#"
+            let ticks = 0;
+            let id = setInterval(function () {
+              ticks = ticks + 1;
+              if (ticks >= 3) {
+                clearInterval(id);
+              }
+            }, 0);
+            let t = typeof setInterval;
+            "#,
+        );
+        assert!(is_host_timer_module(&m));
+        let ir = emit_host_timers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_timer_set_interval"), "{ir}");
+        assert!(ir.contains("draconic_rt_timer_clear"), "{ir}");
+        assert!(ir.contains("draconic_rt_job_drain"), "{ir}");
     }
 }

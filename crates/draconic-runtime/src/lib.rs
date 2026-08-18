@@ -2913,6 +2913,88 @@ mod tests {
         assert_eq!(stdout, "timer-ok\n", "stdout={stdout:?}");
     }
 
+    #[test]
+    fn timer_set_interval_clear_via_job_drain() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main_interval.c");
+        let bin = dir.join("rt_interval");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+
+            static int g_ticks;
+            static int g_cancelled;
+            static int64_t g_id;
+
+            static void on_tick(void *data) {
+                (void)data;
+                g_ticks++;
+                if (g_ticks >= 3) {
+                    draconic_rt_timer_clear(g_id);
+                }
+            }
+
+            static void on_cancel(void *data) {
+                (void)data;
+                g_cancelled = 1;
+            }
+
+            int main(void) {
+                g_id = draconic_rt_timer_set_interval(on_tick, NULL, 0.0);
+                int64_t cid = draconic_rt_timer_set_interval(on_cancel, NULL, 0.0);
+                if (g_id <= 0 || cid <= 0) {
+                    fprintf(stderr, "interval ids invalid\n");
+                    return 1;
+                }
+                draconic_rt_timer_clear(cid);
+                draconic_rt_job_drain();
+                if (g_ticks != 3) {
+                    fprintf(stderr, "ticks want 3 got %d\n", g_ticks);
+                    return 2;
+                }
+                if (g_cancelled != 0) {
+                    fprintf(stderr, "cancelled want 0 got %d\n", g_cancelled);
+                    return 3;
+                }
+                puts("interval-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = Command::new(&clang)
+            .arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin)
+            .status()
+            .expect("spawn clang");
+        assert!(status.success(), "clang failed to link interval test");
+
+        let output = Command::new(&bin).output().expect("run rt_interval");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "interval binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "interval-ok\n", "stdout={stdout:?}");
+    }
+
     fn which_clang() -> Option<PathBuf> {
         find_clang()
     }

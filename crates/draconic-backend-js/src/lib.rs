@@ -112,6 +112,13 @@ fn module_uses_set_timeout(module: &Module) -> bool {
     })
 }
 
+/// H05.04: free host APIs `setInterval` / `clearInterval`.
+fn module_uses_set_interval(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "setInterval") || stmt_uses_ident_name(s, "clearInterval")
+    })
+}
+
 /// H02.01: free host API `stdoutWrite`.
 fn module_uses_stdout_write(module: &Module) -> bool {
     module
@@ -502,6 +509,13 @@ fn emit_js_full(
     // H05.03: `setTimeout` / `clearTimeout` host bridge.
     if module_uses_set_timeout(module) {
         out.push_str(draconic_runtime::set_timeout_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H05.04: `setInterval` / `clearInterval` host bridge.
+    if module_uses_set_interval(module) {
+        out.push_str(draconic_runtime::set_interval_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

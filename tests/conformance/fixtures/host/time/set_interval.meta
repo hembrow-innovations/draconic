@@ -1,0 +1,6 @@
+id: host/time/set_interval
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { setTimeout(function () { if (t_si !== "function") process.exit(1); if (t_ci !== "function") process.exit(2); if (ticks !== 3) process.exit(3); if (cancelled !== 0) process.exit(4); if (ok_id !== true) process.exit(5); }, 30); }, 30);
+native.exit: 0
+native.stdout: 3\n0\n1\n2\nfunction\nfunction\ntrue\n

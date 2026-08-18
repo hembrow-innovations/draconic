@@ -1,0 +1,16 @@
+// H05.04: setInterval / clearInterval via job queue (delay 0).
+let ticks = 0;
+let cancelled = 0;
+let id = setInterval(function () {
+  ticks = ticks + 1;
+  if (ticks >= 3) {
+    clearInterval(id);
+  }
+}, 0);
+let cid = setInterval(function () {
+  cancelled = 1;
+}, 0);
+clearInterval(cid);
+let t_si = typeof setInterval;
+let t_ci = typeof clearInterval;
+let ok_id = id > 0;

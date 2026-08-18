@@ -295,6 +295,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         note: "H05.03 clearTimeout",
     },
     HostApiEntry {
+        name: "setInterval",
+        availability: HostAvailability::BOTH,
+        note: "H05.04 setInterval via job queue",
+    },
+    HostApiEntry {
+        name: "clearInterval",
+        availability: HostAvailability::BOTH,
+        note: "H05.04 clearInterval",
+    },
+    HostApiEntry {
         name: "tcpListen",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H06 TCP listen",
@@ -615,6 +625,21 @@ mod tests {
     #[test]
     fn registry_lists_set_timeout_both() {
         for name in ["setTimeout", "clearTimeout"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_set_interval_both() {
+        for name in ["setInterval", "clearInterval"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

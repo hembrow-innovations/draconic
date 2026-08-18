@@ -704,17 +704,20 @@ size_t draconic_rt_job_pending(void) {
     return g_job_pending;
 }
 
-/* --- Host timers (H05.03) ---
-   Timers stay on `g_timer_head` until the job runs or they are cancelled
-   before promote. clearTimeout always finds them by id. */
+/* --- Host timers (H05.03–H05.04) ---
+   Timers stay on `g_timer_head` until the job runs (one-shot) or they are
+   cancelled. Intervals remain linked and reschedule after each run.
+   clearTimeout/clearInterval always find them by id (shared space). */
 
 typedef struct DraconicTimer {
     int64_t id;
     double due_ms;
+    double interval_ms;
     DraconicJobFn fn;
     void *data;
     int cancelled;
     int enqueued;
+    int repeating;
     struct DraconicTimer *next;
 } DraconicTimer;
 
@@ -765,9 +768,16 @@ static void timer_job_run(void *data) {
     if (t && !t->cancelled && t->fn) {
         t->fn(t->data);
     }
-    if (t) {
-        timer_unlink_and_free(t);
+    if (!t) {
+        return;
     }
+    if (t->cancelled || !t->repeating) {
+        timer_unlink_and_free(t);
+        return;
+    }
+    /* Interval: keep linked; next promote when due again. */
+    t->enqueued = 0;
+    t->due_ms = timer_now_ms() + t->interval_ms;
 }
 
 static int timer_promote_due(void) {
@@ -792,7 +802,12 @@ static int timer_promote_due(void) {
     return promoted;
 }
 
-int64_t draconic_rt_timer_set(DraconicJobFn fn, void *data, double delay_ms) {
+static int64_t timer_alloc(
+    DraconicJobFn fn,
+    void *data,
+    double delay_ms,
+    int repeating
+) {
     if (!fn) {
         fprintf(stderr, "draconic_rt: timer_set null fn\n");
         abort();
@@ -810,13 +825,23 @@ int64_t draconic_rt_timer_set(DraconicJobFn fn, void *data, double delay_ms) {
         g_timer_next_id = 1;
     }
     t->due_ms = timer_now_ms() + delay_ms;
+    t->interval_ms = delay_ms;
     t->fn = fn;
     t->data = data;
     t->cancelled = 0;
     t->enqueued = 0;
+    t->repeating = repeating ? 1 : 0;
     t->next = g_timer_head;
     g_timer_head = t;
     return t->id;
+}
+
+int64_t draconic_rt_timer_set(DraconicJobFn fn, void *data, double delay_ms) {
+    return timer_alloc(fn, data, delay_ms, 0);
+}
+
+int64_t draconic_rt_timer_set_interval(DraconicJobFn fn, void *data, double interval_ms) {
+    return timer_alloc(fn, data, interval_ms, 1);
 }
 
 void draconic_rt_timer_clear(int64_t id) {
