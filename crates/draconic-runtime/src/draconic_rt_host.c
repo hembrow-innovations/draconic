@@ -1,6 +1,6 @@
     /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
     H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09 DNS,
-    H10.01 HTTP/1.1 request parse, H10.02 response write, H11.01 TLS client).
+    H10.01 HTTP/1.1 request parse, H10.02 response write, H11.01/H11.02 TLS).
     Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
     process, stdio, path, fs, TCP, UDP, DNS, HTTP, TLS, async readiness + Promise ops. */
 
@@ -4430,6 +4430,351 @@ DraconicHostError draconic_rt_host_tls_client_wrap(
     return DRACONIC_HOST_OK;
 }
 
+/* H11.02: load PEM cert + key into a temporary keychain → SecIdentityRef. */
+static CFDataRef host_tls_read_file_cfdata(const char *path) {
+    FILE *f;
+    long sz;
+    uint8_t *buf;
+    CFDataRef data;
+    if (!path || path[0] == '\0') {
+        return NULL;
+    }
+    f = fopen(path, "rb");
+    if (!f) {
+        return NULL;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    sz = ftell(f);
+    if (sz < 0 || sz > 8 * 1024 * 1024) {
+        fclose(f);
+        return NULL;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    buf = (uint8_t *)malloc((size_t)sz);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+    if (sz > 0 && fread(buf, 1, (size_t)sz, f) != (size_t)sz) {
+        free(buf);
+        fclose(f);
+        return NULL;
+    }
+    fclose(f);
+    data = CFDataCreate(NULL, buf, (CFIndex)sz);
+    free(buf);
+    return data;
+}
+
+static void host_tls_delete_keychain_file(const char *path) {
+    if (path && path[0] != '\0') {
+        (void)unlink(path);
+        /* macOS may also leave -db companions; best-effort. */
+        {
+            char db[512];
+            snprintf(db, sizeof(db), "%s-db", path);
+            (void)unlink(db);
+        }
+    }
+}
+
+static DraconicHostError host_tls_identity_from_pem(
+    const char *cert_path,
+    const char *key_path,
+    SecIdentityRef *out_identity,
+    SecKeychainRef *out_kc,
+    char *kc_path_buf,
+    size_t kc_path_buf_len) {
+    CFDataRef cert_data = NULL;
+    CFDataRef key_data = NULL;
+    SecKeychainRef kc = NULL;
+    CFArrayRef cert_items = NULL;
+    CFArrayRef key_items = NULL;
+    SecCertificateRef cert = NULL;
+    SecIdentityRef identity = NULL;
+    SecExternalFormat fmt;
+    SecExternalItemType itype;
+    SecItemImportExportKeyParameters params;
+    OSStatus st;
+    CFIndex i, n;
+    pid_t pid = getpid();
+
+    if (!out_identity || !out_kc || !kc_path_buf || kc_path_buf_len < 64) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_identity = NULL;
+    *out_kc = NULL;
+    kc_path_buf[0] = '\0';
+
+    cert_data = host_tls_read_file_cfdata(cert_path);
+    key_data = host_tls_read_file_cfdata(key_path);
+    if (!cert_data || !key_data) {
+        if (cert_data) {
+            CFRelease(cert_data);
+        }
+        if (key_data) {
+            CFRelease(key_data);
+        }
+        return DRACONIC_HOST_E_IO;
+    }
+
+    snprintf(
+        kc_path_buf,
+        kc_path_buf_len,
+        "/tmp/draconic-tls-%d-%ld.keychain",
+        (int)pid,
+        (long)time(NULL));
+    host_tls_delete_keychain_file(kc_path_buf);
+    st = SecKeychainCreate(kc_path_buf, 4, "test", false, NULL, &kc);
+    if (st != errSecSuccess || !kc) {
+        CFRelease(cert_data);
+        CFRelease(key_data);
+        kc_path_buf[0] = '\0';
+        return DRACONIC_HOST_E_IO;
+    }
+    (void)SecKeychainUnlock(kc, 4, "test", true);
+
+    memset(&params, 0, sizeof(params));
+    params.version = SEC_KEY_IMPORT_EXPORT_PARAMS_VERSION;
+    fmt = kSecFormatPEMSequence;
+    itype = kSecItemTypeAggregate;
+    st = SecItemImport(cert_data, CFSTR("cert.pem"), &fmt, &itype, 0, &params, kc, &cert_items);
+    CFRelease(cert_data);
+    if (st != errSecSuccess || !cert_items) {
+        CFRelease(key_data);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path_buf);
+        kc_path_buf[0] = '\0';
+        return DRACONIC_HOST_E_IO;
+    }
+
+    /* PKCS#8 ("BEGIN PRIVATE KEY") often needs BSAFE; traditional RSA PEM uses PEMSequence. */
+    {
+        SecExternalFormat key_fmts[4];
+        int fi;
+        key_fmts[0] = kSecFormatBSAFE;
+        key_fmts[1] = kSecFormatPEMSequence;
+        key_fmts[2] = kSecFormatOpenSSL;
+        key_fmts[3] = kSecFormatUnknown;
+        st = errSecUnknownFormat;
+        for (fi = 0; fi < 4; fi++) {
+            fmt = key_fmts[fi];
+            itype = kSecItemTypeAggregate;
+            if (key_items) {
+                CFRelease(key_items);
+                key_items = NULL;
+            }
+            st = SecItemImport(
+                key_data, CFSTR("key.pem"), &fmt, &itype, 0, &params, kc, &key_items);
+            if (st == errSecSuccess && key_items && CFArrayGetCount(key_items) > 0) {
+                break;
+            }
+            st = errSecUnknownFormat;
+        }
+    }
+    CFRelease(key_data);
+    if (key_items) {
+        CFRelease(key_items);
+        key_items = NULL;
+    }
+    if (st != errSecSuccess) {
+        CFRelease(cert_items);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path_buf);
+        kc_path_buf[0] = '\0';
+        return DRACONIC_HOST_E_IO;
+    }
+
+    n = CFArrayGetCount(cert_items);
+    for (i = 0; i < n; i++) {
+        CFTypeRef item = CFArrayGetValueAtIndex(cert_items, i);
+        if (item && CFGetTypeID(item) == SecCertificateGetTypeID()) {
+            cert = (SecCertificateRef)item;
+            CFRetain(cert);
+            break;
+        }
+    }
+    CFRelease(cert_items);
+    if (!cert) {
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path_buf);
+        kc_path_buf[0] = '\0';
+        return DRACONIC_HOST_E_IO;
+    }
+
+    st = SecIdentityCreateWithCertificate(kc, cert, &identity);
+    CFRelease(cert);
+    if (st != errSecSuccess || !identity) {
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path_buf);
+        kc_path_buf[0] = '\0';
+        return DRACONIC_HOST_E_IO;
+    }
+
+    *out_identity = identity;
+    *out_kc = kc;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_tls_server_wrap(
+    DraconicHostHandle tcp_conn,
+    const char *cert_path,
+    const char *key_path,
+    DraconicHostHandle *out_tls) {
+    int fd = -1;
+    SSLContextRef ctx = NULL;
+    OSStatus st;
+    DraconicHostError err;
+    DraconicHostHandle tls_h = DRACONIC_HOST_HANDLE_INVALID;
+    size_t i;
+    SecIdentityRef identity = NULL;
+    SecKeychainRef kc = NULL;
+    char kc_path[512];
+    CFArrayRef certs = NULL;
+
+    if (!out_tls) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_tls = DRACONIC_HOST_HANDLE_INVALID;
+    if (!cert_path || !key_path) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    err = host_tls_identity_from_pem(cert_path, key_path, &identity, &kc, kc_path, sizeof(kc_path));
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+
+    err = host_tls_steal_tcp_fd(tcp_conn, &fd);
+    if (err != DRACONIC_HOST_OK) {
+        CFRelease(identity);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path);
+        return err;
+    }
+
+    ctx = SSLCreateContext(NULL, kSSLServerSide, kSSLStreamType);
+    if (!ctx) {
+        (void)close(fd);
+        CFRelease(identity);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    st = SSLSetIOFuncs(ctx, host_tls_io_read, host_tls_io_write);
+    if (st != noErr) {
+        CFRelease(ctx);
+        (void)close(fd);
+        CFRelease(identity);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path);
+        return DRACONIC_HOST_E_IO;
+    }
+    st = SSLSetConnection(ctx, (SSLConnectionRef)(intptr_t)fd);
+    if (st != noErr) {
+        CFRelease(ctx);
+        (void)close(fd);
+        CFRelease(identity);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path);
+        return DRACONIC_HOST_E_IO;
+    }
+
+    certs = CFArrayCreate(NULL, (const void **)&identity, 1, &kCFTypeArrayCallBacks);
+    CFRelease(identity);
+    identity = NULL;
+    if (!certs) {
+        CFRelease(ctx);
+        (void)close(fd);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    st = SSLSetCertificate(ctx, certs);
+    CFRelease(certs);
+    if (st != noErr) {
+        CFRelease(ctx);
+        (void)close(fd);
+        SecKeychainDelete(kc);
+        CFRelease(kc);
+        host_tls_delete_keychain_file(kc_path);
+        return DRACONIC_HOST_E_IO;
+    }
+
+    /* Bound handshake so plain-TCP peers fail closed instead of hanging. */
+    {
+        struct timeval tv;
+        tv.tv_sec = 2;
+        tv.tv_usec = 0;
+        (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    }
+
+    {
+        time_t deadline = time(NULL) + 3;
+        for (;;) {
+            if (time(NULL) > deadline) {
+                CFRelease(ctx);
+                (void)close(fd);
+                SecKeychainDelete(kc);
+                CFRelease(kc);
+                host_tls_delete_keychain_file(kc_path);
+                return DRACONIC_HOST_E_IO;
+            }
+            st = SSLHandshake(ctx);
+            if (st == noErr) {
+                break;
+            }
+            if (st == errSSLWouldBlock) {
+                continue;
+            }
+            CFRelease(ctx);
+            (void)close(fd);
+            SecKeychainDelete(kc);
+            CFRelease(kc);
+            host_tls_delete_keychain_file(kc_path);
+            if (st == errSSLPeerHandshakeFail || st == errSSLNegotiation
+                || st == errSSLClosedAbort || st == errSSLClosedGraceful) {
+                return DRACONIC_HOST_E_CONN;
+            }
+            return DRACONIC_HOST_E_IO;
+        }
+    }
+
+    /* SSL context retains certificate material; drop temp keychain after handshake. */
+    SecKeychainDelete(kc);
+    CFRelease(kc);
+    host_tls_delete_keychain_file(kc_path);
+    kc = NULL;
+
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_TLS_CONN, fd, &tls_h);
+    if (err != DRACONIC_HOST_OK) {
+        (void)SSLClose(ctx);
+        CFRelease(ctx);
+        (void)close(fd);
+        return err;
+    }
+    i = (size_t)tls_h - 1;
+    g_host_handle_tls_ctx[i] = ctx;
+    *out_tls = tls_h;
+    return DRACONIC_HOST_OK;
+}
+
 DraconicHostError draconic_rt_host_tls_read(
     DraconicHostHandle tls_h,
     size_t max_len,
@@ -4527,6 +4872,20 @@ DraconicHostError draconic_rt_host_tls_client_wrap(
     (void)tcp_conn;
     (void)server_name;
     (void)insecure;
+    if (out_tls) {
+        *out_tls = DRACONIC_HOST_HANDLE_INVALID;
+    }
+    return DRACONIC_HOST_E_NOSYS;
+}
+
+DraconicHostError draconic_rt_host_tls_server_wrap(
+    DraconicHostHandle tcp_conn,
+    const char *cert_path,
+    const char *key_path,
+    DraconicHostHandle *out_tls) {
+    (void)tcp_conn;
+    (void)cert_path;
+    (void)key_path;
     if (out_tls) {
         *out_tls = DRACONIC_HOST_HANDLE_INVALID;
     }

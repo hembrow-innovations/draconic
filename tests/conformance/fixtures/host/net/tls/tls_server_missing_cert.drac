@@ -1,0 +1,12 @@
+// H11.02: tlsServerWrap with missing PEM paths fails (EIO) before handshake.
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let t = tlsServerWrap(
+  a,
+  "/nonexistent/draconic-h1102-cert.pem",
+  "/nonexistent/draconic-h1102-key.pem"
+);
+closeTls(t);
+closeTcp(c);
+closeTcp(s);

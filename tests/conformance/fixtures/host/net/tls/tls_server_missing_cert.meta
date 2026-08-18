@@ -1,0 +1,4 @@
+id: host/net/tls/tls_server_missing_cert
+targets: native
+native.exit: 1
+native.stderr: EIO\n

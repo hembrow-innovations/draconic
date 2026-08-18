@@ -1,4 +1,4 @@
-//! H06.01–H06.05 + H11.01: native TCP + TLS client wrap.
+//! H06.01–H06.05 + H11.01/H11.02: native TCP + TLS client/server wrap.
 //!
 //! - `tcpListen(port)` / `tcpListen(port, backlog)` → listen handle (number)
 //! - `tcpLocalPort(h)` → bound port (ephemeral when listen port was 0)
@@ -11,6 +11,7 @@
 //! - `tcpShutdown(conn)` / `tcpShutdown(conn, how)` — how 0=RD 1=WR 2=RDWR (default WR)
 //! - `closeTcp(h)` → close listen/conn handle via Runtime handle_close
 //! - `tlsClientWrap(conn, serverName, insecure)` → TLS handle (takes TCP conn)
+//! - `tlsServerWrap(conn, certPath, keyPath)` → TLS handle (PEM cert+key; takes TCP conn)
 //! - `tlsRead` / `tlsWrite` / `closeTls` — application data + close TLS+TCP
 //!
 //! Host errors: `E_CONN` (refused/reset/timeout) → stderr `ECONN` + exit 1;
@@ -27,7 +28,8 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE,
     HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT,
     HOST_TCP_PEER_ADDRESS, HOST_TCP_PEER_PORT, HOST_TCP_READ, HOST_TCP_SHUTDOWN, HOST_TCP_WRITE,
-    HOST_TLS_CLIENT_WRAP, HOST_TLS_READ, HOST_TLS_WRITE, PRINT_BOOL, PRINT_F64, PRINT_STR,
+    HOST_TLS_CLIENT_WRAP, HOST_TLS_READ, HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE, PRINT_BOOL,
+    PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_tcp_module(module: &Module) -> bool {
@@ -200,6 +202,24 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
             let it = classify_expr(arg_expr(&args[2])?, ctx)?;
             if it != SlotTy::Number {
+                return None;
+            }
+            Some(SlotTy::Handle)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 3 && is_named_callee(callee, "tlsServerWrap") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            let ct = classify_expr(arg_expr(&args[1])?, ctx)?;
+            if ct != SlotTy::String {
+                return None;
+            }
+            let kt = classify_expr(arg_expr(&args[2])?, ctx)?;
+            if kt != SlotTy::String {
                 return None;
             }
             Some(SlotTy::Handle)
@@ -536,6 +556,7 @@ impl<'a> Emitter<'a> {
             HOST_TCP_WRITE,
             HOST_TCP_SHUTDOWN,
             HOST_TLS_CLIENT_WRAP,
+            HOST_TLS_SERVER_WRAP,
             HOST_TLS_READ,
             HOST_TLS_WRITE,
             HOST_HANDLE_CLOSE,
@@ -1021,6 +1042,35 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
                 Ok(fv)
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 3 && is_named_callee(callee, "tlsServerWrap") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tlsServerWrap conn"))?,
+                )?;
+                let cert = self.emit_string_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tlsServerWrap certPath"))?,
+                )?;
+                let key = self.emit_string_expr(
+                    arg_expr(&args[2]).ok_or_else(|| diag("host_tcp: tlsServerWrap keyPath"))?,
+                )?;
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {cert}, ptr {key}, ptr {out_h})",
+                    HOST_TLS_SERVER_WRAP.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
@@ -1393,6 +1443,23 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_tls_client_wrap"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tls_write"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tls_read"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
+    }
+
+    #[test]
+    fn emit_tls_server_wrap() {
+        let m = lower_src(
+            r#"
+            let s = tcpListen(0);
+            let a = tcpAccept(s);
+            let t = tlsServerWrap(a, "/tmp/cert.pem", "/tmp/key.pem");
+            closeTls(t);
+            closeTcp(s);
+            "#,
+        );
+        assert!(is_host_tcp_module(&m));
+        let ir = emit_host_tcp(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tls_server_wrap"), "{ir}");
         assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
     }
 }

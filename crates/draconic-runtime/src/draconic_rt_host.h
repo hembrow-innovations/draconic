@@ -518,19 +518,27 @@ DraconicHostError draconic_rt_host_http_response_header(
     const char *name,
     char **out_value);
 
-/* --- TLS client wrap (H11.01) ----------------------------------------------
-   Wrap an existing TCP connection handle as a TLS client session.
+/* --- TLS client/server wrap (H11.01 / H11.02) ------------------------------
+   Wrap an existing TCP connection handle as a TLS client or server session.
    Takes ownership of the TCP conn handle (it becomes invalid); *out_tls is a
    new TLS handle closed with handle_close / closeTls.
-   server_name: SNI + peer domain for cert verify (may be empty when insecure).
-   insecure != 0: skip certificate verification (test mode).
-   insecure == 0: system trust roots + hostname check (macOS Secure Transport).
+   Client (H11.01):
+     server_name: SNI + peer domain for cert verify (may be empty when insecure).
+     insecure != 0: skip certificate verification (test mode).
+     insecure == 0: system trust roots + hostname check (macOS Secure Transport).
+   Server (H11.02):
+     cert_path / key_path: PEM files (certificate + matching private key).
    tls_read / tls_write: application data over the TLS session (same shapes as
    tcp_read / tcp_write). */
 DraconicHostError draconic_rt_host_tls_client_wrap(
     DraconicHostHandle tcp_conn,
     const char *server_name,
     int32_t insecure,
+    DraconicHostHandle *out_tls);
+DraconicHostError draconic_rt_host_tls_server_wrap(
+    DraconicHostHandle tcp_conn,
+    const char *cert_path,
+    const char *key_path,
     DraconicHostHandle *out_tls);
 DraconicHostError draconic_rt_host_tls_read(
     DraconicHostHandle tls_h,

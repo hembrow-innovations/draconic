@@ -91,7 +91,7 @@ pub struct HostApiEntry {
 /// - H10.04: same surface, two request/response cycles on one connection (keep-alive).
 /// - H10.07: HTTP listen helpers (`httpParseRequest` / `httpRequestHeader` / `httpWriteResponse`
 ///   and client parse/write) hard-error on js until optional Node bridge.
-/// - `tlsClientWrap` / `tlsRead` / `tlsWrite` / `closeTls` (H11.01): native-only TLS client wrap.
+/// - `tlsClientWrap` / `tlsServerWrap` / `tlsRead` / `tlsWrite` / `closeTls` (H11.01/H11.02): native-only TLS.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -322,6 +322,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "tlsClientWrap",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H11.01 TLS client wrap TCP conn (serverName, insecure)",
+    },
+    HostApiEntry {
+        name: "tlsServerWrap",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H11.02 TLS server wrap TCP conn (certPath, keyPath PEM)",
     },
     HostApiEntry {
         name: "tlsRead",
@@ -841,6 +846,7 @@ mod tests {
             "httpParseResponse",
             "httpResponseHeader",
             "tlsClientWrap",
+            "tlsServerWrap",
             "tlsRead",
             "tlsWrite",
             "closeTls",

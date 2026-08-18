@@ -95,6 +95,16 @@ fn tls_client_wrap_js_hard_error_fixture_present() {
 }
 
 #[test]
+fn tls_server_wrap_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/tls_server_wrap_js_hard_error");
+}
+
+#[test]
 fn tls_client_wrap_js_hard_error_on_js() {
     assert_fixture_runs_js("host/policy/tls_client_wrap_js_hard_error");
+}
+
+#[test]
+fn tls_server_wrap_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/tls_server_wrap_js_hard_error");
 }

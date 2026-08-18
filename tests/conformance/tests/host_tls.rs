@@ -1,4 +1,4 @@
-//! ROADMAP H11.01: TLS client wrap (insecure / trust roots).
+//! ROADMAP H11.01 / H11.02: TLS client + server wrap.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -42,4 +42,23 @@ fn tls_client_plain_peer_fails_runs_native() {
         "must target native"
     );
     assert_fixture_runs("host/net/tls/tls_client_plain_peer_fails");
+}
+
+#[test]
+fn tls_server_missing_cert_fixture_present() {
+    assert_fixture_present("host/net/tls/tls_server_missing_cert");
+}
+
+#[test]
+fn tls_server_missing_cert_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tls/tls_server_missing_cert")
+        .expect("host/net/tls/tls_server_missing_cert");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_fixture_runs("host/net/tls/tls_server_missing_cert");
 }

@@ -945,11 +945,16 @@ pub const HOST_FS_HANDLE_SEEK: AbiFn = AbiFn {
     ret: "i32",
     params: "i64, i64, i32, ptr",
 };
-/* H11.01: TLS client wrap + read/write. */
+/* H11.01 / H11.02: TLS client/server wrap + read/write. */
 pub const HOST_TLS_CLIENT_WRAP: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tls_client_wrap",
     ret: "i32",
     params: "i64, ptr, i32, ptr",
+};
+pub const HOST_TLS_SERVER_WRAP: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tls_server_wrap",
+    ret: "i32",
+    params: "i64, ptr, ptr, ptr",
 };
 pub const HOST_TLS_READ: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tls_read",
@@ -1215,9 +1220,10 @@ pub const HOST_HTTP_WRITE_RESPONSE_SYMBOL: &str = HOST_HTTP_WRITE_RESPONSE.symbo
 pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
 pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
-pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
-pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
-pub const HOST_TLS_WRITE_SYMBOL: &str = HOST_TLS_WRITE.symbol;
+    pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
+    pub const HOST_TLS_SERVER_WRAP_SYMBOL: &str = HOST_TLS_SERVER_WRAP.symbol;
+    pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
+    pub const HOST_TLS_WRITE_SYMBOL: &str = HOST_TLS_WRITE.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H11.01).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -1301,6 +1307,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_WRITE_RESPONSE_SYMBOL,
     HOST_HTTP_WRITE_REQUEST_SYMBOL,
     HOST_TLS_CLIENT_WRAP_SYMBOL,
+    HOST_TLS_SERVER_WRAP_SYMBOL,
     HOST_TLS_READ_SYMBOL,
     HOST_TLS_WRITE_SYMBOL,
     HOST_HTTP_PARSE_RESPONSE_SYMBOL,
@@ -1391,6 +1398,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_HTTP_PARSE_RESPONSE,
     HOST_HTTP_RESPONSE_HEADER,
     HOST_TLS_CLIENT_WRAP,
+    HOST_TLS_SERVER_WRAP,
     HOST_TLS_READ,
     HOST_TLS_WRITE,
 ];
