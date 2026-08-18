@@ -770,6 +770,18 @@ pub const HOST_PROCESS_PPID: AbiFn = AbiFn {
     params: "",
 };
 
+/* H16.01: cwd get + chdir. */
+pub const HOST_CWD: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_cwd",
+    ret: "ptr",
+    params: "",
+};
+pub const HOST_CHDIR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_chdir",
+    ret: "i32",
+    params: "ptr",
+};
+
 /* H15.01: processRun — spawn argv, optional cwd/env subset, wait exit code. */
 pub const HOST_PROCESS_RUN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_process_run",
@@ -1315,6 +1327,8 @@ pub const HOST_PROCESS_SET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_SET_EXIT_CODE.s
 pub const HOST_PROCESS_GET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_GET_EXIT_CODE.symbol;
 pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
 pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
+pub const HOST_CWD_SYMBOL: &str = HOST_CWD.symbol;
+pub const HOST_CHDIR_SYMBOL: &str = HOST_CHDIR.symbol;
 pub const HOST_SIGNAL_WATCH_SYMBOL: &str = HOST_SIGNAL_WATCH.symbol;
 pub const HOST_SIGNAL_RAISE_SYMBOL: &str = HOST_SIGNAL_RAISE.symbol;
 pub const HOST_SIGNAL_POLL_SYMBOL: &str = HOST_SIGNAL_POLL.symbol;
@@ -1416,6 +1430,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_GET_EXIT_CODE_SYMBOL,
     HOST_PROCESS_PID_SYMBOL,
     HOST_PROCESS_PPID_SYMBOL,
+    HOST_CWD_SYMBOL,
+    HOST_CHDIR_SYMBOL,
     HOST_SIGNAL_WATCH_SYMBOL,
     HOST_SIGNAL_RAISE_SYMBOL,
     HOST_SIGNAL_POLL_SYMBOL,
@@ -1518,6 +1534,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_GET_EXIT_CODE,
     HOST_PROCESS_PID,
     HOST_PROCESS_PPID,
+    HOST_CWD,
+    HOST_CHDIR,
     HOST_NOW_MS,
     HOST_MONOTONIC_MS,
     HOST_STDOUT_WRITE,
@@ -1696,6 +1714,30 @@ function ppid() {
 if (typeof globalThis !== "undefined") {
   globalThis.pid = pid;
   globalThis.ppid = ppid;
+}
+"#
+}
+
+/// JS polyfill for `cwd` / `chdir` (H16.01).
+///
+/// Node bridge via `process.cwd` / `process.chdir`.
+pub fn cwd_chdir_js_polyfill() -> &'static str {
+    r#"function cwd() {
+  if (typeof process !== "undefined" && process && typeof process.cwd === "function") {
+    return process.cwd();
+  }
+  return "";
+}
+function chdir(path) {
+  if (typeof process !== "undefined" && process && typeof process.chdir === "function") {
+    process.chdir(String(path));
+    return;
+  }
+  throw new Error("chdir unavailable");
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.cwd = cwd;
+  globalThis.chdir = chdir;
 }
 "#
 }

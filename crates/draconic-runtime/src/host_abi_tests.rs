@@ -315,6 +315,8 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_get_exit_code",
         "draconic_rt_host_process_pid",
         "draconic_rt_host_process_ppid",
+        "draconic_rt_host_cwd",
+        "draconic_rt_host_chdir",
         "draconic_rt_host_process_run",
         "draconic_rt_host_process_spawn",
         "draconic_rt_host_process_stdin_write",
@@ -570,6 +572,68 @@ int main(void) {
     assert!(pp >= 0, "ppid={pp}");
     // Child binary has its own pid; ppid should be this test process.
     assert_eq!(pp as u32, std::process::id());
+}
+
+#[test]
+fn host_cwd_chdir() {
+    // H16.01: getcwd + chdir + restore.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_cwd.c");
+    let bin = dir.join("rt_host_cwd");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    char *saved = draconic_rt_host_cwd();
+    if (!saved || !saved[0]) return 1;
+    if (draconic_rt_host_chdir("/") != DRACONIC_HOST_OK) { free(saved); return 2; }
+    char *root = draconic_rt_host_cwd();
+    if (!root || strcmp(root, "/") != 0) { free(saved); free(root); return 3; }
+    free(root);
+    if (draconic_rt_host_chdir(saved) != DRACONIC_HOST_OK) { free(saved); return 4; }
+    char *back = draconic_rt_host_cwd();
+    if (!back || strcmp(back, saved) != 0) { free(saved); free(back); return 5; }
+    free(saved);
+    free(back);
+    if (draconic_rt_host_chdir("/no/such/draconic_h1601_path_xyz") != DRACONIC_HOST_E_NOENT) {
+        return 6;
+    }
+    printf("ok\n");
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+    };
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "code={:?} stderr={} stdout={}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
 }
 
 #[test]

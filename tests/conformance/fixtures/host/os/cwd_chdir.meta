@@ -1,0 +1,6 @@
+id: host/os/cwd_chdir
+targets: js,native
+js.exit: 0
+js.check: if (t !== "string") process.exit(1); if (typeof saved !== "string" || saved.length < 1) process.exit(2); if (at_root !== true) process.exit(3); if (restored !== true) process.exit(4);
+native.exit: 0
+native.stdout: string\ntrue\ntrue\n

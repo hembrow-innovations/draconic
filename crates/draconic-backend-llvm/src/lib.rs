@@ -42,6 +42,7 @@ mod host_dns;
 mod host_fs;
 mod host_http;
 mod host_http_server;
+mod host_os;
 mod host_path;
 mod host_process;
 mod host_subprocess;
@@ -112,6 +113,7 @@ use host_dns::{emit_host_dns, is_host_dns_module};
 use host_fs::{emit_host_fs, is_host_fs_module};
 use host_http::{emit_host_http, is_host_http_module};
 use host_http_server::{emit_host_http_server, is_host_http_server_module};
+use host_os::{emit_host_os, is_host_os_module};
 use host_path::{emit_host_path, is_host_path_module};
 use host_process::{emit_host_process, is_host_process_module};
 use host_subprocess::{emit_host_subprocess, is_host_subprocess_module};
@@ -246,6 +248,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_process_module(module) {
         return emit_host_process(module);
+    }
+    if is_host_os_module(module) {
+        return emit_host_os(module);
     }
     if is_host_process_async_module(module) {
         return emit_host_process_async(module);

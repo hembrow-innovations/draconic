@@ -1,0 +1,7 @@
+// H16.01: cwd() + chdir(path) — get absolute path; change and restore.
+let t = typeof cwd();
+let saved = cwd();
+chdir("/");
+let at_root = cwd() === "/";
+chdir(saved);
+let restored = cwd() === saved;

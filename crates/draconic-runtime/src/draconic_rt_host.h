@@ -132,6 +132,13 @@ int32_t draconic_rt_host_process_get_exit_code(void);
 int32_t draconic_rt_host_process_pid(void);
 int32_t draconic_rt_host_process_ppid(void);
 
+/* --- OS cwd / chdir (H16.01) -----------------------------------------------
+   cwd: malloc'd absolute path (caller free()); NULL on failure.
+   chdir: change process working directory; missing path → E_NOENT. */
+
+char *draconic_rt_host_cwd(void);
+DraconicHostError draconic_rt_host_chdir(const char *path);
+
 /* --- Process run / spawn+wait (H15.01) ------------------------------------
    Spawn argv[0] with argv[0..argc), wait for exit, return status.
    cwd NULL → inherit; else chdir in child before exec.

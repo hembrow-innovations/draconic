@@ -64,6 +64,7 @@ pub struct HostApiEntry {
 /// - `envGet` / `envSet` / `envDelete` (H01.02): both — string env; missing get → undefined.
 /// - `exit` / `exitCode` / `setExitCode` (H01.03): both — terminate / deferred status (default 0).
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
+/// - `cwd` / `chdir` (H16.01): both — get/set process working directory.
 /// - `processRun` (H15.01): both — spawn argv, optional cwd + env subset, wait exit code.
 /// - `processSpawn` / `processStdinWrite` / `processWait` / `processStdout` /
 ///   `processStderr` / `processKill` / `processClose` (H15.02): both — pipes + kill.
@@ -148,6 +149,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "ppid",
         availability: HostAvailability::BOTH,
         note: "H01.04 process ppid",
+    },
+    HostApiEntry {
+        name: "cwd",
+        availability: HostAvailability::BOTH,
+        note: "H16.01 get cwd",
+    },
+    HostApiEntry {
+        name: "chdir",
+        availability: HostAvailability::BOTH,
+        note: "H16.01 chdir",
     },
     HostApiEntry {
         name: "processRun",
@@ -709,6 +720,21 @@ mod tests {
     #[test]
     fn registry_lists_pid_ppid_both() {
         for name in ["pid", "ppid"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_cwd_chdir_both() {
+        for name in ["cwd", "chdir"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

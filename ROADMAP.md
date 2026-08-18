@@ -663,7 +663,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H15.02 | done | both | Capture stdout/stderr; write stdin; kill child | `tests/conformance` fixtures `host/process` |
 | H15.03 | done | native | Async subprocess exit via job queue / Promise | `tests/conformance` fixtures `host/process` |
 | H16 | todo | both | OS misc | `tests/conformance/host/os` |
-| H16.01 | todo | both | cwd get + chdir | `tests/conformance` fixtures `host/os` |
+| H16.01 | done | both | cwd get + chdir | `tests/conformance` fixtures `host/os` |
 | H16.02 | todo | both | Hostname / OS type / arch strings | `tests/conformance` fixtures `host/os` |
 | H16.03 | todo | both | Temp dir + home dir paths | `tests/conformance` fixtures `host/os` |
 | H16.04 | todo | native | OS sleep / yield for timer tests | `crates/draconic-runtime` |

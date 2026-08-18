@@ -549,6 +549,85 @@ int32_t draconic_rt_host_process_pid(void) {
 #endif
 }
 
+/* --- OS cwd / chdir (H16.01) --- */
+
+char *draconic_rt_host_cwd(void) {
+#if defined(_WIN32)
+    {
+        DWORD n = GetCurrentDirectoryA(0, NULL);
+        char *buf;
+        if (n == 0) {
+            return NULL;
+        }
+        buf = (char *)malloc((size_t)n);
+        if (!buf) {
+            return NULL;
+        }
+        if (GetCurrentDirectoryA(n, buf) == 0) {
+            free(buf);
+            return NULL;
+        }
+        return buf;
+    }
+#else
+    {
+        size_t cap = 256;
+        for (;;) {
+            char *buf = (char *)malloc(cap);
+            if (!buf) {
+                return NULL;
+            }
+            if (getcwd(buf, cap) != NULL) {
+                return buf;
+            }
+            free(buf);
+            if (errno != ERANGE) {
+                return NULL;
+            }
+            if (cap > (size_t)1 << 20) {
+                return NULL;
+            }
+            cap *= 2;
+        }
+    }
+#endif
+}
+
+DraconicHostError draconic_rt_host_chdir(const char *path) {
+    if (!path || !path[0]) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+#if defined(_WIN32)
+    if (SetCurrentDirectoryA(path)) {
+        return DRACONIC_HOST_OK;
+    }
+    {
+        DWORD e = GetLastError();
+        if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND) {
+            return DRACONIC_HOST_E_NOENT;
+        }
+        if (e == ERROR_ACCESS_DENIED) {
+            return DRACONIC_HOST_E_PERM;
+        }
+        return DRACONIC_HOST_E_IO;
+    }
+#else
+    if (chdir(path) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (errno == ENOENT) {
+        return DRACONIC_HOST_E_NOENT;
+    }
+    if (errno == EACCES || errno == EPERM) {
+        return DRACONIC_HOST_E_PERM;
+    }
+    if (errno == ENOTDIR) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    return DRACONIC_HOST_E_IO;
+#endif
+}
+
 int32_t draconic_rt_host_process_ppid(void) {
 #if defined(_WIN32)
     {
