@@ -1,7 +1,9 @@
-//! Version resolve: semver git tags → highest match + commit OID (Roadmap K04.01).
+//! Version resolve: semver git tags → highest match + commit OID (Roadmap K04).
 //!
 //! Given a bare (or normal) git repo that already has tags, pick the highest
 //! semver tag matching a version requirement and resolve it to a commit OID.
+//! Fail closed (K04.02): empty/invalid req, no tags, non-semver-only tags, or
+//! no matching tag → typed diagnostic (never silent float / wrong pin).
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -28,7 +30,11 @@ pub enum ResolveError {
     InvalidReq { req: String, reason: &'static str },
     /// Repo path is missing or not a git directory.
     NotAGitRepo { path: String },
-    /// No tag matches the requirement (or no parseable semver tags).
+    /// Repository has no tags at all.
+    EmptyTags,
+    /// Tags exist but none are parseable semver (e.g. only `main` / `latest`).
+    NonSemverOnly,
+    /// Semver tags exist but none satisfy the requirement.
     NoMatch { req: String },
     /// `git` subprocess failed or is unavailable.
     Git(String),
@@ -42,6 +48,15 @@ impl fmt::Display for ResolveError {
             }
             ResolveError::NotAGitRepo { path } => {
                 write!(f, "version resolve: `{path}` is not a git repository")
+            }
+            ResolveError::EmptyTags => {
+                write!(f, "version resolve: repository has no tags")
+            }
+            ResolveError::NonSemverOnly => {
+                write!(
+                    f,
+                    "version resolve: repository has tags but none are semver"
+                )
             }
             ResolveError::NoMatch { req } => {
                 write!(
@@ -82,6 +97,11 @@ pub fn resolve_highest_matching_tag(
     })?;
 
     let tags = list_git_tags(repo)?;
+    if tags.is_empty() {
+        return Err(ResolveError::EmptyTags);
+    }
+
+    let mut saw_semver = false;
     let mut best: Option<(SemVer, String, String)> = None;
 
     for tag in tags {
@@ -92,6 +112,7 @@ pub fn resolve_highest_matching_tag(
         let Ok(ver) = parse_semver(&ver_str) else {
             continue;
         };
+        saw_semver = true;
         if !req_matches(&parsed_req, &ver) {
             continue;
         }
@@ -105,6 +126,9 @@ pub fn resolve_highest_matching_tag(
     }
 
     let Some((_ver, tag, version)) = best else {
+        if !saw_semver {
+            return Err(ResolveError::NonSemverOnly);
+        }
         return Err(ResolveError::NoMatch {
             req: req.to_string(),
         });
@@ -463,11 +487,104 @@ mod tests {
     }
 
     #[test]
+    fn no_match_range_when_semver_tags_exist() {
+        let root = temp_dir("nomatch-range");
+        let (repo, _, _, _) = tagged_fixture(&root);
+        let err = resolve_highest_matching_tag(&repo, "^3.0.0").expect_err("no 3.x");
+        match &err {
+            ResolveError::NoMatch { req } => assert_eq!(req, "^3.0.0"),
+            other => panic!("expected NoMatch, got {other:?}"),
+        }
+        assert!(err.to_string().contains("no semver tag matches"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn empty_req_rejected() {
+        let root = temp_dir("empty-req");
+        let (repo, _, _, _) = tagged_fixture(&root);
+        let err = resolve_highest_matching_tag(&repo, "").expect_err("empty");
+        match &err {
+            ResolveError::InvalidReq { req, reason } => {
+                assert_eq!(req, "");
+                assert!(reason.contains("empty"), "{reason}");
+            }
+            other => panic!("expected InvalidReq, got {other:?}"),
+        }
+        assert!(err.to_string().contains("invalid requirement"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn empty_operator_only_req_rejected() {
+        let root = temp_dir("op-only");
+        let (repo, _, _, _) = tagged_fixture(&root);
+        for req in ["^", "~", ">=", "<=", ">", "<", "="] {
+            let err = resolve_highest_matching_tag(&repo, req).expect_err(req);
+            assert!(
+                matches!(err, ResolveError::InvalidReq { .. }),
+                "{req}: {err:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn invalid_req_rejected() {
         let root = temp_dir("badreq");
         let (repo, _, _, _) = tagged_fixture(&root);
         let err = resolve_highest_matching_tag(&repo, "latest").expect_err("bad req");
         assert!(matches!(err, ResolveError::InvalidReq { .. }), "{err:?}");
+        let err2 = resolve_highest_matching_tag(&repo, "main").expect_err("branch");
+        assert!(matches!(err2, ResolveError::InvalidReq { .. }), "{err2:?}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K04.02: tags exist but none are semver → NonSemverOnly (not silent wrong pin).
+    #[test]
+    fn non_semver_only_tags_fail_closed() {
+        let root = temp_dir("nonsemver-only");
+        let repo = root.join("upstream");
+        fs::create_dir_all(&repo).unwrap();
+        git_ok(&["init"], &repo);
+        git_ok(&["config", "user.email", "test@draconic.local"], &repo);
+        git_ok(&["config", "user.name", "Draconic Test"], &repo);
+        git_ok(&["checkout", "-B", "main"], &repo);
+        let _ = commit_file(&repo, "a.txt", "x\n", "init");
+        git_ok(&["tag", "latest"], &repo);
+        git_ok(&["tag", "release-candidate"], &repo);
+        git_ok(&["tag", "vnext"], &repo);
+
+        let err = resolve_highest_matching_tag(&repo, "1.0.0").expect_err("no semver");
+        assert!(
+            matches!(err, ResolveError::NonSemverOnly),
+            "expected NonSemverOnly, got {err:?}"
+        );
+        assert!(err.to_string().contains("none are semver"));
+        // Ranges also fail closed the same way.
+        let err2 = resolve_highest_matching_tag(&repo, "^1.0.0").expect_err("range");
+        assert!(matches!(err2, ResolveError::NonSemverOnly), "{err2:?}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K04.02: repository with zero tags → EmptyTags diagnostic.
+    #[test]
+    fn empty_tags_fail_closed() {
+        let root = temp_dir("empty-tags");
+        let repo = root.join("upstream");
+        fs::create_dir_all(&repo).unwrap();
+        git_ok(&["init"], &repo);
+        git_ok(&["config", "user.email", "test@draconic.local"], &repo);
+        git_ok(&["config", "user.name", "Draconic Test"], &repo);
+        git_ok(&["checkout", "-B", "main"], &repo);
+        let _ = commit_file(&repo, "a.txt", "x\n", "init");
+
+        let err = resolve_highest_matching_tag(&repo, "1.0.0").expect_err("no tags");
+        assert!(
+            matches!(err, ResolveError::EmptyTags),
+            "expected EmptyTags, got {err:?}"
+        );
+        assert!(err.to_string().contains("no tags"));
         let _ = fs::remove_dir_all(&root);
     }
 

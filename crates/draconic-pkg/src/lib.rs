@@ -11,7 +11,8 @@
 //! K03.02: git clone/fetch into cache VCS store (HTTPS; fixture repos in tests).
 //! K03.03: checkout pinned OID into mod store; cache hit skips network.
 //! K03.04: content hash SHA-256 over canonical package tree.
-//! K04.01: resolve version req against git tags; highest matching semver.
+//! K04: resolve version req against git tags; highest matching semver;
+//! fail closed on empty/invalid req, empty tags, non-semver-only, no match.
 
 mod cache;
 mod hash;
