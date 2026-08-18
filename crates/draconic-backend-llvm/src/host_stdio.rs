@@ -1,9 +1,10 @@
-//! H02.01: native observations for `stdoutWrite`.
+//! H02.01 / H02.02: native observations for `stdoutWrite` / `stderrWrite`.
 //!
 //! - `stdoutWrite(string)` — UTF-8 bytes to OS stdout (no auto newline)
 //! - `stdoutWrite(Uint8Array)` — raw bytes (simple `new Uint8Array(n)` + index assigns)
+//! - `stderrWrite(string|Uint8Array)` — same for OS stderr
 //!
-//! Side-effect-only modules: program writes are the observed stdout.
+//! Side-effect-only modules: program writes are the observed stdout/stderr.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -11,7 +12,7 @@ use std::fmt::Write as _;
 use draconic_ast::AssignOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, Local, LocalId, Module, Stmt};
-use draconic_runtime::abi::{llvm_declares, GC_INIT, HOST_STDOUT_WRITE};
+use draconic_runtime::abi::{llvm_declares, GC_INIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE};
 
 pub(crate) fn is_host_stdio_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -38,7 +39,7 @@ struct ClassifyCtx<'a> {
     module: &'a Module,
     slots: Vec<(LocalId, SlotTy)>,
     slot_of: HashMap<LocalId, SlotTy>,
-    has_stdout: bool,
+    has_write: bool,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -46,12 +47,12 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         module,
         slots: Vec::new(),
         slot_of: HashMap::new(),
-        has_stdout: false,
+        has_write: false,
     };
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
     }
-    if !ctx.has_stdout {
+    if !ctx.has_write {
         return None;
     }
     Some(ModuleInfo { slots: ctx.slots })
@@ -74,9 +75,11 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
 fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
     match expr {
         Expr::Call { callee, args, .. }
-            if args.len() == 1 && is_named_callee(callee, "stdoutWrite", ctx.module) =>
+            if args.len() == 1
+                && (is_named_callee(callee, "stdoutWrite", ctx.module)
+                    || is_named_callee(callee, "stderrWrite", ctx.module)) =>
         {
-            ctx.has_stdout = true;
+            ctx.has_write = true;
             classify_write_arg(arg_expr(&args[0])?, ctx)?;
             Some(())
         }
@@ -221,11 +224,11 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_stdio (H02.01 stdoutWrite)"
+            "; Draconic LLVM host_stdio (H02.01/H02.02 stdoutWrite/stderrWrite)"
         )
         .ok();
         self.out
-            .push_str(&llvm_declares(&[GC_INIT, HOST_STDOUT_WRITE]));
+            .push_str(&llvm_declares(&[GC_INIT, HOST_STDOUT_WRITE, HOST_STDERR_WRITE]));
         writeln!(self.out).ok();
 
         // Collect string/byte globals while emitting body.
@@ -341,9 +344,20 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "stdoutWrite", self.module) =>
             {
-                self.emit_stdout_write(arg_expr(&args[0]).ok_or_else(|| {
-                    diag("host_stdio: stdoutWrite arg")
-                })?, payloads)
+                self.emit_stream_write(
+                    HOST_STDOUT_WRITE.symbol,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_stdio: stdoutWrite arg"))?,
+                    payloads,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "stderrWrite", self.module) =>
+            {
+                self.emit_stream_write(
+                    HOST_STDERR_WRITE.symbol,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_stdio: stderrWrite arg"))?,
+                    payloads,
+                )
             }
             Expr::Assign {
                 target:
@@ -389,8 +403,9 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_stdout_write(
+    fn emit_stream_write(
         &mut self,
+        abi_symbol: &str,
         arg: &Expr,
         _payloads: &mut HashMap<String, Vec<u8>>,
     ) -> Result<(), Diagnostic> {
@@ -425,8 +440,7 @@ impl<'a> Emitter<'a> {
                 }
                 writeln!(
                     self.body,
-                    "  {rc} = call i32 @{}(ptr {p}, i64 {n})",
-                    HOST_STDOUT_WRITE.symbol
+                    "  {rc} = call i32 @{abi_symbol}(ptr {p}, i64 {n})"
                 )
                 .ok();
                 Ok(())
@@ -435,7 +449,7 @@ impl<'a> Emitter<'a> {
                 let SlotTy::Bytes(n) = *self
                     .slot_of
                     .get(id)
-                    .ok_or_else(|| diag("host_stdio: stdoutWrite local not bytes"))?;
+                    .ok_or_else(|| diag("host_stdio: stream write local not bytes"))?;
                 let base = self.slot_ptr(*id)?;
                 let p = self.fresh();
                 let rc = self.fresh();
@@ -454,13 +468,14 @@ impl<'a> Emitter<'a> {
                 }
                 writeln!(
                     self.body,
-                    "  {rc} = call i32 @{}(ptr {p}, i64 {n})",
-                    HOST_STDOUT_WRITE.symbol
+                    "  {rc} = call i32 @{abi_symbol}(ptr {p}, i64 {n})"
                 )
                 .ok();
                 Ok(())
             }
-            _ => Err(diag("host_stdio: stdoutWrite expects string or Uint8Array")),
+            _ => Err(diag(
+                "host_stdio: stdoutWrite/stderrWrite expects string or Uint8Array",
+            )),
         }
     }
 }
@@ -566,6 +581,73 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
         let dir = std::env::temp_dir().join(format!(
             "draconic-hs-bytes-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let ll = dir.join("t.ll");
+        std::fs::write(&ll, &ir).unwrap();
+        let clang = std::env::var("CLANG").unwrap_or_else(|_| "clang".into());
+        let out = std::process::Command::new(&clang)
+            .args(["-c", "-o"])
+            .arg(dir.join("t.o"))
+            .arg(&ll)
+            .output()
+            .expect("clang");
+        assert!(
+            out.status.success(),
+            "clang reject IR:\n{}\n--- IR ---\n{ir}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn classifies_stderr_write_string() {
+        let m = lower_src(
+            r#"
+            stderrWrite("err\n");
+            "#,
+        );
+        assert!(is_host_stdio_module(&m));
+        let ir = emit_host_stdio(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_stderr_write"), "{ir}");
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-hs-err-str-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let ll = dir.join("t.ll");
+        std::fs::write(&ll, &ir).unwrap();
+        let clang = std::env::var("CLANG").unwrap_or_else(|_| "clang".into());
+        let out = std::process::Command::new(&clang)
+            .args(["-c", "-o"])
+            .arg(dir.join("t.o"))
+            .arg(&ll)
+            .output()
+            .expect("clang");
+        assert!(
+            out.status.success(),
+            "clang reject IR:\n{}\n--- IR ---\n{ir}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn classifies_stderr_write_bytes() {
+        let m = lower_src(
+            r#"
+            let u = new Uint8Array(2);
+            u[0] = 69;
+            u[1] = 10;
+            stderrWrite(u);
+            "#,
+        );
+        assert!(is_host_stdio_module(&m));
+        let ir = emit_host_stdio(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_stderr_write"), "{ir}");
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-hs-err-bytes-{}",
             std::process::id()
         ));
         let _ = std::fs::create_dir_all(&dir);

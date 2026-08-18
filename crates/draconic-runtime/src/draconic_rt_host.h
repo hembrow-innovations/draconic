@@ -138,6 +138,12 @@ int32_t draconic_rt_host_process_ppid(void);
 
 DraconicHostError draconic_rt_host_stdout_write(const uint8_t *data, size_t len);
 
+/* --- Stderr write (H02.02) -------------------------------------------------
+   Write raw bytes to OS stderr. data may be NULL only when len == 0.
+   Binary-safe (embedded 0x00 is payload). No automatic newline. */
+
+DraconicHostError draconic_rt_host_stderr_write(const uint8_t *data, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

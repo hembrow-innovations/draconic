@@ -1,0 +1,6 @@
+id: host/stdio/stderr_write_string
+targets: js,native
+js.exit: 0
+js.stderr: err-hello\nerr-world\n
+native.exit: 0
+native.stderr: err-hello\nerr-world\n

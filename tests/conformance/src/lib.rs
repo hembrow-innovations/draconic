@@ -48,6 +48,8 @@ pub struct TargetExpect {
     pub check: Option<String>,
     /// Exact stdout (native; optional for js).
     pub stdout: Option<String>,
+    /// Exact stderr (optional; H02.02 stderr write).
+    pub stderr: Option<String>,
     /// When set, compile/emit must fail and the diagnostic message must contain this substring.
     /// Used for native-only features on the JS target (N04).
     pub error_contains: Option<String>,
@@ -236,6 +238,7 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             }
             "js.check" => meta.expect_js.check = Some(unescape(value)),
             "js.stdout" => meta.expect_js.stdout = Some(unescape(value)),
+            "js.stderr" => meta.expect_js.stderr = Some(unescape(value)),
             "js.error" => meta.expect_js.error_contains = Some(unescape(value)),
             "js.error_code" => meta.expect_js.error_code = Some(value.to_string()),
             "js.args" => meta.expect_js.args = parse_args(value),
@@ -243,6 +246,7 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
                 meta.expect_native.exit = parse_exit(value, lineno + 1)?;
             }
             "native.stdout" => meta.expect_native.stdout = Some(unescape(value)),
+            "native.stderr" => meta.expect_native.stderr = Some(unescape(value)),
             "native.error" => meta.expect_native.error_contains = Some(unescape(value)),
             "native.error_code" => meta.expect_native.error_code = Some(value.to_string()),
             "native.args" => meta.expect_native.args = parse_args(value),
@@ -460,6 +464,14 @@ fn run_js(fixture: &Fixture, mut coverage: Option<&mut CoverageReport>) -> Resul
             ));
         }
     }
+    if let Some(want) = &expect.stderr {
+        if stderr.as_ref() != want {
+            return Err(format!(
+                "js stderr mismatch\nwant: {want:?}\ngot:  {:?}\nstdout: {stdout}",
+                stderr.as_ref()
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -504,6 +516,14 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
             return Err(format!(
                 "native stdout mismatch\nwant: {want:?}\ngot:  {:?}\nstderr: {stderr}",
                 stdout.as_ref()
+            ));
+        }
+    }
+    if let Some(want) = &expect.stderr {
+        if stderr.as_ref() != want {
+            return Err(format!(
+                "native stderr mismatch\nwant: {want:?}\ngot:  {:?}\nstdout: {stdout}",
+                stderr.as_ref()
             ));
         }
     }

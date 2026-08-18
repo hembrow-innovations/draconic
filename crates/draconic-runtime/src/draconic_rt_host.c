@@ -490,3 +490,23 @@ DraconicHostError draconic_rt_host_stdout_write(const uint8_t *data, size_t len)
     }
     return DRACONIC_HOST_OK;
 }
+
+/* --- Stderr write (H02.02) --- */
+
+DraconicHostError draconic_rt_host_stderr_write(const uint8_t *data, size_t len) {
+    size_t n;
+    if (len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (!data) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    n = fwrite(data, 1, len, stderr);
+    if (n != len) {
+        return DRACONIC_HOST_E_IO;
+    }
+    if (fflush(stderr) != 0) {
+        return DRACONIC_HOST_E_IO;
+    }
+    return DRACONIC_HOST_OK;
+}

@@ -1,0 +1,6 @@
+id: host/stdio/stderr_write_bytes
+targets: js,native
+js.exit: 0
+js.stderr: E!\n
+native.exit: 0
+native.stderr: E!\n

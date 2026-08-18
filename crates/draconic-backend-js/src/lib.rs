@@ -97,6 +97,14 @@ fn module_uses_stdout_write(module: &Module) -> bool {
         .any(|s| stmt_uses_ident_name(s, "stdoutWrite"))
 }
 
+/// H02.02: free host API `stderrWrite`.
+fn module_uses_stderr_write(module: &Module) -> bool {
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "stderrWrite"))
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -417,6 +425,13 @@ fn emit_js_full(
     // H02.01: `stdoutWrite` Node bridge.
     if module_uses_stdout_write(module) {
         out.push_str(draconic_runtime::stdout_write_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H02.02: `stderrWrite` Node bridge.
+    if module_uses_stderr_write(module) {
+        out.push_str(draconic_runtime::stderr_write_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

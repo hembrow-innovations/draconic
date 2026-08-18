@@ -737,6 +737,13 @@ pub const HOST_STDOUT_WRITE: AbiFn = AbiFn {
     params: "ptr, i64",
 };
 
+/* H02.02: stderr write (raw bytes; no automatic newline). */
+pub const HOST_STDERR_WRITE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_stderr_write",
+    ret: "i32",
+    params: "ptr, i64",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -759,8 +766,9 @@ pub const HOST_PROCESS_GET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_GET_EXIT_CODE.s
 pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
 pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
 pub const HOST_STDOUT_WRITE_SYMBOL: &str = HOST_STDOUT_WRITE.symbol;
+pub const HOST_STDERR_WRITE_SYMBOL: &str = HOST_STDERR_WRITE.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02.01).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02.01–H02.02).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -784,6 +792,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_PID_SYMBOL,
     HOST_PROCESS_PPID_SYMBOL,
     HOST_STDOUT_WRITE_SYMBOL,
+    HOST_STDERR_WRITE_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -810,6 +819,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_PID,
     HOST_PROCESS_PPID,
     HOST_STDOUT_WRITE,
+    HOST_STDERR_WRITE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -943,6 +953,34 @@ pub fn stdout_write_js_polyfill() -> &'static str {
   process.stdout.write(String(data));
 }
 if (typeof globalThis !== "undefined") globalThis.stdoutWrite = stdoutWrite;
+"#
+}
+
+/// JS polyfill for `stderrWrite` (H02.02).
+///
+/// Node bridge via `process.stderr.write`. Accepts string (UTF-8) or `Uint8Array`
+/// (raw bytes). No automatic newline — include `\n` in the string when needed.
+pub fn stderr_write_js_polyfill() -> &'static str {
+    r#"function stderrWrite(data) {
+  if (typeof process === "undefined" || !process || !process.stderr || typeof process.stderr.write !== "function") {
+    return;
+  }
+  if (data == null) return;
+  if (typeof data === "string") {
+    process.stderr.write(data);
+    return;
+  }
+  if (typeof Uint8Array !== "undefined" && data instanceof Uint8Array) {
+    process.stderr.write(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+    return;
+  }
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer && Buffer.isBuffer(data)) {
+    process.stderr.write(data);
+    return;
+  }
+  process.stderr.write(String(data));
+}
+if (typeof globalThis !== "undefined") globalThis.stderrWrite = stderrWrite;
 "#
 }
 
