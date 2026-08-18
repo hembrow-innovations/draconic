@@ -1,4 +1,5 @@
 //! ROADMAP H09.01: DNS lookup hostname → addresses; failure errors.
+//! ROADMAP H09.02: Connect-by-name (tcpConnect hostname via DNS + H06.03).
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -66,4 +67,43 @@ fn dns_lookup_fail_runs_native() {
         Some("EADDR\n")
     );
     assert_fixture_runs("host/net/dns/dns_lookup_fail");
+}
+
+#[test]
+fn tcp_connect_by_name_runs_native() {
+    assert_fixture_present("host/net/dns/tcp_connect_by_name");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/dns/tcp_connect_by_name")
+        .expect("host/net/dns/tcp_connect_by_name");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("number\ntrue\n")
+    );
+    assert_fixture_runs("host/net/dns/tcp_connect_by_name");
+}
+
+#[test]
+fn tcp_connect_by_name_fail_runs_native() {
+    assert_fixture_present("host/net/dns/tcp_connect_by_name_fail");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/dns/tcp_connect_by_name_fail")
+        .expect("host/net/dns/tcp_connect_by_name_fail");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(fixture.expect_native.exit, 1);
+    assert_eq!(
+        fixture.expect_native.stderr.as_deref(),
+        Some("EADDR\n")
+    );
+    assert_fixture_runs("host/net/dns/tcp_connect_by_name_fail");
 }

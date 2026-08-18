@@ -309,8 +309,9 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
    On OK: *out_h is a live listen handle (close with handle_close).
    tcp_local_port: getsockname bound port (1..65535).
    accept: blocking accept → connection handle; peer via peer_address/port.
-   connect: dial IPv4 dotted host:port → connection handle.
-   Connection refused / reset / unreachable / ETIMEDOUT → DRACONIC_HOST_E_CONN.
+    connect: dial host:port → connection handle. Host may be IPv4 dotted or a
+    DNS name (H09.02 resolve then connect). Resolve failure → E_ADDR.
+    Connection refused / reset / unreachable / ETIMEDOUT → DRACONIC_HOST_E_CONN.
    peer_address: malloc'd dotted IPv4 (free with path_free).
    tcp_read: up to max_len bytes (partial OK); peer close → empty (len 0).
    tcp_write: write all bytes (loop); empty len OK.

@@ -3,7 +3,7 @@
 //! - `tcpListen(port)` / `tcpListen(port, backlog)` → listen handle (number)
 //! - `tcpLocalPort(h)` → bound port (ephemeral when listen port was 0)
 //! - `tcpAccept(listen)` → connection handle
-//! - `tcpConnect(host, port)` → connection handle (IPv4 dotted host)
+//! - `tcpConnect(host, port)` → connection handle (IPv4 dotted or DNS name; H09.02)
 //! - `tcpPeerAddress(conn)` → peer IPv4 string
 //! - `tcpPeerPort(conn)` → peer port number
 //! - `tcpWrite(conn, data)` → write string/bytes (all bytes)
@@ -12,6 +12,7 @@
 //! - `closeTcp(h)` → close listen/conn handle via Runtime handle_close
 //!
 //! Host errors: `E_CONN` (refused/reset/timeout) → stderr `ECONN` + exit 1;
+//! `E_ADDR` (DNS resolve failure on connect-by-name) → stderr `EADDR` + exit 1;
 //! other non-OK → `EIO` + exit 1.
 
 use std::collections::HashMap;
@@ -445,6 +446,8 @@ impl<'a> Emitter<'a> {
         let ok = self.fresh_label("tcp_ok");
         let bad = self.fresh_label("tcp_err");
         let conn_l = self.fresh_label("tcp_econn");
+        let not_conn = self.fresh_label("tcp_not_econn");
+        let addr_l = self.fresh_label("tcp_eaddr");
         let other_l = self.fresh_label("tcp_eio");
         let cmp = self.fresh();
         writeln!(self.body, "  {cmp} = icmp eq i32 {rc}, 0").ok();
@@ -454,11 +457,21 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {is_conn} = icmp eq i32 {rc}, 10").ok();
         writeln!(
             self.body,
-            "  br i1 {is_conn}, label %{conn_l}, label %{other_l}"
+            "  br i1 {is_conn}, label %{conn_l}, label %{not_conn}"
         )
         .ok();
         writeln!(self.body, "{conn_l}:").ok();
         self.emit_host_err_exit("ECONN")?;
+        writeln!(self.body, "{not_conn}:").ok();
+        let is_addr = self.fresh();
+        writeln!(self.body, "  {is_addr} = icmp eq i32 {rc}, 11").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is_addr}, label %{addr_l}, label %{other_l}"
+        )
+        .ok();
+        writeln!(self.body, "{addr_l}:").ok();
+        self.emit_host_err_exit("EADDR")?;
         writeln!(self.body, "{other_l}:").ok();
         self.emit_host_err_exit("EIO")?;
         writeln!(self.body, "{ok}:").ok();
@@ -1198,6 +1211,24 @@ mod tests {
             "{ir}"
         );
         assert!(ir.contains("icmp eq i32") && ir.contains(", 10"), "{ir}");
+    }
+
+    #[test]
+    fn emit_tcp_connect_maps_eaddr() {
+        let m = lower_src(
+            r#"
+            let c = tcpConnect("localhost", 1);
+            closeTcp(c);
+            "#,
+        );
+        assert!(is_host_tcp_module(&m));
+        let ir = emit_host_tcp(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tcp_connect"), "{ir}");
+        assert!(
+            ir.contains("EADDR\\0A") || ir.contains("EADDR\\n") || ir.contains("c\"EADDR"),
+            "{ir}"
+        );
+        assert!(ir.contains("icmp eq i32") && ir.contains(", 11"), "{ir}");
     }
 
     #[test]

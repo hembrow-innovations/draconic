@@ -1,7 +1,7 @@
-/* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
-   H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09.01 DNS).
-   Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process, stdio, path, fs, TCP, UDP, DNS, async readiness + Promise ops. */
+    /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
+    H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09 DNS).
+    Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
+    process, stdio, path, fs, TCP, UDP, DNS, async readiness + Promise ops. */
 
 #include "draconic_rt_host.h"
 
@@ -2031,6 +2031,43 @@ DraconicHostError draconic_rt_host_tcp_accept(
 #endif
 }
 
+#if !defined(_WIN32)
+/* H09.02: resolve hostname or IPv4 dotted literal → first AF_INET addr.
+   Empty/NULL → INVAL; getaddrinfo failure / no A → E_ADDR. */
+static DraconicHostError host_resolve_ipv4(const char *host, struct in_addr *out) {
+    struct addrinfo hints;
+    struct addrinfo *res = NULL;
+    struct addrinfo *rp;
+    int gai;
+
+    if (!host || host[0] == '\0' || !out) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (inet_pton(AF_INET, host, out) == 1) {
+        return DRACONIC_HOST_OK;
+    }
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    gai = getaddrinfo(host, NULL, &hints, &res);
+    if (gai != 0) {
+        return DRACONIC_HOST_E_ADDR;
+    }
+    for (rp = res; rp != NULL; rp = rp->ai_next) {
+        struct sockaddr_in *sa;
+        if (rp->ai_family != AF_INET || !rp->ai_addr) {
+            continue;
+        }
+        sa = (struct sockaddr_in *)rp->ai_addr;
+        *out = sa->sin_addr;
+        freeaddrinfo(res);
+        return DRACONIC_HOST_OK;
+    }
+    freeaddrinfo(res);
+    return DRACONIC_HOST_E_ADDR;
+}
+#endif
+
 DraconicHostError draconic_rt_host_tcp_connect(
     const char *host,
     int32_t port,
@@ -2049,15 +2086,16 @@ DraconicHostError draconic_rt_host_tcp_connect(
         return DRACONIC_HOST_E_INVAL;
     }
     *out_conn = DRACONIC_HOST_HANDLE_INVALID;
-    if (!host || port < 1 || port > 65535) {
+    if (!host || host[0] == '\0' || port < 1 || port > 65535) {
         return DRACONIC_HOST_E_INVAL;
     }
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
-    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        return DRACONIC_HOST_E_INVAL;
+    err = host_resolve_ipv4(host, &addr.sin_addr);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
     }
 
     fd = (int)socket(AF_INET, SOCK_STREAM, 0);
@@ -2864,7 +2902,7 @@ DraconicValue *draconic_rt_host_tcp_connect_async(const char *host, int32_t port
     if (!p) {
         return NULL;
     }
-    if (!host || port < 1 || port > 65535) {
+    if (!host || host[0] == '\0' || port < 1 || port > 65535) {
         draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_INVAL));
         return p;
     }
@@ -2872,8 +2910,9 @@ DraconicValue *draconic_rt_host_tcp_connect_async(const char *host, int32_t port
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons((uint16_t)port);
-    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_INVAL));
+    err = host_resolve_ipv4(host, &addr.sin_addr);
+    if (err != DRACONIC_HOST_OK) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
         return p;
     }
 

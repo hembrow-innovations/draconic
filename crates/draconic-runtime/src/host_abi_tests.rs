@@ -1770,9 +1770,10 @@ fn host_tcp_connect_dial_and_refused() {
             if (err != DRACONIC_HOST_E_CONN) return 8;
             if (draconic_rt_host_handle_is_valid(client_h)) return 9;
 
-            /* Invalid host / port stay E_INVAL (not E_CONN). */
-            err = draconic_rt_host_tcp_connect("not-an-ipv4", 80, &client_h);
-            if (err != DRACONIC_HOST_E_INVAL) return 10;
+            /* Bad port stays E_INVAL; unknown name → E_ADDR (H09.02 resolve). */
+            err = draconic_rt_host_tcp_connect(
+                "this-host-definitely-does-not-exist.invalid", 80, &client_h);
+            if (err != DRACONIC_HOST_E_ADDR) return 10;
             err = draconic_rt_host_tcp_connect("127.0.0.1", 70000, &client_h);
             if (err != DRACONIC_HOST_E_INVAL) return 11;
 
@@ -2651,4 +2652,75 @@ fn host_dns_lookup_loopback_and_failure() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "dns-h0901-ok\n");
+}
+
+#[test]
+fn host_tcp_connect_by_name_localhost() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_tcp_h0902.c");
+    let bin = dir.join("rt_host_tcp_h0902");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+
+        int main(void) {
+            DraconicHostError err;
+            DraconicHostHandle listen_h = DRACONIC_HOST_HANDLE_INVALID;
+            DraconicHostHandle client_h = DRACONIC_HOST_HANDLE_INVALID;
+            int32_t port = 0;
+
+            err = draconic_rt_host_tcp_listen(0, 8, &listen_h);
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_tcp_local_port(listen_h, &port);
+            if (err != DRACONIC_HOST_OK) return 2;
+
+            /* H09.02: dial by hostname, not dotted IPv4. */
+            err = draconic_rt_host_tcp_connect("localhost", port, &client_h);
+            if (err != DRACONIC_HOST_OK) return 3;
+            if (!draconic_rt_host_handle_is_valid(client_h)) return 4;
+            err = draconic_rt_host_handle_close(client_h);
+            if (err != DRACONIC_HOST_OK) return 5;
+            err = draconic_rt_host_handle_close(listen_h);
+            if (err != DRACONIC_HOST_OK) return 6;
+
+            err = draconic_rt_host_tcp_connect(
+                "this-host-definitely-does-not-exist.invalid", 80, &client_h);
+            if (err != DRACONIC_HOST_E_ADDR) return 7;
+
+            puts("tcp-h0902-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for tcp H09.02 smoke");
+
+    let output = Command::new(&bin).output().expect("run tcp h0902");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "tcp H09.02 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0902-ok\n");
 }
