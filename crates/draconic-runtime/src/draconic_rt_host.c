@@ -1069,3 +1069,81 @@ DraconicHostError draconic_rt_host_fs_read_text(
     *out_text = text;
     return DRACONIC_HOST_OK;
 }
+
+/* --- Filesystem write / append (H04.02) ---------------------------------- */
+
+static DraconicHostError host_fs_write_mode(
+    const char *path,
+    const uint8_t *data,
+    size_t len,
+    const char *mode) {
+    FILE *f;
+    size_t n;
+
+    if (!path || path[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (len > 0 && !data) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    f = fopen(path, mode);
+    if (!f) {
+        if (errno == ENOENT || errno == ENOTDIR) {
+            return DRACONIC_HOST_E_NOENT;
+        }
+        if (errno == EACCES
+#if defined(EPERM)
+            || errno == EPERM
+#endif
+        ) {
+            return DRACONIC_HOST_E_PERM;
+        }
+        return DRACONIC_HOST_E_IO;
+    }
+
+    if (len == 0) {
+        fclose(f);
+        return DRACONIC_HOST_OK;
+    }
+
+    n = fwrite(data, 1, len, f);
+    if (n != len) {
+        fclose(f);
+        return DRACONIC_HOST_E_IO;
+    }
+    if (fclose(f) != 0) {
+        return DRACONIC_HOST_E_IO;
+    }
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_fs_write_file(
+    const char *path,
+    const uint8_t *data,
+    size_t len) {
+    return host_fs_write_mode(path, data, len, "wb");
+}
+
+DraconicHostError draconic_rt_host_fs_append_file(
+    const char *path,
+    const uint8_t *data,
+    size_t len) {
+    return host_fs_write_mode(path, data, len, "ab");
+}
+
+DraconicHostError draconic_rt_host_fs_write_text(
+    const char *path,
+    const char *text) {
+    const char *t = text ? text : "";
+    size_t len = strlen(t);
+    return draconic_rt_host_fs_write_file(path, (const uint8_t *)t, len);
+}
+
+DraconicHostError draconic_rt_host_fs_append_text(
+    const char *path,
+    const char *text) {
+    const char *t = text ? text : "";
+    size_t len = strlen(t);
+    return draconic_rt_host_fs_append_file(path, (const uint8_t *)t, len);
+}

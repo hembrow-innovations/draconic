@@ -1,0 +1,5 @@
+// H04.02: appendFileText — create then append; read-back.
+writeFileText("/tmp/draconic_h0402_append_text.txt", "A");
+appendFileText("/tmp/draconic_h0402_append_text.txt", "B");
+appendFileText("/tmp/draconic_h0402_append_text.txt", "C");
+let t = readFileText("/tmp/draconic_h0402_append_text.txt");

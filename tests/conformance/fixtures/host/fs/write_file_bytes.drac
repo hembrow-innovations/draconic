@@ -1,0 +1,6 @@
+// H04.02: writeFileBytes / appendFileBytes — string payload as UTF-8 bytes.
+writeFileBytes("/tmp/draconic_h0402_write_bytes.bin", "xy");
+appendFileBytes("/tmp/draconic_h0402_write_bytes.bin", "z");
+let u = readFileBytes("/tmp/draconic_h0402_write_bytes.bin");
+let n = u.length;
+stdoutWrite(u);

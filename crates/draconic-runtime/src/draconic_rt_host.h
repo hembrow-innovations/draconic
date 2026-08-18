@@ -201,6 +201,33 @@ DraconicHostError draconic_rt_host_fs_read_text(
     const char *path,
     char **out_text);
 
+/* --- Filesystem write / append (H04.02) ------------------------------------
+   Create parent is not required (ENOENT if missing parent). Create file if
+   missing. write truncates; append extends. Path NULL/empty → INVAL.
+   data may be NULL only when len == 0. */
+
+/* Write entire file as raw bytes (create/truncate). */
+DraconicHostError draconic_rt_host_fs_write_file(
+    const char *path,
+    const uint8_t *data,
+    size_t len);
+
+/* Append raw bytes (create if missing). */
+DraconicHostError draconic_rt_host_fs_append_file(
+    const char *path,
+    const uint8_t *data,
+    size_t len);
+
+/* Write entire file as UTF-8 text (NUL-terminated; create/truncate). */
+DraconicHostError draconic_rt_host_fs_write_text(
+    const char *path,
+    const char *text);
+
+/* Append UTF-8 text (NUL-terminated; create if missing). */
+DraconicHostError draconic_rt_host_fs_append_text(
+    const char *path,
+    const char *text);
+
 #ifdef __cplusplus
 }
 #endif

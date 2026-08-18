@@ -1,4 +1,4 @@
-//! ROADMAP H04.01: readFileText / readFileBytes whole-file read.
+//! ROADMAP H04.01–H04.02: whole-file read / write / append.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -74,4 +74,40 @@ fn read_file_missing_js_typed_error() {
 fn read_file_missing_native_enoent() {
     assert_fixture_present("host/fs/read_file_missing_native");
     assert_fixture_runs("host/fs/read_file_missing_native");
+}
+
+#[test]
+fn write_file_text_runs() {
+    assert_fixture_present("host/fs/write_file_text");
+    assert_fixture_runs("host/fs/write_file_text");
+}
+
+#[test]
+fn write_file_truncate_runs() {
+    assert_fixture_present("host/fs/write_file_truncate");
+    assert_fixture_runs("host/fs/write_file_truncate");
+}
+
+#[test]
+fn append_file_text_runs() {
+    assert_fixture_present("host/fs/append_file_text");
+    assert_fixture_runs("host/fs/append_file_text");
+}
+
+#[test]
+fn write_file_bytes_runs() {
+    assert_fixture_present("host/fs/write_file_bytes");
+    assert_fixture_runs("host/fs/write_file_bytes");
+}
+
+#[test]
+fn write_file_empty_runs() {
+    assert_fixture_present("host/fs/write_file_empty");
+    assert_fixture_runs("host/fs/write_file_empty");
+}
+
+#[test]
+fn write_file_missing_parent_js() {
+    assert_fixture_present("host/fs/write_file_missing_parent");
+    assert_fixture_runs("host/fs/write_file_missing_parent");
 }

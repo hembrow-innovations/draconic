@@ -840,3 +840,118 @@ fn host_fs_read_text_and_bytes() {
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0401-ok\n");
 }
+
+#[test]
+fn host_fs_write_append_text_and_bytes() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_fs_h0402.c");
+    let bin = dir.join("rt_host_fs_h0402");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    let out_path = dir.join("out.txt");
+    let out_path_s = out_path.to_string_lossy().replace('\\', "\\\\");
+    let bin_path = dir.join("out.bin");
+    let bin_path_s = bin_path.to_string_lossy().replace('\\', "\\\\");
+    let missing_parent = dir
+        .join("no_such_dir")
+        .join("nested.txt")
+        .to_string_lossy()
+        .replace('\\', "\\\\");
+
+    std::fs::write(
+        &main_c,
+        format!(
+            r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        int main(void) {{
+            char *text = NULL;
+            uint8_t *data = NULL;
+            size_t len = 0;
+            DraconicHostError err;
+
+            err = draconic_rt_host_fs_write_text("{out_path_s}", "wt-h0402");
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_fs_read_text("{out_path_s}", &text);
+            if (err != DRACONIC_HOST_OK) return 2;
+            if (!text || strcmp(text, "wt-h0402") != 0) return 3;
+            free(text); text = NULL;
+
+            err = draconic_rt_host_fs_write_text("{out_path_s}", "long-content");
+            if (err != DRACONIC_HOST_OK) return 4;
+            err = draconic_rt_host_fs_write_text("{out_path_s}", "short");
+            if (err != DRACONIC_HOST_OK) return 5;
+            err = draconic_rt_host_fs_read_text("{out_path_s}", &text);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (!text || strcmp(text, "short") != 0) return 7;
+            free(text); text = NULL;
+
+            err = draconic_rt_host_fs_write_text("{out_path_s}", "A");
+            if (err != DRACONIC_HOST_OK) return 8;
+            err = draconic_rt_host_fs_append_text("{out_path_s}", "B");
+            if (err != DRACONIC_HOST_OK) return 9;
+            err = draconic_rt_host_fs_append_text("{out_path_s}", "C");
+            if (err != DRACONIC_HOST_OK) return 10;
+            err = draconic_rt_host_fs_read_text("{out_path_s}", &text);
+            if (err != DRACONIC_HOST_OK) return 11;
+            if (!text || strcmp(text, "ABC") != 0) return 12;
+            free(text); text = NULL;
+
+            err = draconic_rt_host_fs_write_file("{bin_path_s}", (const uint8_t *)"xy", 2);
+            if (err != DRACONIC_HOST_OK) return 13;
+            err = draconic_rt_host_fs_append_file("{bin_path_s}", (const uint8_t *)"z", 1);
+            if (err != DRACONIC_HOST_OK) return 14;
+            err = draconic_rt_host_fs_read_file("{bin_path_s}", &data, &len);
+            if (err != DRACONIC_HOST_OK) return 15;
+            if (len != 3 || !data || memcmp(data, "xyz", 3) != 0) return 16;
+            free(data); data = NULL;
+
+            err = draconic_rt_host_fs_write_text("{out_path_s}", "");
+            if (err != DRACONIC_HOST_OK) return 17;
+            err = draconic_rt_host_fs_read_text("{out_path_s}", &text);
+            if (err != DRACONIC_HOST_OK) return 18;
+            if (!text || text[0] != '\0') return 19;
+            free(text); text = NULL;
+
+            err = draconic_rt_host_fs_write_text("{missing_parent}", "x");
+            if (err != DRACONIC_HOST_E_NOENT) return 20;
+
+            err = draconic_rt_host_fs_write_text(NULL, "x");
+            if (err != DRACONIC_HOST_E_INVAL) return 21;
+
+            puts("fs-h0402-ok");
+            return 0;
+        }}
+        "#
+        ),
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for fs H04.02 smoke");
+
+    let output = Command::new(&bin).output().expect("run fs h0402");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "fs H04.02 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0402-ok\n");
+}

@@ -1,0 +1,3 @@
+// H04.02: writeFileText — create/truncate; read-back.
+writeFileText("/tmp/draconic_h0402_write_text.txt", "wt-h0402");
+let t = readFileText("/tmp/draconic_h0402_write_text.txt");

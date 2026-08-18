@@ -124,10 +124,15 @@ fn module_uses_path(module: &Module) -> bool {
     })
 }
 
-/// H04.01: free host file-read APIs.
+/// H04.01–H04.02: free host file-read / write / append APIs.
 fn module_uses_fs_read(module: &Module) -> bool {
     module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "readFileText") || stmt_uses_ident_name(s, "readFileBytes")
+        stmt_uses_ident_name(s, "readFileText")
+            || stmt_uses_ident_name(s, "readFileBytes")
+            || stmt_uses_ident_name(s, "writeFileText")
+            || stmt_uses_ident_name(s, "writeFileBytes")
+            || stmt_uses_ident_name(s, "appendFileText")
+            || stmt_uses_ident_name(s, "appendFileBytes")
     })
 }
 
@@ -476,7 +481,7 @@ fn emit_js_full(
             out.push('\n');
         }
     }
-    // H04.01: whole-file read.
+    // H04.01–H04.02: whole-file read / write / append.
     if module_uses_fs_read(module) {
         out.push_str(draconic_runtime::fs_read_js_polyfill());
         if !out.ends_with('\n') {

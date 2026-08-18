@@ -1,0 +1,6 @@
+id: host/fs/write_file_text
+targets: js,native
+js.exit: 0
+js.check: if (t !== "wt-h0402") process.exit(1);
+native.exit: 0
+native.stdout: wt-h0402\n

@@ -70,6 +70,7 @@ pub struct HostApiEntry {
 /// - `pathJoin` / `pathNormalize` (H03.01): both — pure path string ops (no I/O).
 /// - `pathDirname` / `pathBasename` / `pathExtname` / `pathIsAbsolute` (H03.02): both.
 /// - `readFileText` / `readFileBytes` (H04.01): both — whole-file read; missing → HostError ENOENT.
+/// - `writeFileText` / `writeFileBytes` / `appendFileText` / `appendFileBytes` (H04.02): both — create/truncate or append.
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -176,6 +177,26 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "readFileBytes",
         availability: HostAvailability::BOTH,
         note: "H04.01 file read bytes",
+    },
+    HostApiEntry {
+        name: "writeFileText",
+        availability: HostAvailability::BOTH,
+        note: "H04.02 file write text",
+    },
+    HostApiEntry {
+        name: "writeFileBytes",
+        availability: HostAvailability::BOTH,
+        note: "H04.02 file write bytes",
+    },
+    HostApiEntry {
+        name: "appendFileText",
+        availability: HostAvailability::BOTH,
+        note: "H04.02 file append text",
+    },
+    HostApiEntry {
+        name: "appendFileBytes",
+        availability: HostAvailability::BOTH,
+        note: "H04.02 file append bytes",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -381,6 +402,26 @@ mod tests {
     #[test]
     fn registry_lists_read_file_both() {
         for name in ["readFileText", "readFileBytes"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_write_file_both() {
+        for name in [
+            "writeFileText",
+            "writeFileBytes",
+            "appendFileText",
+            "appendFileBytes",
+        ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

@@ -1,0 +1,4 @@
+// H04.02: writeFileText truncates existing content.
+writeFileText("/tmp/draconic_h0402_truncate.txt", "long-content-here");
+writeFileText("/tmp/draconic_h0402_truncate.txt", "short");
+let t = readFileText("/tmp/draconic_h0402_truncate.txt");

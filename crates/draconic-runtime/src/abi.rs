@@ -801,6 +801,27 @@ pub const HOST_FS_READ_TEXT: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, ptr",
 };
+/* H04.02: whole-file write / append (bytes + UTF-8 text). */
+pub const HOST_FS_WRITE_FILE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_write_file",
+    ret: "i32",
+    params: "ptr, ptr, i64",
+};
+pub const HOST_FS_APPEND_FILE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_append_file",
+    ret: "i32",
+    params: "ptr, ptr, i64",
+};
+pub const HOST_FS_WRITE_TEXT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_write_text",
+    ret: "i32",
+    params: "ptr, ptr",
+};
+pub const HOST_FS_APPEND_TEXT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_append_text",
+    ret: "i32",
+    params: "ptr, ptr",
+};
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -835,6 +856,10 @@ pub const HOST_PATH_EXTNAME_SYMBOL: &str = HOST_PATH_EXTNAME.symbol;
 pub const HOST_PATH_IS_ABSOLUTE_SYMBOL: &str = HOST_PATH_IS_ABSOLUTE.symbol;
 pub const HOST_FS_READ_FILE_SYMBOL: &str = HOST_FS_READ_FILE.symbol;
 pub const HOST_FS_READ_TEXT_SYMBOL: &str = HOST_FS_READ_TEXT.symbol;
+pub const HOST_FS_WRITE_FILE_SYMBOL: &str = HOST_FS_WRITE_FILE.symbol;
+pub const HOST_FS_APPEND_FILE_SYMBOL: &str = HOST_FS_APPEND_FILE.symbol;
+pub const HOST_FS_WRITE_TEXT_SYMBOL: &str = HOST_FS_WRITE_TEXT.symbol;
+pub const HOST_FS_APPEND_TEXT_SYMBOL: &str = HOST_FS_APPEND_TEXT.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H04).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -871,6 +896,10 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PATH_IS_ABSOLUTE_SYMBOL,
     HOST_FS_READ_FILE_SYMBOL,
     HOST_FS_READ_TEXT_SYMBOL,
+    HOST_FS_WRITE_FILE_SYMBOL,
+    HOST_FS_APPEND_FILE_SYMBOL,
+    HOST_FS_WRITE_TEXT_SYMBOL,
+    HOST_FS_APPEND_TEXT_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -908,6 +937,10 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PATH_IS_ABSOLUTE,
     HOST_FS_READ_FILE,
     HOST_FS_READ_TEXT,
+    HOST_FS_WRITE_FILE,
+    HOST_FS_APPEND_FILE,
+    HOST_FS_WRITE_TEXT,
+    HOST_FS_APPEND_TEXT,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -1253,7 +1286,7 @@ if (typeof globalThis !== "undefined") {
 "#
 }
 
-/// JS polyfill for `readFileText` / `readFileBytes` (H04.01).
+/// JS polyfill for host file APIs (H04.01 read + H04.02 write/append).
 ///
 /// Node `fs` bridge. Missing path → throw `Error` with `.code === "ENOENT"`
 /// and `.name === "HostError"`.
@@ -1267,19 +1300,22 @@ pub fn fs_read_js_polyfill() -> &'static str {
   if (cause && cause.code) e.code = String(cause.code);
   throw e;
 }
+function __draconic_host_fs_catch(p, err) {
+  if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
+    __draconic_host_fs_err("ENOENT", p, err);
+  }
+  if (err && (err.code === "EACCES" || err.code === "EPERM")) {
+    __draconic_host_fs_err("EPERM", p, err);
+  }
+  __draconic_host_fs_err("EIO", p, err);
+}
 function readFileText(path) {
   var p = String(path);
   var fs = require("fs");
   try {
     return fs.readFileSync(p, "utf8");
   } catch (err) {
-    if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
-      __draconic_host_fs_err("ENOENT", p, err);
-    }
-    if (err && (err.code === "EACCES" || err.code === "EPERM")) {
-      __draconic_host_fs_err("EPERM", p, err);
-    }
-    __draconic_host_fs_err("EIO", p, err);
+    __draconic_host_fs_catch(p, err);
   }
 }
 function readFileBytes(path) {
@@ -1289,18 +1325,54 @@ function readFileBytes(path) {
     var buf = fs.readFileSync(p);
     return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
   } catch (err) {
-    if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
-      __draconic_host_fs_err("ENOENT", p, err);
-    }
-    if (err && (err.code === "EACCES" || err.code === "EPERM")) {
-      __draconic_host_fs_err("EPERM", p, err);
-    }
-    __draconic_host_fs_err("EIO", p, err);
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function writeFileText(path, text) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    fs.writeFileSync(p, text == null ? "" : String(text), "utf8");
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function appendFileText(path, text) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    fs.appendFileSync(p, text == null ? "" : String(text), "utf8");
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function writeFileBytes(path, data) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    var buf = Buffer.from(data == null ? [] : data);
+    fs.writeFileSync(p, buf);
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
+function appendFileBytes(path, data) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    var buf = Buffer.from(data == null ? [] : data);
+    fs.appendFileSync(p, buf);
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
   }
 }
 if (typeof globalThis !== "undefined") {
   globalThis.readFileText = readFileText;
   globalThis.readFileBytes = readFileBytes;
+  globalThis.writeFileText = writeFileText;
+  globalThis.appendFileText = appendFileText;
+  globalThis.writeFileBytes = writeFileBytes;
+  globalThis.appendFileBytes = appendFileBytes;
 }
 "#
 }

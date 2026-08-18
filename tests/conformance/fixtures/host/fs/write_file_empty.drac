@@ -1,0 +1,3 @@
+// H04.02: write empty text → empty file on read-back.
+writeFileText("/tmp/draconic_h0402_empty.txt", "");
+let t = readFileText("/tmp/draconic_h0402_empty.txt");

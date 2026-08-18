@@ -1,7 +1,9 @@
-//! H04.01: native observations for whole-file read.
+//! H04.01–H04.02: native observations for whole-file read / write / append.
 //!
 //! - `readFileText(path)` → string (auto-printed)
 //! - `readFileBytes(path)` → dynamic bytes; `.length` + `stdoutWrite`
+//! - `writeFileText(path, text)` / `appendFileText(path, text)`
+//! - `writeFileBytes(path, data)` / `appendFileBytes(path, data)` (string or DynBytes)
 //!
 //! Missing path: stderr `ENOENT` + exit 1 (typed HostError on js).
 
@@ -11,7 +13,8 @@ use std::fmt::Write as _;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_FS_READ_FILE, HOST_FS_READ_TEXT, HOST_PROCESS_EXIT,
+    llvm_declares, GC_INIT, HOST_FS_APPEND_FILE, HOST_FS_APPEND_TEXT, HOST_FS_READ_FILE,
+    HOST_FS_READ_TEXT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT, HOST_PROCESS_EXIT,
     HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_F64, PRINT_STR,
 };
 
@@ -39,6 +42,10 @@ struct ModuleInfo {
     needs_text: bool,
     needs_bytes: bool,
     needs_write: bool,
+    needs_write_text: bool,
+    needs_append_text: bool,
+    needs_write_bytes: bool,
+    needs_append_bytes: bool,
 }
 
 struct ClassifyCtx {
@@ -48,6 +55,10 @@ struct ClassifyCtx {
     needs_text: bool,
     needs_bytes: bool,
     needs_write: bool,
+    needs_write_text: bool,
+    needs_append_text: bool,
+    needs_write_bytes: bool,
+    needs_append_bytes: bool,
     has_fs: bool,
 }
 
@@ -59,6 +70,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_text: false,
         needs_bytes: false,
         needs_write: false,
+        needs_write_text: false,
+        needs_append_text: false,
+        needs_write_bytes: false,
+        needs_append_bytes: false,
         has_fs: false,
     };
     for stmt in &module.body {
@@ -73,6 +88,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_text: ctx.needs_text,
         needs_bytes: ctx.needs_bytes,
         needs_write: ctx.needs_write,
+        needs_write_text: ctx.needs_write_text,
+        needs_append_text: ctx.needs_append_text,
+        needs_write_bytes: ctx.needs_write_bytes,
+        needs_append_bytes: ctx.needs_append_bytes,
     })
 }
 
@@ -118,6 +137,42 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
                 ctx.needs_bytes = true;
             }
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "writeFileText") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_write_text = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "appendFileText") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_append_text = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "writeFileBytes") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_write_bytes = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_bytes_or_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "appendFileBytes") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_append_bytes = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_bytes_or_string_arg(arg_expr(&args[1])?, ctx)?;
             Some(())
         }
         _ => None,
@@ -181,6 +236,17 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
             SlotTy::String => Some(()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn classify_bytes_or_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
+    match expr {
+        Expr::String { .. } => Some(()),
+        Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
+            SlotTy::String | SlotTy::DynBytes => Some(()),
             _ => None,
         },
         _ => None,
@@ -303,7 +369,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_fs (H04.01 file read)").ok();
+        writeln!(
+            self.out,
+            "; Draconic LLVM host_fs (H04.01–H04.02 file read/write)"
+        )
+        .ok();
         let mut decls = vec![GC_INIT, PRINT_STR, PRINT_F64, HOST_PROCESS_EXIT, HOST_STDERR_WRITE];
         if self.info.needs_text {
             decls.push(HOST_FS_READ_TEXT);
@@ -313,6 +383,18 @@ impl<'a> Emitter<'a> {
         }
         if self.info.needs_write {
             decls.push(HOST_STDOUT_WRITE);
+        }
+        if self.info.needs_write_text {
+            decls.push(HOST_FS_WRITE_TEXT);
+        }
+        if self.info.needs_append_text {
+            decls.push(HOST_FS_APPEND_TEXT);
+        }
+        if self.info.needs_write_bytes {
+            decls.push(HOST_FS_WRITE_FILE);
+        }
+        if self.info.needs_append_bytes {
+            decls.push(HOST_FS_APPEND_FILE);
         }
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
@@ -492,8 +574,149 @@ impl<'a> Emitter<'a> {
                 self.emit_check_rc(&rc)?;
                 Ok(())
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "writeFileText") =>
+            {
+                self.emit_write_text_call(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: writeFileText path"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: writeFileText text"))?,
+                    HOST_FS_WRITE_TEXT.symbol,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "appendFileText") =>
+            {
+                self.emit_write_text_call(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: appendFileText path"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: appendFileText text"))?,
+                    HOST_FS_APPEND_TEXT.symbol,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "writeFileBytes") =>
+            {
+                self.emit_write_bytes_call(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: writeFileBytes path"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: writeFileBytes data"))?,
+                    HOST_FS_WRITE_FILE.symbol,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "appendFileBytes") =>
+            {
+                self.emit_write_bytes_call(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: appendFileBytes path"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: appendFileBytes data"))?,
+                    HOST_FS_APPEND_FILE.symbol,
+                )
+            }
             _ => Err(diag("host_fs: unsupported expr stmt")),
         }
+    }
+
+    fn emit_write_text_call(
+        &mut self,
+        path: &Expr,
+        text: &Expr,
+        symbol: &str,
+    ) -> Result<(), Diagnostic> {
+        let p = self.emit_string_expr(path)?;
+        let t = self.emit_string_expr(text)?;
+        let rc = self.fresh();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{symbol}(ptr {p}, ptr {t})"
+        )
+        .ok();
+        self.emit_check_rc(&rc)
+    }
+
+    fn emit_write_bytes_call(
+        &mut self,
+        path: &Expr,
+        data: &Expr,
+        symbol: &str,
+    ) -> Result<(), Diagnostic> {
+        let p = self.emit_string_expr(path)?;
+        let (d, n) = self.emit_bytes_ptr_len(data)?;
+        let rc = self.fresh();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{symbol}(ptr {p}, ptr {d}, i64 {n})"
+        )
+        .ok();
+        self.emit_check_rc(&rc)
+    }
+
+    fn emit_bytes_ptr_len(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
+        match expr {
+            Expr::String { value, .. } => {
+                let s = value.to_string_lossy();
+                let p = self.emit_cstr_ptr(&s);
+                Ok((p, s.len().to_string()))
+            }
+            Expr::Local { id, .. } => match self.slot_of.get(id) {
+                Some(SlotTy::DynBytes) => {
+                    let dp = self.slot_ptr(*id)?;
+                    let lp = self.slot_len_ptr(*id)?;
+                    let d = self.fresh();
+                    let n = self.fresh();
+                    writeln!(self.body, "  {d} = load ptr, ptr {dp}").ok();
+                    writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
+                    Ok((d, n))
+                }
+                Some(SlotTy::String) => {
+                    let sp = self.slot_ptr(*id)?;
+                    let s = self.fresh();
+                    writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
+                    let n = self.emit_cstr_len(&s)?;
+                    Ok((s, n))
+                }
+                _ => Err(diag("host_fs: bytes arg unsupported")),
+            },
+            _ => Err(diag("host_fs: bytes arg unsupported")),
+        }
+    }
+
+    fn emit_cstr_len(&mut self, s: &str) -> Result<String, Diagnostic> {
+        let i = self.fresh();
+        let ch = self.fresh();
+        let is0 = self.fresh();
+        let loop_l = format!("wlen_loop_{}", self.next_tmp);
+        let done_l = format!("wlen_done_{}", self.next_tmp);
+        self.next_tmp += 1;
+        writeln!(self.body, "  {i} = alloca i64, align 8").ok();
+        writeln!(self.body, "  store i64 0, ptr {i}").ok();
+        writeln!(self.body, "  br label %{loop_l}").ok();
+        writeln!(self.body, "{loop_l}:").ok();
+        let iv = self.fresh();
+        writeln!(self.body, "  {iv} = load i64, ptr {i}").ok();
+        let cp = self.fresh();
+        writeln!(
+            self.body,
+            "  {cp} = getelementptr inbounds i8, ptr {s}, i64 {iv}"
+        )
+        .ok();
+        writeln!(self.body, "  {ch} = load i8, ptr {cp}").ok();
+        writeln!(self.body, "  {is0} = icmp eq i8 {ch}, 0").ok();
+        let inc_l = format!("wlen_inc_{}", self.next_tmp);
+        self.next_tmp += 1;
+        writeln!(
+            self.body,
+            "  br i1 {is0}, label %{done_l}, label %{inc_l}"
+        )
+        .ok();
+        writeln!(self.body, "{inc_l}:").ok();
+        let iv2 = self.fresh();
+        let iv3 = self.fresh();
+        writeln!(self.body, "  {iv2} = load i64, ptr {i}").ok();
+        writeln!(self.body, "  {iv3} = add i64 {iv2}, 1").ok();
+        writeln!(self.body, "  store i64 {iv3}, ptr {i}").ok();
+        writeln!(self.body, "  br label %{loop_l}").ok();
+        writeln!(self.body, "{done_l}:").ok();
+        let n = self.fresh();
+        writeln!(self.body, "  {n} = load i64, ptr {i}").ok();
+        Ok(n)
     }
 
     fn emit_stdout_write(&mut self, arg: &Expr) -> Result<(), Diagnostic> {
@@ -724,5 +947,47 @@ mod tests {
         let ir = emit_host_fs(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_read_file"), "{ir}");
         assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
+    }
+
+    #[test]
+    fn write_file_text_emits() {
+        let m = lower_src(
+            r#"
+            writeFileText("/tmp/h0402.txt", "wt");
+            let t = readFileText("/tmp/h0402.txt");
+            "#,
+        );
+        assert!(is_host_fs_module(&m));
+        let ir = emit_host_fs(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_fs_write_text"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_fs_read_text"), "{ir}");
+    }
+
+    #[test]
+    fn append_file_text_emits() {
+        let m = lower_src(
+            r#"
+            writeFileText("/tmp/h0402a.txt", "a");
+            appendFileText("/tmp/h0402a.txt", "b");
+            let t = readFileText("/tmp/h0402a.txt");
+            "#,
+        );
+        assert!(is_host_fs_module(&m));
+        let ir = emit_host_fs(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_fs_append_text"), "{ir}");
+    }
+
+    #[test]
+    fn write_file_bytes_emits() {
+        let m = lower_src(
+            r#"
+            writeFileBytes("/tmp/h0402b.bin", "xy");
+            let u = readFileBytes("/tmp/h0402b.bin");
+            let n = u.length;
+            "#,
+        );
+        assert!(is_host_fs_module(&m));
+        let ir = emit_host_fs(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_fs_write_file"), "{ir}");
     }
 }

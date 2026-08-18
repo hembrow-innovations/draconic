@@ -1,0 +1,6 @@
+id: host/fs/append_file_text
+targets: js,native
+js.exit: 0
+js.check: if (t !== "ABC") process.exit(1);
+native.exit: 0
+native.stdout: ABC\n

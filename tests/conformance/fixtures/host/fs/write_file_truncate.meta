@@ -1,0 +1,6 @@
+id: host/fs/write_file_truncate
+targets: js,native
+js.exit: 0
+js.check: if (t !== "short") process.exit(1);
+native.exit: 0
+native.stdout: short\n

@@ -1,0 +1,9 @@
+// H04.02 js: missing parent dir → HostError ENOENT.
+let code = "";
+let name = "";
+try {
+  writeFileText("/tmp/draconic_h0402_no_such_dir/nested.txt", "x");
+} catch (e) {
+  code = e.code;
+  name = e.name;
+}
