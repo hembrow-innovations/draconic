@@ -16,10 +16,12 @@
 //! K04.03: resolve direct-deps set → lock pins (v1: direct only).
 //! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 //! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
+//! K06.01: resolve module-path imports (`github.com/org/pkg` + subpath) → cache file.
 
 mod cache;
 mod get;
 mod hash;
+mod import_resolve;
 mod lock;
 mod resolve;
 mod tidy;
@@ -33,6 +35,10 @@ pub use get::{
     DEFAULT_CACHE_DIR_NAME, LOCK_FILE, MANIFEST_FILE,
 };
 pub use hash::{content_hash_tree, ContentHashError};
+pub use import_resolve::{
+    looks_like_module_path_import, match_locked_package, resolve_module_import, ImportResolveError,
+    ResolvedImport,
+};
 pub use lock::{
     parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError,
 };

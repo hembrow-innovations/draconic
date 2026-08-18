@@ -6,10 +6,21 @@
 //! entry. Supports named, default, namespace (`import * as ns`), `export * from`,
 //! `export * as ns from`, and `export { … } from` re-exports, including cyclic
 //! graphs (live bindings via shared cells).
+//!
+//! K06.01: non-relative module-path imports (`github.com/org/pkg` + subpath)
+//! resolve via `draconic.lock` + module cache when a package context is present
+//! (explicit or discovered from an ancestor workspace).
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+thread_local! {
+    /// Active package context while loading a graph (K06.01).
+    static ACTIVE_PACKAGES: RefCell<Option<Arc<PackageLinkContext>>> = const { RefCell::new(None) };
+}
 
 use draconic_ast::{
     Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BindingKind,
@@ -19,19 +30,64 @@ use draconic_ast::{
 use draconic_diagnostics::{Diagnostic, Span};
 
 use draconic_parser::{parse, parse_module};
+use draconic_pkg::{
+    default_cache_root, looks_like_module_path_import, parse_lock, resolve_module_import,
+    LockFile, ModuleCache, LOCK_FILE,
+};
 
-/// Parse `entry` and all static relative imports into one linked Program.
+/// Package resolution context for module-path imports (K06.01).
+#[derive(Debug, Clone)]
+pub struct PackageLinkContext {
+    pub lock: LockFile,
+    pub cache: ModuleCache,
+}
+
+/// Parse `entry` and all static imports into one linked Program.
+///
+/// Discovers `draconic.lock` + default module cache by walking ancestors of
+/// `entry` when present; otherwise only relative specifiers are accepted.
 pub fn link_entry(entry: &Path) -> Result<Program, Diagnostic> {
+    let pkgs = discover_package_context(entry);
+    link_entry_with_packages(entry, pkgs.as_ref())
+}
+
+/// Link with an explicit lock + cache for module-path imports (K06.01).
+pub fn link_entry_with_packages(
+    entry: &Path,
+    packages: Option<&PackageLinkContext>,
+) -> Result<Program, Diagnostic> {
     let entry = normalize_path(entry)?;
-    let mut loader = Loader::new();
+    let mut loader = Loader::new(packages.map(|p| Arc::new(p.clone())));
     loader.load_graph(&entry)?;
     loader.link(&entry)
+}
+
+/// Walk parents of `entry` for `draconic.lock`; use default cache under that workspace.
+fn discover_package_context(entry: &Path) -> Option<PackageLinkContext> {
+    let start = if entry.is_file() {
+        entry.parent()?
+    } else {
+        entry
+    };
+    let mut dir = start;
+    loop {
+        let lock_path = dir.join(LOCK_FILE);
+        if lock_path.is_file() {
+            let src = fs::read_to_string(&lock_path).ok()?;
+            let lock = parse_lock(&src).ok()?;
+            let cache = ModuleCache::new(default_cache_root(dir));
+            return Some(PackageLinkContext { lock, cache });
+        }
+        dir = dir.parent()?;
+    }
 }
 
 struct Loader {
     /// Canonical path → module id (load order).
     ids: HashMap<PathBuf, usize>,
     modules: Vec<ModuleData>,
+    /// Optional lock + cache for module-path imports (K06.01).
+    packages: Option<Arc<PackageLinkContext>>,
 }
 
 struct ModuleData {
@@ -94,16 +150,24 @@ struct NamespaceBind {
 }
 
 impl Loader {
-    fn new() -> Self {
+    fn new(packages: Option<Arc<PackageLinkContext>>) -> Self {
         Self {
             ids: HashMap::new(),
             modules: Vec::new(),
+            packages,
         }
     }
 
     fn load_graph(&mut self, entry: &Path) -> Result<(), Diagnostic> {
+        ACTIVE_PACKAGES.with(|slot| {
+            *slot.borrow_mut() = self.packages.clone();
+        });
         let mut stack = Vec::new();
-        self.load_module(entry, &mut stack)
+        let result = self.load_module(entry, &mut stack);
+        ACTIVE_PACKAGES.with(|slot| {
+            *slot.borrow_mut() = None;
+        });
+        result
     }
 
     fn load_module(&mut self, path: &Path, stack: &mut Vec<PathBuf>) -> Result<(), Diagnostic> {
@@ -4844,23 +4908,40 @@ fn normalize_path(path: &Path) -> Result<PathBuf, Diagnostic> {
 }
 
 fn resolve_specifier(parent: &Path, spec: &str, span: Span) -> Result<PathBuf, Diagnostic> {
-    if !(spec.starts_with("./") || spec.starts_with("../")) {
+    if spec.starts_with("./") || spec.starts_with("../") {
+        let joined = parent.join(spec);
+        if joined.exists() {
+            return fs::canonicalize(&joined).map_err(|e| {
+                Diagnostic::new(
+                    format!("canonicalize {}: {e}", joined.display()),
+                    span,
+                )
+            });
+        }
         return Err(Diagnostic::new(
-            format!("only relative module specifiers are supported (got `{spec}`)"),
+            format!("cannot resolve module `{spec}` from {}", parent.display()),
             span,
         ));
     }
-    let joined = parent.join(spec);
-    if joined.exists() {
-        return fs::canonicalize(&joined).map_err(|e| {
-            Diagnostic::new(
-                format!("canonicalize {}: {e}", joined.display()),
-                span,
-            )
-        });
+
+    // K06.01: module-path imports via lock + module cache.
+    if looks_like_module_path_import(spec) {
+        let packages = ACTIVE_PACKAGES.with(|slot| slot.borrow().clone());
+        if let Some(ctx) = packages {
+            return resolve_module_import(spec, &ctx.lock, &ctx.cache)
+                .map(|r| r.file)
+                .map_err(|e| Diagnostic::new(e.to_string(), span));
+        }
+        return Err(Diagnostic::new(
+            format!(
+                "module-path import `{spec}` requires draconic.lock and module cache (no package context)"
+            ),
+            span,
+        ));
     }
+
     Err(Diagnostic::new(
-        format!("cannot resolve module `{spec}` from {}", parent.display()),
+        format!("only relative module specifiers are supported (got `{spec}`)"),
         span,
     ))
 }
@@ -5614,5 +5695,171 @@ async function run() {
             "{dump}"
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// K06.01: `from "github.com/org/pkg"` resolves via lock + cache root.
+    #[test]
+    fn link_module_path_import_package_root() {
+        let root = std::env::temp_dir().join(format!(
+            "draconic-link-pkg-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let oid = "0123456789abcdef0123456789abcdef01234567";
+        let hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let module_path = "github.com/org/pkg";
+        let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
+        let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(
+            pkg_dir.join("index.drac"),
+            "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+        )
+        .unwrap();
+        fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
+
+        let entry = draconic_pkg::LockEntry::new(
+            module_path,
+            "1.0.0",
+            "https://github.com/org/pkg.git",
+            oid,
+            hash,
+        )
+        .unwrap();
+        let mut packages = std::collections::BTreeMap::new();
+        packages.insert(module_path.to_string(), entry);
+        let lock = draconic_pkg::LockFile {
+            version: 1,
+            packages,
+        };
+        let ctx = PackageLinkContext { lock, cache };
+
+        let main = root.join("main.drac");
+        fs::write(
+            &main,
+            "import { value, inc } from \"github.com/org/pkg\";\nlet a = value;\nlet b = inc(value);\n",
+        )
+        .unwrap();
+
+        let program = link_entry_with_packages(&main, Some(&ctx)).expect("link module path");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("a"), "{dump}");
+        assert!(dump.contains("41") || dump.contains("inc") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K06.01: `from "github.com/org/pkg/util"` resolves subpath under package root.
+    #[test]
+    fn link_module_path_import_subpath() {
+        let root = std::env::temp_dir().join(format!(
+            "draconic-link-pkg-sub-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let oid = "0123456789abcdef0123456789abcdef01234567";
+        let hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let module_path = "github.com/org/pkg";
+        let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
+        let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
+        fs::create_dir_all(pkg_dir.join("util")).unwrap();
+        fs::write(
+            pkg_dir.join("util.drac"),
+            "export let helper = 7;\n",
+        )
+        .unwrap();
+        fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
+
+        let entry = draconic_pkg::LockEntry::new(
+            module_path,
+            "1.0.0",
+            "https://github.com/org/pkg.git",
+            oid,
+            hash,
+        )
+        .unwrap();
+        let mut packages = std::collections::BTreeMap::new();
+        packages.insert(module_path.to_string(), entry);
+        let lock = draconic_pkg::LockFile {
+            version: 1,
+            packages,
+        };
+        let ctx = PackageLinkContext { lock, cache };
+
+        let main = root.join("main.drac");
+        fs::write(
+            &main,
+            "import { helper } from \"github.com/org/pkg/util\";\nlet h = helper;\n",
+        )
+        .unwrap();
+
+        let program = link_entry_with_packages(&main, Some(&ctx)).expect("link subpath");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("h"), "{dump}");
+        assert!(dump.contains("7") || dump.contains("helper") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K06.01: discover lock + default cache from workspace ancestors.
+    #[test]
+    fn link_module_path_discovers_workspace_lock() {
+        let root = std::env::temp_dir().join(format!(
+            "draconic-link-pkg-discover-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let src_dir = root.join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+        let oid = "fedcba9876543210fedcba9876543210fedcba98";
+        let hash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        let module_path = "github.com/acme/lib";
+        let cache = draconic_pkg::ModuleCache::new(draconic_pkg::default_cache_root(&root));
+        let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("mod.drac"), "export let answer = 42;\n").unwrap();
+        fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
+
+        let entry = draconic_pkg::LockEntry::new(
+            module_path,
+            "1.2.3",
+            "https://github.com/acme/lib.git",
+            oid,
+            hash,
+        )
+        .unwrap();
+        let mut packages = std::collections::BTreeMap::new();
+        packages.insert(module_path.to_string(), entry);
+        let lock = draconic_pkg::LockFile {
+            version: 1,
+            packages,
+        };
+        fs::write(
+            root.join(draconic_pkg::LOCK_FILE),
+            draconic_pkg::write_lock(&lock),
+        )
+        .unwrap();
+
+        let main = src_dir.join("main.drac");
+        fs::write(
+            &main,
+            "import { answer } from \"github.com/acme/lib\";\nlet a = answer;\n",
+        )
+        .unwrap();
+
+        let program = link_entry(&main).expect("discover lock");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("a"), "{dump}");
+        assert!(dump.contains("42") || dump.contains("answer") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&root);
     }
 }

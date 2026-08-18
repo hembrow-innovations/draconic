@@ -711,7 +711,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K05.01 | done | compiler | `draconic get <module_path>@<ver>`: fetch, update manifest+lock+cache | `crates/draconic-cli` |
 | K05.02 | done | compiler | `draconic mod tidy`: lock matches manifest; fetch missing; prune unused | `crates/draconic-cli` |
 | K06 | todo | compiler | Import resolve: module-path imports via Linker + cache | `crates/draconic-linker`, `crates/draconic-pkg` |
-| K06.01 | todo | compiler | Resolve `from "github.com/org/pkg"` (+ subpath) → cached package root | `crates/draconic-linker`, `crates/draconic-pkg` |
+| K06.01 | done | compiler | Resolve `from "github.com/org/pkg"` (+ subpath) → cached package root | `crates/draconic-linker`, `crates/draconic-pkg` |
 | K06.02 | todo | compiler | Package boundary: reject path escape outside package root | `crates/draconic-linker` |
 | K06.03 | todo | compiler | Coexist with E11 relative imports | `crates/draconic-linker`, `tests/packages` |
 | K07 | todo | compiler | Build integration: auto-fetch; `--offline` | `crates/draconic-cli`, `crates/draconic-pkg` |

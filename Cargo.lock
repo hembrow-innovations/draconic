@@ -215,6 +215,7 @@ dependencies = [
  "draconic-ast",
  "draconic-diagnostics",
  "draconic-parser",
+ "draconic-pkg",
 ]
 
 [[package]]
