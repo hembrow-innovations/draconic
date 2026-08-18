@@ -782,6 +782,23 @@ pub const HOST_CHDIR: AbiFn = AbiFn {
     params: "ptr",
 };
 
+/* H16.02: hostname / OS type / arch strings. */
+pub const HOST_HOSTNAME: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_hostname",
+    ret: "ptr",
+    params: "",
+};
+pub const HOST_OS_TYPE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_os_type",
+    ret: "ptr",
+    params: "",
+};
+pub const HOST_OS_ARCH: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_os_arch",
+    ret: "ptr",
+    params: "",
+};
+
 /* H15.01: processRun — spawn argv, optional cwd/env subset, wait exit code. */
 pub const HOST_PROCESS_RUN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_process_run",
@@ -1335,6 +1352,9 @@ pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
 pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
 pub const HOST_CWD_SYMBOL: &str = HOST_CWD.symbol;
 pub const HOST_CHDIR_SYMBOL: &str = HOST_CHDIR.symbol;
+pub const HOST_HOSTNAME_SYMBOL: &str = HOST_HOSTNAME.symbol;
+pub const HOST_OS_TYPE_SYMBOL: &str = HOST_OS_TYPE.symbol;
+pub const HOST_OS_ARCH_SYMBOL: &str = HOST_OS_ARCH.symbol;
 pub const HOST_SIGNAL_WATCH_SYMBOL: &str = HOST_SIGNAL_WATCH.symbol;
 pub const HOST_SIGNAL_RAISE_SYMBOL: &str = HOST_SIGNAL_RAISE.symbol;
 pub const HOST_SIGNAL_POLL_SYMBOL: &str = HOST_SIGNAL_POLL.symbol;
@@ -1439,6 +1459,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_PPID_SYMBOL,
     HOST_CWD_SYMBOL,
     HOST_CHDIR_SYMBOL,
+    HOST_HOSTNAME_SYMBOL,
+    HOST_OS_TYPE_SYMBOL,
+    HOST_OS_ARCH_SYMBOL,
     HOST_SIGNAL_WATCH_SYMBOL,
     HOST_SIGNAL_RAISE_SYMBOL,
     HOST_SIGNAL_POLL_SYMBOL,
@@ -1544,6 +1567,9 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_PPID,
     HOST_CWD,
     HOST_CHDIR,
+    HOST_HOSTNAME,
+    HOST_OS_TYPE,
+    HOST_OS_ARCH,
     HOST_NOW_MS,
     HOST_MONOTONIC_MS,
     HOST_STDOUT_WRITE,
@@ -1747,6 +1773,39 @@ function chdir(path) {
 if (typeof globalThis !== "undefined") {
   globalThis.cwd = cwd;
   globalThis.chdir = chdir;
+}
+"#
+}
+
+/// JS polyfill for `hostname` / `osType` / `osArch` (H16.02).
+///
+/// Node bridge via `os.hostname` / `os.platform` / `os.arch`.
+pub fn hostname_os_js_polyfill() -> &'static str {
+    r#"function hostname() {
+  try {
+    var os = require("os");
+    if (os && typeof os.hostname === "function") return String(os.hostname());
+  } catch (e) {}
+  return "";
+}
+function osType() {
+  try {
+    var os = require("os");
+    if (os && typeof os.platform === "function") return String(os.platform());
+  } catch (e) {}
+  return "";
+}
+function osArch() {
+  try {
+    var os = require("os");
+    if (os && typeof os.arch === "function") return String(os.arch());
+  } catch (e) {}
+  return "";
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.hostname = hostname;
+  globalThis.osType = osType;
+  globalThis.osArch = osArch;
 }
 "#
 }

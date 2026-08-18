@@ -1,0 +1,7 @@
+// H16.02: hostname() / osType() / osArch() — non-empty platform strings.
+let t_h = typeof hostname();
+let t_o = typeof osType();
+let t_a = typeof osArch();
+let h_ok = hostname() !== "";
+let o_ok = osType() !== "";
+let a_ok = osArch() !== "";

@@ -1,4 +1,5 @@
 //! ROADMAP H16.01: cwd get + chdir.
+//! ROADMAP H16.02: hostname / OS type / arch strings.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -37,4 +38,14 @@ fn cwd_chdir_fixture_present() {
 #[test]
 fn cwd_chdir_runs_js_and_native() {
     assert_fixture_runs_js_and_native("host/os/cwd_chdir");
+}
+
+#[test]
+fn hostname_os_fixture_present() {
+    assert_fixture_present("host/os/hostname_os");
+}
+
+#[test]
+fn hostname_os_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("host/os/hostname_os");
 }

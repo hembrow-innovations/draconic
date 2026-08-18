@@ -1,0 +1,6 @@
+id: host/os/hostname_os
+targets: js,native
+js.exit: 0
+js.check: if (t_h !== "string") process.exit(1); if (t_o !== "string") process.exit(2); if (t_a !== "string") process.exit(3); if (h_ok !== true) process.exit(4); if (o_ok !== true) process.exit(5); if (a_ok !== true) process.exit(6); var ot = osType(); if (["darwin","linux","win32","freebsd","openbsd","netbsd","sunos","aix","android"].indexOf(ot) < 0) process.exit(7); var oa = osArch(); if (typeof oa !== "string" || oa.length < 1) process.exit(8);
+native.exit: 0
+native.stdout: string\nstring\nstring\ntrue\ntrue\ntrue\n

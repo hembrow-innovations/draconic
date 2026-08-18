@@ -139,6 +139,15 @@ int32_t draconic_rt_host_process_ppid(void);
 char *draconic_rt_host_cwd(void);
 DraconicHostError draconic_rt_host_chdir(const char *path);
 
+/* --- OS hostname / type / arch (H16.02) ------------------------------------
+   All return malloc'd UTF-8 strings (caller free()); NULL on failure.
+   os_type: Node-like platform ("darwin" / "linux" / "win32" / …).
+   os_arch: Node-like arch ("x64" / "arm64" / "ia32" / …). */
+
+char *draconic_rt_host_hostname(void);
+char *draconic_rt_host_os_type(void);
+char *draconic_rt_host_os_arch(void);
+
 /* --- Process run / spawn+wait (H15.01) ------------------------------------
    Spawn argv[0] with argv[0..argc), wait for exit, return status.
    cwd NULL → inherit; else chdir in child before exec.

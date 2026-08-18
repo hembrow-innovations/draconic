@@ -96,6 +96,15 @@ fn module_uses_cwd_chdir(module: &Module) -> bool {
     })
 }
 
+/// H16.02: free host APIs `hostname` / `osType` / `osArch`.
+fn module_uses_hostname_os(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "hostname")
+            || stmt_uses_ident_name(s, "osType")
+            || stmt_uses_ident_name(s, "osArch")
+    })
+}
+
 /// H15.01: free host API `processRun`.
 fn module_uses_process_run(module: &Module) -> bool {
     module
@@ -524,6 +533,13 @@ fn emit_js_full(
     // H16.01: `cwd` / `chdir` Node bridge.
     if module_uses_cwd_chdir(module) {
         out.push_str(draconic_runtime::cwd_chdir_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H16.02: `hostname` / `osType` / `osArch` Node bridge.
+    if module_uses_hostname_os(module) {
+        out.push_str(draconic_runtime::hostname_os_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

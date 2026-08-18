@@ -1,7 +1,8 @@
-//! H16.01: native observations for `cwd()` / `chdir(path)`.
+//! H16.01 / H16.02: native observations for OS host APIs.
 //!
 //! - `cwd()` → absolute path string (not auto-printed; use in `===` / `typeof`)
 //! - `chdir(path)` → side-effect; missing path → HostError (ENOENT) on full path later
+//! - `hostname()` / `osType()` / `osArch()` → non-empty strings (H16.02)
 //!
 //! Auto-prints string locals from `typeof` and bool locals from comparisons.
 
@@ -12,7 +13,8 @@ use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_CHDIR, HOST_CWD, PRINT_BOOL, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_CHDIR, HOST_CWD, HOST_HOSTNAME, HOST_OS_ARCH, HOST_OS_TYPE,
+    PRINT_BOOL, PRINT_STR,
 };
 
 pub(crate) fn is_host_os_module(module: &Module) -> bool {
@@ -99,7 +101,13 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
 
 fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
     match expr {
-        Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "cwd") => {
+        Expr::Call { callee, args, .. }
+            if args.is_empty()
+                && (is_named_callee(callee, "cwd")
+                    || is_named_callee(callee, "hostname")
+                    || is_named_callee(callee, "osType")
+                    || is_named_callee(callee, "osArch")) =>
+        {
             ctx.has_os = true;
             Some(SlotTy::Path)
         }
@@ -234,8 +242,17 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_os (H16.01 cwd/chdir)").ok();
-        let decls = vec![GC_INIT, PRINT_STR, PRINT_BOOL, HOST_CWD, HOST_CHDIR];
+        writeln!(self.out, "; Draconic LLVM host_os (H16.01/H16.02)").ok();
+        let decls = vec![
+            GC_INIT,
+            PRINT_STR,
+            PRINT_BOOL,
+            HOST_CWD,
+            HOST_CHDIR,
+            HOST_HOSTNAME,
+            HOST_OS_TYPE,
+            HOST_OS_ARCH,
+        ];
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out, "declare i32 @strcmp(ptr, ptr)").ok();
         writeln!(self.out).ok();
@@ -347,12 +364,33 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {}", HOST_CWD.call_to(&r, "")).ok();
                 Ok(r)
             }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "hostname") =>
+            {
+                let r = self.fresh();
+                writeln!(self.body, "  {}", HOST_HOSTNAME.call_to(&r, "")).ok();
+                Ok(r)
+            }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "osType") =>
+            {
+                let r = self.fresh();
+                writeln!(self.body, "  {}", HOST_OS_TYPE.call_to(&r, "")).ok();
+                Ok(r)
+            }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "osArch") =>
+            {
+                let r = self.fresh();
+                writeln!(self.body, "  {}", HOST_OS_ARCH.call_to(&r, "")).ok();
+                Ok(r)
+            }
             Expr::Unary {
                 op: UnaryOp::TypeOf,
                 arg,
                 ..
             } => {
-                // Only typeof cwd() / path locals / strings used in fixtures.
+                // typeof of string-returning host APIs / path locals / strings.
                 let _ = arg;
                 Ok(self.emit_cstr_ptr("string"))
             }
@@ -431,5 +469,24 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_cwd"), "{ir}");
         assert!(ir.contains("draconic_rt_host_chdir"), "{ir}");
         assert!(ir.contains("strcmp"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_hostname_os_type_arch() {
+        let m = lower_src(
+            r#"
+            let t_h = typeof hostname();
+            let t_o = typeof osType();
+            let t_a = typeof osArch();
+            let h_ok = hostname() !== "";
+            let o_ok = osType() !== "";
+            let a_ok = osArch() !== "";
+            "#,
+        );
+        assert!(is_host_os_module(&m));
+        let ir = emit_host_os(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_hostname"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_os_type"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_os_arch"), "{ir}");
     }
 }

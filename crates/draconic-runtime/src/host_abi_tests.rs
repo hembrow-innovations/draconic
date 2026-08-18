@@ -317,6 +317,9 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_ppid",
         "draconic_rt_host_cwd",
         "draconic_rt_host_chdir",
+        "draconic_rt_host_hostname",
+        "draconic_rt_host_os_type",
+        "draconic_rt_host_os_arch",
         "draconic_rt_host_process_run",
         "draconic_rt_host_process_spawn",
         "draconic_rt_host_process_stdin_write",
@@ -605,6 +608,70 @@ int main(void) {
     if (draconic_rt_host_chdir("/no/such/draconic_h1601_path_xyz") != DRACONIC_HOST_E_NOENT) {
         return 6;
     }
+    printf("ok\n");
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+    };
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "code={:?} stderr={} stdout={}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
+}
+
+#[test]
+fn host_hostname_os_type_arch() {
+    // H16.02: hostname + platform + arch strings are non-empty.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_hostname.c");
+    let bin = dir.join("rt_host_hostname");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    char *h = draconic_rt_host_hostname();
+    char *t = draconic_rt_host_os_type();
+    char *a = draconic_rt_host_os_arch();
+    if (!h || !h[0]) { free(h); free(t); free(a); return 1; }
+    if (!t || !t[0]) { free(h); free(t); free(a); return 2; }
+    if (!a || !a[0]) { free(h); free(t); free(a); return 3; }
+#if defined(__APPLE__)
+    if (strcmp(t, "darwin") != 0) { free(h); free(t); free(a); return 4; }
+#elif defined(__linux__)
+    if (strcmp(t, "linux") != 0) { free(h); free(t); free(a); return 4; }
+#elif defined(_WIN32)
+    if (strcmp(t, "win32") != 0) { free(h); free(t); free(a); return 4; }
+#endif
+    free(h);
+    free(t);
+    free(a);
     printf("ok\n");
     return 0;
 }

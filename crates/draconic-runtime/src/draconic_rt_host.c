@@ -628,6 +628,85 @@ DraconicHostError draconic_rt_host_chdir(const char *path) {
 #endif
 }
 
+/* --- OS hostname / type / arch (H16.02) --- */
+
+static char *host_dup_cstr(const char *s) {
+    size_t n;
+    char *out;
+    if (!s) {
+        return NULL;
+    }
+    n = strlen(s);
+    out = (char *)malloc(n + 1);
+    if (!out) {
+        return NULL;
+    }
+    memcpy(out, s, n + 1);
+    return out;
+}
+
+char *draconic_rt_host_hostname(void) {
+#if defined(_WIN32)
+    {
+        char buf[256];
+        DWORD n = (DWORD)sizeof(buf);
+        if (!GetComputerNameA(buf, &n)) {
+            return NULL;
+        }
+        return host_dup_cstr(buf);
+    }
+#else
+    {
+        char buf[256];
+        if (gethostname(buf, sizeof(buf)) != 0) {
+            return NULL;
+        }
+        buf[sizeof(buf) - 1] = '\0';
+        return host_dup_cstr(buf);
+    }
+#endif
+}
+
+char *draconic_rt_host_os_type(void) {
+#if defined(_WIN32)
+    return host_dup_cstr("win32");
+#elif defined(__APPLE__)
+    return host_dup_cstr("darwin");
+#elif defined(__linux__)
+    return host_dup_cstr("linux");
+#elif defined(__FreeBSD__)
+    return host_dup_cstr("freebsd");
+#elif defined(__OpenBSD__)
+    return host_dup_cstr("openbsd");
+#elif defined(__NetBSD__)
+    return host_dup_cstr("netbsd");
+#else
+    return host_dup_cstr("unknown");
+#endif
+}
+
+char *draconic_rt_host_os_arch(void) {
+#if defined(_M_X64) || defined(__x86_64__) || defined(__amd64__)
+    return host_dup_cstr("x64");
+#elif defined(_M_IX86) || defined(__i386__) || defined(__i686__)
+    return host_dup_cstr("ia32");
+#elif defined(_M_ARM64) || defined(__aarch64__) || defined(__arm64__)
+    return host_dup_cstr("arm64");
+#elif defined(_M_ARM) || defined(__arm__)
+    return host_dup_cstr("arm");
+#elif defined(__ppc64__) || defined(__powerpc64__)
+    return host_dup_cstr("ppc64");
+#elif defined(__ppc__) || defined(__powerpc__)
+    return host_dup_cstr("ppc");
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    return host_dup_cstr("riscv64");
+#elif defined(__s390x__)
+    return host_dup_cstr("s390x");
+#else
+    return host_dup_cstr("unknown");
+#endif
+}
+
 int32_t draconic_rt_host_process_ppid(void) {
 #if defined(_WIN32)
     {
