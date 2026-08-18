@@ -1,11 +1,15 @@
 //! H15.01: `processRun(argv, cwd?, env?)` — spawn, wait, exit code.
+//! H15.02: `processSpawn` / `processStdinWrite` / `processWait` /
+//! `processStdout` / `processStderr` / `processKill` / `processClose`.
 //!
 //! Supported subset for conformance:
-//! - top-level number/bool locals
-//! - `processRun(["prog", ...args])`
-//! - `processRun(argv, "/cwd")` / `processRun(argv, null)`
-//! - `processRun(argv, null, { KEY: "val", ... })` env subset (string lit keys/vals)
-//! - `===` / `!==` / comparisons on numbers; `typeof processRun` → `"function"`
+//! - top-level number/bool/string locals
+//! - `processRun(["prog", ...args])` (+ optional cwd/env)
+//! - `processSpawn` same argv shape; handle as number
+//! - `processStdinWrite(h, "text")`, `processWait(h)`, `processKill(h)`, `processClose(h)`
+//! - `processStdout(h)` / `processStderr(h)` → string after wait
+//! - `===` / `!==` / comparisons on numbers; `typeof` of APIs → `"function"`
+//! - string `===` / `!==` for stdout/stderr checks
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -16,7 +20,9 @@ use draconic_ir::{
     Arg, ArrayElement, Expr, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt,
 };
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_PROCESS_RUN, PRINT_BOOL, PRINT_F64, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_PROCESS_CLOSE, HOST_PROCESS_KILL, HOST_PROCESS_RUN,
+    HOST_PROCESS_SPAWN, HOST_PROCESS_STDERR, HOST_PROCESS_STDIN_WRITE, HOST_PROCESS_STDOUT,
+    HOST_PROCESS_WAIT, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_subprocess_module(module: &Module) -> bool {
@@ -40,13 +46,16 @@ enum SlotTy {
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
     print_locals: Vec<(LocalId, SlotTy)>,
+    uses_run: bool,
+    uses_spawn: bool,
 }
 
 struct ClassifyCtx {
     slots: Vec<(LocalId, SlotTy)>,
     print_locals: Vec<(LocalId, SlotTy)>,
     slot_of: HashMap<LocalId, SlotTy>,
-    has_run: bool,
+    uses_run: bool,
+    uses_spawn: bool,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -54,17 +63,20 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         slots: Vec::new(),
         print_locals: Vec::new(),
         slot_of: HashMap::new(),
-        has_run: false,
+        uses_run: false,
+        uses_spawn: false,
     };
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
     }
-    if !ctx.has_run || ctx.print_locals.is_empty() {
+    if !(ctx.uses_run || ctx.uses_spawn) || ctx.print_locals.is_empty() {
         return None;
     }
     Some(ModuleInfo {
         slots: ctx.slots,
         print_locals: ctx.print_locals,
+        uses_run: ctx.uses_run,
+        uses_spawn: ctx.uses_spawn,
     })
 }
 
@@ -88,24 +100,72 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
+fn classify_process_argv_call(args: &[Arg], ctx: &mut ClassifyCtx) -> Option<()> {
+    if args.is_empty() || args.len() > 3 {
+        return None;
+    }
+    string_array_lit(arg_expr(&args[0])?)?;
+    if args.len() >= 2 {
+        match arg_expr(&args[1])? {
+            Expr::Null { .. } | Expr::String { .. } => {}
+            _ => return None,
+        }
+    }
+    if args.len() == 3 {
+        env_object_lit(arg_expr(&args[2])?)?;
+    }
+    let _ = ctx;
+    Some(())
+}
+
 fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
     match expr {
         Expr::Call { callee, args, .. } if is_named_callee(callee, "processRun") => {
-            ctx.has_run = true;
-            if args.is_empty() || args.len() > 3 {
+            ctx.uses_run = true;
+            classify_process_argv_call(args, ctx)?;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "processSpawn") => {
+            ctx.uses_spawn = true;
+            classify_process_argv_call(args, ctx)?;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "processStdinWrite") => {
+            ctx.uses_spawn = true;
+            if args.len() != 2 {
                 return None;
             }
-            string_array_lit(arg_expr(&args[0])?)?;
-            if args.len() >= 2 {
-                match arg_expr(&args[1])? {
-                    Expr::Null { .. } | Expr::String { .. } => {}
-                    _ => return None,
+            let _ = classify_expr(arg_expr(&args[0])?, ctx)?;
+            match arg_expr(&args[1])? {
+                Expr::String { .. } => {}
+                e => {
+                    let _ = classify_expr(e, ctx)?;
                 }
             }
-            if args.len() == 3 {
-                env_object_lit(arg_expr(&args[2])?)?;
-            }
             Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if is_named_callee(callee, "processWait")
+                || is_named_callee(callee, "processKill")
+                || is_named_callee(callee, "processClose") =>
+        {
+            ctx.uses_spawn = true;
+            if args.len() != 1 {
+                return None;
+            }
+            let _ = classify_expr(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if is_named_callee(callee, "processStdout") || is_named_callee(callee, "processStderr")
+        =>
+        {
+            ctx.uses_spawn = true;
+            if args.len() != 1 {
+                return None;
+            }
+            let _ = classify_expr(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::String)
         }
         Expr::Binary {
             op:
@@ -123,7 +183,9 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
-            if lt == SlotTy::Number && rt == SlotTy::Number {
+            if (lt == SlotTy::Number && rt == SlotTy::Number)
+                || (lt == SlotTy::String && rt == SlotTy::String)
+            {
                 Some(SlotTy::Bool)
             } else {
                 None
@@ -135,7 +197,17 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ..
         } => {
             if is_named_ident(arg, "processRun") {
-                ctx.has_run = true;
+                ctx.uses_run = true;
+                Some(SlotTy::String)
+            } else if is_named_ident(arg, "processSpawn")
+                || is_named_ident(arg, "processStdinWrite")
+                || is_named_ident(arg, "processWait")
+                || is_named_ident(arg, "processStdout")
+                || is_named_ident(arg, "processStderr")
+                || is_named_ident(arg, "processKill")
+                || is_named_ident(arg, "processClose")
+            {
+                ctx.uses_spawn = true;
                 Some(SlotTy::String)
             } else {
                 let _ = classify_expr(arg, ctx)?;
@@ -223,6 +295,7 @@ struct Emitter<'a> {
     out: String,
     next_tmp: u32,
     str_globals: HashMap<String, String>,
+    next_label: u32,
 }
 
 impl<'a> Emitter<'a> {
@@ -237,6 +310,7 @@ impl<'a> Emitter<'a> {
             out: String::new(),
             next_tmp: 0,
             str_globals: HashMap::new(),
+            next_label: 0,
         }
     }
 
@@ -248,6 +322,12 @@ impl<'a> Emitter<'a> {
         let n = self.next_tmp;
         self.next_tmp += 1;
         format!("%t{n}")
+    }
+
+    fn fresh_label(&mut self, tag: &str) -> String {
+        let n = self.next_label;
+        self.next_label += 1;
+        format!("{tag}{n}")
     }
 
     fn slot_ptr(&self, id: LocalId) -> Result<String, Diagnostic> {
@@ -283,11 +363,28 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_subprocess (H15.01 processRun)"
+            "; Draconic LLVM host_subprocess (H15.01 processRun / H15.02 spawn)"
         )
         .ok();
-        self.out
-            .push_str(&llvm_declares(&[GC_INIT, PRINT_F64, PRINT_STR, PRINT_BOOL, HOST_PROCESS_RUN]));
+        let mut decls = vec![GC_INIT, PRINT_F64, PRINT_STR, PRINT_BOOL];
+        if info.uses_run {
+            decls.push(HOST_PROCESS_RUN);
+        }
+        if info.uses_spawn {
+            decls.extend_from_slice(&[
+                HOST_PROCESS_SPAWN,
+                HOST_PROCESS_STDIN_WRITE,
+                HOST_PROCESS_WAIT,
+                HOST_PROCESS_STDOUT,
+                HOST_PROCESS_STDERR,
+                HOST_PROCESS_KILL,
+                HOST_PROCESS_CLOSE,
+            ]);
+        }
+        self.out.push_str(&llvm_declares(&decls));
+        if info.uses_spawn {
+            writeln!(self.out, "declare i32 @strcmp(ptr, ptr)").ok();
+        }
         writeln!(self.out).ok();
 
         for (id, ty) in &info.slots {
@@ -383,9 +480,13 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_process_run(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
-        let argv_expr = arg_expr(&args[0]).ok_or_else(|| diag("processRun argv"))?;
-        let argv = string_array_lit(argv_expr).ok_or_else(|| diag("processRun argv must be string[] lit"))?;
+    fn emit_argv_cwd_env(
+        &mut self,
+        args: &[Arg],
+    ) -> Result<(i32, String, String, i32, String, String), Diagnostic> {
+        let argv_expr = arg_expr(&args[0]).ok_or_else(|| diag("process argv"))?;
+        let argv =
+            string_array_lit(argv_expr).ok_or_else(|| diag("process argv must be string[] lit"))?;
         let argc = argv.len() as i32;
 
         let argv_arr = self.fresh();
@@ -412,21 +513,21 @@ impl<'a> Emitter<'a> {
         .ok();
 
         let cwd_ptr = if args.len() >= 2 {
-            match arg_expr(&args[1]).ok_or_else(|| diag("processRun cwd"))? {
+            match arg_expr(&args[1]).ok_or_else(|| diag("process cwd"))? {
                 Expr::Null { .. } => "null".to_string(),
                 Expr::String { value, .. } => {
                     let s = value.to_string_lossy();
                     self.emit_cstr_ptr(&s)
                 }
-                _ => return Err(diag("processRun cwd must be string or null")),
+                _ => return Err(diag("process cwd must be string or null")),
             }
         } else {
             "null".to_string()
         };
 
         let (env_n, keys_ptr, vals_ptr) = if args.len() == 3 {
-            let env_expr = arg_expr(&args[2]).ok_or_else(|| diag("processRun env"))?;
-            let pairs = env_object_lit(env_expr).ok_or_else(|| diag("processRun env object"))?;
+            let env_expr = arg_expr(&args[2]).ok_or_else(|| diag("process env"))?;
+            let pairs = env_object_lit(env_expr).ok_or_else(|| diag("process env object"))?;
             if pairs.is_empty() {
                 (0i32, "null".to_string(), "null".to_string())
             } else {
@@ -471,6 +572,11 @@ impl<'a> Emitter<'a> {
             (0i32, "null".to_string(), "null".to_string())
         };
 
+        Ok((argc, argv_ptr, cwd_ptr, env_n, keys_ptr, vals_ptr))
+    }
+
+    fn emit_process_run(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let (argc, argv_ptr, cwd_ptr, env_n, keys_ptr, vals_ptr) = self.emit_argv_cwd_env(args)?;
         let code_i32 = self.fresh();
         let code_f = self.fresh();
         writeln!(
@@ -481,6 +587,27 @@ impl<'a> Emitter<'a> {
         .ok();
         writeln!(self.body, "  {code_f} = sitofp i32 {code_i32} to double").ok();
         Ok(code_f)
+    }
+
+    fn emit_process_spawn(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let (argc, argv_ptr, cwd_ptr, env_n, keys_ptr, vals_ptr) = self.emit_argv_cwd_env(args)?;
+        let h_i32 = self.fresh();
+        let h_f = self.fresh();
+        writeln!(
+            self.body,
+            "  {h_i32} = call i32 @{}(i32 {argc}, ptr {argv_ptr}, ptr {cwd_ptr}, i32 {env_n}, ptr {keys_ptr}, ptr {vals_ptr})",
+            HOST_PROCESS_SPAWN.symbol
+        )
+        .ok();
+        writeln!(self.body, "  {h_f} = sitofp i32 {h_i32} to double").ok();
+        Ok(h_f)
+    }
+
+    fn emit_handle_i32(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        let f = self.emit_number_expr(expr)?;
+        let i = self.fresh();
+        writeln!(self.body, "  {i} = fptosi double {f} to i32").ok();
+        Ok(i)
     }
 
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
@@ -498,6 +625,84 @@ impl<'a> Emitter<'a> {
             }
             Expr::Call { callee, args, .. } if is_named_callee(callee, "processRun") => {
                 self.emit_process_run(args)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "processSpawn") => {
+                self.emit_process_spawn(args)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "processStdinWrite") => {
+                if args.len() != 2 {
+                    return Err(diag("processStdinWrite expects handle, text"));
+                }
+                let h = self.emit_handle_i32(
+                    arg_expr(&args[0]).ok_or_else(|| diag("processStdinWrite handle"))?,
+                )?;
+                let text = self.emit_string_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("processStdinWrite text"))?,
+                )?;
+                let rc = self.fresh();
+                let f = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i32 {h}, ptr {text}, i64 -1)",
+                    HOST_PROCESS_STDIN_WRITE.symbol
+                )
+                .ok();
+                writeln!(self.body, "  {f} = sitofp i32 {rc} to double").ok();
+                Ok(f)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "processWait") => {
+                if args.len() != 1 {
+                    return Err(diag("processWait expects handle"));
+                }
+                let h = self.emit_handle_i32(
+                    arg_expr(&args[0]).ok_or_else(|| diag("processWait handle"))?,
+                )?;
+                let rc = self.fresh();
+                let f = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i32 {h})",
+                    HOST_PROCESS_WAIT.symbol
+                )
+                .ok();
+                writeln!(self.body, "  {f} = sitofp i32 {rc} to double").ok();
+                Ok(f)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "processKill") => {
+                if args.len() != 1 {
+                    return Err(diag("processKill expects handle"));
+                }
+                let h = self.emit_handle_i32(
+                    arg_expr(&args[0]).ok_or_else(|| diag("processKill handle"))?,
+                )?;
+                let rc = self.fresh();
+                let f = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i32 {h})",
+                    HOST_PROCESS_KILL.symbol
+                )
+                .ok();
+                writeln!(self.body, "  {f} = sitofp i32 {rc} to double").ok();
+                Ok(f)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "processClose") => {
+                if args.len() != 1 {
+                    return Err(diag("processClose expects handle"));
+                }
+                let h = self.emit_handle_i32(
+                    arg_expr(&args[0]).ok_or_else(|| diag("processClose handle"))?,
+                )?;
+                let rc = self.fresh();
+                let f = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i32 {h})",
+                    HOST_PROCESS_CLOSE.symbol
+                )
+                .ok();
+                writeln!(self.body, "  {f} = sitofp i32 {rc} to double").ok();
+                Ok(f)
             }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
@@ -534,22 +739,42 @@ impl<'a> Emitter<'a> {
                     | BinaryOp::NotEq
             ) =>
             {
-                let l = self.emit_number_expr(left)?;
-                let r = self.emit_number_expr(right)?;
-                let cmp = self.fresh();
-                let pred = match op {
-                    BinaryOp::Gt => "ogt",
-                    BinaryOp::GtEq => "oge",
-                    BinaryOp::Lt => "olt",
-                    BinaryOp::LtEq => "ole",
-                    BinaryOp::EqEqEq | BinaryOp::EqEq => "oeq",
-                    BinaryOp::NotEqEq | BinaryOp::NotEq => "one",
-                    _ => unreachable!(),
-                };
-                writeln!(self.body, "  {cmp} = fcmp {pred} double {l}, {r}").ok();
-                let b = self.fresh();
-                writeln!(self.body, "  {b} = zext i1 {cmp} to i8").ok();
-                Ok(b)
+                // Prefer string compare when either side is string-typed.
+                if self.expr_is_string(left) || self.expr_is_string(right) {
+                    let l = self.emit_string_expr(left)?;
+                    let r = self.emit_string_expr(right)?;
+                    let cmp = self.fresh();
+                    writeln!(
+                        self.body,
+                        "  {cmp} = call i32 @strcmp(ptr {l}, ptr {r})"
+                    )
+                    .ok();
+                    // Ensure strcmp is declared once via body — add declare in emit_module if needed.
+                    let is_eq = matches!(op, BinaryOp::EqEqEq | BinaryOp::EqEq);
+                    let z = self.fresh();
+                    let pred = if is_eq { "eq" } else { "ne" };
+                    writeln!(self.body, "  {z} = icmp {pred} i32 {cmp}, 0").ok();
+                    let b = self.fresh();
+                    writeln!(self.body, "  {b} = zext i1 {z} to i8").ok();
+                    Ok(b)
+                } else {
+                    let l = self.emit_number_expr(left)?;
+                    let r = self.emit_number_expr(right)?;
+                    let cmp = self.fresh();
+                    let pred = match op {
+                        BinaryOp::Gt => "ogt",
+                        BinaryOp::GtEq => "oge",
+                        BinaryOp::Lt => "olt",
+                        BinaryOp::LtEq => "ole",
+                        BinaryOp::EqEqEq | BinaryOp::EqEq => "oeq",
+                        BinaryOp::NotEqEq | BinaryOp::NotEq => "one",
+                        _ => unreachable!(),
+                    };
+                    writeln!(self.body, "  {cmp} = fcmp {pred} double {l}, {r}").ok();
+                    let b = self.fresh();
+                    writeln!(self.body, "  {b} = zext i1 {cmp} to i8").ok();
+                    Ok(b)
+                }
             }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
@@ -558,6 +783,24 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             _ => Err(diag("host_subprocess: expected bool expr")),
+        }
+    }
+
+    fn expr_is_string(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::String { .. } => true,
+            Expr::Call { callee, .. }
+                if is_named_callee(callee, "processStdout")
+                    || is_named_callee(callee, "processStderr") =>
+            {
+                true
+            }
+            Expr::Local { id, .. } => matches!(self.slot_of.get(id), Some(SlotTy::String)),
+            Expr::Unary {
+                op: UnaryOp::TypeOf,
+                ..
+            } => true,
+            _ => false,
         }
     }
 
@@ -571,7 +814,63 @@ impl<'a> Emitter<'a> {
                 op: UnaryOp::TypeOf,
                 arg,
                 ..
-            } if is_named_ident(arg, "processRun") => Ok(self.emit_cstr_ptr("function")),
+            } if is_named_ident(arg, "processRun")
+                || is_named_ident(arg, "processSpawn")
+                || is_named_ident(arg, "processStdinWrite")
+                || is_named_ident(arg, "processWait")
+                || is_named_ident(arg, "processStdout")
+                || is_named_ident(arg, "processStderr")
+                || is_named_ident(arg, "processKill")
+                || is_named_ident(arg, "processClose") =>
+            {
+                Ok(self.emit_cstr_ptr("function"))
+            }
+            Expr::Call { callee, args, .. }
+                if is_named_callee(callee, "processStdout")
+                    || is_named_callee(callee, "processStderr") =>
+            {
+                if args.len() != 1 {
+                    return Err(diag("processStdout/Stderr expects handle"));
+                }
+                let h = self.emit_handle_i32(
+                    arg_expr(&args[0]).ok_or_else(|| diag("processStdout/Stderr handle"))?,
+                )?;
+                let out = self.fresh();
+                let rc = self.fresh();
+                let sym = if is_named_callee(callee, "processStdout") {
+                    HOST_PROCESS_STDOUT.symbol
+                } else {
+                    HOST_PROCESS_STDERR.symbol
+                };
+                writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{sym}(i32 {h}, ptr {out})"
+                )
+                .ok();
+                let empty = self.emit_cstr_ptr("");
+                let ok_l = self.fresh_label("ps_ok");
+                let bad_l = self.fresh_label("ps_bad");
+                let join_l = self.fresh_label("ps_join");
+                let is_ok = self.fresh();
+                writeln!(self.body, "  {is_ok} = icmp eq i32 {rc}, 0").ok();
+                writeln!(self.body, "  br i1 {is_ok}, label %{ok_l}, label %{bad_l}").ok();
+                writeln!(self.body, "{ok_l}:").ok();
+                let v_ok = self.fresh();
+                writeln!(self.body, "  {v_ok} = load ptr, ptr {out}").ok();
+                writeln!(self.body, "  br label %{join_l}").ok();
+                writeln!(self.body, "{bad_l}:").ok();
+                writeln!(self.body, "  br label %{join_l}").ok();
+                writeln!(self.body, "{join_l}:").ok();
+                let phi = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {phi} = phi ptr [ {v_ok}, %{ok_l} ], [ {empty}, %{bad_l} ]"
+                )
+                .ok();
+                Ok(phi)
+            }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
@@ -624,6 +923,52 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_process_run"), "{ir}");
         let dir = std::env::temp_dir().join(format!(
             "draconic-hs-ir-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let ll = dir.join("t.ll");
+        std::fs::write(&ll, &ir).unwrap();
+        let clang = std::env::var("CLANG").unwrap_or_else(|_| "clang".into());
+        let out = std::process::Command::new(&clang)
+            .args(["-c", "-o"])
+            .arg(dir.join("t.o"))
+            .arg(&ll)
+            .output()
+            .expect("clang");
+        assert!(
+            out.status.success(),
+            "clang reject IR:\n{}\n--- IR ---\n{ir}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn classifies_process_spawn_capture_kill() {
+        let m = lower_src(
+            r#"
+            let h = processSpawn(["/bin/sh", "-c", "cat"]);
+            let w = processStdinWrite(h, "hi");
+            let code = processWait(h);
+            let out = processStdout(h);
+            let err = processStderr(h);
+            let ok = out === "hi";
+            let h2 = processSpawn(["/bin/sh", "-c", "sleep 30"]);
+            let k = processKill(h2);
+            let c2 = processWait(h2);
+            let closed = processClose(h);
+            "#,
+        );
+        assert!(is_host_subprocess_module(&m));
+        let ir = emit_host_subprocess(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_process_spawn"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_process_stdin_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_process_wait"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_process_stdout"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_process_kill"), "{ir}");
+        assert!(ir.contains("declare i32 @strcmp"), "{ir}");
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-hs-spawn-{}",
             std::process::id()
         ));
         let _ = std::fs::create_dir_all(&dir);

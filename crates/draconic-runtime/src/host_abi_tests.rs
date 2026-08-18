@@ -316,6 +316,13 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_pid",
         "draconic_rt_host_process_ppid",
         "draconic_rt_host_process_run",
+        "draconic_rt_host_process_spawn",
+        "draconic_rt_host_process_stdin_write",
+        "draconic_rt_host_process_wait",
+        "draconic_rt_host_process_stdout",
+        "draconic_rt_host_process_stderr",
+        "draconic_rt_host_process_kill",
+        "draconic_rt_host_process_close",
         "draconic_rt_host_signal_watch",
         "draconic_rt_host_signal_ignore",
         "draconic_rt_host_signal_restore",
@@ -605,6 +612,83 @@ int main(void) {{
 "#,
             marker_dir_c = marker_dir_c
         ),
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+    };
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
+}
+
+#[test]
+fn host_process_spawn_capture_kill() {
+    // H15.02: spawn pipes; stdin write; stdout/stderr capture; kill+wait.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_process_spawn.c");
+    let bin = dir.join("rt_host_process_spawn");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    const char *argv_cat[] = { "/bin/sh", "-c", "cat; printf 'err-msg\\n' 1>&2" };
+    int32_t h = draconic_rt_host_process_spawn(3, argv_cat, NULL, 0, NULL, NULL);
+    if (h < 1) { printf("spawn=%d\n", (int)h); return 1; }
+    if (draconic_rt_host_process_stdin_write(h, "hello", -1) != 0) {
+        printf("stdin\n"); return 2;
+    }
+    int32_t code = draconic_rt_host_process_wait(h);
+    if (code != 0) { printf("code=%d\n", (int)code); return 3; }
+    char *out = NULL;
+    char *err = NULL;
+    if (draconic_rt_host_process_stdout(h, &out) != 0 || !out) {
+        printf("stdout\n"); return 4;
+    }
+    if (strcmp(out, "hello") != 0) { printf("out=%s\n", out); free(out); return 5; }
+    free(out);
+    if (draconic_rt_host_process_stderr(h, &err) != 0 || !err) {
+        printf("stderr\n"); return 6;
+    }
+    if (strcmp(err, "err-msg\n") != 0) { printf("err=%s\n", err); free(err); return 7; }
+    free(err);
+    if (draconic_rt_host_process_close(h) != 0) { printf("close\n"); return 8; }
+
+    const char *argv_sleep[] = { "/bin/sh", "-c", "sleep 30" };
+    h = draconic_rt_host_process_spawn(3, argv_sleep, NULL, 0, NULL, NULL);
+    if (h < 1) { printf("spawn2=%d\n", (int)h); return 9; }
+    if (draconic_rt_host_process_kill(h) != 0) { printf("kill\n"); return 10; }
+    code = draconic_rt_host_process_wait(h);
+    if (code != 143) { printf("killcode=%d\n", (int)code); return 11; }
+    if (draconic_rt_host_process_close(h) != 0) { printf("close2\n"); return 12; }
+
+    printf("ok\n");
+    return 0;
+}
+"#,
     )
     .unwrap();
     let header_dir = c_runtime_header_path()

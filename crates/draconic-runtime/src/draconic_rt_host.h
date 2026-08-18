@@ -147,6 +147,39 @@ int32_t draconic_rt_host_process_run(
     const char **env_keys,
     const char **env_vals);
 
+/* --- Process spawn + pipes (H15.02) ---------------------------------------
+   processSpawn: fork+exec with stdin/stdout/stderr pipes; returns handle >= 1
+   or -1 on failure. cwd/env same semantics as process_run.
+   processStdinWrite: write UTF-8 bytes then close stdin pipe; len < 0 → strlen.
+   processWait: drain stdout/stderr, waitpid; returns exit status (same as run).
+   processStdout / processStderr: after wait, malloc UTF-8 C strings (caller frees
+   via free); empty string if none. Fail → NULL out + non-zero error return.
+   processKill: SIGTERM (or equivalent); 0 ok, -1 fail.
+   processClose: free slot + leftover pipes/buffers. */
+
+int32_t draconic_rt_host_process_spawn(
+    int32_t argc,
+    const char **argv,
+    const char *cwd,
+    int32_t env_n,
+    const char **env_keys,
+    const char **env_vals);
+
+int32_t draconic_rt_host_process_stdin_write(
+    int32_t h,
+    const char *data,
+    int64_t len);
+
+int32_t draconic_rt_host_process_wait(int32_t h);
+
+int32_t draconic_rt_host_process_stdout(int32_t h, char **out_text);
+
+int32_t draconic_rt_host_process_stderr(int32_t h, char **out_text);
+
+int32_t draconic_rt_host_process_kill(int32_t h);
+
+int32_t draconic_rt_host_process_close(int32_t h);
+
 /* --- Process signals (H14.01 / H14.02) ------------------------------------
    Portable signal codes (not necessarily OS signo values):
      DRACONIC_HOST_SIG_INT  = SIGINT

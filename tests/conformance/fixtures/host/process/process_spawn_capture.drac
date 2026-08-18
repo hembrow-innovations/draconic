@@ -1,0 +1,11 @@
+// H15.02: processSpawn + stdin write + wait + stdout/stderr capture.
+let t = typeof processSpawn;
+let h = processSpawn(["/bin/sh", "-c", "cat; printf 'err-msg\\n' 1>&2"]);
+let w = processStdinWrite(h, "hello");
+let code = processWait(h);
+let out = processStdout(h);
+let err = processStderr(h);
+let outOk = out === "hello";
+let errOk = err === "err-msg\n";
+let codeOk = code === 0;
+let closed = processClose(h);

@@ -97,6 +97,19 @@ fn module_uses_process_run(module: &Module) -> bool {
         .any(|s| stmt_uses_ident_name(s, "processRun"))
 }
 
+/// H15.02: process spawn + pipes + kill.
+fn module_uses_process_spawn(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "processSpawn")
+            || stmt_uses_ident_name(s, "processStdinWrite")
+            || stmt_uses_ident_name(s, "processWait")
+            || stmt_uses_ident_name(s, "processStdout")
+            || stmt_uses_ident_name(s, "processStderr")
+            || stmt_uses_ident_name(s, "processKill")
+            || stmt_uses_ident_name(s, "processClose")
+    })
+}
+
 /// H05.01: free host API `nowMs`.
 fn module_uses_now_ms(module: &Module) -> bool {
     module
@@ -503,6 +516,13 @@ fn emit_js_full(
     // H15.01: `processRun` spawn+wait Node bridge.
     if module_uses_process_run(module) {
         out.push_str(draconic_runtime::process_run_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H15.02: processSpawn + stdin/stdout/stderr/kill Node bridge.
+    if module_uses_process_spawn(module) {
+        out.push_str(draconic_runtime::process_spawn_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

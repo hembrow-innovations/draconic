@@ -65,6 +65,8 @@ pub struct HostApiEntry {
 /// - `exit` / `exitCode` / `setExitCode` (H01.03): both — terminate / deferred status (default 0).
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
 /// - `processRun` (H15.01): both — spawn argv, optional cwd + env subset, wait exit code.
+/// - `processSpawn` / `processStdinWrite` / `processWait` / `processStdout` /
+///   `processStderr` / `processKill` / `processClose` (H15.02): both — pipes + kill.
 /// - `onSignal` / `raiseSignal` (H14.01): native-only — SIGINT/SIGTERM watch via job queue;
 ///   default without watch is OS terminate (SIG_DFL).
 /// - `ignoreSignal` / `restoreSignal` (H14.02): native-only — SIG_IGN / SIG_DFL disposition.
@@ -151,6 +153,41 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "processRun",
         availability: HostAvailability::BOTH,
         note: "H15.01 spawn/run argv + optional cwd/env; wait exit code",
+    },
+    HostApiEntry {
+        name: "processSpawn",
+        availability: HostAvailability::BOTH,
+        note: "H15.02 spawn with pipes; returns handle",
+    },
+    HostApiEntry {
+        name: "processStdinWrite",
+        availability: HostAvailability::BOTH,
+        note: "H15.02 write child stdin then close",
+    },
+    HostApiEntry {
+        name: "processWait",
+        availability: HostAvailability::BOTH,
+        note: "H15.02 wait + drain stdout/stderr; exit code",
+    },
+    HostApiEntry {
+        name: "processStdout",
+        availability: HostAvailability::BOTH,
+        note: "H15.02 captured stdout string after wait",
+    },
+    HostApiEntry {
+        name: "processStderr",
+        availability: HostAvailability::BOTH,
+        note: "H15.02 captured stderr string after wait",
+    },
+    HostApiEntry {
+        name: "processKill",
+        availability: HostAvailability::BOTH,
+        note: "H15.02 SIGTERM child",
+    },
+    HostApiEntry {
+        name: "processClose",
+        availability: HostAvailability::BOTH,
+        note: "H15.02 free spawn handle",
     },
     HostApiEntry {
         name: "onSignal",
@@ -689,6 +726,29 @@ mod tests {
         assert!(
             unsupported_diagnostic("processRun", CompileTarget::Js, Span::dummy()).is_none()
         );
+    }
+
+    #[test]
+    fn registry_lists_process_spawn_io_kill_both() {
+        for name in [
+            "processSpawn",
+            "processStdinWrite",
+            "processWait",
+            "processStdout",
+            "processStderr",
+            "processKill",
+            "processClose",
+        ] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

@@ -36,6 +36,7 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 /* setenv / unsetenv; getpid / getppid; fork/execvp/waitpid; mkdir / rmdir / unlink;
@@ -662,6 +663,496 @@ int32_t draconic_rt_host_process_run(
         return -1;
     }
 #endif
+}
+
+/* --- Process spawn + pipes (H15.02) --- */
+
+#define DRACONIC_PROC_SLOTS 32
+
+typedef struct {
+    uint8_t live;
+    uint8_t waited;
+    int stdin_fd;
+    int stdout_fd;
+    int stderr_fd;
+#if !defined(_WIN32)
+    pid_t pid;
+#endif
+    char *stdout_buf;
+    char *stderr_buf;
+    int32_t exit_code;
+} DraconicProcSlot;
+
+static DraconicProcSlot g_proc_slots[DRACONIC_PROC_SLOTS];
+
+static void proc_slot_clear(DraconicProcSlot *s) {
+    if (!s) {
+        return;
+    }
+#if !defined(_WIN32)
+    if (s->stdin_fd >= 0) {
+        (void)close(s->stdin_fd);
+    }
+    if (s->stdout_fd >= 0) {
+        (void)close(s->stdout_fd);
+    }
+    if (s->stderr_fd >= 0) {
+        (void)close(s->stderr_fd);
+    }
+#endif
+    free(s->stdout_buf);
+    free(s->stderr_buf);
+    s->live = 0;
+    s->waited = 0;
+    s->stdin_fd = -1;
+    s->stdout_fd = -1;
+    s->stderr_fd = -1;
+#if !defined(_WIN32)
+    s->pid = (pid_t)-1;
+#endif
+    s->stdout_buf = NULL;
+    s->stderr_buf = NULL;
+    s->exit_code = -1;
+}
+
+static DraconicProcSlot *proc_slot_get(int32_t h) {
+    if (h < 1 || h > DRACONIC_PROC_SLOTS) {
+        return NULL;
+    }
+    if (!g_proc_slots[(size_t)h - 1].live) {
+        return NULL;
+    }
+    return &g_proc_slots[(size_t)h - 1];
+}
+
+#if !defined(_WIN32)
+static int proc_buf_append(char **buf, size_t *len, size_t *cap, const char *tmp, size_t n) {
+    if (*len + n + 1 > *cap) {
+        size_t ncap = *cap ? *cap * 2 : 4096;
+        char *nb;
+        while (ncap < *len + n + 1) {
+            ncap *= 2;
+        }
+        nb = (char *)realloc(*buf, ncap);
+        if (!nb) {
+            return -1;
+        }
+        *buf = nb;
+        *cap = ncap;
+    }
+    memcpy(*buf + *len, tmp, n);
+    *len += n;
+    (*buf)[*len] = '\0';
+    return 0;
+}
+
+/* Drain both pipes with poll to avoid stdout/stderr full-buffer deadlock. */
+static int proc_drain_pipes(int out_fd, int err_fd, char **out_buf, char **err_buf) {
+    size_t out_len = 0, out_cap = 0, err_len = 0, err_cap = 0;
+    char *ob = NULL;
+    char *eb = NULL;
+    int out_open = out_fd >= 0;
+    int err_open = err_fd >= 0;
+    char tmp[4096];
+
+    *out_buf = NULL;
+    *err_buf = NULL;
+
+    while (out_open || err_open) {
+        struct pollfd pf[2];
+        int nf = 0;
+        int out_i = -1;
+        int err_i = -1;
+        int pr;
+
+        if (out_open) {
+            pf[nf].fd = out_fd;
+            pf[nf].events = POLLIN;
+            pf[nf].revents = 0;
+            out_i = nf;
+            nf++;
+        }
+        if (err_open) {
+            pf[nf].fd = err_fd;
+            pf[nf].events = POLLIN;
+            pf[nf].revents = 0;
+            err_i = nf;
+            nf++;
+        }
+        pr = poll(pf, (nfds_t)nf, -1);
+        if (pr < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            free(ob);
+            free(eb);
+            return -1;
+        }
+        if (out_i >= 0 && (pf[out_i].revents & (POLLIN | POLLHUP | POLLERR))) {
+            ssize_t n = read(out_fd, tmp, sizeof(tmp));
+            if (n < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                free(ob);
+                free(eb);
+                return -1;
+            }
+            if (n == 0) {
+                out_open = 0;
+            } else if (proc_buf_append(&ob, &out_len, &out_cap, tmp, (size_t)n) != 0) {
+                free(ob);
+                free(eb);
+                return -1;
+            }
+        }
+        if (err_i >= 0 && (pf[err_i].revents & (POLLIN | POLLHUP | POLLERR))) {
+            ssize_t n = read(err_fd, tmp, sizeof(tmp));
+            if (n < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                free(ob);
+                free(eb);
+                return -1;
+            }
+            if (n == 0) {
+                err_open = 0;
+            } else if (proc_buf_append(&eb, &err_len, &err_cap, tmp, (size_t)n) != 0) {
+                free(ob);
+                free(eb);
+                return -1;
+            }
+        }
+    }
+
+    if (!ob) {
+        ob = (char *)malloc(1);
+        if (!ob) {
+            free(eb);
+            return -1;
+        }
+        ob[0] = '\0';
+    }
+    if (!eb) {
+        eb = (char *)malloc(1);
+        if (!eb) {
+            free(ob);
+            return -1;
+        }
+        eb[0] = '\0';
+    }
+    *out_buf = ob;
+    *err_buf = eb;
+    return 0;
+}
+#endif
+
+int32_t draconic_rt_host_process_spawn(
+    int32_t argc,
+    const char **argv,
+    const char *cwd,
+    int32_t env_n,
+    const char **env_keys,
+    const char **env_vals) {
+    int32_t i;
+    size_t slot;
+
+    if (argc < 1 || !argv || !argv[0]) {
+        return -1;
+    }
+    for (i = 0; i < argc; i++) {
+        if (!argv[i]) {
+            return -1;
+        }
+    }
+    if (env_n > 0) {
+        if (!env_keys || !env_vals) {
+            return -1;
+        }
+        for (i = 0; i < env_n; i++) {
+            if (!env_keys[i] || !env_vals[i]) {
+                return -1;
+            }
+        }
+    }
+
+#if defined(_WIN32)
+    (void)cwd;
+    (void)env_n;
+    (void)env_keys;
+    (void)env_vals;
+    return -1;
+#else
+    {
+        int in_pipe[2] = { -1, -1 };
+        int out_pipe[2] = { -1, -1 };
+        int err_pipe[2] = { -1, -1 };
+        char **av;
+        pid_t child;
+        DraconicProcSlot *s;
+
+        for (slot = 0; slot < DRACONIC_PROC_SLOTS; slot++) {
+            if (!g_proc_slots[slot].live) {
+                break;
+            }
+        }
+        if (slot >= DRACONIC_PROC_SLOTS) {
+            return -1;
+        }
+
+        if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
+            if (in_pipe[0] >= 0) {
+                close(in_pipe[0]);
+                close(in_pipe[1]);
+            }
+            if (out_pipe[0] >= 0) {
+                close(out_pipe[0]);
+                close(out_pipe[1]);
+            }
+            if (err_pipe[0] >= 0) {
+                close(err_pipe[0]);
+                close(err_pipe[1]);
+            }
+            return -1;
+        }
+
+        av = (char **)malloc((size_t)(argc + 1) * sizeof(char *));
+        if (!av) {
+            close(in_pipe[0]);
+            close(in_pipe[1]);
+            close(out_pipe[0]);
+            close(out_pipe[1]);
+            close(err_pipe[0]);
+            close(err_pipe[1]);
+            return -1;
+        }
+        for (i = 0; i < argc; i++) {
+            av[i] = (char *)argv[i];
+        }
+        av[argc] = NULL;
+
+        child = fork();
+        if (child < 0) {
+            free(av);
+            close(in_pipe[0]);
+            close(in_pipe[1]);
+            close(out_pipe[0]);
+            close(out_pipe[1]);
+            close(err_pipe[0]);
+            close(err_pipe[1]);
+            return -1;
+        }
+        if (child == 0) {
+            close(in_pipe[1]);
+            close(out_pipe[0]);
+            close(err_pipe[0]);
+            if (dup2(in_pipe[0], STDIN_FILENO) < 0) {
+                _exit(127);
+            }
+            if (dup2(out_pipe[1], STDOUT_FILENO) < 0) {
+                _exit(127);
+            }
+            if (dup2(err_pipe[1], STDERR_FILENO) < 0) {
+                _exit(127);
+            }
+            close(in_pipe[0]);
+            close(out_pipe[1]);
+            close(err_pipe[1]);
+            if (cwd && cwd[0] != '\0') {
+                if (chdir(cwd) != 0) {
+                    _exit(127);
+                }
+            }
+            if (env_n > 0) {
+                for (i = 0; i < env_n; i++) {
+                    if (setenv(env_keys[i], env_vals[i], 1) != 0) {
+                        _exit(127);
+                    }
+                }
+            }
+            execvp(av[0], av);
+            _exit(127);
+        }
+
+        free(av);
+        close(in_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[1]);
+
+        s = &g_proc_slots[slot];
+        proc_slot_clear(s);
+        s->live = 1;
+        s->pid = child;
+        s->stdin_fd = in_pipe[1];
+        s->stdout_fd = out_pipe[0];
+        s->stderr_fd = err_pipe[0];
+        s->waited = 0;
+        s->exit_code = -1;
+        return (int32_t)(slot + 1);
+    }
+#endif
+}
+
+int32_t draconic_rt_host_process_stdin_write(
+    int32_t h,
+    const char *data,
+    int64_t len) {
+    DraconicProcSlot *s = proc_slot_get(h);
+    size_t n;
+    size_t off = 0;
+
+    if (!s || s->waited) {
+        return -1;
+    }
+#if defined(_WIN32)
+    (void)data;
+    (void)len;
+    return -1;
+#else
+    if (s->stdin_fd < 0) {
+        return -1;
+    }
+    if (!data) {
+        data = "";
+        len = 0;
+    }
+    if (len < 0) {
+        n = strlen(data);
+    } else {
+        n = (size_t)len;
+    }
+    while (off < n) {
+        ssize_t w = write(s->stdin_fd, data + off, n - off);
+        if (w < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            close(s->stdin_fd);
+            s->stdin_fd = -1;
+            return -1;
+        }
+        off += (size_t)w;
+    }
+    close(s->stdin_fd);
+    s->stdin_fd = -1;
+    return 0;
+#endif
+}
+
+int32_t draconic_rt_host_process_wait(int32_t h) {
+    DraconicProcSlot *s = proc_slot_get(h);
+    int status;
+
+    if (!s) {
+        return -1;
+    }
+    if (s->waited) {
+        return s->exit_code;
+    }
+#if defined(_WIN32)
+    return -1;
+#else
+    if (s->stdin_fd >= 0) {
+        close(s->stdin_fd);
+        s->stdin_fd = -1;
+    }
+    if (proc_drain_pipes(s->stdout_fd, s->stderr_fd, &s->stdout_buf, &s->stderr_buf) != 0) {
+        return -1;
+    }
+    if (s->stdout_fd >= 0) {
+        close(s->stdout_fd);
+        s->stdout_fd = -1;
+    }
+    if (s->stderr_fd >= 0) {
+        close(s->stderr_fd);
+        s->stderr_fd = -1;
+    }
+    if (waitpid(s->pid, &status, 0) < 0) {
+        return -1;
+    }
+    if (WIFEXITED(status)) {
+        s->exit_code = (int32_t)WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        s->exit_code = (int32_t)(128 + WTERMSIG(status));
+    } else {
+        s->exit_code = -1;
+    }
+    s->waited = 1;
+    return s->exit_code;
+#endif
+}
+
+static int32_t proc_copy_buf(const char *src, char **out_text) {
+    char *copy;
+    size_t n;
+    if (!out_text) {
+        return (int32_t)DRACONIC_HOST_E_INVAL;
+    }
+    *out_text = NULL;
+    if (!src) {
+        src = "";
+    }
+    n = strlen(src);
+    copy = (char *)malloc(n + 1);
+    if (!copy) {
+        return (int32_t)DRACONIC_HOST_E_NOMEM;
+    }
+    memcpy(copy, src, n + 1);
+    *out_text = copy;
+    return (int32_t)DRACONIC_HOST_OK;
+}
+
+int32_t draconic_rt_host_process_stdout(int32_t h, char **out_text) {
+    DraconicProcSlot *s = proc_slot_get(h);
+    if (!s || !s->waited) {
+        if (out_text) {
+            *out_text = NULL;
+        }
+        return (int32_t)DRACONIC_HOST_E_INVAL;
+    }
+    return proc_copy_buf(s->stdout_buf, out_text);
+}
+
+int32_t draconic_rt_host_process_stderr(int32_t h, char **out_text) {
+    DraconicProcSlot *s = proc_slot_get(h);
+    if (!s || !s->waited) {
+        if (out_text) {
+            *out_text = NULL;
+        }
+        return (int32_t)DRACONIC_HOST_E_INVAL;
+    }
+    return proc_copy_buf(s->stderr_buf, out_text);
+}
+
+int32_t draconic_rt_host_process_kill(int32_t h) {
+    DraconicProcSlot *s = proc_slot_get(h);
+    if (!s || s->waited) {
+        return -1;
+    }
+#if defined(_WIN32)
+    return -1;
+#else
+    if (kill(s->pid, SIGTERM) != 0) {
+        return -1;
+    }
+    return 0;
+#endif
+}
+
+int32_t draconic_rt_host_process_close(int32_t h) {
+    DraconicProcSlot *s = proc_slot_get(h);
+    if (!s) {
+        return -1;
+    }
+#if !defined(_WIN32)
+    if (!s->waited && s->pid > 0) {
+        (void)kill(s->pid, SIGKILL);
+        (void)waitpid(s->pid, NULL, 0);
+    }
+#endif
+    proc_slot_clear(s);
+    return 0;
 }
 
 /* --- Process signals (H14.01 / H14.02) ---

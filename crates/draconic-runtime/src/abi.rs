@@ -777,6 +777,43 @@ pub const HOST_PROCESS_RUN: AbiFn = AbiFn {
     params: "i32, ptr, ptr, i32, ptr, ptr",
 };
 
+/* H15.02: process spawn + pipes (stdin write, stdout/stderr capture, kill). */
+pub const HOST_PROCESS_SPAWN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_spawn",
+    ret: "i32",
+    params: "i32, ptr, ptr, i32, ptr, ptr",
+};
+pub const HOST_PROCESS_STDIN_WRITE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_stdin_write",
+    ret: "i32",
+    params: "i32, ptr, i64",
+};
+pub const HOST_PROCESS_WAIT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_wait",
+    ret: "i32",
+    params: "i32",
+};
+pub const HOST_PROCESS_STDOUT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_stdout",
+    ret: "i32",
+    params: "i32, ptr",
+};
+pub const HOST_PROCESS_STDERR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_stderr",
+    ret: "i32",
+    params: "i32, ptr",
+};
+pub const HOST_PROCESS_KILL: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_kill",
+    ret: "i32",
+    params: "i32",
+};
+pub const HOST_PROCESS_CLOSE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_close",
+    ret: "i32",
+    params: "i32",
+};
+
 /* H14.01 / H14.02: signal watch / ignore / restore / raise / poll (native). */
 pub const HOST_SIGNAL_WATCH: AbiFn = AbiFn {
     symbol: "draconic_rt_host_signal_watch",
@@ -1678,6 +1715,124 @@ pub fn process_run_js_polyfill() -> &'static str {
 if (typeof globalThis !== "undefined") {
   globalThis.processRun = processRun;
 }
+"#
+}
+
+/// JS polyfill for H15.02 process spawn + pipes (Node `spawnSync` deferred).
+///
+/// Handles are deferred until `processWait`: capture uses `spawnSync` with
+/// `input`; kill runs a shell wrapper that spawns, SIGTERMs, and waits.
+pub fn process_spawn_js_polyfill() -> &'static str {
+    r#"(function () {
+  var cp = require("child_process");
+  var slots = Object.create(null);
+  var nextId = 1;
+  function mergeEnv(env) {
+    var base = (typeof process !== "undefined" && process && process.env) ? process.env : {};
+    var merged = {};
+    for (var k in base) {
+      if (Object.prototype.hasOwnProperty.call(base, k)) merged[k] = base[k];
+    }
+    if (env != null && env !== undefined && typeof env === "object") {
+      for (var ek in env) {
+        if (Object.prototype.hasOwnProperty.call(env, ek)) merged[ek] = String(env[ek]);
+      }
+    }
+    return merged;
+  }
+  function shellQuote(s) {
+    return "'" + String(s).replace(/'/g, "'\\''") + "'";
+  }
+  function processSpawn(argv, cwd, env) {
+    var a = Array.isArray(argv) ? argv.map(function (x) { return String(x); }) : [];
+    if (a.length < 1) return -1;
+    var id = nextId++;
+    slots[id] = {
+      argv: a,
+      cwd: cwd,
+      env: env,
+      stdin: null,
+      stdinSet: false,
+      kill: false,
+      waited: false,
+      exitCode: -1,
+      stdout: "",
+      stderr: ""
+    };
+    return id;
+  }
+  function processStdinWrite(h, text) {
+    var s = slots[h | 0];
+    if (!s || s.waited || s.stdinSet) return -1;
+    s.stdin = text == null || text === undefined ? "" : String(text);
+    s.stdinSet = true;
+    return 0;
+  }
+  function processKill(h) {
+    var s = slots[h | 0];
+    if (!s || s.waited) return -1;
+    s.kill = true;
+    return 0;
+  }
+  function processWait(h) {
+    var s = slots[h | 0];
+    if (!s) return -1;
+    if (s.waited) return s.exitCode;
+    var opts = { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] };
+    if (s.cwd != null && s.cwd !== undefined) opts.cwd = String(s.cwd);
+    if (s.env != null && s.env !== undefined && typeof s.env === "object") {
+      opts.env = mergeEnv(s.env);
+    }
+    var r;
+    if (s.kill) {
+      var parts = [];
+      for (var i = 0; i < s.argv.length; i++) parts.push(shellQuote(s.argv[i]));
+      var cmd = parts.join(" ") + " & pid=$!; kill -TERM $pid; wait $pid; exit $?";
+      r = cp.spawnSync("/bin/sh", ["-c", cmd], opts);
+    } else {
+      opts.input = s.stdinSet ? s.stdin : "";
+      r = cp.spawnSync(s.argv[0], s.argv.slice(1), opts);
+    }
+    if (!r || r.error) {
+      s.exitCode = -1;
+      s.stdout = "";
+      s.stderr = "";
+    } else {
+      s.stdout = r.stdout == null ? "" : String(r.stdout);
+      s.stderr = r.stderr == null ? "" : String(r.stderr);
+      if (r.status != null && r.status !== undefined) s.exitCode = Number(r.status) | 0;
+      else if (r.signal) s.exitCode = 128;
+      else s.exitCode = -1;
+    }
+    s.waited = true;
+    return s.exitCode;
+  }
+  function processStdout(h) {
+    var s = slots[h | 0];
+    if (!s || !s.waited) return "";
+    return s.stdout == null ? "" : String(s.stdout);
+  }
+  function processStderr(h) {
+    var s = slots[h | 0];
+    if (!s || !s.waited) return "";
+    return s.stderr == null ? "" : String(s.stderr);
+  }
+  function processClose(h) {
+    var s = slots[h | 0];
+    if (!s) return -1;
+    delete slots[h | 0];
+    return 0;
+  }
+  if (typeof globalThis !== "undefined") {
+    globalThis.processSpawn = processSpawn;
+    globalThis.processStdinWrite = processStdinWrite;
+    globalThis.processWait = processWait;
+    globalThis.processStdout = processStdout;
+    globalThis.processStderr = processStderr;
+    globalThis.processKill = processKill;
+    globalThis.processClose = processClose;
+  }
+})();
 "#
 }
 

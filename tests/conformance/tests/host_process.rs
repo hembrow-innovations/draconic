@@ -1,4 +1,4 @@
-//! ROADMAP H01.01 / H01.02 / H01.03 / H01.04 / H14.01 / H14.02 / H15.01: process + signals + run.
+//! ROADMAP H01.01 / H01.02 / H01.03 / H01.04 / H14.01 / H14.02 / H15.01 / H15.02: process + signals + run + spawn.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -133,6 +133,26 @@ fn process_run_env_fixture_present() {
 #[test]
 fn process_run_env_runs_js_and_native() {
     assert_fixture_runs_js_and_native("host/process/process_run_env");
+}
+
+#[test]
+fn process_spawn_capture_fixture_present() {
+    assert_fixture_present("host/process/process_spawn_capture");
+}
+
+#[test]
+fn process_spawn_capture_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("host/process/process_spawn_capture");
+}
+
+#[test]
+fn process_spawn_kill_fixture_present() {
+    assert_fixture_present("host/process/process_spawn_kill");
+}
+
+#[test]
+fn process_spawn_kill_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("host/process/process_spawn_kill");
 }
 
 #[test]

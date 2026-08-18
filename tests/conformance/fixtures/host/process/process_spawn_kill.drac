@@ -1,0 +1,7 @@
+// H15.02: processKill sends SIGTERM; wait reports 128+signo.
+let h = processSpawn(["/bin/sh", "-c", "sleep 30"]);
+let k = processKill(h);
+let code = processWait(h);
+// SIGTERM is 15 → 128+15 = 143
+let ok = code === 143;
+let closed = processClose(h);
