@@ -550,7 +550,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 | N08.16.45 | done | native | Real native observations: private delete error — `es/annex-b/private_delete_err` asserts compile error (`native.error`), not B08 hello | `tests/conformance` fixture `es/annex-b/private_delete_err` |
 | N08.16.46 | done | native | Real native observations: private residual (E19.36) — `es/annex-b/private_residual` asserts program results (`native.stdout`), not B08 hello | `tests/conformance` fixture `es/annex-b/private_residual`, `crates/draconic-backend-llvm` |
 | N08.17 | done | native | Real native observations: dual-worlds boundary (T06) | `tests/conformance` fixtures `types/dual` |
-| N09 | todo | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
+| N09 | done | native | GC durability / stress (depth after N08; see `docs/planning/native-depth-gaps.md`) | `crates/draconic-runtime` |
 | N09.01 | done | native | GC stress: allocate/retain/drop many JS values without leak/crash; assert live_count after collect | `crates/draconic-runtime` tests |
 | N09.02 | done | native | GC mark correctness: rooted object property values stay live across collect (trace object props) | `crates/draconic-runtime` tests |
 | N09.03 | done | native | GC cycles: mutual object/array refs; unrooted cycle → live_count 0; rooted cycle member keeps whole cycle live | `crates/draconic-runtime` tests |
