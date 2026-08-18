@@ -924,6 +924,21 @@ void draconic_rt_timer_clear(int64_t id) {
     }
 }
 
+/* H07.01: host IO readiness waits (strong defs in draconic_rt_host.c).
+   Weak stubs so core rt.c links alone (hello/GC smoke tests). */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak)) int draconic_rt_host_io_pending(void) {
+    return 0;
+}
+__attribute__((weak)) int draconic_rt_host_io_poll(double timeout_ms) {
+    (void)timeout_ms;
+    return 0;
+}
+#else
+int draconic_rt_host_io_pending(void);
+int draconic_rt_host_io_poll(double timeout_ms);
+#endif
+
 void draconic_rt_job_drain(void) {
     if (g_job_draining) {
         /* Re-entrant drain is a no-op; nested enqueues stay on the queue
@@ -948,14 +963,30 @@ void draconic_rt_job_drain(void) {
         if (timer_promote_due() > 0) {
             continue;
         }
-        /* H05.05: future timers — sleep until next due; do not busy-spin. */
+        /* H07.01: non-blocking IO readiness — poll with timer-aware timeout. */
         {
             double wait_ms = 0.0;
-            if (!timer_next_wait_ms(&wait_ms)) {
+            int has_timer = timer_next_wait_ms(&wait_ms);
+            int has_io = draconic_rt_host_io_pending();
+            if (!has_timer && !has_io) {
                 break;
             }
+            if (has_io) {
+                double io_timeout = has_timer ? wait_ms : -1.0;
+                if (has_timer && wait_ms <= 0.0) {
+                    io_timeout = 0.0;
+                }
+                if (draconic_rt_host_io_poll(io_timeout) > 0) {
+                    continue;
+                }
+                /* Timed out or no readiness: loop will re-check timers. */
+                if (has_timer && wait_ms <= 0.0) {
+                    timer_sleep_ms(1.0);
+                }
+                continue;
+            }
+            /* H05.05: future timers only — sleep until next due. */
             if (wait_ms <= 0.0) {
-                /* Clock granularity / skew: brief yield, then retry promote. */
                 timer_sleep_ms(1.0);
             } else {
                 timer_sleep_ms(wait_ms);

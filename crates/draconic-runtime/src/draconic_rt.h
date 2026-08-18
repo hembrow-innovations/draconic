@@ -69,7 +69,9 @@ size_t draconic_rt_job_pending(void);
    immediately on the next promote. clearTimeout/clearInterval cancel by id
    (shared id space). Intervals reschedule after each run until cleared.
    job_drain waits (OS sleep) for future timers instead of busy-spinning
-   or returning early while timers remain (H05.05). */
+   or returning early while timers remain (H05.05).
+   H07.01: job_drain also polls host IO readiness waits (see host.h
+   io_wait/io_poll) and enqueues their completions as jobs. */
 int64_t draconic_rt_timer_set(DraconicJobFn fn, void *data, double delay_ms);
 int64_t draconic_rt_timer_set_interval(DraconicJobFn fn, void *data, double interval_ms);
 void draconic_rt_timer_clear(int64_t id);

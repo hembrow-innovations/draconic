@@ -991,6 +991,32 @@ pub const HOST_TCP_SHUTDOWN: AbiFn = AbiFn {
     ret: "i32",
     params: "i64, i32",
 };
+/* H07.01: non-blocking readiness + job-queue completion. */
+pub const HOST_TCP_SET_NONBLOCKING: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_set_nonblocking",
+    ret: "i32",
+    params: "i64, i32",
+};
+pub const HOST_IO_WAIT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_io_wait",
+    ret: "i32",
+    params: "i64, i32, ptr, ptr, ptr",
+};
+pub const HOST_IO_CANCEL: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_io_cancel",
+    ret: "void",
+    params: "i64",
+};
+pub const HOST_IO_PENDING: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_io_pending",
+    ret: "i32",
+    params: "",
+};
+pub const HOST_IO_POLL: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_io_poll",
+    ret: "i32",
+    params: "double",
+};
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -1053,6 +1079,11 @@ pub const HOST_TCP_PEER_ADDRESS_SYMBOL: &str = HOST_TCP_PEER_ADDRESS.symbol;
 pub const HOST_TCP_READ_SYMBOL: &str = HOST_TCP_READ.symbol;
 pub const HOST_TCP_WRITE_SYMBOL: &str = HOST_TCP_WRITE.symbol;
 pub const HOST_TCP_SHUTDOWN_SYMBOL: &str = HOST_TCP_SHUTDOWN.symbol;
+pub const HOST_TCP_SET_NONBLOCKING_SYMBOL: &str = HOST_TCP_SET_NONBLOCKING.symbol;
+pub const HOST_IO_WAIT_SYMBOL: &str = HOST_IO_WAIT.symbol;
+pub const HOST_IO_CANCEL_SYMBOL: &str = HOST_IO_CANCEL.symbol;
+pub const HOST_IO_PENDING_SYMBOL: &str = HOST_IO_PENDING.symbol;
+pub const HOST_IO_POLL_SYMBOL: &str = HOST_IO_POLL.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.04).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -1117,6 +1148,11 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_TCP_READ_SYMBOL,
     HOST_TCP_WRITE_SYMBOL,
     HOST_TCP_SHUTDOWN_SYMBOL,
+    HOST_TCP_SET_NONBLOCKING_SYMBOL,
+    HOST_IO_WAIT_SYMBOL,
+    HOST_IO_CANCEL_SYMBOL,
+    HOST_IO_PENDING_SYMBOL,
+    HOST_IO_POLL_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1182,6 +1218,11 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_TCP_READ,
     HOST_TCP_WRITE,
     HOST_TCP_SHUTDOWN,
+    HOST_TCP_SET_NONBLOCKING,
+    HOST_IO_WAIT,
+    HOST_IO_CANCEL,
+    HOST_IO_PENDING,
+    HOST_IO_POLL,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

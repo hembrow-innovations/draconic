@@ -1,7 +1,7 @@
 /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
-   H04 fs, H06.01–H06.02 TCP listen/accept/connect/peer). Error codes, opaque
+   H04 fs, H06 TCP, H07.01 non-blocking readiness). Error codes, opaque
    handles, UTF-8 path encoding, I/O bytes boundary, process, stdio, path, fs,
-   TCP. Later H rows. */
+   TCP, async readiness. Later H rows. */
 
 #include "draconic_rt_host.h"
 
@@ -25,12 +25,17 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
 /* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink; open/read/write/lseek/close;
-   socket/bind/listen/getsockname */
+   socket/bind/listen/getsockname; poll */
 #endif
+
+/* Core job queue (draconic_rt.c) — H07.01 completes readiness via enqueue. */
+typedef void (*DraconicJobFnHost)(void *data);
+void draconic_rt_job_enqueue(DraconicJobFnHost fn, void *data);
 
 /* --- Handle table (slots filled by open/listen/etc.) --- */
 
@@ -82,12 +87,16 @@ static int host_handle_fd(DraconicHostHandle h) {
     return g_host_handle_fd[(size_t)h - 1];
 }
 
+/* H07.01: cancel readiness waits for a handle (defined below). */
+static void host_io_cancel_handle(DraconicHostHandle h);
+
 DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
     size_t i;
     if (!draconic_rt_host_handle_is_valid(h)) {
         return DRACONIC_HOST_E_BADF;
     }
     i = (size_t)h - 1;
+    host_io_cancel_handle(h);
     if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE
         || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN
         || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_CONN) {
@@ -2251,5 +2260,290 @@ DraconicHostError draconic_rt_host_tcp_shutdown(
         return host_tcp_errno_map();
     }
     return DRACONIC_HOST_OK;
+#endif
+}
+
+/* --- Async socket readiness (H07.01) ------------------------------------- */
+
+typedef struct HostIoWait {
+    int64_t id;
+    DraconicHostHandle h;
+    int32_t events;
+    DraconicHostIoFn fn;
+    void *data;
+    int cancelled;
+    int enqueued;
+    struct HostIoWait *next;
+} HostIoWait;
+
+static HostIoWait *g_io_wait_head = NULL;
+static int64_t g_io_wait_next_id = 1;
+
+static void host_io_unlink_and_free(HostIoWait *target) {
+    HostIoWait **link = &g_io_wait_head;
+    while (*link) {
+        if (*link == target) {
+            *link = target->next;
+            free(target);
+            return;
+        }
+        link = &(*link)->next;
+    }
+    free(target);
+}
+
+static void host_io_wait_job(void *data) {
+    HostIoWait *w = (HostIoWait *)data;
+    if (w && !w->cancelled && w->fn) {
+        w->fn(w->data);
+    }
+    if (w) {
+        host_io_unlink_and_free(w);
+    }
+}
+
+static void host_io_cancel_handle(DraconicHostHandle h) {
+    HostIoWait *w = g_io_wait_head;
+    while (w) {
+        HostIoWait *next = w->next;
+        if (w->h == h) {
+            w->cancelled = 1;
+            if (!w->enqueued) {
+                host_io_unlink_and_free(w);
+            }
+        }
+        w = next;
+    }
+}
+
+#if !defined(_WIN32)
+static int host_handle_tcp_any_fd(DraconicHostHandle h) {
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return -1;
+    }
+    {
+        uint8_t kind = g_host_handle_kind[(size_t)h - 1];
+        if (kind != DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN
+            && kind != DRACONIC_HOST_HANDLE_KIND_TCP_CONN) {
+            return -1;
+        }
+    }
+    return g_host_handle_fd[(size_t)h - 1];
+}
+#endif
+
+DraconicHostError draconic_rt_host_tcp_set_nonblocking(
+    DraconicHostHandle h,
+    int32_t enable) {
+#if defined(_WIN32)
+    (void)h;
+    (void)enable;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    int flags;
+    fd = host_handle_tcp_any_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) {
+        return host_tcp_errno_map();
+    }
+    if (enable) {
+        flags |= O_NONBLOCK;
+    } else {
+        flags &= ~O_NONBLOCK;
+    }
+    if (fcntl(fd, F_SETFL, flags) < 0) {
+        return host_tcp_errno_map();
+    }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_io_wait(
+    DraconicHostHandle h,
+    int32_t events,
+    DraconicHostIoFn fn,
+    void *data,
+    int64_t *out_id) {
+#if defined(_WIN32)
+    (void)h;
+    (void)events;
+    (void)fn;
+    (void)data;
+    (void)out_id;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    HostIoWait *w;
+    int fd;
+
+    if (!out_id) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_id = 0;
+    if (!fn) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if ((events & (DRACONIC_HOST_IO_READ | DRACONIC_HOST_IO_WRITE)) == 0) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if ((events & ~(DRACONIC_HOST_IO_READ | DRACONIC_HOST_IO_WRITE)) != 0) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    fd = host_handle_tcp_any_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    (void)fd;
+    w = (HostIoWait *)calloc(1, sizeof(HostIoWait));
+    if (!w) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    w->id = g_io_wait_next_id++;
+    if (g_io_wait_next_id <= 0) {
+        g_io_wait_next_id = 1;
+    }
+    w->h = h;
+    w->events = events;
+    w->fn = fn;
+    w->data = data;
+    w->cancelled = 0;
+    w->enqueued = 0;
+    w->next = g_io_wait_head;
+    g_io_wait_head = w;
+    *out_id = w->id;
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+void draconic_rt_host_io_cancel(int64_t id) {
+    if (id <= 0) {
+        return;
+    }
+    for (HostIoWait *w = g_io_wait_head; w; w = w->next) {
+        if (w->id == id) {
+            w->cancelled = 1;
+            if (!w->enqueued) {
+                host_io_unlink_and_free(w);
+            }
+            return;
+        }
+    }
+}
+
+int draconic_rt_host_io_pending(void) {
+    for (HostIoWait *w = g_io_wait_head; w; w = w->next) {
+        if (!w->cancelled && !w->enqueued) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int draconic_rt_host_io_poll(double timeout_ms) {
+#if defined(_WIN32)
+    (void)timeout_ms;
+    return 0;
+#else
+    HostIoWait *list[DRACONIC_HOST_HANDLE_SLOTS];
+    struct pollfd pfds[DRACONIC_HOST_HANDLE_SLOTS];
+    int nwait = 0;
+    int timeout_i;
+    int pr;
+    int completed = 0;
+    HostIoWait *w;
+
+    for (w = g_io_wait_head; w; w = w->next) {
+        int fd;
+        short ev = 0;
+        if (w->cancelled || w->enqueued) {
+            continue;
+        }
+        fd = host_handle_tcp_any_fd(w->h);
+        if (fd < 0) {
+            w->cancelled = 1;
+            continue;
+        }
+        if (nwait >= (int)DRACONIC_HOST_HANDLE_SLOTS) {
+            break;
+        }
+        if (w->events & DRACONIC_HOST_IO_READ) {
+            ev = (short)(ev | POLLIN);
+        }
+        if (w->events & DRACONIC_HOST_IO_WRITE) {
+            ev = (short)(ev | POLLOUT);
+        }
+        list[nwait] = w;
+        pfds[nwait].fd = fd;
+        pfds[nwait].events = ev;
+        pfds[nwait].revents = 0;
+        nwait++;
+    }
+
+    if (nwait == 0) {
+        /* Drop cancelled not-yet-enqueued waits. */
+        w = g_io_wait_head;
+        while (w) {
+            HostIoWait *next = w->next;
+            if (w->cancelled && !w->enqueued) {
+                host_io_unlink_and_free(w);
+            }
+            w = next;
+        }
+        return 0;
+    }
+
+    if (timeout_ms < 0.0 || timeout_ms != timeout_ms) {
+        timeout_i = -1;
+    } else if (timeout_ms == 0.0) {
+        timeout_i = 0;
+    } else {
+        if (timeout_ms > 60000.0) {
+            timeout_ms = 60000.0;
+        }
+        timeout_i = (int)(timeout_ms + 0.5);
+        if (timeout_i < 1) {
+            timeout_i = 1;
+        }
+    }
+
+    pr = poll(pfds, (nfds_t)nwait, timeout_i);
+    if (pr < 0) {
+        if (errno == EINTR) {
+            return 0;
+        }
+        return 0;
+    }
+    if (pr == 0) {
+        return 0;
+    }
+
+    for (int i = 0; i < nwait; i++) {
+        short rev = pfds[i].revents;
+        int ready = 0;
+        w = list[i];
+        if (!w || w->cancelled || w->enqueued) {
+            continue;
+        }
+        if (rev & (POLLERR | POLLHUP | POLLNVAL)) {
+            ready = 1;
+        } else {
+            if ((w->events & DRACONIC_HOST_IO_READ) && (rev & POLLIN)) {
+                ready = 1;
+            }
+            if ((w->events & DRACONIC_HOST_IO_WRITE) && (rev & POLLOUT)) {
+                ready = 1;
+            }
+        }
+        if (!ready) {
+            continue;
+        }
+        w->enqueued = 1;
+        draconic_rt_job_enqueue(host_io_wait_job, w);
+        completed++;
+    }
+    return completed;
 #endif
 }

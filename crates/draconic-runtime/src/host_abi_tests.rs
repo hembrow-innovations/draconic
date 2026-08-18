@@ -125,6 +125,26 @@ fn host_abi_fn_shapes() {
         HOST_TCP_SHUTDOWN.declare(),
         "declare i32 @draconic_rt_host_tcp_shutdown(i64, i32)"
     );
+    assert_eq!(
+        HOST_TCP_SET_NONBLOCKING.declare(),
+        "declare i32 @draconic_rt_host_tcp_set_nonblocking(i64, i32)"
+    );
+    assert_eq!(
+        HOST_IO_WAIT.declare(),
+        "declare i32 @draconic_rt_host_io_wait(i64, i32, ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_IO_CANCEL.declare(),
+        "declare void @draconic_rt_host_io_cancel(i64)"
+    );
+    assert_eq!(
+        HOST_IO_PENDING.declare(),
+        "declare i32 @draconic_rt_host_io_pending()"
+    );
+    assert_eq!(
+        HOST_IO_POLL.declare(),
+        "declare i32 @draconic_rt_host_io_poll(double)"
+    );
 }
 
 #[test]
@@ -1856,4 +1876,178 @@ fn host_tcp_read_write_partial_shutdown() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0604-ok\n");
+}
+
+/// H07.01: non-blocking TCP + readiness wait completes via job_drain.
+#[test]
+fn host_tcp_nonblocking_io_wait_via_job_drain() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_tcp_h0701.c");
+    let bin = dir.join("rt_host_tcp_h0701");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <stdlib.h>
+        #include <string.h>
+
+        static DraconicHostHandle g_listen;
+        static DraconicHostHandle g_accepted;
+        static int g_ready_fired;
+        static int g_read_fired;
+        static uint8_t *g_read_data;
+        static size_t g_read_len;
+        static DraconicHostError g_read_err;
+
+        static void on_accept_ready(void *data) {
+            DraconicHostError err;
+            (void)data;
+            g_ready_fired = 1;
+            err = draconic_rt_host_tcp_accept(g_listen, &g_accepted);
+            if (err != DRACONIC_HOST_OK) {
+                g_accepted = DRACONIC_HOST_HANDLE_INVALID;
+            }
+        }
+
+        static void on_read_ready(void *data) {
+            (void)data;
+            g_read_fired = 1;
+            g_read_err = draconic_rt_host_tcp_read(
+                g_accepted, 8, &g_read_data, &g_read_len);
+        }
+
+        int main(void) {
+            DraconicHostError err;
+            DraconicHostHandle client_h = DRACONIC_HOST_HANDLE_INVALID;
+            int32_t port = 0;
+            int64_t wait_id = 0;
+
+            g_listen = DRACONIC_HOST_HANDLE_INVALID;
+            g_accepted = DRACONIC_HOST_HANDLE_INVALID;
+            g_ready_fired = 0;
+            g_read_fired = 0;
+            g_read_data = NULL;
+            g_read_len = 0;
+            g_read_err = DRACONIC_HOST_OK;
+
+            err = draconic_rt_host_tcp_listen(0, 8, &g_listen);
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_tcp_set_nonblocking(g_listen, 1);
+            if (err != DRACONIC_HOST_OK) return 2;
+            err = draconic_rt_host_tcp_local_port(g_listen, &port);
+            if (err != DRACONIC_HOST_OK) return 3;
+
+            /* Non-blocking accept with no client → E_AGAIN. */
+            err = draconic_rt_host_tcp_accept(g_listen, &g_accepted);
+            if (err != DRACONIC_HOST_E_AGAIN) return 4;
+            if (draconic_rt_host_handle_is_valid(g_accepted)) return 5;
+
+            /* Register readiness before peer connects. */
+            err = draconic_rt_host_io_wait(
+                g_listen, DRACONIC_HOST_IO_READ, on_accept_ready, NULL, &wait_id);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (wait_id <= 0) return 7;
+            if (!draconic_rt_host_io_pending()) return 8;
+
+            err = draconic_rt_host_tcp_connect("127.0.0.1", port, &client_h);
+            if (err != DRACONIC_HOST_OK) return 9;
+
+            /* Drain promotes readiness → job → accept callback. */
+            draconic_rt_job_drain();
+            if (g_ready_fired != 1) return 10;
+            if (!draconic_rt_host_handle_is_valid(g_accepted)) return 11;
+            if (draconic_rt_host_io_pending()) return 12;
+
+            err = draconic_rt_host_tcp_set_nonblocking(g_accepted, 1);
+            if (err != DRACONIC_HOST_OK) return 13;
+            /* Empty nonblocking read → E_AGAIN. */
+            {
+                uint8_t *tmp = NULL;
+                size_t tlen = 0;
+                err = draconic_rt_host_tcp_read(g_accepted, 8, &tmp, &tlen);
+                if (err != DRACONIC_HOST_E_AGAIN) return 14;
+            }
+
+            err = draconic_rt_host_io_wait(
+                g_accepted, DRACONIC_HOST_IO_READ, on_read_ready, NULL, &wait_id);
+            if (err != DRACONIC_HOST_OK) return 15;
+            err = draconic_rt_host_tcp_write(client_h, (const uint8_t *)"hi", 2);
+            if (err != DRACONIC_HOST_OK) return 16;
+            draconic_rt_job_drain();
+            if (g_read_fired != 1) return 17;
+            if (g_read_err != DRACONIC_HOST_OK) return 18;
+            if (g_read_len != 2 || !g_read_data || memcmp(g_read_data, "hi", 2) != 0) {
+                return 19;
+            }
+            free(g_read_data);
+            g_read_data = NULL;
+
+            /* Cancel path: wait then cancel before ready. */
+            {
+                DraconicHostHandle listen2 = DRACONIC_HOST_HANDLE_INVALID;
+                int64_t id2 = 0;
+                err = draconic_rt_host_tcp_listen(0, 4, &listen2);
+                if (err != DRACONIC_HOST_OK) return 20;
+                err = draconic_rt_host_tcp_set_nonblocking(listen2, 1);
+                if (err != DRACONIC_HOST_OK) return 21;
+                err = draconic_rt_host_io_wait(
+                    listen2, DRACONIC_HOST_IO_READ, on_accept_ready, NULL, &id2);
+                if (err != DRACONIC_HOST_OK) return 22;
+                draconic_rt_host_io_cancel(id2);
+                if (draconic_rt_host_io_pending()) return 23;
+                err = draconic_rt_host_handle_close(listen2);
+                if (err != DRACONIC_HOST_OK) return 24;
+            }
+
+            err = draconic_rt_host_tcp_set_nonblocking(DRACONIC_HOST_HANDLE_INVALID, 1);
+            if (err != DRACONIC_HOST_E_BADF) return 25;
+            err = draconic_rt_host_io_wait(
+                DRACONIC_HOST_HANDLE_INVALID, DRACONIC_HOST_IO_READ,
+                on_accept_ready, NULL, &wait_id);
+            if (err != DRACONIC_HOST_E_BADF) return 26;
+            err = draconic_rt_host_io_wait(g_listen, 0, on_accept_ready, NULL, &wait_id);
+            if (err != DRACONIC_HOST_E_INVAL) return 27;
+
+            err = draconic_rt_host_handle_close(g_accepted);
+            if (err != DRACONIC_HOST_OK) return 28;
+            err = draconic_rt_host_handle_close(client_h);
+            if (err != DRACONIC_HOST_OK) return 29;
+            err = draconic_rt_host_handle_close(g_listen);
+            if (err != DRACONIC_HOST_OK) return 30;
+
+            puts("tcp-h0701-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for tcp H07.01 smoke");
+
+    let output = Command::new(&bin).output().expect("run tcp h0701");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "tcp H07.01 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0701-ok\n");
 }

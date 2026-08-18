@@ -349,6 +349,35 @@ DraconicHostError draconic_rt_host_tcp_shutdown(
     DraconicHostHandle conn_h,
     int32_t how);
 
+/* --- Async socket readiness (H07.01) ---------------------------------------
+   Non-blocking mode on TCP listen/conn handles. One-shot readiness waits
+   complete by enqueuing a host job (draconic_rt_job_enqueue) when the fd is
+   ready; job_drain polls waits (with timer-aware timeout).
+   events: bitwise OR of DRACONIC_HOST_IO_READ / DRACONIC_HOST_IO_WRITE.
+   READ = readable or accept-ready; WRITE = writable (or connect complete).
+   io_wait: register one-shot; *out_id > 0. io_cancel by id. Close cancels
+   waits on that handle. io_poll: promote ready waits → jobs; timeout_ms < 0
+   blocks until ≥1 ready (or no waits); 0 = non-blocking. io_pending: 1 if
+   any live wait remains. */
+
+#define DRACONIC_HOST_IO_READ 1
+#define DRACONIC_HOST_IO_WRITE 2
+
+typedef void (*DraconicHostIoFn)(void *data);
+
+DraconicHostError draconic_rt_host_tcp_set_nonblocking(
+    DraconicHostHandle h,
+    int32_t enable);
+DraconicHostError draconic_rt_host_io_wait(
+    DraconicHostHandle h,
+    int32_t events,
+    DraconicHostIoFn fn,
+    void *data,
+    int64_t *out_id);
+void draconic_rt_host_io_cancel(int64_t id);
+int draconic_rt_host_io_pending(void);
+int draconic_rt_host_io_poll(double timeout_ms);
+
 #ifdef __cplusplus
 }
 #endif
