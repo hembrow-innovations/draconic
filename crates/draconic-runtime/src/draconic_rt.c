@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <sys/time.h>
+#endif
 
 /* Native Runtime C ABI (N05–N06.10). Linked into LLVM native binaries. */
 
@@ -699,6 +704,133 @@ size_t draconic_rt_job_pending(void) {
     return g_job_pending;
 }
 
+/* --- Host timers (H05.03) ---
+   Timers stay on `g_timer_head` until the job runs or they are cancelled
+   before promote. clearTimeout always finds them by id. */
+
+typedef struct DraconicTimer {
+    int64_t id;
+    double due_ms;
+    DraconicJobFn fn;
+    void *data;
+    int cancelled;
+    int enqueued;
+    struct DraconicTimer *next;
+} DraconicTimer;
+
+static DraconicTimer *g_timer_head = NULL;
+static int64_t g_timer_next_id = 1;
+
+/* Local wall clock for timer due times (avoids linking host into core rt). */
+static double timer_now_ms(void) {
+#if defined(_WIN32)
+    {
+        FILETIME ft;
+        ULARGE_INTEGER u;
+        const uint64_t epoch_diff_100ns = 116444736000000000ULL;
+        GetSystemTimeAsFileTime(&ft);
+        u.LowPart = ft.dwLowDateTime;
+        u.HighPart = ft.dwHighDateTime;
+        if (u.QuadPart < epoch_diff_100ns) {
+            return 0.0;
+        }
+        return (double)((u.QuadPart - epoch_diff_100ns) / 10000ULL);
+    }
+#else
+    {
+        struct timeval tv;
+        if (gettimeofday(&tv, NULL) != 0) {
+            return 0.0;
+        }
+        return ((double)tv.tv_sec * 1000.0) + ((double)tv.tv_usec / 1000.0);
+    }
+#endif
+}
+
+static void timer_unlink_and_free(DraconicTimer *target) {
+    DraconicTimer **link = &g_timer_head;
+    while (*link) {
+        if (*link == target) {
+            *link = target->next;
+            free(target);
+            return;
+        }
+        link = &(*link)->next;
+    }
+    free(target);
+}
+
+static void timer_job_run(void *data) {
+    DraconicTimer *t = (DraconicTimer *)data;
+    if (t && !t->cancelled && t->fn) {
+        t->fn(t->data);
+    }
+    if (t) {
+        timer_unlink_and_free(t);
+    }
+}
+
+static int timer_promote_due(void) {
+    double now = timer_now_ms();
+    int promoted = 0;
+    DraconicTimer *t = g_timer_head;
+    while (t) {
+        DraconicTimer *next = t->next;
+        if (t->cancelled && !t->enqueued) {
+            /* Drop cancelled timers that never became jobs. */
+            timer_unlink_and_free(t);
+            t = next;
+            continue;
+        }
+        if (!t->cancelled && !t->enqueued && t->due_ms <= now) {
+            t->enqueued = 1;
+            draconic_rt_job_enqueue(timer_job_run, t);
+            promoted++;
+        }
+        t = next;
+    }
+    return promoted;
+}
+
+int64_t draconic_rt_timer_set(DraconicJobFn fn, void *data, double delay_ms) {
+    if (!fn) {
+        fprintf(stderr, "draconic_rt: timer_set null fn\n");
+        abort();
+    }
+    if (delay_ms < 0.0 || delay_ms != delay_ms) {
+        delay_ms = 0.0;
+    }
+    DraconicTimer *t = (DraconicTimer *)calloc(1, sizeof(DraconicTimer));
+    if (!t) {
+        fprintf(stderr, "draconic_rt: timer_set OOM\n");
+        abort();
+    }
+    t->id = g_timer_next_id++;
+    if (g_timer_next_id <= 0) {
+        g_timer_next_id = 1;
+    }
+    t->due_ms = timer_now_ms() + delay_ms;
+    t->fn = fn;
+    t->data = data;
+    t->cancelled = 0;
+    t->enqueued = 0;
+    t->next = g_timer_head;
+    g_timer_head = t;
+    return t->id;
+}
+
+void draconic_rt_timer_clear(int64_t id) {
+    if (id <= 0) {
+        return;
+    }
+    for (DraconicTimer *t = g_timer_head; t; t = t->next) {
+        if (t->id == id) {
+            t->cancelled = 1;
+            return;
+        }
+    }
+}
+
 void draconic_rt_job_drain(void) {
     if (g_job_draining) {
         /* Re-entrant drain is a no-op; nested enqueues stay on the queue
@@ -706,17 +838,23 @@ void draconic_rt_job_drain(void) {
         return;
     }
     g_job_draining = 1;
-    while (g_job_head) {
-        DraconicJob *job = g_job_head;
-        g_job_head = job->next;
-        if (!g_job_head) {
-            g_job_tail = NULL;
+    for (;;) {
+        while (g_job_head) {
+            DraconicJob *job = g_job_head;
+            g_job_head = job->next;
+            if (!g_job_head) {
+                g_job_tail = NULL;
+            }
+            g_job_pending--;
+            DraconicJobFn fn = job->fn;
+            void *data = job->data;
+            free(job);
+            fn(data);
         }
-        g_job_pending--;
-        DraconicJobFn fn = job->fn;
-        void *data = job->data;
-        free(job);
-        fn(data);
+        /* H05.03: promote due timers into jobs, then drain again. */
+        if (timer_promote_due() == 0) {
+            break;
+        }
     }
     g_job_draining = 0;
 }

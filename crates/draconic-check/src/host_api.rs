@@ -285,6 +285,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         note: "H05.02 monotonic clock ms",
     },
     HostApiEntry {
+        name: "setTimeout",
+        availability: HostAvailability::BOTH,
+        note: "H05.03 setTimeout via job queue",
+    },
+    HostApiEntry {
+        name: "clearTimeout",
+        availability: HostAvailability::BOTH,
+        note: "H05.03 clearTimeout",
+    },
+    HostApiEntry {
         name: "tcpListen",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H06 TCP listen",
@@ -600,6 +610,21 @@ mod tests {
         assert!(
             unsupported_diagnostic("monotonicMs", CompileTarget::Js, Span::dummy()).is_none()
         );
+    }
+
+    #[test]
+    fn registry_lists_set_timeout_both() {
+        for name in ["setTimeout", "clearTimeout"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

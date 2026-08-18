@@ -63,6 +63,13 @@ void draconic_rt_job_enqueue(DraconicJobFn fn, void *data);
 void draconic_rt_job_drain(void);
 size_t draconic_rt_job_pending(void);
 
+/* --- Host timers (H05.03): setTimeout / clearTimeout via job queue ---
+   Due timers are promoted into the job queue at the end of each drain
+   wave (after microtasks). Delay is wall-clock ms; delay <= 0 is due
+   immediately on the next promote. clearTimeout cancels before run. */
+int64_t draconic_rt_timer_set(DraconicJobFn fn, void *data, double delay_ms);
+void draconic_rt_timer_clear(int64_t id);
+
 /* --- Promise (N06.02): settle + then reactions via job queue --- */
 #define DRACONIC_PROMISE_PENDING 0
 #define DRACONIC_PROMISE_FULFILLED 1

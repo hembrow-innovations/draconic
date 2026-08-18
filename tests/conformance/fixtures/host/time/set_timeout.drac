@@ -1,0 +1,19 @@
+// H05.03: setTimeout / clearTimeout via job queue (delay 0).
+let fired = 0;
+let cancelled = 0;
+let nested = 0;
+setTimeout(function () {
+  fired = 1;
+}, 0);
+let id = setTimeout(function () {
+  cancelled = 1;
+}, 0);
+clearTimeout(id);
+setTimeout(function () {
+  setTimeout(function () {
+    nested = 1;
+  }, 0);
+}, 0);
+let t_st = typeof setTimeout;
+let t_ct = typeof clearTimeout;
+let ok_id = id > 0;

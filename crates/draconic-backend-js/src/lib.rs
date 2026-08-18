@@ -105,6 +105,13 @@ fn module_uses_monotonic_ms(module: &Module) -> bool {
         .any(|s| stmt_uses_ident_name(s, "monotonicMs"))
 }
 
+/// H05.03: free host APIs `setTimeout` / `clearTimeout`.
+fn module_uses_set_timeout(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "setTimeout") || stmt_uses_ident_name(s, "clearTimeout")
+    })
+}
+
 /// H02.01: free host API `stdoutWrite`.
 fn module_uses_stdout_write(module: &Module) -> bool {
     module
@@ -488,6 +495,13 @@ fn emit_js_full(
     // H05.02: `monotonicMs` monotonic clock.
     if module_uses_monotonic_ms(module) {
         out.push_str(draconic_runtime::monotonic_ms_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H05.03: `setTimeout` / `clearTimeout` host bridge.
+    if module_uses_set_timeout(module) {
+        out.push_str(draconic_runtime::set_timeout_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

@@ -1,0 +1,6 @@
+id: host/time/set_timeout
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { setTimeout(function () { if (t_st !== "function") process.exit(1); if (t_ct !== "function") process.exit(2); if (fired !== 1) process.exit(3); if (cancelled !== 0) process.exit(4); if (nested !== 1) process.exit(5); if (ok_id !== true) process.exit(6); }, 20); }, 20);
+native.exit: 0
+native.stdout: 1\n0\n1\n2\nfunction\nfunction\ntrue\n

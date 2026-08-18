@@ -615,7 +615,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H05 | todo | both | Time, clock, timers (job-queue integrated) | `tests/conformance/host/time` |
 | H05.01 | done | both | Wall clock: real OS time on native (`Date.now` / host `now_ms`) | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |
 | H05.02 | done | both | Monotonic clock for durations | `tests/conformance` fixtures `host/time` |
-| H05.03 | todo | both | `setTimeout` / `clearTimeout` via job queue | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |
+| H05.03 | done | both | `setTimeout` / `clearTimeout` via job queue | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |
 | H05.04 | todo | both | `setInterval` / `clearInterval` | `tests/conformance` fixtures `host/time` |
 | H05.05 | todo | native | Run loop waits for due timers (not busy-spin forever) | `crates/draconic-runtime`, `tests/conformance` fixtures `host/time` |
 | H06 | todo | native | TCP sockets (sockets-first) | `tests/conformance/host/net/tcp` |

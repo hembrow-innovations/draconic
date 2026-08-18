@@ -225,6 +225,19 @@ pub const JOB_PENDING: AbiFn = AbiFn {
     params: "",
 };
 
+// --- Host timers (H05.03) ---
+
+pub const TIMER_SET: AbiFn = AbiFn {
+    symbol: "draconic_rt_timer_set",
+    ret: "i64",
+    params: "ptr, ptr, double",
+};
+pub const TIMER_CLEAR: AbiFn = AbiFn {
+    symbol: "draconic_rt_timer_clear",
+    ret: "void",
+    params: "i64",
+};
+
 // --- Promise / array / object ---
 
 pub const PROMISE_NEW: AbiFn = AbiFn {
@@ -446,6 +459,8 @@ pub const IS_OBJECT_SYMBOL: &str = IS_OBJECT.symbol;
 pub const JOB_ENQUEUE_SYMBOL: &str = JOB_ENQUEUE.symbol;
 pub const JOB_DRAIN_SYMBOL: &str = JOB_DRAIN.symbol;
 pub const JOB_PENDING_SYMBOL: &str = JOB_PENDING.symbol;
+pub const TIMER_SET_SYMBOL: &str = TIMER_SET.symbol;
+pub const TIMER_CLEAR_SYMBOL: &str = TIMER_CLEAR.symbol;
 pub const PROMISE_NEW_SYMBOL: &str = PROMISE_NEW.symbol;
 pub const IS_PROMISE_SYMBOL: &str = IS_PROMISE.symbol;
 pub const PROMISE_STATE_SYMBOL: &str = PROMISE_STATE.symbol;
@@ -501,6 +516,20 @@ pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
 
 /// Job queue ABI symbols (N06.01).
 pub const JOB_QUEUE_SYMBOLS: &[&str] = &[JOB_ENQUEUE_SYMBOL, JOB_DRAIN_SYMBOL, JOB_PENDING_SYMBOL];
+
+/// Host timer ABI symbols (H05.03).
+pub const TIMER_SYMBOLS: &[&str] = &[TIMER_SET_SYMBOL, TIMER_CLEAR_SYMBOL];
+
+/// Declares for H05.03 setTimeout / clearTimeout native emit.
+pub const HOST_TIMER_DECLARES: &[AbiFn] = &[
+    GC_INIT,
+    PRINT_I64,
+    PRINT_BOOL,
+    PRINT_STR,
+    JOB_DRAIN,
+    TIMER_SET,
+    TIMER_CLEAR,
+];
 
 /// Promise ABI symbols (N06.02–N06.10).
 pub const PROMISE_SYMBOLS: &[&str] = &[
@@ -1207,6 +1236,28 @@ pub fn monotonic_ms_js_polyfill() -> &'static str {
 if (typeof globalThis !== "undefined") {
   globalThis.monotonicMs = monotonicMs;
 }
+"#
+}
+
+/// JS polyfill for `setTimeout` / `clearTimeout` (H05.03).
+///
+/// Bridges to the host event loop (Node/browser). Delay coerced with ToNumber;
+/// missing/NaN/negative → 0.
+pub fn set_timeout_js_polyfill() -> &'static str {
+    r#"(function () {
+  var _st = globalThis.setTimeout.bind(globalThis);
+  var _ct = globalThis.clearTimeout.bind(globalThis);
+  function setTimeout(fn, delay) {
+    var d = delay == null ? 0 : +delay;
+    if (!(d > 0)) d = 0;
+    return _st(fn, d);
+  }
+  function clearTimeout(id) {
+    return _ct(id);
+  }
+  globalThis.setTimeout = setTimeout;
+  globalThis.clearTimeout = clearTimeout;
+})();
 "#
 }
 
