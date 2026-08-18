@@ -620,7 +620,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H05.05 | done | native | Run loop waits for due timers (not busy-spin forever) | `crates/draconic-runtime`, `tests/conformance` fixtures `host/time` |
 | H06 | todo | native | TCP sockets (sockets-first) | `tests/conformance/host/net/tcp` |
 | H06.01 | done | native | TCP listen: bind, backlog, close; port 0 → ephemeral + query local port | `tests/conformance` fixtures `host/net/tcp`, `crates/draconic-runtime` |
-| H06.02 | todo | native | TCP accept → connection handle; peer address | `tests/conformance` fixtures `host/net/tcp` |
+| H06.02 | done | native | TCP accept → connection handle; peer address | `tests/conformance` fixtures `host/net/tcp` |
 | H06.03 | todo | native | TCP connect: dial host:port; refused/timeout errors | `tests/conformance` fixtures `host/net/tcp` |
 | H06.04 | todo | native | TCP read/write bytes; partial read; close/shutdown | `tests/conformance` fixtures `host/net/tcp` |
 | H06.05 | todo | native | TCP loopback e2e: listen + connect + echo + close | `tests/conformance` fixtures `host/net/tcp` |

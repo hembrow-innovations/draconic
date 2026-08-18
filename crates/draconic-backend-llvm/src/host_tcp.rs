@@ -1,10 +1,14 @@
-//! H06.01: native TCP listen — `tcpListen` / `tcpLocalPort` / `closeTcp`.
+//! H06.01–H06.02: native TCP — listen/accept/connect/peer + close.
 //!
 //! - `tcpListen(port)` / `tcpListen(port, backlog)` → listen handle (number)
 //! - `tcpLocalPort(h)` → bound port (ephemeral when listen port was 0)
-//! - `closeTcp(h)` → close listen handle via Runtime handle_close
+//! - `tcpAccept(listen)` → connection handle
+//! - `tcpConnect(host, port)` → connection handle (IPv4 dotted host)
+//! - `tcpPeerAddress(conn)` → peer IPv4 string
+//! - `tcpPeerPort(conn)` → peer port number
+//! - `closeTcp(h)` → close listen/conn handle via Runtime handle_close
 //!
-//! Prints string (`typeof`) and bool locals used in range checks.
+//! Prints string (`typeof` / peer address) and bool locals used in range checks.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -14,7 +18,8 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE,
-    HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, PRINT_BOOL, PRINT_STR,
+    HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_PEER_ADDRESS,
+    HOST_TCP_PEER_PORT, PRINT_BOOL, PRINT_STR,
 };
 
 pub(crate) fn is_host_tcp_module(module: &Module) -> bool {
@@ -121,6 +126,47 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
             Some(SlotTy::Number)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "tcpAccept") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            Some(SlotTy::Handle)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            let pt = classify_expr(arg_expr(&args[1])?, ctx)?;
+            if ht != SlotTy::String || pt != SlotTy::Number {
+                return None;
+            }
+            Some(SlotTy::Handle)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "tcpPeerAddress") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            Some(SlotTy::String)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "tcpPeerPort") =>
+        {
+            ctx.has_tcp = true;
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            Some(SlotTy::Number)
+        }
         Expr::Binary {
             op: BinaryOp::Gt
                 | BinaryOp::GtEq
@@ -154,6 +200,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         Expr::Number { .. } => Some(SlotTy::Number),
+        Expr::String { .. } => Some(SlotTy::String),
         _ => None,
     }
 }
@@ -285,7 +332,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_tcp (H06.01 tcpListen / tcpLocalPort / closeTcp)"
+            "; Draconic LLVM host_tcp (H06.01–H06.02 listen/accept/connect/peer)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
@@ -294,6 +341,10 @@ impl<'a> Emitter<'a> {
             PRINT_BOOL,
             HOST_TCP_LISTEN,
             HOST_TCP_LOCAL_PORT,
+            HOST_TCP_ACCEPT,
+            HOST_TCP_CONNECT,
+            HOST_TCP_PEER_PORT,
+            HOST_TCP_PEER_ADDRESS,
             HOST_HANDLE_CLOSE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
@@ -451,6 +502,57 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
                 Ok(fv)
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "tcpAccept") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpAccept listen"))?,
+                )?;
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {out_h})",
+                    HOST_TCP_ACCEPT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
+            {
+                let host = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpConnect host"))?,
+                )?;
+                let port_f = self.emit_number_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_tcp: tcpConnect port"))?,
+                )?;
+                let port_i = self.fresh();
+                writeln!(self.body, "  {port_i} = fptosi double {port_f} to i32").ok();
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {host}, i32 {port_i}, ptr {out_h})",
+                    HOST_TCP_CONNECT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
@@ -495,6 +597,29 @@ impl<'a> Emitter<'a> {
                     self.body,
                     "  {rc} = call i32 @{}(i64 {h}, ptr {out_p})",
                     HOST_TCP_LOCAL_PORT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i32, ptr {out_p}").ok();
+                writeln!(self.body, "  {fv} = sitofp i32 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "tcpPeerPort") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpPeerPort handle"))?,
+                )?;
+                let out_p = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_p} = alloca i32, align 4").ok();
+                writeln!(self.body, "  store i32 0, ptr {out_p}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {out_p})",
+                    HOST_TCP_PEER_PORT.symbol
                 )
                 .ok();
                 self.emit_check_rc(&rc)?;
@@ -562,6 +687,28 @@ impl<'a> Emitter<'a> {
 
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
+            Expr::String { value, .. } => Ok(self.emit_cstr_ptr(&value.to_string_lossy())),
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "tcpPeerAddress") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpPeerAddress handle"))?,
+                )?;
+                let out_p = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_p} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out_p}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {out_p})",
+                    HOST_TCP_PEER_ADDRESS.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load ptr, ptr {out_p}").ok();
+                Ok(v)
+            }
             Expr::Unary {
                 op: UnaryOp::TypeOf,
                 arg,
@@ -585,9 +732,22 @@ impl<'a> Emitter<'a> {
                 Ok(self.emit_cstr_ptr("number"))
             }
             Expr::Call { callee, args, .. }
-                if args.len() == 1 && is_named_callee(callee, "tcpLocalPort") =>
+                if args.len() == 1
+                    && (is_named_callee(callee, "tcpLocalPort")
+                        || is_named_callee(callee, "tcpPeerPort")
+                        || is_named_callee(callee, "tcpAccept")) =>
             {
                 Ok(self.emit_cstr_ptr("number"))
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
+            {
+                Ok(self.emit_cstr_ptr("number"))
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "tcpPeerAddress") =>
+            {
+                Ok(self.emit_cstr_ptr("string"))
             }
             Expr::Local { id, .. } => {
                 let ty = self
@@ -633,5 +793,28 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_tcp_listen"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tcp_local_port"), "{ir}");
         assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
+    }
+
+    #[test]
+    fn emit_tcp_accept_peer() {
+        let m = lower_src(
+            r#"
+            let s = tcpListen(0);
+            let p = tcpLocalPort(s);
+            let c = tcpConnect("127.0.0.1", p);
+            let a = tcpAccept(s);
+            let peer = tcpPeerAddress(a);
+            let ok = tcpPeerPort(a) > 0;
+            closeTcp(a);
+            closeTcp(c);
+            closeTcp(s);
+            "#,
+        );
+        assert!(is_host_tcp_module(&m));
+        let ir = emit_host_tcp(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tcp_accept"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_connect"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_peer_address"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_peer_port"), "{ir}");
     }
 }

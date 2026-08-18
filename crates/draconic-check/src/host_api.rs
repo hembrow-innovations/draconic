@@ -78,6 +78,7 @@ pub struct HostApiEntry {
 /// - `nowMs` (H05.01): both — wall clock ms since Unix epoch (`Date.now` equivalent).
 /// - `monotonicMs` (H05.02): both — monotonic clock ms for durations (not wall epoch).
 /// - `tcpListen` / `tcpLocalPort` / `closeTcp` (H06.01): native-only TCP listen + port query + close.
+/// - `tcpAccept` / `tcpConnect` / `tcpPeerAddress` / `tcpPeerPort` (H06.02): accept + peer; minimal connect for loopback.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -317,7 +318,27 @@ const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "closeTcp",
         availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.01 close TCP listen handle",
+        note: "H06.01 close TCP listen/conn handle",
+    },
+    HostApiEntry {
+        name: "tcpAccept",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.02 TCP accept → connection handle",
+    },
+    HostApiEntry {
+        name: "tcpConnect",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.02 TCP connect (IPv4 host:port)",
+    },
+    HostApiEntry {
+        name: "tcpPeerAddress",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.02 TCP peer IPv4 address string",
+    },
+    HostApiEntry {
+        name: "tcpPeerPort",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.02 TCP peer port",
     },
 ];
 
@@ -664,7 +685,15 @@ mod tests {
 
     #[test]
     fn registry_lists_tcp_listen_native_only() {
-        for name in ["tcpListen", "tcpLocalPort", "closeTcp"] {
+        for name in [
+            "tcpListen",
+            "tcpLocalPort",
+            "closeTcp",
+            "tcpAccept",
+            "tcpConnect",
+            "tcpPeerAddress",
+            "tcpPeerPort",
+        ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

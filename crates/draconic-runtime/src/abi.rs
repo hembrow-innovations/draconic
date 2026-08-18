@@ -945,7 +945,7 @@ pub const HOST_FS_HANDLE_SEEK: AbiFn = AbiFn {
     ret: "i32",
     params: "i64, i64, i32, ptr",
 };
-/* H06.01: TCP listen + local port (close via HOST_HANDLE_CLOSE). */
+/* H06.01–H06.02: TCP listen/accept/connect/peer (close via HOST_HANDLE_CLOSE). */
 pub const HOST_TCP_LISTEN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_listen",
     ret: "i32",
@@ -953,6 +953,26 @@ pub const HOST_TCP_LISTEN: AbiFn = AbiFn {
 };
 pub const HOST_TCP_LOCAL_PORT: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_local_port",
+    ret: "i32",
+    params: "i64, ptr",
+};
+pub const HOST_TCP_ACCEPT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_accept",
+    ret: "i32",
+    params: "i64, ptr",
+};
+pub const HOST_TCP_CONNECT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_connect",
+    ret: "i32",
+    params: "ptr, i32, ptr",
+};
+pub const HOST_TCP_PEER_PORT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_peer_port",
+    ret: "i32",
+    params: "i64, ptr",
+};
+pub const HOST_TCP_PEER_ADDRESS: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_peer_address",
     ret: "i32",
     params: "i64, ptr",
 };
@@ -1011,8 +1031,12 @@ pub const HOST_FS_HANDLE_WRITE_SYMBOL: &str = HOST_FS_HANDLE_WRITE.symbol;
 pub const HOST_FS_HANDLE_SEEK_SYMBOL: &str = HOST_FS_HANDLE_SEEK.symbol;
 pub const HOST_TCP_LISTEN_SYMBOL: &str = HOST_TCP_LISTEN.symbol;
 pub const HOST_TCP_LOCAL_PORT_SYMBOL: &str = HOST_TCP_LOCAL_PORT.symbol;
+pub const HOST_TCP_ACCEPT_SYMBOL: &str = HOST_TCP_ACCEPT.symbol;
+pub const HOST_TCP_CONNECT_SYMBOL: &str = HOST_TCP_CONNECT.symbol;
+pub const HOST_TCP_PEER_PORT_SYMBOL: &str = HOST_TCP_PEER_PORT.symbol;
+pub const HOST_TCP_PEER_ADDRESS_SYMBOL: &str = HOST_TCP_PEER_ADDRESS.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.01).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.02).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -1068,6 +1092,10 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_FS_HANDLE_SEEK_SYMBOL,
     HOST_TCP_LISTEN_SYMBOL,
     HOST_TCP_LOCAL_PORT_SYMBOL,
+    HOST_TCP_ACCEPT_SYMBOL,
+    HOST_TCP_CONNECT_SYMBOL,
+    HOST_TCP_PEER_PORT_SYMBOL,
+    HOST_TCP_PEER_ADDRESS_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1126,6 +1154,10 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_FS_HANDLE_SEEK,
     HOST_TCP_LISTEN,
     HOST_TCP_LOCAL_PORT,
+    HOST_TCP_ACCEPT,
+    HOST_TCP_CONNECT,
+    HOST_TCP_PEER_PORT,
+    HOST_TCP_PEER_ADDRESS,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

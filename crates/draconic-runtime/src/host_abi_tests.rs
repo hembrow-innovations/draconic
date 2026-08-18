@@ -97,6 +97,22 @@ fn host_abi_fn_shapes() {
         HOST_TCP_LOCAL_PORT.declare(),
         "declare i32 @draconic_rt_host_tcp_local_port(i64, ptr)"
     );
+    assert_eq!(
+        HOST_TCP_ACCEPT.declare(),
+        "declare i32 @draconic_rt_host_tcp_accept(i64, ptr)"
+    );
+    assert_eq!(
+        HOST_TCP_CONNECT.declare(),
+        "declare i32 @draconic_rt_host_tcp_connect(ptr, i32, ptr)"
+    );
+    assert_eq!(
+        HOST_TCP_PEER_PORT.declare(),
+        "declare i32 @draconic_rt_host_tcp_peer_port(i64, ptr)"
+    );
+    assert_eq!(
+        HOST_TCP_PEER_ADDRESS.declare(),
+        "declare i32 @draconic_rt_host_tcp_peer_address(i64, ptr)"
+    );
 }
 
 #[test]
@@ -1538,4 +1554,100 @@ fn host_tcp_listen_ephemeral_local_port_close() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0601-ok\n");
+}
+
+#[test]
+fn host_tcp_accept_peer_loopback() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_tcp_h0602.c");
+    let bin = dir.join("rt_host_tcp_h0602");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <string.h>
+
+        int main(void) {
+            DraconicHostError err;
+            DraconicHostHandle listen_h = DRACONIC_HOST_HANDLE_INVALID;
+            DraconicHostHandle client_h = DRACONIC_HOST_HANDLE_INVALID;
+            DraconicHostHandle accept_h = DRACONIC_HOST_HANDLE_INVALID;
+            int32_t port = 0;
+            int32_t peer_port = 0;
+            char *peer_addr = NULL;
+
+            err = draconic_rt_host_tcp_listen(0, 8, &listen_h);
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_tcp_local_port(listen_h, &port);
+            if (err != DRACONIC_HOST_OK) return 2;
+            if (port <= 0 || port > 65535) return 3;
+
+            err = draconic_rt_host_tcp_connect("127.0.0.1", port, &client_h);
+            if (err != DRACONIC_HOST_OK) return 4;
+            if (!draconic_rt_host_handle_is_valid(client_h)) return 5;
+
+            err = draconic_rt_host_tcp_accept(listen_h, &accept_h);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (!draconic_rt_host_handle_is_valid(accept_h)) return 7;
+
+            err = draconic_rt_host_tcp_peer_address(accept_h, &peer_addr);
+            if (err != DRACONIC_HOST_OK) return 8;
+            if (!peer_addr || strcmp(peer_addr, "127.0.0.1") != 0) return 9;
+
+            err = draconic_rt_host_tcp_peer_port(accept_h, &peer_port);
+            if (err != DRACONIC_HOST_OK) return 10;
+            if (peer_port <= 0 || peer_port > 65535) return 11;
+
+            draconic_rt_host_path_free(peer_addr);
+            err = draconic_rt_host_handle_close(accept_h);
+            if (err != DRACONIC_HOST_OK) return 12;
+            err = draconic_rt_host_handle_close(client_h);
+            if (err != DRACONIC_HOST_OK) return 13;
+            err = draconic_rt_host_handle_close(listen_h);
+            if (err != DRACONIC_HOST_OK) return 14;
+
+            err = draconic_rt_host_tcp_accept(DRACONIC_HOST_HANDLE_INVALID, &accept_h);
+            if (err != DRACONIC_HOST_E_BADF) return 15;
+            err = draconic_rt_host_tcp_peer_port(DRACONIC_HOST_HANDLE_INVALID, &peer_port);
+            if (err != DRACONIC_HOST_E_BADF) return 16;
+            err = draconic_rt_host_tcp_connect(NULL, 1, &client_h);
+            if (err != DRACONIC_HOST_E_INVAL) return 17;
+            err = draconic_rt_host_tcp_connect("127.0.0.1", 0, &client_h);
+            if (err != DRACONIC_HOST_E_INVAL) return 18;
+
+            puts("tcp-h0602-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for tcp H06.02 smoke");
+
+    let output = Command::new(&bin).output().expect("run tcp h0602");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "tcp H06.02 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0602-ok\n");
 }

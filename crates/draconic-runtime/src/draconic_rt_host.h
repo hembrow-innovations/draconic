@@ -304,10 +304,13 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
     int32_t whence,
     int64_t *out_pos);
 
-/* --- TCP listen (H06.01) ---------------------------------------------------
+/* --- TCP listen/accept (H06.01–H06.02) -------------------------------------
    Bind IPv4 TCP listener. port 0 → OS ephemeral; backlog <= 0 → 128.
    On OK: *out_h is a live listen handle (close with handle_close).
-   tcp_local_port: getsockname bound port (1..65535). */
+   tcp_local_port: getsockname bound port (1..65535).
+   accept: blocking accept → connection handle; peer via peer_address/port.
+   connect: dial IPv4 host:port → connection handle (loopback for accept tests).
+   peer_address: malloc'd dotted IPv4 (free with path_free). */
 
 DraconicHostError draconic_rt_host_tcp_listen(
     int32_t port,
@@ -316,6 +319,19 @@ DraconicHostError draconic_rt_host_tcp_listen(
 DraconicHostError draconic_rt_host_tcp_local_port(
     DraconicHostHandle h,
     int32_t *out_port);
+DraconicHostError draconic_rt_host_tcp_accept(
+    DraconicHostHandle listen_h,
+    DraconicHostHandle *out_conn);
+DraconicHostError draconic_rt_host_tcp_connect(
+    const char *host,
+    int32_t port,
+    DraconicHostHandle *out_conn);
+DraconicHostError draconic_rt_host_tcp_peer_port(
+    DraconicHostHandle conn_h,
+    int32_t *out_port);
+DraconicHostError draconic_rt_host_tcp_peer_address(
+    DraconicHostHandle conn_h,
+    char **out_addr);
 
 #ifdef __cplusplus
 }

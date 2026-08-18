@@ -1,4 +1,4 @@
-//! ROADMAP H06.01: TCP listen bind/backlog/close + ephemeral local port.
+//! ROADMAP H06.01–H06.02: TCP listen/accept/peer + ephemeral local port.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -48,4 +48,19 @@ fn tcp_listen_ephemeral_runs_native() {
 fn tcp_listen_backlog_runs_native() {
     assert_fixture_present("host/net/tcp/tcp_listen_backlog");
     assert_fixture_runs("host/net/tcp/tcp_listen_backlog");
+}
+
+#[test]
+fn tcp_accept_peer_runs_native() {
+    assert_fixture_present("host/net/tcp/tcp_accept_peer");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tcp/tcp_accept_peer")
+        .expect("host/net/tcp/tcp_accept_peer");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_fixture_runs("host/net/tcp/tcp_accept_peer");
 }

@@ -1,6 +1,7 @@
 /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
-   H04 fs, H06.01 TCP listen). Error codes, opaque handles, UTF-8 path encoding,
-   I/O bytes boundary, process, stdio, path, fs, TCP listen. Later H rows. */
+   H04 fs, H06.01–H06.02 TCP listen/accept/connect/peer). Error codes, opaque
+   handles, UTF-8 path encoding, I/O bytes boundary, process, stdio, path, fs,
+   TCP. Later H rows. */
 
 #include "draconic_rt_host.h"
 
@@ -37,6 +38,7 @@
 #define DRACONIC_HOST_HANDLE_KIND_NONE 0
 #define DRACONIC_HOST_HANDLE_KIND_FILE 1
 #define DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN 2
+#define DRACONIC_HOST_HANDLE_KIND_TCP_CONN 3
 
 /* Live flags + kind + OS fd for 1-based handle ids. */
 static uint8_t g_host_handle_live[DRACONIC_HOST_HANDLE_SLOTS];
@@ -87,7 +89,8 @@ DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
     }
     i = (size_t)h - 1;
     if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE
-        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN) {
+        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN
+        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_CONN) {
         int fd = g_host_handle_fd[i];
         if (fd >= 0) {
 #if defined(_WIN32)
@@ -1826,12 +1829,16 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
     return DRACONIC_HOST_OK;
 }
 
-/* --- TCP listen (H06.01) ------------------------------------------------- */
+/* --- TCP listen/accept/connect/peer (H06.01–H06.02) ---------------------- */
 
 #if !defined(_WIN32)
 static DraconicHostError host_tcp_errno_map(void) {
     if (errno == EADDRINUSE || errno == EADDRNOTAVAIL) {
         return DRACONIC_HOST_E_ADDR;
+    }
+    if (errno == ECONNREFUSED || errno == ECONNRESET || errno == ENETUNREACH
+        || errno == EHOSTUNREACH || errno == ETIMEDOUT) {
+        return DRACONIC_HOST_E_IO;
     }
     if (errno == EACCES
 #if defined(EPERM)
@@ -1861,6 +1868,16 @@ static int host_handle_tcp_listen_fd(DraconicHostHandle h) {
         return -1;
     }
     if (g_host_handle_kind[(size_t)h - 1] != DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN) {
+        return -1;
+    }
+    return g_host_handle_fd[(size_t)h - 1];
+}
+
+static int host_handle_tcp_conn_fd(DraconicHostHandle h) {
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return -1;
+    }
+    if (g_host_handle_kind[(size_t)h - 1] != DRACONIC_HOST_HANDLE_KIND_TCP_CONN) {
         return -1;
     }
     return g_host_handle_fd[(size_t)h - 1];
@@ -1955,6 +1972,157 @@ DraconicHostError draconic_rt_host_tcp_local_port(
         return host_tcp_errno_map();
     }
     *out_port = (int32_t)ntohs(addr.sin_port);
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_accept(
+    DraconicHostHandle listen_h,
+    DraconicHostHandle *out_conn) {
+#if defined(_WIN32)
+    (void)listen_h;
+    (void)out_conn;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int lfd;
+    int cfd;
+    struct sockaddr_in peer;
+    socklen_t plen = (socklen_t)sizeof(peer);
+    DraconicHostError err;
+
+    if (!out_conn) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_conn = DRACONIC_HOST_HANDLE_INVALID;
+    lfd = host_handle_tcp_listen_fd(listen_h);
+    if (lfd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    memset(&peer, 0, sizeof(peer));
+    cfd = (int)accept(lfd, (struct sockaddr *)&peer, &plen);
+    if (cfd < 0) {
+        return host_tcp_errno_map();
+    }
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_TCP_CONN, cfd, out_conn);
+    if (err != DRACONIC_HOST_OK) {
+        (void)close(cfd);
+        return err;
+    }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_connect(
+    const char *host,
+    int32_t port,
+    DraconicHostHandle *out_conn) {
+#if defined(_WIN32)
+    (void)host;
+    (void)port;
+    (void)out_conn;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd = -1;
+    struct sockaddr_in addr;
+    DraconicHostError err;
+
+    if (!out_conn) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_conn = DRACONIC_HOST_HANDLE_INVALID;
+    if (!host || port < 1 || port > 65535) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    fd = (int)socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return host_tcp_errno_map();
+    }
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        err = host_tcp_errno_map();
+        (void)close(fd);
+        return err;
+    }
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_TCP_CONN, fd, out_conn);
+    if (err != DRACONIC_HOST_OK) {
+        (void)close(fd);
+        return err;
+    }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_peer_port(
+    DraconicHostHandle conn_h,
+    int32_t *out_port) {
+#if defined(_WIN32)
+    (void)conn_h;
+    (void)out_port;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    struct sockaddr_in addr;
+    socklen_t len = (socklen_t)sizeof(addr);
+
+    if (!out_port) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_port = 0;
+    fd = host_handle_tcp_conn_fd(conn_h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    memset(&addr, 0, sizeof(addr));
+    if (getpeername(fd, (struct sockaddr *)&addr, &len) < 0) {
+        return host_tcp_errno_map();
+    }
+    *out_port = (int32_t)ntohs(addr.sin_port);
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_peer_address(
+    DraconicHostHandle conn_h,
+    char **out_addr) {
+#if defined(_WIN32)
+    (void)conn_h;
+    (void)out_addr;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    struct sockaddr_in addr;
+    socklen_t len = (socklen_t)sizeof(addr);
+    char buf[INET_ADDRSTRLEN];
+    char *dup;
+
+    if (!out_addr) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_addr = NULL;
+    fd = host_handle_tcp_conn_fd(conn_h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    memset(&addr, 0, sizeof(addr));
+    if (getpeername(fd, (struct sockaddr *)&addr, &len) < 0) {
+        return host_tcp_errno_map();
+    }
+    if (!inet_ntop(AF_INET, &addr.sin_addr, buf, sizeof(buf))) {
+        return host_tcp_errno_map();
+    }
+    dup = (char *)malloc(strlen(buf) + 1);
+    if (!dup) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    memcpy(dup, buf, strlen(buf) + 1);
+    *out_addr = dup;
     return DRACONIC_HOST_OK;
 #endif
 }

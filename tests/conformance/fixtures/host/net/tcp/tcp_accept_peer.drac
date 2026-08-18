@@ -1,0 +1,11 @@
+// H06.02: tcpAccept → connection handle; peer address + port (loopback).
+let s = tcpListen(0);
+let p = tcpLocalPort(s);
+let c = tcpConnect("127.0.0.1", p);
+let a = tcpAccept(s);
+let peer = tcpPeerAddress(a);
+let ok_port = tcpPeerPort(a) > 0;
+let t = typeof a;
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);
