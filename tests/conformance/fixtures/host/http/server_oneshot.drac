@@ -1,0 +1,15 @@
+// H10.03: HTTP/1.1 server one-shot — accept → parse → handler → write → close.
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+tcpWrite(c, "GET /hello HTTP/1.1\r\nHost: x\r\n\r\n");
+let raw = tcpRead(a, 4096);
+let req = httpParseRequest(raw);
+let path = req.path;
+let resp = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", path);
+tcpWrite(a, resp);
+closeTcp(a);
+let out = tcpRead(c, 4096);
+stdoutWrite(out);
+closeTcp(c);
+closeTcp(s);

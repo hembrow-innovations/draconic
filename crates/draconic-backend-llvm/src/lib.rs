@@ -40,6 +40,7 @@ mod es_var_for;
 mod host_dns;
 mod host_fs;
 mod host_http;
+mod host_http_server;
 mod host_path;
 mod host_process;
 mod host_stdio;
@@ -103,6 +104,7 @@ use es_var_for::{emit_es_var_for, is_es_var_for_module};
 use host_dns::{emit_host_dns, is_host_dns_module};
 use host_fs::{emit_host_fs, is_host_fs_module};
 use host_http::{emit_host_http, is_host_http_module};
+use host_http_server::{emit_host_http_server, is_host_http_server_module};
 use host_path::{emit_host_path, is_host_path_module};
 use host_process::{emit_host_process, is_host_process_module};
 use host_stdio::{emit_host_stdio, is_host_stdio_module};
@@ -250,6 +252,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_dns_module(module) {
         return emit_host_dns(module);
+    }
+    if is_host_http_server_module(module) {
+        return emit_host_http_server(module);
     }
     if is_host_http_module(module) {
         return emit_host_http(module);

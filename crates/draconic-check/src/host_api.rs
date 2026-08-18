@@ -86,6 +86,7 @@ pub struct HostApiEntry {
 /// - `dnsLookup` (H09.01): native-only DNS hostname → IPv4 address string[]; failure → HostError EADDR.
 /// - `httpParseRequest` / `httpRequestHeader` (H10.01): native-only HTTP/1.1 request parse.
 /// - `httpWriteResponse` (H10.02): native-only HTTP/1.1 response format (status+headers+body).
+/// - H10.03: compose TCP accept + parse + write + close (server one-shot; see `host_http_server`).
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",

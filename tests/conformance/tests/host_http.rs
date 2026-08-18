@@ -1,4 +1,4 @@
-//! ROADMAP H10.01–H10.02: HTTP/1.1 request parse + response write.
+//! ROADMAP H10.01–H10.03: HTTP/1.1 request parse, response write, server one-shot.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -143,4 +143,23 @@ fn write_bad_status_runs_native() {
         Some("EINVAL\n")
     );
     assert_fixture_runs("host/http/write_bad_status");
+}
+
+#[test]
+fn server_oneshot_runs_native() {
+    assert_fixture_present("host/http/server_oneshot");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/server_oneshot")
+        .expect("host/http/server_oneshot");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 6\r\n\r\n/hello")
+    );
+    assert_fixture_runs("host/http/server_oneshot");
 }
