@@ -31,6 +31,7 @@ mod es_object_destructure;
 mod es_objects;
 
 mod es_private_in;
+mod es_async_methods;
 mod es_promise;
 mod es_proxies;
 mod es_tagged_template;
@@ -95,6 +96,7 @@ use es_object_destructure::{emit_es_object_destructure, is_es_object_destructure
 use es_objects::{emit_es_objects, is_es_objects_module};
 
 use es_private_in::{emit_es_private_in, is_es_private_in_module};
+use es_async_methods::{emit_es_async_methods, is_es_async_methods_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_proxies::{emit_es_proxies, is_es_proxies_module};
 use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
@@ -267,6 +269,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_timer_module(module) {
         return emit_host_timers(module);
+    }
+    if is_es_async_methods_module(module) {
+        return emit_es_async_methods(module);
     }
     if is_es_promise_module(module) {
         return emit_es_promise(module);
