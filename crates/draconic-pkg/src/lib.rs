@@ -14,8 +14,10 @@
 //! K04: resolve version req against git tags; highest matching semver;
 //! fail closed on empty/invalid req, empty tags, non-semver-only, no match.
 //! K04.03: resolve direct-deps set → lock pins (v1: direct only).
+//! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 
 mod cache;
+mod get;
 mod hash;
 mod lock;
 mod resolve;
@@ -23,6 +25,10 @@ mod resolve;
 pub use cache::{
     entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError,
     ModuleCache,
+};
+pub use get::{
+    default_cache_root, get_package, get_package_spec, parse_get_spec, GetError, GetResult,
+    DEFAULT_CACHE_DIR_NAME, LOCK_FILE, MANIFEST_FILE,
 };
 pub use hash::{content_hash_tree, ContentHashError};
 pub use lock::{

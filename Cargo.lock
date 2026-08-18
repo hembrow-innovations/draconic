@@ -131,6 +131,7 @@ dependencies = [
  "draconic-frontend",
  "draconic-ir",
  "draconic-parser",
+ "draconic-pkg",
 ]
 
 [[package]]

@@ -18,3 +18,4 @@ draconic-diagnostics.workspace = true
 draconic-conformance.workspace = true
 draconic-embed.workspace = true
 draconic-ir.workspace = true
+draconic-pkg.workspace = true
