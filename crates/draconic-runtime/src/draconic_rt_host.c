@@ -4771,6 +4771,171 @@ static int host_http_parse_content_length(const char *v, size_t vlen, size_t *ou
     return 0;
 }
 
+/* True if Transfer-Encoding value lists chunked as a coding (case-insensitive). */
+static int host_http_te_is_chunked(const char *v, size_t vlen) {
+    size_t i = 0;
+    while (i < vlen) {
+        size_t start;
+        size_t end;
+        size_t tstart;
+        size_t tend;
+        while (i < vlen && (v[i] == ' ' || v[i] == '\t' || v[i] == ',')) {
+            i++;
+        }
+        if (i >= vlen) {
+            break;
+        }
+        start = i;
+        while (i < vlen && v[i] != ',') {
+            i++;
+        }
+        end = i;
+        /* strip OWS and ignore transfer-extension params after ';' */
+        while (end > start && (v[end - 1] == ' ' || v[end - 1] == '\t')) {
+            end--;
+        }
+        tstart = start;
+        tend = start;
+        while (tend < end && v[tend] != ';' && v[tend] != ' ' && v[tend] != '\t') {
+            tend++;
+        }
+        if (tend > tstart
+            && host_http_ascii_ieq(v + tstart, tend - tstart, "chunked")) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Parse one hex chunk-size (optional BWS / extensions ignored after digits). */
+static int host_http_parse_chunk_size(
+    const uint8_t *data,
+    size_t off,
+    size_t len,
+    size_t *out_size,
+    size_t *out_line_end) {
+    size_t i = off;
+    size_t n = 0;
+    int digits = 0;
+    if (i >= len) {
+        return -1;
+    }
+    while (i < len) {
+        unsigned char c = data[i];
+        size_t d;
+        if (c >= '0' && c <= '9') {
+            d = (size_t)(c - '0');
+        } else if (c >= 'a' && c <= 'f') {
+            d = (size_t)(c - 'a' + 10);
+        } else if (c >= 'A' && c <= 'F') {
+            d = (size_t)(c - 'A' + 10);
+        } else {
+            break;
+        }
+        n = (n << 4) + d;
+        digits++;
+        i++;
+        if (digits > 16) {
+            return -1;
+        }
+    }
+    if (digits == 0) {
+        return -1;
+    }
+    /* optional chunk-ext until CRLF */
+    while (i + 1 < len && !(data[i] == '\r' && data[i + 1] == '\n')) {
+        i++;
+    }
+    if (i + 1 >= len || data[i] != '\r' || data[i + 1] != '\n') {
+        return -1;
+    }
+    *out_size = n;
+    *out_line_end = i; /* index of CR */
+    return 0;
+}
+
+/* Decode chunked body at body_off. Returns 0 OK, -1 malformed, -2 OOM.
+   *out_body is malloc'd decoded payload (NUL-terminated; may contain interior NULs
+   only if chunks did — v1 treats body as C string like Content-Length path). */
+static int host_http_decode_chunked(
+    const uint8_t *data,
+    size_t body_off,
+    size_t len,
+    char **out_body) {
+    size_t off = body_off;
+    size_t cap = 0;
+    size_t used = 0;
+    char *buf = NULL;
+
+    *out_body = NULL;
+    for (;;) {
+        size_t chunk_size;
+        size_t line_end;
+        size_t data_start;
+        if (host_http_parse_chunk_size(data, off, len, &chunk_size, &line_end) != 0) {
+            free(buf);
+            return -1;
+        }
+        data_start = line_end + 2;
+        if (chunk_size == 0) {
+            /* last-chunk: skip optional trailers until empty line */
+            off = data_start;
+            for (;;) {
+                size_t te = off;
+                if (off + 1 < len && data[off] == '\r' && data[off + 1] == '\n') {
+                    /* empty trailer line — done */
+                    break;
+                }
+                while (te + 1 < len
+                    && !(data[te] == '\r' && data[te + 1] == '\n')) {
+                    te++;
+                }
+                if (te + 1 >= len) {
+                    free(buf);
+                    return -1;
+                }
+                off = te + 2;
+            }
+            if (!buf) {
+                buf = host_http_dup_cstr("");
+                if (!buf) {
+                    return -2;
+                }
+            } else {
+                buf[used] = '\0';
+            }
+            *out_body = buf;
+            return 0;
+        }
+        if (data_start + chunk_size + 2 > len) {
+            free(buf);
+            return -1;
+        }
+        if (data[data_start + chunk_size] != '\r'
+            || data[data_start + chunk_size + 1] != '\n') {
+            free(buf);
+            return -1;
+        }
+        if (used + chunk_size + 1 > cap) {
+            size_t ncap = cap == 0 ? 64 : cap * 2;
+            char *nbuf;
+            while (ncap < used + chunk_size + 1) {
+                ncap *= 2;
+            }
+            nbuf = (char *)realloc(buf, ncap);
+            if (!nbuf) {
+                free(buf);
+                return -2;
+            }
+            buf = nbuf;
+            cap = ncap;
+        }
+        memcpy(buf + used, data + data_start, chunk_size);
+        used += chunk_size;
+        off = data_start + chunk_size + 2;
+    }
+}
+
 /* Walk headers [hdr_start, hdr_end) for name; *out_val/*out_vlen set if found. */
 static int host_http_find_header(
     const uint8_t *data,
@@ -4831,6 +4996,55 @@ static int host_http_find_header(
     return 0;
 }
 
+/* Resolve message body: chunked TE wins, else Content-Length, else empty.
+   Returns DRACONIC_HOST_OK / E_INVAL / E_NOMEM. */
+static DraconicHostError host_http_resolve_body(
+    const uint8_t *data,
+    size_t len,
+    size_t line_end,
+    size_t body_off,
+    char **out_body) {
+    const char *hv;
+    size_t hvlen;
+    size_t cl;
+    size_t body_len;
+    char *body;
+    int dec;
+
+    if (host_http_find_header(
+            data, line_end + 2, body_off - 2, "Transfer-Encoding", &hv, &hvlen)
+        && host_http_te_is_chunked(hv, hvlen)) {
+        dec = host_http_decode_chunked(data, body_off, len, &body);
+        if (dec == -2) {
+            return DRACONIC_HOST_E_NOMEM;
+        }
+        if (dec != 0) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        *out_body = body;
+        return DRACONIC_HOST_OK;
+    }
+
+    body_len = 0;
+    if (host_http_find_header(
+            data, line_end + 2, body_off - 2, "Content-Length", &hv, &hvlen)) {
+        if (host_http_parse_content_length(hv, hvlen, &cl) != 0) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        if (body_off + cl <= len) {
+            body_len = cl;
+        } else {
+            body_len = len - body_off;
+        }
+    }
+    body = host_http_dup_range(data + body_off, body_len);
+    if (!body) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    *out_body = body;
+    return DRACONIC_HOST_OK;
+}
+
 DraconicHostError draconic_rt_host_http_parse_request(
     const uint8_t *data,
     size_t len,
@@ -4843,15 +5057,10 @@ DraconicHostError draconic_rt_host_http_parse_request(
     size_t sp1;
     size_t sp2;
     size_t line_end;
-    size_t cl;
-    int has_cl;
-    const char *hv;
-    size_t hvlen;
     char *method = NULL;
     char *path = NULL;
     char *version = NULL;
     char *body = NULL;
-    size_t body_len;
 
     if (!data || !out_method || !out_path || !out_version || !out_body) {
         return DRACONIC_HOST_E_INVAL;
@@ -4907,30 +5116,15 @@ DraconicHostError draconic_rt_host_http_parse_request(
         return DRACONIC_HOST_E_NOMEM;
     }
 
-    /* Content-Length bounds body; headers start after request-line CRLF. */
-    has_cl = host_http_find_header(
-        data, line_end + 2, body_off - 2, "Content-Length", &hv, &hvlen);
-    body_len = 0;
-    if (has_cl) {
-        if (host_http_parse_content_length(hv, hvlen, &cl) != 0) {
+    {
+        DraconicHostError berr =
+            host_http_resolve_body(data, len, line_end, body_off, &body);
+        if (berr != DRACONIC_HOST_OK) {
             free(method);
             free(path);
             free(version);
-            return DRACONIC_HOST_E_INVAL;
+            return berr;
         }
-        if (body_off + cl <= len) {
-            body_len = cl;
-        } else {
-            body_len = len - body_off;
-        }
-    }
-
-    body = host_http_dup_range(data + body_off, body_len);
-    if (!body) {
-        free(method);
-        free(path);
-        free(version);
-        return DRACONIC_HOST_E_NOMEM;
     }
 
     *out_method = method;
@@ -5056,6 +5250,95 @@ static int host_http_headers_have_content_length(const char *headers) {
     return 0;
 }
 
+/* True if headers include Transfer-Encoding with chunked coding. */
+static int host_http_headers_have_chunked_te(const char *headers) {
+    const char *p;
+    size_t n;
+    if (!headers || headers[0] == '\0') {
+        return 0;
+    }
+    n = strlen(headers);
+    p = headers;
+    while ((size_t)(p - headers) < n) {
+        const char *line = p;
+        const char *eol = p;
+        size_t line_len;
+        size_t colon;
+        const char *val;
+        size_t vlen;
+        while ((size_t)(eol - headers) < n
+            && !(eol[0] == '\r' && (size_t)(eol - headers) + 1 < n && eol[1] == '\n')
+            && *eol != '\n') {
+            eol++;
+        }
+        line_len = (size_t)(eol - line);
+        if (line_len >= 17
+            && host_http_ascii_ieq(line, 17, "Transfer-Encoding")) {
+            if (line_len == 17 || line[17] == ':' || line[17] == ' ' || line[17] == '\t') {
+                colon = 17;
+                while (colon < line_len && line[colon] != ':') {
+                    colon++;
+                }
+                if (colon < line_len) {
+                    val = line + colon + 1;
+                    vlen = line_len - (colon + 1);
+                    while (vlen > 0 && (*val == ' ' || *val == '\t')) {
+                        val++;
+                        vlen--;
+                    }
+                    while (vlen > 0
+                        && (val[vlen - 1] == ' ' || val[vlen - 1] == '\t')) {
+                        vlen--;
+                    }
+                    if (host_http_te_is_chunked(val, vlen)) {
+                        return 1;
+                    }
+                }
+            }
+        }
+        if ((size_t)(eol - headers) + 1 < n && eol[0] == '\r' && eol[1] == '\n') {
+            p = eol + 2;
+        } else if ((size_t)(eol - headers) < n && *eol == '\n') {
+            p = eol + 1;
+        } else {
+            break;
+        }
+    }
+    return 0;
+}
+
+/* Append chunked body framing into msg at *off (hex size + data + last-chunk). */
+static void host_http_append_chunked_body(
+    char *msg,
+    size_t *off,
+    const uint8_t *body,
+    size_t body_len) {
+    char size_buf[32];
+    int n;
+    if (body_len > 0) {
+        n = snprintf(size_buf, sizeof(size_buf), "%llx\r\n", (unsigned long long)body_len);
+        memcpy(msg + *off, size_buf, (size_t)n);
+        *off += (size_t)n;
+        memcpy(msg + *off, body, body_len);
+        *off += body_len;
+        msg[(*off)++] = '\r';
+        msg[(*off)++] = '\n';
+    }
+    memcpy(msg + *off, "0\r\n\r\n", 5);
+    *off += 5;
+}
+
+static size_t host_http_chunked_body_wire_len(size_t body_len) {
+    char size_buf[32];
+    int n;
+    size_t total = 5; /* last-chunk "0\r\n\r\n" */
+    if (body_len > 0) {
+        n = snprintf(size_buf, sizeof(size_buf), "%llx\r\n", (unsigned long long)body_len);
+        total += (size_t)n + body_len + 2;
+    }
+    return total;
+}
+
 DraconicHostError draconic_rt_host_http_write_response(
     int32_t status,
     const char *reason,
@@ -5066,6 +5349,7 @@ DraconicHostError draconic_rt_host_http_write_response(
     const char *r;
     const char *hdrs;
     size_t hdrs_len;
+    int use_chunked;
     int need_cl;
     char status_buf[16];
     char cl_buf[64];
@@ -5098,8 +5382,8 @@ DraconicHostError draconic_rt_host_http_write_response(
 
     hdrs = headers ? headers : "";
     hdrs_len = strlen(hdrs);
-    /* Ensure header block ends with CRLF when non-empty and missing terminator. */
-    need_cl = !host_http_headers_have_content_length(hdrs);
+    use_chunked = host_http_headers_have_chunked_te(hdrs);
+    need_cl = !use_chunked && !host_http_headers_have_content_length(hdrs);
 
     n = snprintf(status_buf, sizeof(status_buf), "%d", (int)status);
     if (n < 0 || (size_t)n >= sizeof(status_buf)) {
@@ -5130,7 +5414,12 @@ DraconicHostError draconic_rt_host_http_write_response(
             total += 2; /* append CRLF */
         }
     }
-    total += cl_len + 2 + body_len;
+    total += cl_len + 2;
+    if (use_chunked) {
+        total += host_http_chunked_body_wire_len(body_len);
+    } else {
+        total += body_len;
+    }
 
     msg = (char *)malloc(total + 1);
     if (!msg) {
@@ -5164,7 +5453,9 @@ DraconicHostError draconic_rt_host_http_write_response(
     }
     msg[off++] = '\r';
     msg[off++] = '\n';
-    if (body_len > 0) {
+    if (use_chunked) {
+        host_http_append_chunked_body(msg, &off, body, body_len);
+    } else if (body_len > 0) {
         memcpy(msg + off, body, body_len);
         off += body_len;
     }
@@ -5193,6 +5484,7 @@ DraconicHostError draconic_rt_host_http_write_request(
     size_t method_len;
     size_t path_len;
     size_t hdrs_len;
+    int use_chunked;
     int need_cl;
     char cl_buf[64];
     size_t cl_len;
@@ -5234,7 +5526,8 @@ DraconicHostError draconic_rt_host_http_write_request(
 
     hdrs = headers ? headers : "";
     hdrs_len = strlen(hdrs);
-    need_cl = !host_http_headers_have_content_length(hdrs);
+    use_chunked = host_http_headers_have_chunked_te(hdrs);
+    need_cl = !use_chunked && !host_http_headers_have_content_length(hdrs);
 
     cl_len = 0;
     if (need_cl) {
@@ -5259,7 +5552,12 @@ DraconicHostError draconic_rt_host_http_write_request(
             total += 2;
         }
     }
-    total += cl_len + 2 + body_len;
+    total += cl_len + 2;
+    if (use_chunked) {
+        total += host_http_chunked_body_wire_len(body_len);
+    } else {
+        total += body_len;
+    }
 
     msg = (char *)malloc(total + 1);
     if (!msg) {
@@ -5289,7 +5587,9 @@ DraconicHostError draconic_rt_host_http_write_request(
     }
     msg[off++] = '\r';
     msg[off++] = '\n';
-    if (body_len > 0) {
+    if (use_chunked) {
+        host_http_append_chunked_body(msg, &off, body, body_len);
+    } else if (body_len > 0) {
         memcpy(msg + off, body, body_len);
         off += body_len;
     }
@@ -5315,14 +5615,9 @@ DraconicHostError draconic_rt_host_http_parse_response(
     size_t sp1;
     size_t sp2;
     size_t i;
-    size_t cl;
-    int has_cl;
-    const char *hv;
-    size_t hvlen;
     char *version = NULL;
     char *reason = NULL;
     char *body = NULL;
-    size_t body_len;
     int32_t status = 0;
     size_t status_digits;
 
@@ -5394,27 +5689,14 @@ DraconicHostError draconic_rt_host_http_parse_response(
         return DRACONIC_HOST_E_NOMEM;
     }
 
-    has_cl = host_http_find_header(
-        data, line_end + 2, body_off - 2, "Content-Length", &hv, &hvlen);
-    body_len = 0;
-    if (has_cl) {
-        if (host_http_parse_content_length(hv, hvlen, &cl) != 0) {
+    {
+        DraconicHostError berr =
+            host_http_resolve_body(data, len, line_end, body_off, &body);
+        if (berr != DRACONIC_HOST_OK) {
             free(version);
             free(reason);
-            return DRACONIC_HOST_E_INVAL;
+            return berr;
         }
-        if (body_off + cl <= len) {
-            body_len = cl;
-        } else {
-            body_len = len - body_off;
-        }
-    }
-
-    body = host_http_dup_range(data + body_off, body_len);
-    if (!body) {
-        free(version);
-        free(reason);
-        return DRACONIC_HOST_E_NOMEM;
     }
 
     *out_version = version;

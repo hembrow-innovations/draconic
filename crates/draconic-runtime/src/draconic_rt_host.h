@@ -562,15 +562,16 @@ DraconicHostError draconic_rt_host_dns_lookup(
     char ***out_addrs,
     int64_t *out_count);
 
-/* --- HTTP/1.1 request parse (H10.01) ---------------------------------------
+/* --- HTTP/1.1 request parse (H10.01 / H10.06) ------------------------------
    Parse a complete plaintext HTTP/1.1 request message (request-line + headers
    + optional body). On OK: *out_method / *out_path / *out_version / *out_body
    are malloc'd NUL-terminated strings (caller frees each with path_free).
-   Body is bounded by Content-Length when present (take min(CL, available after
-   header block)); without Content-Length, body is empty (chunked → H10.06).
-   Malformed request-line, missing header terminator, or bad Content-Length →
-   INVAL. Header lookup is case-insensitive; missing name → *out_value is
-   malloc'd empty string (always non-NULL on OK). */
+   Body framing: Transfer-Encoding chunked (H10.06) decodes chunks into body;
+   else Content-Length bounds body (take min(CL, available after header block));
+   else body is empty. Malformed request-line, missing header terminator, bad
+   Content-Length, or malformed chunked body → INVAL. Header lookup is
+   case-insensitive; missing name → *out_value is malloc'd empty string
+   (always non-NULL on OK). */
 
 DraconicHostError draconic_rt_host_http_parse_request(
     const uint8_t *data,
@@ -586,13 +587,15 @@ DraconicHostError draconic_rt_host_http_request_header(
     const char *name,
     char **out_value);
 
-/* --- HTTP/1.1 response write (H10.02) --------------------------------------
+/* --- HTTP/1.1 response write (H10.02 / H10.06) -----------------------------
    Format a complete plaintext HTTP/1.1 response message (status-line + headers
    + body). status must be 100..599. reason may be empty → default phrase for
    common codes (else empty reason-phrase). headers is optional extra header
-   lines ("Name: value\r\n"…); Content-Length is auto-appended when absent
-   (case-insensitive). body may be NULL when body_len==0.
-   On OK: *out_msg is malloc'd NUL-terminated wire bytes (caller frees). */
+   lines ("Name: value\r\n"…). If Transfer-Encoding includes chunked (H10.06),
+   body is written as a single chunk + last-chunk (no Content-Length). Else
+   Content-Length is auto-appended when absent (case-insensitive). body may be
+   NULL when body_len==0. On OK: *out_msg is malloc'd NUL-terminated wire bytes
+   (caller frees). */
 
 DraconicHostError draconic_rt_host_http_write_response(
     int32_t status,
@@ -602,18 +605,20 @@ DraconicHostError draconic_rt_host_http_write_response(
     size_t body_len,
     char **out_msg);
 
-/* --- HTTP/1.1 client helpers (H10.05) --------------------------------------
+/* --- HTTP/1.1 client helpers (H10.05 / H10.06) -----------------------------
    write_request: format a complete plaintext HTTP/1.1 request message
    (request-line + headers + body). method/path required non-empty; headers
-   optional extra lines ("Name: value\r\n"…); Content-Length auto-appended when
-   absent. body may be NULL when body_len==0. On OK: *out_msg malloc'd wire
-   bytes (caller frees).
+   optional extra lines ("Name: value\r\n"…). Chunked Transfer-Encoding
+   (H10.06) encodes body as chunks (no Content-Length); else Content-Length
+   auto-appended when absent. body may be NULL when body_len==0. On OK:
+   *out_msg malloc'd wire bytes (caller frees).
 
    parse_response: parse a complete plaintext HTTP/1.1 response (status-line +
    headers + optional body). On OK: *out_version / *out_reason / *out_body are
    malloc'd strings; *out_status is the numeric status code (100..599). Body
-   bounded by Content-Length when present (same rules as parse_request).
-   Malformed status-line / missing header terminator / bad CL → INVAL.
+   framing matches parse_request (chunked TE, else Content-Length, else empty).
+   Malformed status-line / missing header terminator / bad CL / bad chunks →
+   INVAL.
 
    response_header: case-insensitive header lookup on a response message
    (same semantics as request_header). */

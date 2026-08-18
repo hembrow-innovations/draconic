@@ -1,0 +1,4 @@
+id: host/http/parse_chunked
+targets: native
+native.exit: 0
+native.stdout: POST\n/up\nhello world\nchunked\n

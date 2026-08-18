@@ -3745,6 +3745,163 @@ fn host_http_write_response_status_headers_body() {
 }
 
 #[test]
+fn host_http_chunked_transfer_encoding() {
+    // H10.06: parse chunked request/response bodies; write chunked when TE present.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_http_h1006.c");
+    let bin = dir.join("rt_host_http_h1006");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        int main(void) {
+            DraconicHostError err;
+            char *method = NULL;
+            char *path = NULL;
+            char *version = NULL;
+            char *body = NULL;
+            char *reason = NULL;
+            char *msg = NULL;
+            int32_t status = 0;
+            const char *raw_req =
+                "POST /up HTTP/1.1\r\n"
+                "Host: x\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5\r\n"
+                "hello\r\n"
+                "6\r\n"
+                " world\r\n"
+                "0\r\n"
+                "\r\n";
+            const char *raw_res =
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "3\r\n"
+                "foo\r\n"
+                "0\r\n"
+                "\r\n";
+            const char *want_write =
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5\r\n"
+                "hello\r\n"
+                "0\r\n"
+                "\r\n";
+            const char *want_req =
+                "POST /c HTTP/1.1\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "2\r\n"
+                "hi\r\n"
+                "0\r\n"
+                "\r\n";
+
+            err = draconic_rt_host_http_parse_request(
+                (const uint8_t *)raw_req, strlen(raw_req),
+                &method, &path, &version, &body);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (!body || strcmp(body, "hello world") != 0) return 2;
+            free(method); free(path); free(version); free(body);
+            method = path = version = body = NULL;
+
+            err = draconic_rt_host_http_parse_response(
+                (const uint8_t *)raw_res, strlen(raw_res),
+                &version, &status, &reason, &body);
+            if (err != DRACONIC_HOST_OK) return 3;
+            if (status != 200) return 4;
+            if (!body || strcmp(body, "foo") != 0) return 5;
+            free(version); free(reason); free(body);
+            version = reason = body = NULL;
+
+            err = draconic_rt_host_http_write_response(
+                200, "OK", "Transfer-Encoding: chunked\r\n",
+                (const uint8_t *)"hello", 5, &msg);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (!msg || strcmp(msg, want_write) != 0) return 7;
+            free(msg);
+            msg = NULL;
+
+            err = draconic_rt_host_http_write_request(
+                "POST", "/c", "Transfer-Encoding: chunked\r\n",
+                (const uint8_t *)"hi", 2, &msg);
+            if (err != DRACONIC_HOST_OK) return 8;
+            if (!msg || strcmp(msg, want_req) != 0) return 9;
+            free(msg);
+            msg = NULL;
+
+            /* empty chunked body */
+            err = draconic_rt_host_http_write_response(
+                204, "", "Transfer-Encoding: chunked\r\n",
+                NULL, 0, &msg);
+            if (err != DRACONIC_HOST_OK) return 10;
+            want_write =
+                "HTTP/1.1 204 No Content\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "0\r\n"
+                "\r\n";
+            if (!msg || strcmp(msg, want_write) != 0) return 11;
+            free(msg);
+
+            /* malformed chunk size */
+            {
+                const char *bad =
+                    "POST / HTTP/1.1\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "ZZ\r\n";
+                err = draconic_rt_host_http_parse_request(
+                    (const uint8_t *)bad, strlen(bad),
+                    &method, &path, &version, &body);
+                if (err != DRACONIC_HOST_E_INVAL) return 12;
+            }
+
+            puts("http-h1006-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+    };
+    assert!(status.success(), "clang failed for http H10.06 smoke");
+
+    let output = Command::new(&bin).output().expect("run http h1006");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "http H10.06 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1006-ok\n");
+}
+
+#[test]
 fn host_ws_handshake_response_rfc6455_sample() {
     // H12.01: RFC 6455 §1.3 sample key → Sec-WebSocket-Accept.
     let clang = test_which_clang().expect("clang required for runtime native tests");

@@ -1,0 +1,4 @@
+// H10.06: httpParseResponse decodes Transfer-Encoding: chunked body.
+let res = httpParseResponse("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nfoo\r\n0\r\n\r\n");
+let s = res.status;
+let b = res.body;

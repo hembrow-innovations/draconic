@@ -1,4 +1,4 @@
-//! ROADMAP H10.01–H10.05: HTTP/1.1 parse, write, server, keep-alive, client.
+//! ROADMAP H10.01–H10.06: HTTP/1.1 parse, write, server, keep-alive, client, chunked.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -262,4 +262,61 @@ fn client_e2e_runs_native() {
         Some("HTTP/1.1\n200\nOK\n/hello\ntext/plain\n")
     );
     assert_fixture_runs("host/http/client_e2e");
+}
+
+#[test]
+fn parse_chunked_runs_native() {
+    assert_fixture_present("host/http/parse_chunked");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/parse_chunked")
+        .expect("host/http/parse_chunked");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("POST\n/up\nhello world\nchunked\n")
+    );
+    assert_fixture_runs("host/http/parse_chunked");
+}
+
+#[test]
+fn write_chunked_runs_native() {
+    assert_fixture_present("host/http/write_chunked");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/write_chunked")
+        .expect("host/http/write_chunked");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n\n")
+    );
+    assert_fixture_runs("host/http/write_chunked");
+}
+
+#[test]
+fn parse_response_chunked_runs_native() {
+    assert_fixture_present("host/http/parse_response_chunked");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/parse_response_chunked")
+        .expect("host/http/parse_response_chunked");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("200\nfoo\n")
+    );
+    assert_fixture_runs("host/http/parse_response_chunked");
 }
