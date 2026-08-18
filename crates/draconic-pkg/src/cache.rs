@@ -1,11 +1,11 @@
-//! Module cache layout and git fetch (Roadmap K03.01–K03.02).
+//! Module cache layout, git fetch, and OID checkout (Roadmap K03.01–K03.03).
 //!
 //! On-disk roots are keyed by module path + full commit OID. Layout (under a
 //! cache root):
 //!
 //! ```text
-//! {cache_root}/mod/{module_path_segments…}/{commit_oid}/
-//! {cache_root}/vcs/{module_path_segments…}/   # bare git clone (K03.02)
+//! {cache_root}/mod/{module_path_segments…}/{commit_oid}/   # tree at OID (K03.03)
+//! {cache_root}/vcs/{module_path_segments…}/               # bare git clone (K03.02)
 //! ```
 //!
 //! Example: module `github.com/org/lib` at OID `0123…ef` →
@@ -13,6 +13,7 @@
 //!
 //! K03.01: path computation + validation.
 //! K03.02: `git clone --bare` / `git fetch` into the VCS store (HTTPS + fixture repos).
+//! K03.03: checkout pinned OID into `mod/…`; cache hit skips network.
 
 use std::fmt;
 use std::fs;
@@ -294,6 +295,134 @@ impl ModuleCache {
     pub fn has_vcs(&self, module_path: &str) -> Result<bool, CachePathError> {
         Ok(is_bare_git_repo(&self.vcs_dir(module_path)?))
     }
+
+    /// True when `mod/{path…}/{oid}/` already holds a completed checkout (K03.03).
+    pub fn has_entry(
+        &self,
+        module_path: &str,
+        commit_oid: &str,
+    ) -> Result<bool, CachePathError> {
+        let dir = self.entry_dir(module_path, commit_oid)?;
+        Ok(is_complete_checkout(&dir, commit_oid))
+    }
+
+    /// Materialize the package tree at `commit_oid` under `mod/{path…}/{oid}/`.
+    ///
+    /// Ensures the bare VCS store via [`Self::clone_or_fetch`], then extracts the
+    /// tree with `git archive` (no `.git` in the package dir). When
+    /// [`Self::has_entry`] is already true, returns the existing directory and
+    /// performs **no** network/`git fetch` (cache hit).
+    pub fn checkout(
+        &self,
+        module_path: &str,
+        commit_oid: &str,
+        git_url: &str,
+    ) -> Result<PathBuf, CacheFetchError> {
+        if let Err(reason) = validate_commit_oid(commit_oid) {
+            return Err(CachePathError::InvalidCommitOid {
+                oid: commit_oid.to_string(),
+                reason,
+            }
+            .into());
+        }
+        let dest = self.entry_dir(module_path, commit_oid)?;
+        if is_complete_checkout(&dest, commit_oid) {
+            return Ok(dest);
+        }
+
+        let vcs = self.clone_or_fetch(module_path, git_url)?;
+        let vcs_str = vcs
+            .to_str()
+            .ok_or_else(|| CacheFetchError::Io("VCS path is not valid UTF-8".into()))?;
+
+        // Confirm OID exists in the bare store before writing the entry dir.
+        run_git(&["-C", vcs_str, "cat-file", "-e", &format!("{commit_oid}^{{commit}}")])?;
+
+        if dest.exists() {
+            fs::remove_dir_all(&dest).map_err(|e| {
+                CacheFetchError::Io(format!("remove incomplete checkout `{}`: {e}", dest.display()))
+            })?;
+        }
+        fs::create_dir_all(&dest).map_err(|e| {
+            CacheFetchError::Io(format!("create checkout dir `{}`: {e}", dest.display()))
+        })?;
+
+        let dest_str = dest
+            .to_str()
+            .ok_or_else(|| CacheFetchError::Io("checkout path is not valid UTF-8".into()))?;
+
+        // Extract tree only (no .git) so K03.04 content hash is over package files.
+        let archive = Command::new("git")
+            .args(["-C", vcs_str, "archive", "--format=tar", commit_oid])
+            .output()
+            .map_err(|e| CacheFetchError::Git(format!("failed to spawn git archive: {e}")))?;
+        if !archive.status.success() {
+            let stderr = String::from_utf8_lossy(&archive.stderr).trim().to_string();
+            let _ = fs::remove_dir_all(&dest);
+            return Err(CacheFetchError::Git(if stderr.is_empty() {
+                format!("git archive {commit_oid} failed with status {}", archive.status)
+            } else {
+                stderr
+            }));
+        }
+
+        let mut tar = Command::new("tar")
+            .args(["-x", "-C", dest_str])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| CacheFetchError::Io(format!("failed to spawn tar: {e}")))?;
+        {
+            use std::io::Write;
+            let mut stdin = tar
+                .stdin
+                .take()
+                .ok_or_else(|| CacheFetchError::Io("tar stdin missing".into()))?;
+            stdin
+                .write_all(&archive.stdout)
+                .map_err(|e| CacheFetchError::Io(format!("write tar stdin: {e}")))?;
+        }
+        let tar_out = tar
+            .wait_with_output()
+            .map_err(|e| CacheFetchError::Io(format!("tar wait: {e}")))?;
+        if !tar_out.status.success() {
+            let stderr = String::from_utf8_lossy(&tar_out.stderr).trim().to_string();
+            let _ = fs::remove_dir_all(&dest);
+            return Err(CacheFetchError::Io(if stderr.is_empty() {
+                format!("tar extract failed with status {}", tar_out.status)
+            } else {
+                stderr
+            }));
+        }
+
+        write_checkout_marker(&dest, commit_oid).map_err(|e| {
+            let _ = fs::remove_dir_all(&dest);
+            CacheFetchError::Io(e)
+        })?;
+
+        Ok(dest)
+    }
+}
+
+/// Marker file written after a successful K03.03 checkout (OID pin).
+const CHECKOUT_MARKER: &str = ".draconic-checkout-oid";
+
+fn checkout_marker_path(entry_dir: &Path) -> PathBuf {
+    entry_dir.join(CHECKOUT_MARKER)
+}
+
+fn write_checkout_marker(entry_dir: &Path, commit_oid: &str) -> Result<(), String> {
+    fs::write(checkout_marker_path(entry_dir), format!("{commit_oid}\n"))
+        .map_err(|e| format!("write checkout marker: {e}"))
+}
+
+fn is_complete_checkout(entry_dir: &Path, commit_oid: &str) -> bool {
+    let marker = checkout_marker_path(entry_dir);
+    let Ok(contents) = fs::read_to_string(&marker) else {
+        return false;
+    };
+    contents.trim() == commit_oid
 }
 
 /// Relative VCS path: `vcs/{module_path_segments…}`.
@@ -682,6 +811,140 @@ mod tests {
             .expect_err("missing remote");
         assert!(matches!(err, CacheFetchError::Git(_)), "{err:?}");
         assert!(!cache.has_vcs(PATH).unwrap());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- K03.03: checkout pinned OID; cache hit skips network ---
+
+    fn temp_dir_k0303(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-pkg-k0303-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[test]
+    fn checkout_materializes_tree_at_oid() {
+        let root = temp_dir_k0303("checkout");
+        let upstream = fixture_repo(&root);
+        let oid = head_oid(&upstream);
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = upstream.to_str().unwrap();
+
+        assert!(!cache.has_entry(PATH, &oid).unwrap());
+        let entry = cache.checkout(PATH, &oid, url).expect("checkout");
+
+        assert_eq!(entry, cache.entry_dir(PATH, &oid).unwrap());
+        assert!(cache.has_entry(PATH, &oid).unwrap());
+        let hello = fs::read_to_string(entry.join("hello.txt")).expect("hello.txt");
+        assert_eq!(hello, "hello from fixture\n");
+        // Package tree has no .git (archive extract).
+        assert!(!entry.join(".git").exists());
+        // Marker pins the OID.
+        assert_eq!(
+            fs::read_to_string(entry.join(CHECKOUT_MARKER))
+                .unwrap()
+                .trim(),
+            oid
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn checkout_cache_hit_skips_network() {
+        let root = temp_dir_k0303("hit");
+        let upstream = fixture_repo(&root);
+        let oid = head_oid(&upstream);
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = upstream.to_str().unwrap();
+
+        let entry1 = cache.checkout(PATH, &oid, url).expect("first checkout");
+        // Remove upstream so a second checkout cannot clone/fetch.
+        fs::remove_dir_all(&upstream).expect("remove upstream");
+        let entry2 = cache
+            .checkout(PATH, &oid, url)
+            .expect("cache hit must not need remote");
+        assert_eq!(entry1, entry2);
+        assert!(cache.has_entry(PATH, &oid).unwrap());
+        assert_eq!(
+            fs::read_to_string(entry2.join("hello.txt")).unwrap(),
+            "hello from fixture\n"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn checkout_two_oids_are_isolated() {
+        let root = temp_dir_k0303("two-oid");
+        let upstream = fixture_repo(&root);
+        let oid1 = head_oid(&upstream);
+        fs::write(upstream.join("hello.txt"), "second revision\n").unwrap();
+        git_ok(&["add", "hello.txt"], &upstream);
+        git_ok(&["commit", "-m", "second"], &upstream);
+        let oid2 = head_oid(&upstream);
+        assert_ne!(oid1, oid2);
+
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = upstream.to_str().unwrap();
+        let e1 = cache.checkout(PATH, &oid1, url).expect("oid1");
+        let e2 = cache.checkout(PATH, &oid2, url).expect("oid2");
+        assert_ne!(e1, e2);
+        assert_eq!(
+            fs::read_to_string(e1.join("hello.txt")).unwrap(),
+            "hello from fixture\n"
+        );
+        assert_eq!(
+            fs::read_to_string(e2.join("hello.txt")).unwrap(),
+            "second revision\n"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn checkout_rejects_unknown_oid() {
+        let root = temp_dir_k0303("bad-oid");
+        let upstream = fixture_repo(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = upstream.to_str().unwrap();
+        let missing = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let err = cache
+            .checkout(PATH, missing, url)
+            .expect_err("unknown oid");
+        assert!(matches!(err, CacheFetchError::Git(_)), "{err:?}");
+        assert!(!cache.has_entry(PATH, missing).unwrap());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn checkout_rejects_invalid_oid_shape() {
+        let cache = ModuleCache::new("/tmp/cache");
+        let err = cache
+            .checkout(PATH, "not-an-oid", "https://example.com/x.git")
+            .expect_err("bad oid");
+        assert!(
+            matches!(err, CacheFetchError::Path(CachePathError::InvalidCommitOid { .. })),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn has_entry_false_when_marker_missing() {
+        let root = temp_dir_k0303("no-marker");
+        let cache = ModuleCache::new(root.join("cache"));
+        let entry = cache.entry_dir(PATH, OID).unwrap();
+        fs::create_dir_all(&entry).unwrap();
+        fs::write(entry.join("hello.txt"), "orphan\n").unwrap();
+        assert!(!cache.has_entry(PATH, OID).unwrap());
         let _ = fs::remove_dir_all(&root);
     }
 }

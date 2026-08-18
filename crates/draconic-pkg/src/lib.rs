@@ -9,6 +9,7 @@
 //! K02.03: stable lock serialize — sorted paths; byte-identical rewrite when unchanged.
 //! K03.01: module cache layout keyed by module path + commit OID.
 //! K03.02: git clone/fetch into cache VCS store (HTTPS; fixture repos in tests).
+//! K03.03: checkout pinned OID into mod store; cache hit skips network.
 
 mod cache;
 mod lock;

@@ -698,7 +698,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K03 | todo | compiler | Module cache: layout, git clone/fetch, checkout by OID | `crates/draconic-pkg` |
 | K03.01 | done | compiler | Cache layout keyed by module path + commit OID | `crates/draconic-pkg` |
 | K03.02 | done | compiler | git clone/fetch into cache (HTTPS; fixture repos in tests) | `crates/draconic-pkg` |
-| K03.03 | todo | compiler | Checkout pinned OID; cache hit skips network | `crates/draconic-pkg` |
+| K03.03 | done | compiler | Checkout pinned OID; cache hit skips network | `crates/draconic-pkg` |
 | K03.04 | todo | compiler | Content hash SHA-256 over canonical package tree | `crates/draconic-pkg` |
 | K04 | todo | compiler | Version resolve: semver tag → commit OID; fail closed | `crates/draconic-pkg` |
 | K04.01 | todo | compiler | Resolve version req against git tags; highest matching semver | `crates/draconic-pkg` |
