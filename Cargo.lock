@@ -228,6 +228,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "draconic-packages-tests"
+version = "0.1.0"
+dependencies = [
+ "draconic-ast",
+ "draconic-backend-js",
+ "draconic-frontend",
+ "draconic-linker",
+ "draconic-pkg",
+]
+
+[[package]]
 name = "draconic-parser"
 version = "0.1.0"
 dependencies = [

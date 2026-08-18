@@ -18,6 +18,7 @@ members = [
     "crates/draconic-cli",
     "tests/integration",
     "tests/conformance",
+    "tests/packages",
     "tests/test262",
 ]
 # Standalone fuzz packages (cargo-fuzz / designed harness); not built by workspace.

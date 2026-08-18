@@ -1,0 +1,13 @@
+[package]
+name = "draconic-packages-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+draconic-ast.workspace = true
+draconic-linker.workspace = true
+draconic-pkg.workspace = true
+draconic-frontend.workspace = true
+draconic-backend-js.workspace = true

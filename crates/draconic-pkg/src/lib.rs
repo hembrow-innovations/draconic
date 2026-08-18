@@ -18,6 +18,7 @@
 //! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
 //! K06.01: resolve module-path imports (`github.com/org/pkg` + subpath) → cache file.
 //! K06.02: package boundary — reject path escape outside package checkout root.
+//! K06.03: coexist with E11 relative imports (see linker + `tests/packages`).
 
 mod cache;
 mod get;

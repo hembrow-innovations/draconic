@@ -13,6 +13,9 @@
 //!
 //! K06.02: relative imports from inside a package checkout must not resolve
 //! outside that package root (package boundary).
+//!
+//! K06.03: E11 static relative imports and module-path imports coexist in one
+//! graph (consumer locals + packages; package-internal relatives).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
