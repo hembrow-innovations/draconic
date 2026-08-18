@@ -63,6 +63,12 @@ void draconic_rt_job_enqueue(DraconicJobFn fn, void *data);
 void draconic_rt_job_drain(void);
 size_t draconic_rt_job_pending(void);
 
+/* --- OS sleep / yield (H16.04): for timer tests and job_drain waits ---
+   sleep_ms blocks the thread for ~ms (capped per call); <= 0 or NaN is a no-op.
+   yield voluntarily gives up the CPU slice without a timed wait. */
+void draconic_rt_sleep_ms(double ms);
+void draconic_rt_yield(void);
+
 /* --- Host timers (H05.03–H05.05): setTimeout / setInterval via job queue ---
    Due timers are promoted into the job queue at the end of each drain
    wave (after microtasks). Delay is wall-clock ms; delay <= 0 is due

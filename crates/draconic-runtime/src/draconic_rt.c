@@ -8,6 +8,7 @@
 #include <windows.h>
 #else
 #include <errno.h>
+#include <sched.h>
 #include <sys/time.h>
 #include <time.h>
 #endif
@@ -827,8 +828,8 @@ static int timer_next_wait_ms(double *out_ms) {
     return 1;
 }
 
-/* Sleep until deadline without busy-spinning the CPU (H05.05). */
-static void timer_sleep_ms(double ms) {
+/* H16.04: public OS sleep — used by timer job_drain waits (H05.05). */
+void draconic_rt_sleep_ms(double ms) {
     if (ms <= 0.0 || ms != ms) {
         return;
     }
@@ -868,6 +869,20 @@ static void timer_sleep_ms(double ms) {
         }
     }
 #endif
+}
+
+/* H16.04: voluntarily yield the CPU without a timed wait. */
+void draconic_rt_yield(void) {
+#if defined(_WIN32)
+    SwitchToThread();
+#else
+    sched_yield();
+#endif
+}
+
+/* Sleep until deadline without busy-spinning the CPU (H05.05). */
+static void timer_sleep_ms(double ms) {
+    draconic_rt_sleep_ms(ms);
 }
 
 static int64_t timer_alloc(

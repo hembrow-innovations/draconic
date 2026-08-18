@@ -3143,6 +3143,114 @@ mod tests {
         assert_eq!(stdout, "timer-wait-ok\n", "stdout={stdout:?}");
     }
 
+    /// H16.04: public OS sleep / yield for timer tests — sleep blocks ~ms; yield returns;
+    /// non-positive / NaN sleep is a no-op.
+    #[test]
+    fn sleep_ms_and_yield_os() {
+        let clang = which_clang().expect("clang required for runtime native tests");
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib(&dir).expect("build static lib");
+        let main_c = dir.join("main_sleep_yield.c");
+        let bin = dir.join("rt_sleep_yield");
+        let header_dir = c_runtime_header_path()
+            .parent()
+            .expect("header parent")
+            .to_path_buf();
+
+        std::fs::write(
+            &main_c,
+            r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+            #include <stdint.h>
+#if defined(_WIN32)
+            #include <windows.h>
+            static double wall_ms(void) {
+                FILETIME ft;
+                ULARGE_INTEGER u;
+                const uint64_t epoch_diff_100ns = 116444736000000000ULL;
+                GetSystemTimeAsFileTime(&ft);
+                u.LowPart = ft.dwLowDateTime;
+                u.HighPart = ft.dwHighDateTime;
+                if (u.QuadPart < epoch_diff_100ns) return 0.0;
+                return (double)((u.QuadPart - epoch_diff_100ns) / 10000ULL);
+            }
+#else
+            #include <sys/time.h>
+            static double wall_ms(void) {
+                struct timeval tv;
+                if (gettimeofday(&tv, NULL) != 0) return 0.0;
+                return ((double)tv.tv_sec * 1000.0) + ((double)tv.tv_usec / 1000.0);
+            }
+#endif
+
+            int main(void) {
+                double t0, elapsed;
+
+                /* yield must return promptly */
+                t0 = wall_ms();
+                draconic_rt_yield();
+                elapsed = wall_ms() - t0;
+                if (elapsed > 500.0) {
+                    fprintf(stderr, "yield too slow: %g\n", elapsed);
+                    return 1;
+                }
+
+                /* sleep ~40ms blocks at least ~25ms and not seconds */
+                t0 = wall_ms();
+                draconic_rt_sleep_ms(40.0);
+                elapsed = wall_ms() - t0;
+                if (elapsed < 25.0) {
+                    fprintf(stderr, "sleep elapsed too small: %g\n", elapsed);
+                    return 2;
+                }
+                if (elapsed > 2000.0) {
+                    fprintf(stderr, "sleep elapsed too large: %g\n", elapsed);
+                    return 3;
+                }
+
+                /* non-positive / NaN: immediate return */
+                t0 = wall_ms();
+                draconic_rt_sleep_ms(0.0);
+                draconic_rt_sleep_ms(-1.0);
+                draconic_rt_sleep_ms(0.0 / 0.0);
+                elapsed = wall_ms() - t0;
+                if (elapsed > 100.0) {
+                    fprintf(stderr, "noop sleep too slow: %g\n", elapsed);
+                    return 4;
+                }
+
+                puts("sleep-yield-ok");
+                return 0;
+            }
+            "#,
+        )
+        .unwrap();
+
+        let status = {
+            let mut link = Command::new(&clang);
+            link.arg(&main_c)
+                .arg(&archive)
+                .arg("-I")
+                .arg(&header_dir)
+                .arg("-o")
+                .arg(&bin);
+            apply_runtime_link_flags(&mut link);
+            link.status().expect("spawn clang")
+        };
+        assert!(status.success(), "clang failed to link sleep/yield test");
+
+        let output = Command::new(&bin).output().expect("run rt_sleep_yield");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "sleep/yield binary failed: {:?}\nstderr={stderr}",
+            output.status
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "sleep-yield-ok\n", "stdout={stdout:?}");
+    }
+
     fn which_clang() -> Option<PathBuf> {
         find_clang()
     }
