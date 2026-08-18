@@ -1,7 +1,7 @@
 /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
-   H04 fs, H06 TCP, H07.01 non-blocking readiness, H07.02 async→Promise).
+   H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom).
    Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process, stdio, path, fs, TCP, async readiness + Promise ops. Later H rows. */
+   process, stdio, path, fs, TCP, UDP, async readiness + Promise ops. */
 
 #include "draconic_rt_host.h"
 
@@ -47,6 +47,7 @@ void draconic_rt_promise_reject(DraconicValue *p, void *reason);
 #define DRACONIC_HOST_HANDLE_KIND_FILE 1
 #define DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN 2
 #define DRACONIC_HOST_HANDLE_KIND_TCP_CONN 3
+#define DRACONIC_HOST_HANDLE_KIND_UDP 4
 
 /* Live flags + kind + OS fd for 1-based handle ids. */
 static uint8_t g_host_handle_live[DRACONIC_HOST_HANDLE_SLOTS];
@@ -105,7 +106,8 @@ DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
     host_io_cancel_handle(h);
     if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE
         || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN
-        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_CONN) {
+        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_CONN
+        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_UDP) {
         int fd = g_host_handle_fd[i];
         if (fd >= 0) {
 #if defined(_WIN32)
@@ -3048,5 +3050,249 @@ DraconicValue *draconic_rt_host_tcp_write_async(
     }
     op->wait_id = id;
     return p;
+#endif
+}
+
+/* --- UDP bind/sendto/recvfrom (H08.01) ----------------------------------- */
+
+#if !defined(_WIN32)
+static int host_handle_udp_fd(DraconicHostHandle h) {
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return -1;
+    }
+    if (g_host_handle_kind[(size_t)h - 1] != DRACONIC_HOST_HANDLE_KIND_UDP) {
+        return -1;
+    }
+    return g_host_handle_fd[(size_t)h - 1];
+}
+#endif
+
+DraconicHostError draconic_rt_host_udp_bind(
+    int32_t port,
+    DraconicHostHandle *out_h) {
+#if defined(_WIN32)
+    (void)port;
+    (void)out_h;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd = -1;
+    int yes = 1;
+    struct sockaddr_in addr;
+    DraconicHostError err;
+
+    if (!out_h) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_h = DRACONIC_HOST_HANDLE_INVALID;
+    if (port < 0 || port > 65535) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return host_tcp_errno_map();
+    }
+
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {
+        err = host_tcp_errno_map();
+        (void)close(fd);
+        return err;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        err = host_tcp_errno_map();
+        (void)close(fd);
+        return err;
+    }
+
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_UDP, fd, out_h);
+    if (err != DRACONIC_HOST_OK) {
+        (void)close(fd);
+        return err;
+    }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_udp_local_port(
+    DraconicHostHandle h,
+    int32_t *out_port) {
+#if defined(_WIN32)
+    (void)h;
+    (void)out_port;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    struct sockaddr_in addr;
+    socklen_t len = (socklen_t)sizeof(addr);
+
+    if (!out_port) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_port = 0;
+    fd = host_handle_udp_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    memset(&addr, 0, sizeof(addr));
+    if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) {
+        return host_tcp_errno_map();
+    }
+    *out_port = (int32_t)ntohs(addr.sin_port);
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_udp_sendto(
+    DraconicHostHandle h,
+    const uint8_t *data,
+    size_t len,
+    const char *host,
+    int32_t port) {
+#if defined(_WIN32)
+    (void)h;
+    (void)data;
+    (void)len;
+    (void)host;
+    (void)port;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    struct sockaddr_in addr;
+    ssize_t n;
+
+    fd = host_handle_udp_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (!host || port < 1 || port > 65535) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (!data) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    n = sendto(fd, data, len, 0, (struct sockaddr *)&addr, sizeof(addr));
+    if (n < 0) {
+        return host_tcp_errno_map();
+    }
+    if ((size_t)n != len) {
+        return DRACONIC_HOST_E_IO;
+    }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_udp_recvfrom(
+    DraconicHostHandle h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len,
+    char **out_peer_addr,
+    int32_t *out_peer_port) {
+#if defined(_WIN32)
+    (void)h;
+    (void)max_len;
+    (void)out_data;
+    (void)out_len;
+    (void)out_peer_addr;
+    (void)out_peer_port;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    uint8_t *buf = NULL;
+    struct sockaddr_in peer;
+    socklen_t plen = (socklen_t)sizeof(peer);
+    ssize_t n;
+    size_t got;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    if (out_peer_addr) {
+        *out_peer_addr = NULL;
+    }
+    if (out_peer_port) {
+        *out_peer_port = 0;
+    }
+
+    fd = host_handle_udp_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    if (max_len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+
+    buf = (uint8_t *)malloc(max_len);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    memset(&peer, 0, sizeof(peer));
+    n = recvfrom(fd, buf, max_len, 0, (struct sockaddr *)&peer, &plen);
+    if (n < 0) {
+        free(buf);
+        return host_tcp_errno_map();
+    }
+    got = (size_t)n;
+    if (got == 0) {
+        free(buf);
+        *out_data = NULL;
+        *out_len = 0;
+    } else {
+        if (got < max_len) {
+            uint8_t *shrunk = (uint8_t *)realloc(buf, got);
+            if (shrunk) {
+                buf = shrunk;
+            }
+        }
+        *out_data = buf;
+        *out_len = got;
+    }
+
+    if (out_peer_port) {
+        *out_peer_port = (int32_t)ntohs(peer.sin_port);
+    }
+    if (out_peer_addr) {
+        char abuf[INET_ADDRSTRLEN];
+        char *dup;
+        if (!inet_ntop(AF_INET, &peer.sin_addr, abuf, sizeof(abuf))) {
+            if (*out_data) {
+                free(*out_data);
+                *out_data = NULL;
+                *out_len = 0;
+            }
+            return host_tcp_errno_map();
+        }
+        dup = (char *)malloc(strlen(abuf) + 1);
+        if (!dup) {
+            if (*out_data) {
+                free(*out_data);
+                *out_data = NULL;
+                *out_len = 0;
+            }
+            return DRACONIC_HOST_E_NOMEM;
+        }
+        memcpy(dup, abuf, strlen(abuf) + 1);
+        *out_peer_addr = dup;
+    }
+    return DRACONIC_HOST_OK;
 #endif
 }

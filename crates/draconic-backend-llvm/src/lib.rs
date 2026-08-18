@@ -43,6 +43,7 @@ mod host_process;
 mod host_stdio;
 mod host_tcp;
 mod host_tcp_async;
+mod host_udp;
 mod host_time;
 mod host_timers;
 mod native_ints;
@@ -103,6 +104,7 @@ use host_process::{emit_host_process, is_host_process_module};
 use host_stdio::{emit_host_stdio, is_host_stdio_module};
 use host_tcp::{emit_host_tcp, is_host_tcp_module};
 use host_tcp_async::{emit_host_tcp_async, is_host_tcp_async_module};
+use host_udp::{emit_host_udp, is_host_udp_module};
 use host_time::{emit_host_time, is_host_time_module};
 use host_timers::{emit_host_timers, is_host_timer_module};
 use native_ints::{emit_native_ints, is_native_int_module};
@@ -238,6 +240,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_tcp_async_module(module) {
         return emit_host_tcp_async(module);
+    }
+    if is_host_udp_module(module) {
+        return emit_host_udp(module);
     }
     if is_host_tcp_module(module) {
         return emit_host_tcp(module);

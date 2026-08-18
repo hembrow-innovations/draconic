@@ -398,6 +398,35 @@ DraconicValue *draconic_rt_host_tcp_write_async(
     const uint8_t *data,
     size_t len);
 
+/* --- UDP bind/sendto/recvfrom (H08.01) -------------------------------------
+   Bind IPv4 UDP socket. port 0 → OS ephemeral.
+   On OK: *out_h is a live UDP handle (close with handle_close).
+   udp_local_port: getsockname bound port (1..65535).
+   udp_sendto: send datagram to IPv4 dotted host:port (all bytes one sendto).
+   udp_recvfrom: blocking recv up to max_len; *out_data malloc'd (caller frees
+   via free / path_free pattern); peer via optional out_peer_* (NULL skips).
+   peer_address: malloc'd dotted IPv4 when requested. */
+
+DraconicHostError draconic_rt_host_udp_bind(
+    int32_t port,
+    DraconicHostHandle *out_h);
+DraconicHostError draconic_rt_host_udp_local_port(
+    DraconicHostHandle h,
+    int32_t *out_port);
+DraconicHostError draconic_rt_host_udp_sendto(
+    DraconicHostHandle h,
+    const uint8_t *data,
+    size_t len,
+    const char *host,
+    int32_t port);
+DraconicHostError draconic_rt_host_udp_recvfrom(
+    DraconicHostHandle h,
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len,
+    char **out_peer_addr,
+    int32_t *out_peer_port);
+
 #ifdef __cplusplus
 }
 #endif

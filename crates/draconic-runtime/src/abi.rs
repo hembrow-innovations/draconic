@@ -1017,6 +1017,27 @@ pub const HOST_IO_POLL: AbiFn = AbiFn {
     ret: "i32",
     params: "double",
 };
+/* H08.01: UDP bind/sendto/recvfrom. */
+pub const HOST_UDP_BIND: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_udp_bind",
+    ret: "i32",
+    params: "i32, ptr",
+};
+pub const HOST_UDP_LOCAL_PORT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_udp_local_port",
+    ret: "i32",
+    params: "i64, ptr",
+};
+pub const HOST_UDP_SENDTO: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_udp_sendto",
+    ret: "i32",
+    params: "i64, ptr, i64, ptr, i32",
+};
+pub const HOST_UDP_RECVFROM: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_udp_recvfrom",
+    ret: "i32",
+    params: "i64, i64, ptr, ptr, ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1128,8 +1149,12 @@ pub const HOST_TCP_ACCEPT_ASYNC_SYMBOL: &str = HOST_TCP_ACCEPT_ASYNC.symbol;
 pub const HOST_TCP_CONNECT_ASYNC_SYMBOL: &str = HOST_TCP_CONNECT_ASYNC.symbol;
 pub const HOST_TCP_READ_ASYNC_SYMBOL: &str = HOST_TCP_READ_ASYNC.symbol;
 pub const HOST_TCP_WRITE_ASYNC_SYMBOL: &str = HOST_TCP_WRITE_ASYNC.symbol;
+pub const HOST_UDP_BIND_SYMBOL: &str = HOST_UDP_BIND.symbol;
+pub const HOST_UDP_LOCAL_PORT_SYMBOL: &str = HOST_UDP_LOCAL_PORT.symbol;
+pub const HOST_UDP_SENDTO_SYMBOL: &str = HOST_UDP_SENDTO.symbol;
+pub const HOST_UDP_RECVFROM_SYMBOL: &str = HOST_UDP_RECVFROM.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.04).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H08.01).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -1201,6 +1226,10 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_TCP_CONNECT_ASYNC_SYMBOL,
     HOST_TCP_READ_ASYNC_SYMBOL,
     HOST_TCP_WRITE_ASYNC_SYMBOL,
+    HOST_UDP_BIND_SYMBOL,
+    HOST_UDP_LOCAL_PORT_SYMBOL,
+    HOST_UDP_SENDTO_SYMBOL,
+    HOST_UDP_RECVFROM_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1275,6 +1304,10 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_TCP_CONNECT_ASYNC,
     HOST_TCP_READ_ASYNC,
     HOST_TCP_WRITE_ASYNC,
+    HOST_UDP_BIND,
+    HOST_UDP_LOCAL_PORT,
+    HOST_UDP_SENDTO,
+    HOST_UDP_RECVFROM,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

@@ -1,0 +1,7 @@
+// H08.01: udpBind(0) → ephemeral port; udpLocalPort; closeUdp.
+let s = udpBind(0);
+let p = udpLocalPort(s);
+let t = typeof p;
+let ok_port = p > 0;
+let ok_hi = p < 65536;
+closeUdp(s);

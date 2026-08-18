@@ -1,0 +1,4 @@
+id: host/net/udp/udp_sendto_recvfrom
+targets: native
+native.exit: 0
+native.stdout: udp-hi6\n

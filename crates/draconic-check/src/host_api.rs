@@ -82,6 +82,7 @@ pub struct HostApiEntry {
 /// - `tcpConnect` (H06.02–H06.03): dial IPv4 host:port; refused/timeout → HostError ECONN.
 /// - `tcpRead` / `tcpWrite` / `tcpShutdown` (H06.04): connection bytes + half-close.
 /// - H06.06: all TCP listen/accept (and related) APIs hard-error on js until optional Node bridge.
+/// - `udpBind` / `udpLocalPort` / `udpSendTo` / `udpRecvFrom` / `closeUdp` (H08.01): native-only UDP.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -377,6 +378,31 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "tcpWriteAsync",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H07.02 TCP write → Promise (byte count)",
+    },
+    HostApiEntry {
+        name: "udpBind",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H08.01 UDP bind (port 0 → ephemeral)",
+    },
+    HostApiEntry {
+        name: "udpLocalPort",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H08.01 UDP local bound port",
+    },
+    HostApiEntry {
+        name: "udpSendTo",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H08.01 UDP sendto host:port",
+    },
+    HostApiEntry {
+        name: "udpRecvFrom",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H08.01 UDP recvfrom → bytes",
+    },
+    HostApiEntry {
+        name: "closeUdp",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H08.01 close UDP handle",
     },
 ];
 
@@ -738,6 +764,11 @@ mod tests {
             "tcpConnectAsync",
             "tcpReadAsync",
             "tcpWriteAsync",
+            "udpBind",
+            "udpLocalPort",
+            "udpSendTo",
+            "udpRecvFrom",
+            "closeUdp",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

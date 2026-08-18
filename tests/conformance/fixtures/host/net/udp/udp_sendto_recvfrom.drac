@@ -1,0 +1,10 @@
+// H08.01: UDP sendto + recvfrom on loopback (bind two sockets).
+let a = udpBind(0);
+let p = udpLocalPort(a);
+let b = udpBind(0);
+udpSendTo(b, "udp-hi", "127.0.0.1", p);
+let msg = udpRecvFrom(a, 64);
+stdoutWrite(msg);
+let n = msg.length;
+closeUdp(a);
+closeUdp(b);

@@ -1,0 +1,4 @@
+id: host/net/udp/udp_bind_ephemeral
+targets: native
+native.exit: 0
+native.stdout: number\ntrue\ntrue\n
