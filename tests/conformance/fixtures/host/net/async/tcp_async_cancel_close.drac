@@ -1,0 +1,13 @@
+// H07.02: close while accept pending rejects the Promise cleanly.
+let rejected = 0;
+let fulfilled = 0;
+let s = tcpListen(0);
+tcpAcceptAsync(s).then(
+  function () {
+    fulfilled = 1;
+  },
+  function () {
+    rejected = 1;
+  }
+);
+closeTcp(s);

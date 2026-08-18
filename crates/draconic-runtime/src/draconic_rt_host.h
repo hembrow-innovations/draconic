@@ -378,6 +378,26 @@ void draconic_rt_host_io_cancel(int64_t id);
 int draconic_rt_host_io_pending(void);
 int draconic_rt_host_io_poll(double timeout_ms);
 
+/* --- Async TCP → Promises (H07.02) -----------------------------------------
+   Returns a pending Promise (DraconicValue*). Fulfillment values are opaque
+   void* payloads matching the Promise ABI (numbers as inttoptr i64):
+     accept/connect → connection handle (i64)
+     read           → bytes read (i64); data is not retained
+     write          → bytes written (i64)
+   Rejection reason is host error code as inttoptr.
+   Close of the listen/conn handle cancels waits and rejects pending ops. */
+typedef struct DraconicValue DraconicValue;
+
+DraconicValue *draconic_rt_host_tcp_accept_async(DraconicHostHandle listen_h);
+DraconicValue *draconic_rt_host_tcp_connect_async(const char *host, int32_t port);
+DraconicValue *draconic_rt_host_tcp_read_async(
+    DraconicHostHandle conn_h,
+    int64_t max_len);
+DraconicValue *draconic_rt_host_tcp_write_async(
+    DraconicHostHandle conn_h,
+    const uint8_t *data,
+    size_t len);
+
 #ifdef __cplusplus
 }
 #endif

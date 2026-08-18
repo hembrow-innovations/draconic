@@ -1,0 +1,4 @@
+id: host/net/async/tcp_async_read_write
+targets: native
+native.exit: 0
+native.stdout: 4\n4\nfunction\nfunction\n

@@ -1,0 +1,4 @@
+id: host/net/async/tcp_async_cancel_close
+targets: native
+native.exit: 0
+native.stdout: 1\n0\n

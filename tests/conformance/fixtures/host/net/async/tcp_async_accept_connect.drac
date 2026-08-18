@@ -1,0 +1,15 @@
+// H07.02: async accept + connect → Promises; settle via job_drain.
+let accepted = 0;
+let connected = 0;
+let s = tcpListen(0);
+tcpAcceptAsync(s).then(function (a) {
+  accepted = 1;
+  closeTcp(a);
+  closeTcp(s);
+});
+tcpConnectAsync("127.0.0.1", tcpLocalPort(s)).then(function (c) {
+  connected = 1;
+  closeTcp(c);
+});
+let t_aa = typeof tcpAcceptAsync;
+let t_ca = typeof tcpConnectAsync;

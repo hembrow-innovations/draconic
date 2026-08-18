@@ -1017,6 +1017,46 @@ pub const HOST_IO_POLL: AbiFn = AbiFn {
     ret: "i32",
     params: "double",
 };
+/* H07.02: async TCP → Promise. */
+pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_accept_async",
+    ret: "ptr",
+    params: "i64",
+};
+pub const HOST_TCP_CONNECT_ASYNC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_connect_async",
+    ret: "ptr",
+    params: "ptr, i32",
+};
+pub const HOST_TCP_READ_ASYNC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_read_async",
+    ret: "ptr",
+    params: "i64, i64",
+};
+pub const HOST_TCP_WRITE_ASYNC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_write_async",
+    ret: "ptr",
+    params: "i64, ptr, i64",
+};
+
+/// Declares for H07.02 async TCP + Promise then + job drain.
+pub const HOST_TCP_ASYNC_DECLARES: &[AbiFn] = &[
+    GC_INIT,
+    JOB_DRAIN,
+    PROMISE_THEN,
+    PRINT_I64,
+    PRINT_STR,
+    PRINT_BOOL,
+    HOST_HANDLE_CLOSE,
+    HOST_TCP_LISTEN,
+    HOST_TCP_LOCAL_PORT,
+    HOST_TCP_ACCEPT,
+    HOST_TCP_CONNECT,
+    HOST_TCP_ACCEPT_ASYNC,
+    HOST_TCP_CONNECT_ASYNC,
+    HOST_TCP_READ_ASYNC,
+    HOST_TCP_WRITE_ASYNC,
+];
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -1084,6 +1124,10 @@ pub const HOST_IO_WAIT_SYMBOL: &str = HOST_IO_WAIT.symbol;
 pub const HOST_IO_CANCEL_SYMBOL: &str = HOST_IO_CANCEL.symbol;
 pub const HOST_IO_PENDING_SYMBOL: &str = HOST_IO_PENDING.symbol;
 pub const HOST_IO_POLL_SYMBOL: &str = HOST_IO_POLL.symbol;
+pub const HOST_TCP_ACCEPT_ASYNC_SYMBOL: &str = HOST_TCP_ACCEPT_ASYNC.symbol;
+pub const HOST_TCP_CONNECT_ASYNC_SYMBOL: &str = HOST_TCP_CONNECT_ASYNC.symbol;
+pub const HOST_TCP_READ_ASYNC_SYMBOL: &str = HOST_TCP_READ_ASYNC.symbol;
+pub const HOST_TCP_WRITE_ASYNC_SYMBOL: &str = HOST_TCP_WRITE_ASYNC.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.04).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -1153,6 +1197,10 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_IO_CANCEL_SYMBOL,
     HOST_IO_PENDING_SYMBOL,
     HOST_IO_POLL_SYMBOL,
+    HOST_TCP_ACCEPT_ASYNC_SYMBOL,
+    HOST_TCP_CONNECT_ASYNC_SYMBOL,
+    HOST_TCP_READ_ASYNC_SYMBOL,
+    HOST_TCP_WRITE_ASYNC_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1223,6 +1271,10 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_IO_CANCEL,
     HOST_IO_PENDING,
     HOST_IO_POLL,
+    HOST_TCP_ACCEPT_ASYNC,
+    HOST_TCP_CONNECT_ASYNC,
+    HOST_TCP_READ_ASYNC,
+    HOST_TCP_WRITE_ASYNC,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

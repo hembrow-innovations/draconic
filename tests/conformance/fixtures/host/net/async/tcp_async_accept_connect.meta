@@ -1,0 +1,4 @@
+id: host/net/async/tcp_async_accept_connect
+targets: native
+native.exit: 0
+native.stdout: 1\n1\nfunction\nfunction\n

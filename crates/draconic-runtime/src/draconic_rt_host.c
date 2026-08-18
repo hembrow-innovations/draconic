@@ -1,7 +1,7 @@
 /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
-   H04 fs, H06 TCP, H07.01 non-blocking readiness). Error codes, opaque
-   handles, UTF-8 path encoding, I/O bytes boundary, process, stdio, path, fs,
-   TCP, async readiness. Later H rows. */
+   H04 fs, H06 TCP, H07.01 non-blocking readiness, H07.02 async→Promise).
+   Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
+   process, stdio, path, fs, TCP, async readiness + Promise ops. Later H rows. */
 
 #include "draconic_rt_host.h"
 
@@ -33,9 +33,12 @@
    socket/bind/listen/getsockname; poll */
 #endif
 
-/* Core job queue (draconic_rt.c) — H07.01 completes readiness via enqueue. */
+/* Core job queue + Promise (draconic_rt.c) — H07.01/H07.02. */
 typedef void (*DraconicJobFnHost)(void *data);
 void draconic_rt_job_enqueue(DraconicJobFnHost fn, void *data);
+DraconicValue *draconic_rt_promise_new(void);
+void draconic_rt_promise_resolve(DraconicValue *p, void *value);
+void draconic_rt_promise_reject(DraconicValue *p, void *reason);
 
 /* --- Handle table (slots filled by open/listen/etc.) --- */
 
@@ -89,6 +92,8 @@ static int host_handle_fd(DraconicHostHandle h) {
 
 /* H07.01: cancel readiness waits for a handle (defined below). */
 static void host_io_cancel_handle(DraconicHostHandle h);
+/* H07.02: reject pending Promise async ops for a handle (defined below). */
+static void host_tcp_async_cancel_handle(DraconicHostHandle h);
 
 DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
     size_t i;
@@ -96,6 +101,7 @@ DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
         return DRACONIC_HOST_E_BADF;
     }
     i = (size_t)h - 1;
+    host_tcp_async_cancel_handle(h);
     host_io_cancel_handle(h);
     if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE
         || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN
@@ -2545,5 +2551,502 @@ int draconic_rt_host_io_poll(double timeout_ms) {
         completed++;
     }
     return completed;
+#endif
+}
+
+/* --- Async TCP → Promises (H07.02) --------------------------------------- */
+
+enum {
+    HOST_TCP_ASYNC_ACCEPT = 1,
+    HOST_TCP_ASYNC_CONNECT = 2,
+    HOST_TCP_ASYNC_READ = 3,
+    HOST_TCP_ASYNC_WRITE = 4
+};
+
+typedef struct HostTcpAsyncOp {
+    int kind;
+    DraconicValue *promise;
+    DraconicHostHandle h;
+    int64_t wait_id;
+    int settled;
+    /* CONNECT: socket already allocated as conn handle; host string retained. */
+    char *connect_host;
+    int32_t connect_port;
+    /* READ */
+    int64_t max_len;
+    /* WRITE: owned copy of payload until settle. */
+    uint8_t *write_data;
+    size_t write_len;
+    size_t write_off;
+    struct HostTcpAsyncOp *next;
+} HostTcpAsyncOp;
+
+static HostTcpAsyncOp *g_tcp_async_ops = NULL;
+
+static void *host_tcp_async_num(int64_t n) {
+    return (void *)(intptr_t)n;
+}
+
+static void host_tcp_async_unlink(HostTcpAsyncOp *target) {
+    HostTcpAsyncOp **link = &g_tcp_async_ops;
+    while (*link) {
+        if (*link == target) {
+            *link = target->next;
+            return;
+        }
+        link = &(*link)->next;
+    }
+}
+
+static void host_tcp_async_free(HostTcpAsyncOp *op) {
+    if (!op) {
+        return;
+    }
+    free(op->connect_host);
+    free(op->write_data);
+    free(op);
+}
+
+static void host_tcp_async_settle_ok(HostTcpAsyncOp *op, void *value) {
+    if (!op || op->settled) {
+        return;
+    }
+    op->settled = 1;
+    if (op->wait_id > 0) {
+        draconic_rt_host_io_cancel(op->wait_id);
+        op->wait_id = 0;
+    }
+    if (op->promise) {
+        draconic_rt_promise_resolve(op->promise, value);
+    }
+    host_tcp_async_unlink(op);
+    host_tcp_async_free(op);
+}
+
+static void host_tcp_async_settle_err(HostTcpAsyncOp *op, DraconicHostError err) {
+    if (!op || op->settled) {
+        return;
+    }
+    op->settled = 1;
+    if (op->wait_id > 0) {
+        draconic_rt_host_io_cancel(op->wait_id);
+        op->wait_id = 0;
+    }
+    if (op->promise) {
+        draconic_rt_promise_reject(op->promise, host_tcp_async_num((int64_t)err));
+    }
+    host_tcp_async_unlink(op);
+    host_tcp_async_free(op);
+}
+
+static void host_tcp_async_cancel_handle(DraconicHostHandle h) {
+    HostTcpAsyncOp *op = g_tcp_async_ops;
+    while (op) {
+        HostTcpAsyncOp *next = op->next;
+        if (!op->settled && op->h == h) {
+            host_tcp_async_settle_err(op, DRACONIC_HOST_E_BADF);
+        }
+        op = next;
+    }
+}
+
+static HostTcpAsyncOp *host_tcp_async_alloc(
+    int kind,
+    DraconicHostHandle h,
+    DraconicValue *promise) {
+    HostTcpAsyncOp *op = (HostTcpAsyncOp *)calloc(1, sizeof(HostTcpAsyncOp));
+    if (!op) {
+        return NULL;
+    }
+    op->kind = kind;
+    op->h = h;
+    op->promise = promise;
+    op->next = g_tcp_async_ops;
+    g_tcp_async_ops = op;
+    return op;
+}
+
+static void host_tcp_async_on_accept_ready(void *data) {
+    HostTcpAsyncOp *op = (HostTcpAsyncOp *)data;
+    DraconicHostHandle conn = DRACONIC_HOST_HANDLE_INVALID;
+    DraconicHostError err;
+    if (!op || op->settled) {
+        return;
+    }
+    err = draconic_rt_host_tcp_accept(op->h, &conn);
+    if (err == DRACONIC_HOST_E_AGAIN) {
+        /* Spurious wake: re-arm. */
+        int64_t id = 0;
+        err = draconic_rt_host_io_wait(
+            op->h, DRACONIC_HOST_IO_READ, host_tcp_async_on_accept_ready, op, &id);
+        if (err != DRACONIC_HOST_OK) {
+            host_tcp_async_settle_err(op, err);
+            return;
+        }
+        op->wait_id = id;
+        return;
+    }
+    if (err != DRACONIC_HOST_OK) {
+        host_tcp_async_settle_err(op, err);
+        return;
+    }
+    host_tcp_async_settle_ok(op, host_tcp_async_num((int64_t)conn));
+}
+
+static void host_tcp_async_on_connect_ready(void *data) {
+#if defined(_WIN32)
+    (void)data;
+#else
+    HostTcpAsyncOp *op = (HostTcpAsyncOp *)data;
+    int fd;
+    int soerr = 0;
+    socklen_t slen = (socklen_t)sizeof(soerr);
+    DraconicHostHandle h;
+    if (!op || op->settled) {
+        return;
+    }
+    h = op->h;
+    fd = host_handle_tcp_conn_fd(h);
+    if (fd < 0) {
+        host_tcp_async_settle_err(op, DRACONIC_HOST_E_BADF);
+        return;
+    }
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen) < 0) {
+        host_tcp_async_settle_err(op, host_tcp_errno_map());
+        (void)draconic_rt_host_handle_close(h);
+        return;
+    }
+    if (soerr != 0) {
+        errno = soerr;
+        host_tcp_async_settle_err(op, host_tcp_errno_map());
+        (void)draconic_rt_host_handle_close(h);
+        return;
+    }
+    host_tcp_async_settle_ok(op, host_tcp_async_num((int64_t)h));
+#endif
+}
+
+static void host_tcp_async_on_read_ready(void *data) {
+    HostTcpAsyncOp *op = (HostTcpAsyncOp *)data;
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    DraconicHostError err;
+    if (!op || op->settled) {
+        return;
+    }
+    err = draconic_rt_host_tcp_read(op->h, (size_t)op->max_len, &buf, &len);
+    if (err == DRACONIC_HOST_E_AGAIN) {
+        int64_t id = 0;
+        err = draconic_rt_host_io_wait(
+            op->h, DRACONIC_HOST_IO_READ, host_tcp_async_on_read_ready, op, &id);
+        if (err != DRACONIC_HOST_OK) {
+            host_tcp_async_settle_err(op, err);
+            return;
+        }
+        op->wait_id = id;
+        return;
+    }
+    free(buf);
+    if (err != DRACONIC_HOST_OK) {
+        host_tcp_async_settle_err(op, err);
+        return;
+    }
+    host_tcp_async_settle_ok(op, host_tcp_async_num((int64_t)len));
+}
+
+static void host_tcp_async_on_write_ready(void *data) {
+    HostTcpAsyncOp *op = (HostTcpAsyncOp *)data;
+    DraconicHostError err;
+#if !defined(_WIN32)
+    int fd;
+    ssize_t n;
+#endif
+    if (!op || op->settled) {
+        return;
+    }
+#if defined(_WIN32)
+    host_tcp_async_settle_err(op, DRACONIC_HOST_E_NOSYS);
+    return;
+#else
+    fd = host_handle_tcp_conn_fd(op->h);
+    if (fd < 0) {
+        host_tcp_async_settle_err(op, DRACONIC_HOST_E_BADF);
+        return;
+    }
+    while (op->write_off < op->write_len) {
+        n = write(
+            fd,
+            op->write_data + op->write_off,
+            op->write_len - op->write_off);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                int64_t id = 0;
+                err = draconic_rt_host_io_wait(
+                    op->h,
+                    DRACONIC_HOST_IO_WRITE,
+                    host_tcp_async_on_write_ready,
+                    op,
+                    &id);
+                if (err != DRACONIC_HOST_OK) {
+                    host_tcp_async_settle_err(op, err);
+                    return;
+                }
+                op->wait_id = id;
+                return;
+            }
+            host_tcp_async_settle_err(op, host_tcp_errno_map());
+            return;
+        }
+        op->write_off += (size_t)n;
+    }
+    host_tcp_async_settle_ok(op, host_tcp_async_num((int64_t)op->write_len));
+#endif
+}
+
+DraconicValue *draconic_rt_host_tcp_accept_async(DraconicHostHandle listen_h) {
+    DraconicValue *p = draconic_rt_promise_new();
+    HostTcpAsyncOp *op;
+    DraconicHostHandle conn = DRACONIC_HOST_HANDLE_INVALID;
+    DraconicHostError err;
+    int64_t id = 0;
+
+    if (!p) {
+        return NULL;
+    }
+    err = draconic_rt_host_tcp_set_nonblocking(listen_h, 1);
+    if (err != DRACONIC_HOST_OK) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+        return p;
+    }
+    err = draconic_rt_host_tcp_accept(listen_h, &conn);
+    if (err == DRACONIC_HOST_OK) {
+        draconic_rt_promise_resolve(p, host_tcp_async_num((int64_t)conn));
+        return p;
+    }
+    if (err != DRACONIC_HOST_E_AGAIN) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+        return p;
+    }
+    op = host_tcp_async_alloc(HOST_TCP_ASYNC_ACCEPT, listen_h, p);
+    if (!op) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_NOMEM));
+        return p;
+    }
+    err = draconic_rt_host_io_wait(
+        listen_h, DRACONIC_HOST_IO_READ, host_tcp_async_on_accept_ready, op, &id);
+    if (err != DRACONIC_HOST_OK) {
+        host_tcp_async_settle_err(op, err);
+        return p;
+    }
+    op->wait_id = id;
+    return p;
+}
+
+DraconicValue *draconic_rt_host_tcp_connect_async(const char *host, int32_t port) {
+    DraconicValue *p = draconic_rt_promise_new();
+#if defined(_WIN32)
+    if (p) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_NOSYS));
+    }
+    return p;
+#else
+    HostTcpAsyncOp *op;
+    DraconicHostHandle conn = DRACONIC_HOST_HANDLE_INVALID;
+    DraconicHostError err;
+    int fd = -1;
+    struct sockaddr_in addr;
+    int64_t id = 0;
+    int flags;
+
+    if (!p) {
+        return NULL;
+    }
+    if (!host || port < 1 || port > 65535) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_INVAL));
+        return p;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_INVAL));
+        return p;
+    }
+
+    fd = (int)socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)host_tcp_errno_map()));
+        return p;
+    }
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        err = host_tcp_errno_map();
+        (void)close(fd);
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+        return p;
+    }
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        if (errno != EINPROGRESS && errno != EAGAIN && errno != EWOULDBLOCK) {
+            err = host_tcp_errno_map();
+            (void)close(fd);
+            draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+            return p;
+        }
+        err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_TCP_CONN, fd, &conn);
+        if (err != DRACONIC_HOST_OK) {
+            (void)close(fd);
+            draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+            return p;
+        }
+        op = host_tcp_async_alloc(HOST_TCP_ASYNC_CONNECT, conn, p);
+        if (!op) {
+            (void)draconic_rt_host_handle_close(conn);
+            draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_NOMEM));
+            return p;
+        }
+        op->connect_host = strdup(host);
+        op->connect_port = port;
+        err = draconic_rt_host_io_wait(
+            conn, DRACONIC_HOST_IO_WRITE, host_tcp_async_on_connect_ready, op, &id);
+        if (err != DRACONIC_HOST_OK) {
+            host_tcp_async_settle_err(op, err);
+            (void)draconic_rt_host_handle_close(conn);
+            return p;
+        }
+        op->wait_id = id;
+        return p;
+    }
+    /* Immediate connect success. */
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_TCP_CONN, fd, &conn);
+    if (err != DRACONIC_HOST_OK) {
+        (void)close(fd);
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+        return p;
+    }
+    draconic_rt_promise_resolve(p, host_tcp_async_num((int64_t)conn));
+    return p;
+#endif
+}
+
+DraconicValue *draconic_rt_host_tcp_read_async(
+    DraconicHostHandle conn_h,
+    int64_t max_len) {
+    DraconicValue *p = draconic_rt_promise_new();
+    HostTcpAsyncOp *op;
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    DraconicHostError err;
+    int64_t id = 0;
+
+    if (!p) {
+        return NULL;
+    }
+    if (max_len < 0) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_INVAL));
+        return p;
+    }
+    err = draconic_rt_host_tcp_set_nonblocking(conn_h, 1);
+    if (err != DRACONIC_HOST_OK) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+        return p;
+    }
+    err = draconic_rt_host_tcp_read(conn_h, (size_t)max_len, &buf, &len);
+    if (err == DRACONIC_HOST_OK) {
+        free(buf);
+        draconic_rt_promise_resolve(p, host_tcp_async_num((int64_t)len));
+        return p;
+    }
+    if (err != DRACONIC_HOST_E_AGAIN) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+        return p;
+    }
+    op = host_tcp_async_alloc(HOST_TCP_ASYNC_READ, conn_h, p);
+    if (!op) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_NOMEM));
+        return p;
+    }
+    op->max_len = max_len;
+    err = draconic_rt_host_io_wait(
+        conn_h, DRACONIC_HOST_IO_READ, host_tcp_async_on_read_ready, op, &id);
+    if (err != DRACONIC_HOST_OK) {
+        host_tcp_async_settle_err(op, err);
+        return p;
+    }
+    op->wait_id = id;
+    return p;
+}
+
+DraconicValue *draconic_rt_host_tcp_write_async(
+    DraconicHostHandle conn_h,
+    const uint8_t *data,
+    size_t len) {
+    DraconicValue *p = draconic_rt_promise_new();
+    HostTcpAsyncOp *op;
+    DraconicHostError err;
+    int64_t id = 0;
+#if !defined(_WIN32)
+    int fd;
+    ssize_t n;
+    size_t off = 0;
+#endif
+
+    if (!p) {
+        return NULL;
+    }
+    if (len > 0 && !data) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_INVAL));
+        return p;
+    }
+    err = draconic_rt_host_tcp_set_nonblocking(conn_h, 1);
+    if (err != DRACONIC_HOST_OK) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)err));
+        return p;
+    }
+#if defined(_WIN32)
+    draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_NOSYS));
+    return p;
+#else
+    fd = host_handle_tcp_conn_fd(conn_h);
+    if (fd < 0) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_BADF));
+        return p;
+    }
+    while (off < len) {
+        n = write(fd, data + off, len - off);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)host_tcp_errno_map()));
+            return p;
+        }
+        off += (size_t)n;
+    }
+    if (off >= len) {
+        draconic_rt_promise_resolve(p, host_tcp_async_num((int64_t)len));
+        return p;
+    }
+    op = host_tcp_async_alloc(HOST_TCP_ASYNC_WRITE, conn_h, p);
+    if (!op) {
+        draconic_rt_promise_reject(p, host_tcp_async_num((int64_t)DRACONIC_HOST_E_NOMEM));
+        return p;
+    }
+    op->write_len = len;
+    op->write_off = off;
+    op->write_data = (uint8_t *)malloc(len);
+    if (!op->write_data) {
+        host_tcp_async_settle_err(op, DRACONIC_HOST_E_NOMEM);
+        return p;
+    }
+    memcpy(op->write_data, data, len);
+    err = draconic_rt_host_io_wait(
+        conn_h, DRACONIC_HOST_IO_WRITE, host_tcp_async_on_write_ready, op, &id);
+    if (err != DRACONIC_HOST_OK) {
+        host_tcp_async_settle_err(op, err);
+        return p;
+    }
+    op->wait_id = id;
+    return p;
 #endif
 }

@@ -1,0 +1,15 @@
+// H07.02: async read/write → Promises (byte counts) on connected sockets.
+// job_drain runs after main stmts — do not close handles before async settles.
+let nread = 0;
+let nwrite = 0;
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+tcpWriteAsync(c, "ping").then(function (n) {
+  nwrite = n;
+});
+tcpReadAsync(a, 64).then(function (n) {
+  nread = n;
+});
+let t_ra = typeof tcpReadAsync;
+let t_wa = typeof tcpWriteAsync;

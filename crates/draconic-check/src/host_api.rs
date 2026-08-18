@@ -358,6 +358,26 @@ const HOST_APIS: &[HostApiEntry] = &[
         availability: HostAvailability::NATIVE_ONLY,
         note: "H06.04 TCP shutdown (0=RD 1=WR 2=RDWR)",
     },
+    HostApiEntry {
+        name: "tcpAcceptAsync",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H07.02 TCP accept → Promise (handle)",
+    },
+    HostApiEntry {
+        name: "tcpConnectAsync",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H07.02 TCP connect → Promise (handle)",
+    },
+    HostApiEntry {
+        name: "tcpReadAsync",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H07.02 TCP read → Promise (byte count)",
+    },
+    HostApiEntry {
+        name: "tcpWriteAsync",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H07.02 TCP write → Promise (byte count)",
+    },
 ];
 
 /// All known host API entries.
@@ -714,6 +734,10 @@ mod tests {
             "tcpRead",
             "tcpWrite",
             "tcpShutdown",
+            "tcpAcceptAsync",
+            "tcpConnectAsync",
+            "tcpReadAsync",
+            "tcpWriteAsync",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");
