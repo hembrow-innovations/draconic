@@ -1,0 +1,4 @@
+id: host/net/ws/ws_frame_binary
+targets: native
+native.exit: 0
+native.stdout: 4\n2\n1\nHi\n

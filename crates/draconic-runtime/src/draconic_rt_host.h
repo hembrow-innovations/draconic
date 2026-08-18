@@ -530,6 +530,44 @@ DraconicHostError draconic_rt_host_ws_handshake_response(
     const char *sec_websocket_key,
     char **out_msg);
 
+/* --- WebSocket frames (H12.02 / RFC 6455 §5) --------------------------------
+   Server frames are unmasked (MASK=0). FIN=1 single-frame messages.
+   Opcodes: 1 text, 2 binary, 8 close, 9 ping, 10 pong.
+   Encode: *out_data malloc'd of *out_len bytes (caller frees).
+   Decode: unmasks client frames; *out_payload malloc'd (caller frees);
+   *out_close_code is status code when opcode==8 and payload >= 2, else -1.
+   Malformed / truncated → INVAL. */
+DraconicHostError draconic_rt_host_ws_encode_text(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_ws_encode_binary(
+    const uint8_t *payload,
+    size_t payload_len,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_ws_encode_close(
+    int32_t code,
+    const char *reason,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_ws_encode_ping(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_ws_encode_pong(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_ws_decode_frame(
+    const uint8_t *data,
+    size_t len,
+    int32_t *out_fin,
+    int32_t *out_opcode,
+    uint8_t **out_payload,
+    size_t *out_payload_len,
+    int32_t *out_close_code);
+
 /* --- TLS client/server wrap (H11.01 / H11.02) ------------------------------
    Wrap an existing TCP connection handle as a TLS client or server session.
    Takes ownership of the TCP conn handle (it becomes invalid); *out_tls is a

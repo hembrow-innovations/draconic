@@ -1,0 +1,4 @@
+id: host/net/ws/ws_frame_close
+targets: native
+native.exit: 0
+native.stdout: 8\n1\n1000\nbye\n

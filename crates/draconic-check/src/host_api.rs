@@ -93,6 +93,8 @@ pub struct HostApiEntry {
 ///   and client parse/write) hard-error on js until optional Node bridge.
 /// - `tlsClientWrap` / `tlsServerWrap` / `tlsRead` / `tlsWrite` / `closeTls` (H11.01/H11.02): native-only TLS.
 /// - `wsHandshakeResponse` (H12.01): native-only WebSocket server opening handshake (RFC 6455).
+/// - `wsEncodeText` / `wsEncodeBinary` / `wsEncodeClose` / `wsEncodePing` / `wsEncodePong` /
+///   `wsDecodeFrame` (H12.02): native-only WebSocket frames (RFC 6455 §5).
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -479,6 +481,36 @@ const HOST_APIS: &[HostApiEntry] = &[
         availability: HostAvailability::NATIVE_ONLY,
         note: "H12.01 WebSocket server opening handshake response from Sec-WebSocket-Key",
     },
+    HostApiEntry {
+        name: "wsEncodeText",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.02 WebSocket text frame encode (FIN=1, unmasked)",
+    },
+    HostApiEntry {
+        name: "wsEncodeBinary",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.02 WebSocket binary frame encode (FIN=1, unmasked)",
+    },
+    HostApiEntry {
+        name: "wsEncodeClose",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.02 WebSocket close frame encode (code + reason)",
+    },
+    HostApiEntry {
+        name: "wsEncodePing",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.02 WebSocket ping frame encode",
+    },
+    HostApiEntry {
+        name: "wsEncodePong",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.02 WebSocket pong frame encode",
+    },
+    HostApiEntry {
+        name: "wsDecodeFrame",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.02 WebSocket frame decode (unmask client frames)",
+    },
 ];
 
 /// All known host API entries.
@@ -857,6 +889,12 @@ mod tests {
             "tlsWrite",
             "closeTls",
             "wsHandshakeResponse",
+            "wsEncodeText",
+            "wsEncodeBinary",
+            "wsEncodeClose",
+            "wsEncodePing",
+            "wsEncodePong",
+            "wsDecodeFrame",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

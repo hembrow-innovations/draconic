@@ -1,4 +1,4 @@
-//! ROADMAP H12.01: WebSocket handshake (HTTP/1.1 upgrade) server-side.
+//! ROADMAP H12.01–H12.02: WebSocket handshake + frames.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -89,4 +89,57 @@ fn ws_handshake_server_runs_native() {
         )
     );
     assert_fixture_runs("host/net/ws/ws_handshake_server");
+}
+
+#[test]
+fn ws_frame_text_runs_native() {
+    assert_fixture_present("host/net/ws/ws_frame_text");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/ws/ws_frame_text")
+        .expect("host/net/ws/ws_frame_text");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("7\n1\n1\n-1\nHello\n")
+    );
+    assert_fixture_runs("host/net/ws/ws_frame_text");
+}
+
+#[test]
+fn ws_frame_binary_runs_native() {
+    assert_fixture_present("host/net/ws/ws_frame_binary");
+    assert_fixture_runs("host/net/ws/ws_frame_binary");
+}
+
+#[test]
+fn ws_frame_close_runs_native() {
+    assert_fixture_present("host/net/ws/ws_frame_close");
+    assert_fixture_runs("host/net/ws/ws_frame_close");
+}
+
+#[test]
+fn ws_frame_ping_pong_runs_native() {
+    assert_fixture_present("host/net/ws/ws_frame_ping_pong");
+    assert_fixture_runs("host/net/ws/ws_frame_ping_pong");
+}
+
+#[test]
+fn ws_frame_bad_runs_native() {
+    assert_fixture_present("host/net/ws/ws_frame_bad");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/ws/ws_frame_bad")
+        .expect("host/net/ws/ws_frame_bad");
+    assert_eq!(fixture.expect_native.exit, 1);
+    assert_eq!(
+        fixture.expect_native.stderr.as_deref(),
+        Some("EINVAL\n")
+    );
+    assert_fixture_runs("host/net/ws/ws_frame_bad");
 }

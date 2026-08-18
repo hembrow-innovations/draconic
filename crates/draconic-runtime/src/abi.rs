@@ -1104,6 +1104,37 @@ pub const HOST_WS_HANDSHAKE_RESPONSE: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, ptr",
 };
+/* H12.02: WebSocket frames (RFC 6455 §5). */
+pub const HOST_WS_ENCODE_TEXT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_encode_text",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
+pub const HOST_WS_ENCODE_BINARY: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_encode_binary",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr",
+};
+pub const HOST_WS_ENCODE_CLOSE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_encode_close",
+    ret: "i32",
+    params: "i32, ptr, ptr, ptr",
+};
+pub const HOST_WS_ENCODE_PING: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_encode_ping",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
+pub const HOST_WS_ENCODE_PONG: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_encode_pong",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
+pub const HOST_WS_DECODE_FRAME: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_decode_frame",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr, ptr, ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1227,6 +1258,12 @@ pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
 pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
 pub const HOST_WS_HANDSHAKE_RESPONSE_SYMBOL: &str = HOST_WS_HANDSHAKE_RESPONSE.symbol;
+pub const HOST_WS_ENCODE_TEXT_SYMBOL: &str = HOST_WS_ENCODE_TEXT.symbol;
+pub const HOST_WS_ENCODE_BINARY_SYMBOL: &str = HOST_WS_ENCODE_BINARY.symbol;
+pub const HOST_WS_ENCODE_CLOSE_SYMBOL: &str = HOST_WS_ENCODE_CLOSE.symbol;
+pub const HOST_WS_ENCODE_PING_SYMBOL: &str = HOST_WS_ENCODE_PING.symbol;
+pub const HOST_WS_ENCODE_PONG_SYMBOL: &str = HOST_WS_ENCODE_PONG.symbol;
+pub const HOST_WS_DECODE_FRAME_SYMBOL: &str = HOST_WS_DECODE_FRAME.symbol;
 pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
 pub const HOST_TLS_SERVER_WRAP_SYMBOL: &str = HOST_TLS_SERVER_WRAP.symbol;
 pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
@@ -1314,6 +1351,12 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_WRITE_RESPONSE_SYMBOL,
     HOST_HTTP_WRITE_REQUEST_SYMBOL,
     HOST_WS_HANDSHAKE_RESPONSE_SYMBOL,
+    HOST_WS_ENCODE_TEXT_SYMBOL,
+    HOST_WS_ENCODE_BINARY_SYMBOL,
+    HOST_WS_ENCODE_CLOSE_SYMBOL,
+    HOST_WS_ENCODE_PING_SYMBOL,
+    HOST_WS_ENCODE_PONG_SYMBOL,
+    HOST_WS_DECODE_FRAME_SYMBOL,
     HOST_TLS_CLIENT_WRAP_SYMBOL,
     HOST_TLS_SERVER_WRAP_SYMBOL,
     HOST_TLS_READ_SYMBOL,
@@ -1406,6 +1449,12 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_HTTP_PARSE_RESPONSE,
     HOST_HTTP_RESPONSE_HEADER,
     HOST_WS_HANDSHAKE_RESPONSE,
+    HOST_WS_ENCODE_TEXT,
+    HOST_WS_ENCODE_BINARY,
+    HOST_WS_ENCODE_CLOSE,
+    HOST_WS_ENCODE_PING,
+    HOST_WS_ENCODE_PONG,
+    HOST_WS_DECODE_FRAME,
     HOST_TLS_CLIENT_WRAP,
     HOST_TLS_SERVER_WRAP,
     HOST_TLS_READ,

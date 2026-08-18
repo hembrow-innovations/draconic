@@ -210,6 +210,30 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_ws_handshake_response(ptr, ptr)"
     );
     assert_eq!(
+        HOST_WS_ENCODE_TEXT.declare(),
+        "declare i32 @draconic_rt_host_ws_encode_text(ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_WS_ENCODE_BINARY.declare(),
+        "declare i32 @draconic_rt_host_ws_encode_binary(ptr, i64, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_WS_ENCODE_CLOSE.declare(),
+        "declare i32 @draconic_rt_host_ws_encode_close(i32, ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_WS_ENCODE_PING.declare(),
+        "declare i32 @draconic_rt_host_ws_encode_ping(ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_WS_ENCODE_PONG.declare(),
+        "declare i32 @draconic_rt_host_ws_encode_pong(ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_WS_DECODE_FRAME.declare(),
+        "declare i32 @draconic_rt_host_ws_decode_frame(ptr, i64, ptr, ptr, ptr, ptr, ptr)"
+    );
+    assert_eq!(
         HOST_TLS_CLIENT_WRAP.declare(),
         "declare i32 @draconic_rt_host_tls_client_wrap(i64, ptr, i32, ptr)"
     );
@@ -3110,6 +3134,129 @@ fn host_ws_handshake_response_rfc6455_sample() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "ws-h1201-ok\n");
+}
+
+#[test]
+fn host_ws_frames_text_binary_close_ping_pong() {
+    // H12.02: RFC 6455 frames — text wire sample, roundtrips, masked client decode.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_ws_h1202.c");
+    let bin = dir.join("rt_host_ws_h1202");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <string.h>
+        #include <stdlib.h>
+        #include <stdint.h>
+
+        int main(void) {
+            DraconicHostError err;
+            uint8_t *frame = NULL;
+            size_t flen = 0;
+            int32_t fin = 0, opcode = 0, close_code = -1;
+            uint8_t *payload = NULL;
+            size_t plen = 0;
+            /* RFC 6455 unmasked text "Hello" */
+            static const uint8_t want_hello[] = {0x81, 0x05, 'H', 'e', 'l', 'l', 'o'};
+            /* RFC 6455 masked client text "Hello" with mask 0x37 0xfa 0x21 0x3d */
+            static const uint8_t masked_hello[] = {
+                0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58
+            };
+
+            err = draconic_rt_host_ws_encode_text("Hello", &frame, &flen);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (flen != sizeof(want_hello) || memcmp(frame, want_hello, flen) != 0) {
+                fprintf(stderr, "text wire mismatch len=%zu\n", flen);
+                return 2;
+            }
+            free(frame); frame = NULL; flen = 0;
+
+            err = draconic_rt_host_ws_decode_frame(
+                want_hello, sizeof(want_hello),
+                &fin, &opcode, &payload, &plen, &close_code);
+            if (err != DRACONIC_HOST_OK) return 3;
+            if (fin != 1 || opcode != 1 || close_code != -1) return 4;
+            if (plen != 5 || memcmp(payload, "Hello", 5) != 0) return 5;
+            free(payload); payload = NULL; plen = 0;
+
+            err = draconic_rt_host_ws_decode_frame(
+                masked_hello, sizeof(masked_hello),
+                &fin, &opcode, &payload, &plen, &close_code);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (fin != 1 || opcode != 1 || plen != 5 || memcmp(payload, "Hello", 5) != 0) return 7;
+            free(payload); payload = NULL;
+
+            err = draconic_rt_host_ws_encode_binary((const uint8_t *)"Hi", 2, &frame, &flen);
+            if (err != DRACONIC_HOST_OK) return 8;
+            err = draconic_rt_host_ws_decode_frame(frame, flen, &fin, &opcode, &payload, &plen, &close_code);
+            free(frame); frame = NULL;
+            if (err != DRACONIC_HOST_OK || opcode != 2 || plen != 2 || memcmp(payload, "Hi", 2) != 0)
+                return 9;
+            free(payload); payload = NULL;
+
+            err = draconic_rt_host_ws_encode_close(1000, "bye", &frame, &flen);
+            if (err != DRACONIC_HOST_OK) return 10;
+            err = draconic_rt_host_ws_decode_frame(frame, flen, &fin, &opcode, &payload, &plen, &close_code);
+            free(frame); frame = NULL;
+            if (err != DRACONIC_HOST_OK || opcode != 8 || close_code != 1000) return 11;
+            if (plen != 3 || memcmp(payload, "bye", 3) != 0) return 12;
+            free(payload); payload = NULL;
+
+            err = draconic_rt_host_ws_encode_ping("x", &frame, &flen);
+            if (err != DRACONIC_HOST_OK) return 13;
+            err = draconic_rt_host_ws_decode_frame(frame, flen, &fin, &opcode, &payload, &plen, &close_code);
+            free(frame); frame = NULL;
+            if (err != DRACONIC_HOST_OK || opcode != 9 || plen != 1 || payload[0] != 'x') return 14;
+            free(payload); payload = NULL;
+
+            err = draconic_rt_host_ws_encode_pong("x", &frame, &flen);
+            if (err != DRACONIC_HOST_OK) return 15;
+            err = draconic_rt_host_ws_decode_frame(frame, flen, &fin, &opcode, &payload, &plen, &close_code);
+            free(frame); frame = NULL;
+            if (err != DRACONIC_HOST_OK || opcode != 10 || plen != 1 || payload[0] != 'x') return 16;
+            free(payload); payload = NULL;
+
+            err = draconic_rt_host_ws_decode_frame((const uint8_t *)"\x81", 1,
+                &fin, &opcode, &payload, &plen, &close_code);
+            if (err != DRACONIC_HOST_E_INVAL) return 17;
+
+            puts("ws-h1202-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+    };
+    assert!(status.success(), "clang failed for ws H12.02 smoke");
+
+    let output = Command::new(&bin).output().expect("run ws h1202");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "ws H12.02 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ws-h1202-ok\n");
 }
 
 #[test]

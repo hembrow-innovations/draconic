@@ -1,0 +1,4 @@
+id: host/net/ws/ws_frame_ping_pong
+targets: native
+native.exit: 0
+native.stdout: 9\nx\n10\nx\n

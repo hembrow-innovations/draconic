@@ -1,0 +1,7 @@
+// H12.02: close frame encode/decode (code 1000 + reason).
+let f = wsEncodeClose(1000, "bye");
+let d = wsDecodeFrame(f);
+let op = d.opcode;
+let fin = d.fin;
+let cc = d.closeCode;
+let p = d.payload;

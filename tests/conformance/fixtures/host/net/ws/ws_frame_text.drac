@@ -1,0 +1,8 @@
+// H12.02: text frame encode/decode roundtrip (RFC 6455 unmasked "Hello").
+let f = wsEncodeText("Hello");
+let n = f.length;
+let d = wsDecodeFrame(f);
+let op = d.opcode;
+let fin = d.fin;
+let cc = d.closeCode;
+let p = d.payload;

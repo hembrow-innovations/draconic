@@ -1,0 +1,4 @@
+id: host/net/ws/ws_frame_text
+targets: native
+native.exit: 0
+native.stdout: 7\n1\n1\n-1\nHello\n

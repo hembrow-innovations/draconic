@@ -1,0 +1,7 @@
+// H12.02: binary frame encode/decode roundtrip.
+let f = wsEncodeBinary("Hi");
+let n = f.length;
+let d = wsDecodeFrame(f);
+let op = d.opcode;
+let fin = d.fin;
+let p = d.payload;

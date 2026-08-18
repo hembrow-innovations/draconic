@@ -4385,6 +4385,266 @@ DraconicHostError draconic_rt_host_ws_handshake_response(
     return DRACONIC_HOST_OK;
 }
 
+/* --- WebSocket frames (H12.02 / RFC 6455 §5) ------------------------------ */
+
+static DraconicHostError host_ws_encode_frame(
+    uint8_t opcode,
+    const uint8_t *payload,
+    size_t payload_len,
+    const uint8_t *mask_key,
+    uint8_t **out_data,
+    size_t *out_len) {
+    int masked = mask_key != NULL;
+    size_t hdr;
+    size_t total;
+    uint8_t *buf;
+    size_t off;
+    size_t i;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    if (payload_len > 0 && !payload) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (opcode > 0x0f) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    hdr = 2;
+    if (payload_len >= 126 && payload_len <= 0xffff) {
+        hdr += 2;
+    } else if (payload_len > 0xffff) {
+        hdr += 8;
+    }
+    if (masked) {
+        hdr += 4;
+    }
+    total = hdr + payload_len;
+    buf = (uint8_t *)malloc(total ? total : 1);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    buf[0] = (uint8_t)(0x80u | (opcode & 0x0fu)); /* FIN=1 */
+    off = 2;
+    if (payload_len < 126) {
+        buf[1] = (uint8_t)((masked ? 0x80u : 0u) | (uint8_t)payload_len);
+    } else if (payload_len <= 0xffff) {
+        buf[1] = (uint8_t)((masked ? 0x80u : 0u) | 126u);
+        buf[2] = (uint8_t)((payload_len >> 8) & 0xff);
+        buf[3] = (uint8_t)(payload_len & 0xff);
+        off = 4;
+    } else {
+        buf[1] = (uint8_t)((masked ? 0x80u : 0u) | 127u);
+        buf[2] = 0;
+        buf[3] = 0;
+        buf[4] = 0;
+        buf[5] = 0;
+        buf[6] = (uint8_t)((payload_len >> 24) & 0xff);
+        buf[7] = (uint8_t)((payload_len >> 16) & 0xff);
+        buf[8] = (uint8_t)((payload_len >> 8) & 0xff);
+        buf[9] = (uint8_t)(payload_len & 0xff);
+        off = 10;
+    }
+    if (masked) {
+        memcpy(buf + off, mask_key, 4);
+        off += 4;
+        for (i = 0; i < payload_len; i++) {
+            buf[off + i] = (uint8_t)(payload[i] ^ mask_key[i % 4]);
+        }
+    } else if (payload_len > 0) {
+        memcpy(buf + off, payload, payload_len);
+    }
+
+    *out_data = buf;
+    *out_len = total;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_ws_encode_text(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len) {
+    const uint8_t *p = (const uint8_t *)(payload ? payload : "");
+    size_t n = payload ? strlen(payload) : 0;
+    return host_ws_encode_frame(0x1, p, n, NULL, out_data, out_len);
+}
+
+DraconicHostError draconic_rt_host_ws_encode_binary(
+    const uint8_t *payload,
+    size_t payload_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    return host_ws_encode_frame(0x2, payload, payload_len, NULL, out_data, out_len);
+}
+
+DraconicHostError draconic_rt_host_ws_encode_close(
+    int32_t code,
+    const char *reason,
+    uint8_t **out_data,
+    size_t *out_len) {
+    size_t rlen = reason ? strlen(reason) : 0;
+    size_t plen;
+    uint8_t *payload;
+    DraconicHostError err;
+
+    if (code < 0 || code > 0xffff) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    plen = 2 + rlen;
+    payload = (uint8_t *)malloc(plen);
+    if (!payload) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    payload[0] = (uint8_t)((code >> 8) & 0xff);
+    payload[1] = (uint8_t)(code & 0xff);
+    if (rlen > 0) {
+        memcpy(payload + 2, reason, rlen);
+    }
+    err = host_ws_encode_frame(0x8, payload, plen, NULL, out_data, out_len);
+    free(payload);
+    return err;
+}
+
+DraconicHostError draconic_rt_host_ws_encode_ping(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len) {
+    const uint8_t *p = (const uint8_t *)(payload ? payload : "");
+    size_t n = payload ? strlen(payload) : 0;
+    if (n > 125) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    return host_ws_encode_frame(0x9, p, n, NULL, out_data, out_len);
+}
+
+DraconicHostError draconic_rt_host_ws_encode_pong(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len) {
+    const uint8_t *p = (const uint8_t *)(payload ? payload : "");
+    size_t n = payload ? strlen(payload) : 0;
+    if (n > 125) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    return host_ws_encode_frame(0xA, p, n, NULL, out_data, out_len);
+}
+
+DraconicHostError draconic_rt_host_ws_decode_frame(
+    const uint8_t *data,
+    size_t len,
+    int32_t *out_fin,
+    int32_t *out_opcode,
+    uint8_t **out_payload,
+    size_t *out_payload_len,
+    int32_t *out_close_code) {
+    size_t off;
+    int fin;
+    int opcode;
+    int masked;
+    uint64_t plen;
+    uint8_t mask[4];
+    uint8_t *payload;
+    size_t i;
+
+    if (!out_fin || !out_opcode || !out_payload || !out_payload_len || !out_close_code) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_fin = 0;
+    *out_opcode = 0;
+    *out_payload = NULL;
+    *out_payload_len = 0;
+    *out_close_code = -1;
+
+    if (!data || len < 2) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    fin = (data[0] >> 7) & 1;
+    opcode = data[0] & 0x0f;
+    masked = (data[1] >> 7) & 1;
+    plen = (uint64_t)(data[1] & 0x7f);
+    off = 2;
+
+    if (plen == 126) {
+        if (len < off + 2) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        plen = ((uint64_t)data[off] << 8) | (uint64_t)data[off + 1];
+        off += 2;
+    } else if (plen == 127) {
+        if (len < off + 8) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        /* Reject non-zero high 32 bits (payload > 4GiB). */
+        if (data[off] || data[off + 1] || data[off + 2] || data[off + 3]) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        plen = ((uint64_t)data[off + 4] << 24) | ((uint64_t)data[off + 5] << 16)
+            | ((uint64_t)data[off + 6] << 8) | (uint64_t)data[off + 7];
+        off += 8;
+    }
+
+    if (masked) {
+        if (len < off + 4) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        memcpy(mask, data + off, 4);
+        off += 4;
+    }
+
+    if (len < off + (size_t)plen) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    if (plen > 0) {
+        payload = (uint8_t *)malloc((size_t)plen);
+        if (!payload) {
+            return DRACONIC_HOST_E_NOMEM;
+        }
+        if (masked) {
+            for (i = 0; i < (size_t)plen; i++) {
+                payload[i] = (uint8_t)(data[off + i] ^ mask[i % 4]);
+            }
+        } else {
+            memcpy(payload, data + off, (size_t)plen);
+        }
+    } else {
+        payload = NULL;
+    }
+
+    *out_fin = fin;
+    *out_opcode = opcode;
+    *out_payload = payload;
+    *out_payload_len = (size_t)plen;
+    if (opcode == 0x8 && plen >= 2) {
+        *out_close_code = (int32_t)(((uint32_t)payload[0] << 8) | (uint32_t)payload[1]);
+        /* Expose reason only (strip 2-byte code) as payload for callers. */
+        if (plen == 2) {
+            free(payload);
+            *out_payload = NULL;
+            *out_payload_len = 0;
+        } else {
+            size_t rlen = (size_t)plen - 2;
+            uint8_t *reason = (uint8_t *)malloc(rlen);
+            if (!reason) {
+                free(payload);
+                *out_payload = NULL;
+                *out_payload_len = 0;
+                return DRACONIC_HOST_E_NOMEM;
+            }
+            memcpy(reason, payload + 2, rlen);
+            free(payload);
+            *out_payload = reason;
+            *out_payload_len = rlen;
+        }
+    }
+    return DRACONIC_HOST_OK;
+}
+
 /* --- TLS client wrap (H11.01) -------------------------------------------- */
 
 #if defined(__APPLE__)

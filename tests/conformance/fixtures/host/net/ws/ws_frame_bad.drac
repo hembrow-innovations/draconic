@@ -1,0 +1,2 @@
+// H12.02: truncated frame → EINVAL.
+wsDecodeFrame("\x81");

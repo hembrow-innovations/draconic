@@ -1,0 +1,9 @@
+// H12.02: ping/pong frame encode/decode.
+let pi = wsEncodePing("x");
+let po = wsEncodePong("x");
+let d1 = wsDecodeFrame(pi);
+let d2 = wsDecodeFrame(po);
+let o1 = d1.opcode;
+let p1 = d1.payload;
+let o2 = d2.opcode;
+let p2 = d2.payload;
