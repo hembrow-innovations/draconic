@@ -11,10 +11,12 @@
 //! K03.02: git clone/fetch into cache VCS store (HTTPS; fixture repos in tests).
 //! K03.03: checkout pinned OID into mod store; cache hit skips network.
 //! K03.04: content hash SHA-256 over canonical package tree.
+//! K04.01: resolve version req against git tags; highest matching semver.
 
 mod cache;
 mod hash;
 mod lock;
+mod resolve;
 
 pub use cache::{
     entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError,
@@ -24,6 +26,7 @@ pub use hash::{content_hash_tree, ContentHashError};
 pub use lock::{
     parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError,
 };
+pub use resolve::{resolve_highest_matching_tag, ResolveError, ResolvedVersion};
 
 use std::collections::BTreeMap;
 use std::fmt;
