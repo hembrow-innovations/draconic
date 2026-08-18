@@ -158,3 +158,13 @@ fn eval_var_inject_fixture_present() {
 fn eval_var_inject_runs() {
     assert_fixture_runs_declared_targets("es/legacy/eval_var_inject");
 }
+
+#[test]
+fn arguments_mapped_residual_fixture_present() {
+    assert_fixture_present("es/legacy/arguments_mapped_residual");
+}
+
+#[test]
+fn arguments_mapped_residual_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/arguments_mapped_residual");
+}

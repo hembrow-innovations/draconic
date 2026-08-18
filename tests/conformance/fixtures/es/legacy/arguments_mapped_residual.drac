@@ -1,0 +1,87 @@
+// E17.02.12: mapped arguments residual (non-strict simple params).
+// delete arguments[i] breaks formal↔index alias; arguments.length assignment.
+
+// delete arguments[0] unmaps: later param assign does not write arguments[0].
+function deleteThenParam(a) {
+  let del = delete arguments[0];
+  a = 99;
+  return del === true && arguments[0] === undefined && a === 99;
+}
+let a = deleteThenParam(1);
+
+// delete arguments[0] unmaps: later arguments[0] assign does not write formal.
+function deleteThenArgs(a) {
+  delete arguments[0];
+  arguments[0] = 77;
+  return a === 1 && arguments[0] === 77;
+}
+let b = deleteThenArgs(1);
+
+// Multi-param: delete only breaks that index; other mapped indices remain.
+function deleteOneOfTwo(x, y) {
+  delete arguments[0];
+  x = 10;
+  y = 20;
+  return arguments[0] === undefined && arguments[1] === 20 && x === 10 && y === 20;
+}
+let c = deleteOneOfTwo(1, 2);
+
+// Shrink length: length becomes smaller; formals still hold call values.
+function shrinkLength(p, q) {
+  arguments.length = 1;
+  return arguments.length === 1 && p === 3 && q === 4 && arguments[0] === 3;
+}
+let d = shrinkLength(3, 4);
+
+// Grow length + write new index (unmapped past formals).
+function growLength(p) {
+  arguments.length = 3;
+  arguments[1] = 5;
+  arguments[2] = 6;
+  return (
+    arguments.length === 3 &&
+    p === 1 &&
+    arguments[0] === 1 &&
+    arguments[1] === 5 &&
+    arguments[2] === 6
+  );
+}
+let e = growLength(1);
+
+// Named function expression: same delete-unmap semantics.
+let named = function (z) {
+  delete arguments[0];
+  z = 8;
+  return arguments[0] === undefined && z === 8;
+};
+let f = named(2);
+
+// Object method (non-arrow): delete breaks mapping.
+let o = {
+  m: function (p) {
+    delete arguments[0];
+    arguments[0] = 9;
+    return p === 4 && arguments[0] === 9;
+  },
+};
+let g = o.m(4);
+
+// After delete, re-create index then assign formal — still unmapped.
+function deleteRemap(a) {
+  delete arguments[0];
+  arguments[0] = 1;
+  a = 2;
+  return arguments[0] === 1 && a === 2;
+}
+let h = deleteRemap(0);
+
+// Strict function: mapped alias does not apply (no mapping); delete still ok.
+function strictNoMap(a) {
+  "use strict";
+  arguments[0] = 50;
+  let afterArgs = a;
+  a = 60;
+  let afterParam = arguments[0];
+  return afterArgs === 1 && afterParam === 50;
+}
+let i = strictNoMap(1);
