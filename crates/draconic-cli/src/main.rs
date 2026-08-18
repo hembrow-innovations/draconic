@@ -35,6 +35,7 @@ fn main() -> ExitCode {
         "repl" => cmd_repl(&args),
         "test" => cmd_test(&args),
         "get" => cmd_get(&args),
+        "mod" => cmd_mod(&args),
         "help" | "-h" | "--help" => {
             print_usage();
             ExitCode::SUCCESS
@@ -1246,6 +1247,105 @@ fn parse_clang_llvm_version(text: &str) -> Option<String> {
     None
 }
 
+/// ROADMAP K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
+fn cmd_mod(args: &[String]) -> ExitCode {
+    let sub = match args.first().map(String::as_str) {
+        Some("tidy") => "tidy",
+        Some(other) => {
+            eprintln!("unknown mod subcommand: {other}");
+            eprintln!("usage: draconic mod tidy [--dir <path>] [--cache-dir <path>]");
+            return ExitCode::from(2);
+        }
+        None => {
+            eprintln!("usage: draconic mod tidy [--dir <path>] [--cache-dir <path>]");
+            return ExitCode::from(2);
+        }
+    };
+    debug_assert_eq!(sub, "tidy");
+    let rest = &args[1..];
+    let parsed = match parse_mod_tidy_args(rest) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            eprintln!("usage: draconic mod tidy [--dir <path>] [--cache-dir <path>]");
+            return ExitCode::from(2);
+        }
+    };
+
+    let workspace = parsed
+        .dir
+        .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let cache_root = parsed
+        .cache_dir
+        .unwrap_or_else(|| draconic_pkg::default_cache_root(&workspace));
+    let cache = draconic_pkg::ModuleCache::new(cache_root);
+
+    match draconic_pkg::mod_tidy(&workspace, &cache) {
+        Ok(r) => {
+            println!(
+                "mod tidy: kept {} fetched {} pruned {}",
+                r.kept.len(),
+                r.fetched.len(),
+                r.pruned.len()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ModTidyArgs {
+    dir: Option<PathBuf>,
+    cache_dir: Option<PathBuf>,
+}
+
+fn parse_mod_tidy_args(args: &[String]) -> Result<ModTidyArgs, String> {
+    let mut dir: Option<PathBuf> = None;
+    let mut cache_dir: Option<PathBuf> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                return Err(
+                    "usage: draconic mod tidy [--dir <path>] [--cache-dir <path>]".into(),
+                );
+            }
+            "--dir" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    return Err("missing value for --dir".into());
+                };
+                dir = Some(PathBuf::from(v));
+            }
+            t if let Some(rest) = t.strip_prefix("--dir=") => {
+                dir = Some(PathBuf::from(rest));
+            }
+            "--cache-dir" => {
+                i += 1;
+                let Some(v) = args.get(i) else {
+                    return Err("missing value for --cache-dir".into());
+                };
+                cache_dir = Some(PathBuf::from(v));
+            }
+            t if let Some(rest) = t.strip_prefix("--cache-dir=") => {
+                cache_dir = Some(PathBuf::from(rest));
+            }
+            other if other.starts_with('-') => {
+                return Err(format!("unknown option: {other}"));
+            }
+            other => {
+                return Err(format!("unexpected argument: {other}"));
+            }
+        }
+        i += 1;
+    }
+    Ok(ModTidyArgs { dir, cache_dir })
+}
+
 /// ROADMAP K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 fn cmd_get(args: &[String]) -> ExitCode {
     let parsed = match parse_get_args(args) {
@@ -1379,6 +1479,8 @@ Usage:
   draconic test [--coverage] <path>              Run conformance fixtures (dir or .drac file)
   draconic get <module_path>@<ver> [--url <git-url>] [--dir <path>] [--cache-dir <path>]
                                                   Add/update a git package dep; fetch; write lock
+  draconic mod tidy [--dir <path>] [--cache-dir <path>]
+                                                  Align lock with manifest; fetch missing; prune unused
   draconic version | -V | --version              Print verbose version (commit, host, LLVM)
   draconic help                                  Show this help
 

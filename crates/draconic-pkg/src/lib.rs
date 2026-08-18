@@ -15,12 +15,14 @@
 //! fail closed on empty/invalid req, empty tags, non-semver-only, no match.
 //! K04.03: resolve direct-deps set → lock pins (v1: direct only).
 //! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
+//! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
 
 mod cache;
 mod get;
 mod hash;
 mod lock;
 mod resolve;
+mod tidy;
 
 pub use cache::{
     entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError,
@@ -38,6 +40,7 @@ pub use resolve::{
     resolve_direct_deps, resolve_highest_matching_tag, ResolveDirectError, ResolveError,
     ResolvedVersion,
 };
+pub use tidy::{mod_tidy, mod_tidy_default_cache, TidyError, TidyResult};
 
 use std::collections::BTreeMap;
 use std::fmt;

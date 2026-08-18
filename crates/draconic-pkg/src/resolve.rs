@@ -416,6 +416,20 @@ fn parse_version_req(req: &str) -> Result<VersionReq, &'static str> {
     })
 }
 
+/// Whether concrete `version` (e.g. `1.2.3`) satisfies a version requirement.
+///
+/// Used by `mod tidy` to keep existing lock pins when still valid (K05.02).
+pub(crate) fn version_satisfies_req(version: &str, req: &str) -> bool {
+    let Ok(parsed_req) = parse_version_req(req) else {
+        return false;
+    };
+    let ver_str = version.strip_prefix('v').unwrap_or(version);
+    let Ok(ver) = parse_semver(ver_str) else {
+        return false;
+    };
+    req_matches(&parsed_req, &ver)
+}
+
 fn req_matches(req: &VersionReq, v: &SemVer) -> bool {
     match req {
         VersionReq::Exact(base) => v == base,
