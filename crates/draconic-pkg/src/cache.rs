@@ -1,19 +1,23 @@
-//! Module cache layout (Roadmap K03.01).
+//! Module cache layout and git fetch (Roadmap K03.01–K03.02).
 //!
 //! On-disk roots are keyed by module path + full commit OID. Layout (under a
 //! cache root):
 //!
 //! ```text
 //! {cache_root}/mod/{module_path_segments…}/{commit_oid}/
+//! {cache_root}/vcs/{module_path_segments…}/   # bare git clone (K03.02)
 //! ```
 //!
 //! Example: module `github.com/org/lib` at OID `0123…ef` →
 //! `{cache_root}/mod/github.com/org/lib/0123…ef/`.
 //!
-//! K03.01 is path computation + validation only (no git clone — K03.02).
+//! K03.01: path computation + validation.
+//! K03.02: `git clone --bare` / `git fetch` into the VCS store (HTTPS + fixture repos).
 
 use std::fmt;
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::validate_module_path;
 
@@ -55,6 +59,106 @@ impl fmt::Display for CachePathError {
 }
 
 impl std::error::Error for CachePathError {}
+
+/// Error while cloning or fetching a package into the module cache (K03.02).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CacheFetchError {
+    /// Module path / layout validation failed.
+    Path(CachePathError),
+    /// Git URL is empty or not an allowed clone URL.
+    InvalidUrl { url: String, reason: &'static str },
+    /// Filesystem error (create dirs, etc.).
+    Io(String),
+    /// `git` subprocess failed or is unavailable.
+    Git(String),
+}
+
+impl fmt::Display for CacheFetchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CacheFetchError::Path(e) => write!(f, "{e}"),
+            CacheFetchError::InvalidUrl { url, reason } => {
+                write!(f, "module cache: invalid git URL `{url}`: {reason}")
+            }
+            CacheFetchError::Io(msg) => write!(f, "module cache: I/O error: {msg}"),
+            CacheFetchError::Git(msg) => write!(f, "module cache: git error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for CacheFetchError {}
+
+impl From<CachePathError> for CacheFetchError {
+    fn from(e: CachePathError) -> Self {
+        CacheFetchError::Path(e)
+    }
+}
+
+/// Accept clone URLs for K03.02: https/http (production), plus `file://` and
+/// absolute local paths for fixture repos in tests.
+fn validate_clone_url(url: &str) -> Result<(), &'static str> {
+    if url.is_empty() {
+        return Err("must not be empty");
+    }
+    if url != url.trim() {
+        return Err("must not have leading or trailing whitespace");
+    }
+    if url.chars().any(|c| c.is_whitespace()) {
+        return Err("must not contain whitespace");
+    }
+
+    if let Some(rest) = url.strip_prefix("https://") {
+        if rest.is_empty() || !rest.contains('.') {
+            return Err("https URL must include a host");
+        }
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        if rest.is_empty() || !rest.contains('.') {
+            return Err("http URL must include a host");
+        }
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("file://") {
+        if rest.is_empty() {
+            return Err("file URL must include a path");
+        }
+        return Ok(());
+    }
+    // Absolute local path (fixture repos): Unix `/…` or Windows drive `C:\…` / `C:/…`.
+    let path = Path::new(url);
+    if path.is_absolute() {
+        return Ok(());
+    }
+
+    Err("must be https://, http://, file://, or an absolute local path")
+}
+
+/// True if `dir` looks like an existing bare git repository.
+fn is_bare_git_repo(dir: &Path) -> bool {
+    dir.join("HEAD").is_file() && dir.join("objects").is_dir() && dir.join("refs").is_dir()
+}
+
+fn run_git(args: &[&str]) -> Result<String, CacheFetchError> {
+    let output = Command::new("git")
+        .args(args)
+        .output()
+        .map_err(|e| CacheFetchError::Git(format!("failed to spawn git: {e}")))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            format!("git {:?} failed with status {}", args, output.status)
+        };
+        Err(CacheFetchError::Git(detail))
+    }
+}
 
 /// Full git commit SHA-1: exactly 40 lowercase hex digits.
 fn validate_commit_oid(oid: &str) -> Result<(), &'static str> {
@@ -117,6 +221,96 @@ impl ModuleCache {
     ) -> Result<PathBuf, CachePathError> {
         entry_rel_path(module_path, commit_oid)
     }
+
+    /// Bare git store for a module: `{root}/vcs/{path segments…}/` (K03.02).
+    pub fn vcs_dir(&self, module_path: &str) -> Result<PathBuf, CachePathError> {
+        Ok(self.root.join(vcs_rel_path(module_path)?))
+    }
+
+    /// Relative path from cache root to the VCS bare repo (`vcs/…`).
+    pub fn vcs_rel(&self, module_path: &str) -> Result<PathBuf, CachePathError> {
+        vcs_rel_path(module_path)
+    }
+
+    /// Clone `git_url` into the module VCS store, or `git fetch` if already present.
+    ///
+    /// Returns the absolute path to the bare repository under the cache root.
+    /// HTTPS/HTTP URLs are accepted for production remotes; `file://` and absolute
+    /// local paths support fixture repos in tests (no network).
+    pub fn clone_or_fetch(
+        &self,
+        module_path: &str,
+        git_url: &str,
+    ) -> Result<PathBuf, CacheFetchError> {
+        if let Err(reason) = validate_clone_url(git_url) {
+            return Err(CacheFetchError::InvalidUrl {
+                url: git_url.to_string(),
+                reason,
+            });
+        }
+        let dest = self.vcs_dir(module_path)?;
+        if is_bare_git_repo(&dest) {
+            // Update refs from origin (clone sets origin). Fail closed if fetch fails.
+            run_git(&[
+                "-C",
+                dest.to_str().ok_or_else(|| {
+                    CacheFetchError::Io("VCS path is not valid UTF-8".into())
+                })?,
+                "fetch",
+                "--force",
+                "origin",
+                "+refs/*:refs/*",
+            ])?;
+            return Ok(dest);
+        }
+        if dest.exists() {
+            return Err(CacheFetchError::Io(format!(
+                "VCS path `{}` exists but is not a bare git repository",
+                dest.display()
+            )));
+        }
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                CacheFetchError::Io(format!(
+                    "create VCS parent `{}`: {e}",
+                    parent.display()
+                ))
+            })?;
+        }
+        let dest_str = dest
+            .to_str()
+            .ok_or_else(|| CacheFetchError::Io("VCS path is not valid UTF-8".into()))?;
+        run_git(&["clone", "--bare", git_url, dest_str])?;
+        if !is_bare_git_repo(&dest) {
+            return Err(CacheFetchError::Git(format!(
+                "clone succeeded but `{}` is not a bare repository",
+                dest.display()
+            )));
+        }
+        Ok(dest)
+    }
+
+    /// True when the module already has a bare VCS store in this cache.
+    pub fn has_vcs(&self, module_path: &str) -> Result<bool, CachePathError> {
+        Ok(is_bare_git_repo(&self.vcs_dir(module_path)?))
+    }
+}
+
+/// Relative VCS path: `vcs/{module_path_segments…}`.
+pub fn vcs_rel_path(module_path: &str) -> Result<PathBuf, CachePathError> {
+    if let Err(reason) = validate_module_path(module_path) {
+        return Err(CachePathError::InvalidPath {
+            path: module_path.to_string(),
+            reason,
+        });
+    }
+    assert_safe_segments(module_path)?;
+
+    let mut path = PathBuf::from("vcs");
+    for segment in module_path.split('/') {
+        path.push(segment);
+    }
+    Ok(path)
 }
 
 /// Relative entry path: `mod/{module_path_segments…}/{commit_oid}`.
@@ -303,5 +497,191 @@ mod tests {
         let b = cache.entry_dir(PATH, OID).unwrap();
         assert_eq!(a, b);
         assert_eq!(cache.entry_rel(PATH, OID).unwrap(), entry_rel_path(PATH, OID).unwrap());
+    }
+
+    // --- K03.02: git clone/fetch into cache ---
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-pkg-k0302-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn git_ok(args: &[&str], cwd: &Path) {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_AUTHOR_NAME", "Draconic Test")
+            .env("GIT_AUTHOR_EMAIL", "test@draconic.local")
+            .env("GIT_COMMITTER_NAME", "Draconic Test")
+            .env("GIT_COMMITTER_EMAIL", "test@draconic.local")
+            .output()
+            .expect("spawn git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Create a non-bare fixture repo with one commit; return its path.
+    fn fixture_repo(root: &Path) -> PathBuf {
+        let repo = root.join("upstream");
+        fs::create_dir_all(&repo).unwrap();
+        git_ok(&["init"], &repo);
+        git_ok(&["config", "user.email", "test@draconic.local"], &repo);
+        git_ok(&["config", "user.name", "Draconic Test"], &repo);
+        // Default branch name stable across git versions.
+        git_ok(&["checkout", "-B", "main"], &repo);
+        fs::write(repo.join("hello.txt"), "hello from fixture\n").unwrap();
+        git_ok(&["add", "hello.txt"], &repo);
+        git_ok(&["commit", "-m", "initial"], &repo);
+        repo
+    }
+
+    fn head_oid(repo: &Path) -> String {
+        let out = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(repo)
+            .output()
+            .expect("rev-parse");
+        assert!(out.status.success());
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn vcs_rel_path_layout() {
+        let rel = vcs_rel_path(PATH).expect("rel");
+        assert_eq!(
+            rel,
+            PathBuf::from("vcs").join("github.com").join("org").join("lib")
+        );
+    }
+
+    #[test]
+    fn clone_or_fetch_clones_fixture_into_vcs_store() {
+        let root = temp_dir("clone");
+        let upstream = fixture_repo(&root);
+        let oid = head_oid(&upstream);
+        let cache = ModuleCache::new(root.join("cache"));
+
+        assert!(!cache.has_vcs(PATH).unwrap());
+        let vcs = cache
+            .clone_or_fetch(PATH, upstream.to_str().unwrap())
+            .expect("clone");
+
+        assert!(vcs.starts_with(root.join("cache")));
+        assert!(is_bare_git_repo(&vcs));
+        assert!(cache.has_vcs(PATH).unwrap());
+        assert_eq!(vcs, cache.vcs_dir(PATH).unwrap());
+
+        // Bare clone retains the commit object.
+        let out = Command::new("git")
+            .args(["cat-file", "-t", &oid])
+            .current_dir(&vcs)
+            .output()
+            .expect("cat-file");
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "commit");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clone_or_fetch_file_url_fixture() {
+        let root = temp_dir("file-url");
+        let upstream = fixture_repo(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = format!("file://{}", upstream.display());
+        let vcs = cache.clone_or_fetch(PATH, &url).expect("clone file url");
+        assert!(is_bare_git_repo(&vcs));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clone_or_fetch_second_call_fetches() {
+        let root = temp_dir("fetch");
+        let upstream = fixture_repo(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = upstream.to_str().unwrap();
+
+        let vcs1 = cache.clone_or_fetch(PATH, url).expect("first clone");
+        // Add a second commit on upstream.
+        fs::write(upstream.join("hello.txt"), "second\n").unwrap();
+        git_ok(&["add", "hello.txt"], &upstream);
+        git_ok(&["commit", "-m", "second"], &upstream);
+        let oid2 = head_oid(&upstream);
+
+        let vcs2 = cache.clone_or_fetch(PATH, url).expect("fetch");
+        assert_eq!(vcs1, vcs2);
+        let out = Command::new("git")
+            .args(["cat-file", "-t", &oid2])
+            .current_dir(&vcs2)
+            .output()
+            .expect("cat-file oid2");
+        assert!(
+            out.status.success(),
+            "fetch should bring new commit: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clone_or_fetch_rejects_invalid_module_path() {
+        let cache = ModuleCache::new("/tmp/cache");
+        let err = cache
+            .clone_or_fetch("not-a-path", "https://example.com/x.git")
+            .expect_err("bad path");
+        assert!(matches!(err, CacheFetchError::Path(_)), "{err:?}");
+    }
+
+    #[test]
+    fn clone_or_fetch_rejects_empty_url() {
+        let cache = ModuleCache::new("/tmp/cache");
+        let err = cache.clone_or_fetch(PATH, "").expect_err("empty url");
+        match err {
+            CacheFetchError::InvalidUrl { url, reason } => {
+                assert_eq!(url, "");
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected InvalidUrl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clone_or_fetch_rejects_ftp_url() {
+        let cache = ModuleCache::new("/tmp/cache");
+        let err = cache
+            .clone_or_fetch(PATH, "ftp://example.com/x.git")
+            .expect_err("ftp");
+        assert!(matches!(err, CacheFetchError::InvalidUrl { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn validate_clone_url_accepts_https() {
+        assert!(validate_clone_url("https://github.com/org/pkg.git").is_ok());
+        assert!(validate_clone_url("http://git.example.com/org/pkg.git").is_ok());
+    }
+
+    #[test]
+    fn clone_or_fetch_missing_remote_is_git_error() {
+        let root = temp_dir("missing");
+        let cache = ModuleCache::new(root.join("cache"));
+        let missing = root.join("no-such-repo");
+        let err = cache
+            .clone_or_fetch(PATH, missing.to_str().unwrap())
+            .expect_err("missing remote");
+        assert!(matches!(err, CacheFetchError::Git(_)), "{err:?}");
+        assert!(!cache.has_vcs(PATH).unwrap());
+        let _ = fs::remove_dir_all(&root);
     }
 }

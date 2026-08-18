@@ -8,12 +8,14 @@
 //! K02.02: parse/write `draconic.lock`; reject malformed.
 //! K02.03: stable lock serialize — sorted paths; byte-identical rewrite when unchanged.
 //! K03.01: module cache layout keyed by module path + commit OID.
+//! K03.02: git clone/fetch into cache VCS store (HTTPS; fixture repos in tests).
 
 mod cache;
 mod lock;
 
 pub use cache::{
-    entry_rel_path, is_entry_under_root, CachePathError, ModuleCache,
+    entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError,
+    ModuleCache,
 };
 pub use lock::{
     parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError,
