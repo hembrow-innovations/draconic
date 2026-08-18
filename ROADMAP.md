@@ -637,7 +637,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H09.02 | done | native | Connect-by-name (H09.01 + H06.03) | `tests/conformance` fixtures `host/net/dns` |
 | H09.03 | todo | both | DNS on js: hard-error or Node polyfill (when client bridge lands) | `tests/conformance` fixtures `host/policy` |
 | H10 | todo | native | HTTP/1.1 thin helpers (plaintext) on sockets | `tests/conformance/host/http` |
-| H10.01 | todo | native | HTTP/1.1 request parse: line + headers + bounded body (Content-Length) | `tests/conformance` fixtures `host/http`, `crates/draconic-runtime` |
+| H10.01 | done | native | HTTP/1.1 request parse: line + headers + bounded body (Content-Length) | `tests/conformance` fixtures `host/http`, `crates/draconic-runtime` |
 | H10.02 | todo | native | HTTP/1.1 response write: status + headers + body | `tests/conformance` fixtures `host/http` |
 | H10.03 | todo | native | HTTP/1.1 server one-shot: accept → parse → handler → write → close | `tests/conformance` fixtures `host/http` |
 | H10.04 | todo | native | HTTP/1.1 keep-alive optional (two requests one connection) | `tests/conformance` fixtures `host/http` |

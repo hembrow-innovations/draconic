@@ -181,6 +181,14 @@ fn host_abi_fn_shapes() {
         HOST_DNS_LOOKUP.declare(),
         "declare i32 @draconic_rt_host_dns_lookup(ptr, ptr, ptr)"
     );
+    assert_eq!(
+        HOST_HTTP_PARSE_REQUEST.declare(),
+        "declare i32 @draconic_rt_host_http_parse_request(ptr, i64, ptr, ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_HTTP_REQUEST_HEADER.declare(),
+        "declare i32 @draconic_rt_host_http_request_header(ptr, i64, ptr, ptr)"
+    );
 }
 
 #[test]
@@ -2723,4 +2731,117 @@ fn host_tcp_connect_by_name_localhost() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0902-ok\n");
+}
+
+#[test]
+fn host_http_parse_request_line_headers_body() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_http_h1001.c");
+    let bin = dir.join("rt_host_http_h1001");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        int main(void) {
+            const char *raw =
+                "POST /echo HTTP/1.1\r\n"
+                "Host: example.com\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "helloEXTRA";
+            DraconicHostError err;
+            char *method = NULL;
+            char *path = NULL;
+            char *version = NULL;
+            char *body = NULL;
+            char *host = NULL;
+            char *missing = NULL;
+            char *cl = NULL;
+
+            err = draconic_rt_host_http_parse_request(
+                (const uint8_t *)raw, strlen(raw),
+                &method, &path, &version, &body);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (!method || strcmp(method, "POST") != 0) return 2;
+            if (!path || strcmp(path, "/echo") != 0) return 3;
+            if (!version || strcmp(version, "HTTP/1.1") != 0) return 4;
+            if (!body || strcmp(body, "hello") != 0) return 5;
+
+            err = draconic_rt_host_http_request_header(
+                (const uint8_t *)raw, strlen(raw), "Host", &host);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (!host || strcmp(host, "example.com") != 0) return 7;
+
+            err = draconic_rt_host_http_request_header(
+                (const uint8_t *)raw, strlen(raw), "content-length", &cl);
+            if (err != DRACONIC_HOST_OK) return 8;
+            if (!cl || strcmp(cl, "5") != 0) return 9;
+
+            err = draconic_rt_host_http_request_header(
+                (const uint8_t *)raw, strlen(raw), "X-Missing", &missing);
+            if (err != DRACONIC_HOST_OK) return 10;
+            if (!missing || missing[0] != '\0') return 11;
+
+            free(method); free(path); free(version); free(body);
+            free(host); free(cl); free(missing);
+
+            /* GET no body */
+            {
+                const char *get =
+                    "GET / HTTP/1.1\r\nHost: x\r\n\r\n";
+                method = path = version = body = NULL;
+                err = draconic_rt_host_http_parse_request(
+                    (const uint8_t *)get, strlen(get),
+                    &method, &path, &version, &body);
+                if (err != DRACONIC_HOST_OK) return 12;
+                if (strcmp(method, "GET") != 0) return 13;
+                if (strcmp(path, "/") != 0) return 14;
+                if (strcmp(body, "") != 0) return 15;
+                free(method); free(path); free(version); free(body);
+            }
+
+            /* malformed */
+            err = draconic_rt_host_http_parse_request(
+                (const uint8_t *)"not-http", 8,
+                &method, &path, &version, &body);
+            if (err != DRACONIC_HOST_E_INVAL) return 16;
+
+            puts("http-h1001-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for http H10.01 smoke");
+
+    let output = Command::new(&bin).output().expect("run http h1001");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "http H10.01 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1001-ok\n");
 }

@@ -1,7 +1,8 @@
     /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
-    H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09 DNS).
+    H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09 DNS,
+    H10.01 HTTP/1.1 request parse).
     Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-    process, stdio, path, fs, TCP, UDP, DNS, async readiness + Promise ops. */
+    process, stdio, path, fs, TCP, UDP, DNS, HTTP parse, async readiness + Promise ops. */
 
 #include "draconic_rt_host.h"
 
@@ -3440,4 +3441,295 @@ DraconicHostError draconic_rt_host_dns_lookup(
     *out_count = (int64_t)count;
     return DRACONIC_HOST_OK;
 #endif
+}
+
+/* --- HTTP/1.1 request parse (H10.01) -------------------------------------- */
+
+static char *host_http_dup_range(const uint8_t *p, size_t n) {
+    char *s;
+    s = (char *)malloc(n + 1);
+    if (!s) {
+        return NULL;
+    }
+    if (n > 0) {
+        memcpy(s, p, n);
+    }
+    s[n] = '\0';
+    return s;
+}
+
+static char *host_http_dup_cstr(const char *s) {
+    size_t n;
+    if (!s) {
+        return host_http_dup_range(NULL, 0);
+    }
+    n = strlen(s);
+    return host_http_dup_range((const uint8_t *)s, n);
+}
+
+/* Find CRLFCRLF terminator; returns index of first byte of body, or (size_t)-1. */
+static size_t host_http_find_header_end(const uint8_t *data, size_t len) {
+    size_t i;
+    if (len < 4) {
+        return (size_t)-1;
+    }
+    for (i = 0; i + 3 < len; i++) {
+        if (data[i] == '\r' && data[i + 1] == '\n'
+            && data[i + 2] == '\r' && data[i + 3] == '\n') {
+            return i + 4;
+        }
+    }
+    return (size_t)-1;
+}
+
+static int host_http_ascii_ieq(const char *a, size_t alen, const char *b) {
+    size_t i;
+    size_t blen = strlen(b);
+    if (alen != blen) {
+        return 0;
+    }
+    for (i = 0; i < alen; i++) {
+        unsigned char ca = (unsigned char)a[i];
+        unsigned char cb = (unsigned char)b[i];
+        if (ca >= 'A' && ca <= 'Z') {
+            ca = (unsigned char)(ca - 'A' + 'a');
+        }
+        if (cb >= 'A' && cb <= 'Z') {
+            cb = (unsigned char)(cb - 'A' + 'a');
+        }
+        if (ca != cb) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Parse Content-Length value (non-negative decimal). Returns 0 on OK. */
+static int host_http_parse_content_length(const char *v, size_t vlen, size_t *out_cl) {
+    size_t i;
+    size_t n = 0;
+    if (vlen == 0) {
+        return -1;
+    }
+    for (i = 0; i < vlen; i++) {
+        unsigned char c = (unsigned char)v[i];
+        if (c < '0' || c > '9') {
+            return -1;
+        }
+        n = n * 10 + (size_t)(c - '0');
+    }
+    *out_cl = n;
+    return 0;
+}
+
+/* Walk headers [hdr_start, hdr_end) for name; *out_val/*out_vlen set if found. */
+static int host_http_find_header(
+    const uint8_t *data,
+    size_t hdr_start,
+    size_t hdr_end,
+    const char *name,
+    const char **out_val,
+    size_t *out_vlen) {
+    size_t i = hdr_start;
+    while (i < hdr_end) {
+        size_t line_end = i;
+        size_t colon;
+        size_t name_end;
+        size_t vstart;
+        size_t vend;
+        while (line_end + 1 < hdr_end
+            && !(data[line_end] == '\r' && data[line_end + 1] == '\n')) {
+            line_end++;
+        }
+        if (line_end + 1 >= hdr_end) {
+            break;
+        }
+        /* empty line should not appear before header_end */
+        if (line_end == i) {
+            i = line_end + 2;
+            continue;
+        }
+        colon = i;
+        while (colon < line_end && data[colon] != ':') {
+            colon++;
+        }
+        if (colon >= line_end) {
+            i = line_end + 2;
+            continue;
+        }
+        name_end = colon;
+        while (name_end > i
+            && (data[name_end - 1] == ' ' || data[name_end - 1] == '\t')) {
+            name_end--;
+        }
+        if (host_http_ascii_ieq((const char *)(data + i), name_end - i, name)) {
+            vstart = colon + 1;
+            while (vstart < line_end
+                && (data[vstart] == ' ' || data[vstart] == '\t')) {
+                vstart++;
+            }
+            vend = line_end;
+            while (vend > vstart
+                && (data[vend - 1] == ' ' || data[vend - 1] == '\t')) {
+                vend--;
+            }
+            *out_val = (const char *)(data + vstart);
+            *out_vlen = vend - vstart;
+            return 1;
+        }
+        i = line_end + 2;
+    }
+    return 0;
+}
+
+DraconicHostError draconic_rt_host_http_parse_request(
+    const uint8_t *data,
+    size_t len,
+    char **out_method,
+    char **out_path,
+    char **out_version,
+    char **out_body) {
+    size_t body_off;
+    size_t i;
+    size_t sp1;
+    size_t sp2;
+    size_t line_end;
+    size_t cl;
+    int has_cl;
+    const char *hv;
+    size_t hvlen;
+    char *method = NULL;
+    char *path = NULL;
+    char *version = NULL;
+    char *body = NULL;
+    size_t body_len;
+
+    if (!data || !out_method || !out_path || !out_version || !out_body) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_method = NULL;
+    *out_path = NULL;
+    *out_version = NULL;
+    *out_body = NULL;
+
+    body_off = host_http_find_header_end(data, len);
+    if (body_off == (size_t)-1) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    /* request-line: METHOD SP path SP version CRLF */
+    line_end = 0;
+    while (line_end + 1 < body_off
+        && !(data[line_end] == '\r' && data[line_end + 1] == '\n')) {
+        line_end++;
+    }
+    if (line_end + 1 >= body_off || line_end == 0) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    sp1 = 0;
+    while (sp1 < line_end && data[sp1] != ' ') {
+        sp1++;
+    }
+    if (sp1 == 0 || sp1 >= line_end) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    sp2 = sp1 + 1;
+    while (sp2 < line_end && data[sp2] != ' ') {
+        sp2++;
+    }
+    if (sp2 <= sp1 + 1 || sp2 >= line_end) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    /* no extra spaces in method/path; version is rest of line */
+    for (i = 0; i < sp1; i++) {
+        if (data[i] == ' ' || data[i] == '\t') {
+            return DRACONIC_HOST_E_INVAL;
+        }
+    }
+
+    method = host_http_dup_range(data, sp1);
+    path = host_http_dup_range(data + sp1 + 1, sp2 - (sp1 + 1));
+    version = host_http_dup_range(data + sp2 + 1, line_end - (sp2 + 1));
+    if (!method || !path || !version) {
+        free(method);
+        free(path);
+        free(version);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    /* Content-Length bounds body; headers start after request-line CRLF. */
+    has_cl = host_http_find_header(
+        data, line_end + 2, body_off - 2, "Content-Length", &hv, &hvlen);
+    body_len = 0;
+    if (has_cl) {
+        if (host_http_parse_content_length(hv, hvlen, &cl) != 0) {
+            free(method);
+            free(path);
+            free(version);
+            return DRACONIC_HOST_E_INVAL;
+        }
+        if (body_off + cl <= len) {
+            body_len = cl;
+        } else {
+            body_len = len - body_off;
+        }
+    }
+
+    body = host_http_dup_range(data + body_off, body_len);
+    if (!body) {
+        free(method);
+        free(path);
+        free(version);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    *out_method = method;
+    *out_path = path;
+    *out_version = version;
+    *out_body = body;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http_request_header(
+    const uint8_t *data,
+    size_t len,
+    const char *name,
+    char **out_value) {
+    size_t body_off;
+    size_t line_end;
+    const char *hv;
+    size_t hvlen;
+    char *dup;
+
+    if (!data || !name || name[0] == '\0' || !out_value) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_value = NULL;
+
+    body_off = host_http_find_header_end(data, len);
+    if (body_off == (size_t)-1) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    line_end = 0;
+    while (line_end + 1 < body_off
+        && !(data[line_end] == '\r' && data[line_end + 1] == '\n')) {
+        line_end++;
+    }
+    if (line_end + 1 >= body_off) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    if (host_http_find_header(
+            data, line_end + 2, body_off - 2, name, &hv, &hvlen)) {
+        dup = host_http_dup_range((const uint8_t *)hv, hvlen);
+    } else {
+        dup = host_http_dup_cstr("");
+    }
+    if (!dup) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    *out_value = dup;
+    return DRACONIC_HOST_OK;
 }

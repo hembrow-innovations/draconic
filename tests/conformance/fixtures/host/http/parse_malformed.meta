@@ -1,0 +1,4 @@
+id: host/http/parse_malformed
+targets: native
+native.exit: 1
+native.stderr: EINVAL\n

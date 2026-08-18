@@ -1,0 +1,6 @@
+// H10.01: POST with Content-Length bounds body (trailing EXTRA ignored).
+let req = httpParseRequest("POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhelloEXTRA");
+let m = req.method;
+let p = req.path;
+let b = req.body;
+let cl = httpRequestHeader(req, "content-length");

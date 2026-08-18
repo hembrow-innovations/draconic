@@ -1,0 +1,4 @@
+id: host/http/parse_post_body
+targets: native
+native.exit: 0
+native.stdout: POST\n/echo\nhello\n5\n

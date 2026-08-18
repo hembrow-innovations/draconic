@@ -1044,6 +1044,17 @@ pub const HOST_DNS_LOOKUP: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, ptr, ptr",
 };
+/* H10.01: HTTP/1.1 request parse (method/path/version/body + header lookup). */
+pub const HOST_HTTP_PARSE_REQUEST: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http_parse_request",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr, ptr, ptr",
+};
+pub const HOST_HTTP_REQUEST_HEADER: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http_request_header",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1160,8 +1171,10 @@ pub const HOST_UDP_LOCAL_PORT_SYMBOL: &str = HOST_UDP_LOCAL_PORT.symbol;
 pub const HOST_UDP_SENDTO_SYMBOL: &str = HOST_UDP_SENDTO.symbol;
 pub const HOST_UDP_RECVFROM_SYMBOL: &str = HOST_UDP_RECVFROM.symbol;
 pub const HOST_DNS_LOOKUP_SYMBOL: &str = HOST_DNS_LOOKUP.symbol;
+pub const HOST_HTTP_PARSE_REQUEST_SYMBOL: &str = HOST_HTTP_PARSE_REQUEST.symbol;
+pub const HOST_HTTP_REQUEST_HEADER_SYMBOL: &str = HOST_HTTP_REQUEST_HEADER.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H09.01).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H10.01).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -1238,6 +1251,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_UDP_SENDTO_SYMBOL,
     HOST_UDP_RECVFROM_SYMBOL,
     HOST_DNS_LOOKUP_SYMBOL,
+    HOST_HTTP_PARSE_REQUEST_SYMBOL,
+    HOST_HTTP_REQUEST_HEADER_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1317,6 +1332,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_UDP_SENDTO,
     HOST_UDP_RECVFROM,
     HOST_DNS_LOOKUP,
+    HOST_HTTP_PARSE_REQUEST,
+    HOST_HTTP_REQUEST_HEADER,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

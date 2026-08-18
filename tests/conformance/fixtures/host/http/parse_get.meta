@@ -1,0 +1,4 @@
+id: host/http/parse_get
+targets: native
+native.exit: 0
+native.stdout: GET\n/hello\nHTTP/1.1\n\nexample.com\n

@@ -1,0 +1,2 @@
+// H10.01: malformed request → stderr EINVAL + exit 1.
+httpParseRequest("not-a-request");

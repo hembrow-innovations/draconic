@@ -440,6 +440,30 @@ DraconicHostError draconic_rt_host_dns_lookup(
     char ***out_addrs,
     int64_t *out_count);
 
+/* --- HTTP/1.1 request parse (H10.01) ---------------------------------------
+   Parse a complete plaintext HTTP/1.1 request message (request-line + headers
+   + optional body). On OK: *out_method / *out_path / *out_version / *out_body
+   are malloc'd NUL-terminated strings (caller frees each with path_free).
+   Body is bounded by Content-Length when present (take min(CL, available after
+   header block)); without Content-Length, body is empty (chunked → H10.06).
+   Malformed request-line, missing header terminator, or bad Content-Length →
+   INVAL. Header lookup is case-insensitive; missing name → *out_value is
+   malloc'd empty string (always non-NULL on OK). */
+
+DraconicHostError draconic_rt_host_http_parse_request(
+    const uint8_t *data,
+    size_t len,
+    char **out_method,
+    char **out_path,
+    char **out_version,
+    char **out_body);
+
+DraconicHostError draconic_rt_host_http_request_header(
+    const uint8_t *data,
+    size_t len,
+    const char *name,
+    char **out_value);
+
 #ifdef __cplusplus
 }
 #endif
