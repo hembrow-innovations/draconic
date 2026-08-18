@@ -1,0 +1,6 @@
+id: host/fs/read_file_empty
+targets: js,native
+js.exit: 0
+js.check: if (t !== "") process.exit(1); if (n !== 0) process.exit(2); if (!(u instanceof Uint8Array)) process.exit(3);
+native.exit: 0
+native.stdout: \n0\n

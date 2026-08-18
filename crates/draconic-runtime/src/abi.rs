@@ -790,6 +790,18 @@ pub const HOST_PATH_IS_ABSOLUTE: AbiFn = AbiFn {
     params: "ptr",
 };
 
+/* H04.01: whole-file read (bytes + UTF-8 text). */
+pub const HOST_FS_READ_FILE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_read_file",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
+pub const HOST_FS_READ_TEXT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_read_text",
+    ret: "i32",
+    params: "ptr, ptr",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -821,8 +833,10 @@ pub const HOST_PATH_DIRNAME_SYMBOL: &str = HOST_PATH_DIRNAME.symbol;
 pub const HOST_PATH_BASENAME_SYMBOL: &str = HOST_PATH_BASENAME.symbol;
 pub const HOST_PATH_EXTNAME_SYMBOL: &str = HOST_PATH_EXTNAME.symbol;
 pub const HOST_PATH_IS_ABSOLUTE_SYMBOL: &str = HOST_PATH_IS_ABSOLUTE.symbol;
+pub const HOST_FS_READ_FILE_SYMBOL: &str = HOST_FS_READ_FILE.symbol;
+pub const HOST_FS_READ_TEXT_SYMBOL: &str = HOST_FS_READ_TEXT.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02 + H03).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H04).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -855,6 +869,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PATH_BASENAME_SYMBOL,
     HOST_PATH_EXTNAME_SYMBOL,
     HOST_PATH_IS_ABSOLUTE_SYMBOL,
+    HOST_FS_READ_FILE_SYMBOL,
+    HOST_FS_READ_TEXT_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -890,6 +906,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PATH_BASENAME,
     HOST_PATH_EXTNAME,
     HOST_PATH_IS_ABSOLUTE,
+    HOST_FS_READ_FILE,
+    HOST_FS_READ_TEXT,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -1231,6 +1249,58 @@ if (typeof globalThis !== "undefined") {
   globalThis.pathBasename = pathBasename;
   globalThis.pathExtname = pathExtname;
   globalThis.pathIsAbsolute = pathIsAbsolute;
+}
+"#
+}
+
+/// JS polyfill for `readFileText` / `readFileBytes` (H04.01).
+///
+/// Node `fs` bridge. Missing path → throw `Error` with `.code === "ENOENT"`
+/// and `.name === "HostError"`.
+pub fn fs_read_js_polyfill() -> &'static str {
+    r#"function __draconic_host_fs_err(code, path, cause) {
+  var msg = code + ": " + (cause && cause.message ? cause.message : "file error");
+  if (path != null) msg += ", open '" + String(path) + "'";
+  var e = new Error(msg);
+  e.name = "HostError";
+  e.code = code;
+  if (cause && cause.code) e.code = String(cause.code);
+  throw e;
+}
+function readFileText(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    return fs.readFileSync(p, "utf8");
+  } catch (err) {
+    if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
+      __draconic_host_fs_err("ENOENT", p, err);
+    }
+    if (err && (err.code === "EACCES" || err.code === "EPERM")) {
+      __draconic_host_fs_err("EPERM", p, err);
+    }
+    __draconic_host_fs_err("EIO", p, err);
+  }
+}
+function readFileBytes(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    var buf = fs.readFileSync(p);
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  } catch (err) {
+    if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
+      __draconic_host_fs_err("ENOENT", p, err);
+    }
+    if (err && (err.code === "EACCES" || err.code === "EPERM")) {
+      __draconic_host_fs_err("EPERM", p, err);
+    }
+    __draconic_host_fs_err("EIO", p, err);
+  }
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.readFileText = readFileText;
+  globalThis.readFileBytes = readFileBytes;
 }
 "#
 }

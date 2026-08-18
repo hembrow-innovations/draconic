@@ -606,7 +606,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H03.02 | done | both | `dirname` / `basename` / `extname` / `isAbsolute` | `tests/conformance` fixtures `host/path` |
 | H03.03 | todo | both | `path.resolve` relative to cwd (needs **H16.01**) | `tests/conformance` fixtures `host/path` |
 | H04 | todo | both | Filesystem: read / write / dirs | `tests/conformance/host/fs` |
-| H04.01 | todo | both | File read: whole-file bytes + UTF-8 text; missing → typed error | `tests/conformance` fixtures `host/fs` |
+| H04.01 | done | both | File read: whole-file bytes + UTF-8 text; missing → typed error | `tests/conformance` fixtures `host/fs` |
 | H04.02 | todo | both | File write / append; create/truncate | `tests/conformance` fixtures `host/fs` |
 | H04.03 | todo | both | `exists` / `stat` (size, isFile, isDir, mtime) | `tests/conformance` fixtures `host/fs` |
 | H04.04 | todo | both | Directory: `mkdir` (optional recursive), `readdir`, `rmdir` / remove file | `tests/conformance` fixtures `host/fs` |

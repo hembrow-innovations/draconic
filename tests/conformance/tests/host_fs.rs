@@ -1,0 +1,77 @@
+//! ROADMAP H04.01: readFileText / readFileBytes whole-file read.
+
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
+
+fn assert_fixture_present(id: &str) {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|x| *x == id),
+        "missing {id} fixture, got {ids:?}"
+    );
+}
+
+fn assert_fixture_runs(id: &str) {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn read_file_text_fixture_present() {
+    assert_fixture_present("host/fs/read_file_text");
+}
+
+#[test]
+fn read_file_text_runs() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/fs/read_file_text")
+        .expect("host/fs/read_file_text");
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "must target js and native"
+    );
+    assert_fixture_runs("host/fs/read_file_text");
+}
+
+#[test]
+fn read_file_bytes_fixture_present() {
+    assert_fixture_present("host/fs/read_file_bytes");
+}
+
+#[test]
+fn read_file_bytes_runs() {
+    assert_fixture_runs("host/fs/read_file_bytes");
+}
+
+#[test]
+fn read_file_empty_fixture_present() {
+    assert_fixture_present("host/fs/read_file_empty");
+}
+
+#[test]
+fn read_file_empty_runs() {
+    assert_fixture_runs("host/fs/read_file_empty");
+}
+
+#[test]
+fn read_file_missing_js_typed_error() {
+    assert_fixture_present("host/fs/read_file_missing");
+    assert_fixture_runs("host/fs/read_file_missing");
+}
+
+#[test]
+fn read_file_missing_native_enoent() {
+    assert_fixture_present("host/fs/read_file_missing_native");
+    assert_fixture_runs("host/fs/read_file_missing_native");
+}

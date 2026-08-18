@@ -1,0 +1,6 @@
+id: host/fs/read_file_text
+targets: js,native
+js.exit: 0
+js.check: if (t !== "hello-h0401") process.exit(1);
+native.exit: 0
+native.stdout: hello-h0401\n

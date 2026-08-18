@@ -1,0 +1,4 @@
+// H04.01: empty file → empty string / zero-length bytes.
+let t = readFileText("fixtures/host/fs/testdata/empty.txt");
+let u = readFileBytes("fixtures/host/fs/testdata/empty.txt");
+let n = u.length;

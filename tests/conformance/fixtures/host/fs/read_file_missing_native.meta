@@ -1,0 +1,4 @@
+id: host/fs/read_file_missing_native
+targets: native
+native.exit: 1
+native.stderr: ENOENT\n

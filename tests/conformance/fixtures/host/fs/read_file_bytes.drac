@@ -1,0 +1,4 @@
+// H04.01: readFileBytes — whole-file bytes; .length; write-back.
+let u = readFileBytes("fixtures/host/fs/testdata/hello.txt");
+let n = u.length;
+stdoutWrite(u);

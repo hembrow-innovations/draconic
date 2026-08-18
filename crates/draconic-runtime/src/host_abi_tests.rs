@@ -747,3 +747,96 @@ fn host_path_dirname_basename_extname_is_absolute() {
         "path-h0302-ok\n"
     );
 }
+
+#[test]
+fn host_fs_read_text_and_bytes() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_fs_h0401.c");
+    let bin = dir.join("rt_host_fs_h0401");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    let hello = dir.join("hello.txt");
+    std::fs::write(&hello, b"hello-h0401").unwrap();
+    let empty = dir.join("empty.txt");
+    std::fs::write(&empty, b"").unwrap();
+    let hello_path = hello.to_string_lossy().replace('\\', "\\\\");
+    let empty_path = empty.to_string_lossy().replace('\\', "\\\\");
+    let missing_path = dir
+        .join("__no_such_h0401__")
+        .to_string_lossy()
+        .replace('\\', "\\\\");
+
+    std::fs::write(
+        &main_c,
+        format!(
+            r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        int main(void) {{
+            char *text = NULL;
+            uint8_t *data = NULL;
+            size_t len = 0;
+            DraconicHostError err;
+
+            err = draconic_rt_host_fs_read_text("{hello_path}", &text);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (!text || strcmp(text, "hello-h0401") != 0) return 2;
+            free(text);
+
+            err = draconic_rt_host_fs_read_file("{hello_path}", &data, &len);
+            if (err != DRACONIC_HOST_OK) return 3;
+            if (len != 11 || !data || memcmp(data, "hello-h0401", 11) != 0) return 4;
+            free(data);
+
+            err = draconic_rt_host_fs_read_text("{empty_path}", &text);
+            if (err != DRACONIC_HOST_OK) return 5;
+            if (!text || text[0] != '\0') return 6;
+            free(text);
+
+            err = draconic_rt_host_fs_read_file("{empty_path}", &data, &len);
+            if (err != DRACONIC_HOST_OK) return 7;
+            if (len != 0 || data != NULL) return 8;
+
+            err = draconic_rt_host_fs_read_text("{missing_path}", &text);
+            if (err != DRACONIC_HOST_E_NOENT) return 9;
+            if (text != NULL) return 10;
+
+            err = draconic_rt_host_fs_read_file(NULL, &data, &len);
+            if (err != DRACONIC_HOST_E_INVAL) return 11;
+
+            puts("fs-h0401-ok");
+            return 0;
+        }}
+        "#
+        ),
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for fs H04.01 smoke");
+
+    let output = Command::new(&bin).output().expect("run fs h0401");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "fs H04.01 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0401-ok\n");
+}

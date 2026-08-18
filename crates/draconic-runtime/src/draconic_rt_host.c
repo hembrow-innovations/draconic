@@ -4,6 +4,7 @@
 
 #include "draconic_rt_host.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -962,4 +963,109 @@ int32_t draconic_rt_host_path_is_absolute(const char *path) {
         return 0;
     }
     return host_path_is_sep(path[0]) ? 1 : 0;
+}
+
+/* --- Filesystem read (H04.01) -------------------------------------------- */
+
+DraconicHostError draconic_rt_host_fs_read_file(
+    const char *path,
+    uint8_t **out_data,
+    size_t *out_len) {
+    FILE *f;
+    long sz;
+    size_t n;
+    uint8_t *buf;
+
+    if (!path || path[0] == '\0' || !out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+
+    f = fopen(path, "rb");
+    if (!f) {
+        if (errno == ENOENT || errno == ENOTDIR) {
+            return DRACONIC_HOST_E_NOENT;
+        }
+        if (errno == EACCES
+#if defined(EPERM)
+            || errno == EPERM
+#endif
+        ) {
+            return DRACONIC_HOST_E_PERM;
+        }
+        return DRACONIC_HOST_E_IO;
+    }
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return DRACONIC_HOST_E_IO;
+    }
+    sz = ftell(f);
+    if (sz < 0) {
+        fclose(f);
+        return DRACONIC_HOST_E_IO;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return DRACONIC_HOST_E_IO;
+    }
+
+    n = (size_t)sz;
+    if (n == 0) {
+        fclose(f);
+        return DRACONIC_HOST_OK;
+    }
+
+    buf = (uint8_t *)malloc(n);
+    if (!buf) {
+        fclose(f);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    if (fread(buf, 1, n, f) != n) {
+        free(buf);
+        fclose(f);
+        return DRACONIC_HOST_E_IO;
+    }
+    fclose(f);
+    *out_data = buf;
+    *out_len = n;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_fs_read_text(
+    const char *path,
+    char **out_text) {
+    uint8_t *data = NULL;
+    size_t len = 0;
+    DraconicHostError err;
+    char *text;
+
+    if (!out_text) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_text = NULL;
+
+    err = draconic_rt_host_fs_read_file(path, &data, &len);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+
+    if (len > 0 && !host_utf8_is_valid(data, len)) {
+        free(data);
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    text = (char *)malloc(len + 1);
+    if (!text) {
+        free(data);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    if (len > 0) {
+        memcpy(text, data, len);
+    }
+    text[len] = '\0';
+    free(data);
+    *out_text = text;
+    return DRACONIC_HOST_OK;
 }

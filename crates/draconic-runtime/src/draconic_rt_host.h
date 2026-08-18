@@ -183,6 +183,24 @@ char *draconic_rt_host_path_extname(const char *path);
 /* 1 if path starts with `/` or `\`; 0 otherwise (NULL/empty → 0). */
 int32_t draconic_rt_host_path_is_absolute(const char *path);
 
+/* --- Filesystem read (H04.01) ----------------------------------------------
+   Whole-file read. Missing path → DRACONIC_HOST_E_NOENT. Path NULL/empty →
+   DRACONIC_HOST_E_INVAL. Caller frees out buffers with free() (or
+   draconic_rt_host_bytes_storage_free / draconic_rt_host_path_free). */
+
+/* Read entire file as raw bytes. On OK: *out_data is malloc'd of *out_len
+   (empty file → *out_data NULL, *out_len 0). */
+DraconicHostError draconic_rt_host_fs_read_file(
+    const char *path,
+    uint8_t **out_data,
+    size_t *out_len);
+
+/* Read entire file as UTF-8 text. On OK: *out_text is malloc'd NUL-terminated
+   (empty → empty string). Rejects invalid UTF-8 with DRACONIC_HOST_E_INVAL. */
+DraconicHostError draconic_rt_host_fs_read_text(
+    const char *path,
+    char **out_text);
+
 #ifdef __cplusplus
 }
 #endif

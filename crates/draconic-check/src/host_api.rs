@@ -69,6 +69,7 @@ pub struct HostApiEntry {
 /// - `stdinReadLine` / `stdinReadBytes` (H02.03): both — blocking line/bytes from stdin.
 /// - `pathJoin` / `pathNormalize` (H03.01): both — pure path string ops (no I/O).
 /// - `pathDirname` / `pathBasename` / `pathExtname` / `pathIsAbsolute` (H03.02): both.
+/// - `readFileText` / `readFileBytes` (H04.01): both — whole-file read; missing → HostError ENOENT.
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -165,6 +166,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "pathIsAbsolute",
         availability: HostAvailability::BOTH,
         note: "H03.02 path isAbsolute",
+    },
+    HostApiEntry {
+        name: "readFileText",
+        availability: HostAvailability::BOTH,
+        note: "H04.01 file read text",
+    },
+    HostApiEntry {
+        name: "readFileBytes",
+        availability: HostAvailability::BOTH,
+        note: "H04.01 file read bytes",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -355,6 +366,21 @@ mod tests {
             "pathExtname",
             "pathIsAbsolute",
         ] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_read_file_both() {
+        for name in ["readFileText", "readFileBytes"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

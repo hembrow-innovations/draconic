@@ -1,0 +1,7 @@
+id: host/fs/read_file_bytes
+targets: js,native
+js.exit: 0
+js.stdout: hello-h0401
+js.check: if (n !== 11) process.exit(1); if (!(u instanceof Uint8Array)) process.exit(2);
+native.exit: 0
+native.stdout: hello-h040111\n

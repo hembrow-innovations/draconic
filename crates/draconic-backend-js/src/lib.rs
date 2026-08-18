@@ -124,6 +124,13 @@ fn module_uses_path(module: &Module) -> bool {
     })
 }
 
+/// H04.01: free host file-read APIs.
+fn module_uses_fs_read(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "readFileText") || stmt_uses_ident_name(s, "readFileBytes")
+    })
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -465,6 +472,13 @@ fn emit_js_full(
     // H03.01–H03.02: path pure string helpers.
     if module_uses_path(module) {
         out.push_str(draconic_runtime::path_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H04.01: whole-file read.
+    if module_uses_fs_read(module) {
+        out.push_str(draconic_runtime::fs_read_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
