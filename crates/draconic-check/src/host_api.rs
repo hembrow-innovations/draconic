@@ -95,6 +95,8 @@ pub struct HostApiEntry {
 /// - `wsHandshakeResponse` (H12.01): native-only WebSocket server opening handshake (RFC 6455).
 /// - `wsEncodeText` / `wsEncodeBinary` / `wsEncodeClose` / `wsEncodePing` / `wsEncodePong` /
 ///   `wsDecodeFrame` (H12.02): native-only WebSocket frames (RFC 6455 §5).
+/// - `wsClientHandshakeRequest` / `wsClientCheckAccept` / `wsEncodeTextClient` (H12.03):
+///   native-only WebSocket client dial helpers + masked text frames.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -511,6 +513,21 @@ const HOST_APIS: &[HostApiEntry] = &[
         availability: HostAvailability::NATIVE_ONLY,
         note: "H12.02 WebSocket frame decode (unmask client frames)",
     },
+    HostApiEntry {
+        name: "wsClientHandshakeRequest",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.03 WebSocket client opening handshake request (path, host, key)",
+    },
+    HostApiEntry {
+        name: "wsClientCheckAccept",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.03 WebSocket client validate 101 + Sec-WebSocket-Accept",
+    },
+    HostApiEntry {
+        name: "wsEncodeTextClient",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H12.03 WebSocket client text frame encode (FIN=1, masked)",
+    },
 ];
 
 /// All known host API entries.
@@ -895,6 +912,9 @@ mod tests {
             "wsEncodePing",
             "wsEncodePong",
             "wsDecodeFrame",
+            "wsClientHandshakeRequest",
+            "wsClientCheckAccept",
+            "wsEncodeTextClient",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

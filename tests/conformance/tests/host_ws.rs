@@ -1,4 +1,4 @@
-//! ROADMAP H12.01–H12.02: WebSocket handshake + frames.
+//! ROADMAP H12.01–H12.03: WebSocket handshake + frames + client dial echo.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -142,4 +142,36 @@ fn ws_frame_bad_runs_native() {
         Some("EINVAL\n")
     );
     assert_fixture_runs("host/net/ws/ws_frame_bad");
+}
+
+#[test]
+fn ws_client_echo_runs_native() {
+    assert_fixture_present("host/net/ws/ws_client_echo");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/ws/ws_client_echo")
+        .expect("host/net/ws/ws_client_echo");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(fixture.expect_native.stdout.as_deref(), Some("hello\n"));
+    assert_fixture_runs("host/net/ws/ws_client_echo");
+}
+
+#[test]
+fn ws_client_bad_accept_runs_native() {
+    assert_fixture_present("host/net/ws/ws_client_bad_accept");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/ws/ws_client_bad_accept")
+        .expect("host/net/ws/ws_client_bad_accept");
+    assert_eq!(fixture.expect_native.exit, 1);
+    assert_eq!(
+        fixture.expect_native.stderr.as_deref(),
+        Some("EINVAL\n")
+    );
+    assert_fixture_runs("host/net/ws/ws_client_bad_accept");
 }

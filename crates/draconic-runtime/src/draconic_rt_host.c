@@ -4645,6 +4645,249 @@ DraconicHostError draconic_rt_host_ws_decode_frame(
     return DRACONIC_HOST_OK;
 }
 
+/* --- WebSocket client dial (H12.03 / RFC 6455) --------------------------- */
+
+static void host_ws_fill_mask(uint8_t mask[4]) {
+#if defined(__APPLE__)
+    arc4random_buf(mask, 4);
+#elif defined(__linux__)
+    {
+        FILE *f = fopen("/dev/urandom", "rb");
+        if (f && fread(mask, 1, 4, f) == 4) {
+            fclose(f);
+            return;
+        }
+        if (f) {
+            fclose(f);
+        }
+        mask[0] = 0x37;
+        mask[1] = 0xfa;
+        mask[2] = 0x21;
+        mask[3] = 0x3d;
+    }
+#else
+    mask[0] = 0x37;
+    mask[1] = 0xfa;
+    mask[2] = 0x21;
+    mask[3] = 0x3d;
+#endif
+}
+
+static DraconicHostError host_ws_accept_for_key(
+    const char *sec_websocket_key,
+    char accept_out[29]) {
+    size_t key_len;
+    size_t concat_len;
+    uint8_t *concat;
+    uint8_t digest[20];
+
+    if (!sec_websocket_key || sec_websocket_key[0] == '\0' || !accept_out) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    key_len = strlen(sec_websocket_key);
+    concat_len = key_len + sizeof(HOST_WS_GUID) - 1;
+    concat = (uint8_t *)malloc(concat_len);
+    if (!concat) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    memcpy(concat, sec_websocket_key, key_len);
+    memcpy(concat + key_len, HOST_WS_GUID, sizeof(HOST_WS_GUID) - 1);
+    host_sha1(concat, concat_len, digest);
+    free(concat);
+    host_b64_encode_20(digest, accept_out);
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_ws_client_handshake_request(
+    const char *path,
+    const char *host,
+    const char *sec_websocket_key,
+    char **out_msg) {
+    size_t path_len;
+    size_t host_len;
+    size_t key_len;
+    size_t total;
+    char *msg;
+    size_t off;
+    static const char p1[] = "GET ";
+    static const char p2[] = " HTTP/1.1\r\nHost: ";
+    static const char p3[] =
+        "\r\nUpgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: ";
+    static const char p4[] = "\r\nSec-WebSocket-Version: 13\r\n\r\n";
+
+    if (!out_msg) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_msg = NULL;
+    if (!path || path[0] == '\0' || !host || host[0] == '\0'
+        || !sec_websocket_key || sec_websocket_key[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    path_len = strlen(path);
+    host_len = strlen(host);
+    key_len = strlen(sec_websocket_key);
+    total = (sizeof(p1) - 1) + path_len + (sizeof(p2) - 1) + host_len
+        + (sizeof(p3) - 1) + key_len + (sizeof(p4) - 1);
+    msg = (char *)malloc(total + 1);
+    if (!msg) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    off = 0;
+    memcpy(msg + off, p1, sizeof(p1) - 1);
+    off += sizeof(p1) - 1;
+    memcpy(msg + off, path, path_len);
+    off += path_len;
+    memcpy(msg + off, p2, sizeof(p2) - 1);
+    off += sizeof(p2) - 1;
+    memcpy(msg + off, host, host_len);
+    off += host_len;
+    memcpy(msg + off, p3, sizeof(p3) - 1);
+    off += sizeof(p3) - 1;
+    memcpy(msg + off, sec_websocket_key, key_len);
+    off += key_len;
+    memcpy(msg + off, p4, sizeof(p4) - 1);
+    off += sizeof(p4) - 1;
+    msg[off] = '\0';
+    *out_msg = msg;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_ws_client_check_accept(
+    const uint8_t *data,
+    size_t len,
+    const char *sec_websocket_key) {
+    char want[29];
+    DraconicHostError err;
+    const char *p;
+    const char *end;
+    const char *line;
+    int saw_101 = 0;
+    int saw_accept = 0;
+    char *hdr_val = NULL;
+    size_t i;
+
+    if (!data || len == 0 || !sec_websocket_key || sec_websocket_key[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    err = host_ws_accept_for_key(sec_websocket_key, want);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+
+    /* Status line: HTTP/1.1 101 … */
+    if (len < 12) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    p = (const char *)data;
+    end = p + len;
+    /* Find end of first line */
+    line = p;
+    while (p + 1 < end && !(p[0] == '\r' && p[1] == '\n')) {
+        p++;
+    }
+    if (p + 1 >= end) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    /* Check for " 101 " in status line */
+    {
+        size_t slen = (size_t)(p - line);
+        for (i = 0; i + 5 <= slen; i++) {
+            if (line[i] == ' ' && line[i + 1] == '1' && line[i + 2] == '0'
+                && line[i + 3] == '1' && (i + 4 == slen || line[i + 4] == ' ')) {
+                saw_101 = 1;
+                break;
+            }
+        }
+    }
+    if (!saw_101) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    p += 2; /* skip CRLF */
+
+    /* Scan headers until blank line */
+    while (p < end) {
+        const char *hstart = p;
+        const char *colon;
+        size_t nlen;
+        if (p + 1 < end && p[0] == '\r' && p[1] == '\n') {
+            break; /* end of headers */
+        }
+        while (p + 1 < end && !(p[0] == '\r' && p[1] == '\n')) {
+            p++;
+        }
+        if (p + 1 >= end) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        colon = hstart;
+        while (colon < p && *colon != ':') {
+            colon++;
+        }
+        if (colon >= p) {
+            p += 2;
+            continue;
+        }
+        nlen = (size_t)(colon - hstart);
+        /* Case-insensitive Sec-WebSocket-Accept */
+        if (nlen == 20
+            && (hstart[0] == 'S' || hstart[0] == 's')
+            && (hstart[1] == 'e' || hstart[1] == 'E')
+            && (hstart[2] == 'c' || hstart[2] == 'C')
+            && hstart[3] == '-'
+            && (hstart[4] == 'W' || hstart[4] == 'w')
+            && (hstart[5] == 'e' || hstart[5] == 'E')
+            && (hstart[6] == 'b' || hstart[6] == 'B')
+            && (hstart[7] == 'S' || hstart[7] == 's')
+            && (hstart[8] == 'o' || hstart[8] == 'O')
+            && (hstart[9] == 'c' || hstart[9] == 'C')
+            && (hstart[10] == 'k' || hstart[10] == 'K')
+            && (hstart[11] == 'e' || hstart[11] == 'E')
+            && (hstart[12] == 't' || hstart[12] == 'T')
+            && hstart[13] == '-'
+            && (hstart[14] == 'A' || hstart[14] == 'a')
+            && (hstart[15] == 'c' || hstart[15] == 'C')
+            && (hstart[16] == 'c' || hstart[16] == 'C')
+            && (hstart[17] == 'e' || hstart[17] == 'E')
+            && (hstart[18] == 'p' || hstart[18] == 'P')
+            && (hstart[19] == 't' || hstart[19] == 'T')) {
+            const char *v = colon + 1;
+            const char *vend = p;
+            while (v < vend && (*v == ' ' || *v == '\t')) {
+                v++;
+            }
+            while (vend > v && (vend[-1] == ' ' || vend[-1] == '\t')) {
+                vend--;
+            }
+            {
+                size_t vlen = (size_t)(vend - v);
+                if (vlen == strlen(want) && memcmp(v, want, vlen) == 0) {
+                    saw_accept = 1;
+                } else {
+                    return DRACONIC_HOST_E_INVAL;
+                }
+            }
+            (void)hdr_val;
+        }
+        p += 2;
+    }
+    if (!saw_accept) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_ws_encode_text_client(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len) {
+    const uint8_t *p = (const uint8_t *)(payload ? payload : "");
+    size_t n = payload ? strlen(payload) : 0;
+    uint8_t mask[4];
+    host_ws_fill_mask(mask);
+    return host_ws_encode_frame(0x1, p, n, mask, out_data, out_len);
+}
+
 /* --- TLS client wrap (H11.01) -------------------------------------------- */
 
 #if defined(__APPLE__)

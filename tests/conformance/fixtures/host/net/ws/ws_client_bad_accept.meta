@@ -1,0 +1,4 @@
+id: host/net/ws/ws_client_bad_accept
+targets: native
+native.exit: 1
+native.stderr: EINVAL\n

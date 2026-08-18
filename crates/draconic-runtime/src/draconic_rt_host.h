@@ -568,6 +568,26 @@ DraconicHostError draconic_rt_host_ws_decode_frame(
     size_t *out_payload_len,
     int32_t *out_close_code);
 
+/* --- WebSocket client dial (H12.03 / RFC 6455) -----------------------------
+   Client opening handshake request from path/host/Sec-WebSocket-Key.
+   On OK: *out_msg is malloc'd wire bytes (GET … Upgrade). Empty/NULL path,
+   host, or key → INVAL. Caller frees *out_msg.
+   Check Accept: parse HTTP response; require 101 + matching Accept for key.
+   Encode text client: FIN=1 text frame with MASK=1 and random 4-byte mask. */
+DraconicHostError draconic_rt_host_ws_client_handshake_request(
+    const char *path,
+    const char *host,
+    const char *sec_websocket_key,
+    char **out_msg);
+DraconicHostError draconic_rt_host_ws_client_check_accept(
+    const uint8_t *data,
+    size_t len,
+    const char *sec_websocket_key);
+DraconicHostError draconic_rt_host_ws_encode_text_client(
+    const char *payload,
+    uint8_t **out_data,
+    size_t *out_len);
+
 /* --- TLS client/server wrap (H11.01 / H11.02) ------------------------------
    Wrap an existing TCP connection handle as a TLS client or server session.
    Takes ownership of the TCP conn handle (it becomes invalid); *out_tls is a

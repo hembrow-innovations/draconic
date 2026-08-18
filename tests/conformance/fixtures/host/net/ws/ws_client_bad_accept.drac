@@ -1,0 +1,3 @@
+// H12.03: wrong Sec-WebSocket-Accept → EINVAL.
+let key = "dGhlIHNhbXBsZSBub25jZQ==";
+wsClientCheckAccept("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: AAAAAAAAAAAAAAAAAAAAAAAAAAA=\r\n\r\n", key);

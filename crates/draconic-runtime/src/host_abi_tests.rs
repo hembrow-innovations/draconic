@@ -234,6 +234,18 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_ws_decode_frame(ptr, i64, ptr, ptr, ptr, ptr, ptr)"
     );
     assert_eq!(
+        HOST_WS_CLIENT_HANDSHAKE_REQUEST.declare(),
+        "declare i32 @draconic_rt_host_ws_client_handshake_request(ptr, ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_WS_CLIENT_CHECK_ACCEPT.declare(),
+        "declare i32 @draconic_rt_host_ws_client_check_accept(ptr, i64, ptr)"
+    );
+    assert_eq!(
+        HOST_WS_ENCODE_TEXT_CLIENT.declare(),
+        "declare i32 @draconic_rt_host_ws_encode_text_client(ptr, ptr, ptr)"
+    );
+    assert_eq!(
         HOST_TLS_CLIENT_WRAP.declare(),
         "declare i32 @draconic_rt_host_tls_client_wrap(i64, ptr, i32, ptr)"
     );
@@ -3257,6 +3269,109 @@ fn host_ws_frames_text_binary_close_ping_pong() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "ws-h1202-ok\n");
+}
+
+#[test]
+fn host_ws_client_handshake_accept_masked_text() {
+    // H12.03: client handshake request, Accept check, masked text encode/decode.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_ws_h1203.c");
+    let bin = dir.join("rt_host_ws_h1203");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <string.h>
+        #include <stdlib.h>
+        #include <stdint.h>
+
+        int main(void) {
+            DraconicHostError err;
+            char *req = NULL;
+            char *resp = NULL;
+            uint8_t *frame = NULL;
+            size_t flen = 0;
+            int32_t fin = 0, opcode = 0, close_code = -1;
+            uint8_t *payload = NULL;
+            size_t plen = 0;
+            static const char key[] = "dGhlIHNhbXBsZSBub25jZQ==";
+
+            err = draconic_rt_host_ws_client_handshake_request("/echo", "127.0.0.1", key, &req);
+            if (err != DRACONIC_HOST_OK || !req) return 1;
+            if (!strstr(req, "GET /echo HTTP/1.1\r\n")) return 2;
+            if (!strstr(req, "Host: 127.0.0.1\r\n")) return 3;
+            if (!strstr(req, "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n")) return 4;
+            if (!strstr(req, "Upgrade: websocket\r\n")) return 5;
+            free(req); req = NULL;
+
+            err = draconic_rt_host_ws_handshake_response(key, &resp);
+            if (err != DRACONIC_HOST_OK || !resp) return 6;
+            err = draconic_rt_host_ws_client_check_accept(
+                (const uint8_t *)resp, strlen(resp), key);
+            if (err != DRACONIC_HOST_OK) return 7;
+            err = draconic_rt_host_ws_client_check_accept(
+                (const uint8_t *)"HTTP/1.1 200 OK\r\n\r\n", 19, key);
+            if (err != DRACONIC_HOST_E_INVAL) return 8;
+            err = draconic_rt_host_ws_client_check_accept(
+                (const uint8_t *)
+                    "HTTP/1.1 101 Switching Protocols\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    "Sec-WebSocket-Accept: AAAAAAAAAAAAAAAAAAAAAAAAAAA=\r\n\r\n",
+                130, key);
+            if (err != DRACONIC_HOST_E_INVAL) return 9;
+            free(resp); resp = NULL;
+
+            err = draconic_rt_host_ws_encode_text_client("hello", &frame, &flen);
+            if (err != DRACONIC_HOST_OK || !frame || flen < 6) return 10;
+            if ((frame[0] & 0x8f) != 0x81) return 11; /* FIN + text */
+            if ((frame[1] & 0x80) == 0) return 12; /* MASK must be set */
+            err = draconic_rt_host_ws_decode_frame(
+                frame, flen, &fin, &opcode, &payload, &plen, &close_code);
+            free(frame); frame = NULL;
+            if (err != DRACONIC_HOST_OK) return 13;
+            if (fin != 1 || opcode != 1 || plen != 5 || memcmp(payload, "hello", 5) != 0) return 14;
+            free(payload);
+
+            err = draconic_rt_host_ws_client_handshake_request("", "h", key, &req);
+            if (err != DRACONIC_HOST_E_INVAL) return 15;
+
+            puts("ws-h1203-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+    };
+    assert!(status.success(), "clang failed for ws H12.03 smoke");
+
+    let output = Command::new(&bin).output().expect("run ws h1203");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "ws H12.03 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ws-h1203-ok\n");
 }
 
 #[test]

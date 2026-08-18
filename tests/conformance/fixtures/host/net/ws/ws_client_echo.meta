@@ -1,0 +1,4 @@
+id: host/net/ws/ws_client_echo
+targets: native
+native.exit: 0
+native.stdout: hello\n

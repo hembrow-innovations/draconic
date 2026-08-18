@@ -1,0 +1,27 @@
+// H12.03: WebSocket client dial + text echo e2e (RFC 6455).
+// Client builds opening handshake, validates 101 Accept, sends masked text;
+// server responds with unmasked echo; client decodes payload.
+let key = "dGhlIHNhbXBsZSBub25jZQ==";
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let req = wsClientHandshakeRequest("/echo", "127.0.0.1", key);
+tcpWrite(c, req);
+let raw = tcpRead(a, 4096);
+let resp = wsHandshakeResponse(key);
+tcpWrite(a, resp);
+let out = tcpRead(c, 4096);
+wsClientCheckAccept(out, key);
+let f = wsEncodeTextClient("hello");
+tcpWrite(c, f);
+let rawF = tcpRead(a, 4096);
+let d = wsDecodeFrame(rawF);
+let echo = wsEncodeText(d.payload);
+tcpWrite(a, echo);
+let got = tcpRead(c, 4096);
+let d2 = wsDecodeFrame(got);
+stdoutWrite(d2.payload);
+stdoutWrite("\n");
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);

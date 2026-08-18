@@ -1135,6 +1135,22 @@ pub const HOST_WS_DECODE_FRAME: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, i64, ptr, ptr, ptr, ptr, ptr",
 };
+/* H12.03: WebSocket client dial (handshake request, Accept check, masked text). */
+pub const HOST_WS_CLIENT_HANDSHAKE_REQUEST: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_client_handshake_request",
+    ret: "i32",
+    params: "ptr, ptr, ptr, ptr",
+};
+pub const HOST_WS_CLIENT_CHECK_ACCEPT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_client_check_accept",
+    ret: "i32",
+    params: "ptr, i64, ptr",
+};
+pub const HOST_WS_ENCODE_TEXT_CLIENT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_ws_encode_text_client",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1264,6 +1280,9 @@ pub const HOST_WS_ENCODE_CLOSE_SYMBOL: &str = HOST_WS_ENCODE_CLOSE.symbol;
 pub const HOST_WS_ENCODE_PING_SYMBOL: &str = HOST_WS_ENCODE_PING.symbol;
 pub const HOST_WS_ENCODE_PONG_SYMBOL: &str = HOST_WS_ENCODE_PONG.symbol;
 pub const HOST_WS_DECODE_FRAME_SYMBOL: &str = HOST_WS_DECODE_FRAME.symbol;
+pub const HOST_WS_CLIENT_HANDSHAKE_REQUEST_SYMBOL: &str = HOST_WS_CLIENT_HANDSHAKE_REQUEST.symbol;
+pub const HOST_WS_CLIENT_CHECK_ACCEPT_SYMBOL: &str = HOST_WS_CLIENT_CHECK_ACCEPT.symbol;
+pub const HOST_WS_ENCODE_TEXT_CLIENT_SYMBOL: &str = HOST_WS_ENCODE_TEXT_CLIENT.symbol;
 pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
 pub const HOST_TLS_SERVER_WRAP_SYMBOL: &str = HOST_TLS_SERVER_WRAP.symbol;
 pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
@@ -1357,6 +1376,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_WS_ENCODE_PING_SYMBOL,
     HOST_WS_ENCODE_PONG_SYMBOL,
     HOST_WS_DECODE_FRAME_SYMBOL,
+    HOST_WS_CLIENT_HANDSHAKE_REQUEST_SYMBOL,
+    HOST_WS_CLIENT_CHECK_ACCEPT_SYMBOL,
+    HOST_WS_ENCODE_TEXT_CLIENT_SYMBOL,
     HOST_TLS_CLIENT_WRAP_SYMBOL,
     HOST_TLS_SERVER_WRAP_SYMBOL,
     HOST_TLS_READ_SYMBOL,
@@ -1455,6 +1477,9 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_WS_ENCODE_PING,
     HOST_WS_ENCODE_PONG,
     HOST_WS_DECODE_FRAME,
+    HOST_WS_CLIENT_HANDSHAKE_REQUEST,
+    HOST_WS_CLIENT_CHECK_ACCEPT,
+    HOST_WS_ENCODE_TEXT_CLIENT,
     HOST_TLS_CLIENT_WRAP,
     HOST_TLS_SERVER_WRAP,
     HOST_TLS_READ,
