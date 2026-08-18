@@ -132,6 +132,12 @@ int32_t draconic_rt_host_process_get_exit_code(void);
 int32_t draconic_rt_host_process_pid(void);
 int32_t draconic_rt_host_process_ppid(void);
 
+/* --- Stdout write (H02.01) -------------------------------------------------
+   Write raw bytes to OS stdout. data may be NULL only when len == 0.
+   Binary-safe (embedded 0x00 is payload). No automatic newline. */
+
+DraconicHostError draconic_rt_host_stdout_write(const uint8_t *data, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

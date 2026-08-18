@@ -1,9 +1,10 @@
-/* Host I/O Runtime substrate (H00.02–H00.03, H01 process argv/env/exit/pid).
+/* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout).
    Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process user-args + env + exit + pid/ppid. Later H rows open handles. */
+   process user-args + env + exit + pid/ppid, stdout write. Later H rows. */
 
 #include "draconic_rt_host.h"
 
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -468,4 +469,24 @@ int32_t draconic_rt_host_process_ppid(void) {
 #else
     return (int32_t)getppid();
 #endif
+}
+
+/* --- Stdout write (H02.01) --- */
+
+DraconicHostError draconic_rt_host_stdout_write(const uint8_t *data, size_t len) {
+    size_t n;
+    if (len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (!data) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    n = fwrite(data, 1, len, stdout);
+    if (n != len) {
+        return DRACONIC_HOST_E_IO;
+    }
+    if (fflush(stdout) != 0) {
+        return DRACONIC_HOST_E_IO;
+    }
+    return DRACONIC_HOST_OK;
 }

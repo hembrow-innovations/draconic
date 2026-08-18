@@ -64,6 +64,7 @@ pub struct HostApiEntry {
 /// - `envGet` / `envSet` / `envDelete` (H01.02): both — string env; missing get → undefined.
 /// - `exit` / `exitCode` / `setExitCode` (H01.03): both — terminate / deferred status (default 0).
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
+/// - `stdoutWrite` (H02.01): both — write string or Uint8Array bytes to stdout.
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -110,6 +111,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "ppid",
         availability: HostAvailability::BOTH,
         note: "H01.04 process ppid",
+    },
+    HostApiEntry {
+        name: "stdoutWrite",
+        availability: HostAvailability::BOTH,
+        note: "H02.01 stdout write",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -236,6 +242,18 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn registry_lists_stdout_write_both() {
+        let entry = lookup("stdoutWrite").expect("stdoutWrite registered");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_available("stdoutWrite", CompileTarget::Js));
+        assert!(is_available("stdoutWrite", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("stdoutWrite", CompileTarget::Js, Span::dummy()).is_none()
+        );
     }
 
     #[test]

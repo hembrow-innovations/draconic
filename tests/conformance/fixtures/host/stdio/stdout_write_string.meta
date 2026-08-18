@@ -1,0 +1,6 @@
+id: host/stdio/stdout_write_string
+targets: js,native
+js.exit: 0
+js.stdout: hello\nworld\n
+native.exit: 0
+native.stdout: hello\nworld\n

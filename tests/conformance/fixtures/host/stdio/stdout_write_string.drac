@@ -1,0 +1,3 @@
+// H02.01: stdoutWrite(string) — UTF-8 to OS stdout; newline is explicit in the string.
+stdoutWrite("hello\n");
+stdoutWrite("world\n");

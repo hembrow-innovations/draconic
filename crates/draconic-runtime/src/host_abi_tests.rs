@@ -123,6 +123,7 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_get_exit_code",
         "draconic_rt_host_process_pid",
         "draconic_rt_host_process_ppid",
+        "draconic_rt_host_stdout_write",
     ] {
         assert!(
             out.contains(sym),
@@ -342,6 +343,51 @@ int main(void) {
     assert!(pp >= 0, "ppid={pp}");
     // Child binary has its own pid; ppid should be this test process.
     assert_eq!(pp as u32, std::process::id());
+}
+
+#[test]
+fn host_stdout_write_bytes() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_stdout.c");
+    let bin = dir.join("rt_host_stdout");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+int main(void) {
+    const uint8_t msg[] = { 'h', 'i', '\n', 0 };
+    if (draconic_rt_host_stdout_write(msg, 3) != DRACONIC_HOST_OK) return 1;
+    if (draconic_rt_host_stdout_write(NULL, 0) != DRACONIC_HOST_OK) return 2;
+    if (draconic_rt_host_stdout_write(NULL, 1) != DRACONIC_HOST_E_INVAL) return 3;
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg(format!("-I{}", header_dir.display()))
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("clang link");
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "hi\n");
 }
 
 /// Clang link smoke: path boundary + handle close/is_valid (no real fs/tcp).

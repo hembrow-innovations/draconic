@@ -38,6 +38,7 @@ mod es_to_primitive;
 mod es_values;
 mod es_var_for;
 mod host_process;
+mod host_stdio;
 mod native_ints;
 
 pub use debug_info::SourceDebug;
@@ -91,6 +92,7 @@ use es_to_primitive::{emit_es_to_primitive, is_es_to_primitive_module};
 use es_values::{emit_es_values, is_es_values_module};
 use es_var_for::{emit_es_var_for, is_es_var_for_module};
 use host_process::{emit_host_process, is_host_process_module};
+use host_stdio::{emit_host_stdio, is_host_stdio_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
 /// Emit LLVM IR text for a shared IR module.
@@ -212,6 +214,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_process_module(module) {
         return emit_host_process(module);
+    }
+    if is_host_stdio_module(module) {
+        return emit_host_stdio(module);
     }
     if is_es_promise_module(module) {
         return emit_es_promise(module);

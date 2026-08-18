@@ -89,6 +89,14 @@ fn module_uses_process_pid(module: &Module) -> bool {
     })
 }
 
+/// H02.01: free host API `stdoutWrite`.
+fn module_uses_stdout_write(module: &Module) -> bool {
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "stdoutWrite"))
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -402,6 +410,13 @@ fn emit_js_full(
     // H01.04: `pid` / `ppid` Node bridge.
     if module_uses_process_pid(module) {
         out.push_str(draconic_runtime::process_pid_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H02.01: `stdoutWrite` Node bridge.
+    if module_uses_stdout_write(module) {
+        out.push_str(draconic_runtime::stdout_write_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

@@ -1,0 +1,6 @@
+id: host/stdio/stdout_write_bytes
+targets: js,native
+js.exit: 0
+js.stdout: AB\n
+native.exit: 0
+native.stdout: AB\n

@@ -1,0 +1,6 @@
+// H02.01: stdoutWrite(Uint8Array) — raw bytes (binary-safe).
+let u = new Uint8Array(3);
+u[0] = 65;
+u[1] = 66;
+u[2] = 10;
+stdoutWrite(u);
