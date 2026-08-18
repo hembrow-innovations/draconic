@@ -105,6 +105,13 @@ fn module_uses_stderr_write(module: &Module) -> bool {
         .any(|s| stmt_uses_ident_name(s, "stderrWrite"))
 }
 
+/// H02.03: free host APIs `stdinReadLine` / `stdinReadBytes`.
+fn module_uses_stdin_read(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "stdinReadLine") || stmt_uses_ident_name(s, "stdinReadBytes")
+    })
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -432,6 +439,13 @@ fn emit_js_full(
     // H02.02: `stderrWrite` Node bridge.
     if module_uses_stderr_write(module) {
         out.push_str(draconic_runtime::stderr_write_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H02.03: `stdinReadLine` / `stdinReadBytes` Node bridge.
+    if module_uses_stdin_read(module) {
+        out.push_str(draconic_runtime::stdin_read_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

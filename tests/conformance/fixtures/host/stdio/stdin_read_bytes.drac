@@ -1,0 +1,4 @@
+// H02.03: stdinReadBytes(n) — up to n bytes; .length is actual; write-back.
+let u = stdinReadBytes(3);
+let n = u.length;
+stdoutWrite(u);

@@ -1,0 +1,7 @@
+id: host/stdio/stdin_read_line
+targets: js,native
+stdin: hello\n
+js.exit: 0
+js.check: if (line !== "hello") process.exit(1); if (t !== "string") process.exit(2);
+native.exit: 0
+native.stdout: hello\nstring\n

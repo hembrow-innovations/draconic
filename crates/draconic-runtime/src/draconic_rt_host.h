@@ -144,6 +144,22 @@ DraconicHostError draconic_rt_host_stdout_write(const uint8_t *data, size_t len)
 
 DraconicHostError draconic_rt_host_stderr_write(const uint8_t *data, size_t len);
 
+/* --- Stdin read (H02.03) ---------------------------------------------------
+   Blocking reads from OS stdin. v1: no timeouts. */
+
+/* Read one line (through `\n` or EOF). On success: malloc'd bytes without
+   trailing `\n` or `\r\n` (caller frees with free). Empty line → empty string.
+   Immediate EOF (no bytes) → NULL. */
+char *draconic_rt_host_stdin_read_line(void);
+
+/* Read up to max_len bytes. On OK: *out_data is malloc'd of *out_len bytes
+   (caller frees with free); *out_len may be 0 at EOF (then *out_data is NULL).
+   max_len == 0 → OK with empty result. */
+DraconicHostError draconic_rt_host_stdin_read_bytes(
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

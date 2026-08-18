@@ -1,0 +1,3 @@
+// H02.03: stdinReadLine() — one line without trailing newline; typeof "string".
+let line = stdinReadLine();
+let t = typeof line;

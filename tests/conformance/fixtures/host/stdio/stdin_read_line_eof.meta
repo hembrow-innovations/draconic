@@ -1,0 +1,7 @@
+id: host/stdio/stdin_read_line_eof
+targets: js,native
+stdin: 
+js.exit: 0
+js.check: if (line !== null) process.exit(1); if (t !== "object") process.exit(2);
+native.exit: 0
+native.stdout: null\nobject\n

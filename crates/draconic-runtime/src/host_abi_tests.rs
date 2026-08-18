@@ -125,6 +125,8 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_ppid",
         "draconic_rt_host_stdout_write",
         "draconic_rt_host_stderr_write",
+        "draconic_rt_host_stdin_read_line",
+        "draconic_rt_host_stdin_read_bytes",
     ] {
         assert!(
             out.contains(sym),
@@ -436,7 +438,74 @@ int main(void) {
     assert_eq!(String::from_utf8_lossy(&out.stderr), "er\n");
 }
 
-/// Clang link smoke: path boundary + handle close/is_valid (no real fs/tcp).
+#[test]
+fn host_stdin_read_line_and_bytes() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_stdin.c");
+    let bin = dir.join("rt_host_stdin");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    char *line = draconic_rt_host_stdin_read_line();
+    if (!line) return 1;
+    if (strcmp(line, "hi") != 0) { free(line); return 2; }
+    free(line);
+    uint8_t *data = NULL;
+    size_t n = 0;
+    if (draconic_rt_host_stdin_read_bytes(3, &data, &n) != DRACONIC_HOST_OK) return 3;
+    if (n != 3 || !data) return 4;
+    if (data[0] != 'A' || data[1] != 'B' || data[2] != 'C') { free(data); return 5; }
+    free(data);
+    line = draconic_rt_host_stdin_read_line();
+    if (line != NULL) { free(line); return 6; }
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg(format!("-I{}", header_dir.display()))
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("clang link");
+    assert!(status.success(), "link failed");
+    let mut child = Command::new(&bin)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    {
+        let mut sin = child.stdin.take().expect("stdin");
+        sin.write_all(b"hi\nABC").expect("write stdin");
+    }
+    let out = child.wait_with_output().expect("wait");
+    assert!(
+        out.status.success(),
+        "exit={:?} stderr={} stdout={}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
 #[test]
 fn host_abi_path_and_handles_link_smoke() {
     let clang = test_which_clang().expect("clang required for runtime native tests");

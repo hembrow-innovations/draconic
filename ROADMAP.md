@@ -600,7 +600,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H02 | todo | both | Stdio: stdout / stderr / stdin | `tests/conformance/host/stdio` |
 | H02.01 | done | both | stdout write: string + newline; bytes via `Uint8Array` | `tests/conformance` fixtures `host/stdio`, `crates/draconic-runtime` |
 | H02.02 | done | both | stderr write | `tests/conformance` fixtures `host/stdio` |
-| H02.03 | todo | both | stdin read: line or bounded bytes (v1 blocking ok on native) | `tests/conformance` fixtures `host/stdio` |
+| H02.03 | done | both | stdin read: line or bounded bytes (v1 blocking ok on native) | `tests/conformance` fixtures `host/stdio` |
 | H03 | todo | both | Path helpers (string ops; no I/O) | `tests/conformance/host/path` |
 | H03.01 | todo | both | `path.join` / `path.normalize` (POSIX + Windows-aware as designed) | `tests/conformance` fixtures `host/path` |
 | H03.02 | todo | both | `dirname` / `basename` / `extname` / `isAbsolute` | `tests/conformance` fixtures `host/path` |

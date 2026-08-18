@@ -66,6 +66,7 @@ pub struct HostApiEntry {
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
 /// - `stdoutWrite` (H02.01): both — write string or Uint8Array bytes to stdout.
 /// - `stderrWrite` (H02.02): both — write string or Uint8Array bytes to stderr.
+/// - `stdinReadLine` / `stdinReadBytes` (H02.03): both — blocking line/bytes from stdin.
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -122,6 +123,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "stderrWrite",
         availability: HostAvailability::BOTH,
         note: "H02.02 stderr write",
+    },
+    HostApiEntry {
+        name: "stdinReadLine",
+        availability: HostAvailability::BOTH,
+        note: "H02.03 stdin read line",
+    },
+    HostApiEntry {
+        name: "stdinReadBytes",
+        availability: HostAvailability::BOTH,
+        note: "H02.03 stdin read bytes",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -272,6 +283,21 @@ mod tests {
         assert!(
             unsupported_diagnostic("stderrWrite", CompileTarget::Js, Span::dummy()).is_none()
         );
+    }
+
+    #[test]
+    fn registry_lists_stdin_read_both() {
+        for name in ["stdinReadLine", "stdinReadBytes"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

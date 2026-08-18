@@ -1,0 +1,8 @@
+id: host/stdio/stdin_read_bytes
+targets: js,native
+stdin: ABCDEF
+js.exit: 0
+js.stdout: ABC
+js.check: if (n !== 3) process.exit(1); if (!(u instanceof Uint8Array)) process.exit(2);
+native.exit: 0
+native.stdout: ABC3\n

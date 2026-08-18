@@ -510,3 +510,90 @@ DraconicHostError draconic_rt_host_stderr_write(const uint8_t *data, size_t len)
     }
     return DRACONIC_HOST_OK;
 }
+
+/* --- Stdin read (H02.03) --- */
+
+char *draconic_rt_host_stdin_read_line(void) {
+    size_t cap = 64;
+    size_t len = 0;
+    char *buf = (char *)malloc(cap);
+    int ch;
+
+    if (!buf) {
+        return NULL;
+    }
+
+    for (;;) {
+        ch = fgetc(stdin);
+        if (ch == EOF) {
+            if (len == 0) {
+                free(buf);
+                return NULL;
+            }
+            break;
+        }
+        if (ch == '\n') {
+            break;
+        }
+        if (len + 1 >= cap) {
+            size_t ncap = cap * 2;
+            char *nbuf = (char *)realloc(buf, ncap);
+            if (!nbuf) {
+                free(buf);
+                return NULL;
+            }
+            buf = nbuf;
+            cap = ncap;
+        }
+        buf[len++] = (char)ch;
+    }
+
+    /* Strip trailing CR from CRLF. */
+    if (len > 0 && buf[len - 1] == '\r') {
+        len--;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+DraconicHostError draconic_rt_host_stdin_read_bytes(
+    size_t max_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    uint8_t *buf;
+    size_t n;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+
+    if (max_len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+
+    buf = (uint8_t *)malloc(max_len);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    n = fread(buf, 1, max_len, stdin);
+    if (n == 0) {
+        free(buf);
+        if (ferror(stdin)) {
+            return DRACONIC_HOST_E_IO;
+        }
+        return DRACONIC_HOST_OK;
+    }
+
+    if (n < max_len) {
+        uint8_t *shrunk = (uint8_t *)realloc(buf, n);
+        if (shrunk) {
+            buf = shrunk;
+        }
+    }
+    *out_data = buf;
+    *out_len = n;
+    return DRACONIC_HOST_OK;
+}

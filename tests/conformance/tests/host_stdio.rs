@@ -1,4 +1,4 @@
-//! ROADMAP H02.01 / H02.02: stdout + stderr write (string; bytes via Uint8Array).
+//! ROADMAP H02.01 / H02.02 / H02.03: stdout + stderr write; stdin read line/bytes.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -67,4 +67,34 @@ fn stderr_write_bytes_fixture_present() {
 #[test]
 fn stderr_write_bytes_runs_js_and_native() {
     assert_fixture_runs("host/stdio/stderr_write_bytes");
+}
+
+#[test]
+fn stdin_read_line_fixture_present() {
+    assert_fixture_present("host/stdio/stdin_read_line");
+}
+
+#[test]
+fn stdin_read_line_runs_js_and_native() {
+    assert_fixture_runs("host/stdio/stdin_read_line");
+}
+
+#[test]
+fn stdin_read_line_eof_fixture_present() {
+    assert_fixture_present("host/stdio/stdin_read_line_eof");
+}
+
+#[test]
+fn stdin_read_line_eof_runs_js_and_native() {
+    assert_fixture_runs("host/stdio/stdin_read_line_eof");
+}
+
+#[test]
+fn stdin_read_bytes_fixture_present() {
+    assert_fixture_present("host/stdio/stdin_read_bytes");
+}
+
+#[test]
+fn stdin_read_bytes_runs_js_and_native() {
+    assert_fixture_runs("host/stdio/stdin_read_bytes");
 }

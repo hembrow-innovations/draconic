@@ -744,6 +744,20 @@ pub const HOST_STDERR_WRITE: AbiFn = AbiFn {
     params: "ptr, i64",
 };
 
+/* H02.03: stdin read line → malloc'd C string or null (EOF). */
+pub const HOST_STDIN_READ_LINE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_stdin_read_line",
+    ret: "ptr",
+    params: "",
+};
+
+/* H02.03: stdin read up to max bytes → out_data/out_len (malloc'd). */
+pub const HOST_STDIN_READ_BYTES: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_stdin_read_bytes",
+    ret: "i32",
+    params: "i64, ptr, ptr",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -767,8 +781,10 @@ pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
 pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
 pub const HOST_STDOUT_WRITE_SYMBOL: &str = HOST_STDOUT_WRITE.symbol;
 pub const HOST_STDERR_WRITE_SYMBOL: &str = HOST_STDERR_WRITE.symbol;
+pub const HOST_STDIN_READ_LINE_SYMBOL: &str = HOST_STDIN_READ_LINE.symbol;
+pub const HOST_STDIN_READ_BYTES_SYMBOL: &str = HOST_STDIN_READ_BYTES.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02.01–H02.02).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02.01–H02.03).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -793,6 +809,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_PPID_SYMBOL,
     HOST_STDOUT_WRITE_SYMBOL,
     HOST_STDERR_WRITE_SYMBOL,
+    HOST_STDIN_READ_LINE_SYMBOL,
+    HOST_STDIN_READ_BYTES_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -820,6 +838,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_PPID,
     HOST_STDOUT_WRITE,
     HOST_STDERR_WRITE,
+    HOST_STDIN_READ_LINE,
+    HOST_STDIN_READ_BYTES,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -981,6 +1001,59 @@ pub fn stderr_write_js_polyfill() -> &'static str {
   process.stderr.write(String(data));
 }
 if (typeof globalThis !== "undefined") globalThis.stderrWrite = stderrWrite;
+"#
+}
+
+/// JS polyfill for `stdinReadLine` / `stdinReadBytes` (H02.03).
+///
+/// Node bridge via `fs.readSync(0, …)` (blocking). Line strips trailing `\n` /
+/// `\r\n`; EOF with no data → `null`. Bytes return a `Uint8Array` of actual
+/// length (empty at EOF).
+pub fn stdin_read_js_polyfill() -> &'static str {
+    r#"function stdinReadLine() {
+  var fs = require("fs");
+  var chunks = [];
+  var buf = Buffer.alloc(1);
+  for (;;) {
+    var n;
+    try {
+      n = fs.readSync(0, buf, 0, 1, null);
+    } catch (e) {
+      if (e && (e.code === "EOF" || e.code === "EAGAIN")) n = 0;
+      else throw e;
+    }
+    if (n === 0) {
+      if (chunks.length === 0) return null;
+      break;
+    }
+    var c = buf[0];
+    if (c === 10) break;
+    chunks.push(c);
+  }
+  if (chunks.length > 0 && chunks[chunks.length - 1] === 13) chunks.pop();
+  return Buffer.from(chunks).toString("utf8");
+}
+function stdinReadBytes(max) {
+  var fs = require("fs");
+  var m = Number(max);
+  if (!(m > 0) || !isFinite(m)) return new Uint8Array(0);
+  m = m >>> 0;
+  if (m === 0) return new Uint8Array(0);
+  var buf = Buffer.alloc(m);
+  var n;
+  try {
+    n = fs.readSync(0, buf, 0, m, null);
+  } catch (e) {
+    if (e && (e.code === "EOF" || e.code === "EAGAIN")) n = 0;
+    else throw e;
+  }
+  if (!n) return new Uint8Array(0);
+  return new Uint8Array(buf.buffer, buf.byteOffset, n);
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.stdinReadLine = stdinReadLine;
+  globalThis.stdinReadBytes = stdinReadBytes;
+}
 "#
 }
 

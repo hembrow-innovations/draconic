@@ -5,8 +5,9 @@ mod coverage;
 pub use coverage::CoverageReport;
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -58,6 +59,8 @@ pub struct TargetExpect {
     pub error_code: Option<String>,
     /// Program user args forwarded to the runner (H01.01 `processArgs`).
     pub args: Vec<String>,
+    /// Bytes written to the process stdin before run (H02.03).
+    pub stdin: Option<String>,
 }
 
 /// One conformance fixture loaded from disk.
@@ -242,6 +245,7 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             "js.error" => meta.expect_js.error_contains = Some(unescape(value)),
             "js.error_code" => meta.expect_js.error_code = Some(value.to_string()),
             "js.args" => meta.expect_js.args = parse_args(value),
+            "js.stdin" => meta.expect_js.stdin = Some(unescape(value)),
             "native.exit" => {
                 meta.expect_native.exit = parse_exit(value, lineno + 1)?;
             }
@@ -250,11 +254,18 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             "native.error" => meta.expect_native.error_contains = Some(unescape(value)),
             "native.error_code" => meta.expect_native.error_code = Some(value.to_string()),
             "native.args" => meta.expect_native.args = parse_args(value),
+            "native.stdin" => meta.expect_native.stdin = Some(unescape(value)),
             // Shared args for both targets (H01.01).
             "args" => {
                 let a = parse_args(value);
                 meta.expect_js.args = a.clone();
                 meta.expect_native.args = a;
+            }
+            // Shared stdin for both targets (H02.03).
+            "stdin" => {
+                let s = unescape(value);
+                meta.expect_js.stdin = Some(s.clone());
+                meta.expect_native.stdin = Some(s);
             }
             "native.check" => {
                 return Err(format!(
@@ -429,15 +440,14 @@ fn run_js(fixture: &Fixture, mut coverage: Option<&mut CoverageReport>) -> Resul
         script
     };
 
-    let output = Command::new("node")
-        .arg("-e")
-        .arg(&script)
-        .args(&expect.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("spawn node: {e}"))?;
+    let output = run_with_optional_stdin(
+        Command::new("node")
+            .arg("-e")
+            .arg(&script)
+            .args(&expect.args),
+        expect.stdin.as_deref(),
+    )
+    .map_err(|e| format!("spawn node: {e}"))?;
 
     let code = output.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -475,6 +485,26 @@ fn run_js(fixture: &Fixture, mut coverage: Option<&mut CoverageReport>) -> Resul
     Ok(())
 }
 
+/// Run `cmd` with optional stdin bytes; stdout/stderr always piped.
+fn run_with_optional_stdin(cmd: &mut Command, stdin: Option<&str>) -> Result<Output, String> {
+    if stdin.is_some() {
+        cmd.stdin(Stdio::piped());
+    } else {
+        cmd.stdin(Stdio::null());
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;
+    if let Some(data) = stdin {
+        if let Some(mut sin) = child.stdin.take() {
+            sin.write_all(data.as_bytes())
+                .map_err(|e| format!("write stdin: {e}"))?;
+        }
+    }
+    child
+        .wait_with_output()
+        .map_err(|e| format!("wait: {e}"))
+}
+
 fn run_native(fixture: &Fixture) -> Result<(), String> {
     let expect = &fixture.expect_native;
     if expect.error_contains.is_some() || expect.error_code.is_some() {
@@ -491,12 +521,7 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
     let out = temp_bin_path(&fixture.id);
     build_native_binary(&ll, &out).map_err(|d| format!("build_native_binary: {d}"))?;
 
-    let output = Command::new(&out)
-        .args(&expect.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
+    let output = run_with_optional_stdin(Command::new(&out).args(&expect.args), expect.stdin.as_deref())
         .map_err(|e| format!("run native binary: {e}"))?;
 
     let _ = fs::remove_file(&out);
