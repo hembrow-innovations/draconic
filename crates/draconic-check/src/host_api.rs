@@ -83,6 +83,7 @@ pub struct HostApiEntry {
 /// - `tcpRead` / `tcpWrite` / `tcpShutdown` (H06.04): connection bytes + half-close.
 /// - H06.06: all TCP listen/accept (and related) APIs hard-error on js until optional Node bridge.
 /// - `udpBind` / `udpLocalPort` / `udpSendTo` / `udpRecvFrom` / `closeUdp` (H08.01): native-only UDP.
+/// - `dnsLookup` (H09.01): native-only DNS hostname → IPv4 address string[]; failure → HostError EADDR.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -403,6 +404,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "closeUdp",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H08.01 close UDP handle",
+    },
+    HostApiEntry {
+        name: "dnsLookup",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H09.01 DNS lookup hostname → IPv4 address strings",
     },
 ];
 
@@ -769,6 +775,7 @@ mod tests {
             "udpSendTo",
             "udpRecvFrom",
             "closeUdp",
+            "dnsLookup",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

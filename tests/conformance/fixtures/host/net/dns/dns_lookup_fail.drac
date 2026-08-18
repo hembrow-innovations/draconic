@@ -1,0 +1,2 @@
+// H09.01: unknown host → stderr EADDR + exit 1.
+dnsLookup("this-host-definitely-does-not-exist.invalid");

@@ -1,7 +1,7 @@
 /* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
-   H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom).
+   H04 fs, H06 TCP, H07 async, H08.01 UDP bind/sendto/recvfrom, H09.01 DNS).
    Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process, stdio, path, fs, TCP, UDP, async readiness + Promise ops. */
+   process, stdio, path, fs, TCP, UDP, DNS, async readiness + Promise ops. */
 
 #include "draconic_rt_host.h"
 
@@ -24,13 +24,14 @@
 #else
 #include <arpa/inet.h>
 #include <dirent.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
 /* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink; open/read/write/lseek/close;
-   socket/bind/listen/getsockname; poll */
+   socket/bind/listen/getsockname; getaddrinfo; poll */
 #endif
 
 /* Core job queue + Promise (draconic_rt.c) — H07.01/H07.02. */
@@ -3293,6 +3294,111 @@ DraconicHostError draconic_rt_host_udp_recvfrom(
         memcpy(dup, abuf, strlen(abuf) + 1);
         *out_peer_addr = dup;
     }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+/* --- DNS lookup (H09.01) -------------------------------------------------- */
+
+static void host_dns_free_addrs(char **addrs, size_t count) {
+    size_t i;
+    if (!addrs) {
+        return;
+    }
+    for (i = 0; i < count; i++) {
+        free(addrs[i]);
+    }
+    free(addrs);
+}
+
+static int host_dns_already_has(char **addrs, size_t count, const char *s) {
+    size_t i;
+    for (i = 0; i < count; i++) {
+        if (addrs[i] && strcmp(addrs[i], s) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+DraconicHostError draconic_rt_host_dns_lookup(
+    const char *hostname,
+    char ***out_addrs,
+    int64_t *out_count) {
+#if defined(_WIN32)
+    (void)hostname;
+    (void)out_addrs;
+    (void)out_count;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    struct addrinfo hints;
+    struct addrinfo *res = NULL;
+    struct addrinfo *rp;
+    char **addrs = NULL;
+    size_t count = 0;
+    size_t cap = 0;
+    int gai;
+
+    if (!hostname || hostname[0] == '\0' || !out_addrs || !out_count) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_addrs = NULL;
+    *out_count = 0;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    gai = getaddrinfo(hostname, NULL, &hints, &res);
+    if (gai != 0) {
+        return DRACONIC_HOST_E_ADDR;
+    }
+
+    for (rp = res; rp != NULL; rp = rp->ai_next) {
+        char abuf[INET_ADDRSTRLEN];
+        char *copy;
+        char **grown;
+        struct sockaddr_in *sa;
+
+        if (rp->ai_family != AF_INET || !rp->ai_addr) {
+            continue;
+        }
+        sa = (struct sockaddr_in *)rp->ai_addr;
+        if (!inet_ntop(AF_INET, &sa->sin_addr, abuf, sizeof(abuf))) {
+            continue;
+        }
+        if (host_dns_already_has(addrs, count, abuf)) {
+            continue;
+        }
+        if (count == cap) {
+            size_t ncap = cap == 0 ? 4 : cap * 2;
+            grown = (char **)realloc(addrs, ncap * sizeof(char *));
+            if (!grown) {
+                freeaddrinfo(res);
+                host_dns_free_addrs(addrs, count);
+                return DRACONIC_HOST_E_NOMEM;
+            }
+            addrs = grown;
+            cap = ncap;
+        }
+        copy = (char *)malloc(strlen(abuf) + 1);
+        if (!copy) {
+            freeaddrinfo(res);
+            host_dns_free_addrs(addrs, count);
+            return DRACONIC_HOST_E_NOMEM;
+        }
+        memcpy(copy, abuf, strlen(abuf) + 1);
+        addrs[count++] = copy;
+    }
+    freeaddrinfo(res);
+
+    if (count == 0) {
+        host_dns_free_addrs(addrs, count);
+        return DRACONIC_HOST_E_ADDR;
+    }
+
+    *out_addrs = addrs;
+    *out_count = (int64_t)count;
     return DRACONIC_HOST_OK;
 #endif
 }

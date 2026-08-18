@@ -427,6 +427,18 @@ DraconicHostError draconic_rt_host_udp_recvfrom(
     char **out_peer_addr,
     int32_t *out_peer_port);
 
+/* --- DNS lookup (H09.01) ---------------------------------------------------
+   Resolve hostname (or IPv4 dotted literal) → list of IPv4 dotted addresses.
+   On OK: *out_addrs is malloc'd array of *out_count malloc'd NUL-terminated
+   address strings (caller frees each string + the array). Empty / NULL host
+   → INVAL. Resolution failure (unknown host, no A records) → E_ADDR.
+   Duplicates may be collapsed. v1: AF_INET only. */
+
+DraconicHostError draconic_rt_host_dns_lookup(
+    const char *hostname,
+    char ***out_addrs,
+    int64_t *out_count);
+
 #ifdef __cplusplus
 }
 #endif

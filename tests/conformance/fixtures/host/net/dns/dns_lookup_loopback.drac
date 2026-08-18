@@ -1,0 +1,4 @@
+// H09.01: dnsLookup("127.0.0.1") → ["127.0.0.1"]; length + index.
+let addrs = dnsLookup("127.0.0.1");
+let n = addrs.length;
+let a0 = addrs[0];

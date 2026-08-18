@@ -1,0 +1,4 @@
+id: host/net/dns/dns_lookup_loopback
+targets: native
+native.exit: 0
+native.stdout: 1\n127.0.0.1\n

@@ -633,7 +633,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H08.01 | done | native | UDP bind; sendto/recvfrom; close | `tests/conformance` fixtures `host/net/udp`, `crates/draconic-runtime` |
 | H08.02 | done | native | UDP loopback e2e | `tests/conformance` fixtures `host/net/udp` |
 | H09 | todo | native | DNS | `tests/conformance/host/net/dns` |
-| H09.01 | todo | native | DNS lookup hostname → addresses; failure errors | `tests/conformance` fixtures `host/net/dns`, `crates/draconic-runtime` |
+| H09.01 | done | native | DNS lookup hostname → addresses; failure errors | `tests/conformance` fixtures `host/net/dns`, `crates/draconic-runtime` |
 | H09.02 | todo | native | Connect-by-name (H09.01 + H06.03) | `tests/conformance` fixtures `host/net/dns` |
 | H09.03 | todo | both | DNS on js: hard-error or Node polyfill (when client bridge lands) | `tests/conformance` fixtures `host/policy` |
 | H10 | todo | native | HTTP/1.1 thin helpers (plaintext) on sockets | `tests/conformance/host/http` |

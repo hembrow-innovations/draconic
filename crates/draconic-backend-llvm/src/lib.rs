@@ -37,6 +37,7 @@ mod es_tagged_template;
 mod es_to_primitive;
 mod es_values;
 mod es_var_for;
+mod host_dns;
 mod host_fs;
 mod host_path;
 mod host_process;
@@ -98,6 +99,7 @@ use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
 use es_to_primitive::{emit_es_to_primitive, is_es_to_primitive_module};
 use es_values::{emit_es_values, is_es_values_module};
 use es_var_for::{emit_es_var_for, is_es_var_for_module};
+use host_dns::{emit_host_dns, is_host_dns_module};
 use host_fs::{emit_host_fs, is_host_fs_module};
 use host_path::{emit_host_path, is_host_path_module};
 use host_process::{emit_host_process, is_host_process_module};
@@ -243,6 +245,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_udp_module(module) {
         return emit_host_udp(module);
+    }
+    if is_host_dns_module(module) {
+        return emit_host_dns(module);
     }
     if is_host_tcp_module(module) {
         return emit_host_tcp(module);

@@ -1038,6 +1038,12 @@ pub const HOST_UDP_RECVFROM: AbiFn = AbiFn {
     ret: "i32",
     params: "i64, i64, ptr, ptr, ptr, ptr",
 };
+/* H09.01: DNS lookup hostname → IPv4 address strings. */
+pub const HOST_DNS_LOOKUP: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_dns_lookup",
+    ret: "i32",
+    params: "ptr, ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1153,8 +1159,9 @@ pub const HOST_UDP_BIND_SYMBOL: &str = HOST_UDP_BIND.symbol;
 pub const HOST_UDP_LOCAL_PORT_SYMBOL: &str = HOST_UDP_LOCAL_PORT.symbol;
 pub const HOST_UDP_SENDTO_SYMBOL: &str = HOST_UDP_SENDTO.symbol;
 pub const HOST_UDP_RECVFROM_SYMBOL: &str = HOST_UDP_RECVFROM.symbol;
+pub const HOST_DNS_LOOKUP_SYMBOL: &str = HOST_DNS_LOOKUP.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H08.01).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H09.01).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -1230,6 +1237,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_UDP_LOCAL_PORT_SYMBOL,
     HOST_UDP_SENDTO_SYMBOL,
     HOST_UDP_RECVFROM_SYMBOL,
+    HOST_DNS_LOOKUP_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1308,6 +1316,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_UDP_LOCAL_PORT,
     HOST_UDP_SENDTO,
     HOST_UDP_RECVFROM,
+    HOST_DNS_LOOKUP,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
