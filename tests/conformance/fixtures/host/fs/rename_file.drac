@@ -1,0 +1,5 @@
+// H04.05: renameFile — move path; source gone, dest has content.
+writeFileText("/tmp/draconic_h0405_ren_src.txt", "ren-h0405");
+renameFile("/tmp/draconic_h0405_ren_src.txt", "/tmp/draconic_h0405_ren_dst.txt");
+let gone = exists("/tmp/draconic_h0405_ren_src.txt");
+let t = readFileText("/tmp/draconic_h0405_ren_dst.txt");

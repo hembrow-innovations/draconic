@@ -259,6 +259,14 @@ DraconicHostError draconic_rt_host_fs_readdir(
 DraconicHostError draconic_rt_host_fs_rmdir(const char *path);
 DraconicHostError draconic_rt_host_fs_remove_file(const char *path);
 
+/* --- Filesystem rename / copy (H04.05) -------------------------------------
+   rename_file: rename/move path from → to (same as POSIX rename).
+   copy_file: copy regular file contents from → to (overwrite dest if present).
+   Missing source → NOENT; path NULL/empty → INVAL. */
+
+DraconicHostError draconic_rt_host_fs_rename_file(const char *from, const char *to);
+DraconicHostError draconic_rt_host_fs_copy_file(const char *from, const char *to);
+
 #ifdef __cplusplus
 }
 #endif

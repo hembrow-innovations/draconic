@@ -1,0 +1,5 @@
+// H04.05: copyFile — duplicate file; source remains, dest matches.
+writeFileText("/tmp/draconic_h0405_cp_src.txt", "cp-h0405");
+copyFile("/tmp/draconic_h0405_cp_src.txt", "/tmp/draconic_h0405_cp_dst.txt");
+let src = readFileText("/tmp/draconic_h0405_cp_src.txt");
+let dst = readFileText("/tmp/draconic_h0405_cp_dst.txt");

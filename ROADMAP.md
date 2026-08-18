@@ -610,7 +610,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H04.02 | done | both | File write / append; create/truncate | `tests/conformance` fixtures `host/fs` |
 | H04.03 | done | both | `exists` / `stat` (size, isFile, isDir, mtime) | `tests/conformance` fixtures `host/fs` |
 | H04.04 | done | both | Directory: `mkdir` (optional recursive), `readdir`, `rmdir` / remove file | `tests/conformance` fixtures `host/fs` |
-| H04.05 | todo | both | Rename / copy / delete file | `tests/conformance` fixtures `host/fs` |
+| H04.05 | done | both | Rename / copy / delete file | `tests/conformance` fixtures `host/fs` |
 | H04.06 | todo | native | Open handle: open/read/write/seek/close (fd-like; optional shared stream traits) | `tests/conformance` fixtures `host/fs`, `crates/draconic-runtime` |
 | H05 | todo | both | Time, clock, timers (job-queue integrated) | `tests/conformance/host/time` |
 | H05.01 | todo | both | Wall clock: real OS time on native (`Date.now` / host `now_ms`) | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |

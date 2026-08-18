@@ -859,6 +859,17 @@ pub const HOST_FS_REMOVE_FILE: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr",
 };
+/* H04.05: renameFile / copyFile. */
+pub const HOST_FS_RENAME_FILE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_rename_file",
+    ret: "i32",
+    params: "ptr, ptr",
+};
+pub const HOST_FS_COPY_FILE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_copy_file",
+    ret: "i32",
+    params: "ptr, ptr",
+};
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -904,6 +915,8 @@ pub const HOST_FS_MKDIR_ALL_SYMBOL: &str = HOST_FS_MKDIR_ALL.symbol;
 pub const HOST_FS_READDIR_SYMBOL: &str = HOST_FS_READDIR.symbol;
 pub const HOST_FS_RMDIR_SYMBOL: &str = HOST_FS_RMDIR.symbol;
 pub const HOST_FS_REMOVE_FILE_SYMBOL: &str = HOST_FS_REMOVE_FILE.symbol;
+pub const HOST_FS_RENAME_FILE_SYMBOL: &str = HOST_FS_RENAME_FILE.symbol;
+pub const HOST_FS_COPY_FILE_SYMBOL: &str = HOST_FS_COPY_FILE.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H04).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -951,6 +964,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_FS_READDIR_SYMBOL,
     HOST_FS_RMDIR_SYMBOL,
     HOST_FS_REMOVE_FILE_SYMBOL,
+    HOST_FS_RENAME_FILE_SYMBOL,
+    HOST_FS_COPY_FILE_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -999,6 +1014,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_FS_READDIR,
     HOST_FS_RMDIR,
     HOST_FS_REMOVE_FILE,
+    HOST_FS_RENAME_FILE,
+    HOST_FS_COPY_FILE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -1344,7 +1361,7 @@ if (typeof globalThis !== "undefined") {
 "#
 }
 
-/// JS polyfill for host file APIs (H04.01–H04.04).
+/// JS polyfill for host file APIs (H04.01–H04.05).
 ///
 /// Node `fs` bridge. Missing path → throw `Error` with `.code === "ENOENT"`
 /// and `.name === "HostError"`. `exists` returns boolean (no throw).
@@ -1498,6 +1515,26 @@ function removeFile(path) {
     __draconic_host_fs_catch(p, err);
   }
 }
+function renameFile(from, to) {
+  var a = String(from);
+  var b = String(to);
+  var fs = require("fs");
+  try {
+    fs.renameSync(a, b);
+  } catch (err) {
+    __draconic_host_fs_catch(a, err);
+  }
+}
+function copyFile(from, to) {
+  var a = String(from);
+  var b = String(to);
+  var fs = require("fs");
+  try {
+    fs.copyFileSync(a, b);
+  } catch (err) {
+    __draconic_host_fs_catch(a, err);
+  }
+}
 if (typeof globalThis !== "undefined") {
   globalThis.readFileText = readFileText;
   globalThis.readFileBytes = readFileBytes;
@@ -1512,6 +1549,8 @@ if (typeof globalThis !== "undefined") {
   globalThis.readdir = readdir;
   globalThis.rmdir = rmdir;
   globalThis.removeFile = removeFile;
+  globalThis.renameFile = renameFile;
+  globalThis.copyFile = copyFile;
 }
 "#
 }

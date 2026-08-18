@@ -1156,3 +1156,107 @@ fn host_fs_dir_ops() {
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0404-ok\n");
 }
+
+#[test]
+fn host_fs_rename_and_copy() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_fs_h0405.c");
+    let bin = dir.join("rt_host_fs_h0405");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    let base = dir.join("h0405");
+    std::fs::create_dir_all(&base).unwrap();
+    let src = base
+        .join("src.txt")
+        .to_string_lossy()
+        .replace('\\', "\\\\");
+    let ren_dst = base
+        .join("ren.txt")
+        .to_string_lossy()
+        .replace('\\', "\\\\");
+    let cp_src = base
+        .join("cp_src.txt")
+        .to_string_lossy()
+        .replace('\\', "\\\\");
+    let cp_dst = base
+        .join("cp_dst.txt")
+        .to_string_lossy()
+        .replace('\\', "\\\\");
+
+    std::fs::write(
+        &main_c,
+        format!(
+            r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <stdlib.h>
+        #include <string.h>
+
+        int main(void) {{
+            DraconicHostError err;
+            char *text = NULL;
+
+            err = draconic_rt_host_fs_write_text("{src}", "ren-h0405");
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_fs_rename_file("{src}", "{ren_dst}");
+            if (err != DRACONIC_HOST_OK) return 2;
+            if (draconic_rt_host_fs_exists("{src}") != 0) return 3;
+            err = draconic_rt_host_fs_read_text("{ren_dst}", &text);
+            if (err != DRACONIC_HOST_OK) return 4;
+            if (!text || strcmp(text, "ren-h0405") != 0) return 5;
+            free(text);
+            text = NULL;
+
+            err = draconic_rt_host_fs_write_text("{cp_src}", "cp-h0405");
+            if (err != DRACONIC_HOST_OK) return 6;
+            err = draconic_rt_host_fs_copy_file("{cp_src}", "{cp_dst}");
+            if (err != DRACONIC_HOST_OK) return 7;
+            err = draconic_rt_host_fs_read_text("{cp_src}", &text);
+            if (err != DRACONIC_HOST_OK) return 8;
+            if (!text || strcmp(text, "cp-h0405") != 0) return 9;
+            free(text);
+            text = NULL;
+            err = draconic_rt_host_fs_read_text("{cp_dst}", &text);
+            if (err != DRACONIC_HOST_OK) return 10;
+            if (!text || strcmp(text, "cp-h0405") != 0) return 11;
+            free(text);
+
+            err = draconic_rt_host_fs_rename_file(NULL, "{ren_dst}");
+            if (err != DRACONIC_HOST_E_INVAL) return 12;
+            err = draconic_rt_host_fs_copy_file("{cp_src}/__missing__", "{cp_dst}");
+            if (err != DRACONIC_HOST_E_NOENT) return 13;
+
+            puts("fs-h0405-ok");
+            return 0;
+        }}
+        "#
+        ),
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for fs H04.05 smoke");
+
+    let output = Command::new(&bin).output().expect("run fs h0405");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "fs H04.05 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0405-ok\n");
+}

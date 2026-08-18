@@ -1469,3 +1469,40 @@ DraconicHostError draconic_rt_host_fs_remove_file(const char *path) {
 #endif
     return host_fs_errno_map();
 }
+
+DraconicHostError draconic_rt_host_fs_rename_file(const char *from, const char *to) {
+    if (!from || from[0] == '\0' || !to || to[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+#if defined(_WIN32)
+    if (MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) != 0) {
+        return DRACONIC_HOST_OK;
+    }
+    /* Fall back to CRT rename when MoveFileEx unavailable path. */
+    if (rename(from, to) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#else
+    if (rename(from, to) == 0) {
+        return DRACONIC_HOST_OK;
+    }
+#endif
+    return host_fs_errno_map();
+}
+
+DraconicHostError draconic_rt_host_fs_copy_file(const char *from, const char *to) {
+    uint8_t *data = NULL;
+    size_t len = 0;
+    DraconicHostError err;
+
+    if (!from || from[0] == '\0' || !to || to[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    err = draconic_rt_host_fs_read_file(from, &data, &len);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    err = draconic_rt_host_fs_write_file(to, data, len);
+    free(data);
+    return err;
+}

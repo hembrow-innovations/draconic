@@ -1,4 +1,4 @@
-//! ROADMAP H04.01–H04.04: whole-file + directory host APIs.
+//! ROADMAP H04.01–H04.05: whole-file + directory + rename/copy/delete host APIs.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -170,4 +170,22 @@ fn rmdir_basic_runs() {
 fn remove_file_runs() {
     assert_fixture_present("host/fs/remove_file");
     assert_fixture_runs("host/fs/remove_file");
+}
+
+#[test]
+fn rename_file_runs() {
+    assert_fixture_present("host/fs/rename_file");
+    assert_fixture_runs("host/fs/rename_file");
+}
+
+#[test]
+fn copy_file_runs() {
+    assert_fixture_present("host/fs/copy_file");
+    assert_fixture_runs("host/fs/copy_file");
+}
+
+#[test]
+fn delete_file_runs() {
+    assert_fixture_present("host/fs/delete_file");
+    assert_fixture_runs("host/fs/delete_file");
 }

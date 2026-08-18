@@ -1,4 +1,4 @@
-//! H04.01–H04.04: native observations for file + directory host APIs.
+//! H04.01–H04.05: native observations for file + directory host APIs.
 //!
 //! - `readFileText(path)` → string (auto-printed)
 //! - `readFileBytes(path)` → dynamic bytes; `.length` + `stdoutWrite`
@@ -8,6 +8,7 @@
 //! - `stat(path)` → Stat; `.size` / `.isFile` / `.isDir` / `.mtime` (+ `>` for mtime check)
 //! - `mkdir(path)` / `mkdirAll(path)` / `rmdir(path)` / `removeFile(path)`
 //! - `readdir(path)` → string[]; `.length` + index `[i]`
+//! - `renameFile(from, to)` / `copyFile(from, to)`
 //!
 //! Missing path (read/write/stat/dir): stderr `ENOENT` + exit 1 (typed HostError on js).
 
@@ -19,10 +20,10 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_FS_APPEND_FILE,
-    HOST_FS_APPEND_TEXT, HOST_FS_EXISTS, HOST_FS_MKDIR, HOST_FS_MKDIR_ALL, HOST_FS_READ_FILE,
-    HOST_FS_READ_TEXT, HOST_FS_READDIR, HOST_FS_REMOVE_FILE, HOST_FS_RMDIR, HOST_FS_STAT,
-    HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT, HOST_PROCESS_EXIT, HOST_STDERR_WRITE,
-    HOST_STDOUT_WRITE, PRINT_BOOL, PRINT_F64, PRINT_STR,
+    HOST_FS_APPEND_TEXT, HOST_FS_COPY_FILE, HOST_FS_EXISTS, HOST_FS_MKDIR, HOST_FS_MKDIR_ALL,
+    HOST_FS_READ_FILE, HOST_FS_READ_TEXT, HOST_FS_READDIR, HOST_FS_REMOVE_FILE, HOST_FS_RENAME_FILE,
+    HOST_FS_RMDIR, HOST_FS_STAT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT, HOST_PROCESS_EXIT,
+    HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_fs_module(module: &Module) -> bool {
@@ -65,6 +66,8 @@ struct ModuleInfo {
     needs_readdir: bool,
     needs_rmdir: bool,
     needs_remove_file: bool,
+    needs_rename_file: bool,
+    needs_copy_file: bool,
 }
 
 struct ClassifyCtx {
@@ -85,6 +88,8 @@ struct ClassifyCtx {
     needs_readdir: bool,
     needs_rmdir: bool,
     needs_remove_file: bool,
+    needs_rename_file: bool,
+    needs_copy_file: bool,
     has_fs: bool,
 }
 
@@ -107,6 +112,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_readdir: false,
         needs_rmdir: false,
         needs_remove_file: false,
+        needs_rename_file: false,
+        needs_copy_file: false,
         has_fs: false,
     };
     for stmt in &module.body {
@@ -132,6 +139,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_readdir: ctx.needs_readdir,
         needs_rmdir: ctx.needs_rmdir,
         needs_remove_file: ctx.needs_remove_file,
+        needs_rename_file: ctx.needs_rename_file,
+        needs_copy_file: ctx.needs_copy_file,
     })
 }
 
@@ -258,6 +267,24 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.has_fs = true;
             ctx.needs_remove_file = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "renameFile") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_rename_file = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "copyFile") =>
+        {
+            ctx.has_fs = true;
+            ctx.needs_copy_file = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
             Some(())
         }
         Expr::Call { callee, args, .. }
@@ -589,6 +616,12 @@ impl<'a> Emitter<'a> {
         if self.info.needs_remove_file {
             decls.push(HOST_FS_REMOVE_FILE);
         }
+        if self.info.needs_rename_file {
+            decls.push(HOST_FS_RENAME_FILE);
+        }
+        if self.info.needs_copy_file {
+            decls.push(HOST_FS_COPY_FILE);
+        }
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
@@ -896,6 +929,24 @@ impl<'a> Emitter<'a> {
                     HOST_FS_REMOVE_FILE.symbol,
                 )
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "renameFile") =>
+            {
+                self.emit_two_path_void_call(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: renameFile from"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: renameFile to"))?,
+                    HOST_FS_RENAME_FILE.symbol,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "copyFile") =>
+            {
+                self.emit_two_path_void_call(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: copyFile from"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_fs: copyFile to"))?,
+                    HOST_FS_COPY_FILE.symbol,
+                )
+            }
             _ => Err(diag("host_fs: unsupported expr stmt")),
         }
     }
@@ -904,6 +955,19 @@ impl<'a> Emitter<'a> {
         let p = self.emit_string_expr(path)?;
         let rc = self.fresh();
         writeln!(self.body, "  {rc} = call i32 @{symbol}(ptr {p})").ok();
+        self.emit_check_rc(&rc)
+    }
+
+    fn emit_two_path_void_call(
+        &mut self,
+        from: &Expr,
+        to: &Expr,
+        symbol: &str,
+    ) -> Result<(), Diagnostic> {
+        let a = self.emit_string_expr(from)?;
+        let b = self.emit_string_expr(to)?;
+        let rc = self.fresh();
+        writeln!(self.body, "  {rc} = call i32 @{symbol}(ptr {a}, ptr {b})").ok();
         self.emit_check_rc(&rc)
     }
 

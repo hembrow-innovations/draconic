@@ -73,6 +73,7 @@ pub struct HostApiEntry {
 /// - `writeFileText` / `writeFileBytes` / `appendFileText` / `appendFileBytes` (H04.02): both — create/truncate or append.
 /// - `exists` / `stat` (H04.03): both — path exists bool; stat `{size,isFile,isDir,mtime}` (missing → ENOENT).
 /// - `mkdir` / `mkdirAll` / `readdir` / `rmdir` / `removeFile` (H04.04): both — dir create/list/remove + file delete.
+/// - `renameFile` / `copyFile` (H04.05): both — rename/move and copy regular files (`removeFile` is delete).
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -234,6 +235,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "removeFile",
         availability: HostAvailability::BOTH,
         note: "H04.04 remove file",
+    },
+    HostApiEntry {
+        name: "renameFile",
+        availability: HostAvailability::BOTH,
+        note: "H04.05 rename file",
+    },
+    HostApiEntry {
+        name: "copyFile",
+        availability: HostAvailability::BOTH,
+        note: "H04.05 copy file",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -489,6 +500,21 @@ mod tests {
     #[test]
     fn registry_lists_dir_ops_both() {
         for name in ["mkdir", "mkdirAll", "readdir", "rmdir", "removeFile"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_rename_copy_both() {
+        for name in ["renameFile", "copyFile"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

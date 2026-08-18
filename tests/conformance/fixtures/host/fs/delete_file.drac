@@ -1,0 +1,4 @@
+// H04.05: delete via removeFile (H04.04 API); create then delete.
+writeFileText("/tmp/draconic_h0405_del.txt", "del");
+removeFile("/tmp/draconic_h0405_del.txt");
+let gone = exists("/tmp/draconic_h0405_del.txt");

@@ -1,0 +1,6 @@
+id: host/fs/copy_file
+targets: js,native
+js.exit: 0
+js.check: if (src !== "cp-h0405") process.exit(1); if (dst !== "cp-h0405") process.exit(1);
+native.exit: 0
+native.stdout: cp-h0405\ncp-h0405\n
