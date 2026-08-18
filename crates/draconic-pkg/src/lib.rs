@@ -13,6 +13,7 @@
 //! K03.04: content hash SHA-256 over canonical package tree.
 //! K04: resolve version req against git tags; highest matching semver;
 //! fail closed on empty/invalid req, empty tags, non-semver-only, no match.
+//! K04.03: resolve direct-deps set → lock pins (v1: direct only).
 
 mod cache;
 mod hash;
@@ -27,7 +28,10 @@ pub use hash::{content_hash_tree, ContentHashError};
 pub use lock::{
     parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError,
 };
-pub use resolve::{resolve_highest_matching_tag, ResolveError, ResolvedVersion};
+pub use resolve::{
+    resolve_direct_deps, resolve_highest_matching_tag, ResolveDirectError, ResolveError,
+    ResolvedVersion,
+};
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -310,6 +314,9 @@ pub fn resolve_git_url(manifest: &Manifest, module_path: &str) -> String {
 }
 
 /// Accept https (or git/ssh-style) clone URLs used as path→URL overrides.
+///
+/// Also accepts `file://` and absolute local paths so lock pins can record
+/// fixture/cache clone URLs used by K03/K04 tests and local path deps.
 pub(crate) fn validate_git_url(url: &str) -> Result<(), &'static str> {
     if url.is_empty() {
         return Err("must not be empty");
@@ -333,6 +340,12 @@ pub(crate) fn validate_git_url(url: &str) -> Result<(), &'static str> {
         }
         return Ok(());
     }
+    if let Some(rest) = url.strip_prefix("file://") {
+        if rest.is_empty() {
+            return Err("file URL must include a path");
+        }
+        return Ok(());
+    }
     if let Some(rest) = url.strip_prefix("git@") {
         // git@host:path
         if !rest.contains(':') || !rest.contains('.') {
@@ -352,8 +365,12 @@ pub(crate) fn validate_git_url(url: &str) -> Result<(), &'static str> {
         }
         return Ok(());
     }
+    // Absolute local path (fixture repos / path deps).
+    if std::path::Path::new(url).is_absolute() {
+        return Ok(());
+    }
 
-    Err("must start with https://, http://, git@, ssh://, or git://")
+    Err("must start with https://, http://, file://, git@, ssh://, git://, or be an absolute path")
 }
 
 /// Go-like module path: `host.tld/path…` with no empty/`.`/`..` segments.
@@ -1296,6 +1313,7 @@ module = "github.com/acme/app"
             "git@github.com:org/lib.git",
             "ssh://git@github.com/org/lib.git",
             "git://github.com/org/lib.git",
+            "file:///tmp/fixture-lib.git",
         ];
         for url in cases {
             let src = format!(
