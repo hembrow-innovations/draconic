@@ -1,0 +1,6 @@
+id: host/path/path_normalize
+targets: js,native
+js.exit: 0
+js.check: if (a !== "foo/bar") process.exit(1); if (b !== "foo/baz") process.exit(2); if (c !== "/foo/baz") process.exit(3); if (d !== ".") process.exit(4); if (e !== "foo/baz") process.exit(5); if (f !== "/foo/bar/") process.exit(6);
+native.exit: 0
+native.stdout: foo/bar\nfoo/baz\n/foo/baz\n.\nfoo/baz\n/foo/bar/\n

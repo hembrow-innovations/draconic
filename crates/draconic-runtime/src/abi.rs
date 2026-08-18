@@ -758,6 +758,18 @@ pub const HOST_STDIN_READ_BYTES: AbiFn = AbiFn {
     params: "i64, ptr, ptr",
 };
 
+/* H03.01: path join / normalize (malloc'd C string; free with path_free). */
+pub const HOST_PATH_NORMALIZE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_normalize",
+    ret: "ptr",
+    params: "ptr",
+};
+pub const HOST_PATH_JOIN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_join",
+    ret: "ptr",
+    params: "i64, ptr",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -783,8 +795,10 @@ pub const HOST_STDOUT_WRITE_SYMBOL: &str = HOST_STDOUT_WRITE.symbol;
 pub const HOST_STDERR_WRITE_SYMBOL: &str = HOST_STDERR_WRITE.symbol;
 pub const HOST_STDIN_READ_LINE_SYMBOL: &str = HOST_STDIN_READ_LINE.symbol;
 pub const HOST_STDIN_READ_BYTES_SYMBOL: &str = HOST_STDIN_READ_BYTES.symbol;
+pub const HOST_PATH_NORMALIZE_SYMBOL: &str = HOST_PATH_NORMALIZE.symbol;
+pub const HOST_PATH_JOIN_SYMBOL: &str = HOST_PATH_JOIN.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02.01–H02.03).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02 + H03.01).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -811,6 +825,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_STDERR_WRITE_SYMBOL,
     HOST_STDIN_READ_LINE_SYMBOL,
     HOST_STDIN_READ_BYTES_SYMBOL,
+    HOST_PATH_NORMALIZE_SYMBOL,
+    HOST_PATH_JOIN_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -840,6 +856,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_STDERR_WRITE,
     HOST_STDIN_READ_LINE,
     HOST_STDIN_READ_BYTES,
+    HOST_PATH_NORMALIZE,
+    HOST_PATH_JOIN,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -1053,6 +1071,62 @@ function stdinReadBytes(max) {
 if (typeof globalThis !== "undefined") {
   globalThis.stdinReadLine = stdinReadLine;
   globalThis.stdinReadBytes = stdinReadBytes;
+}
+"#
+}
+
+/// JS polyfill for `pathJoin` / `pathNormalize` (H03.01).
+///
+/// Pure string ops (no I/O). POSIX-style `/` output; input accepts `/` and `\`.
+/// Empty normalize/join → `"."`. Matches Node `path.posix` for `/` inputs.
+pub fn path_js_polyfill() -> &'static str {
+    r#"function pathNormalize(path) {
+  var src = path == null ? "" : String(path);
+  if (src.length === 0) return ".";
+  function isSep(c) { return c === "/" || c === "\\"; }
+  var isAbs = isSep(src.charAt(0));
+  var trailing = isSep(src.charAt(src.length - 1));
+  var segs = [];
+  var i = 0;
+  while (i < src.length) {
+    while (i < src.length && isSep(src.charAt(i))) i++;
+    if (i >= src.length) break;
+    var start = i;
+    while (i < src.length && !isSep(src.charAt(i))) i++;
+    var seg = src.slice(start, i);
+    if (seg === ".") continue;
+    if (seg === "..") {
+      if (segs.length > 0 && segs[segs.length - 1] !== "..") {
+        segs.pop();
+        continue;
+      }
+      if (!isAbs) segs.push("..");
+      continue;
+    }
+    segs.push(seg);
+  }
+  var out = "";
+  if (isAbs) out = "/";
+  if (segs.length === 0) {
+    if (!isAbs) out = ".";
+  } else {
+    out += segs.join("/");
+    if (trailing) out += "/";
+  }
+  return out;
+}
+function pathJoin() {
+  var parts = [];
+  for (var i = 0; i < arguments.length; i++) {
+    var p = arguments[i] == null ? "" : String(arguments[i]);
+    if (p.length > 0) parts.push(p);
+  }
+  if (parts.length === 0) return ".";
+  return pathNormalize(parts.join("/"));
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.pathJoin = pathJoin;
+  globalThis.pathNormalize = pathNormalize;
 }
 "#
 }

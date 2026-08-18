@@ -597,3 +597,225 @@ DraconicHostError draconic_rt_host_stdin_read_bytes(
     *out_len = n;
     return DRACONIC_HOST_OK;
 }
+
+/* --- Path helpers (H03.01): join + normalize (no filesystem I/O) --- */
+
+static int host_path_is_sep(char c) {
+    return c == '/' || c == '\\';
+}
+
+/* Node path.posix-style normalize; accepts `\` as separator too. */
+char *draconic_rt_host_path_normalize(const char *path) {
+    const char *src;
+    size_t len;
+    size_t i;
+    int is_abs;
+    int trailing_sep;
+    char *out;
+    size_t stack_cap;
+    size_t *starts = NULL;
+    size_t *ends = NULL;
+    size_t nseg = 0;
+    size_t need;
+    size_t pos;
+    size_t s;
+
+    src = path ? path : "";
+    len = strlen(src);
+    if (len == 0) {
+        out = (char *)malloc(2);
+        if (!out) {
+            return NULL;
+        }
+        out[0] = '.';
+        out[1] = '\0';
+        return out;
+    }
+
+    is_abs = host_path_is_sep(src[0]);
+    trailing_sep = host_path_is_sep(src[len - 1]);
+
+    stack_cap = len / 1 + 4;
+    starts = (size_t *)malloc(stack_cap * sizeof(size_t));
+    ends = (size_t *)malloc(stack_cap * sizeof(size_t));
+    if (!starts || !ends) {
+        free(starts);
+        free(ends);
+        return NULL;
+    }
+
+    i = 0;
+    while (i < len) {
+        size_t seg_start;
+        size_t seg_end;
+        size_t seglen;
+
+        while (i < len && host_path_is_sep(src[i])) {
+            i++;
+        }
+        if (i >= len) {
+            break;
+        }
+        seg_start = i;
+        while (i < len && !host_path_is_sep(src[i])) {
+            i++;
+        }
+        seg_end = i;
+        seglen = seg_end - seg_start;
+
+        if (seglen == 1 && src[seg_start] == '.') {
+            continue;
+        }
+        if (seglen == 2 && src[seg_start] == '.' && src[seg_start + 1] == '.') {
+            if (nseg > 0) {
+                size_t ps = starts[nseg - 1];
+                size_t pe = ends[nseg - 1];
+                if (!(pe - ps == 2 && src[ps] == '.' && src[ps + 1] == '.')) {
+                    nseg--;
+                    continue;
+                }
+            }
+            if (!is_abs) {
+                if (nseg >= stack_cap) {
+                    size_t nc = stack_cap * 2;
+                    size_t *ns = (size_t *)realloc(starts, nc * sizeof(size_t));
+                    size_t *ne = (size_t *)realloc(ends, nc * sizeof(size_t));
+                    if (!ns || !ne) {
+                        free(ns ? ns : starts);
+                        free(ne ? ne : ends);
+                        return NULL;
+                    }
+                    starts = ns;
+                    ends = ne;
+                    stack_cap = nc;
+                }
+                starts[nseg] = seg_start;
+                ends[nseg] = seg_end;
+                nseg++;
+            }
+            continue;
+        }
+
+        if (nseg >= stack_cap) {
+            size_t nc = stack_cap * 2;
+            size_t *ns = (size_t *)realloc(starts, nc * sizeof(size_t));
+            size_t *ne = (size_t *)realloc(ends, nc * sizeof(size_t));
+            if (!ns || !ne) {
+                free(ns ? ns : starts);
+                free(ne ? ne : ends);
+                return NULL;
+            }
+            starts = ns;
+            ends = ne;
+            stack_cap = nc;
+        }
+        starts[nseg] = seg_start;
+        ends[nseg] = seg_end;
+        nseg++;
+    }
+
+    need = 1; /* NUL */
+    if (is_abs) {
+        need += 1;
+    }
+    if (nseg == 0) {
+        if (!is_abs) {
+            need += 1; /* '.' */
+        }
+    } else {
+        for (s = 0; s < nseg; s++) {
+            need += ends[s] - starts[s];
+            if (s + 1 < nseg) {
+                need += 1;
+            }
+        }
+        if (trailing_sep) {
+            need += 1;
+        }
+    }
+
+    out = (char *)malloc(need);
+    if (!out) {
+        free(starts);
+        free(ends);
+        return NULL;
+    }
+    pos = 0;
+    if (is_abs) {
+        out[pos++] = '/';
+    }
+    if (nseg == 0) {
+        if (!is_abs) {
+            out[pos++] = '.';
+        }
+    } else {
+        for (s = 0; s < nseg; s++) {
+            size_t seglen = ends[s] - starts[s];
+            memcpy(out + pos, src + starts[s], seglen);
+            pos += seglen;
+            if (s + 1 < nseg) {
+                out[pos++] = '/';
+            }
+        }
+        if (trailing_sep) {
+            out[pos++] = '/';
+        }
+    }
+    out[pos] = '\0';
+    free(starts);
+    free(ends);
+    return out;
+}
+
+char *draconic_rt_host_path_join(size_t n, const char *const *parts) {
+    size_t total = 0;
+    size_t i;
+    size_t used = 0;
+    char *joined;
+    char *norm;
+    size_t jlen;
+
+    if (n == 0 || !parts) {
+        return draconic_rt_host_path_normalize("");
+    }
+
+    for (i = 0; i < n; i++) {
+        const char *p = parts[i] ? parts[i] : "";
+        size_t pl = strlen(p);
+        if (pl == 0) {
+            continue;
+        }
+        if (used > 0) {
+            total += 1; /* '/' */
+        }
+        total += pl;
+        used++;
+    }
+    if (used == 0) {
+        return draconic_rt_host_path_normalize("");
+    }
+
+    joined = (char *)malloc(total + 1);
+    if (!joined) {
+        return NULL;
+    }
+    jlen = 0;
+    used = 0;
+    for (i = 0; i < n; i++) {
+        const char *p = parts[i] ? parts[i] : "";
+        size_t pl = strlen(p);
+        if (pl == 0) {
+            continue;
+        }
+        if (used > 0) {
+            joined[jlen++] = '/';
+        }
+        memcpy(joined + jlen, p, pl);
+        jlen += pl;
+        used++;
+    }
+    joined[jlen] = '\0';
+    norm = draconic_rt_host_path_normalize(joined);
+    free(joined);
+    return norm;
+}

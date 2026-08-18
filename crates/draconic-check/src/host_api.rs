@@ -67,6 +67,7 @@ pub struct HostApiEntry {
 /// - `stdoutWrite` (H02.01): both — write string or Uint8Array bytes to stdout.
 /// - `stderrWrite` (H02.02): both — write string or Uint8Array bytes to stderr.
 /// - `stdinReadLine` / `stdinReadBytes` (H02.03): both — blocking line/bytes from stdin.
+/// - `pathJoin` / `pathNormalize` (H03.01): both — pure path string ops (no I/O).
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -133,6 +134,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "stdinReadBytes",
         availability: HostAvailability::BOTH,
         note: "H02.03 stdin read bytes",
+    },
+    HostApiEntry {
+        name: "pathJoin",
+        availability: HostAvailability::BOTH,
+        note: "H03.01 path join",
+    },
+    HostApiEntry {
+        name: "pathNormalize",
+        availability: HostAvailability::BOTH,
+        note: "H03.01 path normalize",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -288,6 +299,21 @@ mod tests {
     #[test]
     fn registry_lists_stdin_read_both() {
         for name in ["stdinReadLine", "stdinReadBytes"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_path_join_normalize_both() {
+        for name in ["pathJoin", "pathNormalize"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

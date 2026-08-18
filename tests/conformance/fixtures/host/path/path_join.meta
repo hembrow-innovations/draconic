@@ -1,0 +1,6 @@
+id: host/path/path_join
+targets: js,native
+js.exit: 0
+js.check: if (a !== "foo/bar") process.exit(1); if (b !== "/foo/bar/baz") process.exit(2); if (c !== "foo/bar") process.exit(3); if (d !== "bar") process.exit(4); if (e !== ".") process.exit(5);
+native.exit: 0
+native.stdout: foo/bar\n/foo/bar/baz\nfoo/bar\nbar\n.\n

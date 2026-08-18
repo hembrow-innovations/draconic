@@ -112,6 +112,13 @@ fn module_uses_stdin_read(module: &Module) -> bool {
     })
 }
 
+/// H03.01: free host APIs `pathJoin` / `pathNormalize`.
+fn module_uses_path(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "pathJoin") || stmt_uses_ident_name(s, "pathNormalize")
+    })
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -446,6 +453,13 @@ fn emit_js_full(
     // H02.03: `stdinReadLine` / `stdinReadBytes` Node bridge.
     if module_uses_stdin_read(module) {
         out.push_str(draconic_runtime::stdin_read_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H03.01: `pathJoin` / `pathNormalize` pure string helpers.
+    if module_uses_path(module) {
+        out.push_str(draconic_runtime::path_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

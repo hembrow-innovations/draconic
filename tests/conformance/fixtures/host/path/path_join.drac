@@ -1,0 +1,6 @@
+// H03.01: pathJoin — join segments then normalize (POSIX `/`; no I/O).
+let a = pathJoin("foo", "bar");
+let b = pathJoin("/foo", "bar", "baz");
+let c = pathJoin("foo", "", "bar");
+let d = pathJoin("foo", "..", "bar");
+let e = pathJoin();

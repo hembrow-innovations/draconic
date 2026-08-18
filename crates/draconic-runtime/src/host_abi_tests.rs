@@ -127,6 +127,8 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_stderr_write",
         "draconic_rt_host_stdin_read_line",
         "draconic_rt_host_stdin_read_bytes",
+        "draconic_rt_host_path_normalize",
+        "draconic_rt_host_path_join",
     ] {
         assert!(
             out.contains(sym),

@@ -160,6 +160,17 @@ DraconicHostError draconic_rt_host_stdin_read_bytes(
     uint8_t **out_data,
     size_t *out_len);
 
+/* --- Path helpers (H03.01): pure string ops; no filesystem I/O ---
+   POSIX-style separator `/` in output; input accepts `/` and `\` (Windows-aware).
+   Results are malloc'd NUL-terminated UTF-8; free with draconic_rt_host_path_free.
+   Empty normalize → "."; empty join → ".". */
+
+/* Normalize `.` / `..` / repeated separators. path may be NULL (= ""). */
+char *draconic_rt_host_path_normalize(const char *path);
+
+/* Join n segments then normalize. parts may be NULL when n == 0. */
+char *draconic_rt_host_path_join(size_t n, const char *const *parts);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,0 +1,7 @@
+// H03.01: pathNormalize — `.` / `..` / repeated seps; empty → "."; `\` accepted.
+let a = pathNormalize("foo//bar");
+let b = pathNormalize("foo/./bar/../baz");
+let c = pathNormalize("/foo/bar/../baz");
+let d = pathNormalize("");
+let e = pathNormalize("foo\\bar\\..\\baz");
+let f = pathNormalize("/foo/bar/");
