@@ -1,0 +1,4 @@
+id: host/process/signal_restore_rewatch
+targets: native
+native.exit: 0
+native.stdout: 1\nfunction\n

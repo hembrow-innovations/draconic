@@ -770,11 +770,21 @@ pub const HOST_PROCESS_PPID: AbiFn = AbiFn {
     params: "",
 };
 
-/* H14.01: signal watch / raise / poll (native). */
+/* H14.01 / H14.02: signal watch / ignore / restore / raise / poll (native). */
 pub const HOST_SIGNAL_WATCH: AbiFn = AbiFn {
     symbol: "draconic_rt_host_signal_watch",
     ret: "i32",
     params: "i32, ptr, ptr",
+};
+pub const HOST_SIGNAL_IGNORE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_signal_ignore",
+    ret: "i32",
+    params: "i32",
+};
+pub const HOST_SIGNAL_RESTORE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_signal_restore",
+    ret: "i32",
+    params: "i32",
 };
 pub const HOST_SIGNAL_RAISE: AbiFn = AbiFn {
     symbol: "draconic_rt_host_signal_raise",
@@ -787,7 +797,7 @@ pub const HOST_SIGNAL_POLL: AbiFn = AbiFn {
     params: "",
 };
 
-/// Declares for H14.01 signal native emit.
+/// Declares for H14 signal native emit.
 pub const HOST_SIGNAL_DECLARES: &[AbiFn] = &[
     GC_INIT,
     PRINT_I64,
@@ -795,6 +805,8 @@ pub const HOST_SIGNAL_DECLARES: &[AbiFn] = &[
     PRINT_STR,
     JOB_DRAIN,
     HOST_SIGNAL_WATCH,
+    HOST_SIGNAL_IGNORE,
+    HOST_SIGNAL_RESTORE,
     HOST_SIGNAL_RAISE,
 ];
 

@@ -128,3 +128,23 @@ fn raise_signal_js_hard_error_fixture_present() {
 fn raise_signal_js_hard_error_on_js() {
     assert_fixture_runs_js("host/policy/raise_signal_js_hard_error");
 }
+
+#[test]
+fn ignore_signal_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/ignore_signal_js_hard_error");
+}
+
+#[test]
+fn ignore_signal_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/ignore_signal_js_hard_error");
+}
+
+#[test]
+fn restore_signal_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/restore_signal_js_hard_error");
+}
+
+#[test]
+fn restore_signal_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/restore_signal_js_hard_error");
+}

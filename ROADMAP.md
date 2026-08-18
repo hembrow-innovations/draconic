@@ -657,7 +657,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H13.01 | todo | native | HTTP/2 preface + single stream request/response | `tests/conformance` fixtures `host/http2` |
 | H14 | todo | native | Signals | `tests/conformance/host/process/signals` |
 | H14.01 | done | native | Signal watch: SIGINT/SIGTERM → handler/job; default terminate documented | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
-| H14.02 | todo | native | Signal ignore / restore default | `tests/conformance` fixtures `host/process` |
+| H14.02 | done | native | Signal ignore / restore default | `tests/conformance` fixtures `host/process` |
 | H15 | todo | both | Subprocess | `tests/conformance/host/process/subprocess` |
 | H15.01 | todo | both | spawn/run: argv, env subset, cwd; wait exit code | `tests/conformance` fixtures `host/process` |
 | H15.02 | todo | both | Capture stdout/stderr; write stdin; kill child | `tests/conformance` fixtures `host/process` |

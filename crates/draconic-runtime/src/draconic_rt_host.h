@@ -132,13 +132,15 @@ int32_t draconic_rt_host_process_get_exit_code(void);
 int32_t draconic_rt_host_process_pid(void);
 int32_t draconic_rt_host_process_ppid(void);
 
-/* --- Process signals (H14.01) ----------------------------------------------
+/* --- Process signals (H14.01 / H14.02) ------------------------------------
    Portable signal codes (not necessarily OS signo values):
      DRACONIC_HOST_SIG_INT  = SIGINT
      DRACONIC_HOST_SIG_TERM = SIGTERM
-   Default (no watch): OS default terminate (SIG_DFL) remains in effect.
+   Default (no watch/ignore): OS default terminate (SIG_DFL) remains in effect.
    With watch: delivery sets a flag; job_drain promotes handlers onto the job
-   queue (async-signal-safe path only flags; user code runs as a job). */
+   queue (async-signal-safe path only flags; user code runs as a job).
+   H14.02: ignore installs SIG_IGN (no handler job; process survives raise);
+   restore installs SIG_DFL and clears any watch/ignore for that signal. */
 
 #define DRACONIC_HOST_SIG_INT 2
 #define DRACONIC_HOST_SIG_TERM 15
@@ -146,11 +148,15 @@ int32_t draconic_rt_host_process_ppid(void);
 typedef void (*DraconicHostSignalFn)(void *data);
 
 /* Install watch for SIGINT or SIGTERM. Handler runs via job queue after poll.
-   Replaces prior watch for that signal. fn must be non-NULL. */
+   Replaces prior watch/ignore for that signal. fn must be non-NULL. */
 DraconicHostError draconic_rt_host_signal_watch(
     int32_t sig,
     DraconicHostSignalFn fn,
     void *data);
+/* H14.02: ignore signal (SIG_IGN). Clears any prior watch for that signal. */
+DraconicHostError draconic_rt_host_signal_ignore(int32_t sig);
+/* H14.02: restore OS default (SIG_DFL). Clears any prior watch/ignore. */
+DraconicHostError draconic_rt_host_signal_restore(int32_t sig);
 /* Raise signal to the current process (tests / self-notify). */
 DraconicHostError draconic_rt_host_signal_raise(int32_t sig);
 /* Promote pending signal deliveries into job queue. Returns jobs enqueued.

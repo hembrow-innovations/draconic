@@ -1,0 +1,8 @@
+// H14.02: ignoreSignal clears watch and survives raise (SIG_IGN).
+let fired = 0;
+onSignal("SIGTERM", function () {
+  fired = 1;
+});
+ignoreSignal("SIGTERM");
+raiseSignal("SIGTERM");
+let t_ign = typeof ignoreSignal;

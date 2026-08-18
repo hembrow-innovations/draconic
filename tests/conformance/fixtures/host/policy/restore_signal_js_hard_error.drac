@@ -1,0 +1,2 @@
+// H14.02: native-only restoreSignal must hard-error on js.
+restoreSignal("SIGTERM");

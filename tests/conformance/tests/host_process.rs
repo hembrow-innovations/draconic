@@ -1,4 +1,4 @@
-//! ROADMAP H01.01 / H01.02 / H01.03 / H01.04 / H14.01: process + signals.
+//! ROADMAP H01.01 / H01.02 / H01.03 / H01.04 / H14.01 / H14.02: process + signals.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -142,4 +142,43 @@ fn signal_watch_sigint_runs_native() {
         "must target native"
     );
     assert_fixture_runs("host/process/signal_watch_sigint");
+}
+
+#[test]
+fn signal_ignore_fixture_present() {
+    assert_fixture_present("host/process/signal_ignore");
+}
+
+#[test]
+fn signal_ignore_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/process/signal_ignore")
+        .expect("host/process/signal_ignore");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert!(!fixture.targets.contains(&Target::Js), "native-only");
+    assert_fixture_runs("host/process/signal_ignore");
+}
+
+#[test]
+fn signal_restore_rewatch_fixture_present() {
+    assert_fixture_present("host/process/signal_restore_rewatch");
+}
+
+#[test]
+fn signal_restore_rewatch_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/process/signal_restore_rewatch")
+        .expect("host/process/signal_restore_rewatch");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_fixture_runs("host/process/signal_restore_rewatch");
 }

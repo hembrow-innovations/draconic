@@ -1,0 +1,9 @@
+// H14.02: restoreSignal clears ignore; subsequent onSignal+raise fires handler.
+let fired = 0;
+ignoreSignal("SIGTERM");
+restoreSignal("SIGTERM");
+onSignal("SIGTERM", function () {
+  fired = 1;
+});
+raiseSignal("SIGTERM");
+let t_rest = typeof restoreSignal;

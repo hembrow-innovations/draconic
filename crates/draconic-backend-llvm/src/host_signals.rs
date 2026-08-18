@@ -1,17 +1,18 @@
-//! H14.01: SIGINT/SIGTERM watch via Runtime signal + job queue ABI.
+//! H14.01 / H14.02: SIGINT/SIGTERM watch/ignore/restore via Runtime signal ABI.
 //!
 //! Supported subset for conformance:
 //! - top-level number/bool/string locals
 //! - `onSignal("SIGINT"|"SIGTERM", function () { … })`
 //! - `raiseSignal("SIGINT"|"SIGTERM")`
-//! - `typeof` on `onSignal` / `raiseSignal`
+//! - `ignoreSignal("SIGINT"|"SIGTERM")` / `restoreSignal("SIGINT"|"SIGTERM")`
+//! - `typeof` on `onSignal` / `raiseSignal` / `ignoreSignal` / `restoreSignal`
 //! - number assigns in signal callbacks
 //!
 //! End of main: `job_drain` (promotes pending signals, runs handlers), then
 //! print observation locals in declaration order.
 //!
-//! Default without `onSignal`: OS terminate (SIG_DFL) — documented in Runtime
-//! host header; covered by Runtime unit tests (subprocess).
+//! Default without `onSignal`/`ignoreSignal`: OS terminate (SIG_DFL) — documented
+//! in Runtime host header; covered by Runtime unit tests (subprocess).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -20,8 +21,8 @@ use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_SIGNAL_DECLARES, HOST_SIGNAL_RAISE, HOST_SIGNAL_WATCH, JOB_DRAIN,
-    PRINT_BOOL, PRINT_I64, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_SIGNAL_DECLARES, HOST_SIGNAL_IGNORE, HOST_SIGNAL_RAISE,
+    HOST_SIGNAL_RESTORE, HOST_SIGNAL_WATCH, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR,
 };
 
 /// Portable codes matching `DRACONIC_HOST_SIG_*` in draconic_rt_host.h.
@@ -149,7 +150,10 @@ fn check_stmt(stmt: &Stmt, uses: &mut bool) -> Result<(), String> {
 }
 
 fn is_signal_api_name(name: &str) -> bool {
-    name == "onSignal" || name == "raiseSignal"
+    name == "onSignal"
+        || name == "raiseSignal"
+        || name == "ignoreSignal"
+        || name == "restoreSignal"
 }
 
 fn is_named_callee(callee: &Expr, name: &str) -> bool {
@@ -197,6 +201,28 @@ fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {
             let name = string_lit_arg(&args[0]).ok_or("raiseSignal name must be string lit")?;
             if name.as_str() != "SIGINT" && name.as_str() != "SIGTERM" {
                 return Err("raiseSignal name must be SIGINT or SIGTERM".into());
+            }
+            Ok(())
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "ignoreSignal") => {
+            *uses = true;
+            if args.len() != 1 {
+                return Err("ignoreSignal needs (name)".into());
+            }
+            let name = string_lit_arg(&args[0]).ok_or("ignoreSignal name must be string lit")?;
+            if name.as_str() != "SIGINT" && name.as_str() != "SIGTERM" {
+                return Err("ignoreSignal name must be SIGINT or SIGTERM".into());
+            }
+            Ok(())
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "restoreSignal") => {
+            *uses = true;
+            if args.len() != 1 {
+                return Err("restoreSignal needs (name)".into());
+            }
+            let name = string_lit_arg(&args[0]).ok_or("restoreSignal name must be string lit")?;
+            if name.as_str() != "SIGINT" && name.as_str() != "SIGTERM" {
+                return Err("restoreSignal name must be SIGINT or SIGTERM".into());
             }
             Ok(())
         }
@@ -358,7 +384,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_signals (H14.01 SIGINT/SIGTERM watch)"
+            "; Draconic LLVM host_signals (H14 SIGINT/SIGTERM watch/ignore/restore)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(HOST_SIGNAL_DECLARES)).ok();
@@ -535,6 +561,12 @@ impl<'a> Emitter<'a> {
             }
             Expr::Call { callee, args, .. } if is_named_callee(callee, "raiseSignal") => {
                 self.emit_raise_signal(args)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "ignoreSignal") => {
+                self.emit_ignore_signal(args)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "restoreSignal") => {
+                self.emit_restore_signal(args)
             }
             Expr::Assign {
                 target: AssignTarget::Local(id),
@@ -733,6 +765,32 @@ impl<'a> Emitter<'a> {
         Ok("0".into())
     }
 
+    fn emit_ignore_signal(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let name = string_lit_arg(&args[0]).ok_or_else(|| diag("ignoreSignal name"))?;
+        let code = Self::sig_code(name.as_str())?;
+        let err = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            HOST_SIGNAL_IGNORE.call_to(&err, &format!("i32 {code}"))
+        )
+        .ok();
+        Ok("0".into())
+    }
+
+    fn emit_restore_signal(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let name = string_lit_arg(&args[0]).ok_or_else(|| diag("restoreSignal name"))?;
+        let code = Self::sig_code(name.as_str())?;
+        let err = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            HOST_SIGNAL_RESTORE.call_to(&err, &format!("i32 {code}"))
+        )
+        .ok();
+        Ok("0".into())
+    }
+
     fn emit_handler(&mut self, body: &[Stmt]) -> Result<(String, String), Diagnostic> {
         let fn_name = self.fresh_fn("sig");
         let mut used = HashSet::new();
@@ -904,5 +962,26 @@ mod tests {
         assert!(is_host_signal_module(&m));
         let ir = emit_host_signals(&m).expect("emit");
         assert!(ir.contains("i32 2,"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_ignore_and_restore() {
+        let m = ir_of(
+            r#"
+            let fired = 0;
+            onSignal("SIGTERM", function () { fired = 1; });
+            ignoreSignal("SIGTERM");
+            raiseSignal("SIGTERM");
+            restoreSignal("SIGTERM");
+            onSignal("SIGTERM", function () { fired = 2; });
+            raiseSignal("SIGTERM");
+            let t_ign = typeof ignoreSignal;
+            let t_rest = typeof restoreSignal;
+            "#,
+        );
+        assert!(is_host_signal_module(&m));
+        let ir = emit_host_signals(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_signal_ignore"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_signal_restore"), "{ir}");
     }
 }

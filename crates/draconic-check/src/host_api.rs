@@ -66,6 +66,7 @@ pub struct HostApiEntry {
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
 /// - `onSignal` / `raiseSignal` (H14.01): native-only — SIGINT/SIGTERM watch via job queue;
 ///   default without watch is OS terminate (SIG_DFL).
+/// - `ignoreSignal` / `restoreSignal` (H14.02): native-only — SIG_IGN / SIG_DFL disposition.
 /// - `stdoutWrite` (H02.01): both — write string or Uint8Array bytes to stdout.
 /// - `stderrWrite` (H02.02): both — write string or Uint8Array bytes to stderr.
 /// - `stdinReadLine` / `stdinReadBytes` (H02.03): both — blocking line/bytes from stdin.
@@ -154,6 +155,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "raiseSignal",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H14.01 raise SIGINT/SIGTERM to self",
+    },
+    HostApiEntry {
+        name: "ignoreSignal",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H14.02 signal ignore SIG_IGN",
+    },
+    HostApiEntry {
+        name: "restoreSignal",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H14.02 restore SIG_DFL disposition",
     },
     HostApiEntry {
         name: "stdoutWrite",
@@ -929,6 +940,8 @@ mod tests {
             "wsEncodeTextClient",
             "onSignal",
             "raiseSignal",
+            "ignoreSignal",
+            "restoreSignal",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");
