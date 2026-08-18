@@ -168,6 +168,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E17 | done | js | `with` (E17.01); other non-strict legacy → E17.02 children | `tests/conformance/es/legacy` |
 | E17.01 | done | js | `with` statement: object binding in scope; property read/write; nested `with` | `tests/conformance` fixtures `es/legacy` |
 | E17.02 | todo | js | Other non-strict legacy beyond `with` (children below; untracked remainder stays here) | `tests/conformance/es/legacy` |
+| E17.02.10 | done | js | `eval`/`arguments` as BindingIdentifier + assignment/update targets (non-strict): param/`var`/`let`/`function` name + assign/update; `"use strict"` binding or assign/update → SyntaxError | `tests/conformance` fixtures `es/legacy` |
 | E17.02.09 | done | js | Implicit globals via `for-in`/`for-of` LHS (non-strict): unresolvable IdentifierReference left → PutValue creates global property; body/read-back/`globalThis` identity; `"use strict"` → ReferenceError | `tests/conformance` fixtures `es/legacy` |
 | E17.02.08 | done | js | Strict FutureReservedWord as identifiers (non-strict): `implements`/`interface`/`package`/`private`/`protected`/`public`/`static`/`let`/`yield` as BindingIdentifier + IdentifierReference; `"use strict"` binding → SyntaxError | `tests/conformance` fixtures `es/legacy` |
 | E17.02.01 | done | js | `arguments.callee`: non-strict function `arguments.callee ===` that function; `typeof` `"function"` | `tests/conformance` fixtures `es/legacy` |

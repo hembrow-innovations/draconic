@@ -138,3 +138,13 @@ fn for_in_of_implicit_global_fixture_present() {
 fn for_in_of_implicit_global_runs() {
     assert_fixture_runs_declared_targets("es/legacy/for_in_of_implicit_global");
 }
+
+#[test]
+fn eval_arguments_idents_fixture_present() {
+    assert_fixture_present("es/legacy/eval_arguments_idents");
+}
+
+#[test]
+fn eval_arguments_idents_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/eval_arguments_idents");
+}

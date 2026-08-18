@@ -1,0 +1,204 @@
+// E17.02.10: eval/arguments as BindingIdentifier + assignment/update targets (non-strict).
+// Param/var/let/function name + assign/update allowed; "use strict" binding or
+// assign/update → SyntaxError (via direct eval).
+
+// Formal parameters named eval / arguments.
+function takeEval(eval) {
+  return eval;
+}
+function takeArguments(arguments) {
+  return arguments;
+}
+let a = takeEval(1);
+let b = takeArguments(2);
+
+// var bindings shadow builtins / arguments object.
+function varEval() {
+  var eval = 3;
+  return eval;
+}
+function varArguments() {
+  var arguments = 4;
+  return arguments;
+}
+let c = varEval();
+let d = varArguments();
+
+// let / const bindings.
+function lexicalEval() {
+  let eval = 5;
+  const arguments = 6;
+  return eval + arguments;
+}
+let e = lexicalEval();
+
+// Function declaration names.
+function namedEval() {
+  function eval() {
+    return 7;
+  }
+  return eval();
+}
+function namedArguments() {
+  function arguments() {
+    return 8;
+  }
+  return arguments();
+}
+let f = namedEval();
+let g = namedArguments();
+
+// Assignment / update targets (local bindings).
+function assignLocal() {
+  let eval = 10;
+  let arguments = 20;
+  eval = 11;
+  arguments = 21;
+  eval += 1;
+  arguments += 1;
+  ++eval;
+  arguments++;
+  return eval === 13 && arguments === 23;
+}
+let h = assignLocal();
+
+// Non-strict assign to global `eval` binding (restore after).
+function reassignGlobalEval() {
+  let saved = globalThis.eval;
+  try {
+    eval = 42;
+    let ok = eval === 42 && globalThis.eval === 42;
+    globalThis.eval = saved;
+    return ok;
+  } catch (err) {
+    globalThis.eval = saved;
+    return false;
+  }
+}
+let i = reassignGlobalEval();
+
+// Strict-mode BindingIdentifier eval/arguments → SyntaxError.
+function strictVarEval() {
+  "use strict";
+  try {
+    eval("var eval = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictVarArguments() {
+  "use strict";
+  try {
+    eval("var arguments = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictParamEval() {
+  "use strict";
+  try {
+    eval("function f(eval) { return eval; }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictParamArguments() {
+  "use strict";
+  try {
+    eval("function f(arguments) { return arguments; }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictFunctionNameEval() {
+  "use strict";
+  try {
+    eval("function eval() { return 1; }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictCatchEval() {
+  "use strict";
+  try {
+    eval("try { throw 1; } catch (eval) {}");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let j = strictVarEval();
+let k = strictVarArguments();
+let l = strictParamEval();
+let m = strictParamArguments();
+let n = strictFunctionNameEval();
+let o = strictCatchEval();
+
+// Strict-mode assignment / update of eval/arguments → SyntaxError.
+function strictAssignEval() {
+  "use strict";
+  try {
+    eval("eval = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictAssignArguments() {
+  "use strict";
+  try {
+    eval("arguments = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictUpdateEval() {
+  "use strict";
+  try {
+    eval("++eval");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictUpdateArguments() {
+  "use strict";
+  try {
+    eval("arguments++");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictCompoundEval() {
+  "use strict";
+  try {
+    eval("eval += 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let p = strictAssignEval();
+let q = strictAssignArguments();
+let r = strictUpdateEval();
+let s = strictUpdateArguments();
+let t = strictCompoundEval();
+
+// Arrow param named eval (non-strict).
+let arrowEval = (eval) => eval;
+let u = arrowEval(9);
+
+// Function expression param + body assign.
+let fe = function (eval, arguments) {
+  eval = eval + 1;
+  arguments = arguments + 1;
+  return eval === 2 && arguments === 4;
+};
+let v = fe(1, 3);
