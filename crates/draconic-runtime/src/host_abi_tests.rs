@@ -2218,3 +2218,142 @@ fn host_tcp_async_promises_via_job_drain() {
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0702-ok\n");
 }
+
+/// H07.03: concurrent connections + timer; job queue not starved by multi I/O.
+#[test]
+fn host_tcp_async_concurrent_does_not_starve_job_queue() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_tcp_h0703.c");
+    let bin = dir.join("rt_host_tcp_h0703");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <stdlib.h>
+        #include <string.h>
+
+        #define NCONN 4
+
+        static int g_nwrite[NCONN];
+        static int g_nread[NCONN];
+        static int g_timer_fired;
+        static int g_writes_done;
+        static int g_reads_done;
+        static DraconicHostHandle g_clients[NCONN];
+        static DraconicHostHandle g_accepted[NCONN];
+
+        static void on_timer(void *data) {
+            (void)data;
+            g_timer_fired = 1;
+        }
+
+        static void *on_write(void *data, void *value) {
+            int i = (int)(intptr_t)data;
+            g_nwrite[i] = (int)(intptr_t)value;
+            g_writes_done++;
+            return value;
+        }
+
+        static void *on_read(void *data, void *value) {
+            int i = (int)(intptr_t)data;
+            g_nread[i] = (int)(intptr_t)value;
+            g_reads_done++;
+            return value;
+        }
+
+        int main(void) {
+            DraconicHostError err;
+            DraconicHostHandle listen = DRACONIC_HOST_HANDLE_INVALID;
+            int32_t port = 0;
+            const char *payloads[NCONN] = { "aa", "bb", "cc", "dd" };
+
+            g_timer_fired = 0;
+            g_writes_done = 0;
+            g_reads_done = 0;
+            for (int i = 0; i < NCONN; i++) {
+                g_nwrite[i] = 0;
+                g_nread[i] = 0;
+                g_clients[i] = DRACONIC_HOST_HANDLE_INVALID;
+                g_accepted[i] = DRACONIC_HOST_HANDLE_INVALID;
+            }
+
+            err = draconic_rt_host_tcp_listen(0, 16, &listen);
+            if (err != DRACONIC_HOST_OK) return 1;
+            err = draconic_rt_host_tcp_local_port(listen, &port);
+            if (err != DRACONIC_HOST_OK) return 2;
+
+            for (int i = 0; i < NCONN; i++) {
+                err = draconic_rt_host_tcp_connect("127.0.0.1", port, &g_clients[i]);
+                if (err != DRACONIC_HOST_OK) return 10 + i;
+                err = draconic_rt_host_tcp_accept(listen, &g_accepted[i]);
+                if (err != DRACONIC_HOST_OK) return 20 + i;
+            }
+
+            /* Timer scheduled before async I/O; must fire during drain. */
+            if (draconic_rt_timer_set(on_timer, NULL, 5.0) <= 0) return 3;
+
+            for (int i = 0; i < NCONN; i++) {
+                DraconicValue *wp = draconic_rt_host_tcp_write_async(
+                    g_clients[i],
+                    (const uint8_t *)payloads[i],
+                    2);
+                DraconicValue *rp = draconic_rt_host_tcp_read_async(g_accepted[i], 8);
+                if (!wp || !rp) return 30 + i;
+                (void)draconic_rt_promise_then(
+                    wp, on_write, (void *)(intptr_t)i, NULL, NULL);
+                (void)draconic_rt_promise_then(
+                    rp, on_read, (void *)(intptr_t)i, NULL, NULL);
+            }
+
+            draconic_rt_job_drain();
+
+            if (g_timer_fired != 1) return 4;
+            if (g_writes_done != NCONN) return 5;
+            if (g_reads_done != NCONN) return 6;
+            for (int i = 0; i < NCONN; i++) {
+                if (g_nwrite[i] != 2) return 40 + i;
+                if (g_nread[i] != 2) return 50 + i;
+            }
+
+            for (int i = 0; i < NCONN; i++) {
+                (void)draconic_rt_host_handle_close(g_clients[i]);
+                (void)draconic_rt_host_handle_close(g_accepted[i]);
+            }
+            (void)draconic_rt_host_handle_close(listen);
+
+            puts("tcp-h0703-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for tcp H07.03 smoke");
+
+    let output = Command::new(&bin).output().expect("run tcp h0703");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "tcp H07.03 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0703-ok\n");
+}

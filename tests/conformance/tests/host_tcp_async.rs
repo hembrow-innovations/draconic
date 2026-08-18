@@ -1,4 +1,4 @@
-//! ROADMAP H07.02: async accept/connect/read/write → Promises; cancel on close.
+//! ROADMAP H07.02–H07.03: async TCP Promises; concurrent connections.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -68,4 +68,19 @@ fn tcp_async_cancel_close_runs_native() {
         "must target native"
     );
     assert_fixture_runs("host/net/async/tcp_async_cancel_close");
+}
+
+#[test]
+fn tcp_async_concurrent_runs_native() {
+    assert_fixture_present("host/net/async/tcp_async_concurrent");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/async/tcp_async_concurrent")
+        .expect("host/net/async/tcp_async_concurrent");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_fixture_runs("host/net/async/tcp_async_concurrent");
 }

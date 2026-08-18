@@ -1,0 +1,4 @@
+id: host/net/async/tcp_async_concurrent
+targets: native
+native.exit: 0
+native.stdout: 2\n2\n2\n2\n2\n2\n2\n2\n

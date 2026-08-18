@@ -1,0 +1,43 @@
+// H07.03: concurrent connections; all async R/W settle via one job_drain
+// (no single connection starves the job queue / other completions).
+let w1 = 0;
+let r1 = 0;
+let w2 = 0;
+let r2 = 0;
+let w3 = 0;
+let r3 = 0;
+let w4 = 0;
+let r4 = 0;
+let s = tcpListen(0);
+let c1 = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a1 = tcpAccept(s);
+let c2 = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a2 = tcpAccept(s);
+let c3 = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a3 = tcpAccept(s);
+let c4 = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a4 = tcpAccept(s);
+tcpWriteAsync(c1, "aa").then(function (n) {
+  w1 = n;
+});
+tcpReadAsync(a1, 8).then(function (n) {
+  r1 = n;
+});
+tcpWriteAsync(c2, "bb").then(function (n) {
+  w2 = n;
+});
+tcpReadAsync(a2, 8).then(function (n) {
+  r2 = n;
+});
+tcpWriteAsync(c3, "cc").then(function (n) {
+  w3 = n;
+});
+tcpReadAsync(a3, 8).then(function (n) {
+  r3 = n;
+});
+tcpWriteAsync(c4, "dd").then(function (n) {
+  w4 = n;
+});
+tcpReadAsync(a4, 8).then(function (n) {
+  r4 = n;
+});
