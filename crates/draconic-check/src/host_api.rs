@@ -170,6 +170,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         note: "H15.02 wait + drain stdout/stderr; exit code",
     },
     HostApiEntry {
+        name: "processWaitAsync",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H15.03 async wait → Promise of exit code via job queue",
+    },
+    HostApiEntry {
         name: "processStdout",
         availability: HostAvailability::BOTH,
         note: "H15.02 captured stdout string after wait",
@@ -749,6 +754,18 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn registry_lists_process_wait_async_native_only() {
+        let entry = lookup("processWaitAsync").expect("processWaitAsync registered");
+        assert!(!entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(!is_available("processWaitAsync", CompileTarget::Js));
+        assert!(is_available("processWaitAsync", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("processWaitAsync", CompileTarget::Js, Span::dummy()).is_some()
+        );
     }
 
     #[test]

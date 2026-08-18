@@ -1040,9 +1040,95 @@ int32_t draconic_rt_host_process_stdin_write(
 #endif
 }
 
+/* Finish wait after waitpid collected status: drain pipes, set exit_code. */
+#if !defined(_WIN32)
+static void proc_finish_wait(DraconicProcSlot *s, int status) {
+    if (s->stdin_fd >= 0) {
+        close(s->stdin_fd);
+        s->stdin_fd = -1;
+    }
+    (void)proc_drain_pipes(s->stdout_fd, s->stderr_fd, &s->stdout_buf, &s->stderr_buf);
+    if (s->stdout_fd >= 0) {
+        close(s->stdout_fd);
+        s->stdout_fd = -1;
+    }
+    if (s->stderr_fd >= 0) {
+        close(s->stderr_fd);
+        s->stderr_fd = -1;
+    }
+    if (WIFEXITED(status)) {
+        s->exit_code = (int32_t)WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        s->exit_code = (int32_t)(128 + WTERMSIG(status));
+    } else {
+        s->exit_code = -1;
+    }
+    s->waited = 1;
+}
+
+/* 1 = exited (exit_code set), 0 = still running, -1 = error. */
+static int proc_try_wait(DraconicProcSlot *s, int blocking) {
+    int status;
+    pid_t r;
+    if (!s) {
+        return -1;
+    }
+    if (s->waited) {
+        return 1;
+    }
+    r = waitpid(s->pid, &status, blocking ? 0 : WNOHANG);
+    if (r < 0) {
+        return -1;
+    }
+    if (r == 0) {
+        return 0;
+    }
+    proc_finish_wait(s, status);
+    return 1;
+}
+#endif
+
+typedef struct HostProcWaitOp {
+    int32_t h;
+    DraconicValue *promise;
+    struct HostProcWaitOp *next;
+} HostProcWaitOp;
+
+static HostProcWaitOp *g_proc_waits;
+
+static void *host_proc_async_num(int64_t n) {
+    return (void *)(uintptr_t)(uint64_t)n;
+}
+
+static void host_proc_wait_settle(HostProcWaitOp *op, int32_t code, int ok) {
+    if (!op) {
+        return;
+    }
+    if (op->promise) {
+        if (ok) {
+            draconic_rt_promise_resolve(op->promise, host_proc_async_num((int64_t)code));
+        } else {
+            draconic_rt_promise_reject(op->promise, host_proc_async_num((int64_t)code));
+        }
+    }
+    free(op);
+}
+
+static void host_proc_wait_cancel_handle(int32_t h) {
+    HostProcWaitOp **pp = &g_proc_waits;
+    while (*pp) {
+        HostProcWaitOp *op = *pp;
+        if (op->h == h) {
+            *pp = op->next;
+            host_proc_wait_settle(op, -1, 0);
+        } else {
+            pp = &op->next;
+        }
+    }
+}
+
 int32_t draconic_rt_host_process_wait(int32_t h) {
     DraconicProcSlot *s = proc_slot_get(h);
-    int status;
 
     if (!s) {
         return -1;
@@ -1053,34 +1139,98 @@ int32_t draconic_rt_host_process_wait(int32_t h) {
 #if defined(_WIN32)
     return -1;
 #else
-    if (s->stdin_fd >= 0) {
-        close(s->stdin_fd);
-        s->stdin_fd = -1;
-    }
-    if (proc_drain_pipes(s->stdout_fd, s->stderr_fd, &s->stdout_buf, &s->stderr_buf) != 0) {
+    if (proc_try_wait(s, 1) != 1) {
         return -1;
     }
-    if (s->stdout_fd >= 0) {
-        close(s->stdout_fd);
-        s->stdout_fd = -1;
-    }
-    if (s->stderr_fd >= 0) {
-        close(s->stderr_fd);
-        s->stderr_fd = -1;
-    }
-    if (waitpid(s->pid, &status, 0) < 0) {
-        return -1;
-    }
-    if (WIFEXITED(status)) {
-        s->exit_code = (int32_t)WEXITSTATUS(status);
-    } else if (WIFSIGNALED(status)) {
-        s->exit_code = (int32_t)(128 + WTERMSIG(status));
-    } else {
-        s->exit_code = -1;
-    }
-    s->waited = 1;
     return s->exit_code;
 #endif
+}
+
+DraconicValue *draconic_rt_host_process_wait_async(int32_t h) {
+    DraconicValue *p = draconic_rt_promise_new();
+    DraconicProcSlot *s;
+    HostProcWaitOp *op;
+    int st;
+
+    if (!p) {
+        return NULL;
+    }
+#if defined(_WIN32)
+    draconic_rt_promise_reject(p, host_proc_async_num((int64_t)-1));
+    return p;
+#else
+    s = proc_slot_get(h);
+    if (!s) {
+        draconic_rt_promise_reject(p, host_proc_async_num((int64_t)-1));
+        return p;
+    }
+    if (s->waited) {
+        draconic_rt_promise_resolve(p, host_proc_async_num((int64_t)s->exit_code));
+        return p;
+    }
+    st = proc_try_wait(s, 0);
+    if (st == 1) {
+        draconic_rt_promise_resolve(p, host_proc_async_num((int64_t)s->exit_code));
+        return p;
+    }
+    if (st < 0) {
+        draconic_rt_promise_reject(p, host_proc_async_num((int64_t)-1));
+        return p;
+    }
+    op = (HostProcWaitOp *)malloc(sizeof(HostProcWaitOp));
+    if (!op) {
+        draconic_rt_promise_reject(p, host_proc_async_num((int64_t)-1));
+        return p;
+    }
+    op->h = h;
+    op->promise = p;
+    op->next = g_proc_waits;
+    g_proc_waits = op;
+    return p;
+#endif
+}
+
+int draconic_rt_host_process_pending(void) {
+    return g_proc_waits != NULL ? 1 : 0;
+}
+
+int draconic_rt_host_process_poll(void) {
+    int settled = 0;
+#if !defined(_WIN32)
+    HostProcWaitOp **pp = &g_proc_waits;
+    while (*pp) {
+        HostProcWaitOp *op = *pp;
+        DraconicProcSlot *s = proc_slot_get(op->h);
+        int st;
+        if (!s) {
+            *pp = op->next;
+            host_proc_wait_settle(op, -1, 0);
+            settled++;
+            continue;
+        }
+        if (s->waited) {
+            *pp = op->next;
+            host_proc_wait_settle(op, s->exit_code, 1);
+            settled++;
+            continue;
+        }
+        st = proc_try_wait(s, 0);
+        if (st == 1) {
+            *pp = op->next;
+            host_proc_wait_settle(op, s->exit_code, 1);
+            settled++;
+            continue;
+        }
+        if (st < 0) {
+            *pp = op->next;
+            host_proc_wait_settle(op, -1, 0);
+            settled++;
+            continue;
+        }
+        pp = &op->next;
+    }
+#endif
+    return settled;
 }
 
 static int32_t proc_copy_buf(const char *src, char **out_text) {
@@ -1145,6 +1295,7 @@ int32_t draconic_rt_host_process_close(int32_t h) {
     if (!s) {
         return -1;
     }
+    host_proc_wait_cancel_handle(h);
 #if !defined(_WIN32)
     if (!s->waited && s->pid > 0) {
         (void)kill(s->pid, SIGKILL);

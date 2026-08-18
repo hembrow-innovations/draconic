@@ -1,0 +1,10 @@
+// H15.03: processWaitAsync(h) → Promise; exit code via job queue.
+let settled = 0;
+let code = -1;
+let h = processSpawn(["/bin/sh", "-c", "exit 7"]);
+processWaitAsync(h).then(function (c) {
+  code = c;
+  settled = 1;
+  processClose(h);
+});
+let t = typeof processWaitAsync;

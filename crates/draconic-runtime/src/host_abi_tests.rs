@@ -319,6 +319,9 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_spawn",
         "draconic_rt_host_process_stdin_write",
         "draconic_rt_host_process_wait",
+        "draconic_rt_host_process_wait_async",
+        "draconic_rt_host_process_pending",
+        "draconic_rt_host_process_poll",
         "draconic_rt_host_process_stdout",
         "draconic_rt_host_process_stderr",
         "draconic_rt_host_process_kill",
@@ -612,6 +615,68 @@ int main(void) {{
 "#,
             marker_dir_c = marker_dir_c
         ),
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+    };
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
+}
+
+#[test]
+fn host_process_wait_async_via_job_drain() {
+    // H15.03: process_wait_async → Promise; settle via process_poll in job_drain.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_process_wait_async.c");
+    let bin = dir.join("rt_host_process_wait_async");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include "draconic_rt.h"
+#include <stdio.h>
+#include <stdint.h>
+static int64_t g_code = -1;
+static void *on_exit(void *data, void *value) {
+    (void)data;
+    g_code = (int64_t)(intptr_t)value;
+    return value;
+}
+int main(void) {
+    const char *argv[] = { "/bin/sh", "-c", "exit 7" };
+    int32_t h = draconic_rt_host_process_spawn(3, argv, NULL, 0, NULL, NULL);
+    if (h < 1) { printf("spawn=%d\n", (int)h); return 1; }
+    DraconicValue *p = draconic_rt_host_process_wait_async(h);
+    if (!p) { printf("promise\n"); return 2; }
+    (void)draconic_rt_promise_then(p, on_exit, NULL, NULL, NULL);
+    draconic_rt_job_drain();
+    if (g_code != 7) { printf("code=%lld\n", (long long)g_code); return 3; }
+    if (draconic_rt_host_process_close(h) != 0) { printf("close\n"); return 4; }
+    printf("ok\n");
+    return 0;
+}
+"#,
     )
     .unwrap();
     let header_dir = c_runtime_header_path()

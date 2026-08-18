@@ -1,4 +1,4 @@
-//! ROADMAP H01.01 / H01.02 / H01.03 / H01.04 / H14.01 / H14.02 / H15.01 / H15.02: process + signals + run + spawn.
+//! ROADMAP H01 / H14 / H15: process + signals + run + spawn + async wait.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -153,6 +153,26 @@ fn process_spawn_kill_fixture_present() {
 #[test]
 fn process_spawn_kill_runs_js_and_native() {
     assert_fixture_runs_js_and_native("host/process/process_spawn_kill");
+}
+
+#[test]
+fn process_wait_async_fixture_present() {
+    assert_fixture_present("host/process/process_wait_async");
+}
+
+#[test]
+fn process_wait_async_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/process/process_wait_async")
+        .expect("host/process/process_wait_async");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert!(!fixture.targets.contains(&Target::Js), "native-only");
+    assert_fixture_runs("host/process/process_wait_async");
 }
 
 #[test]

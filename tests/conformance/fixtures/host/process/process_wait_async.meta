@@ -1,0 +1,4 @@
+id: host/process/process_wait_async
+targets: native
+native.exit: 0
+native.stdout: 1\n7\n1\nfunction\n

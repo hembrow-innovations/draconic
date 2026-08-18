@@ -938,10 +938,19 @@ __attribute__((weak)) int draconic_rt_host_io_poll(double timeout_ms) {
 __attribute__((weak)) int draconic_rt_host_signal_poll(void) {
     return 0;
 }
+/* H15.03: async subprocess wait poll (strong def in host.c). */
+__attribute__((weak)) int draconic_rt_host_process_pending(void) {
+    return 0;
+}
+__attribute__((weak)) int draconic_rt_host_process_poll(void) {
+    return 0;
+}
 #else
 int draconic_rt_host_io_pending(void);
 int draconic_rt_host_io_poll(double timeout_ms);
 int draconic_rt_host_signal_poll(void);
+int draconic_rt_host_process_pending(void);
+int draconic_rt_host_process_poll(void);
 #endif
 
 void draconic_rt_job_drain(void) {
@@ -972,24 +981,38 @@ void draconic_rt_job_drain(void) {
         if (draconic_rt_host_signal_poll() > 0) {
             continue;
         }
+        /* H15.03: settle async process waits (waitpid WNOHANG). */
+        if (draconic_rt_host_process_poll() > 0) {
+            continue;
+        }
         /* H07.01: non-blocking IO readiness — poll with timer-aware timeout. */
         {
             double wait_ms = 0.0;
             int has_timer = timer_next_wait_ms(&wait_ms);
             int has_io = draconic_rt_host_io_pending();
-            if (!has_timer && !has_io) {
+            int has_proc = draconic_rt_host_process_pending();
+            if (!has_timer && !has_io && !has_proc) {
                 break;
             }
             if (has_io) {
-                double io_timeout = has_timer ? wait_ms : -1.0;
+                double io_timeout = has_timer ? wait_ms : (has_proc ? 10.0 : -1.0);
                 if (has_timer && wait_ms <= 0.0) {
                     io_timeout = 0.0;
                 }
                 if (draconic_rt_host_io_poll(io_timeout) > 0) {
                     continue;
                 }
-                /* Timed out or no readiness: loop will re-check timers. */
-                if (has_timer && wait_ms <= 0.0) {
+                /* Timed out or no readiness: loop will re-check timers/proc. */
+                if ((has_timer && wait_ms <= 0.0) || has_proc) {
+                    timer_sleep_ms(1.0);
+                }
+                continue;
+            }
+            if (has_proc) {
+                /* Short sleep then re-poll waitpid. */
+                if (has_timer && wait_ms > 0.0 && wait_ms < 10.0) {
+                    timer_sleep_ms(wait_ms);
+                } else {
                     timer_sleep_ms(1.0);
                 }
                 continue;

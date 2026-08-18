@@ -793,6 +793,12 @@ pub const HOST_PROCESS_WAIT: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
+/* H15.03: async process wait → Promise. */
+pub const HOST_PROCESS_WAIT_ASYNC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_wait_async",
+    ret: "ptr",
+    params: "i32",
+};
 pub const HOST_PROCESS_STDOUT: AbiFn = AbiFn {
     symbol: "draconic_rt_host_process_stdout",
     ret: "i32",
@@ -813,6 +819,18 @@ pub const HOST_PROCESS_CLOSE: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
+/// Declares for H15.03 async process wait + Promise then + job drain.
+pub const HOST_PROCESS_ASYNC_DECLARES: &[AbiFn] = &[
+    GC_INIT,
+    JOB_DRAIN,
+    PROMISE_THEN,
+    PRINT_I64,
+    PRINT_STR,
+    PRINT_BOOL,
+    HOST_PROCESS_SPAWN,
+    HOST_PROCESS_WAIT_ASYNC,
+    HOST_PROCESS_CLOSE,
+];
 
 /* H14.01 / H14.02: signal watch / ignore / restore / raise / poll (native). */
 pub const HOST_SIGNAL_WATCH: AbiFn = AbiFn {

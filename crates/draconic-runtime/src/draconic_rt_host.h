@@ -172,6 +172,17 @@ int32_t draconic_rt_host_process_stdin_write(
 
 int32_t draconic_rt_host_process_wait(int32_t h);
 
+/* H15.03: non-blocking wait → Promise of exit code; polled from job_drain. */
+#ifndef DRACONIC_VALUE_FWD
+#define DRACONIC_VALUE_FWD
+typedef struct DraconicValue DraconicValue;
+#endif
+DraconicValue *draconic_rt_host_process_wait_async(int32_t h);
+/* Returns 1 if any async waits are outstanding (job_drain should not exit). */
+int draconic_rt_host_process_pending(void);
+/* Try settle async waits via waitpid(WNOHANG); returns count settled. */
+int draconic_rt_host_process_poll(void);
+
 int32_t draconic_rt_host_process_stdout(int32_t h, char **out_text);
 
 int32_t draconic_rt_host_process_stderr(int32_t h, char **out_text);
@@ -466,7 +477,10 @@ int draconic_rt_host_io_poll(double timeout_ms);
      write          → bytes written (i64)
    Rejection reason is host error code as inttoptr.
    Close of the listen/conn handle cancels waits and rejects pending ops. */
+#ifndef DRACONIC_VALUE_FWD
+#define DRACONIC_VALUE_FWD
 typedef struct DraconicValue DraconicValue;
+#endif
 
 DraconicValue *draconic_rt_host_tcp_accept_async(DraconicHostHandle listen_h);
 DraconicValue *draconic_rt_host_tcp_connect_async(const char *host, int32_t port);
