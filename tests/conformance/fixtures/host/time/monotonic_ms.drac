@@ -1,0 +1,7 @@
+// H05.02: monotonicMs() — monotonic clock ms for durations (not wall epoch).
+let t = typeof monotonicMs();
+let a = monotonicMs();
+let b = monotonicMs();
+let ok_nonneg = a >= 0;
+let ok_order = b >= a;
+let ok_delta = (b - a) < 60000;

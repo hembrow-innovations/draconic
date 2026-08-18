@@ -555,6 +555,36 @@ double draconic_rt_host_now_ms(void) {
 #endif
 }
 
+/* --- Monotonic clock (H05.02) --- */
+
+double draconic_rt_host_monotonic_ms(void) {
+#if defined(_WIN32)
+    {
+        static LARGE_INTEGER freq;
+        static int have_freq = 0;
+        LARGE_INTEGER counter;
+        if (!have_freq) {
+            if (!QueryPerformanceFrequency(&freq) || freq.QuadPart == 0) {
+                return 0.0;
+            }
+            have_freq = 1;
+        }
+        if (!QueryPerformanceCounter(&counter)) {
+            return 0.0;
+        }
+        return ((double)counter.QuadPart * 1000.0) / (double)freq.QuadPart;
+    }
+#else
+    {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+            return 0.0;
+        }
+        return ((double)ts.tv_sec * 1000.0) + ((double)ts.tv_nsec / 1000000.0);
+    }
+#endif
+}
+
 /* --- Stdout write (H02.01) --- */
 
 DraconicHostError draconic_rt_host_stdout_write(const uint8_t *data, size_t len) {

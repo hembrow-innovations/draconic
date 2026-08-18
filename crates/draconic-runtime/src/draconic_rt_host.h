@@ -137,6 +137,12 @@ int32_t draconic_rt_host_process_ppid(void);
 
 double draconic_rt_host_now_ms(void);
 
+/* --- Monotonic clock (H05.02) ----------------------------------------------
+   Milliseconds from an arbitrary epoch (steady while process runs). For
+   durations only — not comparable to wall clock / Date.now. */
+
+double draconic_rt_host_monotonic_ms(void);
+
 /* --- Stdout write (H02.01) -------------------------------------------------
    Write raw bytes to OS stdout. data may be NULL only when len == 0.
    Binary-safe (embedded 0x00 is payload). No automatic newline. */

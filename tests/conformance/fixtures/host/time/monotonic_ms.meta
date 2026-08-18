@@ -1,0 +1,6 @@
+id: host/time/monotonic_ms
+targets: js,native
+js.exit: 0
+js.check: if (t !== "number") process.exit(1); if (ok_nonneg !== true) process.exit(2); if (ok_order !== true) process.exit(3); if (ok_delta !== true) process.exit(4); var x = monotonicMs(); var y = monotonicMs(); if (!(typeof x === "number" && x >= 0 && y >= x && (y - x) < 60000)) process.exit(5);
+native.exit: 0
+native.stdout: number\ntrue\ntrue\ntrue\n

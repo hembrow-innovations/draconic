@@ -97,6 +97,14 @@ fn module_uses_now_ms(module: &Module) -> bool {
         .any(|s| stmt_uses_ident_name(s, "nowMs"))
 }
 
+/// H05.02: free host API `monotonicMs`.
+fn module_uses_monotonic_ms(module: &Module) -> bool {
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "monotonicMs"))
+}
+
 /// H02.01: free host API `stdoutWrite`.
 fn module_uses_stdout_write(module: &Module) -> bool {
     module
@@ -473,6 +481,13 @@ fn emit_js_full(
     // H05.01: `nowMs` wall clock.
     if module_uses_now_ms(module) {
         out.push_str(draconic_runtime::now_ms_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H05.02: `monotonicMs` monotonic clock.
+    if module_uses_monotonic_ms(module) {
+        out.push_str(draconic_runtime::monotonic_ms_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

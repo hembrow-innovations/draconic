@@ -1,4 +1,4 @@
-//! ROADMAP H05.01: wall clock `nowMs` / `Date.now`.
+//! ROADMAP H05.01–H05.02: wall clock `nowMs` / `Date.now`; monotonic `monotonicMs`.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +47,14 @@ fn date_now_fixture_present() {
 #[test]
 fn date_now_runs_js_and_native() {
     assert_fixture_runs("host/time/date_now");
+}
+
+#[test]
+fn monotonic_ms_fixture_present() {
+    assert_fixture_present("host/time/monotonic_ms");
+}
+
+#[test]
+fn monotonic_ms_runs_js_and_native() {
+    assert_fixture_runs("host/time/monotonic_ms");
 }

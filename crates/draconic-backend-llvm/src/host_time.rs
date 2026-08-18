@@ -1,7 +1,8 @@
-//! H05.01: native wall clock — `nowMs()` / `Date.now()` via Runtime ABI.
+//! H05.01–H05.02: native clocks — `nowMs()` / `Date.now()` / `monotonicMs()` via Runtime ABI.
 //!
-//! Calls `draconic_rt_host_now_ms` at run time (not compile-time fold). Prints
-//! string (`typeof`) and bool locals; number locals used only in comparisons.
+//! Calls `draconic_rt_host_now_ms` / `draconic_rt_host_monotonic_ms` at run time
+//! (not compile-time fold). Prints string (`typeof`) and bool locals; number
+//! locals used only in comparisons.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -9,7 +10,9 @@ use std::fmt::Write as _;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Expr, Local, LocalId, Module, Stmt};
-use draconic_runtime::abi::{llvm_declares, GC_INIT, HOST_NOW_MS, PRINT_BOOL, PRINT_STR};
+use draconic_runtime::abi::{
+    llvm_declares, GC_INIT, HOST_MONOTONIC_MS, HOST_NOW_MS, PRINT_BOOL, PRINT_STR,
+};
 
 pub(crate) fn is_host_time_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -81,6 +84,12 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
 fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<SlotTy> {
     match expr {
         Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "nowMs") => {
+            ctx.has_now = true;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if args.is_empty() && is_named_callee(callee, "monotonicMs") =>
+        {
             ctx.has_now = true;
             Some(SlotTy::Number)
         }
@@ -256,11 +265,16 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_time (H05.01 wall clock nowMs / Date.now)"
+            "; Draconic LLVM host_time (H05.01–H05.02 nowMs / Date.now / monotonicMs)"
         )
         .ok();
-        self.out
-            .push_str(&llvm_declares(&[GC_INIT, PRINT_STR, PRINT_BOOL, HOST_NOW_MS]));
+        self.out.push_str(&llvm_declares(&[
+            GC_INIT,
+            PRINT_STR,
+            PRINT_BOOL,
+            HOST_NOW_MS,
+            HOST_MONOTONIC_MS,
+        ]));
         writeln!(self.out).ok();
 
         for (id, ty) in &self.info.slots {
@@ -372,6 +386,13 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "monotonicMs") =>
+            {
+                let v = self.fresh();
+                writeln!(self.body, "  {}", HOST_MONOTONIC_MS.call_to(&v, "")).ok();
+                Ok(v)
+            }
+            Expr::Call { callee, args, .. }
                 if args.is_empty() && is_date_now_callee(callee, self.module) =>
             {
                 let v = self.fresh();
@@ -471,6 +492,7 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. }
                 if args.is_empty()
                     && (is_named_callee(callee, "nowMs")
+                        || is_named_callee(callee, "monotonicMs")
                         || is_date_now_callee(callee, self.module)) =>
             {
                 Ok(self.emit_cstr_ptr("number"))
@@ -532,6 +554,23 @@ mod tests {
         assert!(is_host_time_module(&m));
         let ir = emit_host_time(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_now_ms"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_monotonic_ms() {
+        let m = lower_src(
+            r#"
+            let t = typeof monotonicMs();
+            let a = monotonicMs();
+            let b = monotonicMs();
+            let ok_nonneg = a >= 0;
+            let ok_order = b >= a;
+            let ok_delta = (b - a) < 60000;
+            "#,
+        );
+        assert!(is_host_time_module(&m));
+        let ir = emit_host_time(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_monotonic_ms"), "{ir}");
     }
 }
 

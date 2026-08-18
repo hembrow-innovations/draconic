@@ -76,6 +76,7 @@ pub struct HostApiEntry {
 /// - `renameFile` / `copyFile` (H04.05): both — rename/move and copy regular files (`removeFile` is delete).
 /// - `openFile` / `fileRead` / `fileWrite` / `fileSeek` / `closeFile` (H04.06): native-only open handles.
 /// - `nowMs` (H05.01): both — wall clock ms since Unix epoch (`Date.now` equivalent).
+/// - `monotonicMs` (H05.02): both — monotonic clock ms for durations (not wall epoch).
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -277,6 +278,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "nowMs",
         availability: HostAvailability::BOTH,
         note: "H05.01 wall clock ms",
+    },
+    HostApiEntry {
+        name: "monotonicMs",
+        availability: HostAvailability::BOTH,
+        note: "H05.02 monotonic clock ms",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -582,6 +588,18 @@ mod tests {
         assert!(is_available("nowMs", CompileTarget::Js));
         assert!(is_available("nowMs", CompileTarget::Native));
         assert!(unsupported_diagnostic("nowMs", CompileTarget::Js, Span::dummy()).is_none());
+    }
+
+    #[test]
+    fn registry_lists_monotonic_ms_both() {
+        let entry = lookup("monotonicMs").expect("monotonicMs registered");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_available("monotonicMs", CompileTarget::Js));
+        assert!(is_available("monotonicMs", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("monotonicMs", CompileTarget::Js, Span::dummy()).is_none()
+        );
     }
 
     #[test]

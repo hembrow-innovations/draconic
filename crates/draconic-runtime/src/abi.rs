@@ -737,6 +737,13 @@ pub const HOST_NOW_MS: AbiFn = AbiFn {
     params: "",
 };
 
+/* H05.02: monotonic clock ms for durations (double / JS Number). */
+pub const HOST_MONOTONIC_MS: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_monotonic_ms",
+    ret: "double",
+    params: "",
+};
+
 /* H02.01: stdout write (raw bytes; no automatic newline). */
 pub const HOST_STDOUT_WRITE: AbiFn = AbiFn {
     symbol: "draconic_rt_host_stdout_write",
@@ -921,6 +928,7 @@ pub const HOST_PROCESS_GET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_GET_EXIT_CODE.s
 pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
 pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
 pub const HOST_NOW_MS_SYMBOL: &str = HOST_NOW_MS.symbol;
+pub const HOST_MONOTONIC_MS_SYMBOL: &str = HOST_MONOTONIC_MS.symbol;
 pub const HOST_STDOUT_WRITE_SYMBOL: &str = HOST_STDOUT_WRITE.symbol;
 pub const HOST_STDERR_WRITE_SYMBOL: &str = HOST_STDERR_WRITE.symbol;
 pub const HOST_STDIN_READ_LINE_SYMBOL: &str = HOST_STDIN_READ_LINE.symbol;
@@ -951,7 +959,7 @@ pub const HOST_FS_HANDLE_READ_SYMBOL: &str = HOST_FS_HANDLE_READ.symbol;
 pub const HOST_FS_HANDLE_WRITE_SYMBOL: &str = HOST_FS_HANDLE_WRITE.symbol;
 pub const HOST_FS_HANDLE_SEEK_SYMBOL: &str = HOST_FS_HANDLE_SEEK.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H05.01).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H05.02).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -975,6 +983,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_PID_SYMBOL,
     HOST_PROCESS_PPID_SYMBOL,
     HOST_NOW_MS_SYMBOL,
+    HOST_MONOTONIC_MS_SYMBOL,
     HOST_STDOUT_WRITE_SYMBOL,
     HOST_STDERR_WRITE_SYMBOL,
     HOST_STDIN_READ_LINE_SYMBOL,
@@ -1030,6 +1039,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_PID,
     HOST_PROCESS_PPID,
     HOST_NOW_MS,
+    HOST_MONOTONIC_MS,
     HOST_STDOUT_WRITE,
     HOST_STDERR_WRITE,
     HOST_STDIN_READ_LINE,
@@ -1176,6 +1186,26 @@ pub fn now_ms_js_polyfill() -> &'static str {
 }
 if (typeof globalThis !== "undefined") {
   globalThis.nowMs = nowMs;
+}
+"#
+}
+
+/// JS polyfill for `monotonicMs()` (H05.02).
+///
+/// Prefer `performance.now()`; else Node `process.hrtime`; last resort wall clock.
+pub fn monotonic_ms_js_polyfill() -> &'static str {
+    r#"function monotonicMs() {
+  if (typeof performance !== "undefined" && performance && typeof performance.now === "function") {
+    return performance.now();
+  }
+  if (typeof process !== "undefined" && process && typeof process.hrtime === "function") {
+    var t = process.hrtime();
+    return t[0] * 1e3 + t[1] / 1e6;
+  }
+  return Date.now();
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.monotonicMs = monotonicMs;
 }
 "#
 }
