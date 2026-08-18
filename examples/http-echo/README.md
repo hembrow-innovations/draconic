@@ -51,4 +51,4 @@ examples/http-echo/
 - **Native target:** required (TCP listen is native-first; js hard-errors host listen APIs until a bridge row).
 - Port is fixed at `8080` in `main.drac`.
 - One request per connection (no keep-alive loop in this example).
-- Full client/assert/shutdown integration is **H17.02**.
+- Integration (start → client request → assert status/body → shutdown): `tests/integration/tests/http_echo.rs` (**H17.02**).
