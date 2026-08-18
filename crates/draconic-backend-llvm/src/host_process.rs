@@ -1,22 +1,22 @@
-//! H01.01: native observations for `processArgs()` — user program args as string[].
+//! H01.01 / H01.02: native observations for process host APIs.
 //!
-//! Fixture shape:
-//! ```text
-//! let args = processArgs();
-//! let n = args.length;
-//! let a0 = args[0];
-//! ```
-//! Prints number locals via `print_f64` and string locals via `print_str`.
-//! `main` takes OS argc/argv and records them on the host Runtime before body.
+//! - `processArgs()` — user program args as string[]
+//! - `envGet` / `envSet` / `envDelete` — string env; missing get → undefined
+//!
+//! Prints number locals via `print_f64` and string / maybe-string locals via
+//! `print_str` (null maybe-string prints as `undefined`). `main` takes OS
+//! argc/argv when processArgs is used.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use draconic_ast::UnaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{Expr, Local, LocalId, Module, Stmt};
+use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_PROCESS_SET_ARGV,
-    HOST_PROCESS_USER_ARG, HOST_PROCESS_USER_ARGC, PRINT_F64, PRINT_STR,
+    llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_ENV_DELETE,
+    HOST_ENV_GET, HOST_ENV_SET, HOST_PROCESS_SET_ARGV, HOST_PROCESS_USER_ARG,
+    HOST_PROCESS_USER_ARGC, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_process_module(module: &Module) -> bool {
@@ -34,12 +34,17 @@ pub(crate) fn emit_host_process(module: &Module) -> Result<String, Diagnostic> {
 enum SlotTy {
     Array,
     Number,
+    /// Always-present C string (processArgs element, typeof result, string lit).
     String,
+    /// `envGet` result: non-null C string or null (= undefined).
+    MaybeString,
 }
 
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
     print_locals: Vec<(LocalId, SlotTy)>,
+    needs_argv: bool,
+    needs_env: bool,
 }
 
 struct ClassifyCtx {
@@ -47,6 +52,7 @@ struct ClassifyCtx {
     print_locals: Vec<(LocalId, SlotTy)>,
     slot_of: HashMap<LocalId, SlotTy>,
     has_process_args: bool,
+    has_env: bool,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -55,18 +61,21 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         print_locals: Vec::new(),
         slot_of: HashMap::new(),
         has_process_args: false,
+        has_env: false,
     };
 
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
     }
 
-    if !ctx.has_process_args || ctx.print_locals.is_empty() {
+    if !(ctx.has_process_args || ctx.has_env) || ctx.print_locals.is_empty() {
         return None;
     }
     Some(ModuleInfo {
         slots: ctx.slots,
         print_locals: ctx.print_locals,
+        needs_argv: ctx.has_process_args,
+        needs_env: ctx.has_env,
     })
 }
 
@@ -77,21 +86,75 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            if matches!(ty, SlotTy::Number | SlotTy::String) {
+            if matches!(
+                ty,
+                SlotTy::Number | SlotTy::String | SlotTy::MaybeString
+            ) {
                 ctx.print_locals.push((*local, ty));
             }
             Some(())
         }
-        Stmt::Expr { .. } => Some(()),
+        Stmt::Expr { expr, .. } => {
+            classify_side_effect(expr, ctx)?;
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
+    match expr {
+        Expr::Call { callee, args, .. } => {
+            let name = ident_name(callee)?;
+            match name {
+                "envSet" if args.len() == 2 => {
+                    ctx.has_env = true;
+                    classify_expr(arg_expr(&args[0])?, ctx)?;
+                    classify_expr(arg_expr(&args[1])?, ctx)?;
+                    Some(())
+                }
+                "envDelete" if args.len() == 1 => {
+                    ctx.has_env = true;
+                    classify_expr(arg_expr(&args[0])?, ctx)?;
+                    Some(())
+                }
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
 
 fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
     match expr {
-        Expr::Call { callee, args, .. } if args.is_empty() && is_process_args_callee(callee) => {
+        Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "processArgs") => {
             ctx.has_process_args = true;
             Some(SlotTy::Array)
+        }
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "envGet") => {
+            ctx.has_env = true;
+            classify_expr(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::MaybeString)
+        }
+        Expr::Call { callee, args, .. } if args.len() == 2 && is_named_callee(callee, "envSet") => {
+            ctx.has_env = true;
+            classify_expr(arg_expr(&args[0])?, ctx)?;
+            classify_expr(arg_expr(&args[1])?, ctx)?;
+            // Not assigned as value in fixtures; treat as void if ever used as expr.
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "envDelete") => {
+            ctx.has_env = true;
+            classify_expr(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::Number)
+        }
+        Expr::Unary {
+            op: UnaryOp::TypeOf,
+            arg,
+            ..
+        } => {
+            let _ = classify_expr(arg, ctx)?;
+            Some(SlotTy::String)
         }
         Expr::Member {
             object,
@@ -116,7 +179,6 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let obj_ty = classify_expr(object, ctx)?;
             let _idx = classify_expr(property, ctx)?;
             if obj_ty == SlotTy::Array {
-                // Index into processArgs array → string element.
                 Some(SlotTy::String)
             } else {
                 None
@@ -124,12 +186,27 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         Expr::Number { .. } => Some(SlotTy::Number),
+        Expr::String { .. } => Some(SlotTy::String),
         _ => None,
     }
 }
 
-fn is_process_args_callee(expr: &Expr) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == "processArgs")
+fn is_named_callee(expr: &Expr, want: &str) -> bool {
+    matches!(expr, Expr::IdentName { name, .. } if name == want)
+}
+
+fn ident_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::IdentName { name, .. } => Some(name.as_str()),
+        _ => None,
+    }
+}
+
+fn arg_expr(arg: &Arg) -> Option<&Expr> {
+    match arg {
+        Arg::Expr(e) => Some(e),
+        Arg::Spread(_) => None,
+    }
 }
 
 fn string_lit(expr: &Expr) -> Option<String> {
@@ -146,6 +223,7 @@ struct Emitter<'a> {
     body: String,
     out: String,
     next_tmp: u32,
+    str_globals: HashMap<String, String>,
 }
 
 impl<'a> Emitter<'a> {
@@ -159,6 +237,7 @@ impl<'a> Emitter<'a> {
             body: String::new(),
             out: String::new(),
             next_tmp: 0,
+            str_globals: HashMap::new(),
         }
     }
 
@@ -181,28 +260,56 @@ impl<'a> Emitter<'a> {
         Ok(format!("%slot_{name}"))
     }
 
+    fn intern_cstr(&mut self, s: &str) -> String {
+        if let Some(g) = self.str_globals.get(s) {
+            return g.clone();
+        }
+        let g = format!(".hp.str.{}", self.str_globals.len());
+        self.str_globals.insert(s.to_string(), g.clone());
+        g
+    }
+
+    fn emit_cstr_ptr(&mut self, s: &str) -> String {
+        let g = self.intern_cstr(s);
+        let n = s.len() + 1;
+        let p = self.fresh();
+        writeln!(
+            self.body,
+            "  {p} = getelementptr inbounds [{n} x i8], ptr @{g}, i64 0, i64 0"
+        )
+        .ok();
+        p
+    }
+
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_process (H01.01 processArgs)").ok();
-        let decls = llvm_declares(&[
-            GC_INIT,
-            PRINT_F64,
-            PRINT_STR,
-            ARRAY_NEW,
-            ARRAY_SET,
-            ARRAY_GET,
-            ARRAY_LEN,
-            HOST_PROCESS_SET_ARGV,
-            HOST_PROCESS_USER_ARGC,
-            HOST_PROCESS_USER_ARG,
-        ]);
-        self.out.push_str(&decls);
+        writeln!(
+            self.out,
+            "; Draconic LLVM host_process (H01 processArgs / env)"
+        )
+        .ok();
+        let mut decls = vec![GC_INIT, PRINT_F64, PRINT_STR];
+        if info.needs_argv {
+            decls.extend([
+                ARRAY_NEW,
+                ARRAY_SET,
+                ARRAY_GET,
+                ARRAY_LEN,
+                HOST_PROCESS_SET_ARGV,
+                HOST_PROCESS_USER_ARGC,
+                HOST_PROCESS_USER_ARG,
+            ]);
+        }
+        if info.needs_env {
+            decls.extend([HOST_ENV_GET, HOST_ENV_SET, HOST_ENV_DELETE]);
+        }
+        self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
         for (id, ty) in &info.slots {
             let ptr = self.slot_ptr(*id)?;
             let llvm_ty = match ty {
                 SlotTy::Number => "double",
-                SlotTy::Array | SlotTy::String => "ptr",
+                SlotTy::Array | SlotTy::String | SlotTy::MaybeString => "ptr",
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
@@ -224,22 +331,71 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
+                SlotTy::MaybeString => {
+                    self.emit_print_maybe_string(ptr)?;
+                }
                 SlotTy::Array => {}
             }
         }
 
-        writeln!(self.out, "define i32 @main(i32 %argc, ptr %argv) {{").ok();
+        // Emit string globals before main.
+        let body = std::mem::take(&mut self.body);
+        for (content, gname) in &self.str_globals {
+            let n = content.len() + 1;
+            let esc = escape_llvm_string(content);
+            writeln!(
+                self.out,
+                "@{gname} = private unnamed_addr constant [{n} x i8] c\"{esc}\\00\", align 1"
+            )
+            .ok();
+        }
+        if !self.str_globals.is_empty() {
+            writeln!(self.out).ok();
+        }
+
+        if info.needs_argv {
+            writeln!(self.out, "define i32 @main(i32 %argc, ptr %argv) {{").ok();
+        } else {
+            writeln!(self.out, "define i32 @main() {{").ok();
+        }
         writeln!(self.out, "entry:").ok();
         writeln!(self.out, "  {}", GC_INIT.call("")).ok();
-        writeln!(
-            self.out,
-            "  {}",
-            HOST_PROCESS_SET_ARGV.call("i32 %argc, ptr %argv")
-        )
-        .ok();
-        self.out.push_str(&self.body);
+        if info.needs_argv {
+            writeln!(
+                self.out,
+                "  {}",
+                HOST_PROCESS_SET_ARGV.call("i32 %argc, ptr %argv")
+            )
+            .ok();
+        }
+        self.out.push_str(&body);
         writeln!(self.out, "  ret i32 0").ok();
         writeln!(self.out, "}}").ok();
+        Ok(())
+    }
+
+    fn emit_print_maybe_string(&mut self, slot_ptr: String) -> Result<(), Diagnostic> {
+        let v = self.fresh();
+        let is_null = self.fresh();
+        let lab_str = format!("ms_str_{}", self.next_tmp);
+        let lab_und = format!("ms_und_{}", self.next_tmp);
+        let lab_end = format!("ms_end_{}", self.next_tmp);
+        self.next_tmp += 1;
+        writeln!(self.body, "  {v} = load ptr, ptr {slot_ptr}").ok();
+        writeln!(self.body, "  {is_null} = icmp eq ptr {v}, null").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is_null}, label %{lab_und}, label %{lab_str}"
+        )
+        .ok();
+        writeln!(self.body, "{lab_str}:").ok();
+        writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+        writeln!(self.body, "  br label %{lab_end}").ok();
+        writeln!(self.body, "{lab_und}:").ok();
+        let und = self.emit_cstr_ptr("undefined");
+        writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {und}"))).ok();
+        writeln!(self.body, "  br label %{lab_end}").ok();
+        writeln!(self.body, "{lab_end}:").ok();
         Ok(())
     }
 
@@ -267,18 +423,63 @@ impl<'a> Emitter<'a> {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::MaybeString => {
+                        let v = self.emit_maybe_string_expr(init)?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    }
                 }
                 Ok(())
             }
-            Stmt::Expr { .. } => Ok(()),
+            Stmt::Expr { expr, .. } => self.emit_side_effect(expr),
             _ => Err(diag("host_process: unsupported statement")),
+        }
+    }
+
+    fn emit_side_effect(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. } => {
+                let name = ident_name(callee).ok_or_else(|| diag("host_process: bad call"))?;
+                match name {
+                    "envSet" if args.len() == 2 => {
+                        let k = self.emit_string_expr(arg_expr(&args[0]).ok_or_else(|| {
+                            diag("host_process: envSet key")
+                        })?)?;
+                        let v = self.emit_string_expr(arg_expr(&args[1]).ok_or_else(|| {
+                            diag("host_process: envSet value")
+                        })?)?;
+                        let _rc = self.fresh();
+                        writeln!(
+                            self.body,
+                            "  {_rc} = call i32 @{}(ptr {k}, ptr {v})",
+                            HOST_ENV_SET.symbol
+                        )
+                        .ok();
+                        Ok(())
+                    }
+                    "envDelete" if args.len() == 1 => {
+                        let k = self.emit_string_expr(arg_expr(&args[0]).ok_or_else(|| {
+                            diag("host_process: envDelete key")
+                        })?)?;
+                        let _rc = self.fresh();
+                        writeln!(
+                            self.body,
+                            "  {_rc} = call i32 @{}(ptr {k})",
+                            HOST_ENV_DELETE.symbol
+                        )
+                        .ok();
+                        Ok(())
+                    }
+                    _ => Err(diag("host_process: unsupported side-effect call")),
+                }
+            }
+            _ => Err(diag("host_process: unsupported expr stmt")),
         }
     }
 
     fn emit_array_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
-                if args.is_empty() && is_process_args_callee(callee) =>
+                if args.is_empty() && is_named_callee(callee, "processArgs") =>
             {
                 self.emit_process_args_array()
             }
@@ -360,7 +561,6 @@ impl<'a> Emitter<'a> {
             Expr::Number { raw, .. } => {
                 let v = self.fresh();
                 let n: f64 = raw.parse().unwrap_or(0.0);
-                // Always emit a float literal so LLVM accepts the operand.
                 let lit = if n.fract() == 0.0 {
                     format!("{n:.1}")
                 } else {
@@ -401,8 +601,44 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    fn emit_maybe_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "envGet") =>
+            {
+                let k = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_process: envGet key"))?,
+                )?;
+                let v = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {v} = call ptr @{}(ptr {k})",
+                    HOST_ENV_GET.symbol
+                )
+                .ok();
+                Ok(v)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_process: expected envGet maybe-string")),
+        }
+    }
+
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
+            Expr::String { value, .. } => {
+                let s = value.to_string_lossy();
+                Ok(self.emit_cstr_ptr(&s))
+            }
+            Expr::Unary {
+                op: UnaryOp::TypeOf,
+                arg,
+                ..
+            } => self.emit_typeof(arg),
             Expr::Member {
                 object,
                 property,
@@ -426,12 +662,7 @@ impl<'a> Emitter<'a> {
                     ARRAY_GET.symbol
                 )
                 .ok();
-                // null → empty string for OOB
-                writeln!(
-                    self.body,
-                    "  {empty} = alloca [1 x i8], align 1"
-                )
-                .ok();
+                writeln!(self.body, "  {empty} = alloca [1 x i8], align 1").ok();
                 let empty_ptr = self.fresh();
                 writeln!(
                     self.body,
@@ -455,14 +686,83 @@ impl<'a> Emitter<'a> {
                 Ok(phi)
             }
             Expr::Local { id, .. } => {
+                let kind = self
+                    .slot_of
+                    .get(id)
+                    .copied()
+                    .ok_or_else(|| diag("host_process: unknown string local"))?;
+                if kind == SlotTy::MaybeString {
+                    return Err(diag("host_process: maybe-string not a bare string"));
+                }
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
                 writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                 Ok(v)
             }
-            _ => Err(diag("host_process: expected string index expr")),
+            _ => Err(diag("host_process: expected string expr")),
         }
     }
+
+    fn emit_typeof(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
+        match arg {
+            Expr::Local { id, .. } => {
+                let kind = self
+                    .slot_of
+                    .get(id)
+                    .copied()
+                    .ok_or_else(|| diag("host_process: typeof unknown local"))?;
+                match kind {
+                    SlotTy::MaybeString => {
+                        let ptr = self.slot_ptr(*id)?;
+                        let v = self.fresh();
+                        let is_null = self.fresh();
+                        let lab_s = format!("tof_s_{}", self.next_tmp);
+                        let lab_u = format!("tof_u_{}", self.next_tmp);
+                        let lab_e = format!("tof_e_{}", self.next_tmp);
+                        self.next_tmp += 1;
+                        let out_slot = self.fresh();
+                        writeln!(self.body, "  {out_slot} = alloca ptr, align 8").ok();
+                        writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                        writeln!(self.body, "  {is_null} = icmp eq ptr {v}, null").ok();
+                        writeln!(
+                            self.body,
+                            "  br i1 {is_null}, label %{lab_u}, label %{lab_s}"
+                        )
+                        .ok();
+                        writeln!(self.body, "{lab_s}:").ok();
+                        let ps = self.emit_cstr_ptr("string");
+                        writeln!(self.body, "  store ptr {ps}, ptr {out_slot}").ok();
+                        writeln!(self.body, "  br label %{lab_e}").ok();
+                        writeln!(self.body, "{lab_u}:").ok();
+                        let pu = self.emit_cstr_ptr("undefined");
+                        writeln!(self.body, "  store ptr {pu}, ptr {out_slot}").ok();
+                        writeln!(self.body, "  br label %{lab_e}").ok();
+                        writeln!(self.body, "{lab_e}:").ok();
+                        let r = self.fresh();
+                        writeln!(self.body, "  {r} = load ptr, ptr {out_slot}").ok();
+                        Ok(r)
+                    }
+                    SlotTy::String => Ok(self.emit_cstr_ptr("string")),
+                    SlotTy::Array => Ok(self.emit_cstr_ptr("object")),
+                    SlotTy::Number => Ok(self.emit_cstr_ptr("number")),
+                }
+            }
+            _ => Err(diag("host_process: typeof unsupported arg")),
+        }
+    }
+}
+
+fn escape_llvm_string(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\22"),
+            c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
+            c => out.push_str(&format!("\\{c:02X}")),
+        }
+    }
+    out
 }
 
 fn diag(msg: &str) -> Diagnostic {
@@ -492,9 +792,50 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_process_set_argv"), "{ir}");
         assert!(ir.contains("draconic_rt_host_process_user_argc"), "{ir}");
         assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"), "{ir}");
-        // Validate clang accepts IR.
         let dir = std::env::temp_dir().join(format!(
             "draconic-hp-ir-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let ll = dir.join("t.ll");
+        std::fs::write(&ll, &ir).unwrap();
+        let clang = std::env::var("CLANG").unwrap_or_else(|_| "clang".into());
+        let out = std::process::Command::new(&clang)
+            .args(["-c", "-o"])
+            .arg(dir.join("t.o"))
+            .arg(&ll)
+            .output()
+            .expect("clang");
+        assert!(
+            out.status.success(),
+            "clang reject IR:\n{}\n--- IR ---\n{ir}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn classifies_env_get_set_delete() {
+        let m = lower_src(
+            r#"
+            envSet("DRACONIC_H0102_ENV_KEY", "alpha");
+            let got = envGet("DRACONIC_H0102_ENV_KEY");
+            let missing = envGet("DRACONIC_H0102_ENV_MISSING_XYZ");
+            envDelete("DRACONIC_H0102_ENV_KEY");
+            let after = envGet("DRACONIC_H0102_ENV_KEY");
+            let t_got = typeof got;
+            let t_missing = typeof missing;
+            let t_after = typeof after;
+            "#,
+        );
+        assert!(is_host_process_module(&m));
+        let ir = emit_host_process(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_env_get"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_env_set"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_env_delete"), "{ir}");
+        assert!(ir.contains("define i32 @main()"), "{ir}");
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-hp-env-{}",
             std::process::id()
         ));
         let _ = std::fs::create_dir_all(&dir);

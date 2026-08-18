@@ -1,4 +1,4 @@
-//! ROADMAP H01.01: Program args as string array (native OS argv; js Node bridge).
+//! ROADMAP H01.01 / H01.02: process args + env get/set/delete.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +47,14 @@ fn process_args_empty_fixture_present() {
 #[test]
 fn process_args_empty_runs_js_and_native() {
     assert_fixture_runs("host/process/process_args_empty");
+}
+
+#[test]
+fn process_env_fixture_present() {
+    assert_fixture_present("host/process/process_env");
+}
+
+#[test]
+fn process_env_runs_js_and_native() {
+    assert_fixture_runs("host/process/process_env");
 }

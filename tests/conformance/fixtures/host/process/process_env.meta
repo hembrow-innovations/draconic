@@ -1,0 +1,6 @@
+id: host/process/process_env
+targets: js,native
+js.exit: 0
+js.check: if (got !== "alpha") process.exit(1); if (missing !== undefined) process.exit(2); if (after !== undefined) process.exit(3); if (t_got !== "string") process.exit(4); if (t_missing !== "undefined") process.exit(5); if (t_after !== "undefined") process.exit(6);
+native.exit: 0
+native.stdout: alpha\nundefined\nundefined\nstring\nundefined\nundefined\n

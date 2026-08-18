@@ -684,6 +684,23 @@ pub const HOST_PROCESS_USER_ARG: AbiFn = AbiFn {
     params: "i32",
 };
 
+/* H01.02: process env get/set/delete (string values; missing get → null). */
+pub const HOST_ENV_GET: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_env_get",
+    ret: "ptr",
+    params: "ptr",
+};
+pub const HOST_ENV_SET: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_env_set",
+    ret: "i32",
+    params: "ptr, ptr",
+};
+pub const HOST_ENV_DELETE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_env_delete",
+    ret: "i32",
+    params: "ptr",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -697,8 +714,11 @@ pub const HOST_BYTES_COPY_OUT_SYMBOL: &str = HOST_BYTES_COPY_OUT.symbol;
 pub const HOST_PROCESS_SET_ARGV_SYMBOL: &str = HOST_PROCESS_SET_ARGV.symbol;
 pub const HOST_PROCESS_USER_ARGC_SYMBOL: &str = HOST_PROCESS_USER_ARGC.symbol;
 pub const HOST_PROCESS_USER_ARG_SYMBOL: &str = HOST_PROCESS_USER_ARG.symbol;
+pub const HOST_ENV_GET_SYMBOL: &str = HOST_ENV_GET.symbol;
+pub const HOST_ENV_SET_SYMBOL: &str = HOST_ENV_SET.symbol;
+pub const HOST_ENV_DELETE_SYMBOL: &str = HOST_ENV_DELETE.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01.01 process).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -713,6 +733,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_SET_ARGV_SYMBOL,
     HOST_PROCESS_USER_ARGC_SYMBOL,
     HOST_PROCESS_USER_ARG_SYMBOL,
+    HOST_ENV_GET_SYMBOL,
+    HOST_ENV_SET_SYMBOL,
+    HOST_ENV_DELETE_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -730,6 +753,9 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_SET_ARGV,
     HOST_PROCESS_USER_ARGC,
     HOST_PROCESS_USER_ARG,
+    HOST_ENV_GET,
+    HOST_ENV_SET,
+    HOST_ENV_DELETE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -748,6 +774,33 @@ pub fn process_args_js_polyfill() -> &'static str {
   return a.slice(1).map(String);
 }
 if (typeof globalThis !== "undefined") globalThis.processArgs = processArgs;
+"#
+}
+
+/// JS polyfill for `envGet` / `envSet` / `envDelete` (H01.02).
+///
+/// Node bridge via `process.env`. Missing key → `undefined`. Values coerced to string.
+pub fn process_env_js_polyfill() -> &'static str {
+    r#"function envGet(key) {
+  if (typeof process === "undefined" || !process || !process.env) return undefined;
+  var v = process.env[String(key)];
+  if (v === undefined || v === null) return undefined;
+  return String(v);
+}
+function envSet(key, value) {
+  if (typeof process === "undefined" || !process) return;
+  if (!process.env) process.env = {};
+  process.env[String(key)] = String(value);
+}
+function envDelete(key) {
+  if (typeof process === "undefined" || !process || !process.env) return;
+  delete process.env[String(key)];
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.envGet = envGet;
+  globalThis.envSet = envSet;
+  globalThis.envDelete = envDelete;
+}
 "#
 }
 

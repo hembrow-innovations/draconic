@@ -1,12 +1,18 @@
-/* Host I/O Runtime substrate (H00.02–H00.03, H01.01 process argv).
+/* Host I/O Runtime substrate (H00.02–H00.03, H01.01 process argv, H01.02 env).
    Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process user-args. Later H rows open handles and map errno. */
+   process user-args + env. Later H rows open handles and map errno. */
 
 #include "draconic_rt_host.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(_WIN32)
+/* getenv / _putenv_s */
+#else
+/* setenv / unsetenv */
+#endif
 
 /* --- Handle table (slots filled by later open/listen/etc.) --- */
 
@@ -358,4 +364,50 @@ const char *draconic_rt_host_process_user_arg(int32_t i) {
         return NULL;
     }
     return g_process_argv[i + 1];
+}
+
+/* --- Process env (H01.02) --- */
+
+char *draconic_rt_host_env_get(const char *key) {
+    const char *v;
+    size_t n;
+    char *out;
+
+    if (!key) {
+        return NULL;
+    }
+    v = getenv(key);
+    if (!v) {
+        return NULL;
+    }
+    n = strlen(v);
+    out = (char *)malloc(n + 1);
+    if (!out) {
+        return NULL;
+    }
+    memcpy(out, v, n + 1);
+    return out;
+}
+
+int32_t draconic_rt_host_env_set(const char *key, const char *value) {
+    if (!key || !value) {
+        return -1;
+    }
+#if defined(_WIN32)
+    return _putenv_s(key, value) == 0 ? 0 : -1;
+#else
+    return setenv(key, value, 1) == 0 ? 0 : -1;
+#endif
+}
+
+int32_t draconic_rt_host_env_delete(const char *key) {
+    if (!key) {
+        return -1;
+    }
+#if defined(_WIN32)
+    /* Empty value removes the variable with _putenv_s on MSVC. */
+    return _putenv_s(key, "") == 0 ? 0 : -1;
+#else
+    return unsetenv(key) == 0 ? 0 : -1;
+#endif
 }

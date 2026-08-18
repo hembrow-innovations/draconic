@@ -115,6 +115,9 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_set_argv",
         "draconic_rt_host_process_user_argc",
         "draconic_rt_host_process_user_arg",
+        "draconic_rt_host_env_get",
+        "draconic_rt_host_env_set",
+        "draconic_rt_host_env_delete",
     ] {
         assert!(
             out.contains(sym),
@@ -175,6 +178,59 @@ int main(int argc, char **argv) {
         "stdout={}",
         String::from_utf8_lossy(&out.stdout)
     );
+}
+
+#[test]
+fn host_process_env_get_set_delete() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_env.c");
+    let bin = dir.join("rt_host_env");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    const char *k = "DRACONIC_RT_HOST_ENV_TEST";
+    char *v;
+    if (draconic_rt_host_env_set(k, "alpha") != 0) return 1;
+    v = draconic_rt_host_env_get(k);
+    if (!v || strcmp(v, "alpha") != 0) { free(v); return 2; }
+    free(v);
+    if (draconic_rt_host_env_get("DRACONIC_RT_HOST_ENV_MISSING_XYZ") != NULL) return 3;
+    if (draconic_rt_host_env_delete(k) != 0) return 4;
+    if (draconic_rt_host_env_get(k) != NULL) return 5;
+    printf("ok\n");
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg(format!("-I{}", header_dir.display()))
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("clang link");
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "ok\n");
 }
 
 /// Clang link smoke: path boundary + handle close/is_valid (no real fs/tcp).

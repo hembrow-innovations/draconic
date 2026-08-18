@@ -64,6 +64,15 @@ fn module_uses_process_args(module: &Module) -> bool {
         .any(|s| stmt_uses_ident_name(s, "processArgs"))
 }
 
+/// H01.02: free host APIs `envGet` / `envSet` / `envDelete`.
+fn module_uses_process_env(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "envGet")
+            || stmt_uses_ident_name(s, "envSet")
+            || stmt_uses_ident_name(s, "envDelete")
+    })
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -356,6 +365,13 @@ fn emit_js_full(
     // H01.01: `processArgs()` Node bridge when the Program references it.
     if module_uses_process_args(module) {
         out.push_str(draconic_runtime::process_args_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H01.02: `envGet` / `envSet` / `envDelete` Node bridge.
+    if module_uses_process_env(module) {
+        out.push_str(draconic_runtime::process_env_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

@@ -1,0 +1,9 @@
+// H01.02: envGet / envSet / envDelete — string values; missing → undefined.
+envSet("DRACONIC_H0102_ENV_KEY", "alpha");
+let got = envGet("DRACONIC_H0102_ENV_KEY");
+let missing = envGet("DRACONIC_H0102_ENV_MISSING_XYZ");
+envDelete("DRACONIC_H0102_ENV_KEY");
+let after = envGet("DRACONIC_H0102_ENV_KEY");
+let t_got = typeof got;
+let t_missing = typeof missing;
+let t_after = typeof after;

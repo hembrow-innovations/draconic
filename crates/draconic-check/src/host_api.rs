@@ -61,12 +61,28 @@ pub struct HostApiEntry {
 /// Built-in host API registry. Expand as H01+ rows land.
 ///
 /// - `processArgs` (H01.01): both targets — user program args as string[].
+/// - `envGet` / `envSet` / `envDelete` (H01.02): both — string env; missing get → undefined.
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
         availability: HostAvailability::BOTH,
         note: "H01.01 process args",
+    },
+    HostApiEntry {
+        name: "envGet",
+        availability: HostAvailability::BOTH,
+        note: "H01.02 env get",
+    },
+    HostApiEntry {
+        name: "envSet",
+        availability: HostAvailability::BOTH,
+        note: "H01.02 env set",
+    },
+    HostApiEntry {
+        name: "envDelete",
+        availability: HostAvailability::BOTH,
+        note: "H01.02 env delete",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -148,6 +164,21 @@ mod tests {
         assert!(
             unsupported_diagnostic("processArgs", CompileTarget::Native, Span::dummy()).is_none()
         );
+    }
+
+    #[test]
+    fn registry_lists_env_apis_both() {
+        for name in ["envGet", "envSet", "envDelete"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

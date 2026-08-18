@@ -103,6 +103,18 @@ int32_t draconic_rt_host_process_user_argc(void);
 /* User arg at index i (0-based); NULL if out of range. */
 const char *draconic_rt_host_process_user_arg(int32_t i);
 
+/* --- Process env (H01.02) --------------------------------------------------
+   String env get/set/delete. Missing get → NULL (JS undefined).
+   env_get returns a freshly allocated copy (malloc); free with free() or
+   ignore until process exit. */
+
+/* malloc'd copy of env value, or NULL if missing / invalid key. */
+char *draconic_rt_host_env_get(const char *key);
+/* Set env key to value (overwrite). 0 ok, nonzero error. */
+int32_t draconic_rt_host_env_set(const char *key, const char *value);
+/* Delete env key. 0 ok (including already-missing), nonzero error. */
+int32_t draconic_rt_host_env_delete(const char *key);
+
 #ifdef __cplusplus
 }
 #endif
