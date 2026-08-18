@@ -56,6 +56,146 @@ fn module_uses_parse_url(module: &Module) -> bool {
     module.body.iter().any(|s| stmt_uses_local(s, &ids))
 }
 
+/// H01.01: free host API `processArgs` lowers as `IdentName` (not a builtin local).
+fn module_uses_process_args(module: &Module) -> bool {
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "processArgs"))
+}
+
+fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
+    match stmt {
+        Stmt::Declare { init: Some(e), .. }
+        | Stmt::DeclareArrayPattern { init: Some(e), .. }
+        | Stmt::DeclareObjectPattern { init: Some(e), .. }
+        | Stmt::Expr { expr: e }
+        | Stmt::Throw { value: e } => expr_uses_ident_name(e, name),
+        Stmt::Return { value: Some(e) } => expr_uses_ident_name(e, name),
+        Stmt::Block { body } => body.iter().any(|s| stmt_uses_ident_name(s, name)),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            expr_uses_ident_name(test, name)
+                || stmt_uses_ident_name(consequent, name)
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_uses_ident_name(a, name))
+        }
+        Stmt::While { test, body } | Stmt::DoWhile { test, body } => {
+            expr_uses_ident_name(test, name) || stmt_uses_ident_name(body, name)
+        }
+        Stmt::For {
+            init,
+            test,
+            update,
+            body,
+        } => {
+            init.as_ref()
+                .is_some_and(|s| stmt_uses_ident_name(s, name))
+                || test.as_ref().is_some_and(|e| expr_uses_ident_name(e, name))
+                || update
+                    .as_ref()
+                    .is_some_and(|e| expr_uses_ident_name(e, name))
+                || stmt_uses_ident_name(body, name)
+        }
+        Stmt::ForIn { left, right, body } | Stmt::ForOf { left, right, body, .. } => {
+            stmt_uses_ident_name(left, name)
+                || expr_uses_ident_name(right, name)
+                || stmt_uses_ident_name(body, name)
+        }
+        Stmt::Labeled { body, .. } => stmt_uses_ident_name(body, name),
+        Stmt::Switch {
+            discriminant,
+            cases,
+        } => {
+            expr_uses_ident_name(discriminant, name)
+                || cases.iter().any(|c| {
+                    c.test
+                        .as_ref()
+                        .is_some_and(|e| expr_uses_ident_name(e, name))
+                        || c.body.iter().any(|s| stmt_uses_ident_name(s, name))
+                })
+        }
+        Stmt::Function { body, .. } => body.iter().any(|s| stmt_uses_ident_name(s, name)),
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            block.iter().any(|s| stmt_uses_ident_name(s, name))
+                || handler
+                    .as_ref()
+                    .is_some_and(|h| h.iter().any(|s| stmt_uses_ident_name(s, name)))
+                || finalizer
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(|s| stmt_uses_ident_name(s, name)))
+        }
+        Stmt::With { object, body } => {
+            expr_uses_ident_name(object, name) || body.iter().any(|s| stmt_uses_ident_name(s, name))
+        }
+        _ => false,
+    }
+}
+
+fn expr_uses_ident_name(expr: &Expr, name: &str) -> bool {
+    use draconic_ir::{Arg, ArrayElement, ObjectProp, ObjectPropKey};
+    match expr {
+        Expr::IdentName { name: n, .. } => n == name,
+        Expr::Unary { arg, .. } => expr_uses_ident_name(arg, name),
+        Expr::Binary { left, right, .. } => {
+            expr_uses_ident_name(left, name) || expr_uses_ident_name(right, name)
+        }
+        Expr::Assign { target, value, .. } => {
+            let t = match target {
+                AssignTarget::Member {
+                    object, property, ..
+                } => expr_uses_ident_name(object, name) || expr_uses_ident_name(property, name),
+                _ => false,
+            };
+            t || expr_uses_ident_name(value, name)
+        }
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => {
+            expr_uses_ident_name(test, name)
+                || expr_uses_ident_name(consequent, name)
+                || expr_uses_ident_name(alternate, name)
+        }
+        Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
+            expr_uses_ident_name(callee, name)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) | Arg::Spread(e) => expr_uses_ident_name(e, name),
+                })
+        }
+        Expr::Member { object, property, .. } => {
+            expr_uses_ident_name(object, name) || expr_uses_ident_name(property, name)
+        }
+        Expr::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_uses_ident_name(e, name),
+            ArrayElement::Elision => false,
+        }),
+        Expr::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Spread(e) => expr_uses_ident_name(e, name),
+            ObjectProp::Property { key, value } | ObjectProp::Accessor { key, value, .. } => {
+                let key_hit = match key {
+                    ObjectPropKey::Computed(e) => expr_uses_ident_name(e, name),
+                    _ => false,
+                };
+                key_hit || expr_uses_ident_name(value, name)
+            }
+        }),
+        Expr::Function { body, .. } => body.iter().any(|s| stmt_uses_ident_name(s, name)),
+        _ => false,
+    }
+}
+
 fn stmt_uses_local(stmt: &Stmt, ids: &[LocalId]) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -209,6 +349,13 @@ fn emit_js_full(
     // L08.01: portable `parseUrl` polyfill when the Program references it.
     if module_uses_parse_url(module) {
         out.push_str(draconic_runtime::parse_url_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H01.01: `processArgs()` Node bridge when the Program references it.
+    if module_uses_process_args(module) {
+        out.push_str(draconic_runtime::process_args_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

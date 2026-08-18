@@ -1,5 +1,5 @@
 //! Native Runtime: GC + minimal std (N05) + job queue (N06.01) + Promise ABI (N06.02–N06.10)
-//! + host I/O substrate (H00.02–H00.03); embed later (N07).
+//! + host I/O substrate (H00.02–H00.03, H01.01 process args); embed later (N07).
 
 pub mod abi;
 pub use abi::*;

@@ -1,0 +1,7 @@
+id: host/process/process_args
+targets: js,native
+args: alpha beta
+js.exit: 0
+js.check: if (n !== 2) process.exit(1); if (a0 !== "alpha") process.exit(2); if (a1 !== "beta") process.exit(3);
+native.exit: 0
+native.stdout: 2\nalpha\nbeta\n

@@ -92,6 +92,17 @@ DraconicHostError draconic_rt_host_bytes_copy_out(
     size_t dst_cap,
     size_t *out_n);
 
+/* --- Process argv (H01.01) -------------------------------------------------
+   Store OS argv at process start. User program args are argv[1..argc)
+   (skip argv[0] program path). JS bridge mirrors Node user args. */
+
+/* Record process argc/argv (pointers borrowed for process lifetime). */
+void draconic_rt_host_process_set_argv(int argc, char **argv);
+/* Number of user args (max(0, argc - 1)). */
+int32_t draconic_rt_host_process_user_argc(void);
+/* User arg at index i (0-based); NULL if out of range. */
+const char *draconic_rt_host_process_user_arg(int32_t i);
+
 #ifdef __cplusplus
 }
 #endif

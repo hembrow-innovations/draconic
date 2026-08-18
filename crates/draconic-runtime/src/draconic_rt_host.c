@@ -1,6 +1,6 @@
-/* Host I/O Runtime substrate (H00.02–H00.03).
-   Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary.
-   No real tcp/fs/process — later H rows open handles and map errno. */
+/* Host I/O Runtime substrate (H00.02–H00.03, H01.01 process argv).
+   Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
+   process user-args. Later H rows open handles and map errno. */
 
 #include "draconic_rt_host.h"
 
@@ -325,4 +325,37 @@ DraconicHostError draconic_rt_host_bytes_copy_out(
     }
     *out_n = n;
     return DRACONIC_HOST_OK;
+}
+
+/* --- Process argv (H01.01) --- */
+
+static int g_process_argc;
+static char **g_process_argv;
+
+void draconic_rt_host_process_set_argv(int argc, char **argv) {
+    if (argc < 0) {
+        argc = 0;
+    }
+    g_process_argc = argc;
+    g_process_argv = argv;
+}
+
+int32_t draconic_rt_host_process_user_argc(void) {
+    if (g_process_argc <= 1) {
+        return 0;
+    }
+    return (int32_t)(g_process_argc - 1);
+}
+
+const char *draconic_rt_host_process_user_arg(int32_t i) {
+    if (i < 0 || g_process_argc <= 1) {
+        return NULL;
+    }
+    if (i >= g_process_argc - 1) {
+        return NULL;
+    }
+    if (!g_process_argv) {
+        return NULL;
+    }
+    return g_process_argv[i + 1];
 }

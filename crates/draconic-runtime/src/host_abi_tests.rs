@@ -112,12 +112,69 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_handle_close",
         "draconic_rt_host_path_from_utf8",
         "draconic_rt_host_path_free",
+        "draconic_rt_host_process_set_argv",
+        "draconic_rt_host_process_user_argc",
+        "draconic_rt_host_process_user_arg",
     ] {
         assert!(
             out.contains(sym),
             "archive must contain host symbol {sym}\nnm out={out}"
         );
     }
+}
+
+#[test]
+fn host_process_argv_user_args() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_argv.c");
+    let bin = dir.join("rt_host_argv");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    draconic_rt_host_process_set_argv(argc, argv);
+    int n = draconic_rt_host_process_user_argc();
+    printf("%d\n", n);
+    for (int i = 0; i < n; i++) {
+        const char *a = draconic_rt_host_process_user_arg(i);
+        printf("%s\n", a ? a : "");
+    }
+    if (draconic_rt_host_process_user_arg(n) != NULL) return 2;
+    if (draconic_rt_host_process_user_arg(-1) != NULL) return 3;
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg(format!("-I{}", header_dir.display()))
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("clang link");
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin)
+        .args(["alpha", "beta"])
+        .output()
+        .expect("run");
+    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "2\nalpha\nbeta\n",
+        "stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
 }
 
 /// Clang link smoke: path boundary + handle close/is_valid (no real fs/tcp).

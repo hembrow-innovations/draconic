@@ -1,0 +1,3 @@
+// H01.01: processArgs() with no user args → empty array.
+let args = processArgs();
+let n = args.length;

@@ -54,6 +54,8 @@ pub struct TargetExpect {
     /// When set, compile/emit must fail and the diagnostic string must contain this code
     /// (e.g. `E0300`). Additive with `error_contains` (U09).
     pub error_code: Option<String>,
+    /// Program user args forwarded to the runner (H01.01 `processArgs`).
+    pub args: Vec<String>,
 }
 
 /// One conformance fixture loaded from disk.
@@ -236,12 +238,20 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             "js.stdout" => meta.expect_js.stdout = Some(unescape(value)),
             "js.error" => meta.expect_js.error_contains = Some(unescape(value)),
             "js.error_code" => meta.expect_js.error_code = Some(value.to_string()),
+            "js.args" => meta.expect_js.args = parse_args(value),
             "native.exit" => {
                 meta.expect_native.exit = parse_exit(value, lineno + 1)?;
             }
             "native.stdout" => meta.expect_native.stdout = Some(unescape(value)),
             "native.error" => meta.expect_native.error_contains = Some(unescape(value)),
             "native.error_code" => meta.expect_native.error_code = Some(value.to_string()),
+            "native.args" => meta.expect_native.args = parse_args(value),
+            // Shared args for both targets (H01.01).
+            "args" => {
+                let a = parse_args(value);
+                meta.expect_js.args = a.clone();
+                meta.expect_native.args = a;
+            }
             "native.check" => {
                 return Err(format!(
                     "meta line {}: native.check is not supported",
@@ -261,6 +271,15 @@ fn parse_exit(value: &str, line: usize) -> Result<i32, String> {
     value
         .parse()
         .map_err(|_| format!("meta line {line}: invalid exit code `{value}`"))
+}
+
+/// Whitespace-separated program args (`args: alpha beta`).
+fn parse_args(value: &str) -> Vec<String> {
+    value
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn unescape(s: &str) -> String {
@@ -409,6 +428,7 @@ fn run_js(fixture: &Fixture, mut coverage: Option<&mut CoverageReport>) -> Resul
     let output = Command::new("node")
         .arg("-e")
         .arg(&script)
+        .args(&expect.args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -460,6 +480,7 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
     build_native_binary(&ll, &out).map_err(|d| format!("build_native_binary: {d}"))?;
 
     let output = Command::new(&out)
+        .args(&expect.args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

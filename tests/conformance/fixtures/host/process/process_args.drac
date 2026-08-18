@@ -1,0 +1,5 @@
+// H01.01: processArgs() → user program args as string[] (native OS argv; js Node bridge).
+let args = processArgs();
+let n = args.length;
+let a0 = args[0];
+let a1 = args[1];

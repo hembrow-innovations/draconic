@@ -60,12 +60,20 @@ pub struct HostApiEntry {
 
 /// Built-in host API registry. Expand as H01+ rows land.
 ///
-/// `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
-const HOST_APIS: &[HostApiEntry] = &[HostApiEntry {
-    name: "tcpListen",
-    availability: HostAvailability::NATIVE_ONLY,
-    note: "H06 TCP listen",
-}];
+/// - `processArgs` (H01.01): both targets — user program args as string[].
+/// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
+const HOST_APIS: &[HostApiEntry] = &[
+    HostApiEntry {
+        name: "processArgs",
+        availability: HostAvailability::BOTH,
+        note: "H01.01 process args",
+    },
+    HostApiEntry {
+        name: "tcpListen",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06 TCP listen",
+    },
+];
 
 /// All known host API entries.
 pub fn host_apis() -> &'static [HostApiEntry] {
@@ -124,6 +132,23 @@ mod tests {
     use super::*;
     use crate::{bind, check_for_target};
     use draconic_parser::parse;
+
+    #[test]
+    fn registry_lists_process_args_both() {
+        let entry = lookup("processArgs").expect("processArgs registered");
+        assert_eq!(entry.name, "processArgs");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("processArgs"));
+        assert!(is_available("processArgs", CompileTarget::Js));
+        assert!(is_available("processArgs", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("processArgs", CompileTarget::Js, Span::dummy()).is_none()
+        );
+        assert!(
+            unsupported_diagnostic("processArgs", CompileTarget::Native, Span::dummy()).is_none()
+        );
+    }
 
     #[test]
     fn registry_lists_tcp_listen_native_only() {

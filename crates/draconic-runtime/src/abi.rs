@@ -667,6 +667,23 @@ pub const HOST_BYTES_COPY_OUT: AbiFn = AbiFn {
     params: "ptr, ptr, i64, ptr",
 };
 
+/* H01.01: process user args (OS argv without argv[0]). */
+pub const HOST_PROCESS_SET_ARGV: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_set_argv",
+    ret: "void",
+    params: "i32, ptr",
+};
+pub const HOST_PROCESS_USER_ARGC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_user_argc",
+    ret: "i32",
+    params: "",
+};
+pub const HOST_PROCESS_USER_ARG: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_user_arg",
+    ret: "ptr",
+    params: "i32",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -677,8 +694,11 @@ pub const HOST_BYTES_ALLOC_SYMBOL: &str = HOST_BYTES_ALLOC.symbol;
 pub const HOST_BYTES_STORAGE_FREE_SYMBOL: &str = HOST_BYTES_STORAGE_FREE.symbol;
 pub const HOST_BYTES_COPY_IN_SYMBOL: &str = HOST_BYTES_COPY_IN.symbol;
 pub const HOST_BYTES_COPY_OUT_SYMBOL: &str = HOST_BYTES_COPY_OUT.symbol;
+pub const HOST_PROCESS_SET_ARGV_SYMBOL: &str = HOST_PROCESS_SET_ARGV.symbol;
+pub const HOST_PROCESS_USER_ARGC_SYMBOL: &str = HOST_PROCESS_USER_ARGC.symbol;
+pub const HOST_PROCESS_USER_ARG_SYMBOL: &str = HOST_PROCESS_USER_ARG.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes boundary).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01.01 process).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -690,6 +710,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_BYTES_STORAGE_FREE_SYMBOL,
     HOST_BYTES_COPY_IN_SYMBOL,
     HOST_BYTES_COPY_OUT_SYMBOL,
+    HOST_PROCESS_SET_ARGV_SYMBOL,
+    HOST_PROCESS_USER_ARGC_SYMBOL,
+    HOST_PROCESS_USER_ARG_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -704,7 +727,29 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_BYTES_STORAGE_FREE,
     HOST_BYTES_COPY_IN,
     HOST_BYTES_COPY_OUT,
+    HOST_PROCESS_SET_ARGV,
+    HOST_PROCESS_USER_ARGC,
+    HOST_PROCESS_USER_ARG,
 ];
+
+/// JS polyfill for `processArgs()` (H01.01): user program args as string[].
+///
+/// Node bridge: `process.argv` without the executable; if `argv[1]` looks like a
+/// script path (`.js`/`.mjs`/`.cjs`/`.drac`), skip it too (file run). Eval-style
+/// (`node -e`) has no script slot — user args start at index 1.
+pub fn process_args_js_polyfill() -> &'static str {
+    r#"function processArgs() {
+  var a = (typeof process !== "undefined" && process && process.argv) ? process.argv : [];
+  if (!a || a.length <= 1) return [];
+  var first = a[1];
+  if (typeof first === "string" && /\.(m?js|cjs|drac)$/i.test(first)) {
+    return a.slice(2).map(String);
+  }
+  return a.slice(1).map(String);
+}
+if (typeof globalThis !== "undefined") globalThis.processArgs = processArgs;
+"#
+}
 
 #[cfg(test)]
 mod tests {
