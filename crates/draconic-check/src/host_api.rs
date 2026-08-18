@@ -77,7 +77,7 @@ pub struct HostApiEntry {
 /// - `openFile` / `fileRead` / `fileWrite` / `fileSeek` / `closeFile` (H04.06): native-only open handles.
 /// - `nowMs` (H05.01): both — wall clock ms since Unix epoch (`Date.now` equivalent).
 /// - `monotonicMs` (H05.02): both — monotonic clock ms for durations (not wall epoch).
-/// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
+/// - `tcpListen` / `tcpLocalPort` / `closeTcp` (H06.01): native-only TCP listen + port query + close.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -307,7 +307,17 @@ const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "tcpListen",
         availability: HostAvailability::NATIVE_ONLY,
-        note: "H06 TCP listen",
+        note: "H06.01 TCP listen",
+    },
+    HostApiEntry {
+        name: "tcpLocalPort",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.01 TCP local port",
+    },
+    HostApiEntry {
+        name: "closeTcp",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H06.01 close TCP listen handle",
     },
 ];
 
@@ -654,14 +664,15 @@ mod tests {
 
     #[test]
     fn registry_lists_tcp_listen_native_only() {
-        let entry = lookup("tcpListen").expect("tcpListen registered");
-        assert_eq!(entry.name, "tcpListen");
-        assert!(!entry.availability.js);
-        assert!(entry.availability.native);
-        assert!(is_host_api("tcpListen"));
+        for name in ["tcpListen", "tcpLocalPort", "closeTcp"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(!entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_host_api(name), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(!is_available(name, CompileTarget::Js), "{name}");
+        }
         assert!(!is_host_api("notAHostApi"));
-        assert!(is_available("tcpListen", CompileTarget::Native));
-        assert!(!is_available("tcpListen", CompileTarget::Js));
     }
 
     #[test]

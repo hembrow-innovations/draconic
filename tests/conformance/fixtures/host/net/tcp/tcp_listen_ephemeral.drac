@@ -1,0 +1,7 @@
+// H06.01: tcpListen(0) → ephemeral port; tcpLocalPort; closeTcp.
+let s = tcpListen(0);
+let p = tcpLocalPort(s);
+let t = typeof p;
+let ok_port = p > 0;
+let ok_hi = p < 65536;
+closeTcp(s);

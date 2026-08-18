@@ -1,6 +1,6 @@
-/* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout).
-   Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process user-args + env + exit + pid/ppid, stdout write. Later H rows. */
+/* Host I/O Runtime substrate (H00.02–H00.03, H01 process, H02.01 stdout,
+   H04 fs, H06.01 TCP listen). Error codes, opaque handles, UTF-8 path encoding,
+   I/O bytes boundary, process, stdio, path, fs, TCP listen. Later H rows. */
 
 #include "draconic_rt_host.h"
 
@@ -21,10 +21,14 @@
 #include <windows.h>
 /* getenv / _putenv_s; _getpid; _mkdir / _rmdir / _unlink; _open/_read/_write/_lseeki64/_close */
 #else
+#include <arpa/inet.h>
 #include <dirent.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
-/* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink; open/read/write/lseek/close */
+/* setenv / unsetenv; getpid / getppid; mkdir / rmdir / unlink; open/read/write/lseek/close;
+   socket/bind/listen/getsockname */
 #endif
 
 /* --- Handle table (slots filled by open/listen/etc.) --- */
@@ -32,6 +36,7 @@
 #define DRACONIC_HOST_HANDLE_SLOTS 256
 #define DRACONIC_HOST_HANDLE_KIND_NONE 0
 #define DRACONIC_HOST_HANDLE_KIND_FILE 1
+#define DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN 2
 
 /* Live flags + kind + OS fd for 1-based handle ids. */
 static uint8_t g_host_handle_live[DRACONIC_HOST_HANDLE_SLOTS];
@@ -81,7 +86,8 @@ DraconicHostError draconic_rt_host_handle_close(DraconicHostHandle h) {
         return DRACONIC_HOST_E_BADF;
     }
     i = (size_t)h - 1;
-    if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE) {
+    if (g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_FILE
+        || g_host_handle_kind[i] == DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN) {
         int fd = g_host_handle_fd[i];
         if (fd >= 0) {
 #if defined(_WIN32)
@@ -1818,4 +1824,137 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
         *out_pos = pos;
     }
     return DRACONIC_HOST_OK;
+}
+
+/* --- TCP listen (H06.01) ------------------------------------------------- */
+
+#if !defined(_WIN32)
+static DraconicHostError host_tcp_errno_map(void) {
+    if (errno == EADDRINUSE || errno == EADDRNOTAVAIL) {
+        return DRACONIC_HOST_E_ADDR;
+    }
+    if (errno == EACCES
+#if defined(EPERM)
+        || errno == EPERM
+#endif
+    ) {
+        return DRACONIC_HOST_E_PERM;
+    }
+    if (errno == ENOMEM
+#if defined(ENOBUFS)
+        || errno == ENOBUFS
+#endif
+    ) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        return DRACONIC_HOST_E_AGAIN;
+    }
+    if (errno == EINVAL) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    return DRACONIC_HOST_E_IO;
+}
+
+static int host_handle_tcp_listen_fd(DraconicHostHandle h) {
+    if (!draconic_rt_host_handle_is_valid(h)) {
+        return -1;
+    }
+    if (g_host_handle_kind[(size_t)h - 1] != DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN) {
+        return -1;
+    }
+    return g_host_handle_fd[(size_t)h - 1];
+}
+#endif
+
+DraconicHostError draconic_rt_host_tcp_listen(
+    int32_t port,
+    int32_t backlog,
+    DraconicHostHandle *out_h) {
+#if defined(_WIN32)
+    (void)port;
+    (void)backlog;
+    (void)out_h;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd = -1;
+    int yes = 1;
+    struct sockaddr_in addr;
+    DraconicHostError err;
+
+    if (!out_h) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_h = DRACONIC_HOST_HANDLE_INVALID;
+    if (port < 0 || port > 65535) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (backlog <= 0) {
+        backlog = 128;
+    }
+
+    fd = (int)socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return host_tcp_errno_map();
+    }
+
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {
+        err = host_tcp_errno_map();
+        (void)close(fd);
+        return err;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        err = host_tcp_errno_map();
+        (void)close(fd);
+        return err;
+    }
+
+    if (listen(fd, backlog) < 0) {
+        err = host_tcp_errno_map();
+        (void)close(fd);
+        return err;
+    }
+
+    err = host_handle_alloc(DRACONIC_HOST_HANDLE_KIND_TCP_LISTEN, fd, out_h);
+    if (err != DRACONIC_HOST_OK) {
+        (void)close(fd);
+        return err;
+    }
+    return DRACONIC_HOST_OK;
+#endif
+}
+
+DraconicHostError draconic_rt_host_tcp_local_port(
+    DraconicHostHandle h,
+    int32_t *out_port) {
+#if defined(_WIN32)
+    (void)h;
+    (void)out_port;
+    return DRACONIC_HOST_E_NOSYS;
+#else
+    int fd;
+    struct sockaddr_in addr;
+    socklen_t len = (socklen_t)sizeof(addr);
+
+    if (!out_port) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_port = 0;
+    fd = host_handle_tcp_listen_fd(h);
+    if (fd < 0) {
+        return DRACONIC_HOST_E_BADF;
+    }
+    memset(&addr, 0, sizeof(addr));
+    if (getsockname(fd, (struct sockaddr *)&addr, &len) < 0) {
+        return host_tcp_errno_map();
+    }
+    *out_port = (int32_t)ntohs(addr.sin_port);
+    return DRACONIC_HOST_OK;
+#endif
 }

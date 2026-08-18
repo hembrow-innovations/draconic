@@ -945,6 +945,17 @@ pub const HOST_FS_HANDLE_SEEK: AbiFn = AbiFn {
     ret: "i32",
     params: "i64, i64, i32, ptr",
 };
+/* H06.01: TCP listen + local port (close via HOST_HANDLE_CLOSE). */
+pub const HOST_TCP_LISTEN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_listen",
+    ret: "i32",
+    params: "i32, i32, ptr",
+};
+pub const HOST_TCP_LOCAL_PORT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_tcp_local_port",
+    ret: "i32",
+    params: "i64, ptr",
+};
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -998,8 +1009,10 @@ pub const HOST_FS_OPEN_SYMBOL: &str = HOST_FS_OPEN.symbol;
 pub const HOST_FS_HANDLE_READ_SYMBOL: &str = HOST_FS_HANDLE_READ.symbol;
 pub const HOST_FS_HANDLE_WRITE_SYMBOL: &str = HOST_FS_HANDLE_WRITE.symbol;
 pub const HOST_FS_HANDLE_SEEK_SYMBOL: &str = HOST_FS_HANDLE_SEEK.symbol;
+pub const HOST_TCP_LISTEN_SYMBOL: &str = HOST_TCP_LISTEN.symbol;
+pub const HOST_TCP_LOCAL_PORT_SYMBOL: &str = HOST_TCP_LOCAL_PORT.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H05.02).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H06.01).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -1053,6 +1066,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_FS_HANDLE_READ_SYMBOL,
     HOST_FS_HANDLE_WRITE_SYMBOL,
     HOST_FS_HANDLE_SEEK_SYMBOL,
+    HOST_TCP_LISTEN_SYMBOL,
+    HOST_TCP_LOCAL_PORT_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1109,6 +1124,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_FS_HANDLE_READ,
     HOST_FS_HANDLE_WRITE,
     HOST_FS_HANDLE_SEEK,
+    HOST_TCP_LISTEN,
+    HOST_TCP_LOCAL_PORT,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

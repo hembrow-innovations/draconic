@@ -89,6 +89,14 @@ fn host_abi_fn_shapes() {
         HOST_PATH_FREE.declare(),
         "declare void @draconic_rt_host_path_free(ptr)"
     );
+    assert_eq!(
+        HOST_TCP_LISTEN.declare(),
+        "declare i32 @draconic_rt_host_tcp_listen(i32, i32, ptr)"
+    );
+    assert_eq!(
+        HOST_TCP_LOCAL_PORT.declare(),
+        "declare i32 @draconic_rt_host_tcp_local_port(i64, ptr)"
+    );
 }
 
 #[test]
@@ -1457,4 +1465,77 @@ fn host_fs_open_handle_rw_seek_close() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "fs-h0406-ok\n");
+}
+
+#[test]
+fn host_tcp_listen_ephemeral_local_port_close() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_tcp_h0601.c");
+    let bin = dir.join("rt_host_tcp_h0601");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+
+        int main(void) {
+            DraconicHostError err;
+            DraconicHostHandle h = DRACONIC_HOST_HANDLE_INVALID;
+            int32_t port = 0;
+
+            err = draconic_rt_host_tcp_listen(0, 0, &h);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (!draconic_rt_host_handle_is_valid(h)) return 2;
+
+            err = draconic_rt_host_tcp_local_port(h, &port);
+            if (err != DRACONIC_HOST_OK) return 3;
+            if (port <= 0 || port > 65535) return 4;
+
+            err = draconic_rt_host_handle_close(h);
+            if (err != DRACONIC_HOST_OK) return 5;
+            if (draconic_rt_host_handle_is_valid(h)) return 6;
+            err = draconic_rt_host_handle_close(h);
+            if (err != DRACONIC_HOST_E_BADF) return 7;
+
+            err = draconic_rt_host_tcp_listen(-1, 8, &h);
+            if (err != DRACONIC_HOST_E_INVAL) return 8;
+            err = draconic_rt_host_tcp_listen(70000, 8, &h);
+            if (err != DRACONIC_HOST_E_INVAL) return 9;
+            err = draconic_rt_host_tcp_local_port(DRACONIC_HOST_HANDLE_INVALID, &port);
+            if (err != DRACONIC_HOST_E_BADF) return 10;
+
+            puts("tcp-h0601-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for tcp H06.01 smoke");
+
+    let output = Command::new(&bin).output().expect("run tcp h0601");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "tcp H06.01 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "tcp-h0601-ok\n");
 }

@@ -1,0 +1,5 @@
+// H06.01: tcpListen(port, backlog) + close.
+let s = tcpListen(0, 16);
+let p = tcpLocalPort(s);
+let ok = p > 0;
+closeTcp(s);

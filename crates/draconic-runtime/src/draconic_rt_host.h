@@ -304,6 +304,19 @@ DraconicHostError draconic_rt_host_fs_handle_seek(
     int32_t whence,
     int64_t *out_pos);
 
+/* --- TCP listen (H06.01) ---------------------------------------------------
+   Bind IPv4 TCP listener. port 0 → OS ephemeral; backlog <= 0 → 128.
+   On OK: *out_h is a live listen handle (close with handle_close).
+   tcp_local_port: getsockname bound port (1..65535). */
+
+DraconicHostError draconic_rt_host_tcp_listen(
+    int32_t port,
+    int32_t backlog,
+    DraconicHostHandle *out_h);
+DraconicHostError draconic_rt_host_tcp_local_port(
+    DraconicHostHandle h,
+    int32_t *out_port);
+
 #ifdef __cplusplus
 }
 #endif

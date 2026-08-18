@@ -1,0 +1,4 @@
+id: host/net/tcp/tcp_listen_ephemeral
+targets: native
+native.exit: 0
+native.stdout: number\ntrue\ntrue\n
