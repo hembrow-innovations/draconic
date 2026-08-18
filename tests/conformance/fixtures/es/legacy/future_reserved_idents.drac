@@ -1,0 +1,117 @@
+// E17.02.08: Strict FutureReservedWord as identifiers in non-strict code.
+// BindingIdentifier + IdentifierReference for implements/interface/package/
+// private/protected/public (Ident tokens) and static/let/yield (keyword tokens).
+// "use strict" binding of those names → SyntaxError.
+
+var implements = 1;
+var interface = 2;
+var package = 3;
+var private = 4;
+var protected = 5;
+var public = 6;
+var static = 7;
+var let = 8;
+var yield = 9;
+
+let a = implements;
+let b = interface;
+let c = package;
+let d = private;
+let e = protected;
+let f = public;
+let g = static;
+let h = let;
+let i = yield;
+
+function takeStatic(static) {
+  return static;
+}
+function takeLet(let) {
+  return let;
+}
+function takeYield(yield) {
+  return yield;
+}
+function takeImplements(implements) {
+  return implements;
+}
+
+let j = takeStatic(10);
+let k = takeLet(11);
+let l = takeYield(12);
+let m = takeImplements(13);
+
+function namedStatic() {
+  function static() {
+    return 14;
+  }
+  return static();
+}
+function namedLet() {
+  function let() {
+    return 15;
+  }
+  return let();
+}
+let n = namedStatic();
+let o = namedLet();
+
+// Lexical bindings of FutureReservedWord names in a fresh scope (not `let` itself).
+function lexicalFrw() {
+  let static = 16;
+  const public = 17;
+  return static + public;
+}
+let p = lexicalFrw();
+
+// Strict-mode binding of FutureReservedWord → SyntaxError via direct eval.
+function strictImplements() {
+  "use strict";
+  try {
+    eval("var implements = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictStatic() {
+  "use strict";
+  try {
+    eval("var static = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictLet() {
+  "use strict";
+  try {
+    eval("var let = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictYield() {
+  "use strict";
+  try {
+    eval("var yield = 1");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+function strictPublic() {
+  "use strict";
+  try {
+    eval("function public() { return 1; }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let r = strictImplements();
+let s = strictStatic();
+let t = strictLet();
+let u = strictYield();
+let v = strictPublic();

@@ -298,8 +298,9 @@ impl Parser {
             // Not `[`/`{`: `using[x] = …` is element access, not a declaration.
             // Invalid `using x = a, [] = b` is rejected after the comma in parse_using_decls.
             TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
-            // BindingIdentifier may be yield/await/let/const tokens in some contexts.
-            TokenKind::Yield | TokenKind::Await | TokenKind::Let | TokenKind::Const => true,
+            // BindingIdentifier may be yield/await/let/static/const tokens in some contexts.
+            TokenKind::Yield | TokenKind::Await | TokenKind::Let | TokenKind::Static
+            | TokenKind::Const => true,
             _ => false,
         }
     }
@@ -307,8 +308,8 @@ impl Parser {
     /// `let` starts LexicalDeclaration when followed by BindingPattern / BindingIdentifier.
     /// Otherwise (e.g. `let;`, `let = 1`, `let.x`) it is IdentifierReference.
     ///
-    /// `yield` / `await` are BindingIdentifier in the grammar even when static semantics
-    /// later reject them (e.g. `let\\nyield 0` in a generator — no ASI).
+    /// `yield` / `await` / `static` / `let` are BindingIdentifier in the grammar even when
+    /// static semantics later reject them (e.g. `let\\nyield 0` in a generator — no ASI).
     fn let_starts_lexical_declaration(&self) -> bool {
         if !self.check(&TokenKind::Let) {
             return false;
@@ -320,6 +321,7 @@ impl Parser {
                 TokenKind::Yield
                 | TokenKind::Await
                 | TokenKind::Let
+                | TokenKind::Static
                 | TokenKind::Const,
             ) => true,
             _ => false,
@@ -855,6 +857,12 @@ impl Parser {
             };
             let let_start = self.bump().span.start.0;
             let binding = self.parse_binding_pattern()?;
+            if kind != BindingKind::Var && binding_pattern_bound_names_contain_let(&binding) {
+                return Err(Diagnostic::new(
+                    "'let' is not allowed as a lexical binding name".to_string(),
+                    binding.span(),
+                ));
+            }
             let binding_end = binding.span().end.0;
             if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
                 let is_in = self.check(&TokenKind::In);
@@ -3028,6 +3036,13 @@ impl Parser {
             } else {
                 self.parse_binding_pattern()?
             };
+            // LexicalBinding BoundNames must not include "let" (always; not only strict).
+            if kind != BindingKind::Var && binding_pattern_bound_names_contain_let(&binding) {
+                return Err(Diagnostic::new(
+                    "'let' is not allowed as a lexical binding name".to_string(),
+                    binding.span(),
+                ));
+            }
             let type_ann = if matches!(binding, BindingPattern::Ident(_)) {
                 self.parse_optional_type_ann()?
             } else {
@@ -4973,6 +4988,18 @@ impl Parser {
                 "'let' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
+            // E17.02.08: non-strict IdentifierReference `static` (strict FutureReservedWord).
+            TokenKind::Static if !self.in_strict => {
+                self.bump();
+                Ok(Expr::Ident(Ident {
+                    name: "static".into(),
+                    span: tok.span,
+                }))
+            }
+            TokenKind::Static => Err(Diagnostic::new(
+                "'static' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
             TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
                 format!("'{name}' is a reserved word and cannot be used as an identifier"),
                 tok.span,
@@ -5177,6 +5204,8 @@ impl Parser {
             TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
             TokenKind::Yield if self.yield_is_ident() => true,
             TokenKind::Await if self.await_is_ident() => true,
+            // E17.02.08: strict FutureReservedWord tokens as BindingIdentifier in non-strict.
+            TokenKind::Let | TokenKind::Static if !self.in_strict => true,
             _ => false,
         }
     }
@@ -5198,6 +5227,23 @@ impl Parser {
             }
             TokenKind::Await => Err(Diagnostic::new(
                 "'await' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
+            // E17.02.08: `let` / `static` BindingIdentifier in non-strict only.
+            TokenKind::Let if !self.in_strict => {
+                self.bump();
+                Ok(tok)
+            }
+            TokenKind::Let => Err(Diagnostic::new(
+                "'let' is a reserved word and cannot be used as an identifier".to_string(),
+                tok.span,
+            )),
+            TokenKind::Static if !self.in_strict => {
+                self.bump();
+                Ok(tok)
+            }
+            TokenKind::Static => Err(Diagnostic::new(
+                "'static' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
             TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
@@ -5405,6 +5451,17 @@ fn is_strict_future_reserved_word(name: &str) -> bool {
             | "static"
             | "yield"
     )
+}
+
+/// True if BoundNames of a BindingPattern includes `let` (LexicalBinding early error).
+fn binding_pattern_bound_names_contain_let(binding: &BindingPattern) -> bool {
+    let mut has_let = false;
+    binding.for_each_ident(&mut |id| {
+        if id.name == "let" {
+            has_let = true;
+        }
+    });
+    has_let
 }
 
 /// ExpressionStatement whose expression is a string literal (Directive Prologue candidate).
@@ -9282,6 +9339,56 @@ Program
         assert!(
             gen.contains("Unary yield"),
             "generator yield expr, got:\n{gen}"
+        );
+    }
+
+    #[test]
+    fn parse_future_reserved_as_identifier_non_strict() {
+        // E17.02.08: strict FutureReservedWord tokens as BindingIdentifier / IdentifierReference.
+        let dump = parse_and_dump(
+            "var static = 1; var let = 2; let implements = 3; function public() { return static + let; }",
+        )
+        .unwrap();
+        assert!(
+            dump.contains("name: static")
+                && dump.contains("name: let")
+                && dump.contains("name: implements")
+                && dump.contains("name: public"),
+            "future reserved as bindings, got:\n{dump}"
+        );
+        assert!(
+            parse_and_dump("function f(static, let) { return static + let; }").is_ok(),
+            "params static/let non-strict"
+        );
+        assert!(
+            parse_and_dump("let static = 1; const public = 2;").is_ok(),
+            "lexical static/public non-strict"
+        );
+        // LexicalBinding BoundNames must not include "let".
+        assert!(
+            parse_and_dump("let let = 1;").is_err(),
+            "let let must fail"
+        );
+        assert!(
+            parse_and_dump("const let = 1;").is_err(),
+            "const let must fail"
+        );
+        assert!(
+            parse_and_dump("for (let let of []) {}").is_err(),
+            "for-of let let must fail"
+        );
+        // Strict: FutureReservedWord reserved.
+        assert!(
+            parse_and_dump("\"use strict\"; var static = 1;").is_err(),
+            "strict BindingIdentifier static must fail"
+        );
+        assert!(
+            parse_and_dump("\"use strict\"; var let = 1;").is_err(),
+            "strict BindingIdentifier let must fail"
+        );
+        assert!(
+            parse_and_dump("\"use strict\"; var implements = 1;").is_err(),
+            "strict BindingIdentifier implements must fail"
         );
     }
 
