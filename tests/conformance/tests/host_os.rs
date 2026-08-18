@@ -1,5 +1,6 @@
 //! ROADMAP H16.01: cwd get + chdir.
 //! ROADMAP H16.02: hostname / OS type / arch strings.
+//! ROADMAP H16.03: temp dir + home dir paths.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -48,4 +49,14 @@ fn hostname_os_fixture_present() {
 #[test]
 fn hostname_os_runs_js_and_native() {
     assert_fixture_runs_js_and_native("host/os/hostname_os");
+}
+
+#[test]
+fn temp_home_fixture_present() {
+    assert_fixture_present("host/os/temp_home");
+}
+
+#[test]
+fn temp_home_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("host/os/temp_home");
 }

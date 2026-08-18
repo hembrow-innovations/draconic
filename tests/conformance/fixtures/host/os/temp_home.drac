@@ -1,0 +1,7 @@
+// H16.03: tempDir() / homeDir() — non-empty absolute-ish directory paths.
+let t_t = typeof tempDir();
+let t_h = typeof homeDir();
+let td = tempDir();
+let hd = homeDir();
+let t_ok = td !== "";
+let h_ok = hd !== "";

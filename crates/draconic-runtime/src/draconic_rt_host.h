@@ -148,6 +148,14 @@ char *draconic_rt_host_hostname(void);
 char *draconic_rt_host_os_type(void);
 char *draconic_rt_host_os_arch(void);
 
+/* --- OS temp / home dirs (H16.03) ------------------------------------------
+   Both return malloc'd UTF-8 paths (caller free()); NULL on failure.
+   temp_dir: OS temp directory (trailing separator may be present on Windows).
+   home_dir: user home directory (HOME / USERPROFILE). */
+
+char *draconic_rt_host_temp_dir(void);
+char *draconic_rt_host_home_dir(void);
+
 /* --- Process run / spawn+wait (H15.01) ------------------------------------
    Spawn argv[0] with argv[0..argc), wait for exit, return status.
    cwd NULL → inherit; else chdir in child before exec.

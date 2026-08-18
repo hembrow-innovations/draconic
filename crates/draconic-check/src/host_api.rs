@@ -66,6 +66,7 @@ pub struct HostApiEntry {
 /// - `pid` / `ppid` (H01.04): both — read-only OS process / parent process id (number).
 /// - `cwd` / `chdir` (H16.01): both — get/set process working directory.
 /// - `hostname` / `osType` / `osArch` (H16.02): both — host name, platform, arch strings.
+/// - `tempDir` / `homeDir` (H16.03): both — OS temp directory and home directory paths.
 /// - `processRun` (H15.01): both — spawn argv, optional cwd + env subset, wait exit code.
 /// - `processSpawn` / `processStdinWrite` / `processWait` / `processStdout` /
 ///   `processStderr` / `processKill` / `processClose` (H15.02): both — pipes + kill.
@@ -176,6 +177,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "osArch",
         availability: HostAvailability::BOTH,
         note: "H16.02 OS arch",
+    },
+    HostApiEntry {
+        name: "tempDir",
+        availability: HostAvailability::BOTH,
+        note: "H16.03 temp directory path",
+    },
+    HostApiEntry {
+        name: "homeDir",
+        availability: HostAvailability::BOTH,
+        note: "H16.03 home directory path",
     },
     HostApiEntry {
         name: "processRun",
@@ -772,6 +783,21 @@ mod tests {
     #[test]
     fn registry_lists_hostname_os_type_arch_both() {
         for name in ["hostname", "osType", "osArch"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_temp_home_dir_both() {
+        for name in ["tempDir", "homeDir"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

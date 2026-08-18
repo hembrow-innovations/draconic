@@ -665,7 +665,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H16 | todo | both | OS misc | `tests/conformance/host/os` |
 | H16.01 | done | both | cwd get + chdir | `tests/conformance` fixtures `host/os` |
 | H16.02 | done | both | Hostname / OS type / arch strings — `hostname()` / `osType()` / `osArch()`; Node-like platform/arch; both targets | `tests/conformance` fixtures `host/os`, `crates/draconic-runtime` |
-| H16.03 | todo | both | Temp dir + home dir paths | `tests/conformance` fixtures `host/os` |
+| H16.03 | done | both | Temp dir + home dir paths — `tempDir()` / `homeDir()`; native Runtime ABI + Node `os.tmpdir`/`homedir` bridge; both targets | `tests/conformance` fixtures `host/os`, `crates/draconic-runtime` |
 | H16.04 | todo | native | OS sleep / yield for timer tests | `crates/draconic-runtime` |
 | H17 | todo | native | Success Programs & host cutover | `examples/http-echo`, `examples/todo` |
 | H17.01 | done | native | `examples/http-echo`: pure Draconic native HTTP/1.1 (no C host) | `examples/http-echo` |

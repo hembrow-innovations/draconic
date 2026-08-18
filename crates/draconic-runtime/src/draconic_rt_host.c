@@ -707,6 +707,78 @@ char *draconic_rt_host_os_arch(void) {
 #endif
 }
 
+/* --- OS temp / home dirs (H16.03) --- */
+
+char *draconic_rt_host_temp_dir(void) {
+#if defined(_WIN32)
+    {
+        char buf[MAX_PATH + 1];
+        DWORD n = GetTempPathA((DWORD)sizeof(buf), buf);
+        if (n == 0 || n >= sizeof(buf)) {
+            return NULL;
+        }
+        /* Strip trailing backslash when not a root (e.g. C:\). */
+        if (n > 1 && (buf[n - 1] == '\\' || buf[n - 1] == '/')) {
+            if (!(n == 3 && buf[1] == ':')) {
+                buf[n - 1] = '\0';
+            }
+        }
+        return host_dup_cstr(buf);
+    }
+#else
+    {
+        const char *env = getenv("TMPDIR");
+        if (env && env[0]) {
+            return host_dup_cstr(env);
+        }
+        env = getenv("TMP");
+        if (env && env[0]) {
+            return host_dup_cstr(env);
+        }
+        env = getenv("TEMP");
+        if (env && env[0]) {
+            return host_dup_cstr(env);
+        }
+        return host_dup_cstr("/tmp");
+    }
+#endif
+}
+
+char *draconic_rt_host_home_dir(void) {
+#if defined(_WIN32)
+    {
+        const char *home = getenv("USERPROFILE");
+        if (home && home[0]) {
+            return host_dup_cstr(home);
+        }
+        {
+            const char *drive = getenv("HOMEDRIVE");
+            const char *path = getenv("HOMEPATH");
+            if (drive && drive[0] && path && path[0]) {
+                size_t nd = strlen(drive);
+                size_t np = strlen(path);
+                char *out = (char *)malloc(nd + np + 1);
+                if (!out) {
+                    return NULL;
+                }
+                memcpy(out, drive, nd);
+                memcpy(out + nd, path, np + 1);
+                return out;
+            }
+        }
+        return NULL;
+    }
+#else
+    {
+        const char *home = getenv("HOME");
+        if (home && home[0]) {
+            return host_dup_cstr(home);
+        }
+        return NULL;
+    }
+#endif
+}
+
 int32_t draconic_rt_host_process_ppid(void) {
 #if defined(_WIN32)
     {

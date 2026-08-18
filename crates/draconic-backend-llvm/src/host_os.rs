@@ -1,8 +1,9 @@
-//! H16.01 / H16.02: native observations for OS host APIs.
+//! H16.01 / H16.02 / H16.03: native observations for OS host APIs.
 //!
 //! - `cwd()` → absolute path string (not auto-printed; use in `===` / `typeof`)
 //! - `chdir(path)` → side-effect; missing path → HostError (ENOENT) on full path later
 //! - `hostname()` / `osType()` / `osArch()` → non-empty strings (H16.02)
+//! - `tempDir()` / `homeDir()` → non-empty path strings (H16.03)
 //!
 //! Auto-prints string locals from `typeof` and bool locals from comparisons.
 
@@ -13,8 +14,8 @@ use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_CHDIR, HOST_CWD, HOST_HOSTNAME, HOST_OS_ARCH, HOST_OS_TYPE,
-    PRINT_BOOL, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_CHDIR, HOST_CWD, HOST_HOME_DIR, HOST_HOSTNAME, HOST_OS_ARCH,
+    HOST_OS_TYPE, HOST_TEMP_DIR, PRINT_BOOL, PRINT_STR,
 };
 
 pub(crate) fn is_host_os_module(module: &Module) -> bool {
@@ -106,7 +107,9 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                 && (is_named_callee(callee, "cwd")
                     || is_named_callee(callee, "hostname")
                     || is_named_callee(callee, "osType")
-                    || is_named_callee(callee, "osArch")) =>
+                    || is_named_callee(callee, "osArch")
+                    || is_named_callee(callee, "tempDir")
+                    || is_named_callee(callee, "homeDir")) =>
         {
             ctx.has_os = true;
             Some(SlotTy::Path)
@@ -242,7 +245,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_os (H16.01/H16.02)").ok();
+        writeln!(self.out, "; Draconic LLVM host_os (H16.01/H16.02/H16.03)").ok();
         let decls = vec![
             GC_INIT,
             PRINT_STR,
@@ -252,6 +255,8 @@ impl<'a> Emitter<'a> {
             HOST_HOSTNAME,
             HOST_OS_TYPE,
             HOST_OS_ARCH,
+            HOST_TEMP_DIR,
+            HOST_HOME_DIR,
         ];
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out, "declare i32 @strcmp(ptr, ptr)").ok();
@@ -385,6 +390,20 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {}", HOST_OS_ARCH.call_to(&r, "")).ok();
                 Ok(r)
             }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "tempDir") =>
+            {
+                let r = self.fresh();
+                writeln!(self.body, "  {}", HOST_TEMP_DIR.call_to(&r, "")).ok();
+                Ok(r)
+            }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "homeDir") =>
+            {
+                let r = self.fresh();
+                writeln!(self.body, "  {}", HOST_HOME_DIR.call_to(&r, "")).ok();
+                Ok(r)
+            }
             Expr::Unary {
                 op: UnaryOp::TypeOf,
                 arg,
@@ -488,5 +507,23 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_hostname"), "{ir}");
         assert!(ir.contains("draconic_rt_host_os_type"), "{ir}");
         assert!(ir.contains("draconic_rt_host_os_arch"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_temp_home_dir() {
+        let m = lower_src(
+            r#"
+            let t_t = typeof tempDir();
+            let t_h = typeof homeDir();
+            let td = tempDir();
+            let hd = homeDir();
+            let t_ok = td !== "";
+            let h_ok = hd !== "";
+            "#,
+        );
+        assert!(is_host_os_module(&m));
+        let ir = emit_host_os(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_temp_dir"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_home_dir"), "{ir}");
     }
 }

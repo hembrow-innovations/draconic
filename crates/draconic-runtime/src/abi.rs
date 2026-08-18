@@ -799,6 +799,18 @@ pub const HOST_OS_ARCH: AbiFn = AbiFn {
     params: "",
 };
 
+/* H16.03: temp / home directory paths. */
+pub const HOST_TEMP_DIR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_temp_dir",
+    ret: "ptr",
+    params: "",
+};
+pub const HOST_HOME_DIR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_home_dir",
+    ret: "ptr",
+    params: "",
+};
+
 /* H15.01: processRun — spawn argv, optional cwd/env subset, wait exit code. */
 pub const HOST_PROCESS_RUN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_process_run",
@@ -1806,6 +1818,31 @@ if (typeof globalThis !== "undefined") {
   globalThis.hostname = hostname;
   globalThis.osType = osType;
   globalThis.osArch = osArch;
+}
+"#
+}
+
+/// JS polyfill for `tempDir` / `homeDir` (H16.03).
+///
+/// Node bridge via `os.tmpdir` / `os.homedir`.
+pub fn temp_home_js_polyfill() -> &'static str {
+    r#"function tempDir() {
+  try {
+    var os = require("os");
+    if (os && typeof os.tmpdir === "function") return String(os.tmpdir());
+  } catch (e) {}
+  return "";
+}
+function homeDir() {
+  try {
+    var os = require("os");
+    if (os && typeof os.homedir === "function") return String(os.homedir());
+  } catch (e) {}
+  return "";
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.tempDir = tempDir;
+  globalThis.homeDir = homeDir;
 }
 "#
 }

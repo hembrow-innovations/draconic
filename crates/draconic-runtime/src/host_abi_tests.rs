@@ -320,6 +320,8 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_hostname",
         "draconic_rt_host_os_type",
         "draconic_rt_host_os_arch",
+        "draconic_rt_host_temp_dir",
+        "draconic_rt_host_home_dir",
         "draconic_rt_host_process_run",
         "draconic_rt_host_process_spawn",
         "draconic_rt_host_process_stdin_write",
@@ -672,6 +674,60 @@ int main(void) {
     free(h);
     free(t);
     free(a);
+    printf("ok\n");
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg(format!("-I{}", header_dir.display()))
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("clang link")
+    };
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "code={:?} stderr={} stdout={}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
+}
+
+#[test]
+fn host_temp_home_dir() {
+    // H16.03: temp + home directory paths are non-empty.
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_temp_home.c");
+    let bin = dir.join("rt_host_temp_home");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    char *t = draconic_rt_host_temp_dir();
+    char *h = draconic_rt_host_home_dir();
+    if (!t || !t[0]) { free(t); free(h); return 1; }
+    if (!h || !h[0]) { free(t); free(h); return 2; }
+    free(t);
+    free(h);
     printf("ok\n");
     return 0;
 }
