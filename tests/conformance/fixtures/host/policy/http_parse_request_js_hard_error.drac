@@ -1,0 +1,2 @@
+// H10.07: httpParseRequest is native-only — hard-error on js until Node bridge.
+httpParseRequest("");

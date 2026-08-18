@@ -643,7 +643,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H10.04 | done | native | HTTP/1.1 keep-alive optional (two requests one connection) | `tests/conformance` fixtures `host/http` |
 | H10.05 | done | native | HTTP/1.1 client: request + response on connected TCP | `tests/conformance` fixtures `host/http` |
 | H10.06 | todo | native | Chunked transfer encoding (after v1 bar) | `tests/conformance` fixtures `host/http` |
-| H10.07 | todo | js | HTTP listen helpers: hard-error on js until Node bridge | `tests/conformance` fixtures `host/policy` |
+| H10.07 | done | js | HTTP listen helpers: hard-error on js until Node bridge | `tests/conformance` fixtures `host/policy` |
 | H11 | todo | native | TLS | `tests/conformance/host/net/tls` |
 | H11.01 | todo | native | TLS client wrap: trust roots / insecure-test mode | `tests/conformance` fixtures `host/net/tls`, `crates/draconic-runtime` |
 | H11.02 | todo | native | TLS server wrap: cert/key; accept TLS connection | `tests/conformance` fixtures `host/net/tls` |

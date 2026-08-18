@@ -1,4 +1,4 @@
-//! ROADMAP H00.01 / H06.06: host API registry — js unsupported → hard diagnostic.
+//! ROADMAP H00.01 / H06.06 / H10.07: host API registry — js unsupported → hard diagnostic.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -57,4 +57,34 @@ fn open_file_js_hard_error_fixture_present() {
 #[test]
 fn open_file_js_hard_error_on_js() {
     assert_fixture_runs_js("host/policy/open_file_js_hard_error");
+}
+
+#[test]
+fn http_parse_request_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/http_parse_request_js_hard_error");
+}
+
+#[test]
+fn http_parse_request_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/http_parse_request_js_hard_error");
+}
+
+#[test]
+fn http_write_response_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/http_write_response_js_hard_error");
+}
+
+#[test]
+fn http_write_response_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/http_write_response_js_hard_error");
+}
+
+#[test]
+fn http_request_header_js_hard_error_fixture_present() {
+    assert_fixture_present("host/policy/http_request_header_js_hard_error");
+}
+
+#[test]
+fn http_request_header_js_hard_error_on_js() {
+    assert_fixture_runs_js("host/policy/http_request_header_js_hard_error");
 }

@@ -89,6 +89,8 @@ pub struct HostApiEntry {
 /// - H10.03: compose TCP accept + parse + write + close (server one-shot; see `host_http_server`).
 /// - `httpWriteRequest` / `httpParseResponse` / `httpResponseHeader` (H10.05): client helpers.
 /// - H10.04: same surface, two request/response cycles on one connection (keep-alive).
+/// - H10.07: HTTP listen helpers (`httpParseRequest` / `httpRequestHeader` / `httpWriteResponse`
+///   and client parse/write) hard-error on js until optional Node bridge.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -867,6 +869,40 @@ mod tests {
             "got {}",
             err.message
         );
+    }
+
+    #[test]
+    fn check_for_target_js_rejects_http_listen_helpers() {
+        for src in [
+            "httpParseRequest(\"\");",
+            "httpRequestHeader(null, \"Host\");",
+            "httpWriteResponse(200, \"OK\", \"\", \"\");",
+            "httpWriteRequest(\"GET\", \"/\", \"\", \"\");",
+            "httpParseResponse(\"\");",
+            "httpResponseHeader(null, \"Content-Type\");",
+        ] {
+            let program = parse(src).unwrap();
+            let err = check_for_target(program, CompileTarget::Js)
+                .expect_err(&format!("js must hard-error: {src}"));
+            assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED), "src={src}");
+            assert!(
+                err.message.contains("unsupported on js"),
+                "src={src} got {}",
+                err.message
+            );
+        }
+    }
+
+    #[test]
+    fn check_for_target_native_allows_http_listen_helpers() {
+        for src in [
+            "httpParseRequest(\"\");",
+            "httpWriteResponse(200, \"OK\", \"\", \"\");",
+        ] {
+            let program = parse(src).unwrap();
+            check_for_target(program, CompileTarget::Native)
+                .unwrap_or_else(|e| panic!("native allows {src}: {e}"));
+        }
     }
 
     #[test]
