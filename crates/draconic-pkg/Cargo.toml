@@ -7,3 +7,4 @@ description = "Draconic package manifests, lockfiles, and module cache (Roadmap 
 
 [dependencies]
 toml.workspace = true
+sha2.workspace = true

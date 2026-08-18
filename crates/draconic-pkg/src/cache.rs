@@ -14,6 +14,7 @@
 //! K03.01: path computation + validation.
 //! K03.02: `git clone --bare` / `git fetch` into the VCS store (HTTPS + fixture repos).
 //! K03.03: checkout pinned OID into `mod/…`; cache hit skips network.
+//! Package tree integrity hash is [`crate::content_hash_tree`] (K03.04).
 
 use std::fmt;
 use std::fs;
@@ -945,6 +946,32 @@ mod tests {
         fs::create_dir_all(&entry).unwrap();
         fs::write(entry.join("hello.txt"), "orphan\n").unwrap();
         assert!(!cache.has_entry(PATH, OID).unwrap());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- K03.04: content hash over checked-out package tree ---
+
+    #[test]
+    fn checkout_content_hash_stable_and_excludes_marker() {
+        let root = temp_dir_k0303("hash");
+        let upstream = fixture_repo(&root);
+        let oid = head_oid(&upstream);
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = upstream.to_str().unwrap();
+        let entry = cache.checkout(PATH, &oid, url).expect("checkout");
+
+        let h1 = crate::content_hash_tree(&entry).expect("hash1");
+        let h2 = crate::content_hash_tree(&entry).expect("hash2");
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+
+        // Same files without marker → same hash.
+        let bare = root.join("bare-tree");
+        fs::create_dir_all(&bare).unwrap();
+        fs::write(bare.join("hello.txt"), "hello from fixture\n").unwrap();
+        let h_bare = crate::content_hash_tree(&bare).expect("bare");
+        assert_eq!(h1, h_bare);
+
         let _ = fs::remove_dir_all(&root);
     }
 }
