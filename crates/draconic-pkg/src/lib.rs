@@ -6,6 +6,7 @@
 //! K01.04: optional URL map (path → git URL); default derive `https://{module_path}.git`.
 //! K02.01: lock entry — path + version + git URL + commit OID + content hash SHA-256.
 //! K02.02: parse/write `draconic.lock`; reject malformed.
+//! K02.03: stable lock serialize — sorted paths; byte-identical rewrite when unchanged.
 
 mod lock;
 

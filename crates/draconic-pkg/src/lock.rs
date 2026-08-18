@@ -1,8 +1,10 @@
-//! Lockfile types for `draconic.lock` (Roadmap K02.01–K02.02).
+//! Lockfile types for `draconic.lock` (Roadmap K02.01–K02.03).
 //!
 //! A lock entry pins one direct dependency: module path, resolved version,
-//! git URL, commit OID, and package-tree content hash (SHA-256).
+//! git URL, commit OID, and content hash SHA-256 (K02.01).
 //! K02.02: parse/write the lock document; reject malformed input.
+//! K02.03: stable serialize — packages sorted by path; rewrite of unchanged
+//! lock is byte-identical.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -348,11 +350,12 @@ fn require_pkg_string(
 
 /// Serialize a [`LockFile`] to a stable `draconic.lock` document.
 ///
-/// Emit shape (K02.02):
+/// Emit shape (K02.02–K02.03):
 /// - `version = N` first
 /// - one `[[package]]` table per entry, paths in sorted (BTreeMap) order
 /// - fields: path, version, git_url, commit_oid, content_hash
 /// - trailing newline
+/// - parse → write → write is byte-identical when the lock is unchanged (K02.03)
 pub fn write_lock(lock: &LockFile) -> String {
     let mut out = String::new();
     out.push_str(&format!("version = {}\n", lock.version));
@@ -647,6 +650,72 @@ content_hash = "{HASH}"
         let again = parse_lock(&written).expect("reparse");
         assert_eq!(again, original);
         assert_eq!(write_lock(&again), written);
+    }
+
+    // --- K02.03: stable lock serialize — sorted paths; byte-identical rewrite ---
+
+    #[test]
+    fn k02_03_unsorted_input_writes_sorted_paths() {
+        // Input packages appear z-before-a; write must emit a-before-z.
+        let src = format!(
+            r#"version = 1
+
+[[package]]
+path = "github.com/z/last"
+version = "3.0.0"
+git_url = "https://github.com/z/last.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+
+[[package]]
+path = "github.com/m/mid"
+version = "2.0.0"
+git_url = "https://github.com/m/mid.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+
+[[package]]
+path = "github.com/a/first"
+version = "1.0.0"
+git_url = "https://github.com/a/first.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        );
+        let lock = parse_lock(&src).expect("parse reverse-order input");
+        let written = write_lock(&lock);
+        let a = written.find("path = \"github.com/a/first\"").expect("a");
+        let m = written.find("path = \"github.com/m/mid\"").expect("m");
+        let z = written.find("path = \"github.com/z/last\"").expect("z");
+        assert!(a < m && m < z, "expected a < m < z in:\n{written}");
+    }
+
+    #[test]
+    fn k02_03_rewrite_unchanged_is_byte_identical() {
+        let src = format!(
+            r#"version = 1
+
+[[package]]
+path = "github.com/z/last"
+version = "3.0.0"
+git_url = "https://github.com/z/last.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+
+[[package]]
+path = "github.com/a/first"
+version = "1.0.0"
+git_url = "https://github.com/a/first.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        );
+        let lock = parse_lock(&src).expect("parse");
+        let once = write_lock(&lock);
+        let twice = write_lock(&parse_lock(&once).expect("reparse"));
+        assert_eq!(once.as_bytes(), twice.as_bytes());
+        // Canonical form is also stable across a third rewrite.
+        assert_eq!(write_lock(&parse_lock(&twice).unwrap()).as_bytes(), once.as_bytes());
     }
 
     #[test]
