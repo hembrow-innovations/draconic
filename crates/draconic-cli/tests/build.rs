@@ -226,3 +226,29 @@ fn build_reports_parse_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("error"), "stderr={stderr}");
 }
+
+/// H17.01: `examples/http-echo` builds pure native (no C host).
+#[test]
+fn build_examples_http_echo_native() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let src = manifest_dir
+        .join("../..")
+        .join("examples/http-echo/main.drac");
+    let src = src.canonicalize().expect("examples/http-echo/main.drac");
+    let dir = temp_dir();
+    let out = dir.join("http-echo");
+
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("native")
+            .arg(&src)
+            .arg("-o")
+            .arg(&out),
+    );
+
+    assert!(out.is_file(), "native binary missing at {}", out.display());
+    let meta = fs::metadata(&out).expect("metadata");
+    assert!(meta.len() > 0, "empty binary");
+}

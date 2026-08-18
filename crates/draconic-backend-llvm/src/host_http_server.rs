@@ -91,6 +91,25 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             Some(())
         }
         Stmt::Expr { expr, .. } => classify_side_effect(expr, ctx),
+        // H17.01: accept-loop server body (`while (true) { … }`).
+        Stmt::Block { body, .. } => {
+            for s in body {
+                classify_stmt(s, ctx)?;
+            }
+            Some(())
+        }
+        Stmt::While { test, body, .. } => {
+            classify_while_test(test)?;
+            classify_stmt(body, ctx)
+        }
+        _ => None,
+    }
+}
+
+fn classify_while_test(test: &Expr) -> Option<()> {
+    match test {
+        Expr::Boolean { value: true, .. } => Some(()),
+        Expr::Number { raw, .. } if raw == "1" => Some(()),
         _ => None,
     }
 }
@@ -763,6 +782,35 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::Expr { expr, .. } => self.emit_expr_stmt(expr),
+            Stmt::Block { body, .. } => {
+                for s in body {
+                    self.emit_stmt(s)?;
+                }
+                Ok(())
+            }
+            // H17.01: infinite accept loop (`while (true)` / `while (1)`).
+            Stmt::While { test, body, .. } => {
+                match test {
+                    Expr::Boolean { value: true, .. } => {}
+                    Expr::Number { raw, .. } if raw == "1" => {}
+                    _ => {
+                        return Err(diag(
+                            "host_http_server: while test must be true or 1 (accept loop)",
+                        ))
+                    }
+                }
+                let head = self.fresh_label("hs_while_head");
+                let bod = self.fresh_label("hs_while_body");
+                let end = self.fresh_label("hs_while_end");
+                writeln!(self.body, "  br label %{head}").ok();
+                writeln!(self.body, "{head}:").ok();
+                writeln!(self.body, "  br i1 true, label %{bod}, label %{end}").ok();
+                writeln!(self.body, "{bod}:").ok();
+                self.emit_stmt(body)?;
+                writeln!(self.body, "  br label %{head}").ok();
+                writeln!(self.body, "{end}:").ok();
+                Ok(())
+            }
             _ => Err(diag("host_http_server: unsupported stmt")),
         }
     }
@@ -1374,5 +1422,33 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_http_parse_request"), "{ir}");
         assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
         assert!(ir.contains("draconic_rt_host_tcp_write"), "{ir}");
+    }
+
+    #[test]
+    fn emit_http_echo_accept_loop_ir() {
+        // H17.01 shape: listen + while(true) accept/parse/write/close.
+        let m = lower_src(
+            r#"
+            let s = tcpListen(8080);
+            stdoutWrite("http-echo listening on 8080\n");
+            while (true) {
+              let a = tcpAccept(s);
+              let raw = tcpRead(a, 65536);
+              let req = httpParseRequest(raw);
+              let path = req.path;
+              let resp = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", path);
+              tcpWrite(a, resp);
+              closeTcp(a);
+            }
+            "#,
+        );
+        assert!(is_host_http_server_module(&m));
+        let ir = emit_host_http_server(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tcp_listen"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_accept"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_parse_request"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
+        assert!(ir.contains("hs_while_head"), "{ir}");
+        assert!(ir.contains("hs_while_body"), "{ir}");
     }
 }

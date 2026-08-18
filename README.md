@@ -44,7 +44,7 @@ cargo run -p draconic-cli -- build --target native hello.drac -o hello
 ./hello
 ```
 
-Examples: [`examples/fizzbuzz/`](./examples/fizzbuzz/) (CLI FizzBuzz) · [`examples/todo/`](./examples/todo/) (browser todo).
+Examples: [`examples/fizzbuzz/`](./examples/fizzbuzz/) (CLI FizzBuzz) · [`examples/http-echo/`](./examples/http-echo/) (native HTTP/1.1) · [`examples/todo/`](./examples/todo/) (browser todo).
 
 ## CLI
 
@@ -85,7 +85,7 @@ cargo run -p draconic-cli -- version
 | `crates/draconic-embed` | Embed (eval-at-runtime) |
 | `crates/draconic-cli` | `draconic` CLI |
 | `tests/conformance` | Conformance suite |
-| `examples/` | Example programs (`fizzbuzz`, `todo`) |
+| `examples/` | Example programs (`fizzbuzz`, `http-echo`, `todo`) |
 | `tests/test262` | Staged Test262 harness (optional suite via `scripts/fetch-test262.mjs`) |
 | `ROADMAP.md` | Feature checklist (Loop source of truth) |
 | `CONTEXT.md` | Domain glossary |
