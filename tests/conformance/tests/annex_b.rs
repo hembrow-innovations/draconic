@@ -480,6 +480,16 @@ fn for_await_of_runs() {
 }
 
 #[test]
+fn for_await_of_array_fixture_present() {
+    assert_fixture_present("es/annex-b/for_await_of_array");
+}
+
+#[test]
+fn for_await_of_array_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/for_await_of_array");
+}
+
+#[test]
 fn async_generators_fixture_present() {
     assert_fixture_present("es/annex-b/async_generators");
 }

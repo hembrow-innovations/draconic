@@ -1,20 +1,23 @@
-//! N08.12.01–N08.12.08 + N08.16.44: native observations for generator function
-//! declaration + expression + methods (object/class/static) + `yield` / `yield*` /
-//! `return` + `.next()` / `.next(arg)` / `.return(arg)` / `.throw(arg)` →
-//! `{value, done}` + `for-of` over generators (E13.01–E13.08), and async
-//! generators (E18.43): `async function*` / `{ async *m() }` / class
+//! N08.12.01–N08.12.08 + N08.16.44 + N08.16.43.01: native observations for
+//! generator function declaration + expression + methods (object/class/static) +
+//! `yield` / `yield*` / `return` + `.next()` / `.next(arg)` / `.return(arg)` /
+//! `.throw(arg)` → `{value, done}` + `for-of` over generators (E13.01–E13.08),
+//! async generators (E18.43): `async function*` / `{ async *m() }` / class
 //! `async *m()` / `static async *m()`, `.next()` thenables, `await
-//! Promise.resolve`, `for await` over async gens inside `async function`.
+//! Promise.resolve`, `for await` over async gens inside `async function`, and
+//! `for await` over arrays (CreateAsyncFromSyncIterator values) with
+//! `let`/`const`/assign binding + `break`/`continue` (N08.16.43.01).
 //!
-//! Compile-time evaluation of a small generator subset: generator decls and
-//! `function*` / `async function*` expressions (incl. named + IIFE) with simple
-//! ident params, object/class generator methods (`*m()` / `async *m()` /
-//! `static *m()`), `this` prop reads in methods, `yield` of
+//! Compile-time evaluation of a small generator / for-await subset: generator
+//! decls and `function*` / `async function*` expressions (incl. named + IIFE)
+//! with simple ident params, object/class generator methods (`*m()` /
+//! `async *m()` / `static *m()`), `this` prop reads in methods, `yield` of
 //! number/string/binary/local/GenFn/`void 0` (bare yield), `let x = yield …`
 //! resume binding, `yield*` of generators/arrays (incl. completion value),
 //! `return` of same, iterator `.next()` / `.return()` / `.throw()`, try/catch/
 //! finally in generator bodies, property reads `.value` / `.done`, top-level
-//! `for-of` / `try` over generators, and async-gen thenables / await / for-await.
+//! `for-of` / `try` over generators, async-gen thenables / await / for-await,
+//! and async functions whose only iteration is `for await` over arrays.
 //! Emits Runtime prints of final top-level number/boolean/string/undefined locals.
 
 use std::collections::HashMap;
@@ -157,7 +160,7 @@ struct ModuleInfo {
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-    if !module_has_generator(&module.body) {
+    if !module_has_generator(&module.body) && !module_has_for_await(&module.body) {
         return None;
     }
     // Top-level shape only; detailed acceptance is eval success (methods/class/for-of/try).
@@ -293,6 +296,86 @@ fn module_has_generator(body: &[Stmt]) -> bool {
         Stmt::Declare { init: Some(e), .. } | Stmt::Expr { expr: e } => expr_has_generator(e),
         _ => false,
     })
+}
+
+/// True when body (incl. nested function bodies) contains `for await…of`.
+fn module_has_for_await(body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_has_for_await(s))
+}
+
+fn stmt_has_for_await(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::ForOf { is_await: true, .. } => true,
+        Stmt::Function { body, .. } | Stmt::Block { body } => module_has_for_await(body),
+        Stmt::If {
+            consequent,
+            alternate,
+            ..
+        } => {
+            stmt_has_for_await(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_has_for_await(a))
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            module_has_for_await(block)
+                || handler.as_ref().is_some_and(|h| module_has_for_await(h))
+                || finalizer.as_ref().is_some_and(|f| module_has_for_await(f))
+        }
+        Stmt::Labeled { body, .. } | Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            stmt_has_for_await(body)
+        }
+        Stmt::For { body, init, .. } => {
+            stmt_has_for_await(body) || init.as_ref().is_some_and(|i| stmt_has_for_await(i))
+        }
+        Stmt::ForIn { left, body, .. } | Stmt::ForOf { left, body, .. } => {
+            stmt_has_for_await(left) || stmt_has_for_await(body)
+        }
+        Stmt::Declare { init: Some(e), .. } | Stmt::Expr { expr: e } => expr_has_for_await(e),
+        _ => false,
+    }
+}
+
+fn expr_has_for_await(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function { body, .. } => module_has_for_await(body),
+        Expr::Call { callee, args, .. } => {
+            expr_has_for_await(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) => expr_has_for_await(e),
+                    _ => false,
+                })
+        }
+        Expr::Member { object, property, .. } => {
+            expr_has_for_await(object) || expr_has_for_await(property)
+        }
+        Expr::Unary { arg, .. } => expr_has_for_await(arg),
+        Expr::Binary { left, right, .. } => {
+            expr_has_for_await(left) || expr_has_for_await(right)
+        }
+        Expr::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) => expr_has_for_await(e),
+            _ => false,
+        }),
+        Expr::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { value, .. } | ObjectProp::Accessor { value, .. } => {
+                expr_has_for_await(value)
+            }
+            ObjectProp::Spread(e) => expr_has_for_await(e),
+        }),
+        Expr::New { callee, args, .. } => {
+            expr_has_for_await(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) => expr_has_for_await(e),
+                    _ => false,
+                })
+        }
+        Expr::Assign { value, .. } => expr_has_for_await(value),
+        _ => false,
+    }
 }
 
 fn expr_has_generator(expr: &Expr) -> bool {

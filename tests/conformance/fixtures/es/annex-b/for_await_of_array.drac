@@ -1,0 +1,63 @@
+let syncSum = 0;
+let assignSum = 0;
+let constSum = 0;
+let earlyBreak = 0;
+let withContinue = 0;
+
+async function fromArray() {
+  let sum = 0;
+  for await (let x of [1, 2, 3]) {
+    sum = sum + x;
+  }
+  return sum;
+}
+fromArray().then(function (v) {
+  syncSum = v;
+});
+
+async function assignBinding() {
+  let sum = 0;
+  let x;
+  for await (x of [4, 5]) {
+    sum = sum + x;
+  }
+  return sum;
+}
+assignBinding().then(function (v) {
+  assignSum = v;
+});
+
+async function constBinding() {
+  let sum = 0;
+  for await (const x of [10, 20]) {
+    sum = sum + x;
+  }
+  return sum;
+}
+constBinding().then(function (v) {
+  constSum = v;
+});
+
+async function breakEarly() {
+  let n = 0;
+  for await (let x of [1, 2, 3, 4]) {
+    n = n + x;
+    if (x === 2) break;
+  }
+  return n;
+}
+breakEarly().then(function (v) {
+  earlyBreak = v;
+});
+
+async function skipContinue() {
+  let n = 0;
+  for await (let x of [1, 2, 3]) {
+    if (x === 2) continue;
+    n = n + x;
+  }
+  return n;
+}
+skipContinue().then(function (v) {
+  withContinue = v;
+});

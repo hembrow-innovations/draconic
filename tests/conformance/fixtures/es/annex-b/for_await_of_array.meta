@@ -1,0 +1,6 @@
+id: es/annex-b/for_await_of_array
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { if (syncSum !== 6) process.exit(1); if (assignSum !== 9) process.exit(2); if (constSum !== 30) process.exit(3); if (earlyBreak !== 3) process.exit(4); if (withContinue !== 4) process.exit(5); }, 0);
+native.exit: 0
+native.stdout: 6\n9\n30\n3\n4\n

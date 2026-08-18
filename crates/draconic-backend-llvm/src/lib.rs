@@ -184,6 +184,7 @@ use native_ints::{emit_native_ints, is_native_int_module};
 /// - **Linked ESM modules** (named/default/cyclic flatten; number/string observations) — N08.11
 /// - **Generators** (function* + yield/yield* + return/throw + `.next()` + for-of) — N08.12.01–N08.12.08
 /// - **Async generators** (`async function*` / methods + `.next().then` + `await` + `for await`) — N08.16.44
+/// - **`for await` over arrays** (`let`/`const`/assign + break/continue) — N08.16.43.01
 /// - **Proxy basics** (`new Proxy`, empty-handler get, `get` trap) — N08.13.01
 /// - **Proxy set** (empty-handler set pass-through; `set` trap; assign result) — N08.13.02
 /// - **Proxy has/`in`** (empty-handler pass-through; `has` trap; plain `in`) — N08.13.03
