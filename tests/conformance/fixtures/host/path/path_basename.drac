@@ -1,0 +1,9 @@
+// H03.02: pathBasename — final path segment (POSIX `/`; no I/O).
+let a = pathBasename("/foo/bar/baz.txt");
+let b = pathBasename("/foo/bar/");
+let c = pathBasename("/");
+let d = pathBasename("");
+let e = pathBasename(".");
+let f = pathBasename("..");
+let g = pathBasename("foo");
+let h = pathBasename("foo\\bar\\baz");

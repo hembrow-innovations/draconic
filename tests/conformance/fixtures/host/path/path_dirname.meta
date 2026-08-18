@@ -1,0 +1,6 @@
+id: host/path/path_dirname
+targets: js,native
+js.exit: 0
+js.check: if (a !== "/foo/bar") process.exit(1); if (b !== "/foo/bar") process.exit(2); if (c !== "/") process.exit(3); if (d !== "/") process.exit(4); if (e !== ".") process.exit(5); if (f !== "foo") process.exit(6); if (g !== ".") process.exit(7); if (h !== "foo/bar") process.exit(8);
+native.exit: 0
+native.stdout: /foo/bar\n/foo/bar\n/\n/\n.\nfoo\n.\nfoo/bar\n

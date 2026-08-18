@@ -129,6 +129,10 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_stdin_read_bytes",
         "draconic_rt_host_path_normalize",
         "draconic_rt_host_path_join",
+        "draconic_rt_host_path_dirname",
+        "draconic_rt_host_path_basename",
+        "draconic_rt_host_path_extname",
+        "draconic_rt_host_path_is_absolute",
     ] {
         assert!(
             out.contains(sym),
@@ -644,4 +648,102 @@ fn host_abi_path_and_handles_link_smoke() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout, "host-abi-ok\n", "stdout={stdout:?}");
+}
+
+#[test]
+fn host_path_dirname_basename_extname_is_absolute() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_path_h0302.c");
+    let bin = dir.join("rt_host_path_h0302");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        static int expect_str(const char *got, const char *want, const char *label) {
+            if (!got) {
+                fprintf(stderr, "%s: null\n", label);
+                return 0;
+            }
+            if (strcmp(got, want) != 0) {
+                fprintf(stderr, "%s: got \"%s\" want \"%s\"\n", label, got, want);
+                return 0;
+            }
+            return 1;
+        }
+
+        int main(void) {
+            char *s;
+
+            s = draconic_rt_host_path_dirname("/foo/bar/baz");
+            if (!expect_str(s, "/foo/bar", "dirname abs")) return 1;
+            free(s);
+            s = draconic_rt_host_path_dirname("foo");
+            if (!expect_str(s, ".", "dirname rel")) return 2;
+            free(s);
+            s = draconic_rt_host_path_dirname("foo\\bar\\baz");
+            if (!expect_str(s, "foo/bar", "dirname backslash")) return 3;
+            free(s);
+
+            s = draconic_rt_host_path_basename("/foo/bar/baz.txt");
+            if (!expect_str(s, "baz.txt", "basename")) return 4;
+            free(s);
+            s = draconic_rt_host_path_basename("/");
+            if (!expect_str(s, "", "basename root")) return 5;
+            free(s);
+
+            s = draconic_rt_host_path_extname("index.coffee.md");
+            if (!expect_str(s, ".md", "extname multi")) return 6;
+            free(s);
+            s = draconic_rt_host_path_extname(".index");
+            if (!expect_str(s, "", "extname dotfile")) return 7;
+            free(s);
+            s = draconic_rt_host_path_extname("index.");
+            if (!expect_str(s, ".", "extname trailing dot")) return 8;
+            free(s);
+
+            if (draconic_rt_host_path_is_absolute("/foo") != 1) return 9;
+            if (draconic_rt_host_path_is_absolute("foo") != 0) return 10;
+            if (draconic_rt_host_path_is_absolute("\\foo") != 1) return 11;
+            if (draconic_rt_host_path_is_absolute("") != 0) return 12;
+
+            puts("path-h0302-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for path H03.02 smoke");
+
+    let output = Command::new(&bin).output().expect("run path h0302");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "path H03.02 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "path-h0302-ok\n"
+    );
 }

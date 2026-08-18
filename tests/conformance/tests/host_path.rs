@@ -1,4 +1,4 @@
-//! ROADMAP H03.01: pathJoin / pathNormalize (pure string path helpers).
+//! ROADMAP H03.01–H03.02: pathJoin / pathNormalize / dirname / basename / extname / isAbsolute.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +47,44 @@ fn path_normalize_fixture_present() {
 #[test]
 fn path_normalize_runs_js_and_native() {
     assert_fixture_runs("host/path/path_normalize");
+}
+
+#[test]
+fn path_dirname_fixture_present() {
+    assert_fixture_present("host/path/path_dirname");
+}
+
+#[test]
+fn path_dirname_runs_js_and_native() {
+    assert_fixture_runs("host/path/path_dirname");
+}
+
+#[test]
+fn path_basename_fixture_present() {
+    assert_fixture_present("host/path/path_basename");
+}
+
+#[test]
+fn path_basename_runs_js_and_native() {
+    assert_fixture_runs("host/path/path_basename");
+}
+
+#[test]
+fn path_extname_fixture_present() {
+    assert_fixture_present("host/path/path_extname");
+}
+
+#[test]
+fn path_extname_runs_js_and_native() {
+    assert_fixture_runs("host/path/path_extname");
+}
+
+#[test]
+fn path_is_absolute_fixture_present() {
+    assert_fixture_present("host/path/path_is_absolute");
+}
+
+#[test]
+fn path_is_absolute_runs_js_and_native() {
+    assert_fixture_runs("host/path/path_is_absolute");
 }

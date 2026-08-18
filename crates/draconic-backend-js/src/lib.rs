@@ -112,10 +112,15 @@ fn module_uses_stdin_read(module: &Module) -> bool {
     })
 }
 
-/// H03.01: free host APIs `pathJoin` / `pathNormalize`.
+/// H03.01–H03.02: free host path APIs.
 fn module_uses_path(module: &Module) -> bool {
     module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "pathJoin") || stmt_uses_ident_name(s, "pathNormalize")
+        stmt_uses_ident_name(s, "pathJoin")
+            || stmt_uses_ident_name(s, "pathNormalize")
+            || stmt_uses_ident_name(s, "pathDirname")
+            || stmt_uses_ident_name(s, "pathBasename")
+            || stmt_uses_ident_name(s, "pathExtname")
+            || stmt_uses_ident_name(s, "pathIsAbsolute")
     })
 }
 
@@ -457,7 +462,7 @@ fn emit_js_full(
             out.push('\n');
         }
     }
-    // H03.01: `pathJoin` / `pathNormalize` pure string helpers.
+    // H03.01–H03.02: path pure string helpers.
     if module_uses_path(module) {
         out.push_str(draconic_runtime::path_js_polyfill());
         if !out.ends_with('\n') {

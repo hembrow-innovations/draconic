@@ -1,0 +1,9 @@
+// H03.02: pathExtname — extension including leading `.` (POSIX; no I/O).
+let a = pathExtname("index.html");
+let b = pathExtname("index.coffee.md");
+let c = pathExtname("index.");
+let d = pathExtname("index");
+let e = pathExtname(".index");
+let f = pathExtname(".index.md");
+let g = pathExtname("");
+let h = pathExtname("/foo/bar/baz.txt");

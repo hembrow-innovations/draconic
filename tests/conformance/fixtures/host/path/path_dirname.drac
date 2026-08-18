@@ -1,0 +1,9 @@
+// H03.02: pathDirname — directory portion (POSIX `/`; no I/O).
+let a = pathDirname("/foo/bar/baz");
+let b = pathDirname("/foo/bar/baz/");
+let c = pathDirname("/foo");
+let d = pathDirname("/");
+let e = pathDirname("foo");
+let f = pathDirname("foo/bar");
+let g = pathDirname("");
+let h = pathDirname("foo\\bar\\baz");

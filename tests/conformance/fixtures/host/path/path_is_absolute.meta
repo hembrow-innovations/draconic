@@ -1,0 +1,6 @@
+id: host/path/path_is_absolute
+targets: js,native
+js.exit: 0
+js.check: if (a !== true) process.exit(1); if (b !== false) process.exit(2); if (c !== false) process.exit(3); if (d !== true) process.exit(4); if (e !== true) process.exit(5);
+native.exit: 0
+native.stdout: true\nfalse\nfalse\ntrue\ntrue\n

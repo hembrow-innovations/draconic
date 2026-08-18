@@ -758,7 +758,7 @@ pub const HOST_STDIN_READ_BYTES: AbiFn = AbiFn {
     params: "i64, ptr, ptr",
 };
 
-/* H03.01: path join / normalize (malloc'd C string; free with path_free). */
+/* H03.01–H03.02: path helpers (malloc'd C string; free with path_free). */
 pub const HOST_PATH_NORMALIZE: AbiFn = AbiFn {
     symbol: "draconic_rt_host_path_normalize",
     ret: "ptr",
@@ -768,6 +768,26 @@ pub const HOST_PATH_JOIN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_path_join",
     ret: "ptr",
     params: "i64, ptr",
+};
+pub const HOST_PATH_DIRNAME: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_dirname",
+    ret: "ptr",
+    params: "ptr",
+};
+pub const HOST_PATH_BASENAME: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_basename",
+    ret: "ptr",
+    params: "ptr",
+};
+pub const HOST_PATH_EXTNAME: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_extname",
+    ret: "ptr",
+    params: "ptr",
+};
+pub const HOST_PATH_IS_ABSOLUTE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_path_is_absolute",
+    ret: "i32",
+    params: "ptr",
 };
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
@@ -797,8 +817,12 @@ pub const HOST_STDIN_READ_LINE_SYMBOL: &str = HOST_STDIN_READ_LINE.symbol;
 pub const HOST_STDIN_READ_BYTES_SYMBOL: &str = HOST_STDIN_READ_BYTES.symbol;
 pub const HOST_PATH_NORMALIZE_SYMBOL: &str = HOST_PATH_NORMALIZE.symbol;
 pub const HOST_PATH_JOIN_SYMBOL: &str = HOST_PATH_JOIN.symbol;
+pub const HOST_PATH_DIRNAME_SYMBOL: &str = HOST_PATH_DIRNAME.symbol;
+pub const HOST_PATH_BASENAME_SYMBOL: &str = HOST_PATH_BASENAME.symbol;
+pub const HOST_PATH_EXTNAME_SYMBOL: &str = HOST_PATH_EXTNAME.symbol;
+pub const HOST_PATH_IS_ABSOLUTE_SYMBOL: &str = HOST_PATH_IS_ABSOLUTE.symbol;
 
-/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02 + H03.01).
+/// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process + H02 + H03).
 pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HANDLE_IS_VALID_SYMBOL,
     HOST_HANDLE_CLOSE_SYMBOL,
@@ -827,6 +851,10 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_STDIN_READ_BYTES_SYMBOL,
     HOST_PATH_NORMALIZE_SYMBOL,
     HOST_PATH_JOIN_SYMBOL,
+    HOST_PATH_DIRNAME_SYMBOL,
+    HOST_PATH_BASENAME_SYMBOL,
+    HOST_PATH_EXTNAME_SYMBOL,
+    HOST_PATH_IS_ABSOLUTE_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -858,6 +886,10 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_STDIN_READ_BYTES,
     HOST_PATH_NORMALIZE,
     HOST_PATH_JOIN,
+    HOST_PATH_DIRNAME,
+    HOST_PATH_BASENAME,
+    HOST_PATH_EXTNAME,
+    HOST_PATH_IS_ABSOLUTE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -1075,7 +1107,7 @@ if (typeof globalThis !== "undefined") {
 "#
 }
 
-/// JS polyfill for `pathJoin` / `pathNormalize` (H03.01).
+/// JS polyfill for path helpers (H03.01–H03.02).
 ///
 /// Pure string ops (no I/O). POSIX-style `/` output; input accepts `/` and `\`.
 /// Empty normalize/join → `"."`. Matches Node `path.posix` for `/` inputs.
@@ -1124,9 +1156,81 @@ function pathJoin() {
   if (parts.length === 0) return ".";
   return pathNormalize(parts.join("/"));
 }
+function pathDirname(path) {
+  var src = path == null ? "" : String(path);
+  function isSep(c) { return c === "/" || c === "\\"; }
+  if (src.length === 0) return ".";
+  var end = src.length;
+  while (end > 0 && isSep(src.charAt(end - 1))) end--;
+  if (end === 0) return "/";
+  var i = end;
+  while (i > 0 && !isSep(src.charAt(i - 1))) i--;
+  if (i === 0) return ".";
+  var dend = i;
+  while (dend > 0 && isSep(src.charAt(dend - 1))) dend--;
+  if (dend === 0) return "/";
+  return src.slice(0, dend).replace(/\\/g, "/");
+}
+function pathBasename(path) {
+  var src = path == null ? "" : String(path);
+  function isSep(c) { return c === "/" || c === "\\"; }
+  if (src.length === 0) return "";
+  var end = src.length;
+  while (end > 0 && isSep(src.charAt(end - 1))) end--;
+  if (end === 0) return "";
+  var i = end;
+  while (i > 0 && !isSep(src.charAt(i - 1))) i--;
+  return src.slice(i, end).replace(/\\/g, "/");
+}
+function pathExtname(path) {
+  var src = path == null ? "" : String(path);
+  function isSep(c) { return c === "/" || c === "\\"; }
+  if (src.length === 0) return "";
+  var startDot = -1;
+  var startPart = 0;
+  var end = -1;
+  var matchedSlash = true;
+  var preDotState = 0;
+  for (var i = src.length - 1; i >= 0; --i) {
+    var c = src.charAt(i);
+    if (isSep(c)) {
+      if (!matchedSlash) {
+        startPart = i + 1;
+        break;
+      }
+      continue;
+    }
+    if (end === -1) {
+      matchedSlash = false;
+      end = i + 1;
+    }
+    if (c === ".") {
+      if (startDot === -1) startDot = i;
+      else if (preDotState !== 1) preDotState = 1;
+    } else if (startDot !== -1) {
+      preDotState = -1;
+    }
+  }
+  if (startDot === -1 || end === -1 ||
+      preDotState === 0 ||
+      (preDotState === 1 && startDot === end - 1 && startDot === startPart + 1)) {
+    return "";
+  }
+  return src.slice(startDot, end);
+}
+function pathIsAbsolute(path) {
+  var src = path == null ? "" : String(path);
+  if (src.length === 0) return false;
+  var c = src.charAt(0);
+  return c === "/" || c === "\\";
+}
 if (typeof globalThis !== "undefined") {
   globalThis.pathJoin = pathJoin;
   globalThis.pathNormalize = pathNormalize;
+  globalThis.pathDirname = pathDirname;
+  globalThis.pathBasename = pathBasename;
+  globalThis.pathExtname = pathExtname;
+  globalThis.pathIsAbsolute = pathIsAbsolute;
 }
 "#
 }

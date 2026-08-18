@@ -598,7 +598,7 @@ DraconicHostError draconic_rt_host_stdin_read_bytes(
     return DRACONIC_HOST_OK;
 }
 
-/* --- Path helpers (H03.01): join + normalize (no filesystem I/O) --- */
+/* --- Path helpers (H03.01–H03.02): join/normalize/dirname/basename/extname/isAbsolute --- */
 
 static int host_path_is_sep(char c) {
     return c == '/' || c == '\\';
@@ -818,4 +818,148 @@ char *draconic_rt_host_path_join(size_t n, const char *const *parts) {
     norm = draconic_rt_host_path_normalize(joined);
     free(joined);
     return norm;
+}
+
+/* Copy src[0..len) into malloc'd string, mapping `\` → `/`. */
+static char *host_path_dup_norm_seps(const char *src, size_t len) {
+    char *out;
+    size_t i;
+    out = (char *)malloc(len + 1);
+    if (!out) {
+        return NULL;
+    }
+    for (i = 0; i < len; i++) {
+        char c = src[i];
+        out[i] = (c == '\\') ? '/' : c;
+    }
+    out[len] = '\0';
+    return out;
+}
+
+static char *host_path_strdup_lit(const char *s) {
+    size_t n = strlen(s);
+    char *out = (char *)malloc(n + 1);
+    if (!out) {
+        return NULL;
+    }
+    memcpy(out, s, n + 1);
+    return out;
+}
+
+char *draconic_rt_host_path_dirname(const char *path) {
+    const char *src = path ? path : "";
+    size_t len = strlen(src);
+    size_t end;
+    size_t i;
+    size_t dend;
+
+    if (len == 0) {
+        return host_path_strdup_lit(".");
+    }
+
+    end = len;
+    while (end > 0 && host_path_is_sep(src[end - 1])) {
+        end--;
+    }
+    if (end == 0) {
+        return host_path_strdup_lit("/");
+    }
+
+    i = end;
+    while (i > 0 && !host_path_is_sep(src[i - 1])) {
+        i--;
+    }
+    if (i == 0) {
+        return host_path_strdup_lit(".");
+    }
+
+    dend = i;
+    while (dend > 0 && host_path_is_sep(src[dend - 1])) {
+        dend--;
+    }
+    if (dend == 0) {
+        return host_path_strdup_lit("/");
+    }
+    return host_path_dup_norm_seps(src, dend);
+}
+
+char *draconic_rt_host_path_basename(const char *path) {
+    const char *src = path ? path : "";
+    size_t len = strlen(src);
+    size_t end;
+    size_t i;
+
+    if (len == 0) {
+        return host_path_strdup_lit("");
+    }
+
+    end = len;
+    while (end > 0 && host_path_is_sep(src[end - 1])) {
+        end--;
+    }
+    if (end == 0) {
+        return host_path_strdup_lit("");
+    }
+
+    i = end;
+    while (i > 0 && !host_path_is_sep(src[i - 1])) {
+        i--;
+    }
+    return host_path_dup_norm_seps(src + i, end - i);
+}
+
+char *draconic_rt_host_path_extname(const char *path) {
+    const char *src = path ? path : "";
+    size_t len = strlen(src);
+    size_t i;
+    size_t end = 0;
+    size_t start_dot = (size_t)-1;
+    size_t start_part = 0;
+    int matched_slash = 1;
+    int pre_dot_state = 0;
+    int has_end = 0;
+    int has_start_dot = 0;
+
+    if (len == 0) {
+        return host_path_strdup_lit("");
+    }
+
+    for (i = len; i > 0; i--) {
+        char c = src[i - 1];
+        if (host_path_is_sep(c)) {
+            if (!matched_slash) {
+                start_part = i;
+                break;
+            }
+            continue;
+        }
+        if (!has_end) {
+            matched_slash = 0;
+            end = i;
+            has_end = 1;
+        }
+        if (c == '.') {
+            if (!has_start_dot) {
+                start_dot = i - 1;
+                has_start_dot = 1;
+            } else if (pre_dot_state != 1) {
+                pre_dot_state = 1;
+            }
+        } else if (has_start_dot) {
+            pre_dot_state = -1;
+        }
+    }
+
+    if (!has_start_dot || !has_end || pre_dot_state == 0 ||
+        (pre_dot_state == 1 && start_dot == end - 1 && start_dot == start_part + 1)) {
+        return host_path_strdup_lit("");
+    }
+    return host_path_dup_norm_seps(src + start_dot, end - start_dot);
+}
+
+int32_t draconic_rt_host_path_is_absolute(const char *path) {
+    if (!path || path[0] == '\0') {
+        return 0;
+    }
+    return host_path_is_sep(path[0]) ? 1 : 0;
 }

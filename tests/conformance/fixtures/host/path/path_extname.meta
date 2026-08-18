@@ -1,0 +1,6 @@
+id: host/path/path_extname
+targets: js,native
+js.exit: 0
+js.check: if (a !== ".html") process.exit(1); if (b !== ".md") process.exit(2); if (c !== ".") process.exit(3); if (d !== "") process.exit(4); if (e !== "") process.exit(5); if (f !== ".md") process.exit(6); if (g !== "") process.exit(7); if (h !== ".txt") process.exit(8);
+native.exit: 0
+native.stdout: .html\n.md\n.\n\n\n.md\n\n.txt\n

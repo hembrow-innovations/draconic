@@ -1,6 +1,7 @@
-//! H03.01: native observations for `pathJoin` / `pathNormalize`.
+//! H03.01–H03.02: native observations for path string helpers.
 //!
-//! Pure string path ops via Runtime ABI. String locals auto-printed via `print_str`.
+//! Pure string path ops via Runtime ABI. String locals auto-printed via `print_str`;
+//! bool locals (`pathIsAbsolute`) via `print_bool`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -8,7 +9,8 @@ use std::fmt::Write as _;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_PATH_JOIN, HOST_PATH_NORMALIZE, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_PATH_BASENAME, HOST_PATH_DIRNAME, HOST_PATH_EXTNAME,
+    HOST_PATH_IS_ABSOLUTE, HOST_PATH_JOIN, HOST_PATH_NORMALIZE, PRINT_BOOL, PRINT_STR,
 };
 
 pub(crate) fn is_host_path_module(module: &Module) -> bool {
@@ -25,17 +27,18 @@ pub(crate) fn emit_host_path(module: &Module) -> Result<String, Diagnostic> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     String,
+    Bool,
 }
 
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<LocalId>,
+    print_locals: Vec<(LocalId, SlotTy)>,
 }
 
 struct ClassifyCtx {
     slots: Vec<(LocalId, SlotTy)>,
     slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<LocalId>,
+    print_locals: Vec<(LocalId, SlotTy)>,
     has_path: bool,
 }
 
@@ -65,7 +68,7 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            ctx.print_locals.push(*local);
+            ctx.print_locals.push((*local, ty));
             Some(())
         }
         _ => None,
@@ -89,6 +92,38 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_path = true;
             Some(SlotTy::String)
         }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "pathDirname") => {
+            if args.len() != 1 {
+                return None;
+            }
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            ctx.has_path = true;
+            Some(SlotTy::String)
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "pathBasename") => {
+            if args.len() != 1 {
+                return None;
+            }
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            ctx.has_path = true;
+            Some(SlotTy::String)
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "pathExtname") => {
+            if args.len() != 1 {
+                return None;
+            }
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            ctx.has_path = true;
+            Some(SlotTy::String)
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "pathIsAbsolute") => {
+            if args.len() != 1 {
+                return None;
+            }
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            ctx.has_path = true;
+            Some(SlotTy::Bool)
+        }
         Expr::String { .. } => Some(SlotTy::String),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         _ => None,
@@ -100,6 +135,7 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
             SlotTy::String => Some(()),
+            SlotTy::Bool => None,
         },
         _ => None,
     }
@@ -202,27 +238,50 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_path (H03.01 pathJoin / pathNormalize)"
+            "; Draconic LLVM host_path (H03 path helpers)"
         )
         .ok();
-        let decls = vec![GC_INIT, PRINT_STR, HOST_PATH_NORMALIZE, HOST_PATH_JOIN];
+        let decls = vec![
+            GC_INIT,
+            PRINT_STR,
+            PRINT_BOOL,
+            HOST_PATH_NORMALIZE,
+            HOST_PATH_JOIN,
+            HOST_PATH_DIRNAME,
+            HOST_PATH_BASENAME,
+            HOST_PATH_EXTNAME,
+            HOST_PATH_IS_ABSOLUTE,
+        ];
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
-        for (id, _) in &self.info.slots {
+        for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
-            writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
+            let llvm_ty = match ty {
+                SlotTy::String => "ptr",
+                SlotTy::Bool => "i8",
+            };
+            writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
 
         for stmt in &self.module.body {
             self.emit_stmt(stmt)?;
         }
 
-        for id in &self.info.print_locals {
+        for (id, ty) in &self.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
-            let v = self.fresh();
-            writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
-            writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+            match ty {
+                SlotTy::String => {
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+                }
+                SlotTy::Bool => {
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
+                }
+            }
         }
 
         let body = std::mem::take(&mut self.body);
@@ -255,11 +314,56 @@ impl<'a> Emitter<'a> {
                     return Ok(());
                 };
                 let ptr = self.slot_ptr(*local)?;
-                let v = self.emit_string_expr(init)?;
-                writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                let ty = self
+                    .info
+                    .slots
+                    .iter()
+                    .find(|(id, _)| id == local)
+                    .map(|(_, t)| *t)
+                    .ok_or_else(|| diag("host_path: declare unknown slot"))?;
+                match ty {
+                    SlotTy::String => {
+                        let v = self.emit_string_expr(init)?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    }
+                    SlotTy::Bool => {
+                        let v = self.emit_bool_expr(init)?;
+                        writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
+                    }
+                }
                 Ok(())
             }
             _ => Err(diag("host_path: unsupported statement")),
+        }
+    }
+
+    fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "pathIsAbsolute") => {
+                if args.len() != 1 {
+                    return Err(diag("host_path: pathIsAbsolute expects 1 arg"));
+                }
+                let a = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_path: pathIsAbsolute arg"))?,
+                )?;
+                let r32 = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    HOST_PATH_IS_ABSOLUTE.call_to(&r32, &format!("ptr {a}"))
+                )
+                .ok();
+                let r = self.fresh();
+                writeln!(self.body, "  {r} = trunc i32 {r32} to i8").ok();
+                Ok(r)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_path: unsupported bool expr")),
         }
     }
 
@@ -300,7 +404,6 @@ impl<'a> Emitter<'a> {
                     .ok();
                     return Ok(r);
                 }
-                // Stack array of ptr for parts.
                 let arr = self.fresh();
                 writeln!(self.body, "  {arr} = alloca [{n} x ptr], align 8").ok();
                 for (i, a) in args.iter().enumerate() {
@@ -329,8 +432,39 @@ impl<'a> Emitter<'a> {
                 .ok();
                 Ok(r)
             }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "pathDirname") => {
+                self.emit_unary_path_call(args, "pathDirname", HOST_PATH_DIRNAME)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "pathBasename") => {
+                self.emit_unary_path_call(args, "pathBasename", HOST_PATH_BASENAME)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "pathExtname") => {
+                self.emit_unary_path_call(args, "pathExtname", HOST_PATH_EXTNAME)
+            }
             _ => Err(diag("host_path: unsupported string expr")),
         }
+    }
+
+    fn emit_unary_path_call(
+        &mut self,
+        args: &[Arg],
+        name: &str,
+        abi: draconic_runtime::abi::AbiFn,
+    ) -> Result<String, Diagnostic> {
+        if args.len() != 1 {
+            return Err(diag(&format!("host_path: {name} expects 1 arg")));
+        }
+        let a = self.emit_string_expr(
+            arg_expr(&args[0]).ok_or_else(|| diag(&format!("host_path: {name} arg")))?,
+        )?;
+        let r = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            abi.call_to(&r, &format!("ptr {a}"))
+        )
+        .ok();
+        Ok(r)
     }
 }
 
@@ -369,5 +503,35 @@ mod tests {
         assert!(is_host_path_module(&m));
         let ir = emit_host_path(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_path_join"));
+    }
+
+    #[test]
+    fn path_dirname_basename_extname_emits() {
+        let m = lower_src(
+            r#"
+            let a = pathDirname("/foo/bar");
+            let b = pathBasename("/foo/bar.txt");
+            let c = pathExtname("a.md");
+            "#,
+        );
+        assert!(is_host_path_module(&m));
+        let ir = emit_host_path(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_path_dirname"));
+        assert!(ir.contains("draconic_rt_host_path_basename"));
+        assert!(ir.contains("draconic_rt_host_path_extname"));
+    }
+
+    #[test]
+    fn path_is_absolute_emits_bool() {
+        let m = lower_src(
+            r#"
+            let a = pathIsAbsolute("/foo");
+            let b = pathIsAbsolute("foo");
+            "#,
+        );
+        assert!(is_host_path_module(&m));
+        let ir = emit_host_path(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_path_is_absolute"));
+        assert!(ir.contains("draconic_rt_print_bool"));
     }
 }

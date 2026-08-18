@@ -68,6 +68,7 @@ pub struct HostApiEntry {
 /// - `stderrWrite` (H02.02): both — write string or Uint8Array bytes to stderr.
 /// - `stdinReadLine` / `stdinReadBytes` (H02.03): both — blocking line/bytes from stdin.
 /// - `pathJoin` / `pathNormalize` (H03.01): both — pure path string ops (no I/O).
+/// - `pathDirname` / `pathBasename` / `pathExtname` / `pathIsAbsolute` (H03.02): both.
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -144,6 +145,26 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "pathNormalize",
         availability: HostAvailability::BOTH,
         note: "H03.01 path normalize",
+    },
+    HostApiEntry {
+        name: "pathDirname",
+        availability: HostAvailability::BOTH,
+        note: "H03.02 path dirname",
+    },
+    HostApiEntry {
+        name: "pathBasename",
+        availability: HostAvailability::BOTH,
+        note: "H03.02 path basename",
+    },
+    HostApiEntry {
+        name: "pathExtname",
+        availability: HostAvailability::BOTH,
+        note: "H03.02 path extname",
+    },
+    HostApiEntry {
+        name: "pathIsAbsolute",
+        availability: HostAvailability::BOTH,
+        note: "H03.02 path isAbsolute",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -314,6 +335,26 @@ mod tests {
     #[test]
     fn registry_lists_path_join_normalize_both() {
         for name in ["pathJoin", "pathNormalize"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_path_dirname_basename_extname_is_absolute_both() {
+        for name in [
+            "pathDirname",
+            "pathBasename",
+            "pathExtname",
+            "pathIsAbsolute",
+        ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

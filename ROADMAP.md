@@ -603,7 +603,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H02.03 | done | both | stdin read: line or bounded bytes (v1 blocking ok on native) | `tests/conformance` fixtures `host/stdio` |
 | H03 | todo | both | Path helpers (string ops; no I/O) | `tests/conformance/host/path` |
 | H03.01 | done | both | `path.join` / `path.normalize` (POSIX + Windows-aware as designed) | `tests/conformance` fixtures `host/path` |
-| H03.02 | todo | both | `dirname` / `basename` / `extname` / `isAbsolute` | `tests/conformance` fixtures `host/path` |
+| H03.02 | done | both | `dirname` / `basename` / `extname` / `isAbsolute` | `tests/conformance` fixtures `host/path` |
 | H03.03 | todo | both | `path.resolve` relative to cwd (needs **H16.01**) | `tests/conformance` fixtures `host/path` |
 | H04 | todo | both | Filesystem: read / write / dirs | `tests/conformance/host/fs` |
 | H04.01 | todo | both | File read: whole-file bytes + UTF-8 text; missing → typed error | `tests/conformance` fixtures `host/fs` |

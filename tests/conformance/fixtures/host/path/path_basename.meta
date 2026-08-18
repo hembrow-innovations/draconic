@@ -1,0 +1,6 @@
+id: host/path/path_basename
+targets: js,native
+js.exit: 0
+js.check: if (a !== "baz.txt") process.exit(1); if (b !== "bar") process.exit(2); if (c !== "") process.exit(3); if (d !== "") process.exit(4); if (e !== ".") process.exit(5); if (f !== "..") process.exit(6); if (g !== "foo") process.exit(7); if (h !== "baz") process.exit(8);
+native.exit: 0
+native.stdout: baz.txt\nbar\n\n\n.\n..\nfoo\nbaz\n

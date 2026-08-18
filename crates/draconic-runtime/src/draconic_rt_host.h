@@ -160,7 +160,7 @@ DraconicHostError draconic_rt_host_stdin_read_bytes(
     uint8_t **out_data,
     size_t *out_len);
 
-/* --- Path helpers (H03.01): pure string ops; no filesystem I/O ---
+/* --- Path helpers (H03.01–H03.02): pure string ops; no filesystem I/O ---
    POSIX-style separator `/` in output; input accepts `/` and `\` (Windows-aware).
    Results are malloc'd NUL-terminated UTF-8; free with draconic_rt_host_path_free.
    Empty normalize → "."; empty join → ".". */
@@ -170,6 +170,18 @@ char *draconic_rt_host_path_normalize(const char *path);
 
 /* Join n segments then normalize. parts may be NULL when n == 0. */
 char *draconic_rt_host_path_join(size_t n, const char *const *parts);
+
+/* Directory name (parent path). Empty → "."; root → "/". */
+char *draconic_rt_host_path_dirname(const char *path);
+
+/* Final path segment. Empty / root-only → "". */
+char *draconic_rt_host_path_basename(const char *path);
+
+/* Extension including leading `.` ("" if none). */
+char *draconic_rt_host_path_extname(const char *path);
+
+/* 1 if path starts with `/` or `\`; 0 otherwise (NULL/empty → 0). */
+int32_t draconic_rt_host_path_is_absolute(const char *path);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,6 @@
+// H03.02: pathIsAbsolute — leading `/` or `\` is absolute (no I/O).
+let a = pathIsAbsolute("/foo/bar");
+let b = pathIsAbsolute("foo/bar");
+let c = pathIsAbsolute("");
+let d = pathIsAbsolute("\\foo");
+let e = pathIsAbsolute("/");
