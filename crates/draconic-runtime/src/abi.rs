@@ -822,6 +822,17 @@ pub const HOST_FS_APPEND_TEXT: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, ptr",
 };
+/* H04.03: exists / stat. */
+pub const HOST_FS_EXISTS: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_exists",
+    ret: "i32",
+    params: "ptr",
+};
+pub const HOST_FS_STAT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_fs_stat",
+    ret: "i32",
+    params: "ptr, ptr, ptr, ptr, ptr",
+};
 
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
@@ -860,6 +871,8 @@ pub const HOST_FS_WRITE_FILE_SYMBOL: &str = HOST_FS_WRITE_FILE.symbol;
 pub const HOST_FS_APPEND_FILE_SYMBOL: &str = HOST_FS_APPEND_FILE.symbol;
 pub const HOST_FS_WRITE_TEXT_SYMBOL: &str = HOST_FS_WRITE_TEXT.symbol;
 pub const HOST_FS_APPEND_TEXT_SYMBOL: &str = HOST_FS_APPEND_TEXT.symbol;
+pub const HOST_FS_EXISTS_SYMBOL: &str = HOST_FS_EXISTS.symbol;
+pub const HOST_FS_STAT_SYMBOL: &str = HOST_FS_STAT.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H04).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -900,6 +913,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_FS_APPEND_FILE_SYMBOL,
     HOST_FS_WRITE_TEXT_SYMBOL,
     HOST_FS_APPEND_TEXT_SYMBOL,
+    HOST_FS_EXISTS_SYMBOL,
+    HOST_FS_STAT_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -941,6 +956,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_FS_APPEND_FILE,
     HOST_FS_WRITE_TEXT,
     HOST_FS_APPEND_TEXT,
+    HOST_FS_EXISTS,
+    HOST_FS_STAT,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -1286,10 +1303,10 @@ if (typeof globalThis !== "undefined") {
 "#
 }
 
-/// JS polyfill for host file APIs (H04.01 read + H04.02 write/append).
+/// JS polyfill for host file APIs (H04.01–H04.03).
 ///
 /// Node `fs` bridge. Missing path → throw `Error` with `.code === "ENOENT"`
-/// and `.name === "HostError"`.
+/// and `.name === "HostError"`. `exists` returns boolean (no throw).
 pub fn fs_read_js_polyfill() -> &'static str {
     r#"function __draconic_host_fs_err(code, path, cause) {
   var msg = code + ": " + (cause && cause.message ? cause.message : "file error");
@@ -1366,6 +1383,32 @@ function appendFileBytes(path, data) {
     __draconic_host_fs_catch(p, err);
   }
 }
+function exists(path) {
+  var p = String(path);
+  if (!p) return false;
+  var fs = require("fs");
+  try {
+    fs.accessSync(p);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+function stat(path) {
+  var p = String(path);
+  var fs = require("fs");
+  try {
+    var st = fs.statSync(p);
+    return {
+      size: st.size,
+      isFile: st.isFile(),
+      isDir: st.isDirectory(),
+      mtime: st.mtimeMs != null ? st.mtimeMs : (+st.mtime)
+    };
+  } catch (err) {
+    __draconic_host_fs_catch(p, err);
+  }
+}
 if (typeof globalThis !== "undefined") {
   globalThis.readFileText = readFileText;
   globalThis.readFileBytes = readFileBytes;
@@ -1373,6 +1416,8 @@ if (typeof globalThis !== "undefined") {
   globalThis.appendFileText = appendFileText;
   globalThis.writeFileBytes = writeFileBytes;
   globalThis.appendFileBytes = appendFileBytes;
+  globalThis.exists = exists;
+  globalThis.stat = stat;
 }
 "#
 }

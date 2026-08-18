@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #if defined(_WIN32)
 #include <process.h>
@@ -1146,4 +1147,66 @@ DraconicHostError draconic_rt_host_fs_append_text(
     const char *t = text ? text : "";
     size_t len = strlen(t);
     return draconic_rt_host_fs_append_file(path, (const uint8_t *)t, len);
+}
+
+/* --- Filesystem exists / stat (H04.03) ----------------------------------- */
+
+int32_t draconic_rt_host_fs_exists(const char *path) {
+    struct stat st;
+    if (!path || path[0] == '\0') {
+        return 0;
+    }
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return 1;
+}
+
+DraconicHostError draconic_rt_host_fs_stat(
+    const char *path,
+    int64_t *out_size,
+    int32_t *out_is_file,
+    int32_t *out_is_dir,
+    double *out_mtime_ms) {
+    struct stat st;
+    double ms;
+
+    if (!path || path[0] == '\0' || !out_size || !out_is_file || !out_is_dir
+        || !out_mtime_ms) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_size = 0;
+    *out_is_file = 0;
+    *out_is_dir = 0;
+    *out_mtime_ms = 0.0;
+
+    if (stat(path, &st) != 0) {
+        if (errno == ENOENT || errno == ENOTDIR) {
+            return DRACONIC_HOST_E_NOENT;
+        }
+        if (errno == EACCES
+#if defined(EPERM)
+            || errno == EPERM
+#endif
+        ) {
+            return DRACONIC_HOST_E_PERM;
+        }
+        return DRACONIC_HOST_E_IO;
+    }
+
+    *out_size = (int64_t)st.st_size;
+    *out_is_file = S_ISREG(st.st_mode) ? 1 : 0;
+    *out_is_dir = S_ISDIR(st.st_mode) ? 1 : 0;
+
+#if defined(__APPLE__)
+    ms = (double)st.st_mtimespec.tv_sec * 1000.0
+        + (double)st.st_mtimespec.tv_nsec / 1000000.0;
+#elif defined(_WIN32)
+    ms = (double)st.st_mtime * 1000.0;
+#else
+    ms = (double)st.st_mtim.tv_sec * 1000.0
+        + (double)st.st_mtim.tv_nsec / 1000000.0;
+#endif
+    *out_mtime_ms = ms;
+    return DRACONIC_HOST_OK;
 }

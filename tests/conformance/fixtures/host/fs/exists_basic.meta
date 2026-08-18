@@ -1,0 +1,6 @@
+id: host/fs/exists_basic
+targets: js,native
+js.exit: 0
+js.check: if (a !== true) process.exit(1); if (b !== true) process.exit(2); if (c !== false) process.exit(3);
+native.exit: 0
+native.stdout: true\ntrue\nfalse\n

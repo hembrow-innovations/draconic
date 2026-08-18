@@ -1,0 +1,6 @@
+// H04.03: stat file — size, isFile, isDir, mtime > 0.
+let s = stat("fixtures/host/fs/testdata/hello.txt");
+let size = s.size;
+let isF = s.isFile;
+let isD = s.isDir;
+let mtOk = s.mtime > 0;

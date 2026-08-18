@@ -1,0 +1,4 @@
+id: host/fs/stat_missing
+targets: js
+js.exit: 0
+js.check: if (code !== "ENOENT") process.exit(1); if (name !== "HostError") process.exit(2);

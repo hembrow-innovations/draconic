@@ -1,21 +1,24 @@
-//! H04.01–H04.02: native observations for whole-file read / write / append.
+//! H04.01–H04.03: native observations for whole-file read / write / exists / stat.
 //!
 //! - `readFileText(path)` → string (auto-printed)
 //! - `readFileBytes(path)` → dynamic bytes; `.length` + `stdoutWrite`
 //! - `writeFileText(path, text)` / `appendFileText(path, text)`
 //! - `writeFileBytes(path, data)` / `appendFileBytes(path, data)` (string or DynBytes)
+//! - `exists(path)` → bool (auto-printed)
+//! - `stat(path)` → Stat; `.size` / `.isFile` / `.isDir` / `.mtime` (+ `>` for mtime check)
 //!
-//! Missing path: stderr `ENOENT` + exit 1 (typed HostError on js).
+//! Missing path (read/write/stat): stderr `ENOENT` + exit 1 (typed HostError on js).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_FS_APPEND_FILE, HOST_FS_APPEND_TEXT, HOST_FS_READ_FILE,
-    HOST_FS_READ_TEXT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT, HOST_PROCESS_EXIT,
-    HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_F64, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_FS_APPEND_FILE, HOST_FS_APPEND_TEXT, HOST_FS_EXISTS,
+    HOST_FS_READ_FILE, HOST_FS_READ_TEXT, HOST_FS_STAT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT,
+    HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_fs_module(module: &Module) -> bool {
@@ -34,6 +37,9 @@ enum SlotTy {
     String,
     DynBytes,
     Number,
+    Bool,
+    /// Opaque stat result; fields via `.size` / `.isFile` / `.isDir` / `.mtime`.
+    Stat,
 }
 
 struct ModuleInfo {
@@ -46,6 +52,8 @@ struct ModuleInfo {
     needs_append_text: bool,
     needs_write_bytes: bool,
     needs_append_bytes: bool,
+    needs_exists: bool,
+    needs_stat: bool,
 }
 
 struct ClassifyCtx {
@@ -59,6 +67,8 @@ struct ClassifyCtx {
     needs_append_text: bool,
     needs_write_bytes: bool,
     needs_append_bytes: bool,
+    needs_exists: bool,
+    needs_stat: bool,
     has_fs: bool,
 }
 
@@ -74,6 +84,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_append_text: false,
         needs_write_bytes: false,
         needs_append_bytes: false,
+        needs_exists: false,
+        needs_stat: false,
         has_fs: false,
     };
     for stmt in &module.body {
@@ -92,6 +104,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_append_text: ctx.needs_append_text,
         needs_write_bytes: ctx.needs_write_bytes,
         needs_append_bytes: ctx.needs_append_bytes,
+        needs_exists: ctx.needs_exists,
+        needs_stat: ctx.needs_stat,
     })
 }
 
@@ -103,10 +117,10 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
             match ty {
-                SlotTy::String | SlotTy::Number => {
+                SlotTy::String | SlotTy::Number | SlotTy::Bool => {
                     ctx.print_locals.push((*local, ty));
                 }
-                SlotTy::DynBytes => {}
+                SlotTy::DynBytes | SlotTy::Stat => {}
             }
             Some(())
         }
@@ -175,6 +189,19 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_bytes_or_string_arg(arg_expr(&args[1])?, ctx)?;
             Some(())
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1
+                && (is_named_callee(callee, "exists") || is_named_callee(callee, "stat")) =>
+        {
+            ctx.has_fs = true;
+            if is_named_callee(callee, "exists") {
+                ctx.needs_exists = true;
+            } else {
+                ctx.needs_stat = true;
+            }
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(())
+        }
         _ => None,
     }
 }
@@ -208,23 +235,55 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.needs_bytes = true;
             Some(SlotTy::DynBytes)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "exists") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            ctx.has_fs = true;
+            ctx.needs_exists = true;
+            Some(SlotTy::Bool)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "stat") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            ctx.has_fs = true;
+            ctx.needs_stat = true;
+            Some(SlotTy::Stat)
+        }
         Expr::Member {
             object,
             property,
             computed: false,
             ..
         } => {
-            let obj = classify_expr(object, ctx)?;
+            let obj = match object.as_ref() {
+                Expr::Local { id, .. } => ctx.slot_of.get(id).copied()?,
+                _ => classify_expr(object, ctx)?,
+            };
             let prop = string_lit(property)?;
-            if prop == "length" {
-                match obj {
-                    SlotTy::DynBytes => Some(SlotTy::Number),
-                    _ => None,
-                }
+            match (obj, prop.as_str()) {
+                (SlotTy::DynBytes, "length") => Some(SlotTy::Number),
+                (SlotTy::Stat, "size" | "mtime") => Some(SlotTy::Number),
+                (SlotTy::Stat, "isFile" | "isDir") => Some(SlotTy::Bool),
+                _ => None,
+            }
+        }
+        Expr::Binary {
+            op: BinaryOp::Gt,
+            left,
+            right,
+            ..
+        } => {
+            let lt = classify_expr(left, ctx)?;
+            let rt = classify_expr(right, ctx)?;
+            if lt == SlotTy::Number && rt == SlotTy::Number {
+                Some(SlotTy::Bool)
             } else {
                 None
             }
         }
+        Expr::Number { .. } => Some(SlotTy::Number),
         Expr::String { .. } => Some(SlotTy::String),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         _ => None,
@@ -347,6 +406,14 @@ impl<'a> Emitter<'a> {
         Ok(format!("%slot_{name}_len"))
     }
 
+    fn slot_stat_field(&self, id: LocalId, field: &str) -> Result<String, Diagnostic> {
+        let name = self
+            .local_name
+            .get(&id)
+            .ok_or_else(|| diag("host_fs: unknown local"))?;
+        Ok(format!("%slot_{name}_{field}"))
+    }
+
     fn intern_cstr(&mut self, s: &str) -> String {
         if let Some((_, g)) = self.str_globals.iter().find(|(c, _)| c == s) {
             return g.clone();
@@ -371,10 +438,17 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_fs (H04.01–H04.02 file read/write)"
+            "; Draconic LLVM host_fs (H04.01–H04.03 file read/write/exists/stat)"
         )
         .ok();
-        let mut decls = vec![GC_INIT, PRINT_STR, PRINT_F64, HOST_PROCESS_EXIT, HOST_STDERR_WRITE];
+        let mut decls = vec![
+            GC_INIT,
+            PRINT_STR,
+            PRINT_F64,
+            PRINT_BOOL,
+            HOST_PROCESS_EXIT,
+            HOST_STDERR_WRITE,
+        ];
         if self.info.needs_text {
             decls.push(HOST_FS_READ_TEXT);
         }
@@ -396,6 +470,12 @@ impl<'a> Emitter<'a> {
         if self.info.needs_append_bytes {
             decls.push(HOST_FS_APPEND_FILE);
         }
+        if self.info.needs_exists {
+            decls.push(HOST_FS_EXISTS);
+        }
+        if self.info.needs_stat {
+            decls.push(HOST_FS_STAT);
+        }
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
@@ -408,10 +488,23 @@ impl<'a> Emitter<'a> {
                 SlotTy::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
+                SlotTy::Bool => {
+                    writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
+                }
                 SlotTy::DynBytes => {
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  {lp} = alloca i64, align 8").ok();
+                }
+                SlotTy::Stat => {
+                    let size = self.slot_stat_field(*id, "size")?;
+                    let is_file = self.slot_stat_field(*id, "is_file")?;
+                    let is_dir = self.slot_stat_field(*id, "is_dir")?;
+                    let mtime = self.slot_stat_field(*id, "mtime")?;
+                    writeln!(self.body, "  {size} = alloca i64, align 8").ok();
+                    writeln!(self.body, "  {is_file} = alloca i32, align 4").ok();
+                    writeln!(self.body, "  {is_dir} = alloca i32, align 4").ok();
+                    writeln!(self.body, "  {mtime} = alloca double, align 8").ok();
                 }
             }
         }
@@ -433,7 +526,12 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::DynBytes => {}
+                SlotTy::Bool => {
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
+                }
+                SlotTy::DynBytes | SlotTy::Stat => {}
             }
         }
 
@@ -528,6 +626,14 @@ impl<'a> Emitter<'a> {
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::Bool => {
+                        let v = self.emit_bool_expr(init)?;
+                        let ptr = self.slot_ptr(*local)?;
+                        writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
+                    }
+                    SlotTy::Stat => {
+                        self.emit_stat_into(*local, init)?;
+                    }
                 }
                 Ok(())
             }
@@ -609,6 +715,36 @@ impl<'a> Emitter<'a> {
                     arg_expr(&args[1]).ok_or_else(|| diag("host_fs: appendFileBytes data"))?,
                     HOST_FS_APPEND_FILE.symbol,
                 )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "exists") =>
+            {
+                let _ = self.emit_bool_expr(expr)?;
+                Ok(())
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "stat") =>
+            {
+                // discard; still checks error
+                let path = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: stat path"))?,
+                )?;
+                let out_size = self.fresh();
+                let out_file = self.fresh();
+                let out_dir = self.fresh();
+                let out_mt = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_size} = alloca i64, align 8").ok();
+                writeln!(self.body, "  {out_file} = alloca i32, align 4").ok();
+                writeln!(self.body, "  {out_dir} = alloca i32, align 4").ok();
+                writeln!(self.body, "  {out_mt} = alloca double, align 8").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {path}, ptr {out_size}, ptr {out_file}, ptr {out_dir}, ptr {out_mt})",
+                    HOST_FS_STAT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)
             }
             _ => Err(diag("host_fs: unsupported expr stmt")),
         }
@@ -881,22 +1017,33 @@ impl<'a> Emitter<'a> {
 
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
+            Expr::Number { raw, .. } => {
+                // LLVM double constants need a decimal form (`0` alone is rejected).
+                if raw.contains('.') || raw.contains('e') || raw.contains('E') {
+                    Ok(raw.clone())
+                } else {
+                    Ok(format!("{raw}.0"))
+                }
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                Ok(v)
+            }
             Expr::Member {
                 object,
                 property,
                 computed: false,
                 ..
             } => {
-                let prop = string_lit(property).ok_or_else(|| diag("host_fs: length prop"))?;
-                if prop != "length" {
-                    return Err(diag("host_fs: only .length"));
-                }
+                let prop = string_lit(property).ok_or_else(|| diag("host_fs: member prop"))?;
                 let id = match object.as_ref() {
                     Expr::Local { id, .. } => *id,
-                    _ => return Err(diag("host_fs: length object must be local")),
+                    _ => return Err(diag("host_fs: member object must be local")),
                 };
-                match self.slot_of.get(&id) {
-                    Some(SlotTy::DynBytes) => {
+                match (self.slot_of.get(&id), prop.as_str()) {
+                    (Some(SlotTy::DynBytes), "length") => {
                         let lp = self.slot_len_ptr(id)?;
                         let iv = self.fresh();
                         let fv = self.fresh();
@@ -904,10 +1051,126 @@ impl<'a> Emitter<'a> {
                         writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
                         Ok(fv)
                     }
-                    _ => Err(diag("host_fs: .length on non-bytes")),
+                    (Some(SlotTy::Stat), "size") => {
+                        let sp = self.slot_stat_field(id, "size")?;
+                        let iv = self.fresh();
+                        let fv = self.fresh();
+                        writeln!(self.body, "  {iv} = load i64, ptr {sp}").ok();
+                        writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                        Ok(fv)
+                    }
+                    (Some(SlotTy::Stat), "mtime") => {
+                        let mp = self.slot_stat_field(id, "mtime")?;
+                        let v = self.fresh();
+                        writeln!(self.body, "  {v} = load double, ptr {mp}").ok();
+                        Ok(v)
+                    }
+                    _ => Err(diag("host_fs: unsupported number member")),
                 }
             }
             _ => Err(diag("host_fs: unsupported number expr")),
+        }
+    }
+
+    fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "exists") => {
+                if args.len() != 1 {
+                    return Err(diag("host_fs: exists expects 1 arg"));
+                }
+                let path = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: exists path"))?,
+                )?;
+                let rc = self.fresh();
+                let b = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {path})",
+                    HOST_FS_EXISTS.symbol
+                )
+                .ok();
+                // exists returns 0/1 i32 → i8
+                writeln!(self.body, "  {b} = trunc i32 {rc} to i8").ok();
+                Ok(b)
+            }
+            Expr::Member {
+                object,
+                property,
+                computed: false,
+                ..
+            } => {
+                let prop = string_lit(property).ok_or_else(|| diag("host_fs: bool member"))?;
+                let id = match object.as_ref() {
+                    Expr::Local { id, .. } => *id,
+                    _ => return Err(diag("host_fs: bool member object must be local")),
+                };
+                match (self.slot_of.get(&id), prop.as_str()) {
+                    (Some(SlotTy::Stat), "isFile") => {
+                        let p = self.slot_stat_field(id, "is_file")?;
+                        let iv = self.fresh();
+                        let b = self.fresh();
+                        writeln!(self.body, "  {iv} = load i32, ptr {p}").ok();
+                        writeln!(self.body, "  {b} = trunc i32 {iv} to i8").ok();
+                        Ok(b)
+                    }
+                    (Some(SlotTy::Stat), "isDir") => {
+                        let p = self.slot_stat_field(id, "is_dir")?;
+                        let iv = self.fresh();
+                        let b = self.fresh();
+                        writeln!(self.body, "  {iv} = load i32, ptr {p}").ok();
+                        writeln!(self.body, "  {b} = trunc i32 {iv} to i8").ok();
+                        Ok(b)
+                    }
+                    _ => Err(diag("host_fs: unsupported bool member")),
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left,
+                right,
+                ..
+            } => {
+                let l = self.emit_number_expr(left)?;
+                let r = self.emit_number_expr(right)?;
+                let cmp = self.fresh();
+                let b = self.fresh();
+                writeln!(self.body, "  {cmp} = fcmp ogt double {l}, {r}").ok();
+                writeln!(self.body, "  {b} = zext i1 {cmp} to i8").ok();
+                Ok(b)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_fs: unsupported bool expr")),
+        }
+    }
+
+    fn emit_stat_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "stat") => {
+                if args.len() != 1 {
+                    return Err(diag("host_fs: stat expects 1 arg"));
+                }
+                let path = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_fs: stat path"))?,
+                )?;
+                let size = self.slot_stat_field(local, "size")?;
+                let is_file = self.slot_stat_field(local, "is_file")?;
+                let is_dir = self.slot_stat_field(local, "is_dir")?;
+                let mtime = self.slot_stat_field(local, "mtime")?;
+                let rc = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {path}, ptr {size}, ptr {is_file}, ptr {is_dir}, ptr {mtime})",
+                    HOST_FS_STAT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)
+            }
+            _ => Err(diag("host_fs: expected stat")),
         }
     }
 }
@@ -989,5 +1252,37 @@ mod tests {
         assert!(is_host_fs_module(&m));
         let ir = emit_host_fs(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_write_file"), "{ir}");
+    }
+
+    #[test]
+    fn exists_emits() {
+        let m = lower_src(
+            r#"
+            let a = exists("hello.txt");
+            let b = exists("__missing__");
+            "#,
+        );
+        assert!(is_host_fs_module(&m));
+        let ir = emit_host_fs(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_fs_exists"), "{ir}");
+        assert!(ir.contains("draconic_rt_print_bool"), "{ir}");
+    }
+
+    #[test]
+    fn stat_emits() {
+        let m = lower_src(
+            r#"
+            let s = stat("hello.txt");
+            let size = s.size;
+            let isF = s.isFile;
+            let isD = s.isDir;
+            let mtOk = s.mtime > 0;
+            "#,
+        );
+        assert!(is_host_fs_module(&m));
+        let ir = emit_host_fs(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_fs_stat"), "{ir}");
+        assert!(ir.contains("draconic_rt_print_f64"), "{ir}");
+        assert!(ir.contains("draconic_rt_print_bool"), "{ir}");
     }
 }

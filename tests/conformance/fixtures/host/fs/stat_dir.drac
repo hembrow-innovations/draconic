@@ -1,0 +1,5 @@
+// H04.03: stat directory — isDir true, isFile false.
+let s = stat("fixtures/host/fs/testdata");
+let isF = s.isFile;
+let isD = s.isDir;
+let mtOk = s.mtime > 0;

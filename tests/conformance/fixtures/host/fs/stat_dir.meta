@@ -1,0 +1,6 @@
+id: host/fs/stat_dir
+targets: js,native
+js.exit: 0
+js.check: if (isF !== false) process.exit(1); if (isD !== true) process.exit(2); if (mtOk !== true) process.exit(3);
+native.exit: 0
+native.stdout: false\ntrue\ntrue\n

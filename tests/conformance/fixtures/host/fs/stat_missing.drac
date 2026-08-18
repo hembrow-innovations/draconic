@@ -1,0 +1,9 @@
+// H04.03: missing path → typed HostError ENOENT (js).
+let code = "";
+let name = "";
+try {
+  stat("fixtures/host/fs/testdata/__no_such_h0403_stat__");
+} catch (e) {
+  code = e.code;
+  name = e.name;
+}

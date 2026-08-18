@@ -1,4 +1,4 @@
-//! ROADMAP H04.01–H04.02: whole-file read / write / append.
+//! ROADMAP H04.01–H04.03: whole-file read / write / append / exists / stat.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -110,4 +110,34 @@ fn write_file_empty_runs() {
 fn write_file_missing_parent_js() {
     assert_fixture_present("host/fs/write_file_missing_parent");
     assert_fixture_runs("host/fs/write_file_missing_parent");
+}
+
+#[test]
+fn exists_basic_runs() {
+    assert_fixture_present("host/fs/exists_basic");
+    assert_fixture_runs("host/fs/exists_basic");
+}
+
+#[test]
+fn stat_file_runs() {
+    assert_fixture_present("host/fs/stat_file");
+    assert_fixture_runs("host/fs/stat_file");
+}
+
+#[test]
+fn stat_dir_runs() {
+    assert_fixture_present("host/fs/stat_dir");
+    assert_fixture_runs("host/fs/stat_dir");
+}
+
+#[test]
+fn stat_missing_js() {
+    assert_fixture_present("host/fs/stat_missing");
+    assert_fixture_runs("host/fs/stat_missing");
+}
+
+#[test]
+fn stat_missing_native() {
+    assert_fixture_present("host/fs/stat_missing_native");
+    assert_fixture_runs("host/fs/stat_missing_native");
 }

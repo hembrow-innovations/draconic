@@ -1,0 +1,6 @@
+id: host/fs/stat_file
+targets: js,native
+js.exit: 0
+js.check: if (size !== 11) process.exit(1); if (isF !== true) process.exit(2); if (isD !== false) process.exit(3); if (mtOk !== true) process.exit(4); if (typeof s.mtime !== "number") process.exit(5);
+native.exit: 0
+native.stdout: 11\ntrue\nfalse\ntrue\n

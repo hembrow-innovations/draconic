@@ -71,6 +71,7 @@ pub struct HostApiEntry {
 /// - `pathDirname` / `pathBasename` / `pathExtname` / `pathIsAbsolute` (H03.02): both.
 /// - `readFileText` / `readFileBytes` (H04.01): both — whole-file read; missing → HostError ENOENT.
 /// - `writeFileText` / `writeFileBytes` / `appendFileText` / `appendFileBytes` (H04.02): both — create/truncate or append.
+/// - `exists` / `stat` (H04.03): both — path exists bool; stat `{size,isFile,isDir,mtime}` (missing → ENOENT).
 /// - `tcpListen` is a native-only scaffold for H06 (sockets-first); js must hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -197,6 +198,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "appendFileBytes",
         availability: HostAvailability::BOTH,
         note: "H04.02 file append bytes",
+    },
+    HostApiEntry {
+        name: "exists",
+        availability: HostAvailability::BOTH,
+        note: "H04.03 path exists",
+    },
+    HostApiEntry {
+        name: "stat",
+        availability: HostAvailability::BOTH,
+        note: "H04.03 path stat",
     },
     HostApiEntry {
         name: "tcpListen",
@@ -422,6 +433,21 @@ mod tests {
             "appendFileText",
             "appendFileBytes",
         ] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_exists_stat_both() {
+        for name in ["exists", "stat"] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(entry.availability.js, "{name}");
             assert!(entry.availability.native, "{name}");

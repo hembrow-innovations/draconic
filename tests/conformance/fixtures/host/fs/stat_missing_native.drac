@@ -1,0 +1,2 @@
+// H04.03: stat missing path — native stderr ENOENT + exit 1.
+stat("fixtures/host/fs/testdata/__no_such_h0403_stat__");

@@ -1,0 +1,4 @@
+// H04.03: exists — true for file/dir, false for missing.
+let a = exists("fixtures/host/fs/testdata/hello.txt");
+let b = exists("fixtures/host/fs/testdata");
+let c = exists("fixtures/host/fs/testdata/__no_such_h0403__");

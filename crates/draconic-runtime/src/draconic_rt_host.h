@@ -228,6 +228,20 @@ DraconicHostError draconic_rt_host_fs_append_text(
     const char *path,
     const char *text);
 
+/* --- Filesystem exists / stat (H04.03) -------------------------------------
+   exists: 1 if path exists, 0 if missing or path NULL/empty (no throw).
+   stat: missing → DRACONIC_HOST_E_NOENT. size = bytes; is_file/is_dir are
+   0/1; mtime_ms is modification time as milliseconds since Unix epoch. */
+
+int32_t draconic_rt_host_fs_exists(const char *path);
+
+DraconicHostError draconic_rt_host_fs_stat(
+    const char *path,
+    int64_t *out_size,
+    int32_t *out_is_file,
+    int32_t *out_is_dir,
+    double *out_mtime_ms);
+
 #ifdef __cplusplus
 }
 #endif
