@@ -1,4 +1,4 @@
-//! ROADMAP H01.01 / H01.02 / H01.03: process args + env + exit / exitCode.
+//! ROADMAP H01.01 / H01.02 / H01.03 / H01.04: process args + env + exit + pid/ppid.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -87,4 +87,14 @@ fn process_exit_default_fixture_present() {
 #[test]
 fn process_exit_default_runs_js_and_native() {
     assert_fixture_runs("host/process/process_exit_default");
+}
+
+#[test]
+fn process_pid_fixture_present() {
+    assert_fixture_present("host/process/process_pid");
+}
+
+#[test]
+fn process_pid_runs_js_and_native() {
+    assert_fixture_runs("host/process/process_pid");
 }

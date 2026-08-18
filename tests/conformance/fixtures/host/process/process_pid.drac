@@ -1,0 +1,5 @@
+// H01.04: pid() + ppid() — read-only OS process / parent process id (number).
+let t_p = typeof pid();
+let t_pp = typeof ppid();
+let pid_ok = pid() > 0;
+let ppid_ok = ppid() >= 0;

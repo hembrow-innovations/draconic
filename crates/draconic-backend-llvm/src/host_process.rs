@@ -1,24 +1,26 @@
-//! H01.01 / H01.02 / H01.03: native observations for process host APIs.
+//! H01.01 / H01.02 / H01.03 / H01.04: native observations for process host APIs.
 //!
 //! - `processArgs()` — user program args as string[]
 //! - `envGet` / `envSet` / `envDelete` — string env; missing get → undefined
 //! - `exit` / `exitCode` / `setExitCode` — terminate / deferred status (default 0)
+//! - `pid` / `ppid` — read-only OS process / parent process id (number)
 //!
-//! Prints number locals via `print_f64` and string / maybe-string locals via
-//! `print_str` (null maybe-string prints as `undefined`). `main` takes OS
-//! argc/argv when processArgs is used. Exit-only modules return deferred code.
+//! Prints number locals via `print_f64`, bool locals via `print_bool`, and
+//! string / maybe-string locals via `print_str` (null maybe-string prints as
+//! `undefined`). `main` takes OS argc/argv when processArgs is used.
+//! Exit-only modules return deferred code.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use draconic_ast::UnaryOp;
+use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_ENV_DELETE,
-    HOST_ENV_GET, HOST_ENV_SET, HOST_PROCESS_EXIT, HOST_PROCESS_GET_EXIT_CODE,
-    HOST_PROCESS_SET_ARGV, HOST_PROCESS_SET_EXIT_CODE, HOST_PROCESS_USER_ARG,
-    HOST_PROCESS_USER_ARGC, PRINT_F64, PRINT_STR,
+    HOST_ENV_GET, HOST_ENV_SET, HOST_PROCESS_EXIT, HOST_PROCESS_GET_EXIT_CODE, HOST_PROCESS_PID,
+    HOST_PROCESS_PPID, HOST_PROCESS_SET_ARGV, HOST_PROCESS_SET_EXIT_CODE, HOST_PROCESS_USER_ARG,
+    HOST_PROCESS_USER_ARGC, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_process_module(module: &Module) -> bool {
@@ -36,6 +38,7 @@ pub(crate) fn emit_host_process(module: &Module) -> Result<String, Diagnostic> {
 enum SlotTy {
     Array,
     Number,
+    Bool,
     /// Always-present C string (processArgs element, typeof result, string lit).
     String,
     /// `envGet` result: non-null C string or null (= undefined).
@@ -48,6 +51,7 @@ struct ModuleInfo {
     needs_argv: bool,
     needs_env: bool,
     needs_exit: bool,
+    needs_pid: bool,
 }
 
 struct ClassifyCtx {
@@ -57,6 +61,7 @@ struct ClassifyCtx {
     has_process_args: bool,
     has_env: bool,
     has_exit: bool,
+    has_pid: bool,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -67,13 +72,14 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         has_process_args: false,
         has_env: false,
         has_exit: false,
+        has_pid: false,
     };
 
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
     }
 
-    if !(ctx.has_process_args || ctx.has_env || ctx.has_exit) {
+    if !(ctx.has_process_args || ctx.has_env || ctx.has_exit || ctx.has_pid) {
         return None;
     }
     // Exit-only modules (e.g. `exit(7);`) have no print locals.
@@ -86,6 +92,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         needs_argv: ctx.has_process_args,
         needs_env: ctx.has_env,
         needs_exit: ctx.has_exit,
+        needs_pid: ctx.has_pid,
     })
 }
 
@@ -98,7 +105,7 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.slot_of.insert(*local, ty);
             if matches!(
                 ty,
-                SlotTy::Number | SlotTy::String | SlotTy::MaybeString
+                SlotTy::Number | SlotTy::Bool | SlotTy::String | SlotTy::MaybeString
             ) {
                 ctx.print_locals.push((*local, ty));
             }
@@ -153,10 +160,36 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_process_args = true;
             Some(SlotTy::Array)
         }
+        Expr::Call { callee, args, .. }
+            if args.is_empty() && is_named_callee(callee, "pid") =>
+        {
+            ctx.has_pid = true;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if args.is_empty() && is_named_callee(callee, "ppid") =>
+        {
+            ctx.has_pid = true;
+            Some(SlotTy::Number)
+        }
         Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "envGet") => {
             ctx.has_env = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
             Some(SlotTy::MaybeString)
+        }
+        Expr::Binary {
+            op: BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq,
+            left,
+            right,
+            ..
+        } => {
+            let lt = classify_expr(left, ctx)?;
+            let rt = classify_expr(right, ctx)?;
+            if lt == SlotTy::Number && rt == SlotTy::Number {
+                Some(SlotTy::Bool)
+            } else {
+                None
+            }
         }
         Expr::Call { callee, args, .. } if args.len() == 2 && is_named_callee(callee, "envSet") => {
             ctx.has_env = true;
@@ -331,10 +364,10 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_process (H01 processArgs / env / exit)"
+            "; Draconic LLVM host_process (H01 processArgs / env / exit / pid)"
         )
         .ok();
-        let mut decls = vec![GC_INIT, PRINT_F64, PRINT_STR];
+        let mut decls = vec![GC_INIT, PRINT_F64, PRINT_STR, PRINT_BOOL];
         if info.needs_argv {
             decls.extend([
                 ARRAY_NEW,
@@ -356,6 +389,9 @@ impl<'a> Emitter<'a> {
                 HOST_PROCESS_GET_EXIT_CODE,
             ]);
         }
+        if info.needs_pid {
+            decls.extend([HOST_PROCESS_PID, HOST_PROCESS_PPID]);
+        }
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
@@ -363,6 +399,7 @@ impl<'a> Emitter<'a> {
             let ptr = self.slot_ptr(*id)?;
             let llvm_ty = match ty {
                 SlotTy::Number => "double",
+                SlotTy::Bool => "i8",
                 SlotTy::Array | SlotTy::String | SlotTy::MaybeString => "ptr",
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
@@ -383,6 +420,11 @@ impl<'a> Emitter<'a> {
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                         writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
+                    }
+                    SlotTy::Bool => {
+                        let v = self.fresh();
+                        writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                        writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                     }
                     SlotTy::String => {
                         let v = self.fresh();
@@ -491,6 +533,10 @@ impl<'a> Emitter<'a> {
                     SlotTy::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    }
+                    SlotTy::Bool => {
+                        let v = self.emit_bool_expr(init)?;
+                        writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
                     SlotTy::String => {
                         let v = self.emit_string_expr(init)?;
@@ -727,7 +773,62 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {f} = sitofp i32 {c} to double").ok();
                 Ok(f)
             }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "pid") =>
+            {
+                let c = self.fresh();
+                let f = self.fresh();
+                writeln!(self.body, "  {}", HOST_PROCESS_PID.call_to(&c, "")).ok();
+                writeln!(self.body, "  {f} = sitofp i32 {c} to double").ok();
+                Ok(f)
+            }
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "ppid") =>
+            {
+                let c = self.fresh();
+                let f = self.fresh();
+                writeln!(self.body, "  {}", HOST_PROCESS_PPID.call_to(&c, "")).ok();
+                writeln!(self.body, "  {f} = sitofp i32 {c} to double").ok();
+                Ok(f)
+            }
             _ => Err(diag("host_process: expected number expr")),
+        }
+    }
+
+    fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Binary {
+                op,
+                left,
+                right,
+                ..
+            } if matches!(
+                op,
+                BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq
+            ) =>
+            {
+                let l = self.emit_number_expr(left)?;
+                let r = self.emit_number_expr(right)?;
+                let cmp = self.fresh();
+                let pred = match op {
+                    BinaryOp::Gt => "ogt",
+                    BinaryOp::GtEq => "oge",
+                    BinaryOp::Lt => "olt",
+                    BinaryOp::LtEq => "ole",
+                    _ => unreachable!(),
+                };
+                writeln!(self.body, "  {cmp} = fcmp {pred} double {l}, {r}").ok();
+                let b = self.fresh();
+                writeln!(self.body, "  {b} = zext i1 {cmp} to i8").ok();
+                Ok(b)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_process: expected bool expr")),
         }
     }
 
@@ -835,6 +936,12 @@ impl<'a> Emitter<'a> {
 
     fn emit_typeof(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
         match arg {
+            Expr::Call { callee, args, .. }
+                if args.is_empty()
+                    && (is_named_callee(callee, "pid") || is_named_callee(callee, "ppid")) =>
+            {
+                Ok(self.emit_cstr_ptr("number"))
+            }
             Expr::Local { id, .. } => {
                 let kind = self
                     .slot_of
@@ -874,7 +981,7 @@ impl<'a> Emitter<'a> {
                     }
                     SlotTy::String => Ok(self.emit_cstr_ptr("string")),
                     SlotTy::Array => Ok(self.emit_cstr_ptr("object")),
-                    SlotTy::Number => Ok(self.emit_cstr_ptr("number")),
+                    SlotTy::Number | SlotTy::Bool => Ok(self.emit_cstr_ptr("number")),
                 }
             }
             _ => Err(diag("host_process: typeof unsupported arg")),
@@ -1009,5 +1116,42 @@ mod tests {
         let ir3 = emit_host_process(&m3).expect("emit");
         assert!(ir3.contains("draconic_rt_host_process_exit"), "{ir3}");
         assert!(ir3.contains("draconic_rt_host_process_get_exit_code"), "{ir3}");
+    }
+
+    #[test]
+    fn classifies_pid_ppid() {
+        let m = lower_src(
+            r#"
+            let t_p = typeof pid();
+            let t_pp = typeof ppid();
+            let pid_ok = pid() > 0;
+            let ppid_ok = ppid() >= 0;
+            "#,
+        );
+        assert!(is_host_process_module(&m));
+        let ir = emit_host_process(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_process_pid"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_process_ppid"), "{ir}");
+        assert!(ir.contains("draconic_rt_print_bool"), "{ir}");
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-hp-pid-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let ll = dir.join("t.ll");
+        std::fs::write(&ll, &ir).unwrap();
+        let clang = std::env::var("CLANG").unwrap_or_else(|_| "clang".into());
+        let out = std::process::Command::new(&clang)
+            .args(["-c", "-o"])
+            .arg(dir.join("t.o"))
+            .arg(&ll)
+            .output()
+            .expect("clang");
+        assert!(
+            out.status.success(),
+            "clang reject IR:\n{}\n--- IR ---\n{ir}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

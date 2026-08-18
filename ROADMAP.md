@@ -596,7 +596,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H01.01 | done | both | Program args as string array (native OS argv; js Node bridge) | `tests/conformance` fixtures `host/process` |
 | H01.02 | done | both | Env get/set/delete (string values); missing → undefined | `tests/conformance` fixtures `host/process` |
 | H01.03 | done | both | `exit(code)` / exitCode: terminate with status; default 0 | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
-| H01.04 | todo | both | `pid` + `ppid` (read-only) | `tests/conformance` fixtures `host/process` |
+| H01.04 | done | both | `pid` + `ppid` (read-only) | `tests/conformance` fixtures `host/process` |
 | H02 | todo | both | Stdio: stdout / stderr / stdin | `tests/conformance/host/stdio` |
 | H02.01 | todo | both | stdout write: string + newline; bytes via `Uint8Array` | `tests/conformance` fixtures `host/stdio`, `crates/draconic-runtime` |
 | H02.02 | todo | both | stderr write | `tests/conformance` fixtures `host/stdio` |

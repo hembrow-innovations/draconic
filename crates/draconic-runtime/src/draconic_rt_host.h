@@ -126,6 +126,12 @@ void draconic_rt_host_process_set_exit_code(int32_t code);
 /* Get deferred exit status (default 0). */
 int32_t draconic_rt_host_process_get_exit_code(void);
 
+/* --- Process pid / ppid (H01.04) -------------------------------------------
+   Read-only OS process id and parent process id. */
+
+int32_t draconic_rt_host_process_pid(void);
+int32_t draconic_rt_host_process_ppid(void);
+
 #ifdef __cplusplus
 }
 #endif

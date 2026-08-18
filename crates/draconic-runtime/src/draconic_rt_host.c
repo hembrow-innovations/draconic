@@ -1,6 +1,6 @@
-/* Host I/O Runtime substrate (H00.02–H00.03, H01 process argv/env/exit).
+/* Host I/O Runtime substrate (H00.02–H00.03, H01 process argv/env/exit/pid).
    Error codes, opaque handles, UTF-8 path encoding, I/O bytes boundary,
-   process user-args + env + exit. Later H rows open handles and map errno. */
+   process user-args + env + exit + pid/ppid. Later H rows open handles. */
 
 #include "draconic_rt_host.h"
 
@@ -9,9 +9,13 @@
 #include <string.h>
 
 #if defined(_WIN32)
-/* getenv / _putenv_s */
+#include <process.h>
+#include <tlhelp32.h>
+#include <windows.h>
+/* getenv / _putenv_s; _getpid */
 #else
-/* setenv / unsetenv */
+#include <unistd.h>
+/* setenv / unsetenv; getpid / getppid */
 #endif
 
 /* --- Handle table (slots filled by later open/listen/etc.) --- */
@@ -427,4 +431,41 @@ void draconic_rt_host_process_set_exit_code(int32_t code) {
 
 int32_t draconic_rt_host_process_get_exit_code(void) {
     return g_process_exit_code;
+}
+
+/* --- Process pid / ppid (H01.04) --- */
+
+int32_t draconic_rt_host_process_pid(void) {
+#if defined(_WIN32)
+    return (int32_t)GetCurrentProcessId();
+#else
+    return (int32_t)getpid();
+#endif
+}
+
+int32_t draconic_rt_host_process_ppid(void) {
+#if defined(_WIN32)
+    {
+        DWORD self = GetCurrentProcessId();
+        DWORD parent = 0;
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        PROCESSENTRY32 pe;
+        if (snap == INVALID_HANDLE_VALUE) {
+            return 0;
+        }
+        pe.dwSize = sizeof(pe);
+        if (Process32First(snap, &pe)) {
+            do {
+                if (pe.th32ProcessID == self) {
+                    parent = pe.th32ParentProcessID;
+                    break;
+                }
+            } while (Process32Next(snap, &pe));
+        }
+        CloseHandle(snap);
+        return (int32_t)parent;
+    }
+#else
+    return (int32_t)getppid();
+#endif
 }

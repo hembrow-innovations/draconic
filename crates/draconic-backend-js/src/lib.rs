@@ -82,6 +82,13 @@ fn module_uses_process_exit(module: &Module) -> bool {
     })
 }
 
+/// H01.04: free host APIs `pid` / `ppid`.
+fn module_uses_process_pid(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "pid") || stmt_uses_ident_name(s, "ppid")
+    })
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -388,6 +395,13 @@ fn emit_js_full(
     // H01.03: `exit` / `exitCode` / `setExitCode` Node bridge.
     if module_uses_process_exit(module) {
         out.push_str(draconic_runtime::process_exit_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H01.04: `pid` / `ppid` Node bridge.
+    if module_uses_process_pid(module) {
+        out.push_str(draconic_runtime::process_pid_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

@@ -121,6 +121,8 @@ fn static_lib_includes_host_object() {
         "draconic_rt_host_process_exit",
         "draconic_rt_host_process_set_exit_code",
         "draconic_rt_host_process_get_exit_code",
+        "draconic_rt_host_process_pid",
+        "draconic_rt_host_process_ppid",
     ] {
         assert!(
             out.contains(sym),
@@ -279,6 +281,67 @@ int main(void) {
         "stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+#[test]
+fn host_process_pid_ppid() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_pid.c");
+    let bin = dir.join("rt_host_pid");
+    std::fs::write(
+        &main_c,
+        r#"
+#include "draconic_rt_host.h"
+#include <stdio.h>
+int main(void) {
+    int32_t p = draconic_rt_host_process_pid();
+    int32_t pp = draconic_rt_host_process_ppid();
+    if (p <= 0) return 1;
+    if (pp < 0) return 2;
+    printf("%d\n%d\n", (int)p, (int)pp);
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg(format!("-I{}", header_dir.display()))
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("clang link");
+    assert!(status.success(), "link failed");
+    let out = Command::new(&bin).output().expect("run");
+    assert!(
+        out.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut lines = stdout.lines();
+    let p: i32 = lines
+        .next()
+        .expect("pid line")
+        .parse()
+        .expect("pid int");
+    let pp: i32 = lines
+        .next()
+        .expect("ppid line")
+        .parse()
+        .expect("ppid int");
+    assert!(p > 0, "pid={p}");
+    assert!(pp >= 0, "ppid={pp}");
+    // Child binary has its own pid; ppid should be this test process.
+    assert_eq!(pp as u32, std::process::id());
 }
 
 /// Clang link smoke: path boundary + handle close/is_valid (no real fs/tcp).

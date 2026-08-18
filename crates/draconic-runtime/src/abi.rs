@@ -718,6 +718,18 @@ pub const HOST_PROCESS_GET_EXIT_CODE: AbiFn = AbiFn {
     params: "",
 };
 
+/* H01.04: process pid / ppid (read-only). */
+pub const HOST_PROCESS_PID: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_pid",
+    ret: "i32",
+    params: "",
+};
+pub const HOST_PROCESS_PPID: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_process_ppid",
+    ret: "i32",
+    params: "",
+};
+
 pub const HOST_HANDLE_IS_VALID_SYMBOL: &str = HOST_HANDLE_IS_VALID.symbol;
 pub const HOST_HANDLE_CLOSE_SYMBOL: &str = HOST_HANDLE_CLOSE.symbol;
 pub const HOST_PATH_FROM_UTF8_SYMBOL: &str = HOST_PATH_FROM_UTF8.symbol;
@@ -737,6 +749,8 @@ pub const HOST_ENV_DELETE_SYMBOL: &str = HOST_ENV_DELETE.symbol;
 pub const HOST_PROCESS_EXIT_SYMBOL: &str = HOST_PROCESS_EXIT.symbol;
 pub const HOST_PROCESS_SET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_SET_EXIT_CODE.symbol;
 pub const HOST_PROCESS_GET_EXIT_CODE_SYMBOL: &str = HOST_PROCESS_GET_EXIT_CODE.symbol;
+pub const HOST_PROCESS_PID_SYMBOL: &str = HOST_PROCESS_PID.symbol;
+pub const HOST_PROCESS_PPID_SYMBOL: &str = HOST_PROCESS_PPID.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01 process).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -759,6 +773,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_PROCESS_EXIT_SYMBOL,
     HOST_PROCESS_SET_EXIT_CODE_SYMBOL,
     HOST_PROCESS_GET_EXIT_CODE_SYMBOL,
+    HOST_PROCESS_PID_SYMBOL,
+    HOST_PROCESS_PPID_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -782,6 +798,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_PROCESS_EXIT,
     HOST_PROCESS_SET_EXIT_CODE,
     HOST_PROCESS_GET_EXIT_CODE,
+    HOST_PROCESS_PID,
+    HOST_PROCESS_PPID,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -863,6 +881,29 @@ if (typeof globalThis !== "undefined") {
   globalThis.exit = exit;
   globalThis.exitCode = exitCode;
   globalThis.setExitCode = setExitCode;
+}
+"#
+}
+
+/// JS polyfill for `pid` / `ppid` (H01.04).
+///
+/// Node bridge via `process.pid` and `process.ppid` (read-only numbers).
+pub fn process_pid_js_polyfill() -> &'static str {
+    r#"function pid() {
+  if (typeof process !== "undefined" && process && process.pid != null) {
+    return Number(process.pid) | 0;
+  }
+  return 0;
+}
+function ppid() {
+  if (typeof process !== "undefined" && process && process.ppid != null) {
+    return Number(process.ppid) | 0;
+  }
+  return 0;
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.pid = pid;
+  globalThis.ppid = ppid;
 }
 "#
 }
