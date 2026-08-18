@@ -87,6 +87,7 @@ pub struct HostApiEntry {
 /// - `httpParseRequest` / `httpRequestHeader` (H10.01): native-only HTTP/1.1 request parse.
 /// - `httpWriteResponse` (H10.02): native-only HTTP/1.1 response format (status+headers+body).
 /// - H10.03: compose TCP accept + parse + write + close (server one-shot; see `host_http_server`).
+/// - `httpWriteRequest` / `httpParseResponse` / `httpResponseHeader` (H10.05): client helpers.
 /// - H10.04: same surface, two request/response cycles on one connection (keep-alive).
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
@@ -428,6 +429,21 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "httpWriteResponse",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H10.02 HTTP/1.1 response write → status-line + headers + body",
+    },
+    HostApiEntry {
+        name: "httpWriteRequest",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H10.05 HTTP/1.1 request write → request-line + headers + body",
+    },
+    HostApiEntry {
+        name: "httpParseResponse",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H10.05 HTTP/1.1 response parse → version/status/reason/body",
+    },
+    HostApiEntry {
+        name: "httpResponseHeader",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H10.05 HTTP/1.1 response header lookup (case-insensitive)",
     },
 ];
 
@@ -798,6 +814,9 @@ mod tests {
             "httpParseRequest",
             "httpRequestHeader",
             "httpWriteResponse",
+            "httpWriteRequest",
+            "httpParseResponse",
+            "httpResponseHeader",
         ] {
             let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
             assert!(!entry.availability.js, "{name}");

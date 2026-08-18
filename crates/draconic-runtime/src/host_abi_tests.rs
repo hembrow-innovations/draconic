@@ -193,6 +193,18 @@ fn host_abi_fn_shapes() {
         HOST_HTTP_WRITE_RESPONSE.declare(),
         "declare i32 @draconic_rt_host_http_write_response(i32, ptr, ptr, ptr, i64, ptr)"
     );
+    assert_eq!(
+        HOST_HTTP_WRITE_REQUEST.declare(),
+        "declare i32 @draconic_rt_host_http_write_request(ptr, ptr, ptr, ptr, i64, ptr)"
+    );
+    assert_eq!(
+        HOST_HTTP_PARSE_RESPONSE.declare(),
+        "declare i32 @draconic_rt_host_http_parse_response(ptr, i64, ptr, ptr, ptr, ptr)"
+    );
+    assert_eq!(
+        HOST_HTTP_RESPONSE_HEADER.declare(),
+        "declare i32 @draconic_rt_host_http_response_header(ptr, i64, ptr, ptr)"
+    );
 }
 
 #[test]
@@ -2940,4 +2952,122 @@ fn host_http_write_response_status_headers_body() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1002-ok\n");
+}
+
+#[test]
+fn host_http_client_write_request_parse_response() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main_http_h1005.c");
+    let bin = dir.join("rt_host_http_h1005");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <string.h>
+        #include <stdlib.h>
+
+        int main(void) {
+            DraconicHostError err;
+            char *msg = NULL;
+            char *version = NULL;
+            char *reason = NULL;
+            char *body = NULL;
+            char *ct = NULL;
+            int32_t status = 0;
+            const char *want_req =
+                "GET /hello HTTP/1.1\r\n"
+                "Host: x\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n";
+            const char *raw_res =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello";
+
+            err = draconic_rt_host_http_write_request(
+                "GET", "/hello", "Host: x\r\n", NULL, 0, &msg);
+            if (err != DRACONIC_HOST_OK) return 1;
+            if (!msg || strcmp(msg, want_req) != 0) return 2;
+            free(msg);
+            msg = NULL;
+
+            err = draconic_rt_host_http_write_request(
+                "POST", "/echo", "Host: x\r\n",
+                (const uint8_t *)"hi", 2, &msg);
+            if (err != DRACONIC_HOST_OK) return 3;
+            want_req =
+                "POST /echo HTTP/1.1\r\n"
+                "Host: x\r\n"
+                "Content-Length: 2\r\n"
+                "\r\n"
+                "hi";
+            if (!msg || strcmp(msg, want_req) != 0) return 4;
+            free(msg);
+            msg = NULL;
+
+            /* empty method → INVAL */
+            err = draconic_rt_host_http_write_request(
+                "", "/x", "", NULL, 0, &msg);
+            if (err != DRACONIC_HOST_E_INVAL) return 5;
+
+            err = draconic_rt_host_http_parse_response(
+                (const uint8_t *)raw_res, strlen(raw_res),
+                &version, &status, &reason, &body);
+            if (err != DRACONIC_HOST_OK) return 6;
+            if (!version || strcmp(version, "HTTP/1.1") != 0) return 7;
+            if (status != 200) return 8;
+            if (!reason || strcmp(reason, "OK") != 0) return 9;
+            if (!body || strcmp(body, "hello") != 0) return 10;
+
+            err = draconic_rt_host_http_response_header(
+                (const uint8_t *)raw_res, strlen(raw_res), "content-type", &ct);
+            if (err != DRACONIC_HOST_OK) return 11;
+            if (!ct || strcmp(ct, "text/plain") != 0) return 12;
+
+            free(version); free(reason); free(body); free(ct);
+            version = reason = body = ct = NULL;
+
+            /* malformed */
+            err = draconic_rt_host_http_parse_response(
+                (const uint8_t *)"nope", 4,
+                &version, &status, &reason, &body);
+            if (err != DRACONIC_HOST_E_INVAL) return 13;
+
+            puts("http-h1005-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = Command::new(&clang)
+        .arg(&main_c)
+        .arg(&archive)
+        .arg("-I")
+        .arg(&header_dir)
+        .arg("-o")
+        .arg(&bin)
+        .status()
+        .expect("spawn clang");
+    assert!(status.success(), "clang failed for http H10.05 smoke");
+
+    let output = Command::new(&bin).output().expect("run http h1005");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "http H10.05 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "http-h1005-ok\n");
 }

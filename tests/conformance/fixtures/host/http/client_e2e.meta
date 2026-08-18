@@ -1,0 +1,4 @@
+id: host/http/client_e2e
+targets: native
+native.exit: 0
+native.stdout: HTTP/1.1\n200\nOK\n/hello\ntext/plain\n

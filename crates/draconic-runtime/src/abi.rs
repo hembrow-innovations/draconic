@@ -1061,6 +1061,22 @@ pub const HOST_HTTP_WRITE_RESPONSE: AbiFn = AbiFn {
     ret: "i32",
     params: "i32, ptr, ptr, ptr, i64, ptr",
 };
+/* H10.05: HTTP/1.1 client — write request + parse response on connected TCP. */
+pub const HOST_HTTP_WRITE_REQUEST: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http_write_request",
+    ret: "i32",
+    params: "ptr, ptr, ptr, ptr, i64, ptr",
+};
+pub const HOST_HTTP_PARSE_RESPONSE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http_parse_response",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr, ptr, ptr",
+};
+pub const HOST_HTTP_RESPONSE_HEADER: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http_response_header",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1180,6 +1196,9 @@ pub const HOST_DNS_LOOKUP_SYMBOL: &str = HOST_DNS_LOOKUP.symbol;
 pub const HOST_HTTP_PARSE_REQUEST_SYMBOL: &str = HOST_HTTP_PARSE_REQUEST.symbol;
 pub const HOST_HTTP_REQUEST_HEADER_SYMBOL: &str = HOST_HTTP_REQUEST_HEADER.symbol;
 pub const HOST_HTTP_WRITE_RESPONSE_SYMBOL: &str = HOST_HTTP_WRITE_RESPONSE.symbol;
+pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
+pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
+pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
 
 /// Host Runtime ABI symbols (H00.02 scaffold + H00.03 bytes + H01–H10.02).
 pub const HOST_SYMBOLS: &[&str] = &[
@@ -1261,6 +1280,9 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_PARSE_REQUEST_SYMBOL,
     HOST_HTTP_REQUEST_HEADER_SYMBOL,
     HOST_HTTP_WRITE_RESPONSE_SYMBOL,
+    HOST_HTTP_WRITE_REQUEST_SYMBOL,
+    HOST_HTTP_PARSE_RESPONSE_SYMBOL,
+    HOST_HTTP_RESPONSE_HEADER_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1343,6 +1365,9 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_HTTP_PARSE_REQUEST,
     HOST_HTTP_REQUEST_HEADER,
     HOST_HTTP_WRITE_RESPONSE,
+    HOST_HTTP_WRITE_REQUEST,
+    HOST_HTTP_PARSE_RESPONSE,
+    HOST_HTTP_RESPONSE_HEADER,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].

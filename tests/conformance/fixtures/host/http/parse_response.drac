@@ -1,0 +1,7 @@
+// H10.05: httpParseResponse — version/status/reason/body + header lookup.
+let res = httpParseResponse("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello");
+let v = res.version;
+let s = res.status;
+let r = res.reason;
+let b = res.body;
+let h = httpResponseHeader(res, "Content-Type");

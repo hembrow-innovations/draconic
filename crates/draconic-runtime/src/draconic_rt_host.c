@@ -3928,3 +3928,258 @@ DraconicHostError draconic_rt_host_http_write_response(
     *out_msg = msg;
     return DRACONIC_HOST_OK;
 }
+
+/* --- HTTP/1.1 client helpers (H10.05) ------------------------------------- */
+
+DraconicHostError draconic_rt_host_http_write_request(
+    const char *method,
+    const char *path,
+    const char *headers,
+    const uint8_t *body,
+    size_t body_len,
+    char **out_msg) {
+    const char *m;
+    const char *p;
+    const char *hdrs;
+    size_t method_len;
+    size_t path_len;
+    size_t hdrs_len;
+    int need_cl;
+    char cl_buf[64];
+    size_t cl_len;
+    size_t total;
+    char *msg;
+    size_t off;
+    int n;
+    size_t i;
+
+    if (!out_msg) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_msg = NULL;
+
+    if (!method || method[0] == '\0' || !path || path[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (body_len > 0 && !body) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    m = method;
+    p = path;
+    method_len = strlen(m);
+    path_len = strlen(p);
+    /* method/path must not contain SP/HTAB/CR/LF */
+    for (i = 0; i < method_len; i++) {
+        unsigned char c = (unsigned char)m[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            return DRACONIC_HOST_E_INVAL;
+        }
+    }
+    for (i = 0; i < path_len; i++) {
+        unsigned char c = (unsigned char)p[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            return DRACONIC_HOST_E_INVAL;
+        }
+    }
+
+    hdrs = headers ? headers : "";
+    hdrs_len = strlen(hdrs);
+    need_cl = !host_http_headers_have_content_length(hdrs);
+
+    cl_len = 0;
+    if (need_cl) {
+        n = snprintf(
+            cl_buf,
+            sizeof(cl_buf),
+            "Content-Length: %llu\r\n",
+            (unsigned long long)body_len);
+        if (n < 0 || (size_t)n >= sizeof(cl_buf)) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        cl_len = (size_t)n;
+    }
+
+    /* method + " " + path + " HTTP/1.1\r\n" + headers + [?CRLF] + cl + "\r\n" + body */
+    total = method_len + 1 + path_len + 11 + hdrs_len;
+    if (hdrs_len > 0) {
+        int ends_crlf = hdrs_len >= 2
+            && hdrs[hdrs_len - 2] == '\r'
+            && hdrs[hdrs_len - 1] == '\n';
+        if (!ends_crlf) {
+            total += 2;
+        }
+    }
+    total += cl_len + 2 + body_len;
+
+    msg = (char *)malloc(total + 1);
+    if (!msg) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    off = 0;
+    memcpy(msg + off, m, method_len);
+    off += method_len;
+    msg[off++] = ' ';
+    memcpy(msg + off, p, path_len);
+    off += path_len;
+    memcpy(msg + off, " HTTP/1.1\r\n", 11);
+    off += 11;
+
+    if (hdrs_len > 0) {
+        memcpy(msg + off, hdrs, hdrs_len);
+        off += hdrs_len;
+        if (!(hdrs_len >= 2 && hdrs[hdrs_len - 2] == '\r' && hdrs[hdrs_len - 1] == '\n')) {
+            msg[off++] = '\r';
+            msg[off++] = '\n';
+        }
+    }
+    if (need_cl) {
+        memcpy(msg + off, cl_buf, cl_len);
+        off += cl_len;
+    }
+    msg[off++] = '\r';
+    msg[off++] = '\n';
+    if (body_len > 0) {
+        memcpy(msg + off, body, body_len);
+        off += body_len;
+    }
+    msg[off] = '\0';
+    if (off != total) {
+        free(msg);
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    *out_msg = msg;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http_parse_response(
+    const uint8_t *data,
+    size_t len,
+    char **out_version,
+    int32_t *out_status,
+    char **out_reason,
+    char **out_body) {
+    size_t body_off;
+    size_t line_end;
+    size_t sp1;
+    size_t sp2;
+    size_t i;
+    size_t cl;
+    int has_cl;
+    const char *hv;
+    size_t hvlen;
+    char *version = NULL;
+    char *reason = NULL;
+    char *body = NULL;
+    size_t body_len;
+    int32_t status = 0;
+    size_t status_digits;
+
+    if (!data || !out_version || !out_status || !out_reason || !out_body) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_version = NULL;
+    *out_status = 0;
+    *out_reason = NULL;
+    *out_body = NULL;
+
+    body_off = host_http_find_header_end(data, len);
+    if (body_off == (size_t)-1) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    /* status-line: HTTP-version SP status-code SP reason-phrase CRLF */
+    line_end = 0;
+    while (line_end + 1 < body_off
+        && !(data[line_end] == '\r' && data[line_end + 1] == '\n')) {
+        line_end++;
+    }
+    if (line_end + 1 >= body_off || line_end == 0) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    /* version SP status-code [SP reason] */
+    sp1 = 0;
+    while (sp1 < line_end && data[sp1] != ' ') {
+        sp1++;
+    }
+    if (sp1 == 0 || sp1 + 1 >= line_end) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    /* three status digits immediately after first SP */
+    if (sp1 + 3 > line_end) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    status = 0;
+    for (i = 0; i < 3; i++) {
+        unsigned char c = data[sp1 + 1 + i];
+        if (c < '0' || c > '9') {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        status = status * 10 + (int32_t)(c - '0');
+    }
+    if (status < 100 || status > 599) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    status_digits = sp1 + 1 + 3; /* index just after status code */
+    if (status_digits < line_end) {
+        if (data[status_digits] != ' ') {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        sp2 = status_digits; /* SP before reason */
+    } else {
+        sp2 = line_end; /* no reason */
+    }
+
+    version = host_http_dup_range(data, sp1);
+    if (sp2 < line_end) {
+        reason = host_http_dup_range(data + sp2 + 1, line_end - (sp2 + 1));
+    } else {
+        reason = host_http_dup_cstr("");
+    }
+    if (!version || !reason) {
+        free(version);
+        free(reason);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    has_cl = host_http_find_header(
+        data, line_end + 2, body_off - 2, "Content-Length", &hv, &hvlen);
+    body_len = 0;
+    if (has_cl) {
+        if (host_http_parse_content_length(hv, hvlen, &cl) != 0) {
+            free(version);
+            free(reason);
+            return DRACONIC_HOST_E_INVAL;
+        }
+        if (body_off + cl <= len) {
+            body_len = cl;
+        } else {
+            body_len = len - body_off;
+        }
+    }
+
+    body = host_http_dup_range(data + body_off, body_len);
+    if (!body) {
+        free(version);
+        free(reason);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    *out_version = version;
+    *out_status = status;
+    *out_reason = reason;
+    *out_body = body;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http_response_header(
+    const uint8_t *data,
+    size_t len,
+    const char *name,
+    char **out_value) {
+    /* Same wire layout as request (start-line + headers + body). */
+    return draconic_rt_host_http_request_header(data, len, name, out_value);
+}

@@ -1,0 +1,21 @@
+// H10.05: HTTP/1.1 client request + response on connected TCP (loopback).
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let reqMsg = httpWriteRequest("GET", "/hello", "Host: x\r\n", "");
+tcpWrite(c, reqMsg);
+let raw = tcpRead(a, 4096);
+let req = httpParseRequest(raw);
+let path = req.path;
+let respMsg = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", path);
+tcpWrite(a, respMsg);
+closeTcp(a);
+let out = tcpRead(c, 4096);
+let res = httpParseResponse(out);
+let v = res.version;
+let st = res.status;
+let r = res.reason;
+let b = res.body;
+let h = httpResponseHeader(res, "Content-Type");
+closeTcp(c);
+closeTcp(s);

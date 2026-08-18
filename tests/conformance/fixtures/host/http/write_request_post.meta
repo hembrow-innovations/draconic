@@ -1,0 +1,4 @@
+id: host/http/write_request_post
+targets: native
+native.exit: 0
+native.stdout: POST /echo HTTP/1.1\r\nHost: x\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nhi\n

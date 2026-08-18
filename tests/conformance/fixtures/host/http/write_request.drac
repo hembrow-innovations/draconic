@@ -1,0 +1,2 @@
+// H10.05: httpWriteRequest — request-line + headers + body; auto Content-Length.
+let msg = httpWriteRequest("GET", "/hello", "Host: x\r\n", "");

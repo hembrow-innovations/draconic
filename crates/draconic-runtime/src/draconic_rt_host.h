@@ -480,6 +480,44 @@ DraconicHostError draconic_rt_host_http_write_response(
     size_t body_len,
     char **out_msg);
 
+/* --- HTTP/1.1 client helpers (H10.05) --------------------------------------
+   write_request: format a complete plaintext HTTP/1.1 request message
+   (request-line + headers + body). method/path required non-empty; headers
+   optional extra lines ("Name: value\r\n"…); Content-Length auto-appended when
+   absent. body may be NULL when body_len==0. On OK: *out_msg malloc'd wire
+   bytes (caller frees).
+
+   parse_response: parse a complete plaintext HTTP/1.1 response (status-line +
+   headers + optional body). On OK: *out_version / *out_reason / *out_body are
+   malloc'd strings; *out_status is the numeric status code (100..599). Body
+   bounded by Content-Length when present (same rules as parse_request).
+   Malformed status-line / missing header terminator / bad CL → INVAL.
+
+   response_header: case-insensitive header lookup on a response message
+   (same semantics as request_header). */
+
+DraconicHostError draconic_rt_host_http_write_request(
+    const char *method,
+    const char *path,
+    const char *headers,
+    const uint8_t *body,
+    size_t body_len,
+    char **out_msg);
+
+DraconicHostError draconic_rt_host_http_parse_response(
+    const uint8_t *data,
+    size_t len,
+    char **out_version,
+    int32_t *out_status,
+    char **out_reason,
+    char **out_body);
+
+DraconicHostError draconic_rt_host_http_response_header(
+    const uint8_t *data,
+    size_t len,
+    const char *name,
+    char **out_value);
+
 #ifdef __cplusplus
 }
 #endif

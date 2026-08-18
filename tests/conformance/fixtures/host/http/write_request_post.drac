@@ -1,0 +1,2 @@
+// H10.05: httpWriteRequest POST with body; auto Content-Length.
+let msg = httpWriteRequest("POST", "/echo", "Host: x\r\nContent-Type: text/plain\r\n", "hi");

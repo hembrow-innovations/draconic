@@ -1,0 +1,4 @@
+id: host/http/write_request
+targets: native
+native.exit: 0
+native.stdout: GET /hello HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n\n

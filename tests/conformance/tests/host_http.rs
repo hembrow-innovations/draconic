@@ -1,4 +1,4 @@
-//! ROADMAP H10.01–H10.04: HTTP/1.1 parse, write, one-shot server, keep-alive.
+//! ROADMAP H10.01–H10.05: HTTP/1.1 parse, write, server, keep-alive, client.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -184,4 +184,82 @@ HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Leng
         )
     );
     assert_fixture_runs("host/http/keep_alive");
+}
+
+#[test]
+fn write_request_runs_native() {
+    assert_fixture_present("host/http/write_request");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/write_request")
+        .expect("host/http/write_request");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("GET /hello HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n\n")
+    );
+    assert_fixture_runs("host/http/write_request");
+}
+
+#[test]
+fn write_request_post_runs_native() {
+    assert_fixture_present("host/http/write_request_post");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/write_request_post")
+        .expect("host/http/write_request_post");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some(
+            "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nhi\n"
+        )
+    );
+    assert_fixture_runs("host/http/write_request_post");
+}
+
+#[test]
+fn parse_response_runs_native() {
+    assert_fixture_present("host/http/parse_response");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/parse_response")
+        .expect("host/http/parse_response");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("HTTP/1.1\n200\nOK\nhello\ntext/plain\n")
+    );
+    assert_fixture_runs("host/http/parse_response");
+}
+
+#[test]
+fn client_e2e_runs_native() {
+    assert_fixture_present("host/http/client_e2e");
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/client_e2e")
+        .expect("host/http/client_e2e");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("HTTP/1.1\n200\nOK\n/hello\ntext/plain\n")
+    );
+    assert_fixture_runs("host/http/client_e2e");
 }

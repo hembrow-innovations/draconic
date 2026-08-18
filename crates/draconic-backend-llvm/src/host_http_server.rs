@@ -1,8 +1,10 @@
-//! H10.03–H10.04: HTTP/1.1 server over TCP — one-shot and keep-alive.
+//! H10.03–H10.05: HTTP/1.1 server + client over TCP.
 //!
 //! Combines host TCP (listen/accept/connect/read/write/close) with HTTP parse/write
 //! so a Program can serve one or more requests on loopback without closing between:
 //! accept → (`tcpRead` → `httpParseRequest` → `httpWriteResponse` → `tcpWrite`)+ → close.
+//!
+//! H10.05 client path: `httpWriteRequest` + `tcpWrite` + `tcpRead` + `httpParseResponse`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -10,9 +12,10 @@ use std::fmt::Write as _;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_WRITE_RESPONSE,
+    llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_PARSE_RESPONSE,
+    HOST_HTTP_RESPONSE_HEADER, HOST_HTTP_WRITE_REQUEST, HOST_HTTP_WRITE_RESPONSE,
     HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT,
-    HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, PRINT_STR,
+    HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, PRINT_I64, PRINT_STR,
 };
 
 pub(crate) fn is_host_http_server_module(module: &Module) -> bool {
@@ -33,11 +36,14 @@ enum SlotTy {
     String,
     DynBytes,
     HttpReq,
+    HttpRes,
 }
 
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
     print_locals: Vec<(LocalId, SlotTy)>,
+    /// H10.05 client observations: auto-print string/number locals at end.
+    client_print: bool,
 }
 
 struct ClassifyCtx {
@@ -46,6 +52,7 @@ struct ClassifyCtx {
     print_locals: Vec<(LocalId, SlotTy)>,
     has_tcp: bool,
     has_http: bool,
+    has_client: bool,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -55,6 +62,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         print_locals: Vec::new(),
         has_tcp: false,
         has_http: false,
+        has_client: false,
     };
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
@@ -65,6 +73,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     Some(ModuleInfo {
         slots: ctx.slots,
         print_locals: ctx.print_locals,
+        client_print: ctx.has_client,
     })
 }
 
@@ -75,13 +84,42 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            if ty == SlotTy::String {
+            // H10.05: only auto-print response field / header observations.
+            if is_client_observation(init, ctx) {
                 ctx.print_locals.push((*local, ty));
             }
             Some(())
         }
         Stmt::Expr { expr, .. } => classify_side_effect(expr, ctx),
         _ => None,
+    }
+}
+
+fn is_client_observation(expr: &Expr, ctx: &ClassifyCtx) -> bool {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            computed: false,
+            ..
+        } => {
+            let Some(name) = string_lit(property) else {
+                return false;
+            };
+            match object.as_ref() {
+                Expr::Local { id, .. } => match (ctx.slot_of.get(id), name.as_str()) {
+                    (Some(SlotTy::HttpRes), "version" | "reason" | "body" | "status") => true,
+                    _ => false,
+                },
+                _ => false,
+            }
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "httpResponseHeader") =>
+        {
+            true
+        }
+        _ => false,
     }
 }
 
@@ -112,6 +150,13 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_bytes_arg(arg_expr(&args[0])?, ctx)
         }
         Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "httpParseResponse") =>
+        {
+            ctx.has_http = true;
+            ctx.has_client = true;
+            classify_bytes_arg(arg_expr(&args[0])?, ctx)
+        }
+        Expr::Call { callee, args, .. }
             if args.len() == 4 && is_named_callee(callee, "httpWriteResponse") =>
         {
             ctx.has_http = true;
@@ -119,6 +164,24 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             classify_string_arg(arg_expr(&args[2])?, ctx)?;
             classify_string_arg(arg_expr(&args[3])?, ctx)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 4 && is_named_callee(callee, "httpWriteRequest") =>
+        {
+            ctx.has_http = true;
+            ctx.has_client = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_string_arg(arg_expr(&args[2])?, ctx)?;
+            classify_string_arg(arg_expr(&args[3])?, ctx)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "httpResponseHeader") =>
+        {
+            ctx.has_http = true;
+            ctx.has_client = true;
+            classify_res_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)
         }
         _ => None,
     }
@@ -183,6 +246,34 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             classify_string_arg(arg_expr(&args[3])?, ctx)?;
             Some(SlotTy::String)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 4 && is_named_callee(callee, "httpWriteRequest") =>
+        {
+            ctx.has_http = true;
+            ctx.has_client = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_string_arg(arg_expr(&args[2])?, ctx)?;
+            classify_string_arg(arg_expr(&args[3])?, ctx)?;
+            Some(SlotTy::String)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "httpParseResponse") =>
+        {
+            ctx.has_http = true;
+            ctx.has_client = true;
+            classify_bytes_arg(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::HttpRes)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "httpResponseHeader") =>
+        {
+            ctx.has_http = true;
+            ctx.has_client = true;
+            classify_res_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(SlotTy::String)
+        }
         Expr::Member {
             object,
             property,
@@ -193,6 +284,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
                 (SlotTy::HttpReq, "method" | "path" | "version" | "body") => Some(SlotTy::String),
+                (SlotTy::HttpRes, "version" | "reason" | "body") => Some(SlotTy::String),
+                (SlotTy::HttpRes, "status") => Some(SlotTy::Number),
                 (SlotTy::DynBytes, "length") => Some(SlotTy::Number),
                 _ => None,
             }
@@ -224,6 +317,19 @@ fn classify_number_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.has_tcp = true;
             classify_handle_arg(arg_expr(&args[0])?, ctx)
         }
+        Expr::Member {
+            object,
+            property,
+            computed: false,
+            ..
+        } => {
+            let ot = classify_expr(object, ctx)?;
+            let name = string_lit(property)?;
+            match (ot, name.as_str()) {
+                (SlotTy::HttpRes, "status") => Some(()),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -245,6 +351,7 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
                 (SlotTy::HttpReq, "method" | "path" | "version" | "body") => Some(()),
+                (SlotTy::HttpRes, "version" | "reason" | "body") => Some(()),
                 _ => None,
             }
         }
@@ -256,6 +363,22 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             classify_string_arg(arg_expr(&args[2])?, ctx)?;
             classify_string_arg(arg_expr(&args[3])?, ctx)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 4 && is_named_callee(callee, "httpWriteRequest") =>
+        {
+            ctx.has_http = true;
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            classify_string_arg(arg_expr(&args[2])?, ctx)?;
+            classify_string_arg(arg_expr(&args[3])?, ctx)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "httpResponseHeader") =>
+        {
+            ctx.has_http = true;
+            classify_res_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)
         }
         _ => None,
     }
@@ -273,6 +396,11 @@ fn classify_bytes_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         {
             classify_string_arg(expr, ctx)
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 4 && is_named_callee(callee, "httpWriteRequest") =>
+        {
+            classify_string_arg(expr, ctx)
+        }
         Expr::Member {
             object,
             property,
@@ -283,8 +411,25 @@ fn classify_bytes_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
                 (SlotTy::HttpReq, "method" | "path" | "version" | "body") => Some(()),
+                (SlotTy::HttpRes, "version" | "reason" | "body") => Some(()),
                 _ => None,
             }
+        }
+        _ => None,
+    }
+}
+
+fn classify_res_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
+    match expr {
+        Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
+            SlotTy::HttpRes => Some(()),
+            _ => None,
+        },
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "httpParseResponse") =>
+        {
+            ctx.has_http = true;
+            classify_bytes_arg(arg_expr(&args[0])?, ctx)
         }
         _ => None,
     }
@@ -470,12 +615,13 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_http_server (H10.03/H10.04 TCP+HTTP)"
+            "; Draconic LLVM host_http_server (H10.03–H10.05 TCP+HTTP)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
             GC_INIT,
             PRINT_STR,
+            PRINT_I64,
             HOST_TCP_LISTEN,
             HOST_TCP_LOCAL_PORT,
             HOST_TCP_ACCEPT,
@@ -485,6 +631,9 @@ impl<'a> Emitter<'a> {
             HOST_HANDLE_CLOSE,
             HOST_HTTP_PARSE_REQUEST,
             HOST_HTTP_WRITE_RESPONSE,
+            HOST_HTTP_WRITE_REQUEST,
+            HOST_HTTP_PARSE_RESPONSE,
+            HOST_HTTP_RESPONSE_HEADER,
             HOST_STDOUT_WRITE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
@@ -518,6 +667,16 @@ impl<'a> Emitter<'a> {
                     let plen = self.slot_req_field(*id, "raw_len")?;
                     writeln!(self.body, "  {plen} = alloca i64, align 8").ok();
                 }
+                SlotTy::HttpRes => {
+                    for f in ["version", "reason", "body", "raw"] {
+                        let p = self.slot_req_field(*id, f)?;
+                        writeln!(self.body, "  {p} = alloca ptr, align 8").ok();
+                    }
+                    let pst = self.slot_req_field(*id, "status")?;
+                    writeln!(self.body, "  {pst} = alloca i32, align 4").ok();
+                    let plen = self.slot_req_field(*id, "raw_len")?;
+                    writeln!(self.body, "  {plen} = alloca i64, align 8").ok();
+                }
             }
         }
 
@@ -525,8 +684,27 @@ impl<'a> Emitter<'a> {
             self.emit_stmt(stmt)?;
         }
 
-        // Do not auto-print string locals for server fixtures — stdout is explicit.
-        let _ = &self.info.print_locals;
+        if self.info.client_print {
+            for (id, ty) in &self.info.print_locals {
+                match ty {
+                    SlotTy::String => {
+                        let ptr = self.slot_ptr(*id)?;
+                        let v = self.fresh();
+                        writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                        writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
+                    }
+                    SlotTy::Number => {
+                        let ptr = self.slot_ptr(*id)?;
+                        let v = self.fresh();
+                        let i = self.fresh();
+                        writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                        writeln!(self.body, "  {i} = fptosi double {v} to i64").ok();
+                        writeln!(self.body, "  {}", PRINT_I64.call(&format!("i64 {i}"))).ok();
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let body = std::mem::take(&mut self.body);
         for (content, gname) in &self.str_globals {
@@ -580,6 +758,7 @@ impl<'a> Emitter<'a> {
                     }
                     SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
                     SlotTy::HttpReq => self.emit_http_req_into(*local, init)?,
+                    SlotTy::HttpRes => self.emit_http_res_into(*local, init)?,
                 }
                 Ok(())
             }
@@ -660,6 +839,40 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             _ => Err(diag("host_http_server: expected httpParseRequest")),
+        }
+    }
+
+    fn emit_http_res_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "httpParseResponse") =>
+            {
+                let raw_e =
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: parse res raw"))?;
+                let (raw, raw_len) = self.emit_bytes_ptr_len(raw_e)?;
+                let ov = self.slot_req_field(local, "version")?;
+                let os = self.slot_req_field(local, "status")?;
+                let or_ = self.slot_req_field(local, "reason")?;
+                let ob = self.slot_req_field(local, "body")?;
+                let oraw = self.slot_req_field(local, "raw")?;
+                let orlen = self.slot_req_field(local, "raw_len")?;
+                let rc = self.fresh();
+                writeln!(self.body, "  store ptr null, ptr {ov}").ok();
+                writeln!(self.body, "  store i32 0, ptr {os}").ok();
+                writeln!(self.body, "  store ptr null, ptr {or_}").ok();
+                writeln!(self.body, "  store ptr null, ptr {ob}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {raw}, i64 {raw_len}, ptr {ov}, ptr {os}, ptr {or_}, ptr {ob})",
+                    HOST_HTTP_PARSE_RESPONSE.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                writeln!(self.body, "  store ptr {raw}, ptr {oraw}").ok();
+                writeln!(self.body, "  store i64 {raw_len}, ptr {orlen}").ok();
+                Ok(())
+            }
+            _ => Err(diag("host_http_server: expected httpParseResponse")),
         }
     }
 
@@ -752,6 +965,18 @@ impl<'a> Emitter<'a> {
                 let s = self.emit_write_response(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: status"))?,
                     arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: reason"))?,
+                    arg_expr(&args[2]).ok_or_else(|| diag("host_http_server: headers"))?,
+                    arg_expr(&args[3]).ok_or_else(|| diag("host_http_server: body"))?,
+                )?;
+                let n = self.emit_cstr_len(&s)?;
+                Ok((s, n))
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 4 && is_named_callee(callee, "httpWriteRequest") =>
+            {
+                let s = self.emit_write_request(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: method"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: path"))?,
                     arg_expr(&args[2]).ok_or_else(|| diag("host_http_server: headers"))?,
                     arg_expr(&args[3]).ok_or_else(|| diag("host_http_server: body"))?,
                 )?;
@@ -927,6 +1152,30 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                 Ok(v)
             }
+            Expr::Member {
+                object,
+                property,
+                computed: false,
+                ..
+            } => {
+                let prop =
+                    string_lit(property).ok_or_else(|| diag("host_http_server: member prop"))?;
+                let id = match object.as_ref() {
+                    Expr::Local { id, .. } => *id,
+                    _ => return Err(diag("host_http_server: member object must be local")),
+                };
+                match (self.slot_of.get(&id), prop.as_str()) {
+                    (Some(SlotTy::HttpRes), "status") => {
+                        let fp = self.slot_req_field(id, "status")?;
+                        let i = self.fresh();
+                        let d = self.fresh();
+                        writeln!(self.body, "  {i} = load i32, ptr {fp}").ok();
+                        writeln!(self.body, "  {d} = sitofp i32 {i} to double").ok();
+                        Ok(d)
+                    }
+                    _ => Err(diag("host_http_server: unsupported number member")),
+                }
+            }
             _ => Err(diag("host_http_server: unsupported number expr")),
         }
     }
@@ -961,6 +1210,62 @@ impl<'a> Emitter<'a> {
         Ok(v)
     }
 
+    fn emit_write_request(
+        &mut self,
+        method: &Expr,
+        path: &Expr,
+        headers: &Expr,
+        body: &Expr,
+    ) -> Result<String, Diagnostic> {
+        let m = self.emit_string_expr(method)?;
+        let p = self.emit_string_expr(path)?;
+        let h = self.emit_string_expr(headers)?;
+        let b = self.emit_string_expr(body)?;
+        let blen = self.emit_cstr_len(&b)?;
+        let out = self.fresh();
+        let rc = self.fresh();
+        writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
+        writeln!(self.body, "  store ptr null, ptr {out}").ok();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(ptr {m}, ptr {p}, ptr {h}, ptr {b}, i64 {blen}, ptr {out})",
+            HOST_HTTP_WRITE_REQUEST.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)?;
+        let v = self.fresh();
+        writeln!(self.body, "  {v} = load ptr, ptr {out}").ok();
+        Ok(v)
+    }
+
+    fn emit_response_header(&mut self, res: &Expr, name: &Expr) -> Result<String, Diagnostic> {
+        let id = match res {
+            Expr::Local { id, .. } => *id,
+            _ => return Err(diag("host_http_server: res must be local")),
+        };
+        let rp = self.slot_req_field(id, "raw")?;
+        let lp = self.slot_req_field(id, "raw_len")?;
+        let raw = self.fresh();
+        let len = self.fresh();
+        writeln!(self.body, "  {raw} = load ptr, ptr {rp}").ok();
+        writeln!(self.body, "  {len} = load i64, ptr {lp}").ok();
+        let nm = self.emit_string_expr(name)?;
+        let out = self.fresh();
+        let rc = self.fresh();
+        writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
+        writeln!(self.body, "  store ptr null, ptr {out}").ok();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(ptr {raw}, i64 {len}, ptr {nm}, ptr {out})",
+            HOST_HTTP_RESPONSE_HEADER.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)?;
+        let v = self.fresh();
+        writeln!(self.body, "  {v} = load ptr, ptr {out}").ok();
+        Ok(v)
+    }
+
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::String { value, .. } => {
@@ -983,6 +1288,24 @@ impl<'a> Emitter<'a> {
                     arg_expr(&args[3]).ok_or_else(|| diag("host_http_server: body"))?,
                 )
             }
+            Expr::Call { callee, args, .. }
+                if args.len() == 4 && is_named_callee(callee, "httpWriteRequest") =>
+            {
+                self.emit_write_request(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: method"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: path"))?,
+                    arg_expr(&args[2]).ok_or_else(|| diag("host_http_server: headers"))?,
+                    arg_expr(&args[3]).ok_or_else(|| diag("host_http_server: body"))?,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "httpResponseHeader") =>
+            {
+                self.emit_response_header(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: res"))?,
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: header name"))?,
+                )
+            }
             Expr::Member {
                 object,
                 property,
@@ -997,6 +1320,12 @@ impl<'a> Emitter<'a> {
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
                     (Some(SlotTy::HttpReq), "method" | "path" | "version" | "body") => {
+                        let fp = self.slot_req_field(id, prop.as_str())?;
+                        let v = self.fresh();
+                        writeln!(self.body, "  {v} = load ptr, ptr {fp}").ok();
+                        Ok(v)
+                    }
+                    (Some(SlotTy::HttpRes), "version" | "reason" | "body") => {
                         let fp = self.slot_req_field(id, prop.as_str())?;
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load ptr, ptr {fp}").ok();
