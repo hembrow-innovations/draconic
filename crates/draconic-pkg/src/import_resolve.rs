@@ -2,6 +2,9 @@
 //!
 //! Specifiers like `github.com/org/pkg` or `github.com/org/pkg/util` map to a
 //! locked package's checkout root (plus optional subpath) under the module cache.
+//!
+//! K06.02: resolved paths must stay inside the package checkout root (no escape
+//! via `..`, symlinks, or relative imports from package modules).
 
 use std::fmt;
 use std::fs;
@@ -40,6 +43,12 @@ pub enum ImportResolveError {
     CachePath(CachePathError),
     /// Subpath would escape or is otherwise invalid inside the package.
     InvalidSubpath { spec: String, reason: &'static str },
+    /// Resolved path leaves the package checkout root (K06.02).
+    PackageBoundary {
+        spec: String,
+        package_root: PathBuf,
+        resolved: PathBuf,
+    },
     /// Package root + subpath did not resolve to a readable module file.
     FileNotFound {
         spec: String,
@@ -76,6 +85,18 @@ impl fmt::Display for ImportResolveError {
             ImportResolveError::CachePath(e) => write!(f, "import resolve: {e}"),
             ImportResolveError::InvalidSubpath { spec, reason } => {
                 write!(f, "import resolve: invalid subpath in `{spec}`: {reason}")
+            }
+            ImportResolveError::PackageBoundary {
+                spec,
+                package_root,
+                resolved,
+            } => {
+                write!(
+                    f,
+                    "import resolve: `{spec}` resolves to `{}` outside package root `{}` (package boundary)",
+                    resolved.display(),
+                    package_root.display()
+                )
             }
             ImportResolveError::FileNotFound {
                 spec,
@@ -225,13 +246,66 @@ pub fn resolve_module_import(
         }
     })?;
 
+    let package_root = fs::canonicalize(&package_root).unwrap_or(package_root);
     let file = fs::canonicalize(&file).unwrap_or(file);
+
+    // K06.02: reject symlink / join results that leave the checkout root.
+    if !path_is_within_root(&file, &package_root) {
+        return Err(ImportResolveError::PackageBoundary {
+            spec: spec.to_string(),
+            package_root,
+            resolved: file,
+        });
+    }
 
     Ok(ResolvedImport {
         module_path,
         package_root,
         subpath,
         file,
+    })
+}
+
+/// True when `path` is `root` or a descendant of `root` (component-wise).
+///
+/// Both paths should be canonical when possible so symlink escapes are caught.
+pub fn path_is_within_root(path: &Path, root: &Path) -> bool {
+    let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    path == root || path.starts_with(&root)
+}
+
+/// Walk ancestors of `path` for a package checkout marker (`.draconic-checkout-oid`).
+///
+/// Returns the directory containing the marker (the package root), if any.
+pub fn find_package_checkout_root(path: &Path) -> Option<PathBuf> {
+    let start = if path.is_file() {
+        path.parent()?.to_path_buf()
+    } else {
+        path.to_path_buf()
+    };
+    let mut dir = start;
+    loop {
+        if dir.join(".draconic-checkout-oid").is_file() {
+            return Some(fs::canonicalize(&dir).unwrap_or(dir));
+        }
+        dir = dir.parent()?.to_path_buf();
+    }
+}
+
+/// Ensure `resolved` stays inside `package_root` (K06.02).
+pub fn ensure_within_package(
+    resolved: &Path,
+    package_root: &Path,
+    spec: &str,
+) -> Result<(), ImportResolveError> {
+    if path_is_within_root(resolved, package_root) {
+        return Ok(());
+    }
+    Err(ImportResolveError::PackageBoundary {
+        spec: spec.to_string(),
+        package_root: fs::canonicalize(package_root).unwrap_or_else(|_| package_root.to_path_buf()),
+        resolved: fs::canonicalize(resolved).unwrap_or_else(|_| resolved.to_path_buf()),
     })
 }
 
@@ -457,6 +531,81 @@ mod tests {
             matches!(err, ImportResolveError::FileNotFound { .. }),
             "{err}"
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K06.02: symlink (or other resolve) that leaves the package root is rejected.
+    #[test]
+    fn resolve_rejects_escape_outside_package_root() {
+        let root = temp_root("escape");
+        let outside = root.join("secret.drac");
+        fs::write(&outside, "export let leak = 1;\n").unwrap();
+
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/pkg";
+        materialize_checkout(
+            &cache,
+            path,
+            OID,
+            &[("index.drac", "export let value = 1;\n")],
+        );
+        let pkg_dir = cache.entry_dir(path, OID).unwrap();
+        let link = pkg_dir.join("escape.drac");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (outside, link);
+            let _ = fs::remove_dir_all(&root);
+            return;
+        }
+
+        let lock = lock_with(path, OID);
+        let err = resolve_module_import("github.com/org/pkg/escape", &lock, &cache).unwrap_err();
+        assert!(
+            matches!(err, ImportResolveError::PackageBoundary { .. }),
+            "{err}"
+        );
+        assert!(
+            err.to_string().contains("package boundary")
+                || err.to_string().contains("outside package"),
+            "{err}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn path_within_root_rejects_sibling_prefix() {
+        let root = temp_root("prefix");
+        let pkg = root.join("pkg");
+        let sibling = root.join("pkg-evil");
+        fs::create_dir_all(&pkg).unwrap();
+        fs::create_dir_all(&sibling).unwrap();
+        let inside = pkg.join("a.drac");
+        let outside = sibling.join("a.drac");
+        fs::write(&inside, "x").unwrap();
+        fs::write(&outside, "y").unwrap();
+        assert!(path_is_within_root(&inside, &pkg));
+        assert!(!path_is_within_root(&outside, &pkg));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_package_checkout_root_walks_to_marker() {
+        let root = temp_root("marker");
+        let nested = root.join("nested").join("deep");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(root.join(".draconic-checkout-oid"), "abc\n").unwrap();
+        let file = nested.join("m.drac");
+        fs::write(&file, "export let x = 1;\n").unwrap();
+        let found = find_package_checkout_root(&file).expect("marker");
+        assert_eq!(
+            fs::canonicalize(&found).unwrap(),
+            fs::canonicalize(&root).unwrap()
+        );
+        assert!(find_package_checkout_root(&temp_root("nomarker")).is_none());
         let _ = fs::remove_dir_all(&root);
     }
 }

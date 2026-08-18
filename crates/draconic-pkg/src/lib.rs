@@ -17,6 +17,7 @@
 //! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 //! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
 //! K06.01: resolve module-path imports (`github.com/org/pkg` + subpath) → cache file.
+//! K06.02: package boundary — reject path escape outside package checkout root.
 
 mod cache;
 mod get;
@@ -36,7 +37,8 @@ pub use get::{
 };
 pub use hash::{content_hash_tree, ContentHashError};
 pub use import_resolve::{
-    looks_like_module_path_import, match_locked_package, resolve_module_import, ImportResolveError,
+    ensure_within_package, find_package_checkout_root, looks_like_module_path_import,
+    match_locked_package, path_is_within_root, resolve_module_import, ImportResolveError,
     ResolvedImport,
 };
 pub use lock::{

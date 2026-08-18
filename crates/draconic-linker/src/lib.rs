@@ -10,6 +10,9 @@
 //! K06.01: non-relative module-path imports (`github.com/org/pkg` + subpath)
 //! resolve via `draconic.lock` + module cache when a package context is present
 //! (explicit or discovered from an ancestor workspace).
+//!
+//! K06.02: relative imports from inside a package checkout must not resolve
+//! outside that package root (package boundary).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -31,8 +34,9 @@ use draconic_diagnostics::{Diagnostic, Span};
 
 use draconic_parser::{parse, parse_module};
 use draconic_pkg::{
-    default_cache_root, looks_like_module_path_import, parse_lock, resolve_module_import,
-    LockFile, ModuleCache, LOCK_FILE,
+    default_cache_root, ensure_within_package, find_package_checkout_root,
+    looks_like_module_path_import, parse_lock, resolve_module_import, LockFile, ModuleCache,
+    LOCK_FILE,
 };
 
 /// Package resolution context for module-path imports (K06.01).
@@ -4911,12 +4915,18 @@ fn resolve_specifier(parent: &Path, spec: &str, span: Span) -> Result<PathBuf, D
     if spec.starts_with("./") || spec.starts_with("../") {
         let joined = parent.join(spec);
         if joined.exists() {
-            return fs::canonicalize(&joined).map_err(|e| {
+            let resolved = fs::canonicalize(&joined).map_err(|e| {
                 Diagnostic::new(
                     format!("canonicalize {}: {e}", joined.display()),
                     span,
                 )
-            });
+            })?;
+            // K06.02: if the importer lives in a package checkout, stay inside it.
+            if let Some(package_root) = find_package_checkout_root(parent) {
+                ensure_within_package(&resolved, &package_root, spec)
+                    .map_err(|e| Diagnostic::new(e.to_string(), span))?;
+            }
+            return Ok(resolved);
         }
         return Err(Diagnostic::new(
             format!("cannot resolve module `{spec}` from {}", parent.display()),
@@ -5804,6 +5814,131 @@ async function run() {
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("h"), "{dump}");
         assert!(dump.contains("7") || dump.contains("helper") || dump.contains("__m"), "{dump}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K06.02: relative import from a package module must not escape package root.
+    #[test]
+    fn link_rejects_relative_escape_outside_package_root() {
+        let root = std::env::temp_dir().join(format!(
+            "draconic-link-pkg-escape-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let oid = "0123456789abcdef0123456789abcdef01234567";
+        let hash = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        let module_path = "github.com/org/pkg";
+        let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
+        let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
+        fs::create_dir_all(&pkg_dir).unwrap();
+        // Sibling of package checkout root (outside the package boundary).
+        fs::write(
+            pkg_dir.parent().unwrap().join("outside.drac"),
+            "export let secret = 99;\n",
+        )
+        .unwrap();
+        // From package root, `../outside.drac` escapes the checkout.
+        fs::write(
+            pkg_dir.join("index.drac"),
+            "export { secret } from \"../outside.drac\";\n",
+        )
+        .unwrap();
+        fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
+
+        let entry = draconic_pkg::LockEntry::new(
+            module_path,
+            "1.0.0",
+            "https://github.com/org/pkg.git",
+            oid,
+            hash,
+        )
+        .unwrap();
+        let mut packages = std::collections::BTreeMap::new();
+        packages.insert(module_path.to_string(), entry);
+        let lock = draconic_pkg::LockFile {
+            version: 1,
+            packages,
+        };
+        let ctx = PackageLinkContext { lock, cache };
+
+        let main = root.join("main.drac");
+        fs::write(
+            &main,
+            "import { secret } from \"github.com/org/pkg\";\nlet s = secret;\n",
+        )
+        .unwrap();
+
+        let err = link_entry_with_packages(&main, Some(&ctx)).expect_err("must reject escape");
+        let msg = err.message.clone();
+        assert!(
+            msg.contains("package boundary")
+                || msg.contains("outside package")
+                || msg.contains("escape"),
+            "{msg}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K06.02: relative imports that stay inside the package root still link.
+    #[test]
+    fn link_allows_relative_within_package_root() {
+        let root = std::env::temp_dir().join(format!(
+            "draconic-link-pkg-within-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let oid = "0123456789abcdef0123456789abcdef01234567";
+        let hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        let module_path = "github.com/org/pkg";
+        let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
+        let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
+        fs::create_dir_all(pkg_dir.join("nested")).unwrap();
+        fs::write(
+            pkg_dir.join("index.drac"),
+            "export { helper } from \"./nested/util.drac\";\n",
+        )
+        .unwrap();
+        fs::write(
+            pkg_dir.join("nested/util.drac"),
+            "export let helper = 7;\n",
+        )
+        .unwrap();
+        fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
+
+        let entry = draconic_pkg::LockEntry::new(
+            module_path,
+            "1.0.0",
+            "https://github.com/org/pkg.git",
+            oid,
+            hash,
+        )
+        .unwrap();
+        let mut packages = std::collections::BTreeMap::new();
+        packages.insert(module_path.to_string(), entry);
+        let lock = draconic_pkg::LockFile {
+            version: 1,
+            packages,
+        };
+        let ctx = PackageLinkContext { lock, cache };
+
+        let main = root.join("main.drac");
+        fs::write(
+            &main,
+            "import { helper } from \"github.com/org/pkg\";\nlet h = helper;\n",
+        )
+        .unwrap();
+
+        let program = link_entry_with_packages(&main, Some(&ctx)).expect("within package");
+        let dump = draconic_ast::dump_program(&program);
+        assert!(dump.contains("h"), "{dump}");
         let _ = fs::remove_dir_all(&root);
     }
 
