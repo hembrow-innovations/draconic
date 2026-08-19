@@ -1,0 +1,11 @@
+// H17.03: pure Draconic native static HTTP host for the todo example (no C host).
+// Listens on 18083; each connection: accept → httpServeStatic(docroot) → close.
+// Run from examples/todo so ./public resolves (or pass a cwd that contains public/).
+
+let s = tcpListen(18083);
+stdoutWrite("Draconic todo server listening on http://127.0.0.1:18083\n");
+while (true) {
+  let a = tcpAccept(s);
+  httpServeStatic(a, "./public");
+  closeTcp(a);
+}

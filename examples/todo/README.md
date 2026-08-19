@@ -1,17 +1,17 @@
 # Todo — Draconic end-to-end example
 
-A browser todo list written in **Draconic**, compiled to JavaScript, and served by a **native** static HTTP server.
+A browser todo list written in **Draconic**, compiled to JavaScript, and served by a **pure Draconic native** static HTTP server (no C host).
 
 ```
-src/todo.drac  ──draconic build --target js──►  public/todo.js
-public/index.html + style.css                   (static shell)
-server/main.c  ──cc──►  native binary hosts HTTP on :8080
+src/todo.drac   ──draconic build --target js──►  public/todo.js
+public/index.html + style.css                    (static shell)
+server.drac     ──draconic build --target native──►  native binary hosts HTTP
 ```
 
 ## Prerequisites
 
 - Rust toolchain (`cargo`) — builds the `draconic` CLI
-- C compiler (`cc`) — builds the native host
+- LLVM toolchain — native target (same as other native builds)
 - Browser
 
 ## Quick start
@@ -20,16 +20,16 @@ From the **repo root**:
 
 ```bash
 ./examples/todo/build.sh
-./examples/todo/server/server 8080 ./examples/todo/public
+(cd examples/todo && ./server-bin)
 ```
 
-Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/).
+Open [http://127.0.0.1:18083/](http://127.0.0.1:18083/).
 
 Or from this directory:
 
 ```bash
 ./build.sh
-./server/server 8080 ./public
+./server-bin
 ```
 
 ## What is Draconic vs host
@@ -39,9 +39,9 @@ Or from this directory:
 | `src/todo.drac` | Draconic | App logic + DOM via `globalThis` |
 | `public/todo.js` | Emitted JS | Browser script (generated; do not edit) |
 | `public/index.html`, `style.css` | HTML/CSS | Page shell |
-| `server/main.c` | C | Native HTTP/1.1 static file host |
+| `server.drac` | Draconic | Native HTTP/1.1 static file host (TCP + `httpServeStatic`) |
 
-The Draconic **native** backend does not yet expose sockets/HTTP in the Runtime, so the host is a small C server. The **product** of the language here is the client: types, classes-of-logic, arrays, `JSON`, and browser APIs reached through `globalThis`.
+The server is **native-only**. The **client** is the JS product of the language: types, arrays, `JSON`, and browser APIs via `globalThis`.
 
 ## Features
 
@@ -50,26 +50,37 @@ The Draconic **native** backend does not yet expose sockets/HTTP in the Runtime,
 - Remaining count + clear completed
 - Persist to `localStorage` (`draconic-todo`)
 
-## Rebuild client only
+## Rebuild pieces
 
 ```bash
-# from repo root
+# from repo root — client only
 cargo run -q -p draconic-cli -- build --target js \
   examples/todo/src/todo.drac -o examples/todo/public/todo.js
+
+# server only
+cargo run -q -p draconic-cli -- build --target native \
+  examples/todo/server.drac -o examples/todo/server-bin
 ```
 
 ## Layout
 
 ```
 examples/todo/
-  src/todo.drac       # source of truth for the app
+  src/todo.drac       # client source of truth
   public/
     index.html
     style.css
     todo.js           # generated
-  server/
-    main.c            # native static host
-    Makefile
+  server.drac         # native static host source of truth
   build.sh
   README.md
 ```
+
+## Notes
+
+- **Native target** for `server.drac` (TCP listen is native-first).
+- Port is fixed at `18083` in `server.drac` (avoids clash with http-echo on 8080).
+- Docroot is `./public` relative to the process cwd — run from `examples/todo`.
+- One request per connection (`Connection: close`).
+- Path traversal (`..`) and non-files under docroot → 404.
+- Integration: `tests/integration/tests/todo_server.rs` (**H17.03**).

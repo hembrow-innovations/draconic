@@ -5469,6 +5469,253 @@ DraconicHostError draconic_rt_host_http_write_response(
     return DRACONIC_HOST_OK;
 }
 
+/* --- HTTP/1.1 static file serve (H17.03) ---------------------------------- */
+
+static int host_static_path_has_dotdot(const char *path) {
+    const char *p = path ? path : "";
+    while (*p) {
+        if (p[0] == '.' && p[1] == '.'
+            && (p == path || p[-1] == '/')
+            && (p[2] == '\0' || p[2] == '/')) {
+            return 1;
+        }
+        p++;
+    }
+    return 0;
+}
+
+static const char *host_static_mime(const char *path) {
+    const char *dot = strrchr(path ? path : "", '.');
+    if (!dot) {
+        return "application/octet-stream";
+    }
+    if (strcmp(dot, ".html") == 0) {
+        return "text/html; charset=utf-8";
+    }
+    if (strcmp(dot, ".css") == 0) {
+        return "text/css; charset=utf-8";
+    }
+    if (strcmp(dot, ".js") == 0) {
+        return "application/javascript; charset=utf-8";
+    }
+    if (strcmp(dot, ".svg") == 0) {
+        return "image/svg+xml";
+    }
+    if (strcmp(dot, ".json") == 0) {
+        return "application/json; charset=utf-8";
+    }
+    if (strcmp(dot, ".txt") == 0) {
+        return "text/plain; charset=utf-8";
+    }
+    return "application/octet-stream";
+}
+
+static DraconicHostError host_static_send(
+    DraconicHostHandle conn_h,
+    int32_t status,
+    const char *reason,
+    const char *ctype,
+    const uint8_t *body,
+    size_t body_len) {
+    char hdrs[256];
+    char *msg = NULL;
+    size_t msg_len;
+    DraconicHostError err;
+    int n;
+
+    n = snprintf(
+        hdrs,
+        sizeof(hdrs),
+        "Content-Type: %s\r\nConnection: close\r\n",
+        ctype ? ctype : "application/octet-stream");
+    if (n < 0 || (size_t)n >= sizeof(hdrs)) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    err = draconic_rt_host_http_write_response(
+        status, reason, hdrs, body, body_len, &msg);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    msg_len = strlen(msg);
+    err = draconic_rt_host_tcp_write(conn_h, (const uint8_t *)msg, msg_len);
+    free(msg);
+    return err;
+}
+
+DraconicHostError draconic_rt_host_http_serve_static(
+    DraconicHostHandle conn_h,
+    const char *docroot) {
+    uint8_t *raw = NULL;
+    size_t raw_len = 0;
+    char *method = NULL;
+    char *path = NULL;
+    char *version = NULL;
+    char *body = NULL;
+    DraconicHostError err;
+    char *q;
+    const char *rel;
+    char *root_abs = NULL;
+    char *file_abs = NULL;
+    const char *parts[2];
+    uint8_t *file_data = NULL;
+    size_t file_len = 0;
+    const char *ctype;
+    static const uint8_t msg404[] = "404 Not Found\n";
+    static const uint8_t msg405[] = "405 Method Not Allowed\n";
+    static const uint8_t msg400[] = "400 Bad Request\n";
+
+    if (!docroot || docroot[0] == '\0') {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    err = draconic_rt_host_tcp_read(conn_h, 8192, &raw, &raw_len);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    if (!raw || raw_len == 0) {
+        free(raw);
+        return DRACONIC_HOST_OK;
+    }
+
+    err = draconic_rt_host_http_parse_request(
+        raw, raw_len, &method, &path, &version, &body);
+    free(raw);
+    if (err != DRACONIC_HOST_OK) {
+        free(method);
+        free(path);
+        free(version);
+        free(body);
+        (void)host_static_send(
+            conn_h, 400, "Bad Request", "text/plain; charset=utf-8", msg400, sizeof(msg400) - 1);
+        return DRACONIC_HOST_OK;
+    }
+
+    if (!method || strcmp(method, "GET") != 0) {
+        free(method);
+        free(path);
+        free(version);
+        free(body);
+        (void)host_static_send(
+            conn_h,
+            405,
+            "Method Not Allowed",
+            "text/plain; charset=utf-8",
+            msg405,
+            sizeof(msg405) - 1);
+        return DRACONIC_HOST_OK;
+    }
+
+    if (!path || path[0] != '/' || host_static_path_has_dotdot(path)) {
+        free(method);
+        free(path);
+        free(version);
+        free(body);
+        (void)host_static_send(
+            conn_h, 404, "Not Found", "text/plain; charset=utf-8", msg404, sizeof(msg404) - 1);
+        return DRACONIC_HOST_OK;
+    }
+
+    q = strchr(path, '?');
+    if (q) {
+        *q = '\0';
+    }
+    rel = path;
+    if (strcmp(path, "/") == 0) {
+        rel = "/index.html";
+    }
+
+    parts[0] = docroot;
+    root_abs = draconic_rt_host_path_resolve(1, parts);
+    if (!root_abs) {
+        free(method);
+        free(path);
+        free(version);
+        free(body);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    /* Strip leading '/' so join stays under root. */
+    parts[0] = root_abs;
+    parts[1] = rel[0] == '/' ? rel + 1 : rel;
+    file_abs = draconic_rt_host_path_resolve(2, parts);
+    if (!file_abs) {
+        free(root_abs);
+        free(method);
+        free(path);
+        free(version);
+        free(body);
+        return DRACONIC_HOST_E_NOMEM;
+    }
+
+    /* Refuse escape outside docroot after resolve. */
+    {
+        size_t root_len = strlen(root_abs);
+        int under = (strcmp(file_abs, root_abs) == 0)
+            || (strncmp(file_abs, root_abs, root_len) == 0
+                && (file_abs[root_len] == '/' || file_abs[root_len] == '\0'));
+        if (!under || strcmp(file_abs, root_abs) == 0) {
+            free(root_abs);
+            free(file_abs);
+            free(method);
+            free(path);
+            free(version);
+            free(body);
+            (void)host_static_send(
+                conn_h, 404, "Not Found", "text/plain; charset=utf-8", msg404, sizeof(msg404) - 1);
+            return DRACONIC_HOST_OK;
+        }
+    }
+
+    if (!draconic_rt_host_fs_exists(file_abs)) {
+        free(root_abs);
+        free(file_abs);
+        free(method);
+        free(path);
+        free(version);
+        free(body);
+        (void)host_static_send(
+            conn_h, 404, "Not Found", "text/plain; charset=utf-8", msg404, sizeof(msg404) - 1);
+        return DRACONIC_HOST_OK;
+    }
+
+    {
+        int64_t size = 0;
+        int32_t is_file = 0;
+        int32_t is_dir = 0;
+        double mtime = 0.0;
+        err = draconic_rt_host_fs_stat(file_abs, &size, &is_file, &is_dir, &mtime);
+        if (err != DRACONIC_HOST_OK || !is_file) {
+            free(root_abs);
+            free(file_abs);
+            free(method);
+            free(path);
+            free(version);
+            free(body);
+            (void)host_static_send(
+                conn_h, 404, "Not Found", "text/plain; charset=utf-8", msg404, sizeof(msg404) - 1);
+            return DRACONIC_HOST_OK;
+        }
+    }
+
+    err = draconic_rt_host_fs_read_file(file_abs, &file_data, &file_len);
+    free(root_abs);
+    free(file_abs);
+    free(method);
+    free(path);
+    free(version);
+    free(body);
+    if (err != DRACONIC_HOST_OK) {
+        (void)host_static_send(
+            conn_h, 404, "Not Found", "text/plain; charset=utf-8", msg404, sizeof(msg404) - 1);
+        return DRACONIC_HOST_OK;
+    }
+
+    ctype = host_static_mime(rel);
+    err = host_static_send(conn_h, 200, "OK", ctype, file_data, file_len);
+    free(file_data);
+    return err == DRACONIC_HOST_OK ? DRACONIC_HOST_OK : err;
+}
+
 /* --- HTTP/1.1 client helpers (H10.05) ------------------------------------- */
 
 DraconicHostError draconic_rt_host_http_write_request(

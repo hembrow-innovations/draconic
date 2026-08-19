@@ -605,6 +605,13 @@ DraconicHostError draconic_rt_host_http_write_response(
     size_t body_len,
     char **out_msg);
 
+/* H17.03: one-shot static file response on a TCP connection.
+   Read one HTTP request from conn_h, serve a GET under docroot (path traversal
+   rejected; `/` → index.html), write response, return. Connection not closed. */
+DraconicHostError draconic_rt_host_http_serve_static(
+    DraconicHostHandle conn_h,
+    const char *docroot);
+
 /* --- HTTP/1.1 client helpers (H10.05 / H10.06) -----------------------------
    write_request: format a complete plaintext HTTP/1.1 request message
    (request-line + headers + body). method/path required non-empty; headers

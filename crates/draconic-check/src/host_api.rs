@@ -583,6 +583,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         note: "H10.02 HTTP/1.1 response write → status-line + headers + body",
     },
     HostApiEntry {
+        name: "httpServeStatic",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H17.03 HTTP/1.1 static file serve on TCP conn under docroot",
+    },
+    HostApiEntry {
         name: "httpWriteRequest",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H10.05 HTTP/1.1 request write → request-line + headers + body",

@@ -18,11 +18,11 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_PARSE_RESPONSE,
-    HOST_HTTP_RESPONSE_HEADER, HOST_HTTP_WRITE_REQUEST, HOST_HTTP_WRITE_RESPONSE,
-    HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT,
-    HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, HOST_TLS_CLIENT_WRAP,
-    HOST_TLS_READ, HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE, HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64,
-    PRINT_STR,
+    HOST_HTTP_RESPONSE_HEADER, HOST_HTTP_SERVE_STATIC, HOST_HTTP_WRITE_REQUEST,
+    HOST_HTTP_WRITE_RESPONSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE,
+    HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ,
+    HOST_TCP_WRITE, HOST_TLS_CLIENT_WRAP, HOST_TLS_READ, HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE,
+    HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64, PRINT_STR,
 };
 
 pub(crate) fn is_host_http_server_module(module: &Module) -> bool {
@@ -215,6 +215,15 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.has_http = true;
             ctx.has_client = true;
             classify_res_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)
+        }
+        // H17.03: static file serve on accepted TCP connection.
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "httpServeStatic") =>
+        {
+            ctx.has_tcp = true;
+            ctx.has_http = true;
+            classify_handle_arg(arg_expr(&args[0])?, ctx)?;
             classify_string_arg(arg_expr(&args[1])?, ctx)
         }
         _ => None,
@@ -706,6 +715,7 @@ impl<'a> Emitter<'a> {
             HOST_HANDLE_CLOSE,
             HOST_HTTP_PARSE_REQUEST,
             HOST_HTTP_WRITE_RESPONSE,
+            HOST_HTTP_SERVE_STATIC,
             HOST_HTTP_WRITE_REQUEST,
             HOST_HTTP_PARSE_RESPONSE,
             HOST_HTTP_RESPONSE_HEADER,
@@ -1038,6 +1048,24 @@ impl<'a> Emitter<'a> {
                 self.emit_stdout_write(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: stdoutWrite"))?,
                 )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "httpServeStatic") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: serve conn"))?,
+                )?;
+                let root = self.emit_string_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_http_server: serve root"))?,
+                )?;
+                let rc = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {root})",
+                    HOST_HTTP_SERVE_STATIC.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)
             }
             _ => Err(diag("host_http_server: unsupported expr stmt")),
         }
@@ -1650,6 +1678,28 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_tls_write"), "{ir}");
         assert!(ir.contains("draconic_rt_host_http_parse_request"), "{ir}");
         assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
+    }
+
+    #[test]
+    fn emit_todo_static_serve_accept_loop_ir() {
+        // H17.03 shape: listen + while(true) accept/httpServeStatic/close.
+        let m = lower_src(
+            r#"
+            let s = tcpListen(18083);
+            stdoutWrite("Draconic todo server listening on http://127.0.0.1:18083\n");
+            while (true) {
+              let a = tcpAccept(s);
+              httpServeStatic(a, "./public");
+              closeTcp(a);
+            }
+            "#,
+        );
+        assert!(is_host_http_server_module(&m));
+        let ir = emit_host_http_server(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_tcp_listen"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_accept"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_serve_static"), "{ir}");
+        assert!(ir.contains("hs_while_head"), "{ir}");
     }
 
     #[test]

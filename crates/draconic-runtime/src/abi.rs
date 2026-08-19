@@ -1231,6 +1231,12 @@ pub const HOST_HTTP_WRITE_RESPONSE: AbiFn = AbiFn {
     ret: "i32",
     params: "i32, ptr, ptr, ptr, i64, ptr",
 };
+/* H17.03: one-shot static file serve on TCP connection under docroot. */
+pub const HOST_HTTP_SERVE_STATIC: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http_serve_static",
+    ret: "i32",
+    params: "i64, ptr",
+};
 /* H10.05: HTTP/1.1 client — write request + parse response on connected TCP. */
 pub const HOST_HTTP_WRITE_REQUEST: AbiFn = AbiFn {
     symbol: "draconic_rt_host_http_write_request",
@@ -1474,6 +1480,7 @@ pub const HOST_DNS_LOOKUP_SYMBOL: &str = HOST_DNS_LOOKUP.symbol;
 pub const HOST_HTTP_PARSE_REQUEST_SYMBOL: &str = HOST_HTTP_PARSE_REQUEST.symbol;
 pub const HOST_HTTP_REQUEST_HEADER_SYMBOL: &str = HOST_HTTP_REQUEST_HEADER.symbol;
 pub const HOST_HTTP_WRITE_RESPONSE_SYMBOL: &str = HOST_HTTP_WRITE_RESPONSE.symbol;
+pub const HOST_HTTP_SERVE_STATIC_SYMBOL: &str = HOST_HTTP_SERVE_STATIC.symbol;
 pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
 pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
@@ -1590,6 +1597,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_PARSE_REQUEST_SYMBOL,
     HOST_HTTP_REQUEST_HEADER_SYMBOL,
     HOST_HTTP_WRITE_RESPONSE_SYMBOL,
+    HOST_HTTP_SERVE_STATIC_SYMBOL,
     HOST_HTTP_WRITE_REQUEST_SYMBOL,
     HOST_WS_HANDSHAKE_RESPONSE_SYMBOL,
     HOST_WS_ENCODE_TEXT_SYMBOL,
@@ -1704,6 +1712,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_HTTP_PARSE_REQUEST,
     HOST_HTTP_REQUEST_HEADER,
     HOST_HTTP_WRITE_RESPONSE,
+    HOST_HTTP_SERVE_STATIC,
     HOST_HTTP_WRITE_REQUEST,
     HOST_HTTP_PARSE_RESPONSE,
     HOST_HTTP_RESPONSE_HEADER,
