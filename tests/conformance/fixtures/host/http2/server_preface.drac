@@ -1,0 +1,3 @@
+// H13.01: server preface = empty SETTINGS frame (9 bytes).
+let p = http2ServerPreface();
+let n = p.length;

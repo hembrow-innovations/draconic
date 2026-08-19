@@ -752,3 +752,60 @@ DraconicHostError draconic_rt_host_tls_write(
 #endif
 
 #endif /* DRACONIC_RT_HOST_H */
+
+/* --- HTTP/2 preface + single-stream helpers (H13.01 / RFC 9113) ------------
+   Thin wire helpers: client connection preface, SETTINGS, HEADERS+DATA for one
+   stream request/response. HPACK is minimal (static table + literal path/status).
+   Parse skips SETTINGS/WINDOW_UPDATE/PRIORITY noise; finds first HEADERS(+DATA).
+   Encode/out buffers are malloc'd; caller frees. Malformed → INVAL. */
+DraconicHostError draconic_rt_host_http2_client_preface(
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_http2_server_preface(
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_http2_settings_ack(
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_http2_encode_request(
+    const char *method,
+    const char *path,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_http2_encode_response(
+    int32_t status,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_http2_parse_request(
+    const uint8_t *data,
+    size_t len,
+    char **out_method,
+    char **out_path,
+    uint8_t **out_body,
+    size_t *out_body_len,
+    int32_t *out_stream_id);
+DraconicHostError draconic_rt_host_http2_parse_response(
+    const uint8_t *data,
+    size_t len,
+    int32_t *out_status,
+    uint8_t **out_body,
+    size_t *out_body_len,
+    int32_t *out_stream_id);
+/* Combined open/reply (single TCP write; avoids short-read races). */
+DraconicHostError draconic_rt_host_http2_client_open(
+    const char *method,
+    const char *path,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len);
+DraconicHostError draconic_rt_host_http2_server_reply(
+    int32_t status,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len);

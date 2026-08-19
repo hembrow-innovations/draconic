@@ -1,0 +1,4 @@
+id: host/http2/encode_parse_response
+targets: native
+native.exit: 0
+native.stdout: ok-body\n200\n1\n

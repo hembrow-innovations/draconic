@@ -108,6 +108,9 @@ pub struct HostApiEntry {
 ///   `wsDecodeFrame` (H12.02): native-only WebSocket frames (RFC 6455 §5).
 /// - `wsClientHandshakeRequest` / `wsClientCheckAccept` / `wsEncodeTextClient` (H12.03):
 ///   native-only WebSocket client dial helpers + masked text frames.
+/// - `http2ClientPreface` / `http2ServerPreface` / `http2SettingsAck` /
+///   `http2EncodeRequest` / `http2EncodeResponse` / `http2ParseRequest` /
+///   `http2ParseResponse` (H13.01): native-only HTTP/2 preface + single-stream helpers.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -644,6 +647,51 @@ const HOST_APIS: &[HostApiEntry] = &[
         availability: HostAvailability::NATIVE_ONLY,
         note: "H12.03 WebSocket client text frame encode (FIN=1, masked)",
     },
+    HostApiEntry {
+        name: "http2ClientPreface",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 client connection preface (magic + SETTINGS)",
+    },
+    HostApiEntry {
+        name: "http2ServerPreface",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 server connection preface (SETTINGS)",
+    },
+    HostApiEntry {
+        name: "http2SettingsAck",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 SETTINGS ACK frame",
+    },
+    HostApiEntry {
+        name: "http2EncodeRequest",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 single-stream request (HEADERS+DATA stream 1)",
+    },
+    HostApiEntry {
+        name: "http2EncodeResponse",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 single-stream response (HEADERS+DATA stream 1)",
+    },
+    HostApiEntry {
+        name: "http2ParseRequest",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 parse single-stream request → method/path/body",
+    },
+    HostApiEntry {
+        name: "http2ParseResponse",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 parse single-stream response → status/body",
+    },
+    HostApiEntry {
+        name: "http2ClientOpen",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 client preface + request in one buffer",
+    },
+    HostApiEntry {
+        name: "http2ServerReply",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "H13.01 HTTP/2 server preface + response in one buffer",
+    },
 ];
 
 /// All known host API entries.
@@ -1137,6 +1185,15 @@ mod tests {
             "wsClientHandshakeRequest",
             "wsClientCheckAccept",
             "wsEncodeTextClient",
+            "http2ClientPreface",
+            "http2ServerPreface",
+            "http2SettingsAck",
+            "http2EncodeRequest",
+            "http2EncodeResponse",
+            "http2ParseRequest",
+            "http2ParseResponse",
+            "http2ClientOpen",
+            "http2ServerReply",
             "onSignal",
             "raiseSignal",
             "ignoreSignal",

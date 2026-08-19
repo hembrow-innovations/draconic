@@ -1,0 +1,7 @@
+// H13.01: encode 200 response with body; parse back status/body/stream.
+let wire = http2EncodeResponse(200, "ok-body");
+let res = http2ParseResponse(wire);
+let st = res.status;
+stdoutWrite(res.body);
+stdoutWrite("\n");
+let sid = res.streamId;

@@ -1,0 +1,4 @@
+id: host/http2/single_stream_e2e
+targets: native
+native.exit: 0
+native.stdout: /hello\n

@@ -1,0 +1,8 @@
+// H13.01: encode GET request on stream 1; parse back method/path/streamId.
+let wire = http2EncodeRequest("GET", "/hello", "");
+let req = http2ParseRequest(wire);
+stdoutWrite(req.method);
+stdoutWrite("\n");
+stdoutWrite(req.path);
+stdoutWrite("\n");
+let sid = req.streamId;

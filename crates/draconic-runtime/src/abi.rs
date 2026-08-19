@@ -1300,6 +1300,52 @@ pub const HOST_WS_ENCODE_TEXT_CLIENT: AbiFn = AbiFn {
     ret: "i32",
     params: "ptr, ptr, ptr",
 };
+/* H13.01: HTTP/2 preface + single-stream request/response. */
+pub const HOST_HTTP2_CLIENT_PREFACE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_client_preface",
+    ret: "i32",
+    params: "ptr, ptr",
+};
+pub const HOST_HTTP2_SERVER_PREFACE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_server_preface",
+    ret: "i32",
+    params: "ptr, ptr",
+};
+pub const HOST_HTTP2_SETTINGS_ACK: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_settings_ack",
+    ret: "i32",
+    params: "ptr, ptr",
+};
+pub const HOST_HTTP2_ENCODE_REQUEST: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_encode_request",
+    ret: "i32",
+    params: "ptr, ptr, ptr, i64, ptr, ptr",
+};
+pub const HOST_HTTP2_ENCODE_RESPONSE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_encode_response",
+    ret: "i32",
+    params: "i32, ptr, i64, ptr, ptr",
+};
+pub const HOST_HTTP2_PARSE_REQUEST: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_parse_request",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr, ptr, ptr, ptr",
+};
+pub const HOST_HTTP2_PARSE_RESPONSE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_parse_response",
+    ret: "i32",
+    params: "ptr, i64, ptr, ptr, ptr, ptr",
+};
+pub const HOST_HTTP2_CLIENT_OPEN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_client_open",
+    ret: "i32",
+    params: "ptr, ptr, ptr, i64, ptr, ptr",
+};
+pub const HOST_HTTP2_SERVER_REPLY: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_http2_server_reply",
+    ret: "i32",
+    params: "i32, ptr, i64, ptr, ptr",
+};
 /* H07.02: async TCP → Promise. */
 pub const HOST_TCP_ACCEPT_ASYNC: AbiFn = AbiFn {
     symbol: "draconic_rt_host_tcp_accept_async",
@@ -1441,6 +1487,15 @@ pub const HOST_WS_DECODE_FRAME_SYMBOL: &str = HOST_WS_DECODE_FRAME.symbol;
 pub const HOST_WS_CLIENT_HANDSHAKE_REQUEST_SYMBOL: &str = HOST_WS_CLIENT_HANDSHAKE_REQUEST.symbol;
 pub const HOST_WS_CLIENT_CHECK_ACCEPT_SYMBOL: &str = HOST_WS_CLIENT_CHECK_ACCEPT.symbol;
 pub const HOST_WS_ENCODE_TEXT_CLIENT_SYMBOL: &str = HOST_WS_ENCODE_TEXT_CLIENT.symbol;
+pub const HOST_HTTP2_CLIENT_PREFACE_SYMBOL: &str = HOST_HTTP2_CLIENT_PREFACE.symbol;
+pub const HOST_HTTP2_SERVER_PREFACE_SYMBOL: &str = HOST_HTTP2_SERVER_PREFACE.symbol;
+pub const HOST_HTTP2_SETTINGS_ACK_SYMBOL: &str = HOST_HTTP2_SETTINGS_ACK.symbol;
+pub const HOST_HTTP2_ENCODE_REQUEST_SYMBOL: &str = HOST_HTTP2_ENCODE_REQUEST.symbol;
+pub const HOST_HTTP2_ENCODE_RESPONSE_SYMBOL: &str = HOST_HTTP2_ENCODE_RESPONSE.symbol;
+pub const HOST_HTTP2_PARSE_REQUEST_SYMBOL: &str = HOST_HTTP2_PARSE_REQUEST.symbol;
+pub const HOST_HTTP2_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP2_PARSE_RESPONSE.symbol;
+pub const HOST_HTTP2_CLIENT_OPEN_SYMBOL: &str = HOST_HTTP2_CLIENT_OPEN.symbol;
+pub const HOST_HTTP2_SERVER_REPLY_SYMBOL: &str = HOST_HTTP2_SERVER_REPLY.symbol;
 pub const HOST_TLS_CLIENT_WRAP_SYMBOL: &str = HOST_TLS_CLIENT_WRAP.symbol;
 pub const HOST_TLS_SERVER_WRAP_SYMBOL: &str = HOST_TLS_SERVER_WRAP.symbol;
 pub const HOST_TLS_READ_SYMBOL: &str = HOST_TLS_READ.symbol;
@@ -1546,6 +1601,15 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_WS_CLIENT_HANDSHAKE_REQUEST_SYMBOL,
     HOST_WS_CLIENT_CHECK_ACCEPT_SYMBOL,
     HOST_WS_ENCODE_TEXT_CLIENT_SYMBOL,
+    HOST_HTTP2_CLIENT_PREFACE_SYMBOL,
+    HOST_HTTP2_SERVER_PREFACE_SYMBOL,
+    HOST_HTTP2_SETTINGS_ACK_SYMBOL,
+    HOST_HTTP2_ENCODE_REQUEST_SYMBOL,
+    HOST_HTTP2_ENCODE_RESPONSE_SYMBOL,
+    HOST_HTTP2_PARSE_REQUEST_SYMBOL,
+    HOST_HTTP2_PARSE_RESPONSE_SYMBOL,
+    HOST_HTTP2_CLIENT_OPEN_SYMBOL,
+    HOST_HTTP2_SERVER_REPLY_SYMBOL,
     HOST_TLS_CLIENT_WRAP_SYMBOL,
     HOST_TLS_SERVER_WRAP_SYMBOL,
     HOST_TLS_READ_SYMBOL,
@@ -1653,6 +1717,15 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_WS_CLIENT_HANDSHAKE_REQUEST,
     HOST_WS_CLIENT_CHECK_ACCEPT,
     HOST_WS_ENCODE_TEXT_CLIENT,
+    HOST_HTTP2_CLIENT_PREFACE,
+    HOST_HTTP2_SERVER_PREFACE,
+    HOST_HTTP2_SETTINGS_ACK,
+    HOST_HTTP2_ENCODE_REQUEST,
+    HOST_HTTP2_ENCODE_RESPONSE,
+    HOST_HTTP2_PARSE_REQUEST,
+    HOST_HTTP2_PARSE_RESPONSE,
+    HOST_HTTP2_CLIENT_OPEN,
+    HOST_HTTP2_SERVER_REPLY,
     HOST_TLS_CLIENT_WRAP,
     HOST_TLS_SERVER_WRAP,
     HOST_TLS_READ,

@@ -1,0 +1,3 @@
+// H13.01: client connection preface = 24-byte magic + empty SETTINGS (9 bytes) = 33.
+let p = http2ClientPreface();
+let n = p.length;

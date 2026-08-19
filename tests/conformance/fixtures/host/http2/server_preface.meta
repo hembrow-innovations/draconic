@@ -1,0 +1,4 @@
+id: host/http2/server_preface
+targets: native
+native.exit: 0
+native.stdout: 9\n

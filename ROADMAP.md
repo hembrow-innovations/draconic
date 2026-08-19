@@ -660,7 +660,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H12.02 | done | native | WebSocket frames: text/binary; close; ping/pong | `tests/conformance` fixtures `host/net/ws` |
 | H12.03 | done | native | WebSocket client dial + echo e2e — `wsClientHandshakeRequest` / `wsClientCheckAccept` / `wsEncodeTextClient`; loopback text echo | `tests/conformance` fixtures `host/net/ws` |
 | H13 | todo | native | HTTP/2 (later; not v1 bar) | `tests/conformance/host/http2` |
-| H13.01 | todo | native | HTTP/2 preface + single stream request/response | `tests/conformance` fixtures `host/http2` |
+| H13.01 | done | native | HTTP/2 preface + single stream request/response | `tests/conformance` fixtures `host/http2` |
 | H14 | todo | native | Signals | `tests/conformance/host/process/signals` |
 | H14.01 | done | native | Signal watch: SIGINT/SIGTERM → handler/job; default terminate documented | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
 | H14.02 | done | native | Signal ignore / restore default | `tests/conformance` fixtures `host/process` |

@@ -1,0 +1,19 @@
+// H13.01: HTTP/2 preface + single stream request/response over TCP loopback.
+// Combined open/reply buffers = one write each side (avoids short-read races).
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let open = http2ClientOpen("GET", "/hello", "");
+tcpWrite(c, open);
+let raw = tcpRead(a, 8192);
+let req = http2ParseRequest(raw);
+let path = req.path;
+let reply = http2ServerReply(200, path);
+tcpWrite(a, reply);
+let out = tcpRead(c, 8192);
+let res = http2ParseResponse(out);
+stdoutWrite(res.body);
+stdoutWrite("\n");
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);

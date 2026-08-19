@@ -1,0 +1,4 @@
+id: host/http2/encode_parse_request
+targets: native
+native.exit: 0
+native.stdout: GET\n/hello\n1\n

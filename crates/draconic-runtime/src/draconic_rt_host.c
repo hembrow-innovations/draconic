@@ -7116,3 +7116,1006 @@ DraconicHostError draconic_rt_host_tls_write(
 }
 
 #endif /* __APPLE__ */
+
+/* --- HTTP/2 (H13.01 / RFC 9113) -------------------------------------------- */
+
+static char *host_h2_strdup(const char *s) {
+    size_t n;
+    char *d;
+    if (!s) {
+        return NULL;
+    }
+    n = strlen(s);
+    d = (char *)malloc(n + 1);
+    if (!d) {
+        return NULL;
+    }
+    memcpy(d, s, n + 1);
+    return d;
+}
+
+
+#define HOST_H2_FRAME_DATA 0x0
+#define HOST_H2_FRAME_HEADERS 0x1
+#define HOST_H2_FRAME_SETTINGS 0x4
+#define HOST_H2_FLAG_END_STREAM 0x1
+#define HOST_H2_FLAG_END_HEADERS 0x4
+#define HOST_H2_FLAG_ACK 0x1
+
+static const uint8_t host_h2_client_magic[24] =
+    "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+static void host_h2_write_u24(uint8_t *p, uint32_t n) {
+    p[0] = (uint8_t)((n >> 16) & 0xffu);
+    p[1] = (uint8_t)((n >> 8) & 0xffu);
+    p[2] = (uint8_t)(n & 0xffu);
+}
+
+static void host_h2_write_u32(uint8_t *p, uint32_t n) {
+    p[0] = (uint8_t)((n >> 24) & 0xffu);
+    p[1] = (uint8_t)((n >> 16) & 0xffu);
+    p[2] = (uint8_t)((n >> 8) & 0xffu);
+    p[3] = (uint8_t)(n & 0xffu);
+}
+
+static uint32_t host_h2_read_u24(const uint8_t *p) {
+    return ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | (uint32_t)p[2];
+}
+
+static uint32_t host_h2_read_u32(const uint8_t *p) {
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8)
+        | (uint32_t)p[3];
+}
+
+static DraconicHostError host_h2_write_frame(
+    uint8_t type,
+    uint8_t flags,
+    uint32_t stream_id,
+    const uint8_t *payload,
+    size_t payload_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    uint8_t *buf;
+    size_t total;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    if (payload_len > 0xffffffu) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (payload_len > 0 && !payload) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    total = 9 + payload_len;
+    buf = (uint8_t *)malloc(total);
+    if (!buf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    host_h2_write_u24(buf, (uint32_t)payload_len);
+    buf[3] = type;
+    buf[4] = flags;
+    host_h2_write_u32(buf + 5, stream_id & 0x7fffffffu);
+    if (payload_len > 0) {
+        memcpy(buf + 9, payload, payload_len);
+    }
+    *out_data = buf;
+    *out_len = total;
+    return DRACONIC_HOST_OK;
+}
+
+static DraconicHostError host_h2_append(
+    uint8_t **acc,
+    size_t *acc_len,
+    const uint8_t *chunk,
+    size_t chunk_len) {
+    uint8_t *nbuf;
+    size_t nlen;
+
+    if (chunk_len == 0) {
+        return DRACONIC_HOST_OK;
+    }
+    if (!chunk) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    nlen = *acc_len + chunk_len;
+    nbuf = (uint8_t *)realloc(*acc, nlen);
+    if (!nbuf) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    memcpy(nbuf + *acc_len, chunk, chunk_len);
+    *acc = nbuf;
+    *acc_len = nlen;
+    return DRACONIC_HOST_OK;
+}
+
+/* HPACK string (no Huffman): 7-bit length prefix. */
+static int host_h2_hpack_str_len(size_t n) {
+    if (n < 127) {
+        return 1 + (int)n;
+    }
+    /* multi-byte integer for N=7; support up to ~16k */
+    if (n < 127 + 128) {
+        return 2 + (int)n;
+    }
+    return 3 + (int)n;
+}
+
+static size_t host_h2_hpack_put_str(uint8_t *dst, const char *s, size_t n) {
+    size_t off = 0;
+    if (n < 127) {
+        dst[off++] = (uint8_t)n;
+    } else {
+        size_t i = n - 127;
+        dst[off++] = 127;
+        while (i >= 128) {
+            dst[off++] = (uint8_t)((i & 0x7fu) | 0x80u);
+            i >>= 7;
+        }
+        dst[off++] = (uint8_t)i;
+    }
+    if (n > 0) {
+        memcpy(dst + off, s, n);
+        off += n;
+    }
+    return off;
+}
+
+static DraconicHostError host_h2_hpack_get_str(
+    const uint8_t *p,
+    size_t len,
+    size_t *inout_off,
+    char **out) {
+    size_t off;
+    size_t n;
+    uint8_t b;
+    char *s;
+
+    if (!p || !inout_off || !out) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out = NULL;
+    off = *inout_off;
+    if (off >= len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    b = p[off++];
+    if (b & 0x80u) {
+        /* Huffman not supported in this thin helper */
+        return DRACONIC_HOST_E_INVAL;
+    }
+    n = (size_t)(b & 0x7fu);
+    if (n == 127) {
+        size_t m = 0;
+        size_t shift = 0;
+        for (;;) {
+            if (off >= len) {
+                return DRACONIC_HOST_E_INVAL;
+            }
+            b = p[off++];
+            m |= (size_t)(b & 0x7fu) << shift;
+            if ((b & 0x80u) == 0) {
+                break;
+            }
+            shift += 7;
+            if (shift > 28) {
+                return DRACONIC_HOST_E_INVAL;
+            }
+        }
+        n = 127 + m;
+    }
+    if (off + n > len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    s = (char *)malloc(n + 1);
+    if (!s) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    if (n > 0) {
+        memcpy(s, p + off, n);
+    }
+    s[n] = '\0';
+    off += n;
+    *inout_off = off;
+    *out = s;
+    return DRACONIC_HOST_OK;
+}
+
+static DraconicHostError host_h2_build_request_headers(
+    const char *method,
+    const char *path,
+    uint8_t **out_block,
+    size_t *out_len) {
+    size_t method_len;
+    size_t path_len;
+    size_t need;
+    uint8_t *blk;
+    size_t off;
+    int use_get;
+    int use_post;
+
+    if (!method || !path || !out_block || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_block = NULL;
+    *out_len = 0;
+    method_len = strlen(method);
+    path_len = strlen(path);
+    if (method_len == 0 || path_len == 0 || path_len > 4096) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    use_get = (strcmp(method, "GET") == 0);
+    use_post = (strcmp(method, "POST") == 0);
+
+    need = 0;
+    if (use_get || use_post) {
+        need += 1; /* indexed :method */
+    } else {
+        need += 1 + (size_t)host_h2_hpack_str_len(7) + (size_t)host_h2_hpack_str_len(method_len);
+    }
+    need += 1; /* indexed :scheme http */
+    /* literal :path (indexed name 4) + value */
+    need += 1 + (size_t)host_h2_hpack_str_len(path_len);
+
+    blk = (uint8_t *)malloc(need);
+    if (!blk) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    off = 0;
+    if (use_get) {
+        blk[off++] = 0x82; /* :method GET */
+    } else if (use_post) {
+        blk[off++] = 0x83; /* :method POST */
+    } else {
+        blk[off++] = 0x00; /* literal without indexing — new name */
+        off += host_h2_hpack_put_str(blk + off, ":method", 7);
+        off += host_h2_hpack_put_str(blk + off, method, method_len);
+    }
+    blk[off++] = 0x86; /* :scheme http */
+    blk[off++] = 0x04; /* literal without indexing — name index 4 (:path) */
+    off += host_h2_hpack_put_str(blk + off, path, path_len);
+    if (off != need) {
+        free(blk);
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_block = blk;
+    *out_len = off;
+    return DRACONIC_HOST_OK;
+}
+
+static DraconicHostError host_h2_build_response_headers(
+    int32_t status,
+    uint8_t **out_block,
+    size_t *out_len) {
+    char status_buf[16];
+    int n;
+    size_t need;
+    uint8_t *blk;
+    size_t off;
+
+    if (!out_block || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_block = NULL;
+    *out_len = 0;
+    if (status < 100 || status > 599) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    if (status == 200) {
+        blk = (uint8_t *)malloc(1);
+        if (!blk) {
+            return DRACONIC_HOST_E_NOMEM;
+        }
+        blk[0] = 0x88; /* :status 200 */
+        *out_block = blk;
+        *out_len = 1;
+        return DRACONIC_HOST_OK;
+    }
+    if (status == 204) {
+        blk = (uint8_t *)malloc(1);
+        if (!blk) {
+            return DRACONIC_HOST_E_NOMEM;
+        }
+        blk[0] = 0x89;
+        *out_block = blk;
+        *out_len = 1;
+        return DRACONIC_HOST_OK;
+    }
+    if (status == 404) {
+        blk = (uint8_t *)malloc(1);
+        if (!blk) {
+            return DRACONIC_HOST_E_NOMEM;
+        }
+        blk[0] = 0x8d;
+        *out_block = blk;
+        *out_len = 1;
+        return DRACONIC_HOST_OK;
+    }
+
+    n = snprintf(status_buf, sizeof(status_buf), "%d", (int)status);
+    if (n < 0 || (size_t)n >= sizeof(status_buf)) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    need = 1 + (size_t)host_h2_hpack_str_len(7) + (size_t)host_h2_hpack_str_len((size_t)n);
+    blk = (uint8_t *)malloc(need);
+    if (!blk) {
+        return DRACONIC_HOST_E_NOMEM;
+    }
+    off = 0;
+    blk[off++] = 0x00;
+    off += host_h2_hpack_put_str(blk + off, ":status", 7);
+    off += host_h2_hpack_put_str(blk + off, status_buf, (size_t)n);
+    *out_block = blk;
+    *out_len = off;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http2_client_preface(
+    uint8_t **out_data,
+    size_t *out_len) {
+    uint8_t *settings = NULL;
+    size_t settings_len = 0;
+    uint8_t *acc = NULL;
+    size_t acc_len = 0;
+    DraconicHostError err;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+
+    err = host_h2_write_frame(
+        HOST_H2_FRAME_SETTINGS, 0, 0, NULL, 0, &settings, &settings_len);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, host_h2_client_magic, 24);
+    if (err != DRACONIC_HOST_OK) {
+        free(settings);
+        free(acc);
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, settings, settings_len);
+    free(settings);
+    if (err != DRACONIC_HOST_OK) {
+        free(acc);
+        return err;
+    }
+    *out_data = acc;
+    *out_len = acc_len;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http2_server_preface(
+    uint8_t **out_data,
+    size_t *out_len) {
+    return host_h2_write_frame(HOST_H2_FRAME_SETTINGS, 0, 0, NULL, 0, out_data, out_len);
+}
+
+DraconicHostError draconic_rt_host_http2_settings_ack(
+    uint8_t **out_data,
+    size_t *out_len) {
+    return host_h2_write_frame(
+        HOST_H2_FRAME_SETTINGS, HOST_H2_FLAG_ACK, 0, NULL, 0, out_data, out_len);
+}
+
+DraconicHostError draconic_rt_host_http2_encode_request(
+    const char *method,
+    const char *path,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    uint8_t *hblock = NULL;
+    size_t hlen = 0;
+    uint8_t *hdrs = NULL;
+    size_t hdrs_len = 0;
+    uint8_t *dataf = NULL;
+    size_t dataf_len = 0;
+    uint8_t *acc = NULL;
+    size_t acc_len = 0;
+    DraconicHostError err;
+    uint8_t flags;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    if (body_len > 0 && !body) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    err = host_h2_build_request_headers(method, path, &hblock, &hlen);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    flags = HOST_H2_FLAG_END_HEADERS;
+    if (body_len == 0) {
+        flags |= HOST_H2_FLAG_END_STREAM;
+    }
+    err = host_h2_write_frame(
+        HOST_H2_FRAME_HEADERS, flags, 1, hblock, hlen, &hdrs, &hdrs_len);
+    free(hblock);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, hdrs, hdrs_len);
+    free(hdrs);
+    if (err != DRACONIC_HOST_OK) {
+        free(acc);
+        return err;
+    }
+    if (body_len > 0) {
+        err = host_h2_write_frame(
+            HOST_H2_FRAME_DATA,
+            HOST_H2_FLAG_END_STREAM,
+            1,
+            body,
+            body_len,
+            &dataf,
+            &dataf_len);
+        if (err != DRACONIC_HOST_OK) {
+            free(acc);
+            return err;
+        }
+        err = host_h2_append(&acc, &acc_len, dataf, dataf_len);
+        free(dataf);
+        if (err != DRACONIC_HOST_OK) {
+            free(acc);
+            return err;
+        }
+    }
+    *out_data = acc;
+    *out_len = acc_len;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http2_encode_response(
+    int32_t status,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    uint8_t *hblock = NULL;
+    size_t hlen = 0;
+    uint8_t *hdrs = NULL;
+    size_t hdrs_len = 0;
+    uint8_t *dataf = NULL;
+    size_t dataf_len = 0;
+    uint8_t *acc = NULL;
+    size_t acc_len = 0;
+    DraconicHostError err;
+    uint8_t flags;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+    if (body_len > 0 && !body) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    err = host_h2_build_response_headers(status, &hblock, &hlen);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    flags = HOST_H2_FLAG_END_HEADERS;
+    if (body_len == 0) {
+        flags |= HOST_H2_FLAG_END_STREAM;
+    }
+    err = host_h2_write_frame(
+        HOST_H2_FRAME_HEADERS, flags, 1, hblock, hlen, &hdrs, &hdrs_len);
+    free(hblock);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, hdrs, hdrs_len);
+    free(hdrs);
+    if (err != DRACONIC_HOST_OK) {
+        free(acc);
+        return err;
+    }
+    if (body_len > 0) {
+        err = host_h2_write_frame(
+            HOST_H2_FRAME_DATA,
+            HOST_H2_FLAG_END_STREAM,
+            1,
+            body,
+            body_len,
+            &dataf,
+            &dataf_len);
+        if (err != DRACONIC_HOST_OK) {
+            free(acc);
+            return err;
+        }
+        err = host_h2_append(&acc, &acc_len, dataf, dataf_len);
+        free(dataf);
+        if (err != DRACONIC_HOST_OK) {
+            free(acc);
+            return err;
+        }
+    }
+    *out_data = acc;
+    *out_len = acc_len;
+    return DRACONIC_HOST_OK;
+}
+
+/* Parse HPACK block for request pseudo-headers (minimal). */
+static DraconicHostError host_h2_parse_req_hpack(
+    const uint8_t *p,
+    size_t len,
+    char **out_method,
+    char **out_path) {
+    size_t off = 0;
+    char *method = NULL;
+    char *path = NULL;
+    DraconicHostError err;
+
+    if (!out_method || !out_path) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_method = NULL;
+    *out_path = NULL;
+
+    while (off < len) {
+        uint8_t b = p[off];
+        if (b & 0x80u) {
+            /* Indexed */
+            uint8_t idx = (uint8_t)(b & 0x7fu);
+            off++;
+            if (idx == 2) {
+                free(method);
+                method = host_h2_strdup("GET");
+            } else if (idx == 3) {
+                free(method);
+                method = host_h2_strdup("POST");
+            } else if (idx == 4) {
+                free(path);
+                path = host_h2_strdup("/");
+            } else if (idx == 5) {
+                free(path);
+                path = host_h2_strdup("/index.html");
+            } else if (idx == 6 || idx == 7) {
+                /* :scheme — ignore */
+            } else {
+                /* ignore other static entries */
+            }
+            if ((idx == 2 || idx == 3) && !method) {
+                return DRACONIC_HOST_E_NOMEM;
+            }
+            if ((idx == 4 || idx == 5) && !path) {
+                return DRACONIC_HOST_E_NOMEM;
+            }
+            continue;
+        }
+        if ((b & 0xf0u) == 0x00) {
+            /* Literal without indexing */
+            uint8_t nidx = (uint8_t)(b & 0x0fu);
+            char *name = NULL;
+            char *value = NULL;
+            off++;
+            if (nidx == 0) {
+                err = host_h2_hpack_get_str(p, len, &off, &name);
+                if (err != DRACONIC_HOST_OK) {
+                    free(method);
+                    free(path);
+                    return err;
+                }
+            } else if (nidx == 4) {
+                name = host_h2_strdup(":path");
+                if (!name) {
+                    free(method);
+                    free(path);
+                    return DRACONIC_HOST_E_NOMEM;
+                }
+            } else if (nidx == 2) {
+                name = host_h2_strdup(":method");
+                if (!name) {
+                    free(method);
+                    free(path);
+                    return DRACONIC_HOST_E_NOMEM;
+                }
+            } else {
+                /* skip unknown indexed name + value */
+                char *skip = NULL;
+                err = host_h2_hpack_get_str(p, len, &off, &skip);
+                free(skip);
+                if (err != DRACONIC_HOST_OK) {
+                    free(method);
+                    free(path);
+                    return err;
+                }
+                continue;
+            }
+            err = host_h2_hpack_get_str(p, len, &off, &value);
+            if (err != DRACONIC_HOST_OK) {
+                free(name);
+                free(method);
+                free(path);
+                return err;
+            }
+            if (name && strcmp(name, ":method") == 0) {
+                free(method);
+                method = value;
+                value = NULL;
+            } else if (name && strcmp(name, ":path") == 0) {
+                free(path);
+                path = value;
+                value = NULL;
+            }
+            free(name);
+            free(value);
+            continue;
+        }
+        /* Incremental indexing / never indexed — not emitted by our encoder */
+        free(method);
+        free(path);
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    if (!method || !path) {
+        free(method);
+        free(path);
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_method = method;
+    *out_path = path;
+    return DRACONIC_HOST_OK;
+}
+
+static DraconicHostError host_h2_parse_res_hpack(
+    const uint8_t *p,
+    size_t len,
+    int32_t *out_status) {
+    size_t off = 0;
+    int found = 0;
+    int32_t status = 0;
+
+    if (!out_status) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_status = 0;
+
+    while (off < len) {
+        uint8_t b = p[off];
+        if (b & 0x80u) {
+            uint8_t idx = (uint8_t)(b & 0x7fu);
+            off++;
+            if (idx == 8) {
+                status = 200;
+                found = 1;
+            } else if (idx == 9) {
+                status = 204;
+                found = 1;
+            } else if (idx == 10) {
+                status = 206;
+                found = 1;
+            } else if (idx == 11) {
+                status = 304;
+                found = 1;
+            } else if (idx == 12) {
+                status = 400;
+                found = 1;
+            } else if (idx == 13) {
+                status = 404;
+                found = 1;
+            } else if (idx == 14) {
+                status = 500;
+                found = 1;
+            }
+            continue;
+        }
+        if ((b & 0xf0u) == 0x00) {
+            uint8_t nidx = (uint8_t)(b & 0x0fu);
+            char *name = NULL;
+            char *value = NULL;
+            DraconicHostError err;
+            off++;
+            if (nidx == 0) {
+                err = host_h2_hpack_get_str(p, len, &off, &name);
+                if (err != DRACONIC_HOST_OK) {
+                    return err;
+                }
+            } else if (nidx == 8) {
+                name = host_h2_strdup(":status");
+                if (!name) {
+                    return DRACONIC_HOST_E_NOMEM;
+                }
+            } else {
+                char *skip = NULL;
+                err = host_h2_hpack_get_str(p, len, &off, &skip);
+                free(skip);
+                if (err != DRACONIC_HOST_OK) {
+                    return err;
+                }
+                continue;
+            }
+            err = host_h2_hpack_get_str(p, len, &off, &value);
+            if (err != DRACONIC_HOST_OK) {
+                free(name);
+                return err;
+            }
+            if (name && strcmp(name, ":status") == 0 && value) {
+                status = (int32_t)atoi(value);
+                found = 1;
+            }
+            free(name);
+            free(value);
+            continue;
+        }
+        return DRACONIC_HOST_E_INVAL;
+    }
+    if (!found || status < 100 || status > 599) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_status = status;
+    return DRACONIC_HOST_OK;
+}
+
+static DraconicHostError host_h2_scan_message(
+    const uint8_t *data,
+    size_t len,
+    int want_request,
+    char **out_method,
+    char **out_path,
+    int32_t *out_status,
+    uint8_t **out_body,
+    size_t *out_body_len,
+    int32_t *out_stream_id) {
+    size_t off = 0;
+    char *method = NULL;
+    char *path = NULL;
+    int32_t status = 0;
+    int got_headers = 0;
+    int32_t stream_id = 0;
+    uint8_t *body = NULL;
+    size_t body_len = 0;
+    int end_stream = 0;
+
+    if (!data || !out_body || !out_body_len || !out_stream_id) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_body = NULL;
+    *out_body_len = 0;
+    *out_stream_id = 0;
+    if (want_request) {
+        if (!out_method || !out_path) {
+            return DRACONIC_HOST_E_INVAL;
+        }
+        *out_method = NULL;
+        *out_path = NULL;
+    } else if (!out_status) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    /* Optional client connection preface magic before frames. */
+    if (len >= 24 && memcmp(data, host_h2_client_magic, 24) == 0) {
+        off = 24;
+    }
+
+    while (off + 9 <= len) {
+        uint32_t flen = host_h2_read_u24(data + off);
+        uint8_t type = data[off + 3];
+        uint8_t flags = data[off + 4];
+        uint32_t sid = host_h2_read_u32(data + off + 5) & 0x7fffffffu;
+        const uint8_t *payload;
+        DraconicHostError err;
+
+        if (off + 9 + flen > len) {
+            free(method);
+            free(path);
+            free(body);
+            return DRACONIC_HOST_E_INVAL;
+        }
+        payload = data + off + 9;
+        off += 9 + flen;
+
+        if (type == HOST_H2_FRAME_SETTINGS || type == 0x8 /* WINDOW_UPDATE */
+            || type == 0x2 /* PRIORITY */ || type == 0x6 /* PING */) {
+            continue;
+        }
+        if (type == HOST_H2_FRAME_HEADERS) {
+            if (got_headers) {
+                free(method);
+                free(path);
+                free(body);
+                return DRACONIC_HOST_E_INVAL;
+            }
+            stream_id = (int32_t)sid;
+            if (want_request) {
+                err = host_h2_parse_req_hpack(payload, flen, &method, &path);
+            } else {
+                err = host_h2_parse_res_hpack(payload, flen, &status);
+            }
+            if (err != DRACONIC_HOST_OK) {
+                free(method);
+                free(path);
+                free(body);
+                return err;
+            }
+            got_headers = 1;
+            if (flags & HOST_H2_FLAG_END_STREAM) {
+                end_stream = 1;
+            }
+            continue;
+        }
+        if (type == HOST_H2_FRAME_DATA) {
+            if (!got_headers || (int32_t)sid != stream_id) {
+                free(method);
+                free(path);
+                free(body);
+                return DRACONIC_HOST_E_INVAL;
+            }
+            if (flen > 0) {
+                uint8_t *nb = (uint8_t *)realloc(body, body_len + flen);
+                if (!nb) {
+                    free(method);
+                    free(path);
+                    free(body);
+                    return DRACONIC_HOST_E_NOMEM;
+                }
+                body = nb;
+                memcpy(body + body_len, payload, flen);
+                body_len += flen;
+            }
+            if (flags & HOST_H2_FLAG_END_STREAM) {
+                end_stream = 1;
+            }
+            continue;
+        }
+        /* ignore other frame types */
+    }
+
+    if (!got_headers || !end_stream) {
+        free(method);
+        free(path);
+        free(body);
+        return DRACONIC_HOST_E_INVAL;
+    }
+
+    if (want_request) {
+        *out_method = method;
+        *out_path = path;
+    } else {
+        *out_status = status;
+    }
+    *out_body = body;
+    *out_body_len = body_len;
+    *out_stream_id = stream_id;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http2_parse_request(
+    const uint8_t *data,
+    size_t len,
+    char **out_method,
+    char **out_path,
+    uint8_t **out_body,
+    size_t *out_body_len,
+    int32_t *out_stream_id) {
+    return host_h2_scan_message(
+        data,
+        len,
+        1,
+        out_method,
+        out_path,
+        NULL,
+        out_body,
+        out_body_len,
+        out_stream_id);
+}
+
+DraconicHostError draconic_rt_host_http2_parse_response(
+    const uint8_t *data,
+    size_t len,
+    int32_t *out_status,
+    uint8_t **out_body,
+    size_t *out_body_len,
+    int32_t *out_stream_id) {
+    return host_h2_scan_message(
+        data, len, 0, NULL, NULL, out_status, out_body, out_body_len, out_stream_id);
+}
+
+DraconicHostError draconic_rt_host_http2_client_open(
+    const char *method,
+    const char *path,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    uint8_t *pref = NULL;
+    size_t pref_len = 0;
+    uint8_t *req = NULL;
+    size_t req_len = 0;
+    uint8_t *acc = NULL;
+    size_t acc_len = 0;
+    DraconicHostError err;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+
+    err = draconic_rt_host_http2_client_preface(&pref, &pref_len);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    err = draconic_rt_host_http2_encode_request(
+        method, path, body, body_len, &req, &req_len);
+    if (err != DRACONIC_HOST_OK) {
+        free(pref);
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, pref, pref_len);
+    free(pref);
+    if (err != DRACONIC_HOST_OK) {
+        free(req);
+        free(acc);
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, req, req_len);
+    free(req);
+    if (err != DRACONIC_HOST_OK) {
+        free(acc);
+        return err;
+    }
+    *out_data = acc;
+    *out_len = acc_len;
+    return DRACONIC_HOST_OK;
+}
+
+DraconicHostError draconic_rt_host_http2_server_reply(
+    int32_t status,
+    const uint8_t *body,
+    size_t body_len,
+    uint8_t **out_data,
+    size_t *out_len) {
+    uint8_t *pref = NULL;
+    size_t pref_len = 0;
+    uint8_t *resp = NULL;
+    size_t resp_len = 0;
+    uint8_t *acc = NULL;
+    size_t acc_len = 0;
+    DraconicHostError err;
+
+    if (!out_data || !out_len) {
+        return DRACONIC_HOST_E_INVAL;
+    }
+    *out_data = NULL;
+    *out_len = 0;
+
+    err = draconic_rt_host_http2_server_preface(&pref, &pref_len);
+    if (err != DRACONIC_HOST_OK) {
+        return err;
+    }
+    err = draconic_rt_host_http2_encode_response(
+        status, body, body_len, &resp, &resp_len);
+    if (err != DRACONIC_HOST_OK) {
+        free(pref);
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, pref, pref_len);
+    free(pref);
+    if (err != DRACONIC_HOST_OK) {
+        free(resp);
+        free(acc);
+        return err;
+    }
+    err = host_h2_append(&acc, &acc_len, resp, resp_len);
+    free(resp);
+    if (err != DRACONIC_HOST_OK) {
+        free(acc);
+        return err;
+    }
+    *out_data = acc;
+    *out_len = acc_len;
+    return DRACONIC_HOST_OK;
+}
