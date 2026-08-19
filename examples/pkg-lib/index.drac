@@ -1,0 +1,8 @@
+// Minimal exportable package (Roadmap K10.01).
+// Package root entry: named exports for consumers via module-path import.
+
+export const VERSION = "0.1.0";
+
+export function greet(name) {
+  return "hello, " + name;
+}
