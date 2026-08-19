@@ -1,0 +1,94 @@
+// E17.02.17: Unmapped arguments with non-simple params (non-strict).
+// default / rest / destructure formals → no args[i]↔formal alias; arguments still present.
+// Simple-params baseline still mapped.
+
+// Default param: write arguments[0] does not update formal.
+function defWriteArgs(a = 0) {
+  arguments[0] = 99;
+  return a === 1 && arguments[0] === 99 && arguments.length === 1;
+}
+let a = defWriteArgs(1);
+
+// Default param: write formal does not update arguments[0].
+function defWriteParam(a = 0) {
+  a = 42;
+  return a === 42 && arguments[0] === 1;
+}
+let b = defWriteParam(1);
+
+// Default used when arg omitted; arguments.length is 0; still unmapped.
+function defOmitted(a = 7) {
+  arguments[0] = 3;
+  return a === 7 && arguments[0] === 3 && arguments.length === 0;
+}
+let c = defOmitted();
+
+// Rest param: write arguments[0] does not update rest[0].
+function restWriteArgs(...r) {
+  arguments[0] = 99;
+  return r[0] === 1 && arguments[0] === 99 && arguments.length === 1;
+}
+let d = restWriteArgs(1);
+
+// Rest param: mutate rest array does not update arguments[0].
+function restWriteRest(...r) {
+  r[0] = 42;
+  return r[0] === 42 && arguments[0] === 1;
+}
+let e = restWriteRest(1);
+
+// Object destructure param: write arguments[0] does not replace binding fields.
+function dstrObjWriteArgs({ x }) {
+  arguments[0] = { x: 99 };
+  return x === 1 && arguments[0].x === 99;
+}
+let f = dstrObjWriteArgs({ x: 1 });
+
+// Array destructure param: write formal binding does not update arguments[0].
+function dstrArrWriteParam([x]) {
+  x = 42;
+  return x === 42 && arguments[0][0] === 1;
+}
+let g = dstrArrWriteParam([1]);
+
+// Mixed simple + default: whole parameter list is non-simple → unmapped.
+function mixed(a, b = 0) {
+  arguments[0] = 9;
+  arguments[1] = 8;
+  return a === 1 && b === 2 && arguments[0] === 9 && arguments[1] === 8;
+}
+let h = mixed(1, 2);
+
+// Named function expression with default: unmapped.
+let named = function (p = 0) {
+  arguments[0] = 5;
+  return p === 2 && arguments[0] === 5;
+};
+let i = named(2);
+
+// Object method (non-arrow) with rest: unmapped.
+let o = {
+  m: function (...r) {
+    arguments[0] = 6;
+    return r[0] === 3 && arguments[0] === 6;
+  },
+};
+let j = o.m(3);
+
+// Contrast: simple params remain mapped (baseline still holds).
+function simpleMapped(a) {
+  arguments[0] = 77;
+  return a === 77;
+}
+let k = simpleMapped(1);
+
+// Strict body (outer directive) + default: unmapped; no "use strict" in non-simple fn.
+function strictOuter() {
+  "use strict";
+  function strictDef(a = 0) {
+    arguments[0] = 50;
+    return a === 1 && arguments[0] === 50;
+  }
+  return strictDef(1);
+}
+let l = strictOuter();

@@ -208,3 +208,13 @@ fn putvalue_immutable_globals_fixture_present() {
 fn putvalue_immutable_globals_runs() {
     assert_fixture_runs_declared_targets("es/legacy/putvalue_immutable_globals");
 }
+
+#[test]
+fn arguments_unmapped_nonsimple_fixture_present() {
+    assert_fixture_present("es/legacy/arguments_unmapped_nonsimple");
+}
+
+#[test]
+fn arguments_unmapped_nonsimple_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/arguments_unmapped_nonsimple");
+}
