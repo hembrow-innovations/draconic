@@ -14,6 +14,7 @@ use draconic_embed::{eval_source, EmbedValue};
 use draconic_frontend::{check_path, compile_path, compile_source};
 use draconic_ir::Stmt;
 use draconic_parser::{parse, parse_module};
+use draconic_pkg::ensure_locked_for_entry;
 
 mod doc;
 
@@ -676,6 +677,14 @@ fn default_output(input: &Path, target: Target) -> PathBuf {
 }
 
 fn build_program(input: &Path, target: Target, out: &Path) -> Result<(), Diagnostic> {
+    // K07.01: auto-fetch missing locked package checkouts before link/compile.
+    if let Err(e) = ensure_locked_for_entry(input) {
+        return Err(Diagnostic::new(
+            e.to_string(),
+            draconic_diagnostics::Span::dummy(),
+        ));
+    }
+
     let module = compile_path(input)?;
 
     match target {

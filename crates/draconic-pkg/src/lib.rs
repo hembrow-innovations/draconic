@@ -19,8 +19,10 @@
 //! K06.01: resolve module-path imports (`github.com/org/pkg` + subpath) → cache file.
 //! K06.02: package boundary — reject path escape outside package checkout root.
 //! K06.03: coexist with E11 relative imports (see linker + `tests/packages`).
+//! K07.01: ensure locked cache entries (auto-fetch missing pins for build).
 
 mod cache;
+mod ensure;
 mod get;
 mod hash;
 mod import_resolve;
@@ -31,6 +33,9 @@ mod tidy;
 pub use cache::{
     entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError,
     ModuleCache,
+};
+pub use ensure::{
+    ensure_locked_entries, ensure_locked_for_entry, EnsureLockedError, EnsureLockedResult,
 };
 pub use get::{
     default_cache_root, get_package, get_package_spec, parse_get_spec, GetError, GetResult,
