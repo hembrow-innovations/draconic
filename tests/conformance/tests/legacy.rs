@@ -238,3 +238,13 @@ fn arguments_exotic_residual_fixture_present() {
 fn arguments_exotic_residual_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_exotic_residual");
 }
+
+#[test]
+fn arguments_array_mutators_fixture_present() {
+    assert_fixture_present("es/legacy/arguments_array_mutators");
+}
+
+#[test]
+fn arguments_array_mutators_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/arguments_array_mutators");
+}
