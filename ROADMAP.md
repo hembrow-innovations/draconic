@@ -727,7 +727,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K08.02 | done | compiler | Refuse mismatched OID/hash; no silent wrong tree | `crates/draconic-pkg` |
 | K09 | todo | compiler | E2E: temp git dep + consumer Program | `tests/packages` |
 | K09.01 | done | compiler | Fixture temp git lib (tagged); consumer manifest+lock; resolve+fetch | `tests/packages` |
-| K09.02 | todo | compiler | E2E build consumer importing module path from fixture | `tests/packages`, `crates/draconic-cli` |
+| K09.02 | done | compiler | E2E build consumer importing module path from fixture | `tests/packages`, `crates/draconic-cli` |
 | K10 | todo | compiler | Example lib + consumer in-repo | `examples/pkg-lib`, `examples/pkg-consumer` |
 | K10.01 | todo | compiler | `examples/pkg-lib` minimal exportable module | `examples/pkg-lib` |
 | K10.02 | todo | compiler | `examples/pkg-consumer` depends on lib; documented build path | `examples/pkg-consumer` |

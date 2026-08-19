@@ -689,6 +689,86 @@ fn build_offline_succeeds_when_cache_present() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// ROADMAP K09.02: E2E CLI build of consumer importing module path from temp git fixture.
+/// get → lock+cache → build --target js → Node observes imported values.
+#[test]
+fn k09_02_build_consumer_importing_module_path_from_fixture() {
+    let root = temp_dir();
+
+    let upstream = root.join("lib-upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let answer = 42;\nexport function add(a, b) { return a + b; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+
+    let ws = root.join("consumer");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/fixture/consumer\"\n",
+    )
+    .unwrap();
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/fixture/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg(&ws),
+    );
+    assert_eq!(code, 0, "get failed: {stderr}");
+    assert!(ws.join("draconic.lock").is_file(), "get must write lock");
+
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        r#"import { answer, add } from "github.com/fixture/lib";
+let sum = add(answer, 8);
+let a = answer;
+"#,
+    )
+    .unwrap();
+
+    let out = ws.join("out.js");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert!(out.is_file(), "build must emit js");
+    let js = fs::read_to_string(&out).expect("js");
+
+    let node = Command::new("node")
+        .arg("-e")
+        .arg(format!(
+            "{js}\nif (a !== 42) {{ console.error('a', a); process.exit(1); }}\nif (sum !== 50) {{ console.error('sum', sum); process.exit(1); }}"
+        ))
+        .output()
+        .expect("node");
+    assert!(
+        node.status.success(),
+        "node failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&node.stdout),
+        String::from_utf8_lossy(&node.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 fn git_ok(args: &[&str], cwd: &Path) {
     let out = Command::new("git")
         .args(args)
