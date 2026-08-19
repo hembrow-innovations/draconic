@@ -133,9 +133,9 @@ fn layout_align(shape: &ObjectShape) -> u32 {
 
 /// True when every **user-declared** local is a native scalar (`i*`/`u*`/`f*`/`bool`),
 /// a **native layout** shape (all-native fields), a **native pointer** (`*T`),
-/// JS `number` (dual-worlds unboxed double), or a **function declaration** binding,
-/// and the module has at least one native scalar, layout, or pointer local
-/// (N01–N03.03 + N08.17 surface).
+/// JS `number` (dual-worlds unboxed double), a **function declaration** binding,
+/// or an **`extern "C"`** binding (F06.03), and the module has at least one native
+/// scalar/layout/pointer local **or** an extern ABI decl (N01–N03.03 + N08.17 + F06.03).
 ///
 /// Arrow / function-expression bindings are excluded so T05 erase fixtures that
 /// mix natives with callable values stay on the B08 hello stub. JS `boolean` or
@@ -148,8 +148,10 @@ pub(crate) fn is_native_int_module(module: &Module) -> bool {
         return false;
     }
     let fn_decl_locals = function_decl_local_ids(&module.body);
+    let extern_locals = extern_decl_local_ids(&module.body);
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut has_native = false;
+    let mut has_extern = false;
     for id in user {
         let Some(local) = by_id.get(&id) else {
             return false;
@@ -161,10 +163,11 @@ pub(crate) fn is_native_int_module(module: &Module) -> bool {
             // Dual-worlds: allow JS number alongside natives; alone does not claim this path.
             Type::Number => {}
             Type::Function if fn_decl_locals.contains(&id) => {}
+            Type::Function if extern_locals.contains(&id) => has_extern = true,
             _ => return false,
         }
     }
-    has_native
+    has_native || has_extern
 }
 
 fn function_decl_local_ids(body: &[Stmt]) -> HashSet<LocalId> {
@@ -203,6 +206,16 @@ fn function_decl_local_ids(body: &[Stmt]) -> HashSet<LocalId> {
     out
 }
 
+fn extern_decl_local_ids(body: &[Stmt]) -> HashSet<LocalId> {
+    let mut out = HashSet::new();
+    for stmt in body {
+        if let Stmt::ExternFunction { local, .. } = stmt {
+            out.insert(*local);
+        }
+    }
+    out
+}
+
 fn function_decl_local_ids_stmt(stmt: &Stmt) -> HashSet<LocalId> {
     function_decl_local_ids(std::slice::from_ref(stmt))
 }
@@ -229,6 +242,9 @@ fn collect_user_local_ids_stmt(stmt: &Stmt, out: &mut HashSet<LocalId>) {
                 collect_pattern_locals(&p.pattern, out);
             }
             collect_user_local_ids(body, out);
+        }
+        Stmt::ExternFunction { local, .. } => {
+            out.insert(*local);
         }
         Stmt::Block { body } => collect_user_local_ids(body, out),
         Stmt::If {
@@ -301,14 +317,37 @@ pub(crate) fn emit_native_ints(
     Ok(em.finish())
 }
 
+/// C ABI surface for one `extern "C"` decl (F06.03).
+#[derive(Debug, Clone)]
+struct ExternAbi {
+    /// Linkage symbol (source name).
+    name: String,
+    params: Vec<Type>,
+    /// `None` = void return.
+    ret: Option<Type>,
+}
+
+/// LLVM type spelling for an ABI param/return (scalar or pointer).
+fn llvm_abi_ty(ty: Type) -> Result<&'static str, Diagnostic> {
+    match ty {
+        Type::Native(n) => Ok(llvm_ty(n)),
+        Type::Boolean => Ok("i1"),
+        Type::Number => Ok("double"),
+        Type::Ptr(_) => Ok("ptr"),
+        _ => Err(diag("extern ABI: unsupported type (native scalar or pointer only)")),
+    }
+}
+
 struct Emitter<'a> {
     module: &'a Module,
     debug: Option<&'a SourceDebug>,
     locals: HashMap<LocalId, &'a Local>,
     /// Alloca pointer SSA name per local: `%l{id}`
     allocas: HashMap<LocalId, String>,
-    /// Function IR local → LLVM function name
+    /// Function IR local → LLVM function name (user `define` or extern `declare` symbol)
     fn_names: HashMap<LocalId, String>,
+    /// Extern function locals (C ABI; call uses source linkage name + typed params/ret)
+    extern_fns: HashMap<LocalId, ExternAbi>,
     /// Function param locals (no alloca; SSA param name)
     params: HashMap<LocalId, (String, Scalar)>,
     out: String,
@@ -326,17 +365,39 @@ impl<'a> Emitter<'a> {
         let locals: HashMap<LocalId, &'a Local> =
             module.locals.iter().map(|l| (l.id, l)).collect();
         let mut fn_names = HashMap::new();
+        let mut extern_fns = HashMap::new();
         for stmt in &module.body {
-            if let Stmt::Function { local, .. } = stmt {
-                let name = locals
-                    .get(local)
-                    .map(|l| l.name.as_str())
-                    .unwrap_or("fn");
-                let safe: String = name
-                    .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                    .collect();
-                fn_names.insert(*local, format!("d_{safe}_{}", local.0));
+            match stmt {
+                Stmt::Function { local, .. } => {
+                    let name = locals
+                        .get(local)
+                        .map(|l| l.name.as_str())
+                        .unwrap_or("fn");
+                    let safe: String = name
+                        .chars()
+                        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                        .collect();
+                    fn_names.insert(*local, format!("d_{safe}_{}", local.0));
+                }
+                Stmt::ExternFunction {
+                    local,
+                    name,
+                    params,
+                    ret,
+                    ..
+                } => {
+                    // C linkage uses the source name as the symbol (F06.03).
+                    fn_names.insert(*local, name.clone());
+                    extern_fns.insert(
+                        *local,
+                        ExternAbi {
+                            name: name.clone(),
+                            params: params.clone(),
+                            ret: *ret,
+                        },
+                    );
+                }
+                _ => {}
             }
         }
         Self {
@@ -345,6 +406,7 @@ impl<'a> Emitter<'a> {
             locals,
             allocas: HashMap::new(),
             fn_names,
+            extern_fns,
             params: HashMap::new(),
             out: String::new(),
             body: String::new(),
@@ -387,6 +449,25 @@ impl<'a> Emitter<'a> {
         .ok();
         writeln!(self.out, "{}", llvm_declares(NATIVE_INT_DECLARES)).ok();
         writeln!(self.out).ok();
+
+        // F06.03: emit `declare` for each extern "C" ABI surface first.
+        for stmt in &self.module.body {
+            if let Stmt::ExternFunction {
+                name,
+                params,
+                ret,
+                abi,
+                ..
+            } = stmt
+            {
+                if abi != "C" {
+                    return Err(diag(&format!(
+                        "native FFI: unsupported extern ABI {abi:?}; only \"C\" is supported"
+                    )));
+                }
+                self.emit_extern_declare(name, params, *ret)?;
+            }
+        }
 
         // Emit nested function definitions first.
         for stmt in &self.module.body {
@@ -449,7 +530,7 @@ impl<'a> Emitter<'a> {
         }
 
         for (idx, stmt) in self.module.body.iter().enumerate() {
-            if matches!(stmt, Stmt::Function { .. }) {
+            if matches!(stmt, Stmt::Function { .. } | Stmt::ExternFunction { .. }) {
                 continue;
             }
             self.body_idx = idx;
@@ -465,6 +546,29 @@ impl<'a> Emitter<'a> {
         writeln!(self.out, "{}", self.body).ok();
         writeln!(self.out, "  ret i32 0").ok();
         writeln!(self.out, "}}").ok();
+        Ok(())
+    }
+
+    /// F06.03: `declare retty @name(paramtys…)`
+    fn emit_extern_declare(
+        &mut self,
+        name: &str,
+        params: &[Type],
+        ret: Option<Type>,
+    ) -> Result<(), Diagnostic> {
+        let ret_ty = match ret {
+            None => "void".to_string(),
+            Some(t) => llvm_abi_ty(t)?.to_string(),
+        };
+        let mut sig = format!("declare {ret_ty} @{name}(");
+        for (i, p) in params.iter().enumerate() {
+            if i > 0 {
+                sig.push_str(", ");
+            }
+            sig.push_str(llvm_abi_ty(*p)?);
+        }
+        sig.push(')');
+        writeln!(self.out, "{sig}").ok();
         Ok(())
     }
 
@@ -781,7 +885,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "{end}:").ok();
                 Ok(())
             }
-            Stmt::Function { .. } => Ok(()), // emitted separately
+            Stmt::Function { .. } | Stmt::ExternFunction { .. } => Ok(()), // emitted separately
             other => Err(diag(&format!(
                 "native scalars: unsupported statement {other:?}"
             ))),
@@ -1095,6 +1199,10 @@ impl<'a> Emitter<'a> {
                 let Expr::Local { id, .. } = callee.as_ref() else {
                     return Err(diag("native scalars: only direct function calls supported"));
                 };
+                // F06.03: direct call to extern "C" uses linkage name + ABI types.
+                if let Some(ext) = self.extern_fns.get(id).cloned() {
+                    return self.emit_extern_call(&ext, args, *ty, expect);
+                }
                 let fn_name = self
                     .fn_names
                     .get(id)
@@ -1741,6 +1849,78 @@ impl<'a> Emitter<'a> {
             }
         }
         Err(diag("native scalars: function not found for signature"))
+    }
+
+    /// F06.03: call an `extern "C"` symbol with ABI param/return types.
+    fn emit_extern_call(
+        &mut self,
+        ext: &ExternAbi,
+        args: &[Arg],
+        call_ty: Type,
+        expect: Option<Scalar>,
+    ) -> Result<String, Diagnostic> {
+        if ext.params.len() != args.len() {
+            return Err(diag("native FFI: extern call arity mismatch"));
+        }
+        let mut arg_parts = Vec::new();
+        for (arg, pty) in args.iter().zip(ext.params.iter()) {
+            let Arg::Expr(e) = arg else {
+                return Err(diag("native FFI: spread args not supported on extern call"));
+            };
+            match *pty {
+                Type::Native(n) => {
+                    let v = self.emit_expr(e, Some(Scalar(n)))?;
+                    arg_parts.push(format!("{} {v}", llvm_ty(n)));
+                }
+                Type::Boolean => {
+                    let v = self.emit_expr(e, Some(Scalar(NativeType::Bool)))?;
+                    arg_parts.push(format!("i1 {v}"));
+                }
+                Type::Ptr(_) => {
+                    let v = self.emit_ptr_expr(e)?;
+                    arg_parts.push(format!("ptr {v}"));
+                }
+                _ => {
+                    return Err(diag(
+                        "native FFI: extern param must be native scalar or pointer",
+                    ))
+                }
+            }
+        }
+        let ret_llvm = match ext.ret {
+            None => None,
+            Some(t) => Some(llvm_abi_ty(t)?),
+        };
+        match ret_llvm {
+            None => {
+                write!(self.body, "  call void @{}(", ext.name).ok();
+                for (i, p) in arg_parts.iter().enumerate() {
+                    if i > 0 {
+                        self.body.push_str(", ");
+                    }
+                    self.body.push_str(p);
+                }
+                writeln!(self.body, ")").ok();
+                // Void call used as value → zero of expected/context type when needed.
+                if let Some(s) = expect.or_else(|| scalar_of_type(call_ty)) {
+                    Ok(s.zero_const().to_string())
+                } else {
+                    Ok("0".into())
+                }
+            }
+            Some(retty) => {
+                let t = self.fresh_tmp();
+                write!(self.body, "  {t} = call {retty} @{}(", ext.name).ok();
+                for (i, p) in arg_parts.iter().enumerate() {
+                    if i > 0 {
+                        self.body.push_str(", ");
+                    }
+                    self.body.push_str(p);
+                }
+                writeln!(self.body, ")").ok();
+                Ok(t)
+            }
+        }
     }
 
     fn local_scalar(&self, id: LocalId) -> Result<Scalar, Diagnostic> {

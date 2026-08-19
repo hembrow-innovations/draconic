@@ -290,6 +290,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
             }
             out.push_str("}\n");
         }
+        // F06.03 / F08.01: extern is rejected before emit; no JS surface.
+        Stmt::ExternFunction { .. } => {}
     }
 }
 

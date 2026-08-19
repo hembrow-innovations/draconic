@@ -107,7 +107,7 @@ pub struct Module {
     /// Structural object shapes referenced by `Type::Shape` (N03 native layouts).
     pub shapes: Vec<ObjectShape>,
     /// Program declared `extern "C"` (native-only FFI). JS backend must hard-error (F08.01).
-    /// Decls are erased from `body` until F06.03 lowers them to an ABI surface.
+    /// When true, `body` contains one or more `Stmt::ExternFunction` ABI decls (F06.03).
     pub has_extern_ffi: bool,
 }
 
@@ -200,6 +200,20 @@ pub enum Stmt {
         body: Vec<Stmt>,
         is_async: bool,
         is_generator: bool,
+    },
+    /// `extern "C" function name(params): ret?;` — C ABI surface for LLVM (F06.03).
+    /// No body; linkage name is the source binding name. Param/return types are
+    /// native scalars or pointers (`void` return → `ret: None`).
+    ExternFunction {
+        local: LocalId,
+        /// ABI string (v1: `"C"`).
+        abi: String,
+        /// Linkage / symbol name (source function name).
+        name: String,
+        /// Ordered ABI parameter types (native scalar or `*T`).
+        params: Vec<Type>,
+        /// Return type; `None` means C `void`.
+        ret: Option<Type>,
     },
     /// `return;` or `return value;`
     Return {
@@ -1033,9 +1047,71 @@ fn lower_stmt(
         }
         // Type aliases are erased (T02); no runtime value.
         AstStmt::TypeAlias { .. } => None,
-        // F06.03 will lower extern decls to IR/ABI; erase until then.
-        AstStmt::ExternFunctionDeclaration { .. } => None,
+        // F06.03: lower `extern "C" function` to IR/ABI surface for LLVM.
+        AstStmt::ExternFunctionDeclaration {
+            abi,
+            name,
+            params,
+            return_type,
+            ..
+        } => {
+            let local = checked
+                .bound
+                .symbols()
+                .iter()
+                .find(|s| s.span == name.span)
+                .map(|s| s.id)
+                .expect("extern function binding must be declared");
+            let param_tys = params
+                .iter()
+                .map(|p| {
+                    let ann = p
+                        .type_ann
+                        .as_ref()
+                        .expect("extern param type checked (F06.02)");
+                    lower_extern_abi_type(ann)
+                })
+                .collect();
+            let ret = match return_type {
+                None => None,
+                Some(ann) if is_void_type_ann(ann) => None,
+                Some(ann) => Some(lower_extern_abi_type(ann)),
+            };
+            Some(Stmt::ExternFunction {
+                local,
+                abi: abi.value.to_string_lossy(),
+                name: name.name.clone(),
+                params: param_tys,
+                ret,
+            })
+        }
     }
+}
+
+/// Resolve an extern ABI type annotation to IR `Type` (native scalar or pointer).
+/// Checker (F06.02) already rejected non-ABI types; this is a pure re-parse.
+fn lower_extern_abi_type(ann: &draconic_ast::TypeAnn) -> Type {
+    match ann {
+        draconic_ast::TypeAnn::Named { name, .. } => {
+            if let Some(n) = NativeType::from_name(name) {
+                Type::Native(n)
+            } else {
+                panic!("extern ABI type `{name}` must be native (checker should reject)")
+            }
+        }
+        draconic_ast::TypeAnn::Pointer { inner, .. } => {
+            // v1 ABI: `*T` only when T is a native scalar (N03.03 / F06.02).
+            match lower_extern_abi_type(inner) {
+                Type::Native(n) => Type::Ptr(n),
+                other => panic!("extern pointer pointee must be native scalar, got {other:?}"),
+            }
+        }
+        other => panic!("extern ABI type not native/pointer: {other:?}"),
+    }
+}
+
+fn is_void_type_ann(ann: &draconic_ast::TypeAnn) -> bool {
+    matches!(ann, draconic_ast::TypeAnn::Named { name, .. } if name == "void")
 }
 
 fn lower_fn_body(
@@ -7244,6 +7320,30 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                 dump_stmt(s, level + 2, out);
             }
         }
+        Stmt::ExternFunction {
+            local,
+            abi,
+            name,
+            params,
+            ret,
+        } => {
+            indent(level, out);
+            out.push_str(&format!(
+                "ExternFunction %{} abi={abi:?} name={name}\n",
+                local.0
+            ));
+            indent(level + 1, out);
+            out.push_str("params:\n");
+            for (i, ty) in params.iter().enumerate() {
+                indent(level + 2, out);
+                out.push_str(&format!("[{i}] {ty}\n"));
+            }
+            indent(level + 1, out);
+            match ret {
+                Some(ty) => out.push_str(&format!("ret: {ty}\n")),
+                None => out.push_str("ret: void\n"),
+            }
+        }
         Stmt::Return { value } => {
             indent(level, out);
             out.push_str("Return\n");
@@ -8255,6 +8355,91 @@ mod tests {
         assert_eq!(
             directives, 2,
             "expected directives only in class-builder IIFE + ctor (simple params), got {directives}: {dump}"
+        );
+    }
+
+    // --- F06.03: extern "C" → IR/ABI surface ---
+
+    #[test]
+    fn lower_extern_c_function_abi_surface() {
+        let module = lower_src(
+            r#"
+            extern "C" function add(a: i32, b: i32): i32;
+            extern "C" function puts(s: *u8): i32;
+            extern "C" function free(p: *u8): void;
+            extern "C" function quit();
+            "#,
+        );
+        assert!(module.has_extern_ffi);
+        let mut externs = module.body.iter().filter_map(|s| match s {
+            Stmt::ExternFunction {
+                local,
+                abi,
+                name,
+                params,
+                ret,
+            } => Some((local, abi.as_str(), name.as_str(), params.as_slice(), ret.as_ref())),
+            _ => None,
+        });
+        let (add_id, abi, name, params, ret) = externs.next().expect("add");
+        assert_eq!(abi, "C");
+        assert_eq!(name, "add");
+        assert_eq!(local_by_name(&module, "add").id, *add_id);
+        assert_eq!(
+            params,
+            &[Type::Native(NativeType::I32), Type::Native(NativeType::I32)]
+        );
+        assert_eq!(ret, Some(&Type::Native(NativeType::I32)));
+
+        let (_, _, name, params, ret) = externs.next().expect("puts");
+        assert_eq!(name, "puts");
+        assert_eq!(params, &[Type::Ptr(NativeType::U8)]);
+        assert_eq!(ret, Some(&Type::Native(NativeType::I32)));
+
+        let (_, _, name, params, ret) = externs.next().expect("free");
+        assert_eq!(name, "free");
+        assert_eq!(params, &[Type::Ptr(NativeType::U8)]);
+        assert_eq!(ret, None);
+
+        let (_, _, name, params, ret) = externs.next().expect("quit");
+        assert_eq!(name, "quit");
+        assert!(params.is_empty());
+        assert_eq!(ret, None);
+        assert!(externs.next().is_none());
+
+        let dump = dump_module(&module);
+        assert!(dump.contains("ExternFunction"), "got:\n{dump}");
+        assert!(dump.contains("name=add"), "got:\n{dump}");
+        assert!(dump.contains("ret: void"), "got:\n{dump}");
+    }
+
+    #[test]
+    fn lower_extern_with_call_keeps_abi_and_call() {
+        let module = lower_src(
+            r#"
+            extern "C" function add(a: i32, b: i32): i32;
+            let s: i32 = add(20, 22);
+            "#,
+        );
+        assert!(module.has_extern_ffi);
+        assert!(
+            module
+                .body
+                .iter()
+                .any(|s| matches!(s, Stmt::ExternFunction { name, .. } if name == "add")),
+            "expected ExternFunction add: {:?}",
+            module.body
+        );
+        assert!(
+            module.body.iter().any(|s| matches!(
+                s,
+                Stmt::Declare {
+                    init: Some(Expr::Call { .. }),
+                    ..
+                }
+            )),
+            "expected call in declare: {:?}",
+            module.body
         );
     }
 }

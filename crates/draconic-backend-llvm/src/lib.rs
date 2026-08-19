@@ -2632,6 +2632,61 @@ mod tests {
         assert_eq!(stdout, "42\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
+    /// F06.03: `extern "C"` lowers to LLVM `declare` ABI surface; call links libc `abs`.
+    #[test]
+    fn native_extern_c_declare_and_call_abs() {
+        let m = module_of(
+            r#"
+            extern "C" function abs(x: i32): i32;
+            extern "C" function puts(s: *u8): i32;
+            extern "C" function free(p: *u8): void;
+            let a: i32 = abs(-42);
+            "#,
+        );
+        assert!(m.has_extern_ffi);
+        assert!(
+            m.body.iter().any(|s| matches!(
+                s,
+                draconic_ir::Stmt::ExternFunction { name, .. } if name == "abs"
+            )),
+            "IR must keep ExternFunction: {:?}",
+            m.body
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "extern module must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare i32 @abs(i32)"),
+            "expected declare abs:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare i32 @puts(ptr)"),
+            "expected declare puts:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @free(ptr)"),
+            "expected declare free:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @abs("),
+            "expected call abs:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f06-03-extern").expect("workdir");
+        let bin = dir.join("extern_abs");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "42\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

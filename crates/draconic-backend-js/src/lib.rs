@@ -827,6 +827,7 @@ fn reject_native_only_stmt(stmt: &Stmt) -> Result<(), Diagnostic> {
                 reject_native_only_stmt(s)?;
             }
         }
+        Stmt::ExternFunction { .. } => {}
     }
     Ok(())
 }
