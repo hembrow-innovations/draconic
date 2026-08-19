@@ -188,3 +188,13 @@ fn putvalue_delete_property_fixture_present() {
 fn putvalue_delete_property_runs() {
     assert_fixture_runs_declared_targets("es/legacy/putvalue_delete_property");
 }
+
+#[test]
+fn putvalue_accessor_proto_fixture_present() {
+    assert_fixture_present("es/legacy/putvalue_accessor_proto");
+}
+
+#[test]
+fn putvalue_accessor_proto_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/putvalue_accessor_proto");
+}

@@ -1,0 +1,119 @@
+// E17.02.15: Non-strict PutValue residual via accessors + prototype chain.
+// Silent failures in non-strict; TypeError counterparts in strict.
+
+// Getter-only own: assign does not throw; getter still returns original; expr is RHS.
+let go = {
+  get x() {
+    return 1;
+  },
+};
+let aAssign = (go.x = 99);
+let a = aAssign === 99 && go.x === 1;
+
+// Setter-only own: assign invokes setter; no throw.
+let setLog = 0;
+let so = {
+  set y(v) {
+    setLog = v;
+  },
+};
+let bAssign = (so.y = 7);
+let b = bAssign === 7 && setLog === 7;
+
+// Getter+setter: assign uses setter; subsequent get sees new value.
+let gsVal = 0;
+let gs = {
+  get z() {
+    return gsVal;
+  },
+  set z(v) {
+    gsVal = v;
+  },
+};
+let cAssign = (gs.z = 3);
+let c = cAssign === 3 && gs.z === 3 && gsVal === 3;
+
+// Inherited non-writable data: assign silent; no own property created; Get sees proto.
+let proto = {};
+Object.defineProperty(proto, "p", {
+  value: 10,
+  writable: false,
+  enumerable: true,
+  configurable: true,
+});
+let child = Object.create(proto);
+let dAssign = (child.p = 20);
+let d =
+  dAssign === 20 &&
+  child.p === 10 &&
+  !Object.prototype.hasOwnProperty.call(child, "p");
+
+// Computed getter-only key: same silent assign.
+let cg = {
+  get k() {
+    return 4;
+  },
+};
+let key = "k";
+let eAssign = (cg[key] = 5);
+let e = eAssign === 5 && cg[key] === 4;
+
+// Strict: getter-only assign → TypeError; getter unchanged.
+function strictGo() {
+  "use strict";
+  let o = {
+    get x() {
+      return 1;
+    },
+  };
+  try {
+    o.x = 99;
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && o.x === 1;
+  }
+}
+let f = strictGo();
+
+// Strict: inherited non-writable → TypeError; no own property.
+function strictInh() {
+  "use strict";
+  let p = {};
+  Object.defineProperty(p, "p", {
+    value: 10,
+    writable: false,
+    enumerable: true,
+    configurable: true,
+  });
+  let o = Object.create(p);
+  try {
+    o.p = 20;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof TypeError &&
+      o.p === 10 &&
+      !Object.prototype.hasOwnProperty.call(o, "p")
+    );
+  }
+}
+let g = strictInh();
+
+// Non-strict compound assign on getter-only: silent store; getter still original.
+// Expression result is GetValue+ToNumber+add (2), store fails.
+let go2 = {
+  get n() {
+    return 1;
+  },
+};
+let hAssign = (go2.n += 1);
+let h = hAssign === 2 && go2.n === 1;
+
+// Non-strict update ++ on getter-only: silent store; getter still original.
+let go3 = {
+  get m() {
+    return 10;
+  },
+};
+let iAssign = ++go3.m;
+let i = iAssign === 11 && go3.m === 10;
