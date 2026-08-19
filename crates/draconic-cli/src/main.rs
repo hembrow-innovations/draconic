@@ -692,6 +692,7 @@ fn build_program(
 ) -> Result<(), Diagnostic> {
     // K07.01: auto-fetch missing locked package checkouts before link/compile.
     // K07.02: `--offline` → cache only; miss → fixit (no network).
+    // K07.03: lock pins are authoritative (commit OID); do not float versions.
     if let Err(e) = ensure_locked_for_entry(input, offline) {
         return Err(Diagnostic::new(
             e.to_string(),

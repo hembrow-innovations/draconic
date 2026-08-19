@@ -1,7 +1,9 @@
-//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01 / K07.02).
+//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01–K07.03).
 //!
 //! Used by `draconic build` to auto-fetch missing locked cache entries before link.
 //! With `offline`, only the cache is consulted; a miss is a hard error with a fixit.
+//! When a lock is present, pins are authoritative: checkout uses lock `commit_oid` only
+//! (never re-resolve tags / float to a newer matching version — K07.03).
 
 use std::fmt;
 use std::fs;
@@ -51,10 +53,11 @@ impl fmt::Display for EnsureLockedError {
 
 impl std::error::Error for EnsureLockedError {}
 
-/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01 / K07.02).
+/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01–K07.03).
 ///
 /// Cache hits skip network. When `offline` is false, missing entries are materialised via
-/// [`ModuleCache::checkout`] using the lock's git URL + commit OID (no version float).
+/// [`ModuleCache::checkout`] using the lock's git URL + commit OID only (K07.03: never
+/// re-resolve tags or float to a newer matching version while the lock is present).
 /// When `offline` is true, a missing pin is [`EnsureLockedError::OfflineMiss`] (no network).
 pub fn ensure_locked_entries(
     lock: &LockFile,
@@ -373,6 +376,88 @@ mod tests {
             .expect("lock present");
         assert_eq!(result.fetched, vec![path.to_string()]);
         assert!(ModuleCache::new(&cache_root).has_entry(path, &oid).unwrap());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K07.03: lock pin OID wins; newer tags on the remote must not float the checkout.
+    #[test]
+    fn ensure_locked_entries_does_not_float_past_lock_pin() {
+        let root = temp_dir();
+        let repo = root.join("upstream");
+        fs::create_dir_all(&repo).unwrap();
+        git_ok(&["init"], &repo);
+        git_ok(&["config", "user.email", "test@draconic.local"], &repo);
+        git_ok(&["config", "user.name", "Draconic Test"], &repo);
+        git_ok(&["checkout", "-B", "main"], &repo);
+        fs::write(repo.join("index.drac"), "export let x = 41;\n").unwrap();
+        git_ok(&["add", "."], &repo);
+        git_ok(&["commit", "-m", "v1.0.0"], &repo);
+        git_ok(&["tag", "v1.0.0"], &repo);
+        let oid_v1 = String::from_utf8(
+            Command::new("git")
+                .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+
+        // Newer tag that a floating resolve would prefer.
+        fs::write(repo.join("index.drac"), "export let x = 99;\n").unwrap();
+        git_ok(&["add", "."], &repo);
+        git_ok(&["commit", "-m", "v2.0.0"], &repo);
+        git_ok(&["tag", "v2.0.0"], &repo);
+        let oid_v2 = String::from_utf8(
+            Command::new("git")
+                .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+        assert_ne!(oid_v1, oid_v2);
+
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        // Seed content hash from the locked (v1) tree only.
+        let checkout_v1 = cache
+            .checkout(path, &oid_v1, repo.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout_v1).unwrap();
+        fs::remove_dir_all(cache.root.join("mod")).unwrap();
+        fs::remove_dir_all(cache.root.join("vcs")).ok();
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            repo.to_str().unwrap(),
+            oid_v1.clone(),
+            hash,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let result = ensure_locked_entries(&lock, &cache, false).expect("ensure");
+        assert_eq!(result.fetched, vec![path.to_string()]);
+        assert!(cache.has_entry(path, &oid_v1).unwrap());
+        assert!(
+            !cache.has_entry(path, &oid_v2).unwrap(),
+            "must not materialize newer unpinned OID"
+        );
+        let src = fs::read_to_string(cache.entry_dir(path, &oid_v1).unwrap().join("index.drac"))
+            .unwrap();
+        assert!(src.contains("41"), "locked pin content: {src}");
+        assert!(!src.contains("99"), "must not float to v2 content: {src}");
 
         let _ = fs::remove_dir_all(&root);
     }

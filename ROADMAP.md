@@ -718,7 +718,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K07 | todo | compiler | Build integration: auto-fetch; `--offline` | `crates/draconic-cli`, `crates/draconic-pkg` |
 | K07.01 | done | compiler | `draconic build` auto-fetches missing locked cache entries | `crates/draconic-cli` |
 | K07.02 | done | compiler | `draconic build --offline`: cache only; fixit on miss | `crates/draconic-cli` |
-| K07.03 | todo | compiler | Build prefers lock pins; does not float versions when lock present | `crates/draconic-cli`, `crates/draconic-pkg` |
+| K07.03 | done | compiler | Build prefers lock pins; does not float versions when lock present | `crates/draconic-cli`, `crates/draconic-pkg` |
 | K08 | todo | compiler | Integrity: verify lock hashes; refuse tampered cache | `crates/draconic-pkg` |
 | K08.01 | todo | compiler | Recompute tree SHA-256; match lock or hard-fail | `crates/draconic-pkg` |
 | K08.02 | todo | compiler | Refuse mismatched OID/hash; no silent wrong tree | `crates/draconic-pkg` |
