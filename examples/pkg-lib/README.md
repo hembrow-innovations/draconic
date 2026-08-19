@@ -34,7 +34,7 @@ import { greet, VERSION } from "github.com/draconic-lang/pkg-lib";
 
 Point a consumer `[urls]` map at a git clone of this tree (or a path URL after
 `git init` + tag), then `draconic mod tidy` / build. Full consumer demo:
-**K10.02** `examples/pkg-consumer`.
+[`examples/pkg-consumer`](../pkg-consumer/) (**K10.02**).
 
 ## Tests
 

@@ -1,0 +1,8 @@
+// Consumer of in-repo pkg-lib (Roadmap K10.02).
+// Import via Go-like module path; resolve needs lock + cache (see README).
+
+import { greet, VERSION } from "github.com/draconic-lang/pkg-lib";
+
+let console = globalThis.console;
+console.log(VERSION);
+console.log(greet("pkg-consumer"));
