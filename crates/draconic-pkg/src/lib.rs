@@ -22,6 +22,7 @@
 //! K07.01: ensure locked cache entries (auto-fetch missing pins for build).
 //! K07.02: offline ensure — cache only; miss → fixit (no network).
 //! K07.03: build prefers lock pins; does not float versions when lock present.
+//! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 
 mod cache;
 mod ensure;
@@ -43,7 +44,7 @@ pub use get::{
     default_cache_root, get_package, get_package_spec, parse_get_spec, GetError, GetResult,
     DEFAULT_CACHE_DIR_NAME, LOCK_FILE, MANIFEST_FILE,
 };
-pub use hash::{content_hash_tree, ContentHashError};
+pub use hash::{content_hash_tree, verify_content_hash, ContentHashError, ContentHashVerifyError};
 pub use import_resolve::{
     ensure_within_package, find_package_checkout_root, looks_like_module_path_import,
     match_locked_package, path_is_within_root, resolve_module_import, ImportResolveError,

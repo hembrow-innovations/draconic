@@ -1,7 +1,8 @@
-//! Canonical package tree content hash (Roadmap K03.04).
+//! Canonical package tree content hash (Roadmap K03.04 / K08.01).
 //!
 //! SHA-256 over a deterministic encoding of regular files under a package root.
-//! Used for lockfile `content_hash` (K02.01) and later integrity checks (K08).
+//! Used for lockfile `content_hash` (K02.01) and integrity checks (K08.01):
+//! recompute tree hash and hard-fail when it does not match the lock pin.
 
 use std::fmt;
 use std::fs;
@@ -97,6 +98,65 @@ pub fn content_hash_tree(package_root: &Path) -> Result<String, ContentHashError
 
     let digest = hasher.finalize();
     Ok(hex_lower(&digest))
+}
+
+/// Error while verifying a package tree against a lock `content_hash` (K08.01).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContentHashVerifyError {
+    /// Failed to recompute the tree hash.
+    Hash(ContentHashError),
+    /// Recomputed SHA-256 does not match the lock pin (tamper or wrong tree).
+    Mismatch {
+        /// Package root that was hashed.
+        path: String,
+        /// Lock pin `content_hash` (expected).
+        expected: String,
+        /// Freshly recomputed tree hash (actual).
+        actual: String,
+    },
+}
+
+impl fmt::Display for ContentHashVerifyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ContentHashVerifyError::Hash(e) => write!(f, "content hash verify: {e}"),
+            ContentHashVerifyError::Mismatch {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "content hash verify: package `{path}` tree hash mismatch (lock={expected}, actual={actual})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ContentHashVerifyError {}
+
+impl From<ContentHashError> for ContentHashVerifyError {
+    fn from(e: ContentHashError) -> Self {
+        ContentHashVerifyError::Hash(e)
+    }
+}
+
+/// Recompute the package tree SHA-256 and hard-fail unless it equals `expected_hash` (K08.01).
+///
+/// `expected_hash` is the lockfile pin (`content_hash`). Empty or format-invalid
+/// expected hashes still fail closed via mismatch (or hash error on the tree side).
+pub fn verify_content_hash(
+    package_root: &Path,
+    expected_hash: &str,
+) -> Result<(), ContentHashVerifyError> {
+    let actual = content_hash_tree(package_root)?;
+    if actual == expected_hash {
+        return Ok(());
+    }
+    Err(ContentHashVerifyError::Mismatch {
+        path: package_root.display().to_string(),
+        expected: expected_hash.to_string(),
+        actual,
+    })
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -374,6 +434,87 @@ mod tests {
         h.update(2u64.to_be_bytes());
         h.update(b"B\n");
         assert_eq!(hash, hex_lower(&h.finalize()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- K08.01: recompute tree SHA-256; match lock or hard-fail ---
+
+    #[test]
+    fn verify_content_hash_ok_when_matches() {
+        let root = temp_dir("verify-ok");
+        fs::write(root.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let expected = content_hash_tree(&root).unwrap();
+        verify_content_hash(&root, &expected).expect("match");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_content_hash_ok_empty_tree() {
+        let root = temp_dir("verify-empty");
+        verify_content_hash(&root, EMPTY_SHA256).expect("empty match");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_content_hash_mismatch_tampered_file() {
+        let root = temp_dir("verify-tamper");
+        fs::write(root.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let expected = content_hash_tree(&root).unwrap();
+        fs::write(root.join("index.drac"), b"export let x = 999;\n").unwrap();
+        let err = verify_content_hash(&root, &expected).expect_err("tamper");
+        match &err {
+            ContentHashVerifyError::Mismatch {
+                expected: e,
+                actual: a,
+                ..
+            } => {
+                assert_eq!(e, &expected);
+                assert_ne!(a, &expected);
+                assert_eq!(a.len(), 64);
+            }
+            other => panic!("expected Mismatch, got {other:?}"),
+        }
+        let msg = err.to_string();
+        assert!(msg.contains("mismatch"), "{msg}");
+        assert!(msg.contains(&expected), "{msg}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_content_hash_mismatch_wrong_lock_hash() {
+        let root = temp_dir("verify-wrong-lock");
+        fs::write(root.join("a.txt"), b"A").unwrap();
+        let bogus = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let err = verify_content_hash(&root, bogus).expect_err("wrong lock");
+        match err {
+            ContentHashVerifyError::Mismatch { expected, actual, .. } => {
+                assert_eq!(expected, bogus);
+                assert_ne!(actual, bogus);
+            }
+            other => panic!("expected Mismatch, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_content_hash_extra_file_is_mismatch() {
+        let root = temp_dir("verify-extra");
+        fs::write(root.join("a.txt"), b"A").unwrap();
+        let expected = content_hash_tree(&root).unwrap();
+        fs::write(root.join("evil.txt"), b"x").unwrap();
+        let err = verify_content_hash(&root, &expected).expect_err("extra file");
+        assert!(matches!(err, ContentHashVerifyError::Mismatch { .. }), "{err:?}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_content_hash_marker_change_does_not_mismatch() {
+        // Checkout marker is not part of the tree hash (K03.04 / K08.01).
+        let root = temp_dir("verify-marker");
+        fs::write(root.join("a.txt"), b"A").unwrap();
+        let expected = content_hash_tree(&root).unwrap();
+        fs::write(root.join(".draconic-checkout-oid"), "deadbeef\n").unwrap();
+        verify_content_hash(&root, &expected).expect("marker ignored");
         let _ = fs::remove_dir_all(&root);
     }
 }

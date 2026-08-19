@@ -1,9 +1,11 @@
-//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01–K07.03).
+//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01–K07.03 / K08.01).
 //!
 //! Used by `draconic build` to auto-fetch missing locked cache entries before link.
 //! With `offline`, only the cache is consulted; a miss is a hard error with a fixit.
 //! When a lock is present, pins are authoritative: checkout uses lock `commit_oid` only
 //! (never re-resolve tags / float to a newer matching version — K07.03).
+//! After each pin is present, recomputes the package tree SHA-256 and hard-fails unless
+//! it matches the lock `content_hash` (K08.01).
 
 use std::fmt;
 use std::fs;
@@ -11,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cache::{CacheFetchError, ModuleCache};
 use crate::get::{default_cache_root, LOCK_FILE};
+use crate::hash::{verify_content_hash, ContentHashVerifyError};
 use crate::lock::{parse_lock, LockFile};
 
 /// Summary of ensuring locked packages are present in the cache (K07.01).
@@ -22,7 +25,7 @@ pub struct EnsureLockedResult {
     pub fetched: Vec<String>,
 }
 
-/// Error while ensuring locked cache entries (K07.01 / K07.02).
+/// Error while ensuring locked cache entries (K07.01 / K07.02 / K08.01).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnsureLockedError {
     /// Existing lockfile is malformed.
@@ -31,6 +34,14 @@ pub enum EnsureLockedError {
     Cache { path: String, message: String },
     /// Offline build: locked pin missing from cache (K07.02).
     OfflineMiss { path: String },
+    /// Recomputed tree hash does not match lock `content_hash` (K08.01).
+    ContentHashMismatch {
+        path: String,
+        expected: String,
+        actual: String,
+    },
+    /// Failed to hash package tree while verifying (K08.01).
+    ContentHash { path: String, message: String },
     /// Filesystem error reading the lock.
     Io(String),
 }
@@ -46,6 +57,17 @@ impl fmt::Display for EnsureLockedError {
                 f,
                 "build packages: `{path}` not in cache (offline); run `draconic get` or build without --offline"
             ),
+            EnsureLockedError::ContentHashMismatch {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "build packages: `{path}` content hash mismatch (lock={expected}, actual={actual}); refuse tampered or wrong tree"
+            ),
+            EnsureLockedError::ContentHash { path, message } => {
+                write!(f, "build packages: `{path}` content hash: {message}")
+            }
             EnsureLockedError::Io(msg) => write!(f, "build packages: {msg}"),
         }
     }
@@ -53,12 +75,15 @@ impl fmt::Display for EnsureLockedError {
 
 impl std::error::Error for EnsureLockedError {}
 
-/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01–K07.03).
+/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01–K07.03 / K08.01).
 ///
 /// Cache hits skip network. When `offline` is false, missing entries are materialised via
 /// [`ModuleCache::checkout`] using the lock's git URL + commit OID only (K07.03: never
 /// re-resolve tags or float to a newer matching version while the lock is present).
 /// When `offline` is true, a missing pin is [`EnsureLockedError::OfflineMiss`] (no network).
+///
+/// After a pin is present (hit or fetch), recomputes the package tree SHA-256 and hard-fails
+/// unless it equals the lock `content_hash` (K08.01).
 pub fn ensure_locked_entries(
     lock: &LockFile,
     cache: &ModuleCache,
@@ -75,6 +100,7 @@ pub fn ensure_locked_entries(
                 message: e.to_string(),
             })?;
         if present {
+            verify_locked_entry_hash(cache, path, entry)?;
             kept.push(path.clone());
             continue;
         }
@@ -89,12 +115,41 @@ pub fn ensure_locked_entries(
                 path: path.clone(),
                 message: e.to_string(),
             })?;
+        verify_locked_entry_hash(cache, path, entry)?;
         fetched.push(path.clone());
     }
 
     kept.sort();
     fetched.sort();
     Ok(EnsureLockedResult { kept, fetched })
+}
+
+/// Recompute checkout tree hash; hard-fail on mismatch with lock pin (K08.01).
+fn verify_locked_entry_hash(
+    cache: &ModuleCache,
+    path: &str,
+    entry: &crate::lock::LockEntry,
+) -> Result<(), EnsureLockedError> {
+    let dir = cache
+        .entry_dir(path, &entry.commit_oid)
+        .map_err(|e| EnsureLockedError::Cache {
+            path: path.to_string(),
+            message: e.to_string(),
+        })?;
+    match verify_content_hash(&dir, &entry.content_hash) {
+        Ok(()) => Ok(()),
+        Err(ContentHashVerifyError::Mismatch {
+            expected, actual, ..
+        }) => Err(EnsureLockedError::ContentHashMismatch {
+            path: path.to_string(),
+            expected,
+            actual,
+        }),
+        Err(ContentHashVerifyError::Hash(e)) => Err(EnsureLockedError::ContentHash {
+            path: path.to_string(),
+            message: e.to_string(),
+        }),
+    }
 }
 
 /// Discover `draconic.lock` walking ancestors of `entry`, then ensure checkouts (K07.01 / K07.02).
@@ -458,6 +513,163 @@ mod tests {
             .unwrap();
         assert!(src.contains("41"), "locked pin content: {src}");
         assert!(!src.contains("99"), "must not float to v2 content: {src}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K08.01: cache hit still verifies recomputed tree hash against lock pin.
+    #[test]
+    fn ensure_locked_entries_verifies_content_hash_on_hit() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout).unwrap();
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            hash,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let result = ensure_locked_entries(&lock, &cache, true).expect("hash ok");
+        assert_eq!(result.kept, vec![path.to_string()]);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K08.01: tampered checkout on cache hit → hard-fail (no silent wrong tree).
+    #[test]
+    fn ensure_locked_entries_rejects_tampered_tree() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout).unwrap();
+
+        // Tamper after lock pin was recorded.
+        fs::write(checkout.join("index.drac"), "export let x = 666;\n").unwrap();
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            hash.clone(),
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let err = ensure_locked_entries(&lock, &cache, true).expect_err("tamper");
+        let msg = err.to_string();
+        match &err {
+            EnsureLockedError::ContentHashMismatch {
+                path: p,
+                expected,
+                actual,
+            } => {
+                assert_eq!(p, path);
+                assert_eq!(expected, &hash);
+                assert_ne!(actual, &hash);
+            }
+            other => panic!("expected ContentHashMismatch, got {other:?}"),
+        }
+        assert!(msg.contains("content hash mismatch"), "{msg}");
+        assert!(msg.contains(path), "{msg}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K08.01: wrong lock hash (even with correct tree) → hard-fail.
+    #[test]
+    fn ensure_locked_entries_rejects_wrong_lock_hash() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let _checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let bogus = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            bogus,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let err = ensure_locked_entries(&lock, &cache, true).expect_err("wrong hash");
+        match err {
+            EnsureLockedError::ContentHashMismatch { expected, .. } => {
+                assert_eq!(expected, bogus);
+            }
+            other => panic!("expected ContentHashMismatch, got {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K08.01: after fetch, still verify hash before reporting success.
+    #[test]
+    fn ensure_locked_entries_verifies_content_hash_after_fetch() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout).unwrap();
+        fs::remove_dir_all(cache.root.join("mod")).unwrap();
+        fs::remove_dir_all(cache.root.join("vcs")).ok();
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            hash,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let result = ensure_locked_entries(&lock, &cache, false).expect("fetch+verify");
+        assert_eq!(result.fetched, vec![path.to_string()]);
+        assert!(cache.has_entry(path, &oid).unwrap());
 
         let _ = fs::remove_dir_all(&root);
     }
