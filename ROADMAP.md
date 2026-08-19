@@ -168,6 +168,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E17 | done | js | `with` (E17.01); other non-strict legacy → E17.02 children | `tests/conformance/es/legacy` |
 | E17.01 | done | js | `with` statement: object binding in scope; property read/write; nested `with` | `tests/conformance` fixtures `es/legacy` |
 | E17.02 | todo | js | Other non-strict legacy beyond `with` (children below; untracked remainder stays here) | `tests/conformance/es/legacy` |
+| E17.02.18 | done | js | Mapped `arguments` + `Object.defineProperty` residual (non-strict simple params): redefine index as data/accessor breaks/keeps alias per ES; non-writable index assign silent; multi-param partial redefine | `tests/conformance` fixtures `es/legacy` |
 | E17.02.17 | done | js | Unmapped `arguments` with non-simple params (non-strict): default/rest/destructure formals → no `args[i]`↔formal alias; `arguments` still present; simple-params still mapped | `tests/conformance` fixtures `es/legacy` |
 | E17.02.16 | done | js | Non-strict PutValue on immutable globals: assign `undefined`/`NaN`/`Infinity` silent (value unchanged; expr is RHS); compound/update same; `"use strict"` counterparts → TypeError | `tests/conformance` fixtures `es/legacy` |
 | E17.02.15 | done | js | Non-strict PutValue residual via accessors + prototype: getter-only assign silent (value unchanged); setter-only assign invokes setter; inherited non-writable data assign silent (no own shadow); `"use strict"` counterparts → TypeError | `tests/conformance` fixtures `es/legacy` |

@@ -218,3 +218,13 @@ fn arguments_unmapped_nonsimple_fixture_present() {
 fn arguments_unmapped_nonsimple_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_unmapped_nonsimple");
 }
+
+#[test]
+fn arguments_define_property_fixture_present() {
+    assert_fixture_present("es/legacy/arguments_define_property");
+}
+
+#[test]
+fn arguments_define_property_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/arguments_define_property");
+}

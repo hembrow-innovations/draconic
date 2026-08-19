@@ -1,0 +1,162 @@
+// E17.02.18: Mapped arguments + Object.defineProperty residual (non-strict simple params).
+// Redefine index as data/accessor; non-writable assign silent; mapping breaks per ES.
+
+// Writable data redefine: mapping can remain (param write updates args[0]).
+function dataWritable(a) {
+  Object.defineProperty(arguments, "0", {
+    value: 7,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+  a = 3;
+  return a === 3 && arguments[0] === 3;
+}
+let a = dataWritable(1);
+
+// Non-writable data redefine: param write does not update args[0]; no throw.
+function dataNonWritable(a) {
+  Object.defineProperty(arguments, "0", {
+    value: 7,
+    writable: false,
+    enumerable: true,
+    configurable: true,
+  });
+  let threw = false;
+  try {
+    a = 3;
+  } catch (e) {
+    threw = true;
+  }
+  // Engine may sync formal once on redefine; pin args[0] stays 7 and no throw.
+  return threw === false && arguments[0] === 7 && a === 3;
+}
+let b = dataNonWritable(1);
+
+// Non-writable: direct arguments[0] = silent fail (value unchanged).
+function argsWriteNonWritable(a) {
+  Object.defineProperty(arguments, "0", {
+    value: 7,
+    writable: false,
+    enumerable: true,
+    configurable: true,
+  });
+  arguments[0] = 9;
+  return arguments[0] === 7 && a === 7;
+}
+let c = argsWriteNonWritable(1);
+
+// Accessor redefine: breaks mapping; param write does not invoke setter side on read.
+function accessorBreak(a) {
+  let sets = 0;
+  Object.defineProperty(arguments, "0", {
+    get: function () {
+      return 100;
+    },
+    set: function (_v) {
+      sets = sets + 1;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+  a = 2;
+  return a === 2 && arguments[0] === 100 && sets === 0;
+}
+let d = accessorBreak(1);
+
+// Accessor: writing arguments[0] invokes setter; get still returns getter value.
+function accessorSet(a) {
+  let last = undefined;
+  Object.defineProperty(arguments, "0", {
+    get: function () {
+      return 50;
+    },
+    set: function (v) {
+      last = v;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+  arguments[0] = 9;
+  return last === 9 && arguments[0] === 50 && a === 1;
+}
+let e = accessorSet(1);
+
+// Non-configurable non-writable after redefine: param assign silent; args stay.
+function nonConfig(a) {
+  Object.defineProperty(arguments, "0", {
+    value: 4,
+    writable: false,
+    enumerable: true,
+    configurable: false,
+  });
+  a = 8;
+  arguments[0] = 9;
+  return a === 8 && arguments[0] === 4;
+}
+let f = nonConfig(1);
+
+// Multi-param: redefine only index 1; index 0 stays mapped.
+function oneIndex(x, y) {
+  Object.defineProperty(arguments, "1", {
+    value: 70,
+    writable: false,
+    enumerable: true,
+    configurable: true,
+  });
+  x = 10;
+  y = 20;
+  return arguments[0] === 10 && arguments[1] === 70 && x === 10 && y === 20;
+}
+let g = oneIndex(1, 2);
+
+// Named function expression: same non-writable redefine semantics.
+let named = function (z) {
+  Object.defineProperty(arguments, "0", {
+    value: 5,
+    writable: false,
+    enumerable: true,
+    configurable: true,
+  });
+  z = 6;
+  return z === 6 && arguments[0] === 5;
+};
+let h = named(2);
+
+// Object method (non-arrow): accessor redefine breaks mapping.
+let o = {
+  m: function (p) {
+    Object.defineProperty(arguments, "0", {
+      get: function () {
+        return 11;
+      },
+      set: function () {},
+      enumerable: true,
+      configurable: true,
+    });
+    p = 12;
+    return p === 12 && arguments[0] === 11;
+  },
+};
+let i = o.m(3);
+
+// Strict body: no mapping; defineProperty still shapes arguments object.
+function strictDef(a) {
+  "use strict";
+  Object.defineProperty(arguments, "0", {
+    value: 7,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+  a = 3;
+  return a === 3 && arguments[0] === 7;
+}
+let j = strictDef(1);
+
+// Contrast: plain mapped baseline still holds without defineProperty.
+function plainMapped(a) {
+  arguments[0] = 77;
+  return a === 77;
+}
+let k = plainMapped(1);
