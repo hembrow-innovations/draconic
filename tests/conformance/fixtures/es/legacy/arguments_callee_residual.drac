@@ -1,0 +1,95 @@
+// E17.02.13: arguments.callee residual (non-strict).
+// callee.caller while nested; top-level null; delete/assign callee; strict TypeError.
+
+// Nested: arguments.callee.caller is the outer non-strict function.
+function outer() {
+  return (function () {
+    return arguments.callee.caller === outer;
+  })();
+}
+let a = outer();
+
+// Nested named function expression: caller is outer.
+function outerNamed() {
+  let inner = function namedInner() {
+    return arguments.callee.caller === outerNamed;
+  };
+  return inner();
+}
+let b = outerNamed();
+
+// Top-level call: arguments.callee.caller is null.
+function topLevel() {
+  return arguments.callee.caller;
+}
+let c = topLevel();
+
+// Three-deep chain: innermost sees middle as caller.
+function deep1() {
+  return deep2();
+}
+function deep2() {
+  return (function () {
+    return arguments.callee.caller === deep2;
+  })();
+}
+let d = deep1();
+
+// delete arguments.callee removes the property (non-strict data prop).
+function delCallee() {
+  let before = typeof arguments.callee;
+  let del = delete arguments.callee;
+  return before === "function" && del === true && typeof arguments.callee === "undefined";
+}
+let e = delCallee();
+
+// Assign arguments.callee (non-strict writable data property).
+function assignCallee() {
+  arguments.callee = null;
+  return arguments.callee === null;
+}
+let f = assignCallee();
+
+// Object method (non-arrow): callee.caller is the method's caller.
+function callMethod() {
+  let o = {
+    m: function () {
+      return arguments.callee.caller === callMethod;
+    },
+  };
+  return o.m();
+}
+let g = callMethod();
+
+// Strict function: reading arguments.callee → TypeError.
+function strictCallee() {
+  "use strict";
+  try {
+    return arguments.callee;
+  } catch (err) {
+    return err instanceof TypeError && err.name === "TypeError";
+  }
+}
+let h = strictCallee();
+
+// Strict nested: still TypeError (no callee.caller path).
+function strictNested() {
+  "use strict";
+  return (function () {
+    "use strict";
+    try {
+      return arguments.callee;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  })();
+}
+let i = strictNested();
+
+// After delete, reassign restores a value (still unmapped from function identity).
+function deleteThenAssign() {
+  delete arguments.callee;
+  arguments.callee = 1;
+  return arguments.callee === 1;
+}
+let j = deleteThenAssign();
