@@ -1,0 +1,114 @@
+// E17.02.19: arguments exotic residual (non-strict).
+// toStringTag, not Array, iterator/spread, missing-formal unmapped write,
+// callee/length descriptors, strict callee poison, arguments= reassignment,
+// Array.prototype call on args.
+
+// [[ToStringTag]] / OrdinaryToPrimitive brand.
+function tag(x) {
+  return Object.prototype.toString.call(arguments) === "[object Arguments]";
+}
+let a = tag(1);
+
+// Not an Array instance.
+function isArr(x) {
+  return Array.isArray(arguments) === false && typeof arguments === "object";
+}
+let b = isArr(1);
+
+// for-of yields index values in order.
+function forOfArgs(x, y) {
+  let s = 0;
+  for (let v of arguments) {
+    s = s + v;
+  }
+  return s === 3;
+}
+let c = forOfArgs(1, 2);
+
+// Spread copies index values.
+function spreadArgs(x, y) {
+  let arr = [...arguments];
+  return arr.length === 2 && arr[0] === 1 && arr[1] === 2 && Array.isArray(arr) === true;
+}
+let d = spreadArgs(1, 2);
+
+// Write arguments[i] for i >= arguments.length does not map missing formal.
+function missingFormal(p0, p1) {
+  arguments[1] = 3;
+  return p1 === undefined && arguments[1] === 3 && arguments.length === 1;
+}
+let e = missingFormal(1);
+
+// callee descriptor: data, writable, non-enumerable, configurable; value is fn.
+function calleeDesc() {
+  let desc = Object.getOwnPropertyDescriptor(arguments, "callee");
+  return (
+    desc.writable === true &&
+    desc.enumerable === false &&
+    desc.configurable === true &&
+    desc.value === calleeDesc
+  );
+}
+let f = calleeDesc();
+
+// length descriptor: actual argc; writable, non-enumerable, configurable.
+function lengthDesc(p0, p1) {
+  let desc = Object.getOwnPropertyDescriptor(arguments, "length");
+  return (
+    desc.value === 1 &&
+    desc.writable === true &&
+    desc.enumerable === false &&
+    desc.configurable === true
+  );
+}
+let g = lengthDesc(1);
+
+// Strict body: arguments.callee is poison → TypeError.
+function strictCallee() {
+  "use strict";
+  try {
+    return arguments.callee;
+  } catch (err) {
+    return err.name;
+  }
+}
+let h = strictCallee();
+
+// arguments = … rebinds local; formals unchanged.
+function reassignArgs(p0) {
+  arguments = [9, 8];
+  return p0 === 1 && arguments[0] === 9 && arguments.length === 2;
+}
+let i = reassignArgs(1);
+
+// Array.prototype.join.call(arguments) treats args as array-like.
+function joinArgs(x, y) {
+  return Array.prototype.join.call(arguments, ",") === "1,2";
+}
+let j = joinArgs(1, 2);
+
+// Object.keys lists string index keys only (not length/callee).
+function keysArgs(x, y) {
+  let k = Object.keys(arguments);
+  return k.length === 2 && k[0] === "0" && k[1] === "1";
+}
+let k = keysArgs(1, 2);
+
+// Named function expression: same exotic brand + not Array.
+let named = function (z) {
+  return (
+    Object.prototype.toString.call(arguments) === "[object Arguments]" &&
+    Array.isArray(arguments) === false &&
+    arguments[0] === z
+  );
+};
+let m = named(7);
+
+// Object method (non-arrow): missing-formal write still unmapped.
+let o = {
+  m: function (p0, p1) {
+    arguments[1] = 4;
+    return p1 === undefined && arguments[1] === 4 && arguments.length === 1;
+  },
+};
+let n = o.m(1);
