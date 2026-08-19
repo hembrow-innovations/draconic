@@ -178,3 +178,13 @@ fn arguments_callee_residual_fixture_present() {
 fn arguments_callee_residual_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_callee_residual");
 }
+
+#[test]
+fn putvalue_delete_property_fixture_present() {
+    assert_fixture_present("es/legacy/putvalue_delete_property");
+}
+
+#[test]
+fn putvalue_delete_property_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/putvalue_delete_property");
+}

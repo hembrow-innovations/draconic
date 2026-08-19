@@ -1,0 +1,110 @@
+// E17.02.14: Non-strict PutValue/delete on properties.
+// Silent failures in non-strict; TypeError counterparts in strict.
+
+// Non-writable data: assign does not throw; value unchanged; expression yields RHS.
+let nw = {};
+Object.defineProperty(nw, "x", {
+  value: 1,
+  writable: false,
+  enumerable: true,
+  configurable: true,
+});
+let aAssign = (nw.x = 99);
+let a = aAssign === 99 && nw.x === 1;
+
+// Non-configurable data: delete returns false; property remains.
+let nc = {};
+Object.defineProperty(nc, "y", {
+  value: 2,
+  writable: true,
+  enumerable: true,
+  configurable: false,
+});
+let bDel = delete nc.y;
+let b = bDel === false && nc.y === 2 && "y" in nc;
+
+// Non-extensible missing property: assign silent; property not created.
+let ne = Object.preventExtensions({});
+let cAssign = (ne.z = 3);
+let c = cAssign === 3 && !("z" in ne) && ne.z === undefined;
+
+// Computed key non-writable assign (same silent semantics).
+let ck = {};
+let key = "k";
+Object.defineProperty(ck, key, {
+  value: 4,
+  writable: false,
+  enumerable: true,
+  configurable: true,
+});
+let dAssign = (ck[key] = 5);
+let d = dAssign === 5 && ck[key] === 4;
+
+// Strict: assign non-writable → TypeError; value unchanged.
+function strictNw() {
+  "use strict";
+  let o = {};
+  Object.defineProperty(o, "x", {
+    value: 1,
+    writable: false,
+    enumerable: true,
+    configurable: true,
+  });
+  try {
+    o.x = 99;
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && o.x === 1;
+  }
+}
+let e = strictNw();
+
+// Strict: delete non-configurable → TypeError; property remains.
+function strictNc() {
+  "use strict";
+  let o = {};
+  Object.defineProperty(o, "y", {
+    value: 2,
+    writable: true,
+    enumerable: true,
+    configurable: false,
+  });
+  try {
+    delete o.y;
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && o.y === 2 && "y" in o;
+  }
+}
+let f = strictNc();
+
+// Strict: missing prop on non-extensible → TypeError; not created.
+function strictNe() {
+  "use strict";
+  let o = Object.preventExtensions({});
+  try {
+    o.z = 3;
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && !("z" in o);
+  }
+}
+let g = strictNe();
+
+// Non-strict compound assign on non-writable: silent; original unchanged.
+let nw2 = {};
+Object.defineProperty(nw2, "n", {
+  value: 10,
+  writable: false,
+  enumerable: true,
+  configurable: true,
+});
+let hAssign = (nw2.n += 1);
+// PutValue fails after GetValue+ToNumber+add; RHS of compound is not stored.
+// Expression result is the computed value (11) even when store fails.
+let h = hAssign === 11 && nw2.n === 10;
+
+// Non-strict delete of configurable own data → true and gone.
+let conf = { p: 7 };
+let iDel = delete conf.p;
+let i = iDel === true && !("p" in conf);
