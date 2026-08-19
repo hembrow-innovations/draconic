@@ -1,0 +1,110 @@
+// E17.02.21: Array.prototype residual mutators + freeze/seal on mapped arguments
+// (non-strict simple params). shift/fill/copyWithin keep formal↔index alias;
+// Object.freeze/Object.seal exotic residual; named FE + method.
+
+function sh(a, b) {
+  let v = Array.prototype.shift.call(arguments);
+  return (
+    v === 1 &&
+    a === 2 &&
+    b === 2 &&
+    arguments[0] === 2 &&
+    arguments[1] === undefined &&
+    arguments.length === 1
+  );
+}
+let a = sh(1, 2);
+
+function fl(a, b) {
+  Array.prototype.fill.call(arguments, 9);
+  return a === 9 && b === 9 && arguments[0] === 9 && arguments[1] === 9;
+}
+let b = fl(1, 2);
+
+function cw(a, b, c) {
+  Array.prototype.copyWithin.call(arguments, 0, 1);
+  return (
+    a === 2 &&
+    b === 3 &&
+    c === 3 &&
+    arguments[0] === 2 &&
+    arguments[1] === 3 &&
+    arguments[2] === 3
+  );
+}
+let c = cw(1, 2, 3);
+
+// freeze: args object frozen; formal write does not update frozen index; no throw.
+function frz(a) {
+  Object.freeze(arguments);
+  let threw = false;
+  try {
+    a = 9;
+  } catch (e) {
+    threw = true;
+  }
+  return (
+    threw === false &&
+    Object.isFrozen(arguments) === true &&
+    a === 9 &&
+    arguments[0] === 1
+  );
+}
+let d = frz(1);
+
+// freeze: direct arguments[i] write silent in non-strict; value unchanged.
+function frzWrite(a) {
+  Object.freeze(arguments);
+  arguments[0] = 9;
+  return a === 1 && arguments[0] === 1;
+}
+let e = frzWrite(1);
+
+// seal: still mapped; formal write updates index; sealed true.
+function sl(a) {
+  Object.seal(arguments);
+  a = 9;
+  return (
+    Object.isSealed(arguments) === true &&
+    a === 9 &&
+    arguments[0] === 9
+  );
+}
+let f = sl(1);
+
+// seal: cannot add new index beyond length (non-extensible); length stays.
+function slAdd(a) {
+  Object.seal(arguments);
+  arguments[1] = 8;
+  return (
+    a === 1 &&
+    arguments[0] === 1 &&
+    arguments[1] === undefined &&
+    arguments.length === 1
+  );
+}
+let g = slAdd(1);
+
+// Named function expression: shift keeps mapped alias.
+let named = function (x, y) {
+  Array.prototype.shift.call(arguments);
+  return x === 20 && y === 20 && arguments[0] === 20 && arguments.length === 1;
+};
+let h = named(10, 20);
+
+// Object method (non-arrow): fill keeps mapped alias.
+let o = {
+  m: function (p, q) {
+    Array.prototype.fill.call(arguments, 5);
+    return p === 5 && q === 5 && arguments[0] === 5 && arguments[1] === 5;
+  },
+};
+let i = o.m(1, 2);
+
+// fill then formal write still maps.
+function fillThenWrite(a, b) {
+  Array.prototype.fill.call(arguments, 3);
+  a = 7;
+  return a === 7 && b === 3 && arguments[0] === 7 && arguments[1] === 3;
+}
+let j = fillThenWrite(1, 2);
