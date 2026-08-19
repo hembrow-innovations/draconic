@@ -348,6 +348,8 @@ struct BuildArgs {
     input: PathBuf,
     output: Option<PathBuf>,
     watch: bool,
+    /// K07.02: cache-only package ensure; no network fetch on miss.
+    offline: bool,
 }
 
 fn cmd_build(args: &[String]) -> ExitCode {
@@ -355,7 +357,9 @@ fn cmd_build(args: &[String]) -> ExitCode {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{msg}");
-            eprintln!("usage: draconic build --target js|native [--watch] <file> [-o <out>]");
+            eprintln!(
+                "usage: draconic build --target js|native [--watch] [--offline] <file> [-o <out>]"
+            );
             return ExitCode::from(2);
         }
     };
@@ -367,11 +371,12 @@ fn cmd_build(args: &[String]) -> ExitCode {
 
     if parsed.watch {
         return run_watch_loop(&parsed.input, || {
-            build_program(&parsed.input, parsed.target, &out).map_err(|d| d.to_string())
+            build_program(&parsed.input, parsed.target, &out, parsed.offline)
+                .map_err(|d| d.to_string())
         });
     }
 
-    if let Err(d) = build_program(&parsed.input, parsed.target, &out) {
+    if let Err(d) = build_program(&parsed.input, parsed.target, &out, parsed.offline) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
     }
@@ -459,7 +464,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         Target::Native => work.join("out"),
     };
 
-    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact) {
+    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact, false) {
         let _ = fs::remove_dir_all(&work);
         eprintln!("error: {d}");
         return ExitCode::from(1);
@@ -597,6 +602,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     let mut output: Option<PathBuf> = None;
     let mut input: Option<PathBuf> = None;
     let mut watch = false;
+    let mut offline = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -626,9 +632,10 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
                 output = Some(PathBuf::from(rest));
             }
             "--watch" => watch = true,
+            "--offline" => offline = true,
             "-h" | "--help" => {
                 return Err(
-                    "usage: draconic build --target js|native [--watch] <file> [-o <out>]".into(),
+                    "usage: draconic build --target js|native [--watch] [--offline] <file> [-o <out>]".into(),
                 );
             }
             other if other.starts_with('-') => {
@@ -651,6 +658,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
         input,
         output,
         watch,
+        offline,
     })
 }
 
@@ -676,9 +684,15 @@ fn default_output(input: &Path, target: Target) -> PathBuf {
     }
 }
 
-fn build_program(input: &Path, target: Target, out: &Path) -> Result<(), Diagnostic> {
+fn build_program(
+    input: &Path,
+    target: Target,
+    out: &Path,
+    offline: bool,
+) -> Result<(), Diagnostic> {
     // K07.01: auto-fetch missing locked package checkouts before link/compile.
-    if let Err(e) = ensure_locked_for_entry(input) {
+    // K07.02: `--offline` → cache only; miss → fixit (no network).
+    if let Err(e) = ensure_locked_for_entry(input, offline) {
         return Err(Diagnostic::new(
             e.to_string(),
             draconic_diagnostics::Span::dummy(),
@@ -1622,7 +1636,7 @@ mod tests {
         let out = dir.join("t.js");
         let input = dir.join("t.drac");
         fs::write(&input, "let x = 1;").unwrap();
-        build_program(&input, Target::Js, &out).unwrap();
+        build_program(&input, Target::Js, &out, false).unwrap();
         let js = fs::read_to_string(&out).unwrap();
         assert!(js.contains("let x"));
         let _ = fs::remove_dir_all(&dir);

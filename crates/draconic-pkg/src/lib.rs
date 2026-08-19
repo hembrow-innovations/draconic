@@ -20,6 +20,7 @@
 //! K06.02: package boundary — reject path escape outside package checkout root.
 //! K06.03: coexist with E11 relative imports (see linker + `tests/packages`).
 //! K07.01: ensure locked cache entries (auto-fetch missing pins for build).
+//! K07.02: offline ensure — cache only; miss → fixit (no network).
 
 mod cache;
 mod ensure;

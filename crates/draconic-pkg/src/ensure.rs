@@ -1,6 +1,7 @@
-//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01).
+//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01 / K07.02).
 //!
 //! Used by `draconic build` to auto-fetch missing locked cache entries before link.
+//! With `offline`, only the cache is consulted; a miss is a hard error with a fixit.
 
 use std::fmt;
 use std::fs;
@@ -19,13 +20,15 @@ pub struct EnsureLockedResult {
     pub fetched: Vec<String>,
 }
 
-/// Error while ensuring locked cache entries (K07.01).
+/// Error while ensuring locked cache entries (K07.01 / K07.02).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnsureLockedError {
     /// Existing lockfile is malformed.
     Lock(String),
     /// Clone/fetch/checkout failed for a lock pin.
     Cache { path: String, message: String },
+    /// Offline build: locked pin missing from cache (K07.02).
+    OfflineMiss { path: String },
     /// Filesystem error reading the lock.
     Io(String),
 }
@@ -37,6 +40,10 @@ impl fmt::Display for EnsureLockedError {
             EnsureLockedError::Cache { path, message } => {
                 write!(f, "build packages: `{path}` cache: {message}")
             }
+            EnsureLockedError::OfflineMiss { path } => write!(
+                f,
+                "build packages: `{path}` not in cache (offline); run `draconic get` or build without --offline"
+            ),
             EnsureLockedError::Io(msg) => write!(f, "build packages: {msg}"),
         }
     }
@@ -44,13 +51,15 @@ impl fmt::Display for EnsureLockedError {
 
 impl std::error::Error for EnsureLockedError {}
 
-/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01).
+/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01 / K07.02).
 ///
-/// Cache hits skip network. Missing entries are materialised via
+/// Cache hits skip network. When `offline` is false, missing entries are materialised via
 /// [`ModuleCache::checkout`] using the lock's git URL + commit OID (no version float).
+/// When `offline` is true, a missing pin is [`EnsureLockedError::OfflineMiss`] (no network).
 pub fn ensure_locked_entries(
     lock: &LockFile,
     cache: &ModuleCache,
+    offline: bool,
 ) -> Result<EnsureLockedResult, EnsureLockedError> {
     let mut kept = Vec::new();
     let mut fetched = Vec::new();
@@ -66,6 +75,11 @@ pub fn ensure_locked_entries(
             kept.push(path.clone());
             continue;
         }
+        if offline {
+            return Err(EnsureLockedError::OfflineMiss {
+                path: path.clone(),
+            });
+        }
         cache
             .checkout(path, &entry.commit_oid, &entry.git_url)
             .map_err(|e: CacheFetchError| EnsureLockedError::Cache {
@@ -80,17 +94,19 @@ pub fn ensure_locked_entries(
     Ok(EnsureLockedResult { kept, fetched })
 }
 
-/// Discover `draconic.lock` walking ancestors of `entry`, then ensure checkouts (K07.01).
+/// Discover `draconic.lock` walking ancestors of `entry`, then ensure checkouts (K07.01 / K07.02).
 ///
 /// Returns `Ok(None)` when no lockfile is found (plain programs need no package fetch).
+/// `offline` forbids network fetch on cache miss.
 pub fn ensure_locked_for_entry(
     entry: &Path,
+    offline: bool,
 ) -> Result<Option<EnsureLockedResult>, EnsureLockedError> {
     let Some((workspace, lock)) = discover_lock(entry)? else {
         return Ok(None);
     };
     let cache = ModuleCache::new(default_cache_root(&workspace));
-    ensure_locked_entries(&lock, &cache).map(Some)
+    ensure_locked_entries(&lock, &cache, offline).map(Some)
 }
 
 /// Walk parents of `entry` for `draconic.lock`; return workspace dir + parsed lock.
@@ -219,15 +235,89 @@ mod tests {
         };
 
         assert!(!cache.has_entry(path, &oid).unwrap());
-        let result = ensure_locked_entries(&lock, &cache).expect("ensure");
+        let result = ensure_locked_entries(&lock, &cache, false).expect("ensure");
         assert_eq!(result.fetched, vec![path.to_string()]);
         assert!(result.kept.is_empty());
         assert!(cache.has_entry(path, &oid).unwrap());
 
         // Second call is cache hit.
-        let again = ensure_locked_entries(&lock, &cache).expect("ensure hit");
+        let again = ensure_locked_entries(&lock, &cache, false).expect("ensure hit");
         assert_eq!(again.kept, vec![path.to_string()]);
         assert!(again.fetched.is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ensure_locked_entries_offline_misses() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout).unwrap();
+        fs::remove_dir_all(cache.root.join("mod")).unwrap();
+        fs::remove_dir_all(cache.root.join("vcs")).ok();
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            hash,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let err = ensure_locked_entries(&lock, &cache, true).expect_err("offline miss");
+        let msg = err.to_string();
+        match &err {
+            EnsureLockedError::OfflineMiss { path: p } => assert_eq!(p, path),
+            other => panic!("expected OfflineMiss, got {other:?}"),
+        }
+        assert!(!cache.has_entry(path, &oid).unwrap());
+        assert!(msg.contains("offline"), "{msg}");
+        assert!(msg.contains("draconic get") || msg.contains("without --offline"), "{msg}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ensure_locked_entries_offline_hit() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout).unwrap();
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            hash,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let result = ensure_locked_entries(&lock, &cache, true).expect("offline hit");
+        assert_eq!(result.kept, vec![path.to_string()]);
+        assert!(result.fetched.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -237,7 +327,7 @@ mod tests {
         let root = temp_dir();
         let main = root.join("main.drac");
         fs::write(&main, "let x = 1;\n").unwrap();
-        assert!(ensure_locked_for_entry(&main).unwrap().is_none());
+        assert!(ensure_locked_for_entry(&main, false).unwrap().is_none());
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -278,7 +368,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = ensure_locked_for_entry(&main)
+        let result = ensure_locked_for_entry(&main, false)
             .expect("ensure")
             .expect("lock present");
         assert_eq!(result.fetched, vec![path.to_string()]);
