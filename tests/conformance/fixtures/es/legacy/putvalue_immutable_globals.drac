@@ -1,0 +1,68 @@
+// E17.02.16: Non-strict PutValue on immutable globals (undefined / NaN / Infinity).
+// Silent failures in non-strict; TypeError counterparts in strict.
+
+// undefined: assign silent; value unchanged; expression yields RHS.
+let aAssign = (undefined = 99);
+let a = aAssign === 99 && typeof undefined === "undefined" && undefined === void 0;
+
+// NaN: assign silent; still NaN.
+let bAssign = (NaN = 1);
+let b = bAssign === 1 && Number.isNaN(NaN);
+
+// Infinity: assign silent; still +Infinity.
+let cAssign = (Infinity = 1);
+let c = cAssign === 1 && Infinity === 1 / 0;
+
+// Compound assign on NaN: GetValue+op yields NaN; store fails; NaN remains NaN.
+let dAssign = (NaN += 1);
+let d = Number.isNaN(dAssign) && Number.isNaN(NaN);
+
+// Prefix update on Infinity: Infinity+1 is still Infinity; store fails; binding unchanged.
+let eAssign = ++Infinity;
+let e = eAssign === 1 / 0 && Infinity === 1 / 0;
+
+// Strict: assign undefined → TypeError; still undefined.
+function strictUndef() {
+  "use strict";
+  try {
+    undefined = 1;
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && typeof undefined === "undefined";
+  }
+}
+let f = strictUndef();
+
+// Strict: assign NaN → TypeError; still NaN.
+function strictNaN() {
+  "use strict";
+  try {
+    NaN = 1;
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && Number.isNaN(NaN);
+  }
+}
+let g = strictNaN();
+
+// Strict: assign Infinity → TypeError; still Infinity.
+function strictInf() {
+  "use strict";
+  try {
+    Infinity = 1;
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && Infinity === 1 / 0;
+  }
+}
+let h = strictInf();
+
+// Property PutValue on globalThis for the same bindings (non-strict silent).
+let iAssign = (globalThis.undefined = 42);
+let i =
+  iAssign === 42 &&
+  typeof undefined === "undefined" &&
+  typeof globalThis.undefined === "undefined";
+
+let jAssign = (globalThis.NaN = 0);
+let j = jAssign === 0 && Number.isNaN(NaN) && Number.isNaN(globalThis.NaN);

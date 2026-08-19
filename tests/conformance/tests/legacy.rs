@@ -198,3 +198,13 @@ fn putvalue_accessor_proto_fixture_present() {
 fn putvalue_accessor_proto_runs() {
     assert_fixture_runs_declared_targets("es/legacy/putvalue_accessor_proto");
 }
+
+#[test]
+fn putvalue_immutable_globals_fixture_present() {
+    assert_fixture_present("es/legacy/putvalue_immutable_globals");
+}
+
+#[test]
+fn putvalue_immutable_globals_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/putvalue_immutable_globals");
+}
