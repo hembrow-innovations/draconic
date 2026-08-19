@@ -5723,7 +5723,6 @@ async function run() {
         ));
         fs::create_dir_all(&root).unwrap();
         let oid = "0123456789abcdef0123456789abcdef01234567";
-        let hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let module_path = "github.com/org/pkg";
         let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
         let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
@@ -5733,6 +5732,7 @@ async function run() {
             "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
         )
         .unwrap();
+        let hash = draconic_pkg::content_hash_tree(&pkg_dir).unwrap();
         fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
 
         let entry = draconic_pkg::LockEntry::new(
@@ -5778,7 +5778,6 @@ async function run() {
         ));
         fs::create_dir_all(&root).unwrap();
         let oid = "0123456789abcdef0123456789abcdef01234567";
-        let hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         let module_path = "github.com/org/pkg";
         let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
         let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
@@ -5788,6 +5787,7 @@ async function run() {
             "export let helper = 7;\n",
         )
         .unwrap();
+        let hash = draconic_pkg::content_hash_tree(&pkg_dir).unwrap();
         fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
 
         let entry = draconic_pkg::LockEntry::new(
@@ -5833,7 +5833,6 @@ async function run() {
         ));
         fs::create_dir_all(&root).unwrap();
         let oid = "0123456789abcdef0123456789abcdef01234567";
-        let hash = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
         let module_path = "github.com/org/pkg";
         let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
         let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
@@ -5850,6 +5849,7 @@ async function run() {
             "export { secret } from \"../outside.drac\";\n",
         )
         .unwrap();
+        let hash = draconic_pkg::content_hash_tree(&pkg_dir).unwrap();
         fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
 
         let entry = draconic_pkg::LockEntry::new(
@@ -5899,7 +5899,6 @@ async function run() {
         ));
         fs::create_dir_all(&root).unwrap();
         let oid = "0123456789abcdef0123456789abcdef01234567";
-        let hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
         let module_path = "github.com/org/pkg";
         let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
         let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
@@ -5914,6 +5913,7 @@ async function run() {
             "export let helper = 7;\n",
         )
         .unwrap();
+        let hash = draconic_pkg::content_hash_tree(&pkg_dir).unwrap();
         fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
 
         let entry = draconic_pkg::LockEntry::new(
@@ -5959,12 +5959,12 @@ async function run() {
         let src_dir = root.join("src");
         fs::create_dir_all(&src_dir).unwrap();
         let oid = "fedcba9876543210fedcba9876543210fedcba98";
-        let hash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
         let module_path = "github.com/acme/lib";
         let cache = draconic_pkg::ModuleCache::new(draconic_pkg::default_cache_root(&root));
         let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
         fs::create_dir_all(&pkg_dir).unwrap();
         fs::write(pkg_dir.join("mod.drac"), "export let answer = 42;\n").unwrap();
+        let hash = draconic_pkg::content_hash_tree(&pkg_dir).unwrap();
         fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
 
         let entry = draconic_pkg::LockEntry::new(

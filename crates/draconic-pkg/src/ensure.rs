@@ -1,11 +1,12 @@
-//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01–K07.03 / K08.01).
+//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01–K07.03 / K08).
 //!
 //! Used by `draconic build` to auto-fetch missing locked cache entries before link.
 //! With `offline`, only the cache is consulted; a miss is a hard error with a fixit.
 //! When a lock is present, pins are authoritative: checkout uses lock `commit_oid` only
 //! (never re-resolve tags / float to a newer matching version — K07.03).
-//! After each pin is present, recomputes the package tree SHA-256 and hard-fails unless
-//! it matches the lock `content_hash` (K08.01).
+//! After each pin is present, verifies checkout OID marker + path against lock
+//! `commit_oid` and recomputes the package tree SHA-256 against lock `content_hash`
+//! (K08.01 / K08.02). Mismatched OID or hash → hard-fail; no silent wrong tree.
 
 use std::fmt;
 use std::fs;
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cache::{CacheFetchError, ModuleCache};
 use crate::get::{default_cache_root, LOCK_FILE};
-use crate::hash::{verify_content_hash, ContentHashVerifyError};
+use crate::hash::{verify_package_integrity, PackageIntegrityError};
 use crate::lock::{parse_lock, LockFile};
 
 /// Summary of ensuring locked packages are present in the cache (K07.01).
@@ -25,7 +26,7 @@ pub struct EnsureLockedResult {
     pub fetched: Vec<String>,
 }
 
-/// Error while ensuring locked cache entries (K07.01 / K07.02 / K08.01).
+/// Error while ensuring locked cache entries (K07.01 / K07.02 / K08).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnsureLockedError {
     /// Existing lockfile is malformed.
@@ -34,13 +35,19 @@ pub enum EnsureLockedError {
     Cache { path: String, message: String },
     /// Offline build: locked pin missing from cache (K07.02).
     OfflineMiss { path: String },
+    /// Checkout marker/path OID does not match lock `commit_oid` (K08.02).
+    OidMismatch {
+        path: String,
+        expected: String,
+        actual: String,
+    },
     /// Recomputed tree hash does not match lock `content_hash` (K08.01).
     ContentHashMismatch {
         path: String,
         expected: String,
         actual: String,
     },
-    /// Failed to hash package tree while verifying (K08.01).
+    /// Failed to hash package tree or read checkout marker while verifying (K08).
     ContentHash { path: String, message: String },
     /// Filesystem error reading the lock.
     Io(String),
@@ -56,6 +63,14 @@ impl fmt::Display for EnsureLockedError {
             EnsureLockedError::OfflineMiss { path } => write!(
                 f,
                 "build packages: `{path}` not in cache (offline); run `draconic get` or build without --offline"
+            ),
+            EnsureLockedError::OidMismatch {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "build packages: `{path}` OID mismatch (lock={expected}, marker={actual}); refuse wrong tree"
             ),
             EnsureLockedError::ContentHashMismatch {
                 path,
@@ -75,15 +90,17 @@ impl fmt::Display for EnsureLockedError {
 
 impl std::error::Error for EnsureLockedError {}
 
-/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01–K07.03 / K08.01).
+/// Ensure every pin in `lock` has a completed checkout under `cache` (K07.01–K07.03 / K08).
 ///
 /// Cache hits skip network. When `offline` is false, missing entries are materialised via
 /// [`ModuleCache::checkout`] using the lock's git URL + commit OID only (K07.03: never
 /// re-resolve tags or float to a newer matching version while the lock is present).
 /// When `offline` is true, a missing pin is [`EnsureLockedError::OfflineMiss`] (no network).
 ///
-/// After a pin is present (hit or fetch), recomputes the package tree SHA-256 and hard-fails
-/// unless it equals the lock `content_hash` (K08.01).
+/// After a pin is present (hit or fetch), verifies checkout marker/path OID against lock
+/// `commit_oid` and recomputes the package tree SHA-256 against lock `content_hash`
+/// (K08.01 / K08.02). A directory whose marker OID disagrees with the lock pin is refused
+/// (not treated as a quiet miss that could mask a wrong tree).
 pub fn ensure_locked_entries(
     lock: &LockFile,
     cache: &ModuleCache,
@@ -100,9 +117,18 @@ pub fn ensure_locked_entries(
                 message: e.to_string(),
             })?;
         if present {
-            verify_locked_entry_hash(cache, path, entry)?;
+            verify_locked_entry_integrity(cache, path, entry)?;
             kept.push(path.clone());
             continue;
+        }
+        // K08.02: dir exists with a *different* marker OID → refuse, do not silently
+        // treat as miss / overwrite without diagnosing the wrong pin.
+        if let Some(actual) = conflicting_checkout_oid(cache, path, entry)? {
+            return Err(EnsureLockedError::OidMismatch {
+                path: path.clone(),
+                expected: entry.commit_oid.clone(),
+                actual,
+            });
         }
         if offline {
             return Err(EnsureLockedError::OfflineMiss {
@@ -115,7 +141,7 @@ pub fn ensure_locked_entries(
                 path: path.clone(),
                 message: e.to_string(),
             })?;
-        verify_locked_entry_hash(cache, path, entry)?;
+        verify_locked_entry_integrity(cache, path, entry)?;
         fetched.push(path.clone());
     }
 
@@ -124,8 +150,33 @@ pub fn ensure_locked_entries(
     Ok(EnsureLockedResult { kept, fetched })
 }
 
-/// Recompute checkout tree hash; hard-fail on mismatch with lock pin (K08.01).
-fn verify_locked_entry_hash(
+/// If the entry dir exists with a checkout marker that is not the lock OID, return it.
+fn conflicting_checkout_oid(
+    cache: &ModuleCache,
+    path: &str,
+    entry: &crate::lock::LockEntry,
+) -> Result<Option<String>, EnsureLockedError> {
+    let dir = cache
+        .entry_dir(path, &entry.commit_oid)
+        .map_err(|e| EnsureLockedError::Cache {
+            path: path.to_string(),
+            message: e.to_string(),
+        })?;
+    if !dir.is_dir() {
+        return Ok(None);
+    }
+    match crate::hash::read_checkout_oid(&dir) {
+        Ok(Some(actual)) if actual != entry.commit_oid => Ok(Some(actual)),
+        Ok(_) => Ok(None),
+        Err(e) => Err(EnsureLockedError::ContentHash {
+            path: path.to_string(),
+            message: e.to_string(),
+        }),
+    }
+}
+
+/// Verify checkout OID pin + tree hash against lock (K08.01 / K08.02).
+fn verify_locked_entry_integrity(
     cache: &ModuleCache,
     path: &str,
     entry: &crate::lock::LockEntry,
@@ -136,16 +187,33 @@ fn verify_locked_entry_hash(
             path: path.to_string(),
             message: e.to_string(),
         })?;
-    match verify_content_hash(&dir, &entry.content_hash) {
+    match verify_package_integrity(&dir, &entry.commit_oid, &entry.content_hash) {
         Ok(()) => Ok(()),
-        Err(ContentHashVerifyError::Mismatch {
+        Err(PackageIntegrityError::OidMismatch {
             expected, actual, ..
-        }) => Err(EnsureLockedError::ContentHashMismatch {
+        })
+        | Err(PackageIntegrityError::PathOidMismatch {
+            expected, actual, ..
+        }) => Err(EnsureLockedError::OidMismatch {
             path: path.to_string(),
             expected,
             actual,
         }),
-        Err(ContentHashVerifyError::Hash(e)) => Err(EnsureLockedError::ContentHash {
+        Err(PackageIntegrityError::MissingMarker { .. }) => Err(EnsureLockedError::OidMismatch {
+            path: path.to_string(),
+            expected: entry.commit_oid.clone(),
+            actual: String::new(),
+        }),
+        Err(PackageIntegrityError::ContentHash(
+            crate::hash::ContentHashVerifyError::Mismatch {
+                expected, actual, ..
+            },
+        )) => Err(EnsureLockedError::ContentHashMismatch {
+            path: path.to_string(),
+            expected,
+            actual,
+        }),
+        Err(PackageIntegrityError::ContentHash(e)) => Err(EnsureLockedError::ContentHash {
             path: path.to_string(),
             message: e.to_string(),
         }),
@@ -670,6 +738,95 @@ mod tests {
         let result = ensure_locked_entries(&lock, &cache, false).expect("fetch+verify");
         assert_eq!(result.fetched, vec![path.to_string()]);
         assert!(cache.has_entry(path, &oid).unwrap());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K08.02: wrong checkout marker OID under the pin path → refuse (no silent wrong tree).
+    #[test]
+    fn ensure_locked_entries_rejects_marker_oid_mismatch() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout).unwrap();
+        // Corrupt marker to a different OID while leaving tree in place.
+        let other = "ffffffffffffffffffffffffffffffffffffffff";
+        fs::write(checkout.join(".draconic-checkout-oid"), format!("{other}\n")).unwrap();
+        assert!(!cache.has_entry(path, &oid).unwrap());
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            hash,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let err = ensure_locked_entries(&lock, &cache, true).expect_err("oid mismatch");
+        let msg = err.to_string();
+        match &err {
+            EnsureLockedError::OidMismatch {
+                path: p,
+                expected,
+                actual,
+            } => {
+                assert_eq!(p, path);
+                assert_eq!(expected, &oid);
+                assert_eq!(actual, other);
+            }
+            other => panic!("expected OidMismatch, got {other:?}"),
+        }
+        assert!(msg.contains("OID mismatch"), "{msg}");
+        assert!(msg.contains("refuse") || msg.contains("wrong tree"), "{msg}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K08.02: online ensure still refuses mismatched marker (does not silently overwrite).
+    #[test]
+    fn ensure_locked_entries_online_refuses_oid_mismatch() {
+        let root = temp_dir();
+        let (upstream, oid) = tagged_upstream(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout = cache
+            .checkout(path, &oid, upstream.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout).unwrap();
+        let other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        fs::write(checkout.join(".draconic-checkout-oid"), format!("{other}\n")).unwrap();
+
+        let entry = LockEntry::new(
+            path,
+            "1.0.0",
+            upstream.to_str().unwrap(),
+            oid.clone(),
+            hash,
+        )
+        .unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        let err = ensure_locked_entries(&lock, &cache, false).expect_err("online oid");
+        assert!(
+            matches!(err, EnsureLockedError::OidMismatch { .. }),
+            "{err:?}"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

@@ -13,7 +13,7 @@ use draconic_backend_js::emit_js;
 use draconic_frontend::compile_path;
 use draconic_linker::{link_entry, link_entry_with_packages, PackageLinkContext};
 use draconic_pkg::{
-    default_cache_root, write_lock, LockEntry, LockFile, ModuleCache, LOCK_FILE,
+    content_hash_tree, default_cache_root, write_lock, LockEntry, LockFile, ModuleCache, LOCK_FILE,
 };
 
 fn uniq_dir(label: &str) -> PathBuf {
@@ -48,7 +48,8 @@ fn lock_ctx(root: &Path, module_path: &str, oid: &str, hash: &str) -> PackageLin
     }
 }
 
-fn seed_pkg(cache: &ModuleCache, module_path: &str, oid: &str, files: &[(&str, &str)]) -> PathBuf {
+/// Seed checkout files + marker; return content hash for the lock pin.
+fn seed_pkg(cache: &ModuleCache, module_path: &str, oid: &str, files: &[(&str, &str)]) -> String {
     let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
     fs::create_dir_all(&pkg_dir).unwrap();
     for (rel, src) in files {
@@ -58,8 +59,9 @@ fn seed_pkg(cache: &ModuleCache, module_path: &str, oid: &str, files: &[(&str, &
         }
         fs::write(&path, src).unwrap();
     }
+    let hash = content_hash_tree(&pkg_dir).unwrap();
     fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
-    pkg_dir
+    hash
 }
 
 /// Same entry mixes E11 relative + module-path imports.
@@ -68,15 +70,15 @@ fn entry_mixes_relative_and_module_path() {
     let root = uniq_dir("mix-entry");
     fs::create_dir_all(&root).unwrap();
     let oid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let hash = "1111111111111111111111111111111111111111111111111111111111111111";
     let module_path = "github.com/org/pkg";
-    let ctx = lock_ctx(&root, module_path, oid, hash);
-    seed_pkg(
-        &ctx.cache,
+    let cache = ModuleCache::new(root.join("cache"));
+    let hash = seed_pkg(
+        &cache,
         module_path,
         oid,
         &[("index.drac", "export let fromPkg = 41;\n")],
     );
+    let ctx = lock_ctx(&root, module_path, oid, &hash);
 
     fs::write(root.join("local.drac"), "export let fromLocal = 1;\n").unwrap();
     let main = root.join("main.drac");
@@ -109,15 +111,15 @@ fn relative_local_imports_module_path() {
     let root = uniq_dir("rel-to-pkg");
     fs::create_dir_all(&root).unwrap();
     let oid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    let hash = "2222222222222222222222222222222222222222222222222222222222222222";
     let module_path = "github.com/acme/lib";
-    let ctx = lock_ctx(&root, module_path, oid, hash);
-    seed_pkg(
-        &ctx.cache,
+    let cache = ModuleCache::new(root.join("cache"));
+    let hash = seed_pkg(
+        &cache,
         module_path,
         oid,
         &[("index.drac", "export let answer = 42;\n")],
     );
+    let ctx = lock_ctx(&root, module_path, oid, &hash);
 
     fs::write(
         root.join("bridge.drac"),
@@ -147,11 +149,10 @@ fn package_relative_internals_plus_consumer_relative() {
     let root = uniq_dir("pkg-internals");
     fs::create_dir_all(&root).unwrap();
     let oid = "cccccccccccccccccccccccccccccccccccccccc";
-    let hash = "3333333333333333333333333333333333333333333333333333333333333333";
     let module_path = "github.com/org/math";
-    let ctx = lock_ctx(&root, module_path, oid, hash);
-    seed_pkg(
-        &ctx.cache,
+    let cache = ModuleCache::new(root.join("cache"));
+    let hash = seed_pkg(
+        &cache,
         module_path,
         oid,
         &[
@@ -159,6 +160,7 @@ fn package_relative_internals_plus_consumer_relative() {
             ("ops.drac", "export function add(a, b) { return a + b; }\n"),
         ],
     );
+    let ctx = lock_ctx(&root, module_path, oid, &hash);
 
     fs::write(root.join("scale.drac"), "export let scale = 10;\n").unwrap();
     let main = root.join("main.drac");
@@ -188,10 +190,9 @@ fn pure_relative_still_links_with_workspace_lock() {
     let src = root.join("src");
     fs::create_dir_all(&src).unwrap();
     let oid = "dddddddddddddddddddddddddddddddddddddddd";
-    let hash = "4444444444444444444444444444444444444444444444444444444444444444";
     let module_path = "github.com/unused/dep";
     let cache = ModuleCache::new(default_cache_root(&root));
-    seed_pkg(
+    let hash = seed_pkg(
         &cache,
         module_path,
         oid,
@@ -237,10 +238,9 @@ fn frontend_compile_mixed_relative_and_module_path() {
     let root = uniq_dir("frontend-mix");
     fs::create_dir_all(&root).unwrap();
     let oid = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-    let hash = "5555555555555555555555555555555555555555555555555555555555555555";
     let module_path = "github.com/org/greet";
     let cache = ModuleCache::new(default_cache_root(&root));
-    seed_pkg(
+    let hash = seed_pkg(
         &cache,
         module_path,
         oid,

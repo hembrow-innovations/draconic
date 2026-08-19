@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cache::{CachePathError, ModuleCache};
+use crate::hash::{verify_package_integrity, PackageIntegrityError};
 use crate::lock::LockFile;
 
 /// Result of resolving a module-path import to a file under a package checkout.
@@ -55,6 +56,20 @@ pub enum ImportResolveError {
         package_root: PathBuf,
         subpath: String,
     },
+    /// Checkout marker/path OID does not match lock `commit_oid` (K08.02).
+    OidMismatch {
+        module_path: String,
+        expected: String,
+        actual: String,
+    },
+    /// Recomputed tree hash does not match lock `content_hash` (K08.01 / K08.02).
+    ContentHashMismatch {
+        module_path: String,
+        expected: String,
+        actual: String,
+    },
+    /// Integrity check failed (hash I/O, missing marker, etc.).
+    Integrity { module_path: String, message: String },
     /// Filesystem error while probing the package tree.
     Io(String),
 }
@@ -117,6 +132,29 @@ impl fmt::Display for ImportResolveError {
                     )
                 }
             }
+            ImportResolveError::OidMismatch {
+                module_path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "import resolve: package `{module_path}` OID mismatch (lock={expected}, marker={actual}); refuse wrong tree"
+            ),
+            ImportResolveError::ContentHashMismatch {
+                module_path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "import resolve: package `{module_path}` content hash mismatch (lock={expected}, actual={actual}); refuse tampered or wrong tree"
+            ),
+            ImportResolveError::Integrity {
+                module_path,
+                message,
+            } => write!(
+                f,
+                "import resolve: package `{module_path}` integrity: {message}"
+            ),
             ImportResolveError::Io(msg) => write!(f, "import resolve: I/O error: {msg}"),
         }
     }
@@ -238,6 +276,9 @@ pub fn resolve_module_import(
         });
     }
 
+    // K08.02: refuse mismatched OID/hash at resolve time (no silent wrong tree).
+    verify_resolved_package_integrity(&module_path, &package_root, entry)?;
+
     let file = resolve_package_file(&package_root, &subpath).ok_or_else(|| {
         ImportResolveError::FileNotFound {
             spec: spec.to_string(),
@@ -309,6 +350,45 @@ pub fn ensure_within_package(
     })
 }
 
+/// Verify lock pin OID + content hash against the checkout (K08.01 / K08.02).
+fn verify_resolved_package_integrity(
+    module_path: &str,
+    package_root: &Path,
+    entry: &crate::lock::LockEntry,
+) -> Result<(), ImportResolveError> {
+    match verify_package_integrity(package_root, &entry.commit_oid, &entry.content_hash) {
+        Ok(()) => Ok(()),
+        Err(PackageIntegrityError::OidMismatch {
+            expected, actual, ..
+        })
+        | Err(PackageIntegrityError::PathOidMismatch {
+            expected, actual, ..
+        }) => Err(ImportResolveError::OidMismatch {
+            module_path: module_path.to_string(),
+            expected,
+            actual,
+        }),
+        Err(PackageIntegrityError::MissingMarker { .. }) => Err(ImportResolveError::OidMismatch {
+            module_path: module_path.to_string(),
+            expected: entry.commit_oid.clone(),
+            actual: String::new(),
+        }),
+        Err(PackageIntegrityError::ContentHash(
+            crate::hash::ContentHashVerifyError::Mismatch {
+                expected, actual, ..
+            },
+        )) => Err(ImportResolveError::ContentHashMismatch {
+            module_path: module_path.to_string(),
+            expected,
+            actual,
+        }),
+        Err(PackageIntegrityError::ContentHash(e)) => Err(ImportResolveError::Integrity {
+            module_path: module_path.to_string(),
+            message: e.to_string(),
+        }),
+    }
+}
+
 /// Map package root + subpath to a concrete module file.
 fn resolve_package_file(package_root: &Path, subpath: &str) -> Option<PathBuf> {
     if subpath.is_empty() {
@@ -357,12 +437,16 @@ fn resolve_dir_entry(dir: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content_hash_tree;
     use crate::lock::{LockEntry, LockFile};
     use std::collections::BTreeMap;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const OID: &str = "0123456789abcdef0123456789abcdef01234567";
-    const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OID2: &str = "abcdef0123456789abcdef0123456789abcdef01";
+    /// Placeholder hash for lock-only tests that never resolve a checkout.
+    const HASH_PLACEHOLDER: &str =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn temp_root(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -377,13 +461,13 @@ mod tests {
         dir
     }
 
-    fn lock_with(path: &str, oid: &str) -> LockFile {
+    fn lock_with(path: &str, oid: &str, hash: &str) -> LockFile {
         let entry = LockEntry::new(
             path,
             "1.0.0",
             "https://github.com/org/pkg.git",
             oid,
-            HASH,
+            hash,
         )
         .expect("lock entry");
         let mut packages = BTreeMap::new();
@@ -394,7 +478,13 @@ mod tests {
         }
     }
 
-    fn materialize_checkout(cache: &ModuleCache, module_path: &str, oid: &str, files: &[(&str, &str)]) {
+    /// Materialize checkout; return content hash for lock pin (marker excluded).
+    fn materialize_checkout(
+        cache: &ModuleCache,
+        module_path: &str,
+        oid: &str,
+        files: &[(&str, &str)],
+    ) -> String {
         let dir = cache.entry_dir(module_path, oid).unwrap();
         fs::create_dir_all(&dir).unwrap();
         for (rel, body) in files {
@@ -404,7 +494,9 @@ mod tests {
             }
             fs::write(&path, body).unwrap();
         }
+        let hash = content_hash_tree(&dir).expect("hash");
         fs::write(dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
+        hash
     }
 
     #[test]
@@ -419,7 +511,7 @@ mod tests {
 
     #[test]
     fn match_locked_package_exact_and_subpath() {
-        let lock = lock_with("github.com/org/pkg", OID);
+        let lock = lock_with("github.com/org/pkg", OID, HASH_PLACEHOLDER);
         assert_eq!(
             match_locked_package("github.com/org/pkg", &lock),
             Some(("github.com/org/pkg".into(), String::new()))
@@ -433,13 +525,13 @@ mod tests {
 
     #[test]
     fn match_locked_package_longest_prefix() {
-        let mut lock = lock_with("github.com/org/pkg", OID);
+        let mut lock = lock_with("github.com/org/pkg", OID, HASH_PLACEHOLDER);
         let nested = LockEntry::new(
             "github.com/org/pkg/util",
             "2.0.0",
             "https://github.com/org/pkg-util.git",
-            "abcdef0123456789abcdef0123456789abcdef01",
-            HASH,
+            OID2,
+            HASH_PLACEHOLDER,
         )
         .unwrap();
         lock.packages
@@ -459,13 +551,13 @@ mod tests {
         let root = temp_root("root-index");
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/pkg";
-        materialize_checkout(
+        let hash = materialize_checkout(
             &cache,
             path,
             OID,
             &[("index.drac", "export let value = 41;\n")],
         );
-        let lock = lock_with(path, OID);
+        let lock = lock_with(path, OID, &hash);
         let got = resolve_module_import(path, &lock, &cache).expect("resolve");
         assert_eq!(got.module_path, path);
         assert_eq!(got.subpath, "");
@@ -480,7 +572,7 @@ mod tests {
         let root = temp_root("subpath");
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/pkg";
-        materialize_checkout(
+        let hash = materialize_checkout(
             &cache,
             path,
             OID,
@@ -490,7 +582,7 @@ mod tests {
                 ("nested/mod.drac", "export let deep = 3;\n"),
             ],
         );
-        let lock = lock_with(path, OID);
+        let lock = lock_with(path, OID, &hash);
 
         let util = resolve_module_import("github.com/org/pkg/util", &lock, &cache).expect("util");
         assert_eq!(util.subpath, "util");
@@ -508,7 +600,7 @@ mod tests {
     fn resolve_missing_lock_and_cache() {
         let root = temp_root("miss");
         let cache = ModuleCache::new(root.join("cache"));
-        let lock = lock_with("github.com/org/pkg", OID);
+        let lock = lock_with("github.com/org/pkg", OID, HASH_PLACEHOLDER);
 
         let err = resolve_module_import("github.com/other/x", &lock, &cache).unwrap_err();
         assert!(matches!(err, ImportResolveError::NotInLock { .. }), "{err}");
@@ -524,8 +616,9 @@ mod tests {
         let root = temp_root("nofile");
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/pkg";
-        materialize_checkout(&cache, path, OID, &[("other.drac", "export let x = 1;\n")]);
-        let lock = lock_with(path, OID);
+        let hash =
+            materialize_checkout(&cache, path, OID, &[("other.drac", "export let x = 1;\n")]);
+        let lock = lock_with(path, OID, &hash);
         let err = resolve_module_import(path, &lock, &cache).unwrap_err();
         assert!(
             matches!(err, ImportResolveError::FileNotFound { .. }),
@@ -534,7 +627,37 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-    /// K06.02: symlink (or other resolve) that leaves the package root is rejected.
+    /// K08.02: tampered tree at resolve → refuse (no silent wrong tree).
+    #[test]
+    fn resolve_rejects_tampered_content_hash() {
+        let root = temp_root("tamper");
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/pkg";
+        let hash = materialize_checkout(
+            &cache,
+            path,
+            OID,
+            &[("index.drac", "export let value = 41;\n")],
+        );
+        let dir = cache.entry_dir(path, OID).unwrap();
+        fs::write(dir.join("index.drac"), "export let value = 666;\n").unwrap();
+        let lock = lock_with(path, OID, &hash);
+        let err = resolve_module_import(path, &lock, &cache).unwrap_err();
+        match err {
+            ImportResolveError::ContentHashMismatch {
+                module_path,
+                expected,
+                ..
+            } => {
+                assert_eq!(module_path, path);
+                assert_eq!(expected, hash);
+            }
+            other => panic!("expected ContentHashMismatch, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// K06.02 / K08: symlink escape is refused (boundary and/or integrity fail-closed).
     #[test]
     fn resolve_rejects_escape_outside_package_root() {
         let root = temp_root("escape");
@@ -543,7 +666,7 @@ mod tests {
 
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/pkg";
-        materialize_checkout(
+        let hash = materialize_checkout(
             &cache,
             path,
             OID,
@@ -562,16 +685,26 @@ mod tests {
             return;
         }
 
-        let lock = lock_with(path, OID);
+        let lock = lock_with(path, OID, &hash);
         let err = resolve_module_import("github.com/org/pkg/escape", &lock, &cache).unwrap_err();
+        // Symlink in package tree fails content-hash integrity (K08); boundary is also fail-closed.
+        let msg = err.to_string();
         assert!(
-            matches!(err, ImportResolveError::PackageBoundary { .. }),
+            matches!(
+                err,
+                ImportResolveError::PackageBoundary { .. }
+                    | ImportResolveError::Integrity { .. }
+                    | ImportResolveError::ContentHashMismatch { .. }
+            ),
             "{err}"
         );
         assert!(
-            err.to_string().contains("package boundary")
-                || err.to_string().contains("outside package"),
-            "{err}"
+            msg.contains("package boundary")
+                || msg.contains("outside package")
+                || msg.contains("symlink")
+                || msg.contains("integrity")
+                || msg.contains("hash"),
+            "{msg}"
         );
         let _ = fs::remove_dir_all(&root);
     }

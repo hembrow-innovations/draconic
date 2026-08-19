@@ -1,8 +1,9 @@
-//! Canonical package tree content hash (Roadmap K03.04 / K08.01).
+//! Canonical package tree content hash (Roadmap K03.04 / K08.01 / K08.02).
 //!
 //! SHA-256 over a deterministic encoding of regular files under a package root.
-//! Used for lockfile `content_hash` (K02.01) and integrity checks (K08.01):
-//! recompute tree hash and hard-fail when it does not match the lock pin.
+//! Used for lockfile `content_hash` (K02.01) and integrity checks:
+//! - K08.01: recompute tree hash and hard-fail when it does not match the lock pin.
+//! - K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
 
 use std::fmt;
 use std::fs;
@@ -157,6 +158,137 @@ pub fn verify_content_hash(
         expected: expected_hash.to_string(),
         actual,
     })
+}
+
+/// Error while verifying package checkout OID + content hash (K08.02).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackageIntegrityError {
+    /// Checkout marker missing (incomplete or not a completed pin).
+    MissingMarker { path: String },
+    /// Checkout marker / path OID does not match lock `commit_oid`.
+    OidMismatch {
+        path: String,
+        expected: String,
+        actual: String,
+    },
+    /// Directory path tail is not the expected commit OID.
+    PathOidMismatch {
+        path: String,
+        expected: String,
+        actual: String,
+    },
+    /// Content hash verification failed (K08.01).
+    ContentHash(ContentHashVerifyError),
+}
+
+impl fmt::Display for PackageIntegrityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PackageIntegrityError::MissingMarker { path } => write!(
+                f,
+                "package integrity: checkout marker missing under `{path}`"
+            ),
+            PackageIntegrityError::OidMismatch {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "package integrity: OID mismatch under `{path}` (lock={expected}, marker={actual}); refuse wrong tree"
+            ),
+            PackageIntegrityError::PathOidMismatch {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "package integrity: path OID mismatch under `{path}` (lock={expected}, path={actual}); refuse wrong tree"
+            ),
+            PackageIntegrityError::ContentHash(e) => write!(f, "package integrity: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for PackageIntegrityError {}
+
+impl From<ContentHashVerifyError> for PackageIntegrityError {
+    fn from(e: ContentHashVerifyError) -> Self {
+        PackageIntegrityError::ContentHash(e)
+    }
+}
+
+/// Read the K03.03 checkout marker OID from `package_root`, if present.
+pub fn read_checkout_oid(package_root: &Path) -> Result<Option<String>, ContentHashError> {
+    let marker = package_root.join(CHECKOUT_MARKER);
+    if !marker.exists() {
+        return Ok(None);
+    }
+    let meta = fs::symlink_metadata(&marker).map_err(|e| ContentHashError::Io {
+        path: marker.display().to_string(),
+        message: e.to_string(),
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(ContentHashError::Symlink {
+            path: marker.display().to_string(),
+        });
+    }
+    let contents = fs::read_to_string(&marker).map_err(|e| ContentHashError::Io {
+        path: marker.display().to_string(),
+        message: e.to_string(),
+    })?;
+    Ok(Some(contents.trim().to_string()))
+}
+
+/// Verify checkout OID pin and content hash against a lock entry (K08.01 + K08.02).
+///
+/// Fail closed on:
+/// - missing checkout marker
+/// - marker OID ≠ `expected_oid`
+/// - directory name (path tail) ≠ `expected_oid`
+/// - recomputed tree hash ≠ `expected_hash`
+///
+/// Never returns `Ok` for a silent wrong tree.
+pub fn verify_package_integrity(
+    package_root: &Path,
+    expected_oid: &str,
+    expected_hash: &str,
+) -> Result<(), PackageIntegrityError> {
+    let path_s = package_root.display().to_string();
+
+    // Path tail must be the lock commit OID (cache layout key).
+    let path_oid = package_root
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if path_oid != expected_oid {
+        return Err(PackageIntegrityError::PathOidMismatch {
+            path: path_s.clone(),
+            expected: expected_oid.to_string(),
+            actual: path_oid.to_string(),
+        });
+    }
+
+    let marker_oid = match read_checkout_oid(package_root) {
+        Ok(Some(oid)) => oid,
+        Ok(None) => {
+            return Err(PackageIntegrityError::MissingMarker { path: path_s });
+        }
+        Err(e) => {
+            return Err(PackageIntegrityError::ContentHash(ContentHashVerifyError::Hash(
+                e,
+            )));
+        }
+    };
+    if marker_oid != expected_oid {
+        return Err(PackageIntegrityError::OidMismatch {
+            path: path_s,
+            expected: expected_oid.to_string(),
+            actual: marker_oid,
+        });
+    }
+
+    verify_content_hash(package_root, expected_hash)?;
+    Ok(())
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -516,5 +648,102 @@ mod tests {
         fs::write(root.join(".draconic-checkout-oid"), "deadbeef\n").unwrap();
         verify_content_hash(&root, &expected).expect("marker ignored");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- K08.02: refuse mismatched OID/hash; no silent wrong tree ---
+
+    const OID_A: &str = "0123456789abcdef0123456789abcdef01234567";
+    const OID_B: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+    fn pin_dir(tag: &str, oid: &str) -> PathBuf {
+        let root = temp_dir(tag);
+        let dir = root.join(oid);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn verify_package_integrity_ok_when_oid_and_hash_match() {
+        let dir = pin_dir("integ-ok", OID_A);
+        fs::write(dir.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let hash = content_hash_tree(&dir).unwrap();
+        fs::write(dir.join(CHECKOUT_MARKER), format!("{OID_A}\n")).unwrap();
+        verify_package_integrity(&dir, OID_A, &hash).expect("ok");
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn verify_package_integrity_rejects_marker_oid_mismatch() {
+        let dir = pin_dir("integ-oid", OID_A);
+        fs::write(dir.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let hash = content_hash_tree(&dir).unwrap();
+        // Marker claims a different commit than the lock / path.
+        fs::write(dir.join(CHECKOUT_MARKER), format!("{OID_B}\n")).unwrap();
+        let err = verify_package_integrity(&dir, OID_A, &hash).expect_err("oid");
+        match &err {
+            PackageIntegrityError::OidMismatch {
+                expected, actual, ..
+            } => {
+                assert_eq!(expected, OID_A);
+                assert_eq!(actual, OID_B);
+            }
+            other => panic!("expected OidMismatch, got {other:?}"),
+        }
+        assert!(err.to_string().contains("OID mismatch"), "{err}");
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn verify_package_integrity_rejects_path_oid_mismatch() {
+        let dir = pin_dir("integ-path", OID_B);
+        fs::write(dir.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let hash = content_hash_tree(&dir).unwrap();
+        fs::write(dir.join(CHECKOUT_MARKER), format!("{OID_A}\n")).unwrap();
+        // Lock expects OID_A but directory is named OID_B.
+        let err = verify_package_integrity(&dir, OID_A, &hash).expect_err("path oid");
+        assert!(
+            matches!(err, PackageIntegrityError::PathOidMismatch { .. }),
+            "{err:?}"
+        );
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn verify_package_integrity_rejects_missing_marker() {
+        let dir = pin_dir("integ-nomarker", OID_A);
+        fs::write(dir.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let hash = content_hash_tree(&dir).unwrap();
+        let err = verify_package_integrity(&dir, OID_A, &hash).expect_err("no marker");
+        assert!(
+            matches!(err, PackageIntegrityError::MissingMarker { .. }),
+            "{err:?}"
+        );
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn verify_package_integrity_rejects_hash_mismatch_even_when_oid_ok() {
+        let dir = pin_dir("integ-hash", OID_A);
+        fs::write(dir.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let hash = content_hash_tree(&dir).unwrap();
+        fs::write(dir.join(CHECKOUT_MARKER), format!("{OID_A}\n")).unwrap();
+        fs::write(dir.join("index.drac"), b"export let x = 666;\n").unwrap();
+        let err = verify_package_integrity(&dir, OID_A, &hash).expect_err("hash");
+        match err {
+            PackageIntegrityError::ContentHash(ContentHashVerifyError::Mismatch { .. }) => {}
+            other => panic!("expected ContentHash Mismatch, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn read_checkout_oid_trims_marker() {
+        let dir = pin_dir("integ-read", OID_A);
+        fs::write(dir.join(CHECKOUT_MARKER), format!("  {OID_A}\n")).unwrap();
+        assert_eq!(
+            read_checkout_oid(&dir).unwrap().as_deref(),
+            Some(OID_A)
+        );
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
     }
 }
