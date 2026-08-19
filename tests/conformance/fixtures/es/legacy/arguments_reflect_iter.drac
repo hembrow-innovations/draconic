@@ -1,0 +1,184 @@
+// E17.02.22: Mapped arguments residual (non-strict simple params):
+// Reflect.set/deleteProperty; Object.preventExtensions; Array.prototype
+// iteration/read methods; Object.values/entries/assign; function-decl reassignment.
+
+// Reflect.set on mapped index updates formal.
+function rs(a) {
+  Reflect.set(arguments, "0", 5);
+  return a === 5 && arguments[0] === 5;
+}
+let a = rs(1);
+
+// Reflect.deleteProperty unmaps: later formal write does not restore index.
+function rd(a) {
+  Reflect.deleteProperty(arguments, "0");
+  a = 7;
+  return (
+    a === 7 &&
+    arguments[0] === undefined &&
+    Object.prototype.hasOwnProperty.call(arguments, "0") === false
+  );
+}
+let b = rd(1);
+
+// preventExtensions: new index silent fail in non-strict; existing map stays.
+function pe(a) {
+  Object.preventExtensions(arguments);
+  let threw = false;
+  try {
+    arguments[1] = 8;
+  } catch (e) {
+    threw = true;
+  }
+  a = 9;
+  arguments.length = 5;
+  return (
+    threw === false &&
+    Object.isExtensible(arguments) === false &&
+    a === 9 &&
+    arguments[0] === 9 &&
+    arguments[1] === undefined &&
+    arguments.length === 5
+  );
+}
+let c = pe(1);
+
+// map / filter see current mapped values; formal write after does not rewrite result.
+function mf(a, b) {
+  let m = Array.prototype.map.call(arguments, function (x) {
+    return x * 2;
+  });
+  let f = Array.prototype.filter.call(arguments, function (x) {
+    return x > 1;
+  });
+  a = 10;
+  return (
+    m[0] === 2 &&
+    m[1] === 4 &&
+    f.length === 1 &&
+    f[0] === 2 &&
+    a === 10 &&
+    arguments[0] === 10
+  );
+}
+let d = mf(1, 2);
+
+// forEach / some / every / find / findIndex / reduce
+function it(a, b) {
+  let sum = 0;
+  Array.prototype.forEach.call(arguments, function (x) {
+    sum = sum + x;
+  });
+  let some = Array.prototype.some.call(arguments, function (x) {
+    return x === 2;
+  });
+  let every = Array.prototype.every.call(arguments, function (x) {
+    return x > 0;
+  });
+  let found = Array.prototype.find.call(arguments, function (x) {
+    return x === 2;
+  });
+  let idx = Array.prototype.findIndex.call(arguments, function (x) {
+    return x === 2;
+  });
+  let red = Array.prototype.reduce.call(
+    arguments,
+    function (acc, x) {
+      return acc + x;
+    },
+    0
+  );
+  return (
+    sum === 3 &&
+    some === true &&
+    every === true &&
+    found === 2 &&
+    idx === 1 &&
+    red === 3
+  );
+}
+let e = it(1, 2);
+
+// includes / indexOf / lastIndexOf / join after formal write
+function sr(a, b) {
+  a = 9;
+  return (
+    Array.prototype.includes.call(arguments, 2) === true &&
+    Array.prototype.indexOf.call(arguments, 2) === 1 &&
+    Array.prototype.lastIndexOf.call(arguments, 9) === 0 &&
+    Array.prototype.join.call(arguments, "-") === "9-2"
+  );
+}
+let f = sr(1, 2);
+
+// Object.values / entries snapshot; formal write does not mutate snapshot.
+function ve(a, b) {
+  let v = Object.values(arguments);
+  let ent = Object.entries(arguments);
+  a = 9;
+  return (
+    v[0] === 1 &&
+    v[1] === 2 &&
+    ent[0][0] === "0" &&
+    ent[0][1] === 1 &&
+    a === 9 &&
+    arguments[0] === 9 &&
+    v[0] === 1
+  );
+}
+let g = ve(1, 2);
+
+// Object.assign from args copies indices; assign into args updates formals.
+function asg(a, b) {
+  let o = Object.assign({}, arguments);
+  Object.assign(arguments, { 0: 7, 2: 8 });
+  return (
+    o[0] === 1 &&
+    o[1] === 2 &&
+    a === 7 &&
+    b === 2 &&
+    arguments[0] === 7 &&
+    arguments[2] === 8 &&
+    arguments.length === 2
+  );
+}
+let h = asg(1, 2);
+
+// Non-strict function declaration reassignment (configurable binding).
+function gfn() {
+  return 1;
+}
+gfn = 42;
+let i = gfn === 42;
+
+// Named FE + method: Reflect.set keeps mapped alias.
+let named = function (x) {
+  Reflect.set(arguments, "0", 3);
+  return x === 3 && arguments[0] === 3;
+};
+let j = named(1);
+
+let o = {
+  m: function (p, q) {
+    Array.prototype.forEach.call(arguments, function () {});
+    Object.assign(arguments, { 0: 5 });
+    return p === 5 && q === 2 && arguments[0] === 5;
+  },
+};
+let k = o.m(1, 2);
+
+// reduceRight + filter residual
+function rr(a, b, c) {
+  let r = Array.prototype.reduceRight.call(
+    arguments,
+    function (acc, x) {
+      return acc + x;
+    },
+    0
+  );
+  let fl = Array.prototype.filter.call(arguments, function (x) {
+    return x > 1;
+  });
+  return r === 6 && fl.length === 2 && fl[0] === 2 && fl[1] === 3;
+}
+let m = rr(1, 2, 3);

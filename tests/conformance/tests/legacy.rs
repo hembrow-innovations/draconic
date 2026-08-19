@@ -258,3 +258,13 @@ fn arguments_mutators_freeze_fixture_present() {
 fn arguments_mutators_freeze_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_mutators_freeze");
 }
+
+#[test]
+fn arguments_reflect_iter_fixture_present() {
+    assert_fixture_present("es/legacy/arguments_reflect_iter");
+}
+
+#[test]
+fn arguments_reflect_iter_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/arguments_reflect_iter");
+}
