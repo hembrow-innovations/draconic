@@ -19,6 +19,11 @@ void draconic_rt_hello(void) {
     puts("hello");
 }
 
+/* F01.01: multi-arg i32 C ABI call target for extern "C" conformance. */
+int32_t draconic_rt_add_i32(int32_t a, int32_t b) {
+    return a + b;
+}
+
 /* N01: print native integers for conformance observation (decimal + newline). */
 void draconic_rt_print_i64(int64_t v) {
     printf("%lld\n", (long long)v);

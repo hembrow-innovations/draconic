@@ -11,6 +11,8 @@ extern "C" {
 
 /* --- Minimal std I/O hooks --- */
 void draconic_rt_hello(void);
+/* F01.01: multi-arg i32 extern call target (C ABI; linked with runtime). */
+int32_t draconic_rt_add_i32(int32_t a, int32_t b);
 void draconic_rt_print_i64(int64_t v);
 void draconic_rt_print_u64(uint64_t v);
 void draconic_rt_print_f64(double v);

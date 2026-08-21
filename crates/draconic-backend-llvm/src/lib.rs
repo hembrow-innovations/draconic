@@ -2687,6 +2687,38 @@ mod tests {
         assert_eq!(stdout, "42\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
+    /// F01.01: multi-arg i32 extern "C" call → runtime `draconic_rt_add_i32`.
+    #[test]
+    fn native_extern_c_call_i32_multi_arg() {
+        let m = module_of(
+            r#"
+            extern "C" function draconic_rt_add_i32(a: i32, b: i32): i32;
+            let s: i32 = draconic_rt_add_i32(20, 22);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_rt_add_i32(i32, i32)"),
+            "expected declare add_i32:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @draconic_rt_add_i32("),
+            "expected call add_i32:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f01-01-add-i32").expect("workdir");
+        let bin = dir.join("extern_add_i32");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "42\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

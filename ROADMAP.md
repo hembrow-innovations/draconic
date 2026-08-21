@@ -755,7 +755,7 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | F01 | todo | native | `extern "C"` call: scalar args/returns (`i32`/`i64`/`f64`/`*T`/void) | `tests/conformance` fixtures `ffi/call` |
-| F01.01 | todo | native | Call extern C fn: i32 args/return | `tests/conformance` fixtures `ffi/call` |
+| F01.01 | in_progress | native | Call extern C fn: i32 args/return | `tests/conformance` fixtures `ffi/call` |
 | F01.02 | todo | native | Call extern C: i64 / f64 / void return | `tests/conformance` fixtures `ffi/call` |
 | F01.03 | todo | native | Call extern C: pointer args (`*T` / null) | `tests/conformance` fixtures `ffi/call` |
 | F02 | todo | native | C callbacks: Draconic fn as `extern "C"` pointer; host invokes | `tests/conformance` fixtures `ffi/callback` |

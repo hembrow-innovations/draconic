@@ -1,0 +1,5 @@
+// F01.01: multi-arg i32 extern "C" call + return.
+extern "C" function draconic_rt_add_i32(a: i32, b: i32): i32;
+let s: i32 = draconic_rt_add_i32(20, 22);
+let t: i32 = draconic_rt_add_i32(-5, 12);
+let u: i32 = draconic_rt_add_i32(draconic_rt_add_i32(1, 2), 3);

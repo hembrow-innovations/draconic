@@ -1,0 +1,4 @@
+id: ffi/call/call_i32_multi
+targets: native
+native.exit: 0
+native.stdout: 42\n7\n6\n
