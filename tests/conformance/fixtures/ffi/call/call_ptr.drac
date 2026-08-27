@@ -1,0 +1,9 @@
+// F01.03: call extern "C" with pointer args (`*T` / null).
+extern "C" function draconic_rt_load_i32(p: *i32): i32;
+let x: i32 = 42;
+let p: *i32 = &x;
+let a: i32 = draconic_rt_load_i32(p);
+let b: i32 = draconic_rt_load_i32(&x);
+let n: *i32 = null;
+let c: i32 = draconic_rt_load_i32(n);
+let d: i32 = draconic_rt_load_i32(null);

@@ -19,7 +19,7 @@ void draconic_rt_hello(void) {
     puts("hello");
 }
 
-/* F01.01–F01.02: C ABI call targets for extern "C" conformance. */
+/* F01.01–F01.03: C ABI call targets for extern "C" conformance. */
 int32_t draconic_rt_add_i32(int32_t a, int32_t b) {
     return a + b;
 }
@@ -34,6 +34,10 @@ double draconic_rt_add_f64(double a, double b) {
 
 void draconic_rt_touch_void(void) {
     puts("void");
+}
+
+int32_t draconic_rt_load_i32(const int32_t *p) {
+    return p ? *p : 0;
 }
 
 /* N01: print native integers for conformance observation (decimal + newline). */

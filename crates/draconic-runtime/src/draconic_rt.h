@@ -11,11 +11,12 @@ extern "C" {
 
 /* --- Minimal std I/O hooks --- */
 void draconic_rt_hello(void);
-/* F01.01–F01.02: extern "C" call targets (C ABI; linked with runtime). */
+/* F01.01–F01.03: extern "C" call targets (C ABI; linked with runtime). */
 int32_t draconic_rt_add_i32(int32_t a, int32_t b);
 int64_t draconic_rt_add_i64(int64_t a, int64_t b);
 double draconic_rt_add_f64(double a, double b);
 void draconic_rt_touch_void(void);
+int32_t draconic_rt_load_i32(const int32_t *p);
 void draconic_rt_print_i64(int64_t v);
 void draconic_rt_print_u64(uint64_t v);
 void draconic_rt_print_f64(double v);

@@ -5408,6 +5408,10 @@ impl<'a> Checker<'a> {
         if from == to || from == Type::Any || to == Type::Any {
             return true;
         }
+        // F01.03: JS `null` → native null pointer (`*T`).
+        if from == Type::Null && matches!(to, Type::Ptr(_)) {
+            return true;
+        }
         // JS `boolean` (literals, comparisons) → native `bool` (N02).
         if from == Type::Boolean && matches!(to, Type::Native(NativeType::Bool)) {
             return true;
@@ -9196,6 +9200,24 @@ mod tests {
             "unexpected: {}",
             err.message
         );
+    }
+
+    #[test]
+    fn check_extern_ptr_arg_and_null() {
+        let program = parse(
+            r#"
+            extern "C" function load(p: *i32): i32;
+            let x: i32 = 42;
+            let p: *i32 = &x;
+            let a: i32 = load(p);
+            let b: i32 = load(&x);
+            let n: *i32 = null;
+            let c: i32 = load(n);
+            let d: i32 = load(null);
+            "#,
+        )
+        .unwrap();
+        check(program).expect("pointer args and null must typecheck for extern *T");
     }
 
     // --- F08.01: extern / FFI hard-error on js target ---

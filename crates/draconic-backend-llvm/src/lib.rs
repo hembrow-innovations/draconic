@@ -2774,6 +2774,49 @@ mod tests {
         );
     }
 
+    /// F01.03: pointer (`*i32`) and null args to extern "C" via Runtime ABI.
+    #[test]
+    fn native_extern_c_call_ptr_and_null() {
+        let m = module_of(
+            r#"
+            extern "C" function draconic_rt_load_i32(p: *i32): i32;
+            let x: i32 = 42;
+            let p: *i32 = &x;
+            let a: i32 = draconic_rt_load_i32(p);
+            let b: i32 = draconic_rt_load_i32(&x);
+            let n: *i32 = null;
+            let c: i32 = draconic_rt_load_i32(n);
+            let d: i32 = draconic_rt_load_i32(null);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_rt_load_i32(ptr)"),
+            "expected declare load_i32:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @draconic_rt_load_i32(ptr"),
+            "expected call load_i32 with ptr:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @draconic_rt_load_i32(ptr null)")
+                || ir.contains("call i32 @draconic_rt_load_i32(ptr null,"),
+            "expected call with null pointer:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f01-03-ptr").expect("workdir");
+        let bin = dir.join("extern_ptr");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "42\n42\n42\n0\n0\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

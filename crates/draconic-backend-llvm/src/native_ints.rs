@@ -2089,6 +2089,7 @@ impl<'a> Emitter<'a> {
                     "native pointers: address-of only supports direct locals",
                 )),
             },
+            Expr::Null { .. } => Ok("null".into()),
             _ => Err(diag(&format!(
                 "native pointers: unsupported pointer expression {expr:?}"
             ))),
