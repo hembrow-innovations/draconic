@@ -227,6 +227,59 @@ fn build_reports_parse_error() {
     assert!(stderr.contains("error"), "stderr={stderr}");
 }
 
+/// F04.01: `build --target native --link lib.a` resolves one C symbol from the archive.
+#[test]
+fn build_native_link_static_lib_resolves_symbol() {
+    use draconic_backend_llvm::build_c_static_lib;
+
+    let dir = temp_dir();
+    let c_src = dir.join("touch.c");
+    fs::write(&c_src, "void draconic_link_static_touch(void) {}\n").unwrap();
+    let archive = dir.join("libtouch.a");
+    build_c_static_lib(&c_src, &archive).expect("build .a");
+
+    let src = write_program(
+        &dir,
+        "prog.drac",
+        "extern \"C\" function draconic_link_static_touch(): void;\ndraconic_link_static_touch();\nlet x: i32 = 1;\n",
+    );
+    let out_fail = dir.join("fail");
+    let failed = draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("native")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out_fail)
+        .output()
+        .expect("spawn");
+    assert!(
+        !failed.status.success(),
+        "build without --link must fail to resolve the C symbol"
+    );
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(
+        stderr.contains("draconic_link_static_touch")
+            || stderr.contains("undefined")
+            || stderr.contains("Unresolved"),
+        "stderr={stderr}"
+    );
+
+    let out = dir.join("prog");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("native")
+            .arg("--link")
+            .arg(&archive)
+            .arg(&src)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert!(out.is_file(), "native binary missing at {}", out.display());
+}
+
 /// H17.01: `examples/http-echo` builds pure native (no C host).
 #[test]
 fn build_examples_http_echo_native() {

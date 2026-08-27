@@ -12,7 +12,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_backend_js::{emit_js, emit_js_with_map, SourceMapOptions};
-use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
+use draconic_backend_llvm::{
+    build_c_static_lib, build_native_binary, build_native_binary_with_static_libs, emit_llvm_ir,
+};
 use draconic_frontend::compile_path;
 
 use coverage::{instrument_js, read_hits, temp_cov_path, wrap_coverage_dump};
@@ -61,6 +63,8 @@ pub struct TargetExpect {
     pub args: Vec<String>,
     /// Bytes written to the process stdin before run (H02.03).
     pub stdin: Option<String>,
+    /// Extra static archives or C sources to compile to `.a` (F04.01 `native.link`).
+    pub link: Vec<PathBuf>,
 }
 
 /// One conformance fixture loaded from disk.
@@ -255,6 +259,12 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             "native.error_code" => meta.expect_native.error_code = Some(value.to_string()),
             "native.args" => meta.expect_native.args = parse_args(value),
             "native.stdin" => meta.expect_native.stdin = Some(unescape(value)),
+            "native.link" => {
+                if value.is_empty() {
+                    return Err(format!("meta line {}: native.link requires a path", lineno + 1));
+                }
+                meta.expect_native.link.push(PathBuf::from(value));
+            }
             // Shared args for both targets (H01.01).
             "args" => {
                 let a = parse_args(value);
@@ -505,6 +515,48 @@ fn run_with_optional_stdin(cmd: &mut Command, stdin: Option<&str>) -> Result<Out
         .map_err(|e| format!("wait: {e}"))
 }
 
+/// F04.01: `native.link` paths are relative to the fixture directory.
+/// `.c` sources are compiled to a temp `.a`; `.a` paths are used as-is.
+fn resolve_native_link_libs(fixture: &Fixture) -> Result<Vec<PathBuf>, String> {
+    if fixture.expect_native.link.is_empty() {
+        return Ok(Vec::new());
+    }
+    let base = fixture
+        .source_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let mut out = Vec::new();
+    for (i, rel) in fixture.expect_native.link.iter().enumerate() {
+        let path = if rel.is_absolute() {
+            rel.clone()
+        } else {
+            base.join(rel)
+        };
+        if !path.is_file() {
+            return Err(format!("native.link not found: {}", path.display()));
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext == "a" {
+            out.push(path);
+            continue;
+        }
+        if ext != "c" {
+            return Err(format!(
+                "native.link must be a .c or .a file, got {}",
+                path.display()
+            ));
+        }
+        let archive = temp_bin_path(&format!("{}-link-{i}", fixture.id)).with_extension("a");
+        if let Some(parent) = archive.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        build_c_static_lib(&path, &archive)
+            .map_err(|d| format!("build static lib from {}: {d}", path.display()))?;
+        out.push(archive);
+    }
+    Ok(out)
+}
+
 fn run_native(fixture: &Fixture) -> Result<(), String> {
     let expect = &fixture.expect_native;
     if expect.error_contains.is_some() || expect.error_code.is_some() {
@@ -519,7 +571,13 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
     let module = compile_module(&fixture.source_path, &fixture.source)?;
     let ll = emit_llvm_ir(&module).map_err(|d| format!("emit_llvm_ir: {d}"))?;
     let out = temp_bin_path(&fixture.id);
-    build_native_binary(&ll, &out).map_err(|d| format!("build_native_binary: {d}"))?;
+    let extra_libs = resolve_native_link_libs(fixture)?;
+    if extra_libs.is_empty() {
+        build_native_binary(&ll, &out).map_err(|d| format!("build_native_binary: {d}"))?;
+    } else {
+        build_native_binary_with_static_libs(&ll, &out, &extra_libs)
+            .map_err(|d| format!("build_native_binary: {d}"))?;
+    }
 
     let output = run_with_optional_stdin(Command::new(&out).args(&expect.args), expect.stdin.as_deref())
         .map_err(|e| format!("run native binary: {e}"))?;
@@ -689,5 +747,22 @@ js.error_code: E0300
             Some("not assignable")
         );
         assert_eq!(meta.expect_js.error_code.as_deref(), Some("E0300"));
+    }
+
+    #[test]
+    fn parse_meta_native_link() {
+        let meta = parse_meta(
+            "\
+id: ffi/link_static/resolve
+targets: native
+native.link: resolve.c
+native.exit: 0
+",
+        )
+        .unwrap();
+        assert_eq!(
+            meta.expect_native.link,
+            vec![PathBuf::from("resolve.c")]
+        );
     }
 }

@@ -444,6 +444,15 @@ fn emit_empty_hello() -> String {
 
 /// Compile LLVM IR + Runtime C into a native executable via `clang`.
 pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnostic> {
+    build_native_binary_with_static_libs(llvm_ir, out_bin, &[])
+}
+
+/// F04.01: same as [`build_native_binary`], plus extra `.a` archives on the link line.
+pub fn build_native_binary_with_static_libs(
+    llvm_ir: &str,
+    out_bin: &Path,
+    extra_static_libs: &[PathBuf],
+) -> Result<(), Diagnostic> {
     let clang = find_clang().ok_or_else(|| {
         Diagnostic::new(
             "clang not found (set CLANG or install a C toolchain)",
@@ -497,12 +506,21 @@ pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnost
         ));
     }
 
+    for lib in extra_static_libs {
+        if !lib.is_file() {
+            return Err(Diagnostic::new(
+                format!("static lib not found: {}", lib.display()),
+                Span::dummy(),
+            ));
+        }
+    }
+
     let mut cc_link = Command::new(&clang);
-    cc_link
-        .arg(&obj_path)
-        .arg(&rt_lib)
-        .arg("-o")
-        .arg(out_bin);
+    cc_link.arg(&obj_path);
+    for lib in extra_static_libs {
+        cc_link.arg(lib);
+    }
+    cc_link.arg(&rt_lib).arg("-o").arg(out_bin);
     if want_debug {
         cc_link.arg("-g");
     }
@@ -557,6 +575,113 @@ fn find_clang() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn find_ar() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("AR") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    for candidate in ["ar", "/usr/bin/ar", "llvm-ar", "/opt/homebrew/opt/llvm/bin/llvm-ar"] {
+        let ok = Command::new(candidate)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or_else(|_| {
+                Command::new(candidate)
+                    .arg("-V")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            });
+        if ok {
+            return Some(PathBuf::from(candidate));
+        }
+        let probe = Command::new(candidate)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if probe.is_ok() {
+            return Some(PathBuf::from(candidate));
+        }
+    }
+    None
+}
+
+/// Compile one C file into a static archive (`.a`). Used to feed extra libs to
+/// [`build_native_binary_with_static_libs`] (F04.01).
+pub fn build_c_static_lib(c_src: &Path, archive: &Path) -> Result<(), Diagnostic> {
+    let clang = find_clang().ok_or_else(|| {
+        Diagnostic::new(
+            "clang not found (set CLANG or install a C toolchain)",
+            Span::dummy(),
+        )
+    })?;
+    let ar = find_ar().ok_or_else(|| {
+        Diagnostic::new(
+            "ar not found (set AR or install a C toolchain)",
+            Span::dummy(),
+        )
+    })?;
+    if !c_src.is_file() {
+        return Err(Diagnostic::new(
+            format!("C source not found: {}", c_src.display()),
+            Span::dummy(),
+        ));
+    }
+    if let Some(parent) = archive.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                Diagnostic::new(format!("create archive dir failed: {e}"), Span::dummy())
+            })?;
+        }
+    }
+    let work = work_dir("draconic-c-static")?;
+    let obj = work.join("lib.o");
+    let compile = Command::new(&clang)
+        .arg("-c")
+        .arg(c_src)
+        .arg("-o")
+        .arg(&obj)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| Diagnostic::new(format!("spawn clang -c failed: {e}"), Span::dummy()))?;
+    if !compile.status.success() {
+        let stderr = String::from_utf8_lossy(&compile.stderr);
+        return Err(Diagnostic::new(
+            format!("clang -c {} failed: {stderr}", c_src.display()),
+            Span::dummy(),
+        ));
+    }
+    let archive_out = Command::new(&ar)
+        .arg("rcs")
+        .arg(archive)
+        .arg(&obj)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| Diagnostic::new(format!("spawn ar failed: {e}"), Span::dummy()))?;
+    if !archive_out.status.success() {
+        let stderr = String::from_utf8_lossy(&archive_out.stderr);
+        return Err(Diagnostic::new(
+            format!("ar rcs failed: {stderr}"),
+            Span::dummy(),
+        ));
+    }
+    if !archive.is_file() {
+        return Err(Diagnostic::new(
+            format!("static lib missing after ar: {}", archive.display()),
+            Span::dummy(),
+        ));
+    }
+    Ok(())
 }
 
 fn work_dir(prefix: &str) -> Result<PathBuf, Diagnostic> {
@@ -4331,5 +4456,50 @@ mod tests {
             "cls\nX\nfunction\ndCls\nY\nfunction\noCls\nZ\nfunction\npCls\nW\nfunction\naCls\nQ\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
+    }
+
+    /// F04.01: extra `.a` on the link line resolves a C symbol not in Runtime/libc.
+    #[test]
+    fn native_link_static_lib_resolves_c_symbol() {
+        let dir = work_dir("draconic-llvm-f04-01-link-static").expect("workdir");
+        let c_src = dir.join("touch.c");
+        std::fs::write(
+            &c_src,
+            "void draconic_link_static_touch(void) {}\n",
+        )
+        .expect("write c");
+        let archive = dir.join("libtouch.a");
+        build_c_static_lib(&c_src, &archive).expect("build .a");
+
+        let m = module_of(
+            r#"
+            extern "C" function draconic_link_static_touch(): void;
+            draconic_link_static_touch();
+            let x: i32 = 1;
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare void @draconic_link_static_touch()"),
+            "expected declare:\n{ir}"
+        );
+        assert!(
+            ir.contains("call void @draconic_link_static_touch()"),
+            "expected call:\n{ir}"
+        );
+
+        let missing = dir.join("no_lib");
+        let err = build_native_binary(&ir, &missing).expect_err("link without .a must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("draconic_link_static_touch")
+                || msg.contains("undefined")
+                || msg.contains("Unresolved"),
+            "expected unresolved symbol, got {msg}"
+        );
+
+        let bin = dir.join("linked");
+        build_native_binary_with_static_libs(&ir, &bin, &[archive]).expect("link with .a");
+        assert!(bin.is_file(), "native binary missing at {}", bin.display());
     }
 }

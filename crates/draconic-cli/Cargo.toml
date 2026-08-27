@@ -19,3 +19,6 @@ draconic-conformance.workspace = true
 draconic-embed.workspace = true
 draconic-ir.workspace = true
 draconic-pkg.workspace = true
+
+[dev-dependencies]
+draconic-backend-llvm.workspace = true

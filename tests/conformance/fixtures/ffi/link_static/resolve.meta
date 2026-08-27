@@ -1,0 +1,5 @@
+id: ffi/link_static/resolve
+targets: native
+native.link: resolve.c
+native.exit: 0
+native.stdout: 1\n

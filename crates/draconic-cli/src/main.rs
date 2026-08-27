@@ -7,7 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_ast::print_program;
 use draconic_backend_js::emit_js;
-use draconic_backend_llvm::{build_native_binary, emit_llvm_ir_with_debug, SourceDebug};
+use draconic_backend_llvm::{
+    build_native_binary, build_native_binary_with_static_libs, emit_llvm_ir_with_debug, SourceDebug,
+};
 use draconic_conformance::{load_path, run_fixture_cov, CoverageReport};
 use draconic_diagnostics::Diagnostic;
 use draconic_embed::{eval_source, EmbedValue};
@@ -350,6 +352,8 @@ struct BuildArgs {
     watch: bool,
     /// K07.02: cache-only package ensure; no network fetch on miss.
     offline: bool,
+    /// F04.01: extra static archives (`.a`) for native link.
+    link_libs: Vec<PathBuf>,
 }
 
 fn cmd_build(args: &[String]) -> ExitCode {
@@ -358,7 +362,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
         Err(msg) => {
             eprintln!("{msg}");
             eprintln!(
-                "usage: draconic build --target js|native [--watch] [--offline] <file> [-o <out>]"
+                "usage: draconic build --target js|native [--watch] [--offline] [--link <lib.a>] <file> [-o <out>]"
             );
             return ExitCode::from(2);
         }
@@ -371,12 +375,24 @@ fn cmd_build(args: &[String]) -> ExitCode {
 
     if parsed.watch {
         return run_watch_loop(&parsed.input, || {
-            build_program(&parsed.input, parsed.target, &out, parsed.offline)
-                .map_err(|d| d.to_string())
+            build_program(
+                &parsed.input,
+                parsed.target,
+                &out,
+                parsed.offline,
+                &parsed.link_libs,
+            )
+            .map_err(|d| d.to_string())
         });
     }
 
-    if let Err(d) = build_program(&parsed.input, parsed.target, &out, parsed.offline) {
+    if let Err(d) = build_program(
+        &parsed.input,
+        parsed.target,
+        &out,
+        parsed.offline,
+        &parsed.link_libs,
+    ) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
     }
@@ -464,7 +480,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         Target::Native => work.join("out"),
     };
 
-    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact, false) {
+    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact, false, &[]) {
         let _ = fs::remove_dir_all(&work);
         eprintln!("error: {d}");
         return ExitCode::from(1);
@@ -603,6 +619,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     let mut input: Option<PathBuf> = None;
     let mut watch = false;
     let mut offline = false;
+    let mut link_libs: Vec<PathBuf> = Vec::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -633,9 +650,22 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             }
             "--watch" => watch = true,
             "--offline" => offline = true,
+            "--link" => {
+                i += 1;
+                let val = args
+                    .get(i)
+                    .ok_or_else(|| "missing value for --link".to_string())?;
+                link_libs.push(PathBuf::from(val));
+            }
+            l if let Some(rest) = l.strip_prefix("--link=") => {
+                if rest.is_empty() {
+                    return Err("missing value for --link".to_string());
+                }
+                link_libs.push(PathBuf::from(rest));
+            }
             "-h" | "--help" => {
                 return Err(
-                    "usage: draconic build --target js|native [--watch] [--offline] <file> [-o <out>]".into(),
+                    "usage: draconic build --target js|native [--watch] [--offline] [--link <lib.a>] <file> [-o <out>]".into(),
                 );
             }
             other if other.starts_with('-') => {
@@ -659,6 +689,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
         output,
         watch,
         offline,
+        link_libs,
     })
 }
 
@@ -689,6 +720,7 @@ fn build_program(
     target: Target,
     out: &Path,
     offline: bool,
+    link_libs: &[PathBuf],
 ) -> Result<(), Diagnostic> {
     // K07.01: auto-fetch missing locked package checkouts before link/compile.
     // K07.02: `--offline` → cache only; miss → fixit (no network).
@@ -704,6 +736,12 @@ fn build_program(
 
     match target {
         Target::Js => {
+            if !link_libs.is_empty() {
+                return Err(Diagnostic::new(
+                    "--link is only valid with --target native",
+                    draconic_diagnostics::Span::dummy(),
+                ));
+            }
             let js = emit_js(&module)?;
             if let Some(parent) = out.parent() {
                 if !parent.as_os_str().is_empty() {
@@ -731,7 +769,11 @@ fn build_program(
             })?;
             let debug = SourceDebug::from_path(input, source);
             let ll = emit_llvm_ir_with_debug(&module, &debug)?;
-            build_native_binary(&ll, out)?;
+            if link_libs.is_empty() {
+                build_native_binary(&ll, out)?;
+            } else {
+                build_native_binary_with_static_libs(&ll, out, link_libs)?;
+            }
         }
     }
     Ok(())
@@ -1495,7 +1537,7 @@ Usage:
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
   draconic doc [--format md|html] [-o <out>] <file>
                                                  Extract /** doc comments */ to markdown or HTML
-  draconic build --target js|native [--watch] <file> [-o <out>]
+  draconic build --target js|native [--watch] [--link <lib.a>] <file> [-o <out>]
                                                   Compile a Program to JS or a native binary
   draconic run [--target js|native] <file> [args...]
                                                   Build and execute a Program (default target: js)
@@ -1574,6 +1616,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_build_args_link_static() {
+        let args = vec![
+            "--target".into(),
+            "native".into(),
+            "--link".into(),
+            "libfoo.a".into(),
+            "--link=libbar.a".into(),
+            "a.drac".into(),
+        ];
+        let p = parse_build_args(&args).unwrap();
+        assert_eq!(p.target, Target::Native);
+        assert_eq!(
+            p.link_libs,
+            vec![PathBuf::from("libfoo.a"), PathBuf::from("libbar.a")]
+        );
+        assert_eq!(p.input, PathBuf::from("a.drac"));
+    }
+
+    #[test]
     fn parse_run_args_defaults_js_and_forwards() {
         let args = vec!["a.drac".into(), "x".into(), "y".into()];
         let p = parse_run_args(&args).unwrap();
@@ -1637,7 +1698,7 @@ mod tests {
         let out = dir.join("t.js");
         let input = dir.join("t.drac");
         fs::write(&input, "let x = 1;").unwrap();
-        build_program(&input, Target::Js, &out, false).unwrap();
+        build_program(&input, Target::Js, &out, false, &[]).unwrap();
         let js = fs::read_to_string(&out).unwrap();
         assert!(js.contains("let x"));
         let _ = fs::remove_dir_all(&dir);

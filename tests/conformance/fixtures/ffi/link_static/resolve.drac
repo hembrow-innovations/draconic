@@ -1,0 +1,4 @@
+// F04.01: build links extra .a and resolves one C symbol.
+extern "C" function draconic_link_static_touch(): void;
+draconic_link_static_touch();
+let x: i32 = 1;
