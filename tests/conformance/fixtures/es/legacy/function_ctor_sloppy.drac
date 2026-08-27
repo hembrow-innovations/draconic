@@ -1,0 +1,56 @@
+// E17.02.24: Function constructor sloppy residual (non-strict).
+// new Function / Function(...) body is non-strict unless "use strict";
+// bare this is globalThis; arguments.callee works; with allowed;
+// "use strict" body → this undefined, arguments.callee TypeError, with → SyntaxError.
+
+// Bare this in a constructed function is the global object.
+let sloppyThis = new Function("return this")() === globalThis;
+let sloppyThisNoNew = Function("return this")() === globalThis;
+
+// arguments.callee in a constructed function is that function.
+let f = new Function("return arguments.callee");
+let calleeOk = f() === f;
+let calleeType = new Function("return typeof arguments.callee")();
+
+// with is allowed in a non-strict constructed body.
+let withVal = new Function("o", "with (o) { return x; }")({ x: 7 });
+
+// Function constructed without new is still sloppy (with + this).
+let withNoNew = Function("o", "with (o) { return this === globalThis && x === 8; }")({
+  x: 8
+});
+
+// "use strict" in body: this is undefined.
+let strictThis = new Function("'use strict'; return this")() === undefined;
+let strictThisNoNew = Function("'use strict'; return this")() === undefined;
+
+// "use strict" in body: arguments.callee throws TypeError.
+function strictCallee() {
+  try {
+    return new Function("'use strict'; return arguments.callee")();
+  } catch (e) {
+    return e instanceof TypeError;
+  }
+}
+let strictCalleeOk = strictCallee();
+
+// "use strict" in body: with is a SyntaxError at function construction.
+function strictWith() {
+  try {
+    new Function("'use strict'; with ({}) {}");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let strictWithOk = strictWith();
+
+// Method call on a constructed sloppy function keeps the receiver as this.
+let host = {
+  n: 4,
+  m: new Function("return this.n")
+};
+let methodThis = host.m() === 4;
+// Detached (bare) call: sloppy this is the global object (no n).
+let detached = host.m;
+let detachedBare = detached() === undefined;

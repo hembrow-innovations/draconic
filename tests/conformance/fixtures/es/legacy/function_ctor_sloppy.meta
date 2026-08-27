@@ -1,0 +1,4 @@
+id: es/legacy/function_ctor_sloppy
+targets: js
+js.exit: 0
+js.check: if (sloppyThis !== true) process.exit(1); if (sloppyThisNoNew !== true) process.exit(2); if (calleeOk !== true) process.exit(3); if (calleeType !== "function") process.exit(4); if (withVal !== 7) process.exit(5); if (withNoNew !== true) process.exit(6); if (strictThis !== true) process.exit(7); if (strictThisNoNew !== true) process.exit(8); if (strictCalleeOk !== true) process.exit(9); if (strictWithOk !== true) process.exit(10); if (methodThis !== true) process.exit(11); if (detachedBare !== true) process.exit(12);

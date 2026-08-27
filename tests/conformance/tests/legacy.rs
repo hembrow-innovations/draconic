@@ -278,3 +278,13 @@ fn with_residual_fixture_present() {
 fn with_residual_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_residual");
 }
+
+#[test]
+fn function_ctor_sloppy_fixture_present() {
+    assert_fixture_present("es/legacy/function_ctor_sloppy");
+}
+
+#[test]
+fn function_ctor_sloppy_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/function_ctor_sloppy");
+}
