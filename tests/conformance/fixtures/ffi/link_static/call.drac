@@ -1,0 +1,3 @@
+extern "C" function draconic_link_static_add(a: i32, b: i32): i32;
+let s: i32 = draconic_link_static_add(20, 22);
+let t: i32 = draconic_link_static_add(-5, 12);

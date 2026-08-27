@@ -1,7 +1,8 @@
-//! ROADMAP F04.01: native build links an extra `.a` and resolves one C symbol.
+//! ROADMAP F04.01 / F04.02: native build links an extra `.a`, resolves, and calls one C symbol.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -55,4 +56,39 @@ fn e2e_native_build_links_static_lib_and_resolves_symbol() {
     build_native_binary_with_static_libs(&ll, Path::new(&out), &[archive])
         .expect("build_native_binary_with_static_libs");
     assert!(out.is_file(), "native binary missing at {}", out.display());
+}
+
+#[test]
+fn e2e_native_build_calls_linked_static_symbol() {
+    let dir = temp_dir();
+    let c_src = dir.join("add.c");
+    fs::write(
+        &c_src,
+        "int draconic_link_static_add(int a, int b) { return a + b; }\n",
+    )
+    .unwrap();
+    let archive = dir.join("libadd.a");
+    build_c_static_lib(&c_src, &archive).expect("build .a");
+
+    let module = compile_source(
+        "extern \"C\" function draconic_link_static_add(a: i32, b: i32): i32;\nlet s: i32 = draconic_link_static_add(20, 22);\nlet t: i32 = draconic_link_static_add(-5, 12);\n",
+    )
+    .expect("compile");
+    let ll = emit_llvm_ir(&module).expect("emit_llvm_ir");
+
+    let out = dir.join("prog");
+    build_native_binary_with_static_libs(&ll, Path::new(&out), &[archive])
+        .expect("build_native_binary_with_static_libs");
+    let output = Command::new(&out).output().expect("run");
+    assert!(
+        output.status.success(),
+        "exit {:?}\nstderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "42\n7\n",
+        "stdout must be C-computed returns"
+    );
 }

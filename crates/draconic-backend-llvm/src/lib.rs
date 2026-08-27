@@ -4502,4 +4502,50 @@ mod tests {
         build_native_binary_with_static_libs(&ir, &bin, &[archive]).expect("link with .a");
         assert!(bin.is_file(), "native binary missing at {}", bin.display());
     }
+
+    /// F04.02: call a linked static symbol; native stdout is the C return value.
+    #[test]
+    fn native_link_static_lib_call_end_to_end() {
+        let dir = work_dir("draconic-llvm-f04-02-link-static-call").expect("workdir");
+        let c_src = dir.join("add.c");
+        std::fs::write(
+            &c_src,
+            "int draconic_link_static_add(int a, int b) { return a + b; }\n",
+        )
+        .expect("write c");
+        let archive = dir.join("libadd.a");
+        build_c_static_lib(&c_src, &archive).expect("build .a");
+
+        let m = module_of(
+            r#"
+            extern "C" function draconic_link_static_add(a: i32, b: i32): i32;
+            let s: i32 = draconic_link_static_add(20, 22);
+            let t: i32 = draconic_link_static_add(-5, 12);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_link_static_add(i32, i32)"),
+            "expected declare:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @draconic_link_static_add"),
+            "expected call:\n{ir}"
+        );
+
+        let bin = dir.join("linked");
+        build_native_binary_with_static_libs(&ir, &bin, &[archive]).expect("link with .a");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "42\n7\n",
+            "stdout must be C-computed returns"
+        );
+    }
 }

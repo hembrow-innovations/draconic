@@ -280,6 +280,52 @@ fn build_native_link_static_lib_resolves_symbol() {
     assert!(out.is_file(), "native binary missing at {}", out.display());
 }
 
+/// F04.02: `build --target native --link lib.a` then run: stdout is the C return value.
+#[test]
+fn build_native_link_static_lib_call_end_to_end() {
+    use draconic_backend_llvm::build_c_static_lib;
+
+    let dir = temp_dir();
+    let c_src = dir.join("add.c");
+    fs::write(
+        &c_src,
+        "int draconic_link_static_add(int a, int b) { return a + b; }\n",
+    )
+    .unwrap();
+    let archive = dir.join("libadd.a");
+    build_c_static_lib(&c_src, &archive).expect("build .a");
+
+    let src = write_program(
+        &dir,
+        "prog.drac",
+        "extern \"C\" function draconic_link_static_add(a: i32, b: i32): i32;\nlet s: i32 = draconic_link_static_add(20, 22);\nlet t: i32 = draconic_link_static_add(-5, 12);\n",
+    );
+    let out = dir.join("prog");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("native")
+            .arg("--link")
+            .arg(&archive)
+            .arg(&src)
+            .arg("-o")
+            .arg(&out),
+    );
+    let output = Command::new(&out).output().expect("run");
+    assert!(
+        output.status.success(),
+        "exit {:?}\nstderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "42\n7\n",
+        "stdout must be C-computed returns"
+    );
+}
+
 /// H17.01: `examples/http-echo` builds pure native (no C host).
 #[test]
 fn build_examples_http_echo_native() {

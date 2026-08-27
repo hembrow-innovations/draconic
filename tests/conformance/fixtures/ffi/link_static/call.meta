@@ -1,0 +1,5 @@
+id: ffi/link_static/call
+targets: native
+native.link: call.c
+native.exit: 0
+native.stdout: 42\n7\n
