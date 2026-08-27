@@ -1,0 +1,5 @@
+// F01.02: call extern "C" with i64 args/return (wider than i32).
+extern "C" function draconic_rt_add_i64(a: i64, b: i64): i64;
+let s: i64 = draconic_rt_add_i64(3000000000, 2000000000);
+let t: i64 = draconic_rt_add_i64(-5, 12);
+let u: i64 = draconic_rt_add_i64(draconic_rt_add_i64(1, 2), 3);

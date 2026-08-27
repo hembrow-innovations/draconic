@@ -1,4 +1,4 @@
-//! ROADMAP F01.01: call extern C fn with i32 args/return.
+//! ROADMAP F01.01–F01.02: call extern C fn with i32/i64/f64/void.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +47,34 @@ fn call_i32_multi_fixture_present() {
 #[test]
 fn call_i32_multi_runs_native() {
     assert_fixture_runs_native("ffi/call/call_i32_multi");
+}
+
+#[test]
+fn call_i64_fixture_present() {
+    assert_fixture_present("ffi/call/call_i64");
+}
+
+#[test]
+fn call_i64_runs_native() {
+    assert_fixture_runs_native("ffi/call/call_i64");
+}
+
+#[test]
+fn call_f64_fixture_present() {
+    assert_fixture_present("ffi/call/call_f64");
+}
+
+#[test]
+fn call_f64_runs_native() {
+    assert_fixture_runs_native("ffi/call/call_f64");
+}
+
+#[test]
+fn call_void_fixture_present() {
+    assert_fixture_present("ffi/call/call_void");
+}
+
+#[test]
+fn call_void_runs_native() {
+    assert_fixture_runs_native("ffi/call/call_void");
 }

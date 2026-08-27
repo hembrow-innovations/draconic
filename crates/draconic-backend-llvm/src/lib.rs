@@ -2719,6 +2719,61 @@ mod tests {
         assert_eq!(stdout, "42\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
+    /// F01.02: i64 / f64 / void extern "C" calls via Runtime ABI.
+    #[test]
+    fn native_extern_c_call_i64_f64_void() {
+        let m = module_of(
+            r#"
+            extern "C" function draconic_rt_add_i64(a: i64, b: i64): i64;
+            extern "C" function draconic_rt_add_f64(a: f64, b: f64): f64;
+            extern "C" function draconic_rt_touch_void(): void;
+            draconic_rt_touch_void();
+            let s: i64 = draconic_rt_add_i64(3000000000, 2000000000);
+            let t: f64 = draconic_rt_add_f64(10.5, 2.0);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i64 @draconic_rt_add_i64(i64, i64)"),
+            "expected declare add_i64:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare double @draconic_rt_add_f64(double, double)"),
+            "expected declare add_f64:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @draconic_rt_touch_void()"),
+            "expected declare touch_void:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i64 @draconic_rt_add_i64("),
+            "expected call add_i64:\n{ir}"
+        );
+        assert!(
+            ir.contains("call double @draconic_rt_add_f64("),
+            "expected call add_f64:\n{ir}"
+        );
+        assert!(
+            ir.contains("call void @draconic_rt_touch_void()"),
+            "expected call touch_void:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f01-02-i64-f64-void").expect("workdir");
+        let bin = dir.join("extern_i64_f64_void");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "void\n5000000000\n12.5\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

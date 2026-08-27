@@ -1,0 +1,4 @@
+// F01.02: call extern "C" with void return (side effect observed).
+extern "C" function draconic_rt_touch_void(): void;
+draconic_rt_touch_void();
+let x: i32 = 7;

@@ -1,0 +1,4 @@
+id: ffi/call/call_void
+targets: native
+native.exit: 0
+native.stdout: void\n7\n

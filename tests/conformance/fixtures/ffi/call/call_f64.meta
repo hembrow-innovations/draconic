@@ -1,0 +1,4 @@
+id: ffi/call/call_f64
+targets: native
+native.exit: 0
+native.stdout: 12.5\n2.5\n4\n

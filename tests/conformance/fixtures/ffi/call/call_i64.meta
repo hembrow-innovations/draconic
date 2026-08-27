@@ -1,0 +1,4 @@
+id: ffi/call/call_i64
+targets: native
+native.exit: 0
+native.stdout: 5000000000\n7\n6\n
