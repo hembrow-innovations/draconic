@@ -268,3 +268,13 @@ fn arguments_reflect_iter_fixture_present() {
 fn arguments_reflect_iter_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_reflect_iter");
 }
+
+#[test]
+fn with_residual_fixture_present() {
+    assert_fixture_present("es/legacy/with_residual");
+}
+
+#[test]
+fn with_residual_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_residual");
+}

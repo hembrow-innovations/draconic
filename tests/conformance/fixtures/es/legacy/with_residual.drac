@@ -1,0 +1,139 @@
+// E17.02.23: with residual (non-strict).
+// null/undefined → TypeError; primitive ToObject; var in body (VE vs object);
+// missing-prop assign falls through; delete ident; method-call this; getters/setters;
+// "use strict" with → SyntaxError.
+
+// with (null) / with (undefined) → TypeError (ToObject).
+function withNull() {
+  try {
+    with (null) {}
+    return false;
+  } catch (e) {
+    return e instanceof TypeError;
+  }
+}
+let a = withNull();
+
+function withUndef() {
+  try {
+    with (undefined) {}
+    return false;
+  } catch (e) {
+    return e instanceof TypeError;
+  }
+}
+let b = withUndef();
+
+// Primitive ToObject: string wrapper exposes length / charAt.
+function withString() {
+  let s = "ab";
+  with (s) {
+    return length === 2 && charAt(1) === "b";
+  }
+}
+let c = withString();
+
+function withNumber() {
+  with (1) {
+    return typeof toFixed === "function";
+  }
+}
+let d = withNumber();
+
+// var in with: object HAS the name → initializer PutValue hits the object;
+// function-scoped var stays undefined.
+function varHitsObject() {
+  let obj = { y: 0 };
+  with (obj) {
+    var y = 1;
+  }
+  return obj.y === 1 && y === undefined;
+}
+let e = varHitsObject();
+
+// var in with: object lacks the name → initializer assigns the var binding;
+// does not create an own property.
+function varMissesObject() {
+  let obj = {};
+  with (obj) {
+    var y = 1;
+  }
+  return (
+    y === 1 &&
+    obj.y === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "y") === false
+  );
+}
+let f = varMissesObject();
+
+// Identifier assign not found on with-object → implicit global, not own prop.
+function missingFallsThrough() {
+  let obj = {};
+  with (obj) {
+    e170223_miss = 9;
+  }
+  let ok =
+    Object.prototype.hasOwnProperty.call(obj, "e170223_miss") === false &&
+    e170223_miss === 9 &&
+    globalThis.e170223_miss === 9;
+  delete globalThis.e170223_miss;
+  return ok;
+}
+let g = missingFallsThrough();
+
+// delete IdentifierReference inside with removes the object own property.
+function deleteInWith() {
+  let obj = { a: 1 };
+  let r = false;
+  with (obj) {
+    r = delete a;
+  }
+  return r === true && Object.prototype.hasOwnProperty.call(obj, "a") === false;
+}
+let h = deleteInWith();
+
+// Call of a with-object method: Reference base is the object → this is obj.
+function methodThis() {
+  let obj = {
+    n: 4,
+    m: function () {
+      return this.n;
+    }
+  };
+  with (obj) {
+    return m() === 4;
+  }
+}
+let i = methodThis();
+
+// Getter/setter on the with object used for read/write.
+function accessors() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 5;
+    },
+    set x(v) {
+      n = n + 10;
+    }
+  };
+  with (obj) {
+    let got = x;
+    x = 1;
+    return got === 5 && n === 11;
+  }
+}
+let j = accessors();
+
+// Strict code: with is early SyntaxError (via direct eval).
+function strictWith() {
+  "use strict";
+  try {
+    eval("with ({}) {}");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let k = strictWith();
