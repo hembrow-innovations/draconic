@@ -327,14 +327,16 @@ struct ExternAbi {
     ret: Option<Type>,
 }
 
-/// LLVM type spelling for an ABI param/return (scalar or pointer).
+/// LLVM type spelling for an ABI param/return (scalar, pointer, or C function pointer).
 fn llvm_abi_ty(ty: Type) -> Result<&'static str, Diagnostic> {
     match ty {
         Type::Native(n) => Ok(llvm_ty(n)),
         Type::Boolean => Ok("i1"),
         Type::Number => Ok("double"),
-        Type::Ptr(_) => Ok("ptr"),
-        _ => Err(diag("extern ABI: unsupported type (native scalar or pointer only)")),
+        Type::Ptr(_) | Type::Function => Ok("ptr"),
+        _ => Err(diag(
+            "extern ABI: unsupported type (native scalar, pointer, or function)",
+        )),
     }
 }
 
@@ -1880,9 +1882,13 @@ impl<'a> Emitter<'a> {
                     let v = self.emit_ptr_expr(e)?;
                     arg_parts.push(format!("ptr {v}"));
                 }
+                Type::Function => {
+                    let v = self.emit_fnptr_expr(e)?;
+                    arg_parts.push(format!("ptr {v}"));
+                }
                 _ => {
                     return Err(diag(
-                        "native FFI: extern param must be native scalar or pointer",
+                        "native FFI: extern param must be native scalar, pointer, or function",
                     ))
                 }
             }
@@ -2093,6 +2099,18 @@ impl<'a> Emitter<'a> {
             _ => Err(diag(&format!(
                 "native pointers: unsupported pointer expression {expr:?}"
             ))),
+        }
+    }
+
+    fn emit_fnptr_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Local { id, .. } => self
+                .fn_names
+                .get(id)
+                .map(|name| format!("@{name}"))
+                .ok_or_else(|| diag("native FFI: function pointer arg is not a function")),
+            Expr::Null { .. } => Ok("null".into()),
+            _ => Err(diag("native FFI: function pointer arg must be a function")),
         }
     }
 

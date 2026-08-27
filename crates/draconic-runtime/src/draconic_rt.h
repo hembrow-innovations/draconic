@@ -17,6 +17,7 @@ int64_t draconic_rt_add_i64(int64_t a, int64_t b);
 double draconic_rt_add_f64(double a, double b);
 void draconic_rt_touch_void(void);
 int32_t draconic_rt_load_i32(const int32_t *p);
+int32_t draconic_rt_fnptr_nonnull(void *p);
 void draconic_rt_print_i64(int64_t v);
 void draconic_rt_print_u64(uint64_t v);
 void draconic_rt_print_f64(double v);

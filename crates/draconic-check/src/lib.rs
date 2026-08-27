@@ -5647,8 +5647,8 @@ impl<'a> Checker<'a> {
     /// F06.02: check an `extern "C" function` declaration.
     ///
     /// - Binds the name as a callable `function`.
-    /// - Every parameter must be annotated with a native scalar or pointer type.
-    /// - Return type is optional / `void`, or native scalar / pointer.
+    /// - Every parameter must be annotated with a native scalar, pointer, or `function` type.
+    /// - Return type is optional / `void`, or native scalar / pointer / `function`.
     /// - JS-only types (`string`, `number`, `any`, shapes, …) are rejected.
     /// - Records a full `FnSig` so later call sites get arity/arg checking.
     /// - F08.01: when the compile target is js, hard-error (native-only FFI).
@@ -5741,24 +5741,24 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    /// Resolve a type annotation for an extern ABI position: native scalar or `*T` only.
+    /// Resolve a type annotation for an extern ABI position: native scalar, `*T`, or `function` (C fn pointer).
     fn resolve_extern_abi_type(
         &mut self,
         ann: &TypeAnn,
         role: &str,
     ) -> Result<Type, Diagnostic> {
         let ty = self.resolve_type_ann(ann)?;
-        if matches!(ty, Type::Native(_) | Type::Ptr(_)) {
+        if matches!(ty, Type::Native(_) | Type::Ptr(_) | Type::Function) {
             return Ok(ty);
         }
         let pretty = format_type_full(ty, &self.shapes, &self.unions, &self.intersections);
         Err(Diagnostic::new(
-            format!("extern {role} type must be a native scalar or pointer, got `{pretty}`"),
+            format!("extern {role} type must be a native scalar, pointer, or function, got `{pretty}`"),
             ann.span(),
         )
         .with_code(codes::INVALID_EXTERN_TYPE)
         .with_help(
-            "use a native type such as `i32`, `i64`, `f64`, `bool`, or a pointer like `*u8`",
+            "use a native type such as `i32`, `i64`, `f64`, `bool`, a pointer like `*u8`, or `function`",
         ))
     }
 
@@ -9241,5 +9241,22 @@ mod tests {
         let program = parse(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
         check_for_target(program, CompileTarget::Native)
             .expect("native allows valid extern signatures");
+    }
+
+    // --- F02.01: Draconic fn as C function pointer (extern `function` param) ---
+
+    #[test]
+    fn check_extern_function_param_ok() {
+        let program = parse(
+            r#"
+            function twice(x: i32): i32 {
+              return x + x;
+            }
+            extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;
+            let ok: i32 = draconic_rt_fnptr_nonnull(twice);
+            "#,
+        )
+        .unwrap();
+        check(program).expect("native-ABI fn must pass as extern function-pointer param");
     }
 }

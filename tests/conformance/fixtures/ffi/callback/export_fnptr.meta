@@ -1,0 +1,4 @@
+id: ffi/callback/export_fnptr
+targets: native
+native.exit: 0
+native.stdout: 1\n

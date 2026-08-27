@@ -1088,15 +1088,17 @@ fn lower_stmt(
     }
 }
 
-/// Resolve an extern ABI type annotation to IR `Type` (native scalar or pointer).
+/// Resolve an extern ABI type annotation to IR `Type` (native scalar, pointer, or function).
 /// Checker (F06.02) already rejected non-ABI types; this is a pure re-parse.
 fn lower_extern_abi_type(ann: &draconic_ast::TypeAnn) -> Type {
     match ann {
         draconic_ast::TypeAnn::Named { name, .. } => {
             if let Some(n) = NativeType::from_name(name) {
                 Type::Native(n)
+            } else if name == "function" {
+                Type::Function
             } else {
-                panic!("extern ABI type `{name}` must be native (checker should reject)")
+                panic!("extern ABI type `{name}` must be native or function (checker should reject)")
             }
         }
         draconic_ast::TypeAnn::Pointer { inner, .. } => {
@@ -8439,6 +8441,38 @@ mod tests {
                 }
             )),
             "expected call in declare: {:?}",
+            module.body
+        );
+    }
+
+    #[test]
+    fn lower_extern_function_pointer_param() {
+        let module = lower_src(
+            r#"
+            function twice(x: i32): i32 {
+              return x + x;
+            }
+            extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;
+            let ok: i32 = draconic_rt_fnptr_nonnull(twice);
+            "#,
+        );
+        assert!(module.has_extern_ffi);
+        let ext = module.body.iter().find_map(|s| match s {
+            Stmt::ExternFunction { name, params, .. } if name == "draconic_rt_fnptr_nonnull" => {
+                Some(params.as_slice())
+            }
+            _ => None,
+        });
+        assert_eq!(ext, Some(&[Type::Function][..]));
+        assert!(
+            module.body.iter().any(|s| matches!(
+                s,
+                Stmt::Declare {
+                    init: Some(Expr::Call { .. }),
+                    ..
+                }
+            )),
+            "expected call passing fn: {:?}",
             module.body
         );
     }

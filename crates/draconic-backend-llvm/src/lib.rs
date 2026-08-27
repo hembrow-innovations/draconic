@@ -2817,6 +2817,45 @@ mod tests {
         assert_eq!(stdout, "42\n42\n42\n0\n0\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
+    /// F02.01: export a Draconic fn as a C function pointer (pass to extern).
+    #[test]
+    fn native_export_fn_as_c_function_pointer() {
+        let m = module_of(
+            r#"
+            function twice(x: i32): i32 {
+              return x + x;
+            }
+            extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;
+            let ok: i32 = draconic_rt_fnptr_nonnull(twice);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_rt_fnptr_nonnull(ptr)"),
+            "expected declare fnptr helper:\n{ir}"
+        );
+        assert!(
+            ir.contains("define i32 @d_twice_"),
+            "expected Draconic fn define:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @draconic_rt_fnptr_nonnull(ptr @d_twice_"),
+            "expected pass of fn address as ptr:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f02-01-fnptr").expect("workdir");
+        let bin = dir.join("export_fnptr");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "1\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

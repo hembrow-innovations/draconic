@@ -1,0 +1,6 @@
+// F02.01: export a Draconic fn as a C function pointer (pass to extern).
+function twice(x: i32): i32 {
+  return x + x;
+}
+extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;
+let ok: i32 = draconic_rt_fnptr_nonnull(twice);

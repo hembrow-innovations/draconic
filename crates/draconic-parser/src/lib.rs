@@ -2217,6 +2217,13 @@ impl Parser {
                 span: sp,
             });
         }
+        if self.check(&TokenKind::Function) {
+            let sp = self.bump().span;
+            return Ok(draconic_ast::TypeAnn::Named {
+                name: "function".into(),
+                span: sp,
+            });
+        }
         let err_span = self.current().span;
         let name_tok = self.expect_ident().map_err(|_| {
             Diagnostic::new("expected type name after `:`".to_string(), err_span)
@@ -7909,6 +7916,29 @@ Program
       name: b
         type:
           NamedType i32
+    returnType:
+      NamedType i32
+"
+        );
+    }
+
+    #[test]
+    fn parse_extern_c_fnptr_type_param() {
+        let dump = parse_and_dump(
+            r#"extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;"#,
+        )
+        .unwrap();
+        assert_eq!(
+            dump,
+            "\
+Program
+  ExternFunctionDeclaration
+    abi: \"C\"
+    name: draconic_rt_fnptr_nonnull
+    params:
+      name: cb
+        type:
+          NamedType function
     returnType:
       NamedType i32
 "
