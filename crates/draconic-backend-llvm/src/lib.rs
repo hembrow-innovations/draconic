@@ -2896,6 +2896,60 @@ mod tests {
         assert_eq!(stdout, "42\n7\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
+    /// F03.01: native layout field offsets match C ABI (i32+i64 padding; i8+i32 padding).
+    #[test]
+    fn native_repr_c_struct_field_offsets() {
+        let m = module_of(
+            r#"
+            type Pair = { a: i32; b: i64 };
+            type Small = { x: i8; y: i32 };
+            extern "C" function draconic_rt_layout_i32_i64_a(p: *u8): i32;
+            extern "C" function draconic_rt_layout_i32_i64_b(p: *u8): i64;
+            extern "C" function draconic_rt_layout_i32_i64_write(p: *u8, a: i32, b: i64): void;
+            extern "C" function draconic_rt_layout_i8_i32_x(p: *u8): i8;
+            extern "C" function draconic_rt_layout_i8_i32_y(p: *u8): i32;
+            let p: Pair = { a: 10, b: 20 };
+            let ra: i32 = draconic_rt_layout_i32_i64_a(&p);
+            let rb: i64 = draconic_rt_layout_i32_i64_b(&p);
+            let q: Pair = { a: 0, b: 0 };
+            draconic_rt_layout_i32_i64_write(&q, 7, 8);
+            let qa: i32 = q.a;
+            let qb: i64 = q.b;
+            let s: Small = { x: 1, y: 99 };
+            let sx: i8 = draconic_rt_layout_i8_i32_x(&s);
+            let sy: i32 = draconic_rt_layout_i8_i32_y(&s);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_rt_layout_i32_i64_a(ptr)"),
+            "expected declare layout a:\n{ir}"
+        );
+        assert!(
+            ir.contains("{ i32, i64 }"),
+            "expected LLVM struct {{ i32, i64 }}:\n{ir}"
+        );
+        assert!(
+            ir.contains("{ i8, i32 }"),
+            "expected LLVM struct {{ i8, i32 }}:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f03-01-layout").expect("workdir");
+        let bin = dir.join("layout_offsets");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "10\n20\n10\n20\n7\n8\n7\n8\n1\n99\n1\n99\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

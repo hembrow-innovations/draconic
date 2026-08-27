@@ -5855,6 +5855,17 @@ impl<'a> Checker<'a> {
         }
     }
 
+    /// True when `ty` is a non-empty shape of native scalar fields (N03 / F03.01).
+    fn is_native_layout(&self, ty: Type) -> bool {
+        let Type::Shape(id) = ty else {
+            return false;
+        };
+        let Some(shape) = self.shapes.get(id as usize) else {
+            return false;
+        };
+        !shape.props.is_empty() && shape.props.iter().all(|(_, t)| matches!(t, Type::Native(_)))
+    }
+
     fn check_unary(&self, op: UnaryOp, arg: Type, span: Span) -> Result<Type, Diagnostic> {
         match op {
             // Unary `+` is ToNumber (ECMA-262); BigInt throws at runtime — reject statically.
@@ -5907,8 +5918,10 @@ impl<'a> Checker<'a> {
             // `yield*` completion is the inner iterator's final value; coarse `any`.
             UnaryOp::Yield | UnaryOp::YieldStar => Ok(Type::Any),
             // N03.03: `&x` → `*T` when x is native scalar T.
+            // F03.01: `&layout` → `*u8` (byte pointer to C ABI struct).
             UnaryOp::Ref => match arg {
                 Type::Native(n) => Ok(Type::Ptr(n)),
+                Type::Shape(_) if self.is_native_layout(arg) => Ok(Type::Ptr(NativeType::U8)),
                 other => Err(Diagnostic::new(
                     format!("cannot take address of type `{other}` (native scalar required)"),
                     span,
@@ -9258,5 +9271,21 @@ mod tests {
         )
         .unwrap();
         check(program).expect("native-ABI fn must pass as extern function-pointer param");
+    }
+
+    // --- F03.01: address of native layout is `*u8` for C ABI offset checks ---
+
+    #[test]
+    fn check_address_of_native_layout_ok() {
+        let program = parse(
+            r#"
+            type Pair = { a: i32; b: i64 };
+            extern "C" function draconic_rt_layout_i32_i64_a(p: *u8): i32;
+            let p: Pair = { a: 10, b: 20 };
+            let ra: i32 = draconic_rt_layout_i32_i64_a(&p);
+            "#,
+        )
+        .unwrap();
+        check(program).expect("address of native layout struct must typecheck as *u8");
     }
 }
