@@ -131,6 +131,29 @@ fn layout_align(shape: &ObjectShape) -> u32 {
         .unwrap_or(1)
 }
 
+fn layout_size(shape: &ObjectShape) -> u32 {
+    let mut off = 0u32;
+    let st_align = layout_align(shape).max(1);
+    for (_, t) in &shape.props {
+        let Some(sc) = scalar_of_type(*t) else {
+            continue;
+        };
+        let a = sc.align().max(1);
+        off = off.div_ceil(a) * a;
+        off += a;
+    }
+    off.div_ceil(st_align) * st_align
+}
+
+/// AAPCS64 / SysV integer-class aggregate: memory image in 1 or 2 GPRs (F03.02).
+fn layout_abi_llvm(shape: &ObjectShape) -> String {
+    if layout_size(shape) <= 8 {
+        "i64".to_string()
+    } else {
+        "[2 x i64]".to_string()
+    }
+}
+
 /// True when every **user-declared** local is a native scalar (`i*`/`u*`/`f*`/`bool`),
 /// a **native layout** shape (all-native fields), a **native pointer** (`*T`),
 /// JS `number` (dual-worlds unboxed double), a **function declaration** binding,
@@ -327,18 +350,7 @@ struct ExternAbi {
     ret: Option<Type>,
 }
 
-/// LLVM type spelling for an ABI param/return (scalar, pointer, or C function pointer).
-fn llvm_abi_ty(ty: Type) -> Result<&'static str, Diagnostic> {
-    match ty {
-        Type::Native(n) => Ok(llvm_ty(n)),
-        Type::Boolean => Ok("i1"),
-        Type::Number => Ok("double"),
-        Type::Ptr(_) | Type::Function => Ok("ptr"),
-        _ => Err(diag(
-            "extern ABI: unsupported type (native scalar, pointer, or function)",
-        )),
-    }
-}
+
 
 struct Emitter<'a> {
     module: &'a Module,
@@ -467,7 +479,7 @@ impl<'a> Emitter<'a> {
                         "native FFI: unsupported extern ABI {abi:?}; only \"C\" is supported"
                     )));
                 }
-                self.emit_extern_declare(name, params, *ret)?;
+                self.emit_extern_declare(name, params, ret.as_ref().copied())?;
             }
         }
 
@@ -551,6 +563,30 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
+    fn llvm_abi_spelling(&self, ty: Type) -> Result<String, Diagnostic> {
+        match ty {
+            Type::Native(n) => Ok(llvm_ty(n).to_string()),
+            Type::Boolean => Ok("i1".into()),
+            Type::Number => Ok("double".into()),
+            Type::Ptr(_) | Type::Function => Ok("ptr".into()),
+            Type::Shape(_) => {
+                let shape = native_layout_of(self.module, ty).ok_or_else(|| {
+                    diag("extern ABI: type is not a native layout")
+                })?;
+                let size = layout_size(shape);
+                if size == 0 || size > 16 {
+                    return Err(diag(
+                        "extern ABI: native layout must be 1..=16 bytes to pass/return by value",
+                    ));
+                }
+                Ok(layout_abi_llvm(shape))
+            }
+            _ => Err(diag(
+                "extern ABI: unsupported type (native scalar, pointer, function, or layout)",
+            )),
+        }
+    }
+
     /// F06.03: `declare retty @name(paramtys…)`
     fn emit_extern_declare(
         &mut self,
@@ -560,14 +596,14 @@ impl<'a> Emitter<'a> {
     ) -> Result<(), Diagnostic> {
         let ret_ty = match ret {
             None => "void".to_string(),
-            Some(t) => llvm_abi_ty(t)?.to_string(),
+            Some(t) => self.llvm_abi_spelling(t)?,
         };
         let mut sig = format!("declare {ret_ty} @{name}(");
         for (i, p) in params.iter().enumerate() {
             if i > 0 {
                 sig.push_str(", ");
             }
-            sig.push_str(llvm_abi_ty(*p)?);
+            sig.push_str(&self.llvm_abi_spelling(*p)?);
         }
         sig.push(')');
         writeln!(self.out, "{sig}").ok();
@@ -1468,8 +1504,28 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
+            Expr::Call {
+                callee,
+                args,
+                optional,
+                ty,
+            } => {
+                if *optional {
+                    return Err(diag("native layout: optional call not supported"));
+                }
+                let Expr::Local { id, .. } = callee.as_ref() else {
+                    return Err(diag("native layout: only direct extern calls supported"));
+                };
+                let ext = self.extern_fns.get(id).cloned().ok_or_else(|| {
+                    diag("native layout: init call must be extern \"C\"")
+                })?;
+                let v = self.emit_extern_call(&ext, args, *ty, None)?;
+                let abi = layout_abi_llvm(shape);
+                writeln!(self.body, "  store {abi} {v}, ptr {dest_ptr}").ok();
+                Ok(())
+            }
             _ => Err(diag(
-                "native layout: init must be object/array literal or layout local",
+                "native layout: init must be object/array literal, layout local, or extern call",
             )),
         }
     }
@@ -1886,16 +1942,26 @@ impl<'a> Emitter<'a> {
                     let v = self.emit_fnptr_expr(e)?;
                     arg_parts.push(format!("ptr {v}"));
                 }
+                Type::Shape(_) => {
+                    let ptr = self.emit_layout_arg_ptr(e)?;
+                    let shape = native_layout_of(self.module, *pty).ok_or_else(|| {
+                        diag("native FFI: extern layout param is not a native layout")
+                    })?;
+                    let abi = layout_abi_llvm(shape);
+                    let v = self.fresh_tmp();
+                    writeln!(self.body, "  {v} = load {abi}, ptr {ptr}").ok();
+                    arg_parts.push(format!("{abi} {v}"));
+                }
                 _ => {
                     return Err(diag(
-                        "native FFI: extern param must be native scalar, pointer, or function",
+                        "native FFI: extern param must be native scalar, pointer, function, or layout",
                     ))
                 }
             }
         }
         let ret_llvm = match ext.ret {
             None => None,
-            Some(t) => Some(llvm_abi_ty(t)?),
+            Some(t) => Some(self.llvm_abi_spelling(t)?),
         };
         match ret_llvm {
             None => {
@@ -2099,6 +2165,17 @@ impl<'a> Emitter<'a> {
             _ => Err(diag(&format!(
                 "native pointers: unsupported pointer expression {expr:?}"
             ))),
+        }
+    }
+
+    fn emit_layout_arg_ptr(&self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Local { id, .. } => self
+                .allocas
+                .get(id)
+                .cloned()
+                .ok_or_else(|| diag("native FFI: layout arg missing alloca")),
+            _ => Err(diag("native FFI: pass a layout local by value")),
         }
     }
 

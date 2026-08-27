@@ -49,16 +49,6 @@ int32_t draconic_rt_call_i32_i32(void *cb, int32_t a, int32_t b) {
 }
 
 /* F03.01: C ABI structs; field offsets must match Draconic LLVM layout. */
-typedef struct {
-    int32_t a;
-    int64_t b;
-} DraconicLayoutI32I64;
-
-typedef struct {
-    int8_t x;
-    int32_t y;
-} DraconicLayoutI8I32;
-
 int32_t draconic_rt_layout_i32_i64_a(const void *p) {
     return p ? ((const DraconicLayoutI32I64 *)p)->a : 0;
 }
@@ -82,6 +72,21 @@ int8_t draconic_rt_layout_i8_i32_x(const void *p) {
 
 int32_t draconic_rt_layout_i8_i32_y(const void *p) {
     return p ? ((const DraconicLayoutI8I32 *)p)->y : 0;
+}
+
+int32_t draconic_rt_layout_pass_i32_i64(DraconicLayoutI32I64 p) {
+    return p.a + (int32_t)p.b;
+}
+
+DraconicLayoutI32I64 draconic_rt_layout_ret_i32_i64(int32_t a, int64_t b) {
+    DraconicLayoutI32I64 p;
+    p.a = a;
+    p.b = b;
+    return p;
+}
+
+int32_t draconic_rt_layout_pass_i32_i64_ptr(const DraconicLayoutI32I64 *p) {
+    return p ? p->a + (int32_t)p->b : 0;
 }
 
 /* N01: print native integers for conformance observation (decimal + newline). */

@@ -1069,13 +1069,13 @@ fn lower_stmt(
                         .type_ann
                         .as_ref()
                         .expect("extern param type checked (F06.02)");
-                    lower_extern_abi_type(ann)
+                    lower_extern_abi_type(checked, ann)
                 })
                 .collect();
             let ret = match return_type {
                 None => None,
                 Some(ann) if is_void_type_ann(ann) => None,
-                Some(ann) => Some(lower_extern_abi_type(ann)),
+                Some(ann) => Some(lower_extern_abi_type(checked, ann)),
             };
             Some(Stmt::ExternFunction {
                 local,
@@ -1088,27 +1088,40 @@ fn lower_stmt(
     }
 }
 
-/// Resolve an extern ABI type annotation to IR `Type` (native scalar, pointer, or function).
-/// Checker (F06.02) already rejected non-ABI types; this is a pure re-parse.
-fn lower_extern_abi_type(ann: &draconic_ast::TypeAnn) -> Type {
+/// Resolve an extern ABI type annotation to IR `Type` (native scalar, pointer, function, or layout).
+/// Checker (F06.02 / F03.02) already rejected non-ABI types.
+fn lower_extern_abi_type(checked: &CheckedProgram, ann: &draconic_ast::TypeAnn) -> Type {
     match ann {
         draconic_ast::TypeAnn::Named { name, .. } => {
             if let Some(n) = NativeType::from_name(name) {
                 Type::Native(n)
             } else if name == "function" {
                 Type::Function
+            } else if let Some(ty) = checked.type_alias(name) {
+                ty
             } else {
-                panic!("extern ABI type `{name}` must be native or function (checker should reject)")
+                panic!("extern ABI type `{name}` must be native, function, or layout alias")
             }
         }
         draconic_ast::TypeAnn::Pointer { inner, .. } => {
-            // v1 ABI: `*T` only when T is a native scalar (N03.03 / F06.02).
-            match lower_extern_abi_type(inner) {
+            match lower_extern_abi_type(checked, inner) {
                 Type::Native(n) => Type::Ptr(n),
                 other => panic!("extern pointer pointee must be native scalar, got {other:?}"),
             }
         }
-        other => panic!("extern ABI type not native/pointer: {other:?}"),
+        draconic_ast::TypeAnn::Object { props, .. } => {
+            let want: Vec<(String, Type)> = props
+                .iter()
+                .map(|p| (p.name.clone(), lower_extern_abi_type(checked, &p.ty)))
+                .collect();
+            for (i, shape) in checked.shapes().iter().enumerate() {
+                if shape.props == want {
+                    return Type::Shape(i as u32);
+                }
+            }
+            panic!("extern ABI object type must match an interned native layout")
+        }
+        other => panic!("extern ABI type not native/pointer/layout: {other:?}"),
     }
 }
 
@@ -8474,6 +8487,45 @@ mod tests {
             )),
             "expected call passing fn: {:?}",
             module.body
+        );
+    }
+
+    #[test]
+    fn lower_extern_native_layout_struct_abi() {
+        let module = lower_src(
+            r#"
+            type Pair = { a: i32; b: i64 };
+            extern "C" function take(p: Pair): i32;
+            extern "C" function make(a: i32, b: i64): Pair;
+            "#,
+        );
+        assert!(module.has_extern_ffi);
+        let take = module.body.iter().find_map(|s| match s {
+            Stmt::ExternFunction { name, params, ret, .. } if name == "take" => {
+                Some((params.as_slice(), ret.as_ref()))
+            }
+            _ => None,
+        });
+        let (params, ret) = take.expect("take");
+        assert!(
+            matches!(params, [Type::Shape(_)]),
+            "take param should be native layout shape, got {params:?}"
+        );
+        assert_eq!(ret, Some(&Type::Native(NativeType::I32)));
+        let make = module.body.iter().find_map(|s| match s {
+            Stmt::ExternFunction { name, params, ret, .. } if name == "make" => {
+                Some((params.as_slice(), ret.as_ref()))
+            }
+            _ => None,
+        });
+        let (params, ret) = make.expect("make");
+        assert_eq!(
+            params,
+            &[Type::Native(NativeType::I32), Type::Native(NativeType::I64)]
+        );
+        assert!(
+            matches!(ret, Some(Type::Shape(_))),
+            "make return should be native layout shape, got {ret:?}"
         );
     }
 }

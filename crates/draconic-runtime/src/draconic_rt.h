@@ -20,12 +20,23 @@ int32_t draconic_rt_load_i32(const int32_t *p);
 int32_t draconic_rt_fnptr_nonnull(void *p);
 /* F02.02: host invokes Draconic callback with scalar args; return observed. */
 int32_t draconic_rt_call_i32_i32(void *cb, int32_t a, int32_t b);
-/* F03.01: C ABI field access on native layout structs (repr(C) offsets). */
+/* F03.01–F03.02: C ABI native layout structs (repr(C) offsets; pass/return). */
+typedef struct {
+    int32_t a;
+    int64_t b;
+} DraconicLayoutI32I64;
+typedef struct {
+    int8_t x;
+    int32_t y;
+} DraconicLayoutI8I32;
 int32_t draconic_rt_layout_i32_i64_a(const void *p);
 int64_t draconic_rt_layout_i32_i64_b(const void *p);
 void draconic_rt_layout_i32_i64_write(void *p, int32_t a, int64_t b);
 int8_t draconic_rt_layout_i8_i32_x(const void *p);
 int32_t draconic_rt_layout_i8_i32_y(const void *p);
+int32_t draconic_rt_layout_pass_i32_i64(DraconicLayoutI32I64 p);
+DraconicLayoutI32I64 draconic_rt_layout_ret_i32_i64(int32_t a, int64_t b);
+int32_t draconic_rt_layout_pass_i32_i64_ptr(const DraconicLayoutI32I64 *p);
 void draconic_rt_print_i64(int64_t v);
 void draconic_rt_print_u64(uint64_t v);
 void draconic_rt_print_f64(double v);

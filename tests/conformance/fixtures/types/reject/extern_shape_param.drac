@@ -1,1 +1,1 @@
-extern "C" function f(o: { x: i32 }): void;
+extern "C" function f(o: { x: string }): void;

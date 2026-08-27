@@ -2950,6 +2950,53 @@ mod tests {
         );
     }
 
+    /// F03.02: pass/return native layout struct by value or pointer across FFI.
+    #[test]
+    fn native_pass_return_struct_across_ffi() {
+        let m = module_of(
+            r#"
+            type Pair = { a: i32; b: i64 };
+            extern "C" function draconic_rt_layout_pass_i32_i64(p: Pair): i32;
+            extern "C" function draconic_rt_layout_ret_i32_i64(a: i32, b: i64): Pair;
+            extern "C" function draconic_rt_layout_pass_i32_i64_ptr(p: *u8): i32;
+            let p: Pair = { a: 10, b: 20 };
+            let by_val: i32 = draconic_rt_layout_pass_i32_i64(p);
+            let by_ptr: i32 = draconic_rt_layout_pass_i32_i64_ptr(&p);
+            let q: Pair = draconic_rt_layout_ret_i32_i64(7, 8);
+            let qa: i32 = q.a;
+            let qb: i64 = q.b;
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_rt_layout_pass_i32_i64([2 x i64])"),
+            "expected by-value Pair param as [2 x i64]:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare [2 x i64] @draconic_rt_layout_ret_i32_i64(i32, i64)"),
+            "expected by-value Pair return as [2 x i64]:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare i32 @draconic_rt_layout_pass_i32_i64_ptr(ptr)"),
+            "expected pointer Pair param:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f03-02-pass-return").expect("workdir");
+        let bin = dir.join("pass_return");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            stdout, "10\n20\n30\n30\n7\n8\n7\n8\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

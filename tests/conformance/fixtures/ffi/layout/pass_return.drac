@@ -1,0 +1,11 @@
+// F03.02: pass/return native layout struct by value or pointer across FFI.
+type Pair = { a: i32; b: i64 };
+extern "C" function draconic_rt_layout_pass_i32_i64(p: Pair): i32;
+extern "C" function draconic_rt_layout_ret_i32_i64(a: i32, b: i64): Pair;
+extern "C" function draconic_rt_layout_pass_i32_i64_ptr(p: *u8): i32;
+let p: Pair = { a: 10, b: 20 };
+let by_val: i32 = draconic_rt_layout_pass_i32_i64(p);
+let by_ptr: i32 = draconic_rt_layout_pass_i32_i64_ptr(&p);
+let q: Pair = draconic_rt_layout_ret_i32_i64(7, 8);
+let qa: i32 = q.a;
+let qb: i64 = q.b;

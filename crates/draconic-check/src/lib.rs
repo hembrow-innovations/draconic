@@ -298,6 +298,8 @@ pub struct CheckedProgram {
     expr_types: HashMap<Span, Type>,
     /// Structural object shapes referenced by `Type::Shape`.
     shapes: Vec<ObjectShape>,
+    /// Named type aliases (`type Pair = { … }`) for ABI re-resolution (F03.02).
+    type_aliases: HashMap<String, Type>,
     /// Union members referenced by `Type::Union`.
     unions: Vec<UnionType>,
     /// Intersection members referenced by `Type::Intersection`.
@@ -326,6 +328,11 @@ impl CheckedProgram {
 
     pub fn shapes(&self) -> &[ObjectShape] {
         &self.shapes
+    }
+
+    /// Resolved type for a named alias, if one was declared.
+    pub fn type_alias(&self, name: &str) -> Option<Type> {
+        self.type_aliases.get(name).copied()
     }
 
     pub fn unions(&self) -> &[UnionType] {
@@ -459,6 +466,7 @@ fn check_with_module_goal(
     let unions = checker.unions;
     let intersections = checker.intersections;
     let generic_fns = checker.generic_fns;
+    let type_aliases = checker.type_aliases;
     Ok(CheckedProgram {
         bound,
         symbol_types,
@@ -467,6 +475,7 @@ fn check_with_module_goal(
         unions,
         intersections,
         generic_fns,
+        type_aliases,
     })
 }
 
@@ -5647,9 +5656,9 @@ impl<'a> Checker<'a> {
     /// F06.02: check an `extern "C" function` declaration.
     ///
     /// - Binds the name as a callable `function`.
-    /// - Every parameter must be annotated with a native scalar, pointer, or `function` type.
-    /// - Return type is optional / `void`, or native scalar / pointer / `function`.
-    /// - JS-only types (`string`, `number`, `any`, shapes, …) are rejected.
+    /// - Every parameter must be annotated with a native scalar, pointer, `function`, or native layout.
+    /// - Return type is optional / `void`, or native scalar / pointer / `function` / native layout.
+    /// - JS-only types (`string`, `number`, `any`, non-layout shapes, …) are rejected.
     /// - Records a full `FnSig` so later call sites get arity/arg checking.
     /// - F08.01: when the compile target is js, hard-error (native-only FFI).
     fn check_extern_function_declaration(
@@ -5711,7 +5720,7 @@ impl<'a> Checker<'a> {
                 )
                 .with_code(codes::INVALID_EXTERN_TYPE)
                 .with_help(
-                    "annotate with a native scalar or pointer type (e.g. `i32`, `*u8`)",
+                    "annotate with a native scalar, pointer, function, or native layout struct",
                 ));
             };
             if is_void_type_ann(ann) {
@@ -5741,7 +5750,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    /// Resolve a type annotation for an extern ABI position: native scalar, `*T`, or `function` (C fn pointer).
+    /// Resolve a type annotation for an extern ABI position: native scalar, `*T`, `function`, or native layout.
     fn resolve_extern_abi_type(
         &mut self,
         ann: &TypeAnn,
@@ -5751,14 +5760,17 @@ impl<'a> Checker<'a> {
         if matches!(ty, Type::Native(_) | Type::Ptr(_) | Type::Function) {
             return Ok(ty);
         }
+        if self.is_native_layout(ty) {
+            return Ok(ty);
+        }
         let pretty = format_type_full(ty, &self.shapes, &self.unions, &self.intersections);
         Err(Diagnostic::new(
-            format!("extern {role} type must be a native scalar, pointer, or function, got `{pretty}`"),
+            format!("extern {role} type must be a native scalar, pointer, function, or native layout, got `{pretty}`"),
             ann.span(),
         )
         .with_code(codes::INVALID_EXTERN_TYPE)
         .with_help(
-            "use a native type such as `i32`, `i64`, `f64`, `bool`, a pointer like `*u8`, or `function`",
+            "use a native type such as `i32`, `i64`, `f64`, `bool`, a pointer like `*u8`, `function`, or a native-field struct",
         ))
     }
 
@@ -9151,8 +9163,21 @@ mod tests {
     }
 
     #[test]
-    fn check_extern_shape_param_errors() {
-        let program = parse(r#"extern "C" function f(o: { x: i32 }): void;"#).unwrap();
+    fn check_extern_native_layout_param_ok() {
+        let program = parse(
+            r#"
+            type Pair = { a: i32; b: i64 };
+            extern "C" function take(p: Pair): i32;
+            extern "C" function make(a: i32, b: i64): Pair;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("native layout struct is a valid extern ABI type (F03.02)");
+    }
+
+    #[test]
+    fn check_extern_js_shape_param_errors() {
+        let program = parse(r#"extern "C" function f(o: { x: string }): void;"#).unwrap();
         let err = check(program).unwrap_err();
         assert!(
             err.message.contains("extern parameter"),
