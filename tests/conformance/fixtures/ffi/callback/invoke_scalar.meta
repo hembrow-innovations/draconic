@@ -1,0 +1,4 @@
+id: ffi/callback/invoke_scalar
+targets: native
+native.exit: 0
+native.stdout: 42\n7\n

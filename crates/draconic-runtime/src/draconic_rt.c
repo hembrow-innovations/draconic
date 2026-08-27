@@ -44,6 +44,10 @@ int32_t draconic_rt_fnptr_nonnull(void *p) {
     return p ? 1 : 0;
 }
 
+int32_t draconic_rt_call_i32_i32(void *cb, int32_t a, int32_t b) {
+    return ((int32_t (*)(int32_t, int32_t))cb)(a, b);
+}
+
 /* N01: print native integers for conformance observation (decimal + newline). */
 void draconic_rt_print_i64(int64_t v) {
     printf("%lld\n", (long long)v);

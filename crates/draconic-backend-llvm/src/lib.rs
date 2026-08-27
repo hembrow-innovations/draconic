@@ -2856,6 +2856,46 @@ mod tests {
         assert_eq!(stdout, "1\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
+    /// F02.02: host invokes callback with scalar args; return value observed.
+    #[test]
+    fn native_host_invokes_callback_scalar_args() {
+        let m = module_of(
+            r#"
+            function add(a: i32, b: i32): i32 {
+              return a + b;
+            }
+            extern "C" function draconic_rt_call_i32_i32(cb: function, a: i32, b: i32): i32;
+            let r: i32 = draconic_rt_call_i32_i32(add, 20, 22);
+            let s: i32 = draconic_rt_call_i32_i32(add, -5, 12);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_rt_call_i32_i32(ptr, i32, i32)"),
+            "expected declare call helper:\n{ir}"
+        );
+        assert!(
+            ir.contains("define i32 @d_add_"),
+            "expected Draconic fn define:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @draconic_rt_call_i32_i32(ptr @d_add_"),
+            "expected pass of fn address as ptr:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-f02-02-invoke").expect("workdir");
+        let bin = dir.join("invoke_scalar");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "42\n7\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
     #[test]
     fn native_ints_wrapping_i8() {
         let ir = emit_llvm_ir(&module_of(

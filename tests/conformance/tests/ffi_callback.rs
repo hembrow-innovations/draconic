@@ -1,4 +1,4 @@
-//! ROADMAP F02.01: export Draconic fn as C function pointer.
+//! ROADMAP F02.01–F02.02: export Draconic fn as C function pointer; host invoke.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -37,4 +37,14 @@ fn export_fnptr_fixture_present() {
 #[test]
 fn export_fnptr_runs_native() {
     assert_fixture_runs_native("ffi/callback/export_fnptr");
+}
+
+#[test]
+fn invoke_scalar_fixture_present() {
+    assert_fixture_present("ffi/callback/invoke_scalar");
+}
+
+#[test]
+fn invoke_scalar_runs_native() {
+    assert_fixture_runs_native("ffi/callback/invoke_scalar");
 }

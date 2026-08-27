@@ -1,0 +1,7 @@
+// F02.02: host invokes Draconic callback with scalar args; return observed.
+function add(a: i32, b: i32): i32 {
+  return a + b;
+}
+extern "C" function draconic_rt_call_i32_i32(cb: function, a: i32, b: i32): i32;
+let r: i32 = draconic_rt_call_i32_i32(add, 20, 22);
+let s: i32 = draconic_rt_call_i32_i32(add, -5, 12);
