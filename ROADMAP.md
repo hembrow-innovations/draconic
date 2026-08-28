@@ -879,7 +879,7 @@ Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | D01 | todo | compiler | Release binaries + install script; one-line install to PATH | `tests/integration` (install smoke), CI |
-| D01.01 | todo | compiler | CI/release: produce platform binary artifact for host triple | CI, `tests/integration` |
+| D01.01 | done | compiler | CI/release: produce platform binary artifact for host triple | CI, `tests/integration` |
 | D01.02 | todo | compiler | Install script: download + place `draconic` on PATH (one-line) | `tests/integration` (install smoke) |
 | D01.03 | todo | compiler | Install smoke: fresh PATH → `draconic -V` / parse hello | `tests/integration` |
 | D02 | todo | compiler | Toolchain version pin in `draconic.toml`; CLI enforces or warns | `crates/draconic-cli`, `tests/integration` |
