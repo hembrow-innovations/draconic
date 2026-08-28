@@ -558,3 +558,13 @@ fn with_for_fixture_present() {
 fn with_for_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_for");
 }
+
+#[test]
+fn with_labeled_fixture_present() {
+    assert_fixture_present("es/legacy/with_labeled");
+}
+
+#[test]
+fn with_labeled_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_labeled");
+}

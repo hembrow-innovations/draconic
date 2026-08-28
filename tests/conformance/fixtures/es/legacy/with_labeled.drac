@@ -1,0 +1,342 @@
+// E17.02.52: with + labeled statements + labeled break/continue through
+// object environment (non-strict). Body idents hit object (else outer);
+// labels are not bindings; labeled block/loop; label wrapping with;
+// break out of with; continue of loop wrapping with; nested labels;
+// let in labeled body does not write object; live close; nested with;
+// unresolvable → ReferenceError; accessor this is with object;
+// unscopables skip.
+
+function identHitsObject() {
+  let obj = { x: 5 };
+  let n = 0;
+  with (obj) {
+    lbl: {
+      n = x;
+      break lbl;
+    }
+  }
+  return n === 5;
+}
+let a = identHitsObject();
+
+function identMissIsOuter() {
+  let x = 5;
+  let n = 0;
+  with ({}) {
+    lbl: {
+      n = x;
+      break lbl;
+    }
+  }
+  return n === 5;
+}
+let b = identMissIsOuter();
+
+function identShadowsOuter() {
+  let x = 0;
+  let obj = { x: 5 };
+  let n = 0;
+  with (obj) {
+    lbl: {
+      n = x;
+      break lbl;
+    }
+  }
+  return n === 5;
+}
+let c = identShadowsOuter();
+
+function bodyAssignHitsObject() {
+  let obj = { z: 0 };
+  with (obj) {
+    lbl: {
+      z = 9;
+      break lbl;
+    }
+  }
+  return obj.z === 9;
+}
+let d = bodyAssignHitsObject();
+
+function bodyAssignMissUsesOuter() {
+  let z = 0;
+  let obj = {};
+  with (obj) {
+    lbl: {
+      z = 8;
+      break lbl;
+    }
+  }
+  return (
+    z === 8 && Object.prototype.hasOwnProperty.call(obj, "z") === false
+  );
+}
+let e = bodyAssignMissUsesOuter();
+
+function labeledBlockBreakSkipsRest() {
+  let obj = { z: 0 };
+  with (obj) {
+    lbl: {
+      z = 5;
+      break lbl;
+      z = 99;
+    }
+  }
+  return obj.z === 5;
+}
+let f = labeledBlockBreakSkipsRest();
+
+function labeledWhileBreak() {
+  let obj = { x: 1, z: 0 };
+  with (obj) {
+    loop: while (x) {
+      z = 5;
+      break loop;
+      z = 99;
+    }
+  }
+  return obj.z === 5 && obj.x === 1;
+}
+let g = labeledWhileBreak();
+
+function labeledForContinue() {
+  let obj = { x: 3, z: 0 };
+  with (obj) {
+    loop: for (; x; x = x - 1) {
+      if (x === 1) {
+        continue loop;
+      }
+      z = z + 1;
+    }
+  }
+  return obj.z === 2 && obj.x === 0;
+}
+let h = labeledForContinue();
+
+function labeledDoWhileBreak() {
+  let obj = { z: 0 };
+  with (obj) {
+    loop: do {
+      z = 4;
+      break loop;
+      z = 99;
+    } while (true);
+  }
+  return obj.z === 4;
+}
+let i = labeledDoWhileBreak();
+
+function labelNameIsNotBinding() {
+  let obj = { x: 1 };
+  let n = 0;
+  with (obj) {
+    x: {
+      n = 1;
+      break x;
+      n = 99;
+    }
+  }
+  return n === 1 && obj.x === 1;
+}
+let j = labelNameIsNotBinding();
+
+function labelWrapsWith() {
+  let obj = { x: 1 };
+  let n = 0;
+  done: with (obj) {
+    n = x;
+    break done;
+    n = 99;
+  }
+  return n === 1 && obj.x === 1;
+}
+let k = labelWrapsWith();
+
+function breakOutOfWith() {
+  let obj = { x: 1 };
+  let n = 0;
+  done: {
+    with (obj) {
+      n = x;
+      break done;
+      n = 99;
+    }
+    n = 88;
+  }
+  return n === 1;
+}
+let l = breakOutOfWith();
+
+function continueLoopWrappingWith() {
+  let obj = { x: 0 };
+  let n = 0;
+  let i = 0;
+  outer: for (; i < 3; i = i + 1) {
+    with (obj) {
+      n = n + 1;
+      if (i === 0) {
+        continue outer;
+      }
+      x = x + 1;
+    }
+  }
+  return n === 3 && obj.x === 2;
+}
+let m = continueLoopWrappingWith();
+
+function nestedLabels() {
+  let obj = { x: 1, z: 0 };
+  with (obj) {
+    outer: {
+      inner: {
+        z = x;
+        break outer;
+        z = 99;
+      }
+      z = 88;
+    }
+  }
+  return obj.z === 1;
+}
+let n = nestedLabels();
+
+function liveClose() {
+  let obj = { x: 0 };
+  let run;
+  with (obj) {
+    run = function () {
+      let c = 0;
+      lbl: {
+        c = x;
+        break lbl;
+      }
+      return c === 1;
+    };
+  }
+  obj.x = 1;
+  return run();
+}
+let p = liveClose();
+
+function unresolvableInLabeledThrows() {
+  with ({}) {
+    try {
+      lbl: {
+        e170252_missing;
+        break lbl;
+      }
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let q = unresolvableInLabeledThrows();
+
+function letInLabeledDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    lbl: {
+      let x = 5;
+      x = 6;
+      break lbl;
+    }
+  }
+  return obj.x === 1;
+}
+let r = letInLabeledDoesNotWriteObject();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 1;
+    }
+  };
+  let n = 0;
+  with (obj) {
+    lbl: {
+      n = x;
+      break lbl;
+    }
+  }
+  return seen === obj && n === 1;
+}
+let s = accessorThisIsWithObject();
+
+function unscopablesUsesOuter() {
+  let x = 1;
+  let n = 0;
+  let obj = { x: 0 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    lbl: {
+      n = x;
+      break lbl;
+    }
+  }
+  return n === 1 && obj.x === 0;
+}
+let t = unscopablesUsesOuter();
+
+function unscopablesFalseyStillObject() {
+  let x = 0;
+  let n = 0;
+  let obj = { x: 1 };
+  obj[Symbol.unscopables] = { x: false };
+  with (obj) {
+    lbl: {
+      n = x;
+      x = 0;
+      break lbl;
+    }
+  }
+  return n === 1 && obj.x === 0;
+}
+let u = unscopablesFalseyStillObject();
+
+function nestedInnerWins() {
+  let inner = { x: 1 };
+  let outer = { x: 0 };
+  let n = 0;
+  with (outer) {
+    with (inner) {
+      lbl: {
+        n = x;
+        break lbl;
+      }
+    }
+  }
+  return n === 1;
+}
+let v = nestedInnerWins();
+
+function inheritedRead() {
+  let proto = { x: 1 };
+  let obj = Object.create(proto);
+  let n = 0;
+  with (obj) {
+    lbl: {
+      n = x;
+      break lbl;
+    }
+  }
+  return n === 1;
+}
+let w = inheritedRead();
+
+function nestedWithBreakOuterLabel() {
+  let inner = { x: 1 };
+  let outer = { x: 0 };
+  let n = 0;
+  done: with (outer) {
+    with (inner) {
+      n = x;
+      break done;
+      n = 99;
+    }
+    n = 88;
+  }
+  return n === 1;
+}
+let y = nestedWithBreakOuterLabel();
