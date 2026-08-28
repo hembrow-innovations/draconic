@@ -238,3 +238,47 @@ fn help_lists_test_coverage() {
         "help should mention coverage:\n{stdout}"
     );
 }
+
+/// ROADMAP L05.01: `describe` / `it` suite that all pass → `draconic test` exit 0.
+#[test]
+fn test_runs_in_language_describe_it() {
+    let dir = temp_dir();
+    let src = write(
+        &dir,
+        "suite.drac",
+        r#"
+describe("math", () => {
+  it("adds", () => {
+    if (1 + 1 !== 2) throw 1;
+  });
+});
+"#,
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&src));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("ok") || stdout.contains("passed"),
+        "stdout={stdout}"
+    );
+}
+
+/// ROADMAP L05.01: a throwing `it` fails `draconic test`.
+#[test]
+fn test_fails_in_language_it_throw() {
+    let dir = temp_dir();
+    let src = write(
+        &dir,
+        "suite.drac",
+        r#"
+describe("math", () => {
+  it("adds", () => {
+    throw 1;
+  });
+});
+"#,
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&src));
+    assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
+}

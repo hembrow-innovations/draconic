@@ -1,0 +1,6 @@
+id: stdlib/testing/describe_it_run
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\ntrue\ntrue\n1\ntrue\n
+js.check: if (td !== "function") process.exit(1); if (ti !== "function") process.exit(2); if (gd !== true) process.exit(3); if (gi !== true) process.exit(4); if (ran !== 1) process.exit(5); if (passed !== true) process.exit(6);

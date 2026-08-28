@@ -1,0 +1,6 @@
+id: stdlib/testing/describe_it_fail
+targets: js,native
+js.exit: 1
+native.exit: 0
+native.stdout: false\n1\n
+js.check: if (failed !== false) process.exit(2); if (continued !== 1) process.exit(3);

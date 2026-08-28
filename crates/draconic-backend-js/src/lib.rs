@@ -80,6 +80,13 @@ fn module_uses_query(module: &Module) -> bool {
     module_uses_named_local(module, "parseQuery") || module_uses_named_local(module, "serializeQuery")
 }
 
+/// L05.01: free `describe` / `it` (IdentName so user `let it` does not collide).
+fn module_uses_describe_it(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "describe") || stmt_uses_ident_name(s, "it")
+    })
+}
+
 fn module_uses_named_local(module: &Module, name: &str) -> bool {
     let ids: Vec<LocalId> = module
         .locals
@@ -563,6 +570,13 @@ fn emit_js_full(
     // L08.02: portable `parseQuery` / `serializeQuery` polyfill.
     if module_uses_query(module) {
         out.push_str(draconic_runtime::query_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L05.01: portable `describe` / `it` polyfill.
+    if module_uses_describe_it(module) {
+        out.push_str(draconic_runtime::describe_it_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1191,6 +1205,15 @@ mod tests {
         let js = emit_src("let d = randomBytes(8);");
         assert!(js.contains("function randomBytes("), "{js}");
         assert!(js.contains("globalThis.randomBytes = randomBytes"), "{js}");
+    }
+
+    #[test]
+    fn emit_describe_it_polyfill() {
+        let js = emit_src("describe(\"s\", () => { it(\"t\", () => {}); });");
+        assert!(js.contains("function describe("), "{js}");
+        assert!(js.contains("function it("), "{js}");
+        assert!(js.contains("globalThis.describe = describe"), "{js}");
+        assert!(js.contains("globalThis.it = it"), "{js}");
     }
 
     #[test]

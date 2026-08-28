@@ -4,6 +4,7 @@
 pub mod abi;
 pub use abi::*;
 pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
+pub use testing::describe_it_js_polyfill;
 pub use url::{
     parse_query, parse_url, parse_url_js_polyfill, query_js_polyfill, serialize_query, ParsedUrl,
 };
@@ -66,6 +67,31 @@ if (typeof globalThis !== "undefined") globalThis.randomBytes = randomBytes;
         use std::io::Read;
         let mut f = std::fs::File::open("/dev/urandom").map_err(|_| ())?;
         f.read_exact(buf).map_err(|_| ())
+    }
+}
+
+/// L05.01: in-language `describe` / `it` — run callbacks; `it` returns pass/fail.
+pub mod testing {
+    pub fn describe_it_js_polyfill() -> &'static str {
+        r#"function describe(name, fn) {
+  if (typeof fn !== "function") throw new TypeError("describe expects a function");
+  fn();
+}
+function it(name, fn) {
+  if (typeof fn !== "function") throw new TypeError("it expects a function");
+  try {
+    fn();
+    return true;
+  } catch (e) {
+    if (typeof process !== "undefined") process.exitCode = 1;
+    return false;
+  }
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.describe = describe;
+  globalThis.it = it;
+}
+"#
     }
 }
 

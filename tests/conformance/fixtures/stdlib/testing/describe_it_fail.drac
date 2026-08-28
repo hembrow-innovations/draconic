@@ -1,0 +1,10 @@
+let failed;
+let continued = 0;
+describe("suite", () => {
+  failed = it("boom", () => {
+    throw 1;
+  });
+  it("next", () => {
+    continued = 1;
+  });
+});

@@ -15,6 +15,7 @@ mod base64;
 mod hex;
 mod sha256;
 mod es_encoding;
+mod es_testing;
 mod es_eval;
 mod es_exceptions;
 mod es_expr;
@@ -87,6 +88,7 @@ use es_destructure_defaults::{
     emit_es_destructure_defaults, is_es_destructure_defaults_module,
 };
 use es_encoding::{emit_es_encoding, is_es_encoding_module};
+use es_testing::{emit_es_testing, is_es_testing_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
@@ -324,6 +326,9 @@ fn emit_llvm_ir_raw(
     }
     if is_es_proxies_module(module) {
         return emit_es_proxies(module);
+    }
+    if is_es_testing_module(module) {
+        return emit_es_testing(module);
     }
     if is_es_encoding_module(module) {
         return emit_es_encoding(module);

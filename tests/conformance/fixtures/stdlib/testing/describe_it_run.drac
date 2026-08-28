@@ -1,0 +1,11 @@
+let td = typeof describe;
+let ti = typeof it;
+let gd = globalThis.describe === describe;
+let gi = globalThis.it === it;
+let ran = 0;
+let passed;
+describe("suite", () => {
+  passed = it("case", () => {
+    ran = 1;
+  });
+});
