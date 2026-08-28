@@ -123,6 +123,8 @@ pub struct HostApiEntry {
 ///   send 0 success / negative error.
 /// - `makeOnce` / `onceRun` (C03.01): native-only — thread-safe init cell; `onceRun`
 ///   returns 1 if this caller ran init, 0 if already done, negative if invalid.
+/// - C03.02: Runtime-internal mutex only (workers/channels). Not a user Host API;
+///   no `makeMutex` / shared-heap lock.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -1536,5 +1538,15 @@ mod tests {
         assert!(is_available("onceRun", CompileTarget::Native));
         assert!(unsupported_diagnostic("onceRun", CompileTarget::Js, Span::dummy()).is_some());
         assert!(unsupported_diagnostic("onceRun", CompileTarget::Native, Span::dummy()).is_none());
+    }
+
+    #[test]
+    fn registry_has_no_user_facing_mutex() {
+        assert!(lookup("makeMutex").is_none());
+        assert!(lookup("mutexLock").is_none());
+        assert!(lookup("mutexUnlock").is_none());
+        assert!(!is_host_api("makeMutex"));
+        assert!(!is_host_api("mutexLock"));
+        assert!(!is_host_api("mutexUnlock"));
     }
 }

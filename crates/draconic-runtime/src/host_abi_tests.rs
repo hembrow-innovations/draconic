@@ -326,6 +326,18 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_once_run(i32, ptr)"
     );
     assert_eq!(
+        HOST_INTERNAL_MUTEX_MAKE.declare(),
+        "declare i32 @draconic_rt_host_internal_mutex_make()"
+    );
+    assert_eq!(
+        HOST_INTERNAL_MUTEX_LOCK.declare(),
+        "declare i32 @draconic_rt_host_internal_mutex_lock(i32)"
+    );
+    assert_eq!(
+        HOST_INTERNAL_MUTEX_UNLOCK.declare(),
+        "declare i32 @draconic_rt_host_internal_mutex_unlock(i32)"
+    );
+    assert_eq!(
         HOST_CHANNEL_SEND_BOOL.declare(),
         "declare i32 @draconic_rt_host_channel_send_bool(i32, i32)"
     );

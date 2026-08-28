@@ -858,3 +858,12 @@ int32_t draconic_rt_host_channel_recv_obj(int32_t handle, void **out);
 
 int32_t draconic_rt_host_once_make(void);
 int32_t draconic_rt_host_once_run(int32_t handle, void (*fn)(void));
+
+/* --- Runtime-internal mutex (C03.02) --------------------------------------
+    Not a user Host API: no shared JS heap lock. Runtime tables (workers,
+    channels) take these internally. make → handle >= 1 or -1.
+    lock/unlock → 0 success, -1 invalid. */
+
+int32_t draconic_rt_host_internal_mutex_make(void);
+int32_t draconic_rt_host_internal_mutex_lock(int32_t handle);
+int32_t draconic_rt_host_internal_mutex_unlock(int32_t handle);

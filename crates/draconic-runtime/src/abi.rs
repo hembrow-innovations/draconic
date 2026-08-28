@@ -936,11 +936,28 @@ pub const HOST_ONCE_MAKE: AbiFn = AbiFn {
     params: "",
 };
 /* C03.01: onceRun — call fn at most once per handle. 1 ran, 0 already done,
-   -1 invalid. fn may be null (empty init). Concurrent callers wait. */
+    -1 invalid. fn may be null (empty init). Concurrent callers wait. */
 pub const HOST_ONCE_RUN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_once_run",
     ret: "i32",
     params: "i32, ptr",
+};
+/* C03.02: Runtime-internal mutex (not a user Host API; no shared JS heap lock).
+    make → handle >= 1 or -1; lock/unlock → 0 success, -1 invalid. */
+pub const HOST_INTERNAL_MUTEX_MAKE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_internal_mutex_make",
+    ret: "i32",
+    params: "",
+};
+pub const HOST_INTERNAL_MUTEX_LOCK: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_internal_mutex_lock",
+    ret: "i32",
+    params: "i32",
+};
+pub const HOST_INTERNAL_MUTEX_UNLOCK: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_internal_mutex_unlock",
+    ret: "i32",
+    params: "i32",
 };
 /* C02.02: channelSend plain object (structured clone); 0 success, -1 reject. */
 pub const HOST_CHANNEL_SEND_OBJ: AbiFn = AbiFn {

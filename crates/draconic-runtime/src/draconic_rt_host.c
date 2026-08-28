@@ -8385,6 +8385,9 @@ typedef struct DraconicWorker {
 } DraconicWorker;
 
 static DraconicWorker g_workers[DRACONIC_WORKER_SLOTS];
+#if !defined(_WIN32)
+static pthread_mutex_t g_worker_table_mu = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 #if !defined(_WIN32)
 static void *draconic_worker_main(void *arg) {
@@ -8405,7 +8408,6 @@ static int32_t draconic_worker_stop_join(DraconicWorker *w) {
     pthread_join(w->th, NULL);
     pthread_mutex_destroy(&w->mu);
     pthread_cond_destroy(&w->cv);
-    w->live = 0;
     w->stop = 0;
     return 0;
 }
@@ -8413,6 +8415,7 @@ static int32_t draconic_worker_stop_join(DraconicWorker *w) {
 
 int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path) {
     size_t i;
+    int32_t handle;
     if (kind == 0) {
         /* fn entry: path unused */
     } else if (kind == 1) {
@@ -8422,20 +8425,27 @@ int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path) {
     } else {
         return -1;
     }
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_worker_table_mu);
+#endif
+    handle = -1;
     for (i = 0; i < DRACONIC_WORKER_SLOTS; i++) {
         if (g_workers[i].live == 0) {
 #if defined(_WIN32)
             g_workers[i].live = 1;
             g_workers[i].stop = 0;
-            return (int32_t)(i + 1);
+            handle = (int32_t)(i + 1);
+            break;
 #else
             DraconicWorker *w = &g_workers[i];
             w->stop = 0;
             if (pthread_mutex_init(&w->mu, NULL) != 0) {
+                pthread_mutex_unlock(&g_worker_table_mu);
                 return -1;
             }
             if (pthread_cond_init(&w->cv, NULL) != 0) {
                 pthread_mutex_destroy(&w->mu);
+                pthread_mutex_unlock(&g_worker_table_mu);
                 return -1;
             }
             w->live = 1;
@@ -8443,17 +8453,23 @@ int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path) {
                 pthread_mutex_destroy(&w->mu);
                 pthread_cond_destroy(&w->cv);
                 w->live = 0;
+                pthread_mutex_unlock(&g_worker_table_mu);
                 return -1;
             }
-            return (int32_t)(i + 1);
+            handle = (int32_t)(i + 1);
+            break;
 #endif
         }
     }
-    return -1;
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&g_worker_table_mu);
+#endif
+    return handle;
 }
 
 int32_t draconic_rt_host_worker_join(int32_t handle) {
     size_t i;
+    DraconicWorker *w;
     if (handle < 1) {
         return -1;
     }
@@ -8461,19 +8477,28 @@ int32_t draconic_rt_host_worker_join(int32_t handle) {
     if (i >= DRACONIC_WORKER_SLOTS) {
         return -1;
     }
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_worker_table_mu);
+#endif
     if (g_workers[i].live == 0) {
+#if !defined(_WIN32)
+        pthread_mutex_unlock(&g_worker_table_mu);
+#endif
         return -1;
     }
-#if defined(_WIN32)
     g_workers[i].live = 0;
+    w = &g_workers[i];
+#if defined(_WIN32)
     return 0;
 #else
-    return draconic_worker_stop_join(&g_workers[i]);
+    pthread_mutex_unlock(&g_worker_table_mu);
+    return draconic_worker_stop_join(w);
 #endif
 }
 
 int32_t draconic_rt_host_worker_terminate(int32_t handle) {
     size_t i;
+    DraconicWorker *w;
     if (handle < 1) {
         return -1;
     }
@@ -8481,19 +8506,28 @@ int32_t draconic_rt_host_worker_terminate(int32_t handle) {
     if (i >= DRACONIC_WORKER_SLOTS) {
         return -1;
     }
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_worker_table_mu);
+#endif
     if (g_workers[i].live == 0) {
+#if !defined(_WIN32)
+        pthread_mutex_unlock(&g_worker_table_mu);
+#endif
         return -1;
     }
-#if defined(_WIN32)
     g_workers[i].live = 0;
+    w = &g_workers[i];
+#if defined(_WIN32)
     return 0;
 #else
-    return draconic_worker_stop_join(&g_workers[i]);
+    pthread_mutex_unlock(&g_worker_table_mu);
+    return draconic_worker_stop_join(w);
 #endif
 }
 
 int32_t draconic_rt_host_worker_os_thread(int32_t handle) {
     size_t i;
+    int32_t out;
     if (handle < 1) {
         return -1;
     }
@@ -8501,16 +8535,21 @@ int32_t draconic_rt_host_worker_os_thread(int32_t handle) {
     if (i >= DRACONIC_WORKER_SLOTS) {
         return -1;
     }
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_worker_table_mu);
+#endif
     if (g_workers[i].live == 0) {
+#if !defined(_WIN32)
+        pthread_mutex_unlock(&g_worker_table_mu);
+#endif
         return -1;
     }
 #if defined(_WIN32)
     return 0;
 #else
-    if (pthread_equal(g_workers[i].th, pthread_self())) {
-        return 0;
-    }
-    return 1;
+    out = pthread_equal(g_workers[i].th, pthread_self()) ? 0 : 1;
+    pthread_mutex_unlock(&g_worker_table_mu);
+    return out;
 #endif
 }
 
@@ -8537,9 +8576,15 @@ typedef struct {
     int32_t len;
     DraconicChanMsg *head;
     DraconicChanMsg *tail;
+#if !defined(_WIN32)
+    pthread_mutex_t mu;
+#endif
 } DraconicChannel;
 
 static DraconicChannel g_channels[DRACONIC_CHANNEL_SLOTS];
+#if !defined(_WIN32)
+static pthread_mutex_t g_channel_table_mu = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 static DraconicChannel *host_channel_get(int32_t handle) {
     size_t i;
@@ -8554,6 +8599,33 @@ static DraconicChannel *host_channel_get(int32_t handle) {
         return NULL;
     }
     return &g_channels[i];
+}
+
+static DraconicChannel *host_channel_lock(int32_t handle) {
+    DraconicChannel *ch;
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_channel_table_mu);
+#endif
+    ch = host_channel_get(handle);
+    if (!ch) {
+#if !defined(_WIN32)
+        pthread_mutex_unlock(&g_channel_table_mu);
+#endif
+        return NULL;
+    }
+#if !defined(_WIN32)
+    pthread_mutex_lock(&ch->mu);
+    pthread_mutex_unlock(&g_channel_table_mu);
+#endif
+    return ch;
+}
+
+static void host_channel_unlock(DraconicChannel *ch) {
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&ch->mu);
+#else
+    (void)ch;
+#endif
 }
 
 static int32_t host_channel_full(DraconicChannel *ch) {
@@ -8592,30 +8664,47 @@ static DraconicChanMsg *host_channel_dequeue(DraconicChannel *ch) {
 
 int32_t draconic_rt_host_channel_make(int32_t cap) {
     size_t i;
+    int32_t handle = -1;
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_channel_table_mu);
+#endif
     for (i = 0; i < DRACONIC_CHANNEL_SLOTS; i++) {
         if (g_channels[i].live == 0) {
+#if !defined(_WIN32)
+            if (pthread_mutex_init(&g_channels[i].mu, NULL) != 0) {
+                pthread_mutex_unlock(&g_channel_table_mu);
+                return -1;
+            }
+#endif
             g_channels[i].live = 1;
             g_channels[i].cap = cap > 0 ? cap : 0;
             g_channels[i].len = 0;
             g_channels[i].head = NULL;
             g_channels[i].tail = NULL;
-            return (int32_t)(i + 1);
+            handle = (int32_t)(i + 1);
+            break;
         }
     }
-    return -1;
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&g_channel_table_mu);
+#endif
+    return handle;
 }
 
 int32_t draconic_rt_host_channel_send_f64(int32_t handle, double v) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch = host_channel_lock(handle);
     DraconicChanMsg *msg;
+    int32_t rc;
     if (!ch) {
         return -1;
     }
     if (host_channel_full(ch)) {
+        host_channel_unlock(ch);
         return -2;
     }
     msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
     if (!msg) {
+        host_channel_unlock(ch);
         return -1;
     }
     msg->kind = DRACONIC_CHAN_KIND_NUM;
@@ -8623,20 +8712,25 @@ int32_t draconic_rt_host_channel_send_f64(int32_t handle, double v) {
     msg->str = NULL;
     msg->b = 0;
     msg->obj = NULL;
-    return host_channel_enqueue(ch, msg);
+    rc = host_channel_enqueue(ch, msg);
+    host_channel_unlock(ch);
+    return rc;
 }
 
 int32_t draconic_rt_host_channel_send_str(int32_t handle, const char *s) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch = host_channel_lock(handle);
     DraconicChanMsg *msg;
+    int32_t rc;
     if (!ch) {
         return -1;
     }
     if (host_channel_full(ch)) {
+        host_channel_unlock(ch);
         return -2;
     }
     msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
     if (!msg) {
+        host_channel_unlock(ch);
         return -1;
     }
     msg->kind = DRACONIC_CHAN_KIND_STR;
@@ -8646,22 +8740,28 @@ int32_t draconic_rt_host_channel_send_str(int32_t handle, const char *s) {
     msg->obj = NULL;
     if (!msg->str) {
         free(msg);
+        host_channel_unlock(ch);
         return -1;
     }
-    return host_channel_enqueue(ch, msg);
+    rc = host_channel_enqueue(ch, msg);
+    host_channel_unlock(ch);
+    return rc;
 }
 
 int32_t draconic_rt_host_channel_send_bool(int32_t handle, int32_t v) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch = host_channel_lock(handle);
     DraconicChanMsg *msg;
+    int32_t rc;
     if (!ch) {
         return -1;
     }
     if (host_channel_full(ch)) {
+        host_channel_unlock(ch);
         return -2;
     }
     msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
     if (!msg) {
+        host_channel_unlock(ch);
         return -1;
     }
     msg->kind = DRACONIC_CHAN_KIND_BOOL;
@@ -8669,16 +8769,23 @@ int32_t draconic_rt_host_channel_send_bool(int32_t handle, int32_t v) {
     msg->str = NULL;
     msg->b = v ? 1 : 0;
     msg->obj = NULL;
-    return host_channel_enqueue(ch, msg);
+    rc = host_channel_enqueue(ch, msg);
+    host_channel_unlock(ch);
+    return rc;
 }
 
 int32_t draconic_rt_host_channel_recv_f64(int32_t handle, double *out) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch;
     DraconicChanMsg *msg;
-    if (!ch || !out) {
+    if (!out) {
+        return -1;
+    }
+    ch = host_channel_lock(handle);
+    if (!ch) {
         return -1;
     }
     msg = host_channel_dequeue(ch);
+    host_channel_unlock(ch);
     if (!msg || msg->kind != DRACONIC_CHAN_KIND_NUM) {
         if (msg) {
             free(msg->str);
@@ -8692,12 +8799,17 @@ int32_t draconic_rt_host_channel_recv_f64(int32_t handle, double *out) {
 }
 
 int32_t draconic_rt_host_channel_recv_str(int32_t handle, const char **out) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch;
     DraconicChanMsg *msg;
-    if (!ch || !out) {
+    if (!out) {
+        return -1;
+    }
+    ch = host_channel_lock(handle);
+    if (!ch) {
         return -1;
     }
     msg = host_channel_dequeue(ch);
+    host_channel_unlock(ch);
     if (!msg || msg->kind != DRACONIC_CHAN_KIND_STR) {
         if (msg) {
             free(msg->str);
@@ -8712,12 +8824,17 @@ int32_t draconic_rt_host_channel_recv_str(int32_t handle, const char **out) {
 }
 
 int32_t draconic_rt_host_channel_recv_bool(int32_t handle, int32_t *out) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch;
     DraconicChanMsg *msg;
-    if (!ch || !out) {
+    if (!out) {
+        return -1;
+    }
+    ch = host_channel_lock(handle);
+    if (!ch) {
         return -1;
     }
     msg = host_channel_dequeue(ch);
+    host_channel_unlock(ch);
     if (!msg || msg->kind != DRACONIC_CHAN_KIND_BOOL) {
         if (msg) {
             free(msg->str);
@@ -8731,22 +8848,26 @@ int32_t draconic_rt_host_channel_recv_bool(int32_t handle, int32_t *out) {
 }
 
 int32_t draconic_rt_host_channel_send_obj(int32_t handle, void *obj) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch = host_channel_lock(handle);
     DraconicChanMsg *msg;
     DraconicValue *clone;
+    int32_t rc;
     if (!ch) {
         return -1;
     }
     if (host_channel_full(ch)) {
+        host_channel_unlock(ch);
         return -2;
     }
     clone = draconic_rt_object_structured_clone((DraconicValue *)obj);
     if (!clone) {
+        host_channel_unlock(ch);
         return -1;
     }
     draconic_rt_gc_root_push(clone);
     msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
     if (!msg) {
+        host_channel_unlock(ch);
         return -1;
     }
     msg->kind = DRACONIC_CHAN_KIND_OBJ;
@@ -8754,16 +8875,23 @@ int32_t draconic_rt_host_channel_send_obj(int32_t handle, void *obj) {
     msg->str = NULL;
     msg->b = 0;
     msg->obj = clone;
-    return host_channel_enqueue(ch, msg);
+    rc = host_channel_enqueue(ch, msg);
+    host_channel_unlock(ch);
+    return rc;
 }
 
 int32_t draconic_rt_host_channel_recv_obj(int32_t handle, void **out) {
-    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChannel *ch;
     DraconicChanMsg *msg;
-    if (!ch || !out) {
+    if (!out) {
+        return -1;
+    }
+    ch = host_channel_lock(handle);
+    if (!ch) {
         return -1;
     }
     msg = host_channel_dequeue(ch);
+    host_channel_unlock(ch);
     if (!msg || msg->kind != DRACONIC_CHAN_KIND_OBJ) {
         if (msg) {
             free(msg->str);
@@ -8872,5 +9000,92 @@ int32_t draconic_rt_host_once_run(int32_t handle, void (*fn)(void)) {
     pthread_cond_broadcast(&c->cv);
     pthread_mutex_unlock(&c->mu);
     return 1;
+#endif
+}
+
+/* --- Runtime-internal mutex (C03.02) -------------------------------------- */
+
+#define DRACONIC_MUTEX_SLOTS 64
+
+typedef struct {
+    int live;
+#if !defined(_WIN32)
+    pthread_mutex_t mu;
+#endif
+} DraconicInternalMutex;
+
+static DraconicInternalMutex g_mutexes[DRACONIC_MUTEX_SLOTS];
+#if !defined(_WIN32)
+static pthread_mutex_t g_mutex_table_mu = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+int32_t draconic_rt_host_internal_mutex_make(void) {
+    size_t i;
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_mutex_table_mu);
+#endif
+    for (i = 0; i < DRACONIC_MUTEX_SLOTS; i++) {
+        if (g_mutexes[i].live == 0) {
+#if !defined(_WIN32)
+            if (pthread_mutex_init(&g_mutexes[i].mu, NULL) != 0) {
+                pthread_mutex_unlock(&g_mutex_table_mu);
+                return -1;
+            }
+#endif
+            g_mutexes[i].live = 1;
+#if !defined(_WIN32)
+            pthread_mutex_unlock(&g_mutex_table_mu);
+#endif
+            return (int32_t)(i + 1);
+        }
+    }
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&g_mutex_table_mu);
+#endif
+    return -1;
+}
+
+static DraconicInternalMutex *host_internal_mutex_get(int32_t handle) {
+    size_t i;
+    if (handle < 1) {
+        return NULL;
+    }
+    i = (size_t)(handle - 1);
+    if (i >= DRACONIC_MUTEX_SLOTS) {
+        return NULL;
+    }
+    if (g_mutexes[i].live == 0) {
+        return NULL;
+    }
+    return &g_mutexes[i];
+}
+
+int32_t draconic_rt_host_internal_mutex_lock(int32_t handle) {
+    DraconicInternalMutex *m = host_internal_mutex_get(handle);
+    if (!m) {
+        return -1;
+    }
+#if defined(_WIN32)
+    return 0;
+#else
+    if (pthread_mutex_lock(&m->mu) != 0) {
+        return -1;
+    }
+    return 0;
+#endif
+}
+
+int32_t draconic_rt_host_internal_mutex_unlock(int32_t handle) {
+    DraconicInternalMutex *m = host_internal_mutex_get(handle);
+    if (!m) {
+        return -1;
+    }
+#if defined(_WIN32)
+    return 0;
+#else
+    if (pthread_mutex_unlock(&m->mu) != 0) {
+        return -1;
+    }
+    return 0;
 #endif
 }
