@@ -14,7 +14,12 @@ Bootstrap / Roadmap Loop spine is complete. Language completeness is ongoing —
 curl -fsSL https://raw.githubusercontent.com/hembrow-innovations/draconic/main/scripts/install.sh | sh
 ```
 
-Places `draconic` in `~/.draconic/bin`. Add that directory to `PATH` if needed.
+Places `draconic` in `~/.draconic/bin`. Add that directory to `PATH` if needed, then smoke:
+
+```bash
+draconic -V
+draconic parse hello.drac
+```
 
 ## Build
 
