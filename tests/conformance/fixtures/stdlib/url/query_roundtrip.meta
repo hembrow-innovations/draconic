@@ -1,0 +1,6 @@
+id: stdlib/url/query_roundtrip
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\ntrue\ntrue\n1\n2\ntrue\n2\nhello world\nhello world\ntrue\ntrue\nx=1&y=2\nq=hello%20world\n1\n
+js.check: if (tp !== "function") process.exit(1); if (ts !== "function") process.exit(2); if (gp !== true) process.exit(3); if (gs !== true) process.exit(4); if (a !== "1") process.exit(5); if (b !== "2") process.exit(6); if (empty !== true) process.exit(7); if (last !== "2") process.exit(8); if (decoded !== "hello world") process.exit(9); if (plus !== "hello world") process.exit(10); if (bare !== true) process.exit(11); if (eqempty !== true) process.exit(12); if (rt !== "x=1&y=2") process.exit(13); if (enc !== "q=hello%20world") process.exit(14); if (fromUrl !== "1") process.exit(15);

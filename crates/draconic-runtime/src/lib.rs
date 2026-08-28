@@ -4,7 +4,9 @@
 pub mod abi;
 pub use abi::*;
 pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
-pub use url::{parse_url, parse_url_js_polyfill, ParsedUrl};
+pub use url::{
+    parse_query, parse_url, parse_url_js_polyfill, query_js_polyfill, serialize_query, ParsedUrl,
+};
 
 #[cfg(test)]
 mod host_abi_tests;
@@ -222,6 +224,200 @@ if (typeof globalThis !== "undefined") globalThis.parseUrl = parseUrl;
             let u = parse_url("HTTPS://Example.COM/x").unwrap();
             assert_eq!(u.scheme, "https");
             assert_eq!(u.host, "Example.COM");
+        }
+    }
+
+    /// L08.02: parse `application/x-www-form-urlencoded` query text.
+    /// Last duplicate key wins; empty keys skipped; optional leading `?`.
+    pub fn parse_query(input: &str) -> Vec<(String, String)> {
+        let s = input.strip_prefix('?').unwrap_or(input);
+        let mut out: Vec<(String, String)> = Vec::new();
+        if s.is_empty() {
+            return out;
+        }
+        for part in s.split('&') {
+            if part.is_empty() {
+                continue;
+            }
+            let (k, v) = match part.split_once('=') {
+                Some((k, v)) => (k, v),
+                None => (part, ""),
+            };
+            let k = query_decode(k);
+            if k.is_empty() {
+                continue;
+            }
+            let v = query_decode(v);
+            if let Some(existing) = out.iter_mut().find(|(ek, _)| *ek == k) {
+                existing.1 = v;
+            } else {
+                out.push((k, v));
+            }
+        }
+        out
+    }
+
+    /// L08.02: serialize key/value pairs to query text (insertion order).
+    pub fn serialize_query(pairs: &[(String, String)]) -> String {
+        let mut out = String::new();
+        for (i, (k, v)) in pairs.iter().enumerate() {
+            if i > 0 {
+                out.push('&');
+            }
+            out.push_str(&query_encode(k));
+            out.push('=');
+            out.push_str(&query_encode(v));
+        }
+        out
+    }
+
+    fn query_decode(s: &str) -> String {
+        let bytes = s.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'+' => {
+                    out.push(b' ');
+                    i += 1;
+                }
+                b'%' if i + 2 < bytes.len() => {
+                    if let (Some(h), Some(l)) = (from_hex(bytes[i + 1]), from_hex(bytes[i + 2])) {
+                        out.push((h << 4) | l);
+                        i += 3;
+                    } else {
+                        out.push(b'%');
+                        i += 1;
+                    }
+                }
+                b => {
+                    out.push(b);
+                    i += 1;
+                }
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    fn query_encode(s: &str) -> String {
+        let mut out = String::new();
+        for &b in s.as_bytes() {
+            if matches!(
+                b,
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
+            ) {
+                out.push(b as char);
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+        out
+    }
+
+    fn from_hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    pub fn query_js_polyfill() -> &'static str {
+        r#"function queryDecode(s) {
+  s = String(s).replace(/\+/g, " ");
+  try { return decodeURIComponent(s); } catch (e) { return s; }
+}
+function queryEncode(s) {
+  s = String(s);
+  var utf8 = unescape(encodeURIComponent(s));
+  var out = "";
+  for (var i = 0; i < utf8.length; i++) {
+    var c = utf8.charCodeAt(i);
+    var ok = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
+      || c === 45 || c === 95 || c === 46 || c === 126;
+    if (ok) out += utf8.charAt(i);
+    else {
+      var hex = c.toString(16).toUpperCase();
+      if (hex.length < 2) hex = "0" + hex;
+      out += "%" + hex;
+    }
+  }
+  return out;
+}
+function parseQuery(input) {
+  if (typeof input !== "string") input = String(input);
+  if (input.charCodeAt(0) === 63) input = input.slice(1);
+  var result = {};
+  if (input.length === 0) return result;
+  var parts = input.split("&");
+  for (var i = 0; i < parts.length; i++) {
+    var part = parts[i];
+    if (part.length === 0) continue;
+    var eq = part.indexOf("=");
+    var k = eq < 0 ? part : part.slice(0, eq);
+    var v = eq < 0 ? "" : part.slice(eq + 1);
+    k = queryDecode(k);
+    if (k.length === 0) continue;
+    result[k] = queryDecode(v);
+  }
+  return result;
+}
+function serializeQuery(obj) {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
+    throw new TypeError("serializeQuery expects an object");
+  }
+  var keys = Object.keys(obj);
+  var parts = [];
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var v = obj[k];
+    if (v === undefined) continue;
+    parts.push(queryEncode(k) + "=" + queryEncode(v));
+  }
+  return parts.join("&");
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.parseQuery = parseQuery;
+  globalThis.serializeQuery = serializeQuery;
+}
+"#
+    }
+
+    #[cfg(test)]
+    mod query_tests {
+        use super::*;
+
+        #[test]
+        fn parses_pairs_last_wins() {
+            let q = parse_query("a=1&b=2");
+            assert_eq!(q, vec![("a".into(), "1".into()), ("b".into(), "2".into())]);
+            let last = parse_query("a=1&a=2");
+            assert_eq!(last, vec![("a".into(), "2".into())]);
+        }
+
+        #[test]
+        fn decodes_percent_and_plus() {
+            assert_eq!(
+                parse_query("q=hello%20world"),
+                vec![("q".into(), "hello world".into())]
+            );
+            assert_eq!(
+                parse_query("q=hello+world"),
+                vec![("q".into(), "hello world".into())]
+            );
+        }
+
+        #[test]
+        fn empty_and_bare_and_roundtrip() {
+            assert!(parse_query("").is_empty());
+            assert_eq!(parse_query("flag"), vec![("flag".into(), "".into())]);
+            assert_eq!(parse_query("a="), vec![("a".into(), "".into())]);
+            assert_eq!(serialize_query(&parse_query("x=1&y=2")), "x=1&y=2");
+            assert_eq!(
+                serialize_query(&[("q".into(), "hello world".into())]),
+                "q=hello%20world"
+            );
         }
     }
 }

@@ -1219,6 +1219,9 @@ impl Binder {
         binder.install_builtin("unescape", BindingKind::Const);
         // L08.01: stdlib URL parse
         binder.install_builtin("parseUrl", BindingKind::Const);
+        // L08.02: query parse/serialize
+        binder.install_builtin("parseQuery", BindingKind::Const);
+        binder.install_builtin("serializeQuery", BindingKind::Const);
         // L03.01: SHA-256 digest over bytes
         binder.install_builtin("sha256", BindingKind::Const);
         // L03.02: OS CSPRNG bytes

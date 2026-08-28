@@ -61,7 +61,7 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
-use draconic_runtime::parse_url;
+use draconic_runtime::{parse_query, parse_url, serialize_query};
 
 pub(crate) fn is_es_builtins_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -160,6 +160,9 @@ enum BuiltinId {
     Float64Array,
     /// L08.01
     ParseUrl,
+    /// L08.02
+    ParseQuery,
+    SerializeQuery,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1001,6 +1004,8 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "Int32Array" => Some(BuiltinId::Int32Array),
         "Float64Array" => Some(BuiltinId::Float64Array),
         "parseUrl" => Some(BuiltinId::ParseUrl),
+        "parseQuery" => Some(BuiltinId::ParseQuery),
+        "serializeQuery" => Some(BuiltinId::SerializeQuery),
         _ => None,
     }
 }
@@ -2084,6 +2089,33 @@ fn eval_call(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) 
                 ("query".into(), PropSlot::Data(JsVal::Str(u.query))),
                 ("hash".into(), PropSlot::Data(JsVal::Str(u.hash))),
             ]))
+        }
+        BuiltinId::ParseQuery => {
+            let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
+            let pairs = parse_query(&s);
+            Ok(new_object(
+                pairs
+                    .into_iter()
+                    .map(|(k, v)| (k, PropSlot::Data(JsVal::Str(v))))
+                    .collect(),
+            ))
+        }
+        BuiltinId::SerializeQuery => {
+            let obj = args.first().ok_or(())?;
+            let JsVal::Object { props, .. } = obj else {
+                return Err(());
+            };
+            let mut pairs = Vec::new();
+            for (k, slot) in props.borrow().iter() {
+                let PropSlot::Data(v) = slot else {
+                    continue;
+                };
+                if matches!(v, JsVal::Undef) {
+                    continue;
+                }
+                pairs.push((k.clone(), to_string_arg(v)?));
+            }
+            Ok(JsVal::Str(serialize_query(&pairs)))
         }
         BuiltinId::ObjectGetPrototypeOf => {
             let target = args.first().ok_or(())?;
@@ -3596,6 +3628,8 @@ fn member_get(
             "Int32Array" => Ok(JsVal::Builtin(BuiltinId::Int32Array)),
             "Float64Array" => Ok(JsVal::Builtin(BuiltinId::Float64Array)),
             "parseUrl" => Ok(JsVal::Builtin(BuiltinId::ParseUrl)),
+            "parseQuery" => Ok(JsVal::Builtin(BuiltinId::ParseQuery)),
+            "serializeQuery" => Ok(JsVal::Builtin(BuiltinId::SerializeQuery)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -4009,7 +4043,9 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::Uint8Array
             | BuiltinId::Int32Array
             | BuiltinId::Float64Array
-            | BuiltinId::ParseUrl,
+            | BuiltinId::ParseUrl
+            | BuiltinId::ParseQuery
+            | BuiltinId::SerializeQuery,
         ) => "function".into(),
     }
 }
@@ -5004,6 +5040,27 @@ mod tests {
         let ir = emit_es_builtins(&m).expect("emit");
         assert!(!ir.contains("draconic_rt_hello"), "hello stub");
         for s in ["function","true","https","example.com","/path","q=1","frag","http","localhost:8080","user:pass@example.com:443","/a/b","x=1&y=2","top"] {
+            assert!(ir.contains(s), "missing {s:?}");
+        }
+    }
+
+    #[test]
+    fn query_roundtrip_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/stdlib/url/query_roundtrip.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(!ir.contains("draconic_rt_hello"), "hello stub");
+        for s in [
+            "function",
+            "true",
+            "1",
+            "2",
+            "hello world",
+            "x=1&y=2",
+            "q=hello%20world",
+        ] {
             assert!(ir.contains(s), "missing {s:?}");
         }
     }

@@ -1,0 +1,16 @@
+// L08.02: query parse/serialize; round-trip common cases.
+let tp = typeof parseQuery;
+let ts = typeof serializeQuery;
+let gp = globalThis.parseQuery === parseQuery;
+let gs = globalThis.serializeQuery === serializeQuery;
+let a = parseQuery("a=1&b=2").a;
+let b = parseQuery("a=1&b=2").b;
+let empty = serializeQuery(parseQuery("")) === "";
+let last = parseQuery("a=1&a=2").a;
+let decoded = parseQuery("q=hello%20world").q;
+let plus = parseQuery("q=hello+world").q;
+let bare = parseQuery("flag").flag === "";
+let eqempty = parseQuery("a=").a === "";
+let rt = serializeQuery(parseQuery("x=1&y=2"));
+let enc = serializeQuery({ q: "hello world" });
+let fromUrl = parseQuery(parseUrl("https://example.com/p?x=1&y=2").query).x;

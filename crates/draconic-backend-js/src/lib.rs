@@ -72,10 +72,19 @@ fn module_uses_random_bytes(module: &Module) -> bool {
 /// IR locals include every binder symbol (all builtins), so presence in
 /// `module.locals` is not enough — walk the body for a use of the parseUrl local.
 fn module_uses_parse_url(module: &Module) -> bool {
+    module_uses_named_local(module, "parseUrl")
+}
+
+/// L08.02: `parseQuery` / `serializeQuery`.
+fn module_uses_query(module: &Module) -> bool {
+    module_uses_named_local(module, "parseQuery") || module_uses_named_local(module, "serializeQuery")
+}
+
+fn module_uses_named_local(module: &Module, name: &str) -> bool {
     let ids: Vec<LocalId> = module
         .locals
         .iter()
-        .filter(|l| l.name == "parseUrl")
+        .filter(|l| l.name == name)
         .map(|l| l.id)
         .collect();
     if ids.is_empty() {
@@ -547,6 +556,13 @@ fn emit_js_full(
     // L08.01: portable `parseUrl` polyfill when the Program references it.
     if module_uses_parse_url(module) {
         out.push_str(draconic_runtime::parse_url_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L08.02: portable `parseQuery` / `serializeQuery` polyfill.
+    if module_uses_query(module) {
+        out.push_str(draconic_runtime::query_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
