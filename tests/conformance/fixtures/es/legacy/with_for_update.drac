@@ -1,0 +1,183 @@
+// E17.02.32: with + for-in/for-of + update/compound (non-strict).
+// ++/--/+= hit object props (else outer); for (k in/of) assign binding on
+// object (else outer); for (let …) does not write the object.
+
+function postfixIncObject() {
+  let obj = { x: 5 };
+  let old = 0;
+  with (obj) {
+    old = x++;
+  }
+  return old === 5 && obj.x === 6;
+}
+let a = postfixIncObject();
+
+function prefixIncObject() {
+  let obj = { x: 5 };
+  let neu = 0;
+  with (obj) {
+    neu = ++x;
+  }
+  return neu === 6 && obj.x === 6;
+}
+let b = prefixIncObject();
+
+function postfixDecObject() {
+  let obj = { x: 5 };
+  let old = 0;
+  with (obj) {
+    old = x--;
+  }
+  return old === 5 && obj.x === 4;
+}
+let c = postfixDecObject();
+
+function prefixDecObject() {
+  let obj = { x: 5 };
+  let neu = 0;
+  with (obj) {
+    neu = --x;
+  }
+  return neu === 4 && obj.x === 4;
+}
+let d = prefixDecObject();
+
+function compoundAddObject() {
+  let obj = { x: 2 };
+  let r = 0;
+  with (obj) {
+    r = x += 3;
+  }
+  return r === 5 && obj.x === 5;
+}
+let e = compoundAddObject();
+
+function compoundMulObject() {
+  let obj = { x: 3 };
+  with (obj) {
+    x *= 4;
+  }
+  return obj.x === 12;
+}
+let f = compoundMulObject();
+
+function updateMissesObjectUsesOuter() {
+  let x = 10;
+  let obj = {};
+  with (obj) {
+    x++;
+  }
+  return (
+    x === 11 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let g = updateMissesObjectUsesOuter();
+
+function compoundMissesObjectUsesOuter() {
+  let x = 10;
+  let obj = {};
+  with (obj) {
+    x += 2;
+  }
+  return (
+    x === 12 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let h = compoundMissesObjectUsesOuter();
+
+function forInAssignsObject() {
+  let obj = { k: 0 };
+  let src = { alpha: 1 };
+  with (obj) {
+    for (k in src) {
+    }
+  }
+  return obj.k === "alpha";
+}
+let i = forInAssignsObject();
+
+function forInMissesObjectUsesOuter() {
+  let k = "outer";
+  let obj = {};
+  let src = { beta: 1 };
+  with (obj) {
+    for (k in src) {
+    }
+  }
+  return (
+    k === "beta" && Object.prototype.hasOwnProperty.call(obj, "k") === false
+  );
+}
+let j = forInMissesObjectUsesOuter();
+
+function forOfAssignsObject() {
+  let obj = { v: 0 };
+  with (obj) {
+    for (v of [7, 8]) {
+    }
+  }
+  return obj.v === 8;
+}
+let k = forOfAssignsObject();
+
+function forOfMissesObjectUsesOuter() {
+  let v = 0;
+  let obj = {};
+  with (obj) {
+    for (v of [3, 4]) {
+    }
+  }
+  return (
+    v === 4 && Object.prototype.hasOwnProperty.call(obj, "v") === false
+  );
+}
+let l = forOfMissesObjectUsesOuter();
+
+function forLetInDoesNotWriteObject() {
+  let obj = { k: 0 };
+  let n = 0;
+  with (obj) {
+    for (let k in { a: 1, b: 2 }) {
+      n = n + 1;
+    }
+  }
+  return obj.k === 0 && n === 2;
+}
+let m = forLetInDoesNotWriteObject();
+
+function forLetOfDoesNotWriteObject() {
+  let obj = { v: 0 };
+  let n = 0;
+  with (obj) {
+    for (let v of [3, 4]) {
+      n = n + v;
+    }
+  }
+  return obj.v === 0 && n === 7;
+}
+let n = forLetOfDoesNotWriteObject();
+
+function nestedInnerWinsUpdate() {
+  let inner = { x: 1 };
+  let outer = { x: 10 };
+  with (outer) {
+    with (inner) {
+      x += 2;
+    }
+  }
+  return inner.x === 3 && outer.x === 10;
+}
+let p = nestedInnerWinsUpdate();
+
+function forInCountAndLast() {
+  let obj = { k: "" };
+  let n = 0;
+  let src = { a: 1, b: 2 };
+  with (obj) {
+    for (k in src) {
+      n = n + 1;
+    }
+  }
+  return n === 2 && src[obj.k] === (obj.k === "a" ? 1 : 2);
+}
+let q = forInCountAndLast();
