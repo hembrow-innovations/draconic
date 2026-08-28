@@ -498,3 +498,87 @@ fn help_lists_test_jobs() {
         "help should mention --jobs:\n{stdout}"
     );
 }
+
+fn fail_ids(stdout: &str) -> Vec<&str> {
+    stdout
+        .lines()
+        .filter(|l| l.starts_with("FAIL "))
+        .filter_map(|l| l.split_whitespace().nth(1))
+        .collect()
+}
+
+fn write_failing_js_fixture(dir: &Path, file_stem: &str, id: &str) {
+    write(dir, &format!("{file_stem}.drac"), "let x = 1;\n");
+    write(
+        dir,
+        &format!("{file_stem}.meta"),
+        &format!(
+            "\
+id: {id}
+targets: js
+js.exit: 0
+js.check: if (x !== 99) process.exit(1);
+"
+        ),
+    );
+}
+
+/// ROADMAP C04.02: any failure → exit 1, even with a passing sibling and N>1 workers.
+#[test]
+fn test_aggregate_exit_is_one_when_any_fixture_fails() {
+    let dir = temp_dir();
+    write_js_fixture(&dir, "ok_one", "let n = 1;\n");
+    write_failing_js_fixture(&dir, "z_fail", "alpha");
+    write_failing_js_fixture(&dir, "a_fail", "zeta");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("test")
+        .arg("--jobs")
+        .arg("2")
+        .arg(&dir));
+    assert_eq!(
+        code, 1,
+        "expected aggregate exit 1\nstdout={stdout}\nstderr={stderr}"
+    );
+    let (code2, stdout2, stderr2) = run(draconic()
+        .arg("test")
+        .arg("--jobs")
+        .arg("2")
+        .arg(&dir));
+    assert_eq!(
+        code2, 1,
+        "exit must be stable across runs\nstdout={stdout2}\nstderr={stderr2}"
+    );
+}
+
+/// ROADMAP C04.02: FAIL lines are ordered by fixture id, not path or completion.
+#[test]
+fn test_failure_summary_order_is_fixture_id() {
+    let dir = temp_dir();
+    write_failing_js_fixture(&dir, "z_fail", "alpha");
+    write_failing_js_fixture(&dir, "a_fail", "zeta");
+    write_js_fixture(&dir, "ok_mid", "let n = 0;\n");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("test")
+        .arg("--jobs")
+        .arg("2")
+        .arg(&dir));
+    assert_eq!(code, 1, "stdout={stdout}\nstderr={stderr}");
+    assert_eq!(
+        fail_ids(&stdout),
+        ["alpha", "zeta"],
+        "FAIL summary must be fixture-id order, not path order:\n{stdout}"
+    );
+    let (code2, stdout2, stderr2) = run(draconic()
+        .arg("test")
+        .arg("--jobs")
+        .arg("2")
+        .arg(&dir));
+    assert_eq!(code2, 1, "stdout={stdout2}\nstderr={stderr2}");
+    assert_eq!(
+        fail_ids(&stdout2),
+        fail_ids(&stdout),
+        "FAIL order must be stable across runs\nfirst={stdout}\nsecond={stdout2}"
+    );
+}

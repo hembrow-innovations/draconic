@@ -52,22 +52,27 @@ pub fn cmd_test(args: &[String]) -> ExitCode {
         run_fixtures_pool(&fixtures, jobs)
     };
 
+    let mut flat: Vec<&RunResult> = batches.iter().flatten().collect();
+    flat.sort_by(|a, b| {
+        a.fixture_id
+            .cmp(&b.fixture_id)
+            .then_with(|| a.target.as_str().cmp(b.target.as_str()))
+    });
+
     let mut passed = 0u32;
     let mut failed = 0u32;
-    for results in &batches {
-        for result in results {
-            if result.ok {
-                passed += 1;
-                println!("ok {} {}", result.fixture_id, result.target.as_str());
-            } else {
-                failed += 1;
-                println!(
-                    "FAIL {} {}: {}",
-                    result.fixture_id,
-                    result.target.as_str(),
-                    result.message
-                );
-            }
+    for result in flat {
+        if result.ok {
+            passed += 1;
+            println!("ok {} {}", result.fixture_id, result.target.as_str());
+        } else {
+            failed += 1;
+            println!(
+                "FAIL {} {}: {}",
+                result.fixture_id,
+                result.target.as_str(),
+                result.message
+            );
         }
     }
 
