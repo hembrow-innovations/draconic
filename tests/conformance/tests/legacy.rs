@@ -588,3 +588,13 @@ fn with_in_instanceof_fixture_present() {
 fn with_in_instanceof_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_in_instanceof");
 }
+
+#[test]
+fn with_void_fixture_present() {
+    assert_fixture_present("es/legacy/with_void");
+}
+
+#[test]
+fn with_void_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_void");
+}
