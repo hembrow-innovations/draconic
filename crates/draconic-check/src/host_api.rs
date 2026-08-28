@@ -112,6 +112,7 @@ pub struct HostApiEntry {
 ///   `http2EncodeRequest` / `http2EncodeResponse` / `http2ParseRequest` /
 ///   `http2ParseResponse` (H13.01): native-only HTTP/2 preface + single-stream helpers.
 /// - `spawnWorker` (C01.01): both — spawn worker isolate from fn entry or module path.
+/// - `joinWorker` (C01.02): both — wait for worker exit; 0 success, negative error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -702,6 +703,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "spawnWorker",
         availability: HostAvailability::BOTH,
         note: "C01.01 spawn worker isolate",
+    },
+    HostApiEntry {
+        name: "joinWorker",
+        availability: HostAvailability::BOTH,
+        note: "C01.02 join worker wait + result/error",
     },
 ];
 
@@ -1360,6 +1366,23 @@ mod tests {
         );
         assert!(
             unsupported_diagnostic("spawnWorker", CompileTarget::Native, Span::dummy()).is_none()
+        );
+    }
+
+    #[test]
+    fn registry_lists_join_worker_both() {
+        let entry = lookup("joinWorker").expect("joinWorker registered");
+        assert_eq!(entry.name, "joinWorker");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("joinWorker"));
+        assert!(is_available("joinWorker", CompileTarget::Js));
+        assert!(is_available("joinWorker", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("joinWorker", CompileTarget::Js, Span::dummy()).is_none()
+        );
+        assert!(
+            unsupported_diagnostic("joinWorker", CompileTarget::Native, Span::dummy()).is_none()
         );
     }
 }

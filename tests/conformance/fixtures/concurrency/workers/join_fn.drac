@@ -1,0 +1,6 @@
+let t = typeof joinWorker;
+let h = spawnWorker(function () {});
+let r = joinWorker(h);
+let ok = r === 0;
+let bad = joinWorker(0);
+let err = bad < 0;

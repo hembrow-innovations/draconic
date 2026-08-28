@@ -1,4 +1,5 @@
 //! ROADMAP C01.01: spawn worker isolate from module path or fn entry.
+//! ROADMAP C01.02: join worker — wait for exit; capture result/error.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +48,24 @@ fn spawn_module_fixture_present() {
 #[test]
 fn spawn_module_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/workers/spawn_module");
+}
+
+#[test]
+fn join_fn_fixture_present() {
+    assert_fixture_present("concurrency/workers/join_fn");
+}
+
+#[test]
+fn join_fn_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/workers/join_fn");
+}
+
+#[test]
+fn join_module_fixture_present() {
+    assert_fixture_present("concurrency/workers/join_module");
+}
+
+#[test]
+fn join_module_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/workers/join_module");
 }

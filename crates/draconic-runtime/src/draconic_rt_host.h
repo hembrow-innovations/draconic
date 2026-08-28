@@ -817,9 +817,11 @@ DraconicHostError draconic_rt_host_http2_server_reply(
     uint8_t **out_data,
     size_t *out_len);
 
-/* --- Worker isolate spawn (C01.01) ----------------------------------------
+/* --- Worker isolate spawn/join (C01.01 / C01.02) --------------------------
    spawnWorker: allocate an isolate slot. kind 0 = fn entry (path ignored);
    kind 1 = module path (non-empty). Returns handle >= 1, or -1 on failure.
-   Does not join (C01.02) or use OS threads (C01.04). */
+   joinWorker: wait for exit (slot already complete without OS threads —
+   C01.04); 0 success, -1 invalid/already-joined handle. */
 
 int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path);
+int32_t draconic_rt_host_worker_join(int32_t handle);

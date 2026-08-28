@@ -1,0 +1,6 @@
+id: concurrency/workers/join_module
+targets: js,native
+js.exit: 0
+js.check: if (ok !== true) process.exit(1);
+native.exit: 0
+native.stdout: 1\n0\ntrue\n

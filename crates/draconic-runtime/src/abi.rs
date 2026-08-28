@@ -866,6 +866,12 @@ pub const HOST_WORKER_SPAWN: AbiFn = AbiFn {
     ret: "i32",
     params: "i32, ptr",
 };
+/* C01.02: joinWorker — wait for exit; 0 success, negative error. */
+pub const HOST_WORKER_JOIN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_worker_join",
+    ret: "i32",
+    params: "i32",
+};
 /// Declares for H15.03 async process wait + Promise then + job drain.
 pub const HOST_PROCESS_ASYNC_DECLARES: &[AbiFn] = &[
     GC_INIT,
@@ -1491,6 +1497,7 @@ pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
 pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
 pub const HOST_WORKER_SPAWN_SYMBOL: &str = HOST_WORKER_SPAWN.symbol;
+pub const HOST_WORKER_JOIN_SYMBOL: &str = HOST_WORKER_JOIN.symbol;
 pub const HOST_WS_HANDSHAKE_RESPONSE_SYMBOL: &str = HOST_WS_HANDSHAKE_RESPONSE.symbol;
 pub const HOST_WS_ENCODE_TEXT_SYMBOL: &str = HOST_WS_ENCODE_TEXT.symbol;
 pub const HOST_WS_ENCODE_BINARY_SYMBOL: &str = HOST_WS_ENCODE_BINARY.symbol;
@@ -1632,6 +1639,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_PARSE_RESPONSE_SYMBOL,
     HOST_HTTP_RESPONSE_HEADER_SYMBOL,
     HOST_WORKER_SPAWN_SYMBOL,
+    HOST_WORKER_JOIN_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1748,6 +1756,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_TLS_READ,
     HOST_TLS_WRITE,
     HOST_WORKER_SPAWN,
+    HOST_WORKER_JOIN,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -2092,33 +2101,63 @@ pub fn process_spawn_js_polyfill() -> &'static str {
 "#
 }
 
-/// JS polyfill for `spawnWorker(entry)` (C01.01).
+/// JS polyfill for `spawnWorker(entry)` (C01.01) and `joinWorker(h)` (C01.02).
 ///
-/// Node `worker_threads`: eval bootstrap, `unref` so the parent fixture can
-/// exit without join (C01.02). Fn entry runs as an IIFE; module path starts
-/// an empty isolate (module evaluation is join/later).
+/// Node `worker_threads`: eval bootstrap + SharedArrayBuffer handshake.
+/// `unref` so the parent can exit without join. Join waits via `Atomics.wait`
+/// and returns 0 on success or a negative code on invalid/already-joined handle.
+/// Worker throw is stored as status 2 and surfaced as join result 1.
 pub fn spawn_worker_js_polyfill() -> &'static str {
     r#"(function () {
   var nextId = 1;
+  var slots = Object.create(null);
   function spawnWorker(entry) {
-    var src;
+    var userSrc;
     if (typeof entry === "function") {
-      src = "(" + Function.prototype.toString.call(entry) + ")();";
+      userSrc = "(" + Function.prototype.toString.call(entry) + ")();";
     } else if (typeof entry === "string" && entry.length > 0) {
-      src = "/* worker isolate */";
+      userSrc = "/* worker isolate */";
     } else {
       return -1;
     }
+    var sab = new SharedArrayBuffer(4);
+    var ia = new Int32Array(sab);
+    var bootstrap =
+      "const { workerData } = require('worker_threads');\n" +
+      "try {\n" +
+      userSrc + "\n" +
+      "  Atomics.store(workerData.ia, 0, 1);\n" +
+      "} catch (e) {\n" +
+      "  Atomics.store(workerData.ia, 0, 2);\n" +
+      "}\n" +
+      "Atomics.notify(workerData.ia, 0, 1);\n";
     try {
       var wt = require("worker_threads");
-      var w = new wt.Worker(src, { eval: true });
+      var w = new wt.Worker(bootstrap, { eval: true, workerData: { ia: ia } });
       if (typeof w.unref === "function") w.unref();
+      var id = nextId++;
+      slots[id] = { ia: ia, worker: w, joined: false };
+      return id;
     } catch (e) {
       return -1;
     }
-    return nextId++;
   }
-  if (typeof globalThis !== "undefined") globalThis.spawnWorker = spawnWorker;
+  function joinWorker(h) {
+    var rec = slots[h];
+    if (!rec || rec.joined) return -1;
+    rec.joined = true;
+    if (rec.worker && typeof rec.worker.ref === "function") rec.worker.ref();
+    Atomics.wait(rec.ia, 0, 0);
+    var st = Atomics.load(rec.ia, 0);
+    if (rec.worker && typeof rec.worker.unref === "function") rec.worker.unref();
+    delete slots[h];
+    if (st === 2) return 1;
+    return 0;
+  }
+  if (typeof globalThis !== "undefined") {
+    globalThis.spawnWorker = spawnWorker;
+    globalThis.joinWorker = joinWorker;
+  }
 })();
 "#
 }

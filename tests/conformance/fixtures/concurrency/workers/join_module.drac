@@ -1,0 +1,3 @@
+let h = spawnWorker("./worker_empty.drac");
+let r = joinWorker(h);
+let ok = r === 0;
