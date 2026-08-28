@@ -1,12 +1,39 @@
 //! F07.01: parse a C header subset — function decls with scalar/pointer params.
 //! F07.02: emit Draconic `extern "C"` decls from a parsed header.
 //! F07.03: default extern-module path for `draconic bindgen`.
+//! F07.04: simple structs + typedef names (no full C).
 
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
     pub functions: Vec<FnDecl>,
+    items: Vec<Item>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Item {
+    Struct(StructDecl),
+    Typedef(TypedefDecl),
+    Function(FnDecl),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StructDecl {
+    name: String,
+    fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Field {
+    name: String,
+    ty: CType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypedefDecl {
+    name: String,
+    ty: CType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +65,7 @@ pub enum CType {
     Float,
     Double,
     Pointer(Box<CType>),
+    Named(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,17 +85,56 @@ pub fn parse_header(src: &str) -> Result<Header, ParseError> {
     let tokens = tokenize(src)?;
     let mut i = 0;
     let mut functions = Vec::new();
+    let mut items = Vec::new();
     while !matches!(peek(&tokens, i), Tok::Eof) {
-        functions.push(parse_fn_decl(&tokens, &mut i)?);
+        while ident_eq(peek(&tokens, i), "extern")
+            || ident_eq(peek(&tokens, i), "static")
+            || ident_eq(peek(&tokens, i), "inline")
+        {
+            i += 1;
+        }
+        if ident_eq(peek(&tokens, i), "typedef") {
+            items.push(parse_typedef(&tokens, &mut i)?);
+            continue;
+        }
+        if is_struct_def(&tokens, i) {
+            items.push(parse_struct_item(&tokens, &mut i)?);
+            continue;
+        }
+        let f = parse_fn_decl(&tokens, &mut i)?;
+        functions.push(f.clone());
+        items.push(Item::Function(f));
     }
-    Ok(Header { functions })
+    Ok(Header { functions, items })
 }
 
 pub fn emit_externs(header: &Header) -> String {
     let mut out = String::new();
-    for f in &header.functions {
-        out.push_str(&emit_fn(f));
-        out.push('\n');
+    let mut emitted_types: Vec<String> = Vec::new();
+    for item in &header.items {
+        match item {
+            Item::Struct(s) => {
+                if emitted_types.iter().any(|n| n == &s.name) {
+                    continue;
+                }
+                out.push_str(&emit_struct(s));
+                emitted_types.push(s.name.clone());
+            }
+            Item::Typedef(t) => {
+                if emitted_types.iter().any(|n| n == &t.name) {
+                    continue;
+                }
+                if matches!(&t.ty, CType::Named(n) if n == &t.name) {
+                    continue;
+                }
+                out.push_str(&emit_typedef(t));
+                emitted_types.push(t.name.clone());
+            }
+            Item::Function(f) => {
+                out.push_str(&emit_fn(f));
+                out.push('\n');
+            }
+        }
     }
     out
 }
@@ -75,6 +142,20 @@ pub fn emit_externs(header: &Header) -> String {
 /// Sibling `.drac` path for `draconic bindgen <header>` when `-o` is omitted.
 pub fn default_extern_module_path(header: &Path) -> PathBuf {
     header.with_extension("drac")
+}
+
+fn emit_struct(s: &StructDecl) -> String {
+    let fields = s
+        .fields
+        .iter()
+        .map(|f| format!("{}: {}", f.name, emit_ty(&f.ty)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("type {} = {{ {fields} }};\n", s.name)
+}
+
+fn emit_typedef(t: &TypedefDecl) -> String {
+    format!("type {} = {};\n", t.name, emit_ty(&t.ty))
 }
 
 fn emit_fn(f: &FnDecl) -> String {
@@ -115,6 +196,7 @@ fn emit_ty(ty: &CType) -> String {
             CType::Void | CType::Char | CType::UChar => "*u8".into(),
             other => format!("*{}", emit_ty(other)),
         },
+        CType::Named(n) => n.clone(),
     }
 }
 
@@ -128,6 +210,7 @@ enum Tok {
     Semi,
     LBrace,
     RBrace,
+    Colon,
     Eof,
 }
 
@@ -203,6 +286,10 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ParseError> {
                 out.push(Tok::RBrace);
                 i += 1;
             }
+            b':' => {
+                out.push(Tok::Colon);
+                i += 1;
+            }
             _ if is_ident_start(c) => {
                 let start = i;
                 i += 1;
@@ -234,6 +321,165 @@ fn peek(tokens: &[Tok], i: usize) -> &Tok {
 
 fn ident_eq(tok: &Tok, s: &str) -> bool {
     matches!(tok, Tok::Ident(n) if n == s)
+}
+
+fn is_struct_def(tokens: &[Tok], i: usize) -> bool {
+    if !ident_eq(peek(tokens, i), "struct") {
+        return false;
+    }
+    match peek(tokens, i + 1) {
+        Tok::LBrace => true,
+        Tok::Ident(_) => matches!(peek(tokens, i + 2), Tok::LBrace),
+        _ => false,
+    }
+}
+
+fn parse_struct_item(tokens: &[Tok], i: &mut usize) -> Result<Item, ParseError> {
+    let (tag, fields) = parse_struct_def(tokens, i)?;
+    let name = tag.ok_or_else(|| err("anonymous struct requires a typedef name"))?;
+    expect_semi(tokens, i)?;
+    Ok(Item::Struct(StructDecl { name, fields }))
+}
+
+fn parse_struct_def(
+    tokens: &[Tok],
+    i: &mut usize,
+) -> Result<(Option<String>, Vec<Field>), ParseError> {
+    if !ident_eq(peek(tokens, *i), "struct") {
+        return Err(err("expected struct"));
+    }
+    *i += 1;
+    let tag = match peek(tokens, *i) {
+        Tok::Ident(n) => {
+            let n = n.clone();
+            *i += 1;
+            Some(n)
+        }
+        _ => None,
+    };
+    if !matches!(peek(tokens, *i), Tok::LBrace) {
+        return Err(err("expected '{' in struct definition"));
+    }
+    *i += 1;
+    let fields = parse_struct_fields(tokens, i)?;
+    if !matches!(peek(tokens, *i), Tok::RBrace) {
+        return Err(err("expected '}' after struct fields"));
+    }
+    *i += 1;
+    Ok((tag, fields))
+}
+
+fn parse_struct_fields(tokens: &[Tok], i: &mut usize) -> Result<Vec<Field>, ParseError> {
+    let mut fields = Vec::new();
+    while !matches!(peek(tokens, *i), Tok::RBrace | Tok::Eof) {
+        reject_unsupported(peek(tokens, *i))?;
+        let mut ty = parse_base_type(tokens, i)?;
+        ty = parse_stars(tokens, i, ty);
+        let name = match peek(tokens, *i) {
+            Tok::Ident(n) if !is_type_keyword(n) => {
+                let n = n.clone();
+                *i += 1;
+                n
+            }
+            other => return Err(err(format!("expected field name, found {other:?}"))),
+        };
+        if matches!(peek(tokens, *i), Tok::Colon) {
+            return Err(err("bitfield not supported in this header subset"));
+        }
+        expect_semi(tokens, i)?;
+        fields.push(Field { name, ty });
+    }
+    Ok(fields)
+}
+
+fn parse_typedef(tokens: &[Tok], i: &mut usize) -> Result<Item, ParseError> {
+    if !ident_eq(peek(tokens, *i), "typedef") {
+        return Err(err("expected typedef"));
+    }
+    *i += 1;
+    if ident_eq(peek(tokens, *i), "struct") && is_struct_def(tokens, *i) {
+        let (tag, fields) = parse_struct_def(tokens, i)?;
+        let name = match peek(tokens, *i) {
+            Tok::Ident(n) if !is_type_keyword(n) => {
+                let n = n.clone();
+                *i += 1;
+                n
+            }
+            other => {
+                return Err(err(format!(
+                    "expected typedef name after struct, found {other:?}"
+                )));
+            }
+        };
+        expect_semi(tokens, i)?;
+        let struct_name = tag.unwrap_or_else(|| name.clone());
+        if struct_name == name {
+            return Ok(Item::Struct(StructDecl {
+                name,
+                fields,
+            }));
+        }
+        return Ok(Item::Struct(StructDecl {
+            name: struct_name,
+            fields,
+        }));
+    }
+    if ident_eq(peek(tokens, *i), "struct") {
+        *i += 1;
+        let tag = match peek(tokens, *i) {
+            Tok::Ident(n) => {
+                let n = n.clone();
+                *i += 1;
+                n
+            }
+            other => {
+                return Err(err(format!(
+                    "expected struct tag in typedef, found {other:?}"
+                )));
+            }
+        };
+        let name = match peek(tokens, *i) {
+            Tok::Ident(n) if !is_type_keyword(n) => {
+                let n = n.clone();
+                *i += 1;
+                n
+            }
+            other => {
+                return Err(err(format!(
+                    "expected typedef name, found {other:?}"
+                )));
+            }
+        };
+        expect_semi(tokens, i)?;
+        return Ok(Item::Typedef(TypedefDecl {
+            name,
+            ty: CType::Named(tag),
+        }));
+    }
+    reject_unsupported(peek(tokens, *i))?;
+    let mut ty = parse_base_type(tokens, i)?;
+    ty = parse_stars(tokens, i, ty);
+    let name = match peek(tokens, *i) {
+        Tok::Ident(n) if !is_type_keyword(n) => {
+            let n = n.clone();
+            *i += 1;
+            n
+        }
+        other => return Err(err(format!("expected typedef name, found {other:?}"))),
+    };
+    expect_semi(tokens, i)?;
+    Ok(Item::Typedef(TypedefDecl { name, ty }))
+}
+
+fn expect_semi(tokens: &[Tok], i: &mut usize) -> Result<(), ParseError> {
+    if !matches!(peek(tokens, *i), Tok::Semi) {
+        return Err(err(format!(
+            "expected ';' , found {:?}",
+            peek(tokens, *i)
+        )));
+    }
+    *i += 1;
+    Ok(())
 }
 
 fn parse_fn_decl(tokens: &[Tok], i: &mut usize) -> Result<FnDecl, ParseError> {
@@ -286,8 +532,6 @@ fn parse_fn_decl(tokens: &[Tok], i: &mut usize) -> Result<FnDecl, ParseError> {
 fn reject_unsupported(tok: &Tok) -> Result<(), ParseError> {
     if let Tok::Ident(n) = tok {
         match n.as_str() {
-            "struct" => return Err(err("struct not supported in this header subset")),
-            "typedef" => return Err(err("typedef not supported in this header subset")),
             "enum" => return Err(err("enum not supported in this header subset")),
             "union" => return Err(err("union not supported in this header subset")),
             _ => {}
@@ -297,6 +541,27 @@ fn reject_unsupported(tok: &Tok) -> Result<(), ParseError> {
 }
 
 fn parse_base_type(tokens: &[Tok], i: &mut usize) -> Result<CType, ParseError> {
+    while ident_eq(peek(tokens, *i), "const")
+        || ident_eq(peek(tokens, *i), "volatile")
+        || ident_eq(peek(tokens, *i), "restrict")
+    {
+        *i += 1;
+    }
+    if ident_eq(peek(tokens, *i), "struct") {
+        *i += 1;
+        if matches!(peek(tokens, *i), Tok::LBrace) {
+            return Err(err("anonymous struct not supported here"));
+        }
+        return match peek(tokens, *i) {
+            Tok::Ident(n) => {
+                let n = n.clone();
+                *i += 1;
+                Ok(CType::Named(n))
+            }
+            other => Err(err(format!("expected struct tag, found {other:?}"))),
+        };
+    }
+    reject_unsupported(peek(tokens, *i))?;
     let mut signed = false;
     let mut unsigned = false;
     let mut longs = 0u8;
@@ -345,7 +610,7 @@ fn parse_base_type(tokens: &[Tok], i: &mut usize) -> Result<CType, ParseError> {
             }
             Tok::Ident(n) if n == "struct" || n == "typedef" || n == "enum" || n == "union" => {
                 reject_unsupported(peek(tokens, *i))?;
-                unreachable!();
+                return Err(err(format!("unexpected {n} in type")));
             }
             _ => break,
         }
@@ -387,7 +652,14 @@ fn parse_base_type(tokens: &[Tok], i: &mut usize) -> Result<CType, ParseError> {
                 return Err(err("invalid integer type"));
             }
             if core.is_none() && longs == 0 && shorts == 0 && !signed && !unsigned {
-                return Err(err("expected type specifier"));
+                return match peek(tokens, *i) {
+                    Tok::Ident(n) if !is_type_keyword(n) => {
+                        let n = n.clone();
+                        *i += 1;
+                        Ok(CType::Named(n))
+                    }
+                    _ => Err(err("expected type specifier")),
+                };
             }
             if shorts > 0 {
                 if unsigned {
@@ -624,9 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn reject_struct_and_body() {
-        let err = parse_header("struct S { int x; };").unwrap_err();
-        assert!(err.message.contains("struct"), "{err}");
+    fn reject_function_body() {
         let err = parse_header("int add(int a, int b) { return a + b; }").unwrap_err();
         assert!(
             err.message.contains("body") || err.message.contains("{"),
@@ -695,6 +965,79 @@ mod tests {
         assert_eq!(
             default_extern_module_path(Path::new("/tmp/foo.H")),
             PathBuf::from("/tmp/foo.drac")
+        );
+    }
+
+    #[test]
+    fn emit_simple_struct() {
+        let h = parse_header("struct Point { int x; int y; };").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "type Point = { x: i32; y: i32 };\n"
+        );
+    }
+
+    #[test]
+    fn emit_typedef_scalar() {
+        let h = parse_header("typedef int Int;\ntypedef unsigned int u32_t;").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "type Int = i32;\ntype u32_t = u32;\n"
+        );
+    }
+
+    #[test]
+    fn emit_typedef_anonymous_struct() {
+        let h = parse_header("typedef struct { int x; int y; } Point;").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "type Point = { x: i32; y: i32 };\n"
+        );
+    }
+
+    #[test]
+    fn emit_typedef_struct_tag() {
+        let h = parse_header("typedef struct Point { int x; int y; } Point;").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "type Point = { x: i32; y: i32 };\n"
+        );
+    }
+
+    #[test]
+    fn emit_fn_using_struct_and_typedef() {
+        let h = parse_header(
+            r#"
+            struct Point { int x; int y; };
+            typedef int Int;
+            int take(struct Point p);
+            Int ident(Int n);
+            struct Point *origin(void);
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            concat!(
+                "type Point = { x: i32; y: i32 };\n",
+                "type Int = i32;\n",
+                "extern \"C\" function take(p: Point): i32;\n",
+                "extern \"C\" function ident(n: Int): Int;\n",
+                "extern \"C\" function origin(): *Point;\n",
+            )
+        );
+    }
+
+    #[test]
+    fn reject_union_enum_bitfield() {
+        let err = parse_header("union U { int x; };").unwrap_err();
+        assert!(err.message.contains("union"), "{err}");
+        let err = parse_header("enum E { A };").unwrap_err();
+        assert!(err.message.contains("enum"), "{err}");
+        let err = parse_header("struct S { int x : 3; };").unwrap_err();
+        assert!(
+            err.message.contains("bitfield") || err.message.contains(":"),
+            "{err}"
         );
     }
 }

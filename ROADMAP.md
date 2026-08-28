@@ -785,7 +785,7 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 | F07.01 | done | compiler | Parse C header subset: functions with scalar/pointer params | `crates/draconic-cli`, `tests/integration` |
 | F07.02 | done | compiler | Emit Draconic `extern "C"` decls from parsed header | `tests/integration` |
 | F07.03 | done | compiler | CLI: `draconic bindgen <header>` (or designed) writes extern module | `crates/draconic-cli`, `tests/integration` |
-| F07.04 | todo | compiler | Header subset: simple structs + typedef names (no full C) | `tests/integration` |
+| F07.04 | done | compiler | Header subset: simple structs + typedef names (no full C) | `tests/integration` |
 | F08 | todo | both | Unsafe/native-only FFI diagnostics; JS hard-error; clear spans | `tests/conformance` fixtures `ffi/policy` |
 | F08.01 | done | js | FFI/extern on js → hard diagnostic (N04 spirit) | `tests/conformance` fixtures `ffi/policy` |
 | F08.02 | done | both | Clear spans + codes for bad extern signatures / unsupported types | `tests/conformance` fixtures `ffi/policy` |

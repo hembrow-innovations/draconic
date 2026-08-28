@@ -100,7 +100,7 @@ fn bindgen_dash_o_writes_named_module() {
 fn bindgen_parse_error_exits_one() {
     let dir = temp_dir();
     let header = dir.join("bad.h");
-    fs::write(&header, "struct S { int x; };\n").unwrap();
+    fs::write(&header, "union U { int x; };\n").unwrap();
     let (code, _stdout, stderr) = run(draconic().arg("bindgen").arg(&header));
     assert_eq!(code, 1, "stderr={stderr}");
     assert!(stderr.contains("bindgen:"), "stderr={stderr}");

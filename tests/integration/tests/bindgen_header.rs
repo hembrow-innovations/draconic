@@ -1,6 +1,7 @@
 //! ROADMAP F07.01: parse C header subset (scalar/pointer function decls).
 //! ROADMAP F07.02: emit Draconic `extern "C"` decls from parsed header.
 //! ROADMAP F07.03: `draconic bindgen <header>` writes an extern module.
+//! ROADMAP F07.04: header subset — simple structs + typedef names.
 
 use std::fs;
 use std::path::PathBuf;
@@ -188,4 +189,51 @@ fn bindgen_cli_missing_header_exits_usage() {
         stderr.contains("usage: draconic bindgen"),
         "stderr={stderr}"
     );
+}
+
+const STRUCT_HEADER_SRC: &str = r#"
+    struct Point { int x; int y; };
+    typedef int Int;
+    typedef struct { int a; int b; } Pair;
+    int take(struct Point p);
+    Int ident(Int n);
+    Pair *make_pair(Int a, Int b);
+"#;
+
+const STRUCT_EXPECTED_MODULE: &str = concat!(
+    "type Point = { x: i32; y: i32 };\n",
+    "type Int = i32;\n",
+    "type Pair = { a: i32; b: i32 };\n",
+    "extern \"C\" function take(p: Point): i32;\n",
+    "extern \"C\" function ident(n: Int): Int;\n",
+    "extern \"C\" function make_pair(a: Int, b: Int): *Pair;\n",
+);
+
+#[test]
+fn emit_externs_structs_and_typedefs_is_parseable_draconic() {
+    let dir = temp_dir();
+    let path = dir.join("api.h");
+    fs::write(&path, STRUCT_HEADER_SRC).unwrap();
+    let src = fs::read_to_string(&path).unwrap();
+    let h = parse_header(&src).expect("parse_header");
+    let emitted = emit_externs(&h);
+    assert_eq!(emitted, STRUCT_EXPECTED_MODULE);
+    draconic_parser::parse(&emitted).expect("emitted Draconic must parse");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bindgen_cli_writes_struct_typedef_module() {
+    let dir = temp_dir();
+    let header = dir.join("api.h");
+    fs::write(&header, STRUCT_HEADER_SRC).unwrap();
+    let (code, stdout, stderr) = run(Command::new(draconic_bin()).arg("bindgen").arg(&header));
+    assert_eq!(
+        code, 0,
+        "bindgen failed\nstdout={stdout}\nstderr={stderr}"
+    );
+    let got = fs::read_to_string(dir.join("api.drac")).expect("wrote api.drac");
+    assert_eq!(got, STRUCT_EXPECTED_MODULE);
+    draconic_parser::parse(&got).expect("written module must parse");
+    let _ = fs::remove_dir_all(&dir);
 }
