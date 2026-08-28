@@ -227,7 +227,10 @@ fn mod_tidy_accepts_required_toolchain_pin() {
     fs::create_dir_all(&ws).unwrap();
     fs::write(
         ws.join("draconic.toml"),
-        "module = \"github.com/acme/app\"\ntoolchain = { version = \"1.2.3\", required = true }\n",
+        &format!(
+            "module = \"github.com/acme/app\"\ntoolchain = {{ version = \"{}\", required = true }}\n",
+            env!("CARGO_PKG_VERSION")
+        ),
     )
     .unwrap();
 
@@ -243,7 +246,7 @@ fn mod_tidy_accepts_required_toolchain_pin() {
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     let mf = fs::read_to_string(ws.join("draconic.toml")).unwrap();
     assert!(
-        mf.contains("toolchain") && mf.contains("1.2.3"),
+        mf.contains("toolchain") && mf.contains(env!("CARGO_PKG_VERSION")),
         "tidy must preserve required toolchain pin:\n{mf}"
     );
 

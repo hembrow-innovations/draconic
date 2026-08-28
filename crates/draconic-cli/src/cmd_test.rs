@@ -23,6 +23,10 @@ pub fn cmd_test(args: &[String]) -> ExitCode {
         }
     };
 
+    if let Err(code) = crate::toolchain_pin::enforce(&opts.path) {
+        return code;
+    }
+
     let fixtures = match load_path(&opts.path) {
         Ok(f) => f,
         Err(e) => {

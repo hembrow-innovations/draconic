@@ -19,6 +19,7 @@ use draconic_pkg::ensure_locked_for_entry;
 
 mod cmd_test;
 mod doc;
+mod toolchain_pin;
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
@@ -87,6 +88,9 @@ fn cmd_parse(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Err(code) = toolchain_pin::enforce(Path::new(path)) {
+        return code;
+    }
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -115,6 +119,10 @@ fn cmd_check(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    if let Err(code) = toolchain_pin::enforce(&parsed.input) {
+        return code;
+    }
 
     if parsed.watch {
         return run_watch_loop(&parsed.input, || match check_path(&parsed.input) {
@@ -226,6 +234,10 @@ fn cmd_doc(args: &[String]) -> ExitCode {
         }
     };
 
+    if let Err(code) = toolchain_pin::enforce(&path) {
+        return code;
+    }
+
     let source = match fs::read_to_string(&path) {
         Ok(s) => s,
         Err(e) => {
@@ -290,6 +302,10 @@ fn cmd_fmt(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    if let Err(code) = toolchain_pin::enforce(&path) {
+        return code;
+    }
 
     let source = match fs::read_to_string(&path) {
         Ok(s) => s,
@@ -370,6 +386,10 @@ fn cmd_build(args: &[String]) -> ExitCode {
         Some(p) => p.clone(),
         None => default_output(&parsed.input, parsed.target),
     };
+
+    if let Err(code) = toolchain_pin::enforce(&parsed.input) {
+        return code;
+    }
 
     if parsed.watch {
         return run_watch_loop(&parsed.input, || {
@@ -460,6 +480,10 @@ fn cmd_run(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    if let Err(code) = toolchain_pin::enforce(&parsed.input) {
+        return code;
+    }
 
     let work = match run_work_dir() {
         Ok(d) => d,
@@ -777,6 +801,11 @@ fn cmd_repl(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if let Err(code) = toolchain_pin::enforce(&cwd) {
+        return code;
+    }
 
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
@@ -1224,6 +1253,9 @@ fn cmd_mod(args: &[String]) -> ExitCode {
     let workspace = parsed
         .dir
         .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    if let Err(code) = toolchain_pin::enforce(&workspace) {
+        return code;
+    }
     let cache_root = parsed
         .cache_dir
         .unwrap_or_else(|| draconic_pkg::default_cache_root(&workspace));
@@ -1309,6 +1341,9 @@ fn cmd_get(args: &[String]) -> ExitCode {
     let workspace = parsed
         .dir
         .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    if let Err(code) = toolchain_pin::enforce(&workspace) {
+        return code;
+    }
     let cache_root = parsed
         .cache_dir
         .unwrap_or_else(|| draconic_pkg::default_cache_root(&workspace));

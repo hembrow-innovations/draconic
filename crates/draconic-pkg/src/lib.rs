@@ -25,6 +25,7 @@
 //! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 //! K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
 //! D02.01: optional/required toolchain version pin in `draconic.toml`.
+//! D02.02: CLI compares running toolchain version to that pin (warn or hard-fail).
 
 mod cache;
 mod ensure;
@@ -34,6 +35,7 @@ mod import_resolve;
 mod lock;
 mod resolve;
 mod tidy;
+mod toolchain;
 
 pub use cache::{
     entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError,
@@ -63,6 +65,9 @@ pub use resolve::{
     ResolvedVersion,
 };
 pub use tidy::{mod_tidy, mod_tidy_default_cache, TidyError, TidyResult};
+pub use toolchain::{
+    check_toolchain_pin, check_toolchain_pin_for_entry, ToolchainPinStatus,
+};
 
 use std::collections::BTreeMap;
 use std::fmt;

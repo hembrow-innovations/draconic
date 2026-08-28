@@ -884,7 +884,7 @@ Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi
 | D01.03 | done | compiler | Install smoke: fresh PATH → `draconic -V` / parse hello | `tests/integration` |
 | D02 | todo | compiler | Toolchain version pin in `draconic.toml`; CLI enforces or warns | `crates/draconic-cli`, `tests/integration` |
 | D02.01 | done | compiler | Manifest field: required/optional toolchain version | `crates/draconic-cli`, `crates/draconic-pkg` |
-| D02.02 | todo | compiler | CLI: enforce or warn when running toolchain ≠ pin | `crates/draconic-cli`, `tests/integration` |
+| D02.02 | done | compiler | CLI: enforce or warn when running toolchain ≠ pin | `crates/draconic-cli`, `tests/integration` |
 | D03 | todo | compiler | Reproducible builds: same source + pin → documented-equivalent artifacts | `tests/integration` |
 | D03.01 | todo | compiler | Document reproducibility expectations (timestamps, paths) | `tests/integration`, docs |
 | D03.02 | todo | compiler | Same source + pin → byte-identical or documented-equivalent emit | `tests/integration` |
