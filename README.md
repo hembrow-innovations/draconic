@@ -8,6 +8,14 @@ This monorepo is the Draconic toolchain (Rust) plus the agent **Loop** that grow
 
 Bootstrap / Roadmap Loop spine is complete. Language completeness is ongoing — see [`ROADMAP.md`](./ROADMAP.md) for open items. The toolchain is usable today for **parse**, **build** (`js` | `native`), and **test**.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hembrow-innovations/draconic/main/scripts/install.sh | sh
+```
+
+Places `draconic` in `~/.draconic/bin`. Add that directory to `PATH` if needed.
+
 ## Build
 
 ```bash
