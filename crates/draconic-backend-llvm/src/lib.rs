@@ -13,6 +13,7 @@ mod es_coercion;
 mod es_destructure_defaults;
 mod base64;
 mod hex;
+mod sha256;
 mod es_encoding;
 mod es_eval;
 mod es_exceptions;

@@ -1,0 +1,6 @@
+id: stdlib/crypto/sha256_invalid
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\n1\n1\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n
+js.check: if (ok !== 1) process.exit(1); if (missing !== 1) process.exit(2); if (num !== 1) process.exit(3); if (empty !== "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") process.exit(4);

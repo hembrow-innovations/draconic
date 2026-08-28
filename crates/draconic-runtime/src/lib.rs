@@ -3,6 +3,7 @@
 
 pub mod abi;
 pub use abi::*;
+pub use crypto::sha256_js_polyfill;
 pub use url::{parse_url, parse_url_js_polyfill, ParsedUrl};
 
 #[cfg(test)]
@@ -10,6 +11,26 @@ mod host_abi_tests;
 #[cfg(test)]
 mod host_bytes_tests;
 
+
+/// L03.01: SHA-256 digest over `Uint8Array` bytes (NIST FIPS 180-2).
+pub mod crypto {
+    pub fn sha256_js_polyfill() -> &'static str {
+        r#"function sha256(bytes) {
+  if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
+  if (!(bytes instanceof Uint8Array)) throw new TypeError("sha256 expects Uint8Array");
+  var c = null;
+  try { c = require("crypto"); } catch (e) {}
+  if (c && typeof c.createHash === "function") {
+    var h = c.createHash("sha256");
+    h.update(Buffer.from(bytes));
+    return new Uint8Array(h.digest());
+  }
+  throw new TypeError("sha256 unavailable");
+}
+if (typeof globalThis !== "undefined") globalThis.sha256 = sha256;
+"#
+    }
+}
 
 /// L08.01: portable URL parse — scheme / host / path / query / hash.
 pub mod url {

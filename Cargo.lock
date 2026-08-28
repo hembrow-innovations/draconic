@@ -107,6 +107,7 @@ dependencies = [
  "draconic-frontend",
  "draconic-ir",
  "draconic-runtime",
+ "sha2",
 ]
 
 [[package]]

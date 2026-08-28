@@ -1,6 +1,6 @@
-//! L01.01 / L01.02 / L01.03: native observations for UTF-8 TextEncoder /
-//! TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), and hex
-//! (`toHex` / `fromHex`).
+//! L01.01 / L01.02 / L01.03 / L03.01: native observations for UTF-8 TextEncoder /
+//! TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), hex
+//! (`toHex` / `fromHex`), and SHA-256 (`sha256`).
 //!
 //! Compile-time evaluation of TextEncoder/TextDecoder encode/decode plus
 //! fatal invalid UTF-8 TypeError. Emits Runtime prints of final top-level
@@ -21,6 +21,7 @@ use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_ST
 
 use crate::base64;
 use crate::hex;
+use crate::sha256;
 
 pub(crate) fn is_es_encoding_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -40,6 +41,7 @@ enum BuiltinId {
     TextDecoder,
     Uint8Array,
     TypeError,
+    Sha256,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -129,6 +131,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "TextDecoder" => Some(BuiltinId::TextDecoder),
         "Uint8Array" => Some(BuiltinId::Uint8Array),
         "TypeError" => Some(BuiltinId::TypeError),
+        "sha256" => Some(BuiltinId::Sha256),
         _ => None,
     }
 }
@@ -168,7 +171,12 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
     match expr {
         Expr::Local { id, .. } => by_id
             .get(id)
-            .is_some_and(|l| matches!(l.name.as_str(), "TextEncoder" | "TextDecoder")),
+            .is_some_and(|l| {
+                matches!(
+                    l.name.as_str(),
+                    "TextEncoder" | "TextDecoder" | "sha256"
+                )
+            }),
         Expr::Unary { arg, .. } => expr_has_encoding_surface(arg, by_id),
         Expr::Binary { left, right, .. } => {
             expr_has_encoding_surface(left, by_id) || expr_has_encoding_surface(right, by_id)
@@ -535,7 +543,15 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     Err(None) => Err(()),
                 };
             }
-            Err(())
+            let c = match eval_expr(callee, env)? {
+                Ok(v) => v,
+                Err(flow) => return Ok(Err(flow)),
+            };
+            match eval_call_fn(&c, &arg_vals) {
+                Ok(v) => Ok(Ok(v)),
+                Err(Some(flow)) => Ok(Err(flow)),
+                Err(None) => Err(()),
+            }
         }
         Expr::Assign {
             target: AssignTarget::Local(id),
@@ -616,6 +632,26 @@ fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Str
             Ok(_) => Err(()),
             Err(flow) => Ok(Err(flow)),
         },
+    }
+}
+
+fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
+    match callee {
+        JsVal::Builtin(BuiltinId::Sha256) => {
+            let bytes = match args.first() {
+                Some(JsVal::Uint8ArrayInst { bytes }) => bytes.borrow().clone(),
+                _ => {
+                    return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                        name: "TypeError".into(),
+                        message: "sha256 expects Uint8Array".into(),
+                    })))
+                }
+            };
+            Ok(JsVal::Uint8ArrayInst {
+                bytes: Rc::new(RefCell::new(sha256::digest(&bytes).to_vec())),
+            })
+        }
+        _ => Err(None),
     }
 }
 
@@ -788,6 +824,7 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "TextDecoder" => Ok(JsVal::Builtin(BuiltinId::TextDecoder)),
             "Uint8Array" => Ok(JsVal::Builtin(BuiltinId::Uint8Array)),
             "TypeError" => Ok(JsVal::Builtin(BuiltinId::TypeError)),
+            "sha256" => Ok(JsVal::Builtin(BuiltinId::Sha256)),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
         },
@@ -831,7 +868,8 @@ fn typeof_str(v: &JsVal) -> String {
             BuiltinId::TextEncoder
             | BuiltinId::TextDecoder
             | BuiltinId::Uint8Array
-            | BuiltinId::TypeError,
+            | BuiltinId::TypeError
+            | BuiltinId::Sha256,
         ) => "function".into(),
         JsVal::Builtin(BuiltinId::GlobalThis) => "object".into(),
     }
@@ -931,9 +969,9 @@ impl Emitter {
                 _ => return Err(diag("es_encoding: non-printable value")),
             }
         }
-        writeln!(
+            writeln!(
             self.out,
-            "; Draconic LLVM backend (L01.01/L01.02/L01.03 UTF-8 + Base64 + hex)"
+            "; Draconic LLVM backend (L01 + L03.01 UTF-8 + Base64 + hex + SHA-256)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1051,6 +1089,37 @@ mod tests {
             let hi = new Uint8Array([104, 105]).toHex();
             let v = Uint8Array.fromHex("6869");
             let n = v.length;
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_sha256_vectors() {
+        let m = compile_src(
+            r#"
+            let empty = sha256(new Uint8Array([])).toHex();
+            let abc = sha256(new TextEncoder().encode("abc")).toHex();
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_sha256_invalid() {
+        let m = compile_src(
+            r#"
+            let ok = 0;
+            try {
+              sha256("abc");
+              ok = -1;
+            } catch (e) {
+              ok = e.name === "TypeError" ? 1 : -2;
+            }
             "#,
         );
         assert!(is_es_encoding_module(&m));

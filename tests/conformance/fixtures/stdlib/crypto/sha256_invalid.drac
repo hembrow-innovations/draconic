@@ -1,0 +1,23 @@
+// L03.01: sha256 on non-bytes → TypeError.
+let ok = 0;
+try {
+  sha256("abc");
+  ok = -1;
+} catch (e) {
+  ok = e.name === "TypeError" ? 1 : -2;
+}
+let missing = 0;
+try {
+  sha256();
+  missing = -1;
+} catch (e) {
+  missing = e.name === "TypeError" ? 1 : -2;
+}
+let num = 0;
+try {
+  sha256(1);
+  num = -1;
+} catch (e) {
+  num = e.name === "TypeError" ? 1 : -2;
+}
+let empty = sha256(new Uint8Array([])).toHex();

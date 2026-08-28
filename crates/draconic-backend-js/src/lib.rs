@@ -39,6 +39,20 @@ pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
     Ok(emit_js_full(module, None)?.code)
 }
 
+/// L03.01: true when the Program body references the stdlib `sha256` global.
+fn module_uses_sha256(module: &Module) -> bool {
+    let ids: Vec<LocalId> = module
+        .locals
+        .iter()
+        .filter(|l| l.name == "sha256")
+        .map(|l| l.id)
+        .collect();
+    if ids.is_empty() {
+        return false;
+    }
+    module.body.iter().any(|s| stmt_uses_local(s, &ids))
+}
+
 /// L08.01: true when the Program body references the stdlib `parseUrl` global.
 ///
 /// IR locals include every binder symbol (all builtins), so presence in
@@ -502,6 +516,13 @@ fn emit_js_full(
         .collect();
 
     let mut out = String::new();
+    // L03.01: portable `sha256` polyfill when the Program references it.
+    if module_uses_sha256(module) {
+        out.push_str(draconic_runtime::sha256_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
     // L08.01: portable `parseUrl` polyfill when the Program references it.
     if module_uses_parse_url(module) {
         out.push_str(draconic_runtime::parse_url_js_polyfill());
@@ -1119,6 +1140,13 @@ mod tests {
     fn emit_call() {
         let js = emit_src("let f; f(1, 2);");
         assert_eq!(js, "let f;\n(f)(1, 2);\n");
+    }
+
+    #[test]
+    fn emit_sha256_polyfill() {
+        let js = emit_src("let d = sha256(new Uint8Array([]));");
+        assert!(js.contains("function sha256("), "{js}");
+        assert!(js.contains("globalThis.sha256 = sha256"), "{js}");
     }
 
     #[test]

@@ -1,0 +1,12 @@
+// L03.01: SHA-256 digest over bytes; NIST FIPS 180-2 vectors.
+let tp = typeof sha256;
+let gp = globalThis.sha256 === sha256;
+let empty = sha256(new Uint8Array([])).toHex();
+let abc = sha256(new TextEncoder().encode("abc")).toHex();
+let fox = sha256(
+  new TextEncoder().encode("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
+).toHex();
+let d = sha256(new Uint8Array([97, 98, 99]));
+let n = d.length;
+let b0 = d[0];
+let b31 = d[31];

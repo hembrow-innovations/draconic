@@ -1219,6 +1219,8 @@ impl Binder {
         binder.install_builtin("unescape", BindingKind::Const);
         // L08.01: stdlib URL parse
         binder.install_builtin("parseUrl", BindingKind::Const);
+        // L03.01: SHA-256 digest over bytes
+        binder.install_builtin("sha256", BindingKind::Const);
         binder
     }
 
