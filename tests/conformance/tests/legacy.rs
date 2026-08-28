@@ -458,3 +458,13 @@ fn with_async_fixture_present() {
 fn with_async_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_async");
 }
+
+#[test]
+fn with_classes_fixture_present() {
+    assert_fixture_present("es/legacy/with_classes");
+}
+
+#[test]
+fn with_classes_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_classes");
+}

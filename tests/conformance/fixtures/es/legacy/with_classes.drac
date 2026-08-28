@@ -1,0 +1,264 @@
+// E17.02.42: with + classes through object environment (non-strict).
+// method/constructor/field ident hits object (else outer); live close; params
+// shadow object; nested class; class expression; extends ident; static method;
+// this is instance not with object; class body is strict (with in method →
+// SyntaxError; unresolvable assign → ReferenceError; bare method this undefined).
+
+function methodHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      m() {
+        return x;
+      }
+    }
+    return new C().m() === 1;
+  }
+}
+let a = methodHitsObject();
+
+function methodLiveClose() {
+  let obj = { x: 1 };
+  let C;
+  with (obj) {
+    C = class {
+      m() {
+        return x;
+      }
+    };
+  }
+  obj.x = 9;
+  return new C().m() === 9;
+}
+let b = methodLiveClose();
+
+function ctorHitsObject() {
+  let obj = { x: 3 };
+  with (obj) {
+    class C {
+      constructor() {
+        this.v = x;
+      }
+    }
+    return new C().v === 3;
+  }
+}
+let c = ctorHitsObject();
+
+function paramsShadow() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      constructor(x) {
+        this.v = x;
+      }
+    }
+    return new C(4).v === 4;
+  }
+}
+let d = paramsShadow();
+
+function missIsOuter() {
+  let x = 10;
+  with ({}) {
+    class C {
+      m() {
+        return x;
+      }
+    }
+    return new C().m() === 10;
+  }
+}
+let e = missIsOuter();
+
+function assignHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      m() {
+        x = 2;
+        return x;
+      }
+    }
+    let v = new C().m();
+    return v === 2 && obj.x === 2;
+  }
+}
+let f = assignHitsObject();
+
+function classExpr() {
+  let obj = { x: 6 };
+  with (obj) {
+    let H = class {
+      m() {
+        return x;
+      }
+    };
+    return new H().m() === 6;
+  }
+}
+let g = classExpr();
+
+function extendsHitsObject() {
+  function Inner() {}
+  Inner.prototype.n = function () {
+    return 7;
+  };
+  let obj = { Base: Inner };
+  with (obj) {
+    class C extends Base {
+      m() {
+        return super.n();
+      }
+    }
+    return new C() instanceof Inner && new C().m() === 7;
+  }
+}
+let h = extendsHitsObject();
+
+function staticMethodHitsObject() {
+  let obj = { x: 8 };
+  with (obj) {
+    class C {
+      static m() {
+        return x;
+      }
+    }
+    return C.m() === 8;
+  }
+}
+let i = staticMethodHitsObject();
+
+function fieldInitHitsObject() {
+  let obj = { x: 9 };
+  with (obj) {
+    class C {
+      v = x;
+    }
+    return new C().v === 9;
+  }
+}
+let j = fieldInitHitsObject();
+
+function thisIsInstance() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      constructor() {
+        this.x = 5;
+      }
+      m() {
+        return this.x;
+      }
+    }
+    let inst = new C();
+    return inst.m() === 5 && obj.x === 1;
+  }
+}
+let k = thisIsInstance();
+
+function nestedClass() {
+  let obj = { x: 2 };
+  with (obj) {
+    class Outer {
+      inner() {
+        class Inner {
+          m() {
+            return x;
+          }
+        }
+        return new Inner().m();
+      }
+    }
+    return new Outer().inner() === 2;
+  }
+}
+let l = nestedClass();
+
+function withInClassBodySyntaxError() {
+  try {
+    eval("class C { m() { with ({}) { return 1; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let m = withInClassBodySyntaxError();
+
+function methodBareCallThisUndefined() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      m() {
+        return this === undefined;
+      }
+    }
+    let f = C.prototype.m;
+    return f() === true;
+  }
+}
+let n = methodBareCallThisUndefined();
+
+function assignMissIsOuter() {
+  let x = 1;
+  let obj = {};
+  with (obj) {
+    class C {
+      m() {
+        x = 3;
+        return x;
+      }
+    }
+    let v = new C().m();
+    return v === 3 && x === 3 && obj.x === undefined;
+  }
+}
+let p = assignMissIsOuter();
+
+function assignUnresolvableStrict() {
+  let obj = {};
+  with (obj) {
+    class C {
+      m() {
+        y = 1;
+      }
+    }
+    try {
+      new C().m();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && obj.y === undefined;
+    }
+  }
+}
+let q = assignUnresolvableStrict();
+
+function defaultParamHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    class C {
+      constructor(p = x) {
+        this.v = p;
+      }
+    }
+    return new C().v === 7;
+  }
+}
+let r = defaultParamHitsObject();
+
+function superNotWithObject() {
+  function Base() {}
+  Base.prototype.m = function () {
+    return 4;
+  };
+  let obj = { m: 99, Base: Base };
+  with (obj) {
+    class C extends Base {
+      n() {
+        return super.m();
+      }
+    }
+    return new C().n() === 4;
+  }
+}
+let s = superNotWithObject();
