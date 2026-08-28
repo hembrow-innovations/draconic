@@ -64,7 +64,7 @@ pub use debug_info::SourceDebug;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_ir::Module;
 
 use es_arrays::{emit_es_arrays, is_es_arrays_module};
@@ -544,10 +544,13 @@ fn build_native_binary_with_libs(
     }
     for lib in &dynamic_libs {
         if !lib.is_file() {
-            return Err(Diagnostic::new(
-                format!("dynamic lib not found: {}", lib.display()),
-                Span::dummy(),
-            ));
+            return Err(
+                Diagnostic::new(
+                    format!("dynamic lib not found: {}", lib.display()),
+                    Span::dummy(),
+                )
+                .with_code(codes::MISSING_DYNAMIC_LIB),
+            );
         }
     }
 
@@ -4734,6 +4737,88 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             "1\n",
             "stdout must be the local let, proving the shared-lib symbol resolved"
+        );
+    }
+
+    /// F05.02: call a linked dynamic symbol; native stdout is the C return value.
+    #[test]
+    fn native_link_dynamic_lib_call_end_to_end() {
+        let dir = work_dir("draconic-llvm-f05-02-link-dynamic-call").expect("workdir");
+        let c_src = dir.join("add.c");
+        std::fs::write(
+            &c_src,
+            "int draconic_link_dynamic_add(int a, int b) { return a + b; }\n",
+        )
+        .expect("write c");
+        let dylib = dir.join(dynamic_lib_file_name("add"));
+        build_c_dynamic_lib(&c_src, &dylib).expect("build shared lib");
+
+        let m = module_of(
+            r#"
+            extern "C" function draconic_link_dynamic_add(a: i32, b: i32): i32;
+            let s: i32 = draconic_link_dynamic_add(20, 22);
+            let t: i32 = draconic_link_dynamic_add(-5, 12);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare i32 @draconic_link_dynamic_add(i32, i32)"),
+            "expected declare:\n{ir}"
+        );
+        assert!(
+            ir.contains("call i32 @draconic_link_dynamic_add"),
+            "expected call:\n{ir}"
+        );
+
+        let bin = dir.join("linked");
+        build_native_binary_with_dynamic_libs(&ir, &bin, &[dylib]).expect("link with shared lib");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "42\n7\n",
+            "stdout must be C-computed returns"
+        );
+    }
+
+    /// F05.02: missing shared lib is a typed diagnostic (E0402), not a raw linker dump.
+    #[test]
+    fn native_link_dynamic_lib_missing_is_typed_error() {
+        let dir = work_dir("draconic-llvm-f05-02-missing-dylib").expect("workdir");
+        let m = module_of(
+            r#"
+            extern "C" function draconic_link_dynamic_add(a: i32, b: i32): i32;
+            let s: i32 = draconic_link_dynamic_add(20, 22);
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        let missing = dir.join(dynamic_lib_file_name("no_such"));
+        assert!(!missing.is_file(), "fixture path must not exist");
+        let bin = dir.join("no_bin");
+        let err = build_native_binary_with_dynamic_libs(&ir, &bin, &[missing.clone()])
+            .expect_err("missing dylib must fail");
+        assert_eq!(
+            err.code,
+            Some(draconic_diagnostics::codes::MISSING_DYNAMIC_LIB),
+            "missing dylib must carry E0402, got {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("E0402"),
+            "typed error must include E0402, got {msg}"
+        );
+        assert!(
+            msg.contains("dynamic lib not found"),
+            "typed error must name the miss, got {msg}"
+        );
+        assert!(
+            msg.contains(&missing.display().to_string()),
+            "typed error must include the path, got {msg}"
         );
     }
 }

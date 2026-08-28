@@ -150,6 +150,8 @@ pub mod codes {
     pub const HOST_API_UNSUPPORTED: ErrorCode = ErrorCode(400);
     /// `extern "C"` / FFI is native-only; unsupported on the js target (F08.01).
     pub const EXTERN_UNSUPPORTED: ErrorCode = ErrorCode(401);
+    /// `--link` shared library path does not exist (F05.02).
+    pub const MISSING_DYNAMIC_LIB: ErrorCode = ErrorCode(402);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,6 +341,7 @@ mod tests {
         assert_eq!(codes::INVALID_EXTERN_TYPE.label(), "E0307");
         assert_eq!(codes::HOST_API_UNSUPPORTED.label(), "E0400");
         assert_eq!(codes::EXTERN_UNSUPPORTED.label(), "E0401");
+        assert_eq!(codes::MISSING_DYNAMIC_LIB.label(), "E0402");
         assert_eq!(codes::NOT_ASSIGNABLE.to_string(), "E0300");
     }
 

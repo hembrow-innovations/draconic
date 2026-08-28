@@ -1,0 +1,5 @@
+id: ffi/link_dynamic/call
+targets: native
+native.dylink: call.c
+native.exit: 0
+native.stdout: 42\n7\n
