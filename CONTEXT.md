@@ -24,6 +24,14 @@ _Avoid_: dynamic value, any, object (when meaning the whole heap universe)
 The coexistence of JS values and native types in one program, with explicit boundaries at the type and lowering level.
 _Avoid_: FFI-only model, “just typed JS”
 
+**Learn**:
+The public learning path for the language: two landings (from JavaScript, from systems) that join at Dual worlds, then modules, native types, host I/O, and packages.
+_Avoid_: tutorial, getting started (when meaning the whole path), language book (when meaning the site)
+
+**Reference**:
+The public working pages kept open while writing Programs: CLI, types, Dual-world rules, host I/O, and packages.
+_Avoid_: API dump, handbook, docs (when meaning this section alone)
+
 ## Toolchain
 
 **Toolchain**:
