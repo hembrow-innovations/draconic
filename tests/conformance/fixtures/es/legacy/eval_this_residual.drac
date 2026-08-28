@@ -1,0 +1,72 @@
+// E17.02.25: Direct eval `this` residual (non-strict).
+// eval("this") inherits the caller's this; indirect eval is always globalThis.
+
+// Bare sloppy call: direct eval this is the global object.
+function sloppyBare() {
+  return eval("this") === globalThis;
+}
+let a = sloppyBare();
+let b = (function () {
+  return eval("this") === globalThis;
+})();
+
+// Method call: direct eval this is the receiver.
+let recv = {
+  id: 7,
+  m: function () {
+    return eval("this").id;
+  }
+};
+let c = recv.m();
+
+// Nested bare function inside a method: inner eval this is global, not the receiver.
+let nestObj = {
+  id: 3,
+  outer: function () {
+    function inner() {
+      return eval("this") === globalThis;
+    }
+    return inner() && eval("this").id === 3;
+  }
+};
+let d = nestObj.outer();
+
+// Sloppy .call/.apply primitive receiver: eval("this") is ToObject (boxed).
+function typeOfEvalThis() {
+  return typeof eval("this");
+}
+let e = typeOfEvalThis.call(1);
+let f = typeOfEvalThis.call("x");
+let g = typeOfEvalThis.apply(null, []);
+let h = typeOfEvalThis.apply(undefined, []);
+
+// Strict function: direct eval this is undefined (not global).
+function strictBare() {
+  "use strict";
+  return eval("this") === undefined;
+}
+let i = strictBare();
+
+function strictTypeOfEvalThis() {
+  "use strict";
+  return typeof eval("this");
+}
+let j = strictTypeOfEvalThis.call(1);
+let k = strictTypeOfEvalThis.call("x");
+let l = strictTypeOfEvalThis.call(null);
+let m = strictTypeOfEvalThis.call(undefined);
+
+// Indirect eval always uses global this, even inside a method.
+let host = {
+  n: 4,
+  m: function () {
+    let direct = eval("this").n === 4;
+    let indirect = (0, eval)("this") === globalThis;
+    return direct && indirect;
+  }
+};
+let n = host.m();
+
+// Detached method: sloppy this (and eval this) is global; no `n`.
+let detached = host.m;
+let o = detached();
