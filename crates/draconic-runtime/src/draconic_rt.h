@@ -184,6 +184,10 @@ DraconicValue *draconic_rt_object_rest(DraconicValue *obj, const char **exclude)
 void draconic_rt_object_copy_own(DraconicValue *dst, DraconicValue *src);
 void draconic_rt_object_delete(DraconicValue *obj, const char *key);
 void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src);
+/* C02.02: structured clone of own string-keyed plain objects. Nested objects
+   are cloned; shared refs (same object twice) and arrays/promises reject.
+   Returns a new object, or NULL on reject. */
+DraconicValue *draconic_rt_object_structured_clone(DraconicValue *obj);
 
 /* --- Promise.allSettled (N06.08): array of promises/values →
        promise of [{status,value|reason}, …] --- */

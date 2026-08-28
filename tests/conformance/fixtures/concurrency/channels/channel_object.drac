@@ -1,0 +1,11 @@
+let inner = { n: 2 };
+let obj = { a: 1, s: "hi", b: inner };
+let ch = makeChannel();
+let sent = channelSend(ch, obj);
+obj.a = 99;
+inner.n = 8;
+let rec = channelRecv(ch);
+let same = rec === obj;
+let a = rec.a;
+let s = rec.s;
+let n = rec.b.n;

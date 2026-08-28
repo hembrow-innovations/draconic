@@ -1,0 +1,5 @@
+let inner = { n: 1 };
+let o = { a: inner, b: inner };
+let ch = makeChannel();
+let bad = channelSend(ch, o);
+let err = bad < 0;

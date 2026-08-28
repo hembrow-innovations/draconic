@@ -1878,6 +1878,103 @@ void draconic_rt_object_copy_own(DraconicValue *dst, DraconicValue *src) {
     free(vals);
 }
 
+#define DRACONIC_CLONE_SEEN_MAX 64
+
+static int clone_seen_has(DraconicValue **seen, size_t n, DraconicValue *v) {
+    size_t i;
+    for (i = 0; i < n; i++) {
+        if (seen[i] == v) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int clone_chan_value(
+    void *val,
+    void **out,
+    DraconicValue **seen,
+    size_t *seen_n);
+
+static int clone_plain_object(
+    DraconicValue *obj,
+    DraconicValue **out,
+    DraconicValue **seen,
+    size_t *seen_n)
+{
+    DraconicValue *dst;
+    DraconicProp *p;
+    if (!obj || obj->tag != DRACONIC_TAG_OBJECT) {
+        return -1;
+    }
+    if (clone_seen_has(seen, *seen_n, obj)) {
+        return -1;
+    }
+    if (*seen_n >= DRACONIC_CLONE_SEEN_MAX) {
+        return -1;
+    }
+    seen[(*seen_n)++] = obj;
+    dst = draconic_rt_alloc_object();
+    if (!dst) {
+        return -1;
+    }
+    for (p = obj->as.object.props; p; p = p->next) {
+        void *cv = NULL;
+        if (!p->key) {
+            continue;
+        }
+        if (clone_chan_value(p->value, &cv, seen, seen_n) != 0) {
+            return -1;
+        }
+        draconic_rt_object_set(dst, p->key, cv);
+    }
+    *out = dst;
+    return 0;
+}
+
+static int clone_chan_value(
+    void *val,
+    void **out,
+    DraconicValue **seen,
+    size_t *seen_n)
+{
+    DraconicValue *v = (DraconicValue *)val;
+    if (!val) {
+        *out = NULL;
+        return 0;
+    }
+    if (is_heap_value(v)) {
+        if (v->tag == DRACONIC_TAG_OBJECT) {
+            DraconicValue *cloned = NULL;
+            if (clone_plain_object(v, &cloned, seen, seen_n) != 0) {
+                return -1;
+            }
+            *out = cloned;
+            return 0;
+        }
+        if (v->tag == DRACONIC_TAG_STRING) {
+            *out = draconic_rt_alloc_string(v->as.string.data, v->as.string.len);
+            return *out ? 0 : -1;
+        }
+        return -1;
+    }
+    *out = val;
+    return 0;
+}
+
+DraconicValue *draconic_rt_object_structured_clone(DraconicValue *obj) {
+    DraconicValue *seen[DRACONIC_CLONE_SEEN_MAX];
+    size_t seen_n = 0;
+    DraconicValue *out = NULL;
+    if (!is_heap_value(obj) || obj->tag != DRACONIC_TAG_OBJECT) {
+        return NULL;
+    }
+    if (clone_plain_object(obj, &out, seen, &seen_n) != 0) {
+        return NULL;
+    }
+    return out;
+}
+
 void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src) {
     if (!dest || dest->tag != DRACONIC_TAG_OBJECT) {
         return;

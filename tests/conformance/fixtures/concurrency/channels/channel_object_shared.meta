@@ -1,0 +1,6 @@
+id: concurrency/channels/channel_object_shared
+targets: js,native
+js.exit: 0
+js.check: if (err !== true) process.exit(1);
+native.exit: 0
+native.stdout: 1\n-1\ntrue\n

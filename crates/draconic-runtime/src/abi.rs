@@ -920,6 +920,18 @@ pub const HOST_CHANNEL_RECV_BOOL: AbiFn = AbiFn {
     ret: "i32",
     params: "i32, ptr",
 };
+/* C02.02: channelSend plain object (structured clone); 0 success, -1 reject. */
+pub const HOST_CHANNEL_SEND_OBJ: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_send_obj",
+    ret: "i32",
+    params: "i32, ptr",
+};
+/* C02.02: channelRecv object into out ptr; 0 success, -1 fail. */
+pub const HOST_CHANNEL_RECV_OBJ: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_recv_obj",
+    ret: "i32",
+    params: "i32, ptr",
+};
 /// Declares for H15.03 async process wait + Promise then + job drain.
 pub const HOST_PROCESS_ASYNC_DECLARES: &[AbiFn] = &[
     GC_INIT,
@@ -1554,6 +1566,8 @@ pub const HOST_CHANNEL_SEND_BOOL_SYMBOL: &str = HOST_CHANNEL_SEND_BOOL.symbol;
 pub const HOST_CHANNEL_RECV_F64_SYMBOL: &str = HOST_CHANNEL_RECV_F64.symbol;
 pub const HOST_CHANNEL_RECV_STR_SYMBOL: &str = HOST_CHANNEL_RECV_STR.symbol;
 pub const HOST_CHANNEL_RECV_BOOL_SYMBOL: &str = HOST_CHANNEL_RECV_BOOL.symbol;
+pub const HOST_CHANNEL_SEND_OBJ_SYMBOL: &str = HOST_CHANNEL_SEND_OBJ.symbol;
+pub const HOST_CHANNEL_RECV_OBJ_SYMBOL: &str = HOST_CHANNEL_RECV_OBJ.symbol;
 pub const HOST_WS_HANDSHAKE_RESPONSE_SYMBOL: &str = HOST_WS_HANDSHAKE_RESPONSE.symbol;
 pub const HOST_WS_ENCODE_TEXT_SYMBOL: &str = HOST_WS_ENCODE_TEXT.symbol;
 pub const HOST_WS_ENCODE_BINARY_SYMBOL: &str = HOST_WS_ENCODE_BINARY.symbol;
@@ -1704,6 +1718,8 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_CHANNEL_RECV_F64_SYMBOL,
     HOST_CHANNEL_RECV_STR_SYMBOL,
     HOST_CHANNEL_RECV_BOOL_SYMBOL,
+    HOST_CHANNEL_SEND_OBJ_SYMBOL,
+    HOST_CHANNEL_RECV_OBJ_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1829,6 +1845,8 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_CHANNEL_RECV_F64,
     HOST_CHANNEL_RECV_STR,
     HOST_CHANNEL_RECV_BOOL,
+    HOST_CHANNEL_SEND_OBJ,
+    HOST_CHANNEL_RECV_OBJ,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -2247,14 +2265,35 @@ pub fn spawn_worker_js_polyfill() -> &'static str {
 "#
 }
 
-/// JS polyfill for `makeChannel` / `channelSend` / `channelRecv` (C02.01).
+/// JS polyfill for `makeChannel` / `channelSend` / `channelRecv` (C02.01–C02.02).
 ///
-/// Same-isolate unbounded FIFO of numbers, strings, and bools.
-/// Send returns 0 on success or -1 on invalid handle / unsupported value.
+/// Same-isolate unbounded FIFO of numbers, strings, bools, and structured-cloned
+/// plain objects. Shared object refs (cycles / diamonds) and non-plain values
+/// are rejected. Send returns 0 on success or -1 on invalid handle / reject.
 pub fn channel_js_polyfill() -> &'static str {
     r#"(function () {
   var nextId = 1;
   var slots = Object.create(null);
+  var FAIL = {};
+  function clonePlain(v, seen) {
+    var t = typeof v;
+    if (t === "number" || t === "string" || t === "boolean") return v;
+    if (v === null || t !== "object") return FAIL;
+    if (typeof Array.isArray === "function" && Array.isArray(v)) return FAIL;
+    var i;
+    for (i = 0; i < seen.length; i++) {
+      if (seen[i] === v) return FAIL;
+    }
+    seen.push(v);
+    var out = {};
+    var keys = Object.keys(v);
+    for (i = 0; i < keys.length; i++) {
+      var c = clonePlain(v[keys[i]], seen);
+      if (c === FAIL) return FAIL;
+      out[keys[i]] = c;
+    }
+    return out;
+  }
   function makeChannel() {
     var id = nextId++;
     slots[id] = [];
@@ -2264,8 +2303,13 @@ pub fn channel_js_polyfill() -> &'static str {
     var q = slots[ch];
     if (!q) return -1;
     var t = typeof v;
-    if (t !== "number" && t !== "string" && t !== "boolean") return -1;
-    q.push(v);
+    if (t === "number" || t === "string" || t === "boolean") {
+      q.push(v);
+      return 0;
+    }
+    var cloned = clonePlain(v, []);
+    if (cloned === FAIL) return -1;
+    q.push(cloned);
     return 0;
   }
   function channelRecv(ch) {

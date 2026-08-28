@@ -114,8 +114,9 @@ pub struct HostApiEntry {
 /// - `spawnWorker` (C01.01): both — spawn worker isolate from fn entry or module path.
 /// - `joinWorker` (C01.02): both — wait for worker exit; 0 success, negative error.
 /// - `terminateWorker` (C01.03): both — stop worker; 0 success, negative error.
-/// - `makeChannel` / `channelSend` / `channelRecv` (C02.01): both — FIFO channel of
-///   scalars (number/bool) and strings; send 0 success / negative error.
+/// - `makeChannel` / `channelSend` / `channelRecv` (C02.01–C02.02): both — FIFO channel of
+///   scalars (number/bool), strings, and structured-cloned plain objects (shared refs
+///   rejected); send 0 success / negative error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -725,12 +726,12 @@ const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "channelSend",
         availability: HostAvailability::BOTH,
-        note: "C02.01 send scalar or string; 0 ok",
+        note: "C02.01–C02.02 send scalar, string, or plain object clone; 0 ok",
     },
     HostApiEntry {
         name: "channelRecv",
         availability: HostAvailability::BOTH,
-        note: "C02.01 recv FIFO head (number/bool/string)",
+        note: "C02.01–C02.02 recv FIFO head (number/bool/string/object clone)",
     },
 ];
 

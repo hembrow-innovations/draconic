@@ -1,21 +1,25 @@
-//! C02.01: `makeChannel` + `channelSend` + `channelRecv`.
+//! C02.01–C02.02: `makeChannel` + `channelSend` + `channelRecv`.
 //!
 //! Supported subset:
 //! - `typeof makeChannel` / `typeof channelSend` / `typeof channelRecv` → `"function"`
 //! - `makeChannel()` → handle number
-//! - `channelSend(ch, number|string|bool)` → 0 success / negative error
+//! - `channelSend(ch, number|string|bool|plain object)` → 0 success / negative error
 //! - `channelRecv(ch)` → FIFO head (type from preceding sends)
-//! - number comparisons (`>` `!==` `===` `<`) and bool locals
+//! - structured clone of plain objects; shared refs rejected at send
+//! - number comparisons (`>` `!==` `===` `<`) and bool locals; object `===`/`!==`
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 
-use draconic_ast::{BinaryOp, UnaryOp};
+use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
+use draconic_ir::{
+    Arg, AssignTarget, Expr, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt,
+};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_CHANNEL_MAKE, HOST_CHANNEL_RECV_BOOL, HOST_CHANNEL_RECV_F64,
-    HOST_CHANNEL_RECV_STR, HOST_CHANNEL_SEND_BOOL, HOST_CHANNEL_SEND_F64, HOST_CHANNEL_SEND_STR,
+    llvm_declares, ALLOC_OBJECT, GC_INIT, HOST_CHANNEL_MAKE, HOST_CHANNEL_RECV_BOOL,
+    HOST_CHANNEL_RECV_F64, HOST_CHANNEL_RECV_OBJ, HOST_CHANNEL_RECV_STR, HOST_CHANNEL_SEND_BOOL,
+    HOST_CHANNEL_SEND_F64, HOST_CHANNEL_SEND_OBJ, HOST_CHANNEL_SEND_STR, OBJECT_GET, OBJECT_SET,
     PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
@@ -30,11 +34,16 @@ pub(crate) fn emit_host_channels(module: &Module) -> Result<String, Diagnostic> 
     Ok(em.finish())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum SlotTy {
     Number,
     Bool,
     String,
+    Object(HashMap<String, SlotTy>),
+}
+
+fn is_scalar_print(ty: &SlotTy) -> bool {
+    matches!(ty, SlotTy::Number | SlotTy::Bool | SlotTy::String)
 }
 
 struct ModuleInfo {
@@ -79,12 +88,12 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
         Stmt::Declare { local, init, .. } => {
             let init = init.as_ref()?;
             let ty = classify_expr(init, ctx)?;
-            ctx.slots.push((*local, ty));
-            ctx.slot_of.insert(*local, ty);
+            ctx.slots.push((*local, ty.clone()));
+            ctx.slot_of.insert(*local, ty.clone());
             if is_make_channel_call(init) {
                 ctx.queues.insert(*local, VecDeque::new());
             }
-            if matches!(ty, SlotTy::Number | SlotTy::Bool | SlotTy::String) {
+            if is_scalar_print(&ty) {
                 ctx.print_locals.push((*local, ty));
             }
             Some(())
@@ -147,22 +156,32 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             None
         }
         Expr::Binary {
-            op:
-                BinaryOp::Gt
+            op,
+            left,
+            right,
+            ..
+        } if matches!(
+            op,
+            BinaryOp::Gt
                 | BinaryOp::GtEq
                 | BinaryOp::Lt
                 | BinaryOp::LtEq
                 | BinaryOp::EqEqEq
                 | BinaryOp::NotEqEq
                 | BinaryOp::EqEq
-                | BinaryOp::NotEq,
-            left,
-            right,
-            ..
-        } => {
+                | BinaryOp::NotEq
+        ) =>
+        {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
             if lt == SlotTy::Number && rt == SlotTy::Number {
+                Some(SlotTy::Bool)
+            } else if matches!(
+                op,
+                BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::EqEq | BinaryOp::NotEq
+            ) && matches!(lt, SlotTy::Object(_))
+                && matches!(rt, SlotTy::Object(_))
+            {
                 Some(SlotTy::Bool)
             } else {
                 None
@@ -187,10 +206,71 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                 Some(SlotTy::String)
             }
         }
-        Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
+        Expr::Local { id, .. } => ctx.slot_of.get(id).cloned(),
         Expr::Number { .. } => Some(SlotTy::Number),
         Expr::String { .. } => Some(SlotTy::String),
         Expr::Boolean { .. } => Some(SlotTy::Bool),
+        Expr::Object { properties, .. } => classify_object_lit(properties, ctx),
+        Expr::Member {
+            object,
+            property,
+            ..
+        } => classify_member(object, property, ctx),
+        Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object, property, ..
+                },
+            op: AssignOp::Eq,
+            value,
+            ..
+        } => {
+            let ot = classify_expr(object, ctx)?;
+            let key = static_prop_key(property)?;
+            let vt = classify_expr(value, ctx)?;
+            match ot {
+                SlotTy::Object(mut shape) => {
+                    shape.insert(key, vt.clone());
+                    if let Expr::Local { id, .. } = object.as_ref() {
+                        ctx.slot_of.insert(*id, SlotTy::Object(shape));
+                    }
+                    Some(vt)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn static_prop_key(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::String { value, .. } => Some(value.to_string_lossy()),
+        _ => None,
+    }
+}
+
+fn classify_object_lit(properties: &[ObjectProp], ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+    let mut shape = HashMap::new();
+    for p in properties {
+        let ObjectProp::Property {
+            key: ObjectPropKey::Static(k),
+            value,
+        } = p
+        else {
+            return None;
+        };
+        let ty = classify_expr(value, ctx)?;
+        shape.insert(k.to_string_lossy(), ty);
+    }
+    Some(SlotTy::Object(shape))
+}
+
+fn classify_member(object: &Expr, property: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+    let ot = classify_expr(object, ctx)?;
+    let key = static_prop_key(property)?;
+    match ot {
+        SlotTy::Object(shape) => shape.get(&key).cloned(),
         _ => None,
     }
 }
@@ -241,7 +321,7 @@ struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
         let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-        let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().copied().collect();
+        let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().cloned().collect();
         Self {
             module,
             info,
@@ -295,9 +375,12 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_channels (C02.01)").ok();
+        writeln!(self.out, "; Draconic LLVM host_channels (C02.01–C02.02)").ok();
         let decls = vec![
             GC_INIT,
+            ALLOC_OBJECT,
+            OBJECT_GET,
+            OBJECT_SET,
             PRINT_F64,
             PRINT_STR,
             PRINT_BOOL,
@@ -305,9 +388,11 @@ impl<'a> Emitter<'a> {
             HOST_CHANNEL_SEND_F64,
             HOST_CHANNEL_SEND_STR,
             HOST_CHANNEL_SEND_BOOL,
+            HOST_CHANNEL_SEND_OBJ,
             HOST_CHANNEL_RECV_F64,
             HOST_CHANNEL_RECV_STR,
             HOST_CHANNEL_RECV_BOOL,
+            HOST_CHANNEL_RECV_OBJ,
         ];
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
@@ -317,7 +402,7 @@ impl<'a> Emitter<'a> {
             let llvm_ty = match ty {
                 SlotTy::Number => "double",
                 SlotTy::Bool => "i8",
-                SlotTy::String => "ptr",
+                SlotTy::String | SlotTy::Object(_) => "ptr",
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
@@ -344,6 +429,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
+                SlotTy::Object(_) => {}
             }
         }
 
@@ -376,9 +462,10 @@ impl<'a> Emitter<'a> {
                 let Some(init) = init else {
                     return Ok(());
                 };
-                let kind = *self
+                let kind = self
                     .slot_of
                     .get(local)
+                    .cloned()
                     .ok_or_else(|| diag("host_channels: declare unknown slot"))?;
                 let ptr = self.slot_ptr(*local)?;
                 match kind {
@@ -394,11 +481,26 @@ impl<'a> Emitter<'a> {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::Object(_) => {
+                        let v = self.emit_object_expr(init)?;
+                        writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
+                    }
                 }
                 Ok(())
             }
             Stmt::Expr { expr, .. } => {
-                let _ = self.emit_number_expr(expr)?;
+                if matches!(
+                    expr,
+                    Expr::Assign {
+                        target: AssignTarget::Member { .. },
+                        op: AssignOp::Eq,
+                        ..
+                    }
+                ) {
+                    self.emit_member_assign(expr)?;
+                } else {
+                    let _ = self.emit_number_expr(expr)?;
+                }
                 Ok(())
             }
             _ => Err(diag("host_channels: unsupported statement")),
@@ -468,6 +570,15 @@ impl<'a> Emitter<'a> {
                     self.body,
                     "  {r_i32} = call i32 @{}(i32 {h_i32}, i32 {b_i32})",
                     HOST_CHANNEL_SEND_BOOL.symbol
+                )
+                .ok();
+            }
+            _ if self.expr_is_object(value) => {
+                let p = self.emit_object_expr(value)?;
+                writeln!(
+                    self.body,
+                    "  {r_i32} = call i32 @{}(i32 {h_i32}, ptr {p})",
+                    HOST_CHANNEL_SEND_OBJ.symbol
                 )
                 .ok();
             }
@@ -541,6 +652,160 @@ impl<'a> Emitter<'a> {
         Ok(b)
     }
 
+    fn emit_recv_obj(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let handle = arg_expr(&args[0]).ok_or_else(|| diag("channelRecv handle"))?;
+        let h_i32 = self.emit_handle_i32(handle)?;
+        let tmp = self.fresh();
+        let st = self.fresh();
+        let v = self.fresh();
+        writeln!(self.body, "  {tmp} = alloca ptr, align 8").ok();
+        writeln!(
+            self.body,
+            "  {st} = call i32 @{}(i32 {h_i32}, ptr {tmp})",
+            HOST_CHANNEL_RECV_OBJ.symbol
+        )
+        .ok();
+        let _ = st;
+        writeln!(self.body, "  {v} = load ptr, ptr {tmp}").ok();
+        Ok(v)
+    }
+
+    fn expr_is_object(&self, expr: &Expr) -> bool {
+        matches!(self.expr_slot(expr), Some(SlotTy::Object(_)))
+            || matches!(expr, Expr::Object { .. })
+    }
+
+    fn expr_slot(&self, expr: &Expr) -> Option<SlotTy> {
+        match expr {
+            Expr::Local { id, .. } => self.slot_of.get(id).cloned(),
+            Expr::Member {
+                object, property, ..
+            } => self.member_slot(object, property),
+            Expr::Number { .. } => Some(SlotTy::Number),
+            Expr::String { .. } => Some(SlotTy::String),
+            Expr::Boolean { .. } => Some(SlotTy::Bool),
+            _ => None,
+        }
+    }
+
+    fn member_slot(&self, object: &Expr, property: &Expr) -> Option<SlotTy> {
+        let key = static_prop_key(property)?;
+        match self.expr_slot(object)? {
+            SlotTy::Object(shape) => shape.get(&key).cloned(),
+            _ => None,
+        }
+    }
+
+    fn emit_member_key(&mut self, property: &Expr) -> Result<String, Diagnostic> {
+        let key = static_prop_key(property).ok_or_else(|| diag("host_channels: member key"))?;
+        Ok(self.emit_cstr_ptr(&key))
+    }
+
+    fn emit_member_get(&mut self, object: &Expr, property: &Expr) -> Result<String, Diagnostic> {
+        let obj = self.emit_object_expr(object)?;
+        let key = self.emit_member_key(property)?;
+        let raw = self.fresh();
+        writeln!(
+            self.body,
+            "  {}",
+            OBJECT_GET.call_to(&raw, &format!("ptr {obj}, ptr {key}"))
+        )
+        .ok();
+        Ok(raw)
+    }
+
+    fn emit_member_assign(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
+        let Expr::Assign {
+            target:
+                AssignTarget::Member {
+                    object, property, ..
+                },
+            value,
+            ..
+        } = expr
+        else {
+            return Err(diag("host_channels: expected member assign"));
+        };
+        let obj = self.emit_object_expr(object)?;
+        let key = self.emit_member_key(property)?;
+        let val_ptr = if self.expr_is_object(value) {
+            self.emit_object_expr(value)?
+        } else if matches!(self.expr_slot(value), Some(SlotTy::String))
+            || matches!(value.as_ref(), Expr::String { .. })
+        {
+            self.emit_string_expr(value)?
+        } else {
+            let n = self.emit_number_expr(value)?;
+            let i = self.fresh();
+            writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
+            let p = self.fresh();
+            writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
+            p
+        };
+        writeln!(
+            self.body,
+            "  {}",
+            OBJECT_SET.call(&format!("ptr {obj}, ptr {key}, ptr {val_ptr}"))
+        )
+        .ok();
+        Ok(())
+    }
+
+    fn emit_object_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Object { properties, .. } => {
+                let obj = self.fresh();
+                writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&obj, "")).ok();
+                for p in properties {
+                    let ObjectProp::Property {
+                        key: ObjectPropKey::Static(k),
+                        value,
+                    } = p
+                    else {
+                        return Err(diag("host_channels: only static object props"));
+                    };
+                    let key = self.emit_cstr_ptr(&k.to_string_lossy());
+                    let val_ptr = if self.expr_is_object(value)
+                        || matches!(value, Expr::Object { .. })
+                    {
+                        self.emit_object_expr(value)?
+                    } else if matches!(self.expr_slot(value), Some(SlotTy::String))
+                        || matches!(value, Expr::String { .. })
+                    {
+                        self.emit_string_expr(value)?
+                    } else {
+                        let n = self.emit_number_expr(value)?;
+                        let i = self.fresh();
+                        writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
+                        let p = self.fresh();
+                        writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
+                        p
+                    };
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        OBJECT_SET.call(&format!("ptr {obj}, ptr {key}, ptr {val_ptr}"))
+                    )
+                    .ok();
+                }
+                Ok(obj)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "channelRecv") => {
+                self.emit_recv_obj(args)
+            }
+            Expr::Member {
+                object, property, ..
+            } => self.emit_member_get(object, property),
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_channels: expected object expr")),
+        }
+    }
+
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Number { raw, .. } => {
@@ -567,6 +832,16 @@ impl<'a> Emitter<'a> {
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
                 writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                Ok(v)
+            }
+            Expr::Member {
+                object, property, ..
+            } => {
+                let raw = self.emit_member_get(object, property)?;
+                let i = self.fresh();
+                writeln!(self.body, "  {i} = ptrtoint ptr {raw} to i64").ok();
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = sitofp i64 {i} to double").ok();
                 Ok(v)
             }
             _ => Err(diag("host_channels: expected number expr")),
@@ -601,6 +876,19 @@ impl<'a> Emitter<'a> {
                     | BinaryOp::NotEq
             ) =>
             {
+                if self.expr_is_object(left) && self.expr_is_object(right) {
+                    let l = self.emit_object_expr(left)?;
+                    let r = self.emit_object_expr(right)?;
+                    let pred = match op {
+                        BinaryOp::EqEqEq | BinaryOp::EqEq => "eq",
+                        _ => "ne",
+                    };
+                    let cmp = self.fresh();
+                    writeln!(self.body, "  {cmp} = icmp {pred} ptr {l}, {r}").ok();
+                    let b = self.fresh();
+                    writeln!(self.body, "  {b} = zext i1 {cmp} to i8").ok();
+                    return Ok(b);
+                }
                 let l = self.emit_number_expr(left)?;
                 let r = self.emit_number_expr(right)?;
                 let cmp = self.fresh();
@@ -653,6 +941,9 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                 Ok(v)
             }
+            Expr::Member {
+                object, property, ..
+            } => self.emit_member_get(object, property),
             _ => Err(diag("host_channels: expected string expr")),
         }
     }
@@ -744,5 +1035,46 @@ mod tests {
         assert!(is_host_channels_module(&m));
         let ir = emit_host_channels(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_channel_send_f64"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_object_clone() {
+        let m = lower_src(
+            r#"
+            let inner = { n: 2 };
+            let obj = { a: 1, s: "hi", b: inner };
+            let ch = makeChannel();
+            let sent = channelSend(ch, obj);
+            obj.a = 99;
+            inner.n = 8;
+            let rec = channelRecv(ch);
+            let same = rec === obj;
+            let a = rec.a;
+            let s = rec.s;
+            let n = rec.b.n;
+            "#,
+        );
+        assert!(is_host_channels_module(&m));
+        let ir = emit_host_channels(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_channel_send_obj"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_channel_recv_obj"), "{ir}");
+        assert!(ir.contains("draconic_rt_alloc_object"), "{ir}");
+        assert!(ir.contains("draconic_rt_object_get"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_object_shared_ref() {
+        let m = lower_src(
+            r#"
+            let inner = { n: 1 };
+            let o = { a: inner, b: inner };
+            let ch = makeChannel();
+            let bad = channelSend(ch, o);
+            let err = bad < 0;
+            "#,
+        );
+        assert!(is_host_channels_module(&m));
+        let ir = emit_host_channels(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_channel_send_obj"), "{ir}");
     }
 }

@@ -5,6 +5,7 @@
     process, stdio, path, fs, TCP, UDP, DNS, HTTP, TLS, async readiness + Promise ops. */
 
 #include "draconic_rt_host.h"
+#include "draconic_rt.h"
 
 #if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
@@ -8431,12 +8432,14 @@ int32_t draconic_rt_host_worker_terminate(int32_t handle) {
 #define DRACONIC_CHAN_KIND_NUM 1
 #define DRACONIC_CHAN_KIND_STR 2
 #define DRACONIC_CHAN_KIND_BOOL 3
+#define DRACONIC_CHAN_KIND_OBJ 4
 
 typedef struct DraconicChanMsg {
     int32_t kind;
     double num;
     char *str;
     int32_t b;
+    void *obj;
     struct DraconicChanMsg *next;
 } DraconicChanMsg;
 
@@ -8516,6 +8519,7 @@ int32_t draconic_rt_host_channel_send_f64(int32_t handle, double v) {
     msg->num = v;
     msg->str = NULL;
     msg->b = 0;
+    msg->obj = NULL;
     return host_channel_enqueue(ch, msg);
 }
 
@@ -8533,6 +8537,7 @@ int32_t draconic_rt_host_channel_send_str(int32_t handle, const char *s) {
     msg->num = 0.0;
     msg->str = s ? strdup(s) : strdup("");
     msg->b = 0;
+    msg->obj = NULL;
     if (!msg->str) {
         free(msg);
         return -1;
@@ -8554,6 +8559,7 @@ int32_t draconic_rt_host_channel_send_bool(int32_t handle, int32_t v) {
     msg->num = 0.0;
     msg->str = NULL;
     msg->b = v ? 1 : 0;
+    msg->obj = NULL;
     return host_channel_enqueue(ch, msg);
 }
 
@@ -8611,6 +8617,50 @@ int32_t draconic_rt_host_channel_recv_bool(int32_t handle, int32_t *out) {
         return -1;
     }
     *out = msg->b;
+    free(msg);
+    return 0;
+}
+
+int32_t draconic_rt_host_channel_send_obj(int32_t handle, void *obj) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    DraconicValue *clone;
+    if (!ch) {
+        return -1;
+    }
+    clone = draconic_rt_object_structured_clone((DraconicValue *)obj);
+    if (!clone) {
+        return -1;
+    }
+    draconic_rt_gc_root_push(clone);
+    msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
+    if (!msg) {
+        return -1;
+    }
+    msg->kind = DRACONIC_CHAN_KIND_OBJ;
+    msg->num = 0.0;
+    msg->str = NULL;
+    msg->b = 0;
+    msg->obj = clone;
+    return host_channel_enqueue(ch, msg);
+}
+
+int32_t draconic_rt_host_channel_recv_obj(int32_t handle, void **out) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    if (!ch || !out) {
+        return -1;
+    }
+    msg = host_channel_dequeue(ch);
+    if (!msg || msg->kind != DRACONIC_CHAN_KIND_OBJ) {
+        if (msg) {
+            free(msg->str);
+            free(msg);
+        }
+        return -1;
+    }
+    *out = msg->obj;
+    msg->obj = NULL;
     free(msg);
     return 0;
 }
