@@ -58,6 +58,10 @@ _Avoid_: native backend (prefer this only as informal shorthand), codegen
 The native support linked into binaries: GC for JS values, async job queue, standard library hooks, and the Embed path.
 _Avoid_: VM (unless a true bytecode VM is meant), libc
 
+**Catchable exception**:
+A JS-value failure a Program can handle with `try`/`catch` (user `throw`, ECMA Error objects). Does not abort the process. See ADR-0011 / Roadmap **R04.01**.
+_Avoid_: panic, abort (those are process abort, **R04.02**)
+
 **Embed**:
 The compiler (or equivalent) shipped inside the Runtime so `eval`, `new Function`, and similar can compile source at run time on the native target.
 _Avoid_: interpreter (unless that is the chosen eval strategy), JIT (unless tiered compilation is meant)

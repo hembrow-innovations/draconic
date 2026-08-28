@@ -1,0 +1,22 @@
+let throwNum = 0;
+try {
+  throw 1;
+} catch (e) {
+  throwNum = e;
+}
+let throwStr = 0;
+try {
+  throw "x";
+} catch (err) {
+  throwStr = 1;
+}
+let throwFn = 0;
+function fail() {
+  throw 7;
+}
+try {
+  fail();
+} catch (e) {
+  throwFn = e;
+}
+let continued = 1;

@@ -1,0 +1,6 @@
+id: security/panic_policy/catchable_exceptions
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\n1\n7\n1\n
+js.check: if (throwNum !== 1) process.exit(1); if (throwStr !== 1) process.exit(2); if (throwFn !== 7) process.exit(3); if (continued !== 1) process.exit(4);

@@ -4414,6 +4414,34 @@ mod tests {
     }
 
     #[test]
+    fn r04_01_catchable_exceptions_prints_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/security/panic_policy/catchable_exceptions.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "catchable_exceptions must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("N08.10") || ir.contains("throw/try/catch"),
+            "should use exceptions emit path:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-r04-01-catchable").expect("workdir");
+        let bin = dir.join("catchable_exceptions");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout, "1\n1\n7\n1\n", "stdout={stdout:?}\nir=\n{ir}");
+    }
+
+    #[test]
     fn es_try_finally_prints_native() {
         let ir = emit_llvm_ir(&module_of(include_str!(
             "../../../tests/conformance/fixtures/es/exceptions/try_finally.drac"
