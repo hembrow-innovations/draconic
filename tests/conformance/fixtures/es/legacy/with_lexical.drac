@@ -1,0 +1,164 @@
+// E17.02.36: with + let/const/class lexical bindings in the body block (non-strict).
+// Block-local (does not write object); TDZ vs object props; const reassignment
+// TypeError; nested inner block; object still binds when no lexical.
+
+function letLocalDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    let x = 9;
+  }
+  return obj.x === 1;
+}
+let a = letLocalDoesNotWriteObject();
+
+function constLocalDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    const x = 9;
+  }
+  return obj.x === 1;
+}
+let b = constLocalDoesNotWriteObject();
+
+function letShadowsRead() {
+  let obj = { x: 1 };
+  with (obj) {
+    let x = 9;
+    return x === 9 && obj.x === 1;
+  }
+}
+let c = letShadowsRead();
+
+function letTdzVsObject() {
+  let obj = { x: 2 };
+  try {
+    with (obj) {
+      x;
+      let x = 3;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError && obj.x === 2;
+  }
+}
+let d = letTdzVsObject();
+
+function constTdzVsObject() {
+  let obj = { x: 2 };
+  try {
+    with (obj) {
+      x;
+      const x = 3;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError && obj.x === 2;
+  }
+}
+let e = constTdzVsObject();
+
+function constReassignTypeError() {
+  let obj = { x: 1 };
+  try {
+    with (obj) {
+      const x = 2;
+      x = 3;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && obj.x === 1;
+  }
+}
+let f = constReassignTypeError();
+
+function classNameIsLocal() {
+  let obj = {};
+  with (obj) {
+    class C {
+      m() {
+        return 7;
+      }
+    }
+    return (
+      new C().m() === 7 &&
+      obj.C === undefined &&
+      Object.prototype.hasOwnProperty.call(obj, "C") === false
+    );
+  }
+}
+let g = classNameIsLocal();
+
+function classTdzVsObject() {
+  let obj = { C: 1 };
+  try {
+    with (obj) {
+      C;
+      class C {}
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError && obj.C === 1;
+  }
+}
+let h = classTdzVsObject();
+
+function nestedInnerLet() {
+  let obj = { x: 5 };
+  let inner = 0;
+  let after = 0;
+  with (obj) {
+    {
+      let x = 9;
+      inner = x;
+    }
+    after = x;
+  }
+  return inner === 9 && after === 5 && obj.x === 5;
+}
+let i = nestedInnerLet();
+
+function stillBindsObjectWithoutLexical() {
+  let obj = { x: 5 };
+  with (obj) {
+    return x === 5;
+  }
+}
+let j = stillBindsObjectWithoutLexical();
+
+function objectShadowsOuterLet() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    return x === 2;
+  }
+}
+let k = objectShadowsOuterLet();
+
+function letDoesNotTouchOuter() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    let x = 3;
+  }
+  return x === 1 && obj.x === 2;
+}
+let l = letDoesNotTouchOuter();
+
+function letAssignStaysLocal() {
+  let obj = { x: 1 };
+  with (obj) {
+    let x = 2;
+    x = 8;
+  }
+  return obj.x === 1;
+}
+let m = letAssignStaysLocal();
+
+function letWhenObjectMiss() {
+  let obj = {};
+  with (obj) {
+    let x = 4;
+  }
+  return Object.prototype.hasOwnProperty.call(obj, "x") === false;
+}
+let n = letWhenObjectMiss();
