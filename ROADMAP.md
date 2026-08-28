@@ -851,7 +851,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L05.01 | done | both | `describe` / `it` (or designed) register tests; run via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
 | L05.02 | done | both | `expect` matchers: equality, truthiness; failure messages | `tests/conformance` fixtures `stdlib/testing` |
 | L05.03 | done | both | Nested describe; before/after hooks as designed | `tests/conformance` fixtures `stdlib/testing` |
-| L05.04 | todo | both | CLI aggregates in-language suite exit codes with fixture runner | `crates/draconic-cli`, `tests/integration` |
+| L05.04 | done | both | CLI aggregates in-language suite exit codes with fixture runner | `crates/draconic-cli`, `tests/integration` |
 | L06 | todo | both | Logging: leveled logger; stderr/stdout sink | `tests/conformance` fixtures `stdlib/logging` |
 | L06.01 | todo | both | Leveled log (error/warn/info/debug); filter by level | `tests/conformance` fixtures `stdlib/logging` |
 | L06.02 | todo | both | Sink to stderr/stdout (string format) | `tests/conformance` fixtures `stdlib/logging` |

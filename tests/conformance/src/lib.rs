@@ -132,6 +132,14 @@ pub fn load_path(path: &Path) -> Result<Vec<Fixture>, String> {
     Err(format!("path not found: {}", path.display()))
 }
 
+/// L05.04: a `.drac` without `.meta` that registers `describe`/`it` is a suite entry.
+fn looks_like_in_language_suite(path: &Path) -> bool {
+    let Ok(src) = fs::read_to_string(path) else {
+        return false;
+    };
+    src.contains("describe(") || src.contains("describe (")
+}
+
 fn collect_drac(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
     for entry in entries {
@@ -140,10 +148,11 @@ fn collect_drac(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         if path.is_dir() {
             collect_drac(&path, out)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("drac") {
-            // Only entry fixtures have a `.meta` sidecar. Dependency modules
-            // (imported by entries) are plain `.drac` without meta.
+            // Entry fixtures have a `.meta` sidecar. Dependency modules are
+            // plain `.drac` without meta. In-language `describe`/`it` suites
+            // also lack meta (L05.04) and must still run under `draconic test`.
             let meta = path.with_extension("meta");
-            if meta.is_file() {
+            if meta.is_file() || looks_like_in_language_suite(&path) {
                 out.push(path);
             }
         }
@@ -837,6 +846,30 @@ native.exit: 0
             meta.expect_native.link,
             vec![PathBuf::from("resolve.c")]
         );
+    }
+
+    #[test]
+    fn load_path_dir_includes_in_language_suite_without_meta() {
+        let dir = temp_bin_path("l0504-load").parent().unwrap().to_path_buf();
+        let _ = fs::create_dir_all(&dir);
+        fs::write(dir.join("smoke.drac"), "let x = 1;\n").unwrap();
+        fs::write(
+            dir.join("smoke.meta"),
+            "id: smoke\ntargets: js\njs.exit: 0\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("suite.drac"),
+            "describe(\"s\", () => { it(\"t\", () => {}); });\n",
+        )
+        .unwrap();
+        fs::write(dir.join("dep.drac"), "export let n = 1;\n").unwrap();
+
+        let fixtures = load_path(&dir).expect("load");
+        let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+        assert!(ids.contains(&"smoke"), "got {ids:?}");
+        assert!(ids.contains(&"suite"), "got {ids:?}");
+        assert!(!ids.contains(&"dep"), "dependency module should stay excluded, got {ids:?}");
     }
 
     #[test]

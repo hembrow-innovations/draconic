@@ -282,3 +282,136 @@ describe("math", () => {
     let (code, stdout, stderr) = run(draconic().arg("test").arg(&src));
     assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
 }
+
+/// ROADMAP L05.04: passing fixture + passing in-language suite in one dir → exit 0.
+#[test]
+fn test_aggregates_passing_fixture_and_passing_suite() {
+    let dir = temp_dir();
+    write(&dir, "smoke.drac", "let x = 1 + 2;\n");
+    write(
+        &dir,
+        "smoke.meta",
+        "\
+id: smoke
+targets: js
+js.exit: 0
+js.check: if (x !== 3) process.exit(1);
+",
+    );
+    write(
+        &dir,
+        "suite.drac",
+        r#"
+describe("math", () => {
+  it("adds", () => {
+    if (1 + 1 !== 2) throw 1;
+  });
+});
+"#,
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("smoke"),
+        "expected fixture id in output:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("suite"),
+        "expected in-language suite id in output:\n{stdout}"
+    );
+}
+
+/// ROADMAP L05.04: passing fixture + failing in-language suite → non-zero exit.
+#[test]
+fn test_aggregates_failing_suite_with_passing_fixture() {
+    let dir = temp_dir();
+    write(&dir, "smoke.drac", "let x = 1 + 2;\n");
+    write(
+        &dir,
+        "smoke.meta",
+        "\
+id: smoke
+targets: js
+js.exit: 0
+js.check: if (x !== 3) process.exit(1);
+",
+    );
+    write(
+        &dir,
+        "suite.drac",
+        r#"
+describe("math", () => {
+  it("adds", () => {
+    throw 1;
+  });
+});
+"#,
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
+    assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("FAIL")
+            || stdout.contains("fail")
+            || stderr.contains("FAIL")
+            || stderr.contains("fail")
+            || stdout.contains("suite"),
+        "stdout={stdout}\nstderr={stderr}"
+    );
+}
+
+/// ROADMAP L05.04: failing fixture + passing in-language suite → non-zero exit.
+#[test]
+fn test_aggregates_failing_fixture_with_passing_suite() {
+    let dir = temp_dir();
+    write(&dir, "bad.drac", "let x = 1;\n");
+    write(
+        &dir,
+        "bad.meta",
+        "\
+id: bad
+targets: js
+js.exit: 0
+js.check: if (x !== 99) process.exit(1);
+",
+    );
+    write(
+        &dir,
+        "suite.drac",
+        r#"
+describe("math", () => {
+  it("adds", () => {
+    if (1 + 1 !== 2) throw 1;
+  });
+});
+"#,
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
+    assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
+}
+
+/// ROADMAP L05.04: directory of only in-language suites (no .meta) still runs.
+#[test]
+fn test_dir_of_only_in_language_suites() {
+    let dir = temp_dir();
+    write(
+        &dir,
+        "suite.drac",
+        r#"
+describe("math", () => {
+  it("adds", () => {
+    if (1 + 1 !== 2) throw 1;
+  });
+});
+"#,
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("ok") || stdout.contains("passed") || stdout.contains("suite"),
+        "stdout={stdout}"
+    );
+}
