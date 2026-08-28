@@ -408,3 +408,13 @@ fn with_lexical_fixture_present() {
 fn with_lexical_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_lexical");
 }
+
+#[test]
+fn with_hoist_fixture_present() {
+    assert_fixture_present("es/legacy/with_hoist");
+}
+
+#[test]
+fn with_hoist_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_hoist");
+}

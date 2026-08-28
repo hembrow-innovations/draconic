@@ -1,0 +1,135 @@
+// E17.02.37: with + Annex B hoist of var / block function through the body
+// (non-strict). Enclosing VE; typeof before body; function assigned when body
+// runs and closes over object env (live); same-name enclosing let/const →
+// SyntaxError.
+
+function fnTypeofBefore() {
+  let before = typeof f;
+  with ({}) {
+    function f() {
+      return 7;
+    }
+  }
+  return before === "undefined" && typeof f === "function" && f() === 7;
+}
+let a = fnTypeofBefore();
+
+function fnLiveClose() {
+  let obj = { x: 1 };
+  with (obj) {
+    function g() {
+      return x;
+    }
+  }
+  obj.x = 9;
+  return g() === 9;
+}
+let b = fnLiveClose();
+
+function fnShadowsOuterLet() {
+  let x = 10;
+  let obj = { x: 1 };
+  with (obj) {
+    function h() {
+      return x;
+    }
+  }
+  return h() === 1;
+}
+let c = fnShadowsOuterLet();
+
+function fnSkippedBranch() {
+  if (false) {
+    with ({}) {
+      function k() {
+        return 1;
+      }
+    }
+  }
+  return typeof k === "undefined";
+}
+let d = fnSkippedBranch();
+
+function varTypeofBefore() {
+  let before = typeof y;
+  with ({}) {
+    var y = 3;
+  }
+  return before === "undefined" && y === 3;
+}
+let e = varTypeofBefore();
+
+function varReadBefore() {
+  let before = y;
+  with ({}) {
+    var y = 4;
+  }
+  return before === undefined && y === 4;
+}
+let f = varReadBefore();
+
+function varAssignBefore() {
+  y = 2;
+  with ({}) {
+    var y = 5;
+  }
+  return y === 5;
+}
+let g = varAssignBefore();
+
+function varMissesObject() {
+  let obj = {};
+  with (obj) {
+    var z = 6;
+  }
+  return (
+    z === 6 &&
+    obj.z === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "z") === false
+  );
+}
+let h = varMissesObject();
+
+function varHitsObject() {
+  let obj = { z: 0 };
+  with (obj) {
+    var z = 7;
+  }
+  return obj.z === 7 && z === undefined;
+}
+let i = varHitsObject();
+
+function letVarConflict() {
+  try {
+    eval("function f() { let y = 1; with ({}) { var y = 2; } return y; }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let j = letVarConflict();
+
+function constVarConflict() {
+  try {
+    eval("function f() { const y = 1; with ({}) { var y = 2; } return y; }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let k = constVarConflict();
+
+function nestedWithFn() {
+  let inner = { x: 2 };
+  let outer = { x: 1 };
+  with (outer) {
+    with (inner) {
+      function n() {
+        return x;
+      }
+    }
+  }
+  inner.x = 8;
+  return n() === 8;
+}
+let l = nestedWithFn();
