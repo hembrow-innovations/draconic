@@ -1,0 +1,277 @@
+// E17.02.49: with + if/else through object environment (non-strict).
+// Condition ident hits object (else outer); then/else body assign; else if;
+// no-else; let in then does not write object; live close; nested with;
+// unresolvable condition → ReferenceError; accessor this is with object;
+// unscopables skip.
+
+function conditionHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    if (x) {
+      return true;
+    }
+    return false;
+  }
+}
+let a = conditionHitsObject();
+
+function conditionMissIsOuter() {
+  let x = 1;
+  with ({}) {
+    if (x) {
+      return true;
+    }
+    return false;
+  }
+}
+let b = conditionMissIsOuter();
+
+function conditionShadowsOuter() {
+  let x = 0;
+  let obj = { x: 1 };
+  with (obj) {
+    if (x) {
+      return true;
+    }
+    return false;
+  }
+}
+let c = conditionShadowsOuter();
+
+function falsyObjectSkipsThen() {
+  let obj = { x: 0 };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === false;
+}
+let d = falsyObjectSkipsThen();
+
+function elseWhenObjectFalsy() {
+  let obj = { x: 0 };
+  with (obj) {
+    if (x) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+}
+let e = elseWhenObjectFalsy();
+
+function elseWhenMissOuterFalsy() {
+  let x = 0;
+  with ({}) {
+    if (x) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+}
+let f = elseWhenMissOuterFalsy();
+
+function thenAssignHitsObject() {
+  let obj = { z: 0, x: 1 };
+  with (obj) {
+    if (x) {
+      z = 9;
+    }
+  }
+  return obj.z === 9;
+}
+let g = thenAssignHitsObject();
+
+function elseAssignHitsObject() {
+  let obj = { z: 0, x: 0 };
+  with (obj) {
+    if (x) {
+      z = 1;
+    } else {
+      z = 7;
+    }
+  }
+  return obj.z === 7;
+}
+let h = elseAssignHitsObject();
+
+function thenAssignMissUsesOuter() {
+  let z = 0;
+  let obj = { x: 1 };
+  with (obj) {
+    if (x) {
+      z = 8;
+    }
+  }
+  return (
+    z === 8 && Object.prototype.hasOwnProperty.call(obj, "z") === false
+  );
+}
+let i = thenAssignMissUsesOuter();
+
+function noElseFalsyLeaves() {
+  let obj = { z: 0, x: 0 };
+  with (obj) {
+    if (x) {
+      z = 99;
+    }
+  }
+  return obj.z === 0;
+}
+let j = noElseFalsyLeaves();
+
+function elseIfSecondHitsObject() {
+  let obj = { x: 0, y: 1 };
+  with (obj) {
+    if (x) {
+      return false;
+    } else if (y) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+}
+let k = elseIfSecondHitsObject();
+
+function liveClose() {
+  let obj = { x: 0 };
+  let run;
+  with (obj) {
+    run = function () {
+      if (x) {
+        return true;
+      }
+      return false;
+    };
+  }
+  obj.x = 1;
+  return run();
+}
+let l = liveClose();
+
+function nestedInnerWins() {
+  let inner = { x: 1 };
+  let outer = { x: 0 };
+  with (outer) {
+    with (inner) {
+      if (x) {
+        return true;
+      }
+      return false;
+    }
+  }
+}
+let m = nestedInnerWins();
+
+function nestedOuterAfterInner() {
+  let inner = { x: 0 };
+  let outer = { x: 1 };
+  with (outer) {
+    with (inner) {
+      if (x) {
+        return false;
+      }
+    }
+    if (x) {
+      return true;
+    }
+    return false;
+  }
+}
+let n = nestedOuterAfterInner();
+
+function unresolvableConditionThrows() {
+  with ({}) {
+    try {
+      if (e170249_missing) {
+        return false;
+      }
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let p = unresolvableConditionThrows();
+
+function letInThenDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    if (x) {
+      let x = 5;
+      x = 6;
+    }
+  }
+  return obj.x === 1;
+}
+let q = letInThenDoesNotWriteObject();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 1;
+    }
+  };
+  with (obj) {
+    if (x) {
+      return seen === obj;
+    }
+    return false;
+  }
+}
+let r = accessorThisIsWithObject();
+
+function unscopablesUsesOuter() {
+  let x = 1;
+  let obj = { x: 0 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    if (x) {
+      return true;
+    }
+    return false;
+  }
+}
+let s = unscopablesUsesOuter();
+
+function unscopablesFalseyStillObject() {
+  let x = 0;
+  let obj = { x: 1 };
+  obj[Symbol.unscopables] = { x: false };
+  with (obj) {
+    if (x) {
+      return true;
+    }
+    return false;
+  }
+}
+let t = unscopablesFalseyStillObject();
+
+function inheritedCondition() {
+  let proto = { x: 1 };
+  let obj = Object.create(proto);
+  with (obj) {
+    if (x) {
+      return true;
+    }
+    return false;
+  }
+}
+let u = inheritedCondition();
+
+function ownUndefinedIsFalsyNotThrow() {
+  let obj = { x: undefined };
+  with (obj) {
+    if (x) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+}
+let v = ownUndefinedIsFalsyNotThrow();
