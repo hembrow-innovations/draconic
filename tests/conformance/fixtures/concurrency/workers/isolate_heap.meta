@@ -1,0 +1,6 @@
+id: concurrency/workers/isolate_heap
+targets: js,native
+js.exit: 0
+js.check: if (isolated !== true) process.exit(1); if (ok !== true) process.exit(2);
+native.exit: 0
+native.stdout: 1\n1\n0\ntrue\ntrue\n

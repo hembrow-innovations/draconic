@@ -1,0 +1,5 @@
+let parentFlag = 1;
+let h = spawnWorker(function () {});
+let r = terminateWorker(h);
+let isolated = parentFlag === 1;
+let ok = r === 0;

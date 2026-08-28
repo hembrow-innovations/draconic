@@ -8408,3 +8408,19 @@ int32_t draconic_rt_host_worker_join(int32_t handle) {
     g_worker_live[i] = 0;
     return 0;
 }
+
+int32_t draconic_rt_host_worker_terminate(int32_t handle) {
+    size_t i;
+    if (handle < 1) {
+        return -1;
+    }
+    i = (size_t)(handle - 1);
+    if (i >= DRACONIC_WORKER_SLOTS) {
+        return -1;
+    }
+    if (g_worker_live[i] == 0) {
+        return -1;
+    }
+    g_worker_live[i] = 0;
+    return 0;
+}

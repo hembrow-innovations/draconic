@@ -1,0 +1,10 @@
+let t = typeof terminateWorker;
+let h = spawnWorker(function () {});
+let r = terminateWorker(h);
+let ok = r === 0;
+let j = joinWorker(h);
+let dead = j < 0;
+let again = terminateWorker(h);
+let twice = again < 0;
+let bad = terminateWorker(0);
+let err = bad < 0;

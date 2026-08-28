@@ -188,10 +188,12 @@ fn module_uses_process_spawn(module: &Module) -> bool {
     })
 }
 
-/// C01.01 / C01.02: free host APIs `spawnWorker` / `joinWorker`.
+/// C01.01 / C01.02 / C01.03: free host APIs `spawnWorker` / `joinWorker` / `terminateWorker`.
 fn module_uses_spawn_worker(module: &Module) -> bool {
     module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "spawnWorker") || stmt_uses_ident_name(s, "joinWorker")
+        stmt_uses_ident_name(s, "spawnWorker")
+            || stmt_uses_ident_name(s, "joinWorker")
+            || stmt_uses_ident_name(s, "terminateWorker")
     })
 }
 

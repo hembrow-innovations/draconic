@@ -298,6 +298,10 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_worker_join(i32)"
     );
     assert_eq!(
+        HOST_WORKER_TERMINATE.declare(),
+        "declare i32 @draconic_rt_host_worker_terminate(i32)"
+    );
+    assert_eq!(
         HOST_SIGNAL_WATCH.declare(),
         "declare i32 @draconic_rt_host_signal_watch(i32, ptr, ptr)"
     );

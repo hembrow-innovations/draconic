@@ -1,0 +1,5 @@
+let h = spawnWorker("./worker_empty.drac");
+let r = terminateWorker(h);
+let ok = r === 0;
+let j = joinWorker(h);
+let dead = j < 0;

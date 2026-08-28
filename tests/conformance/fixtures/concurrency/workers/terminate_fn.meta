@@ -1,0 +1,6 @@
+id: concurrency/workers/terminate_fn
+targets: js,native
+js.exit: 0
+js.check: if (t !== "function") process.exit(1); if (ok !== true) process.exit(2); if (dead !== true) process.exit(3); if (twice !== true) process.exit(4); if (err !== true) process.exit(5);
+native.exit: 0
+native.stdout: function\n1\n0\ntrue\n-1\ntrue\n-1\ntrue\n-1\ntrue\n

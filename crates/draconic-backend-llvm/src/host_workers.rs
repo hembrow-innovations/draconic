@@ -1,10 +1,11 @@
-//! C01.01 / C01.02: `spawnWorker(entry)` + `joinWorker(handle)`.
+//! C01.01 / C01.02 / C01.03: `spawnWorker` + `joinWorker` + `terminateWorker`.
 //!
 //! Supported subset:
-//! - `typeof spawnWorker` / `typeof joinWorker` → `"function"`
+//! - `typeof spawnWorker` / `typeof joinWorker` / `typeof terminateWorker` → `"function"`
 //! - `spawnWorker(function () { … })` / arrow → handle number
 //! - `spawnWorker("path")` → handle number
 //! - `joinWorker(h)` → 0 success / negative error
+//! - `terminateWorker(h)` → 0 success / negative error
 //! - number comparisons (`>` `!==` `===`) and bool locals
 
 use std::collections::HashMap;
@@ -14,7 +15,8 @@ use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_WORKER_JOIN, HOST_WORKER_SPAWN, PRINT_BOOL, PRINT_F64, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_WORKER_JOIN, HOST_WORKER_SPAWN, HOST_WORKER_TERMINATE, PRINT_BOOL,
+    PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_workers_module(module: &Module) -> bool {
@@ -46,6 +48,7 @@ struct ClassifyCtx {
     slot_of: HashMap<LocalId, SlotTy>,
     uses_spawn: bool,
     uses_join: bool,
+    uses_terminate: bool,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -55,11 +58,12 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         slot_of: HashMap::new(),
         uses_spawn: false,
         uses_join: false,
+        uses_terminate: false,
     };
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
     }
-    if !(ctx.uses_spawn || ctx.uses_join) || ctx.print_locals.is_empty() {
+    if !(ctx.uses_spawn || ctx.uses_join || ctx.uses_terminate) || ctx.print_locals.is_empty() {
         return None;
     }
     Some(ModuleInfo {
@@ -115,6 +119,17 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.uses_join = true;
             Some(SlotTy::Number)
         }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "terminateWorker") => {
+            if args.len() != 1 {
+                return None;
+            }
+            let ty = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ty != SlotTy::Number {
+                return None;
+            }
+            ctx.uses_terminate = true;
+            Some(SlotTy::Number)
+        }
         Expr::Binary {
             op:
                 BinaryOp::Gt
@@ -147,6 +162,9 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                 Some(SlotTy::String)
             } else if is_named_ident(arg, "joinWorker") {
                 ctx.uses_join = true;
+                Some(SlotTy::String)
+            } else if is_named_ident(arg, "terminateWorker") {
+                ctx.uses_terminate = true;
                 Some(SlotTy::String)
             } else {
                 let _ = classify_expr(arg, ctx)?;
@@ -261,7 +279,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_workers (C01.01/C01.02)").ok();
+        writeln!(self.out, "; Draconic LLVM host_workers (C01.01/C01.02/C01.03)").ok();
         let decls = vec![
             GC_INIT,
             PRINT_F64,
@@ -269,6 +287,7 @@ impl<'a> Emitter<'a> {
             PRINT_BOOL,
             HOST_WORKER_SPAWN,
             HOST_WORKER_JOIN,
+            HOST_WORKER_TERMINATE,
         ];
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
@@ -405,6 +424,23 @@ impl<'a> Emitter<'a> {
         Ok(r_f)
     }
 
+    fn emit_terminate(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let handle = arg_expr(&args[0]).ok_or_else(|| diag("terminateWorker handle"))?;
+        let h_f = self.emit_number_expr(handle)?;
+        let h_i32 = self.fresh();
+        let r_i32 = self.fresh();
+        let r_f = self.fresh();
+        writeln!(self.body, "  {h_i32} = fptosi double {h_f} to i32").ok();
+        writeln!(
+            self.body,
+            "  {r_i32} = call i32 @{}(i32 {h_i32})",
+            HOST_WORKER_TERMINATE.symbol
+        )
+        .ok();
+        writeln!(self.body, "  {r_f} = sitofp i32 {r_i32} to double").ok();
+        Ok(r_f)
+    }
+
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Number { raw, .. } => {
@@ -423,6 +459,9 @@ impl<'a> Emitter<'a> {
             }
             Expr::Call { callee, args, .. } if is_named_callee(callee, "joinWorker") => {
                 self.emit_join(args)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "terminateWorker") => {
+                self.emit_terminate(args)
             }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
@@ -496,7 +535,10 @@ impl<'a> Emitter<'a> {
                 op: UnaryOp::TypeOf,
                 arg,
                 ..
-            } if is_named_ident(arg, "spawnWorker") || is_named_ident(arg, "joinWorker") => {
+            } if is_named_ident(arg, "spawnWorker")
+                || is_named_ident(arg, "joinWorker")
+                || is_named_ident(arg, "terminateWorker") =>
+            {
                 Ok(self.emit_cstr_ptr("function"))
             }
             Expr::Local { id, .. } => {
@@ -579,5 +621,61 @@ mod tests {
         assert!(is_host_workers_module(&m));
         let ir = emit_host_workers(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_worker_join"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_terminate_fn() {
+        let m = lower_src(
+            r#"
+            let t = typeof terminateWorker;
+            let h = spawnWorker(function () {});
+            let r = terminateWorker(h);
+            let ok = r === 0;
+            let j = joinWorker(h);
+            let dead = j < 0;
+            let again = terminateWorker(h);
+            let twice = again < 0;
+            let bad = terminateWorker(0);
+            let err = bad < 0;
+            "#,
+        );
+        assert!(is_host_workers_module(&m));
+        let ir = emit_host_workers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_worker_terminate"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_worker_spawn"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_worker_join"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_terminate_module_path() {
+        let m = lower_src(
+            r#"
+            let h = spawnWorker("./worker_empty.drac");
+            let r = terminateWorker(h);
+            let ok = r === 0;
+            let j = joinWorker(h);
+            let dead = j < 0;
+            "#,
+        );
+        assert!(is_host_workers_module(&m));
+        let ir = emit_host_workers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_worker_terminate"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_isolate_heap() {
+        let m = lower_src(
+            r#"
+            let parentFlag = 1;
+            let h = spawnWorker(function () {});
+            let r = terminateWorker(h);
+            let isolated = parentFlag === 1;
+            let ok = r === 0;
+            "#,
+        );
+        assert!(is_host_workers_module(&m));
+        let ir = emit_host_workers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_worker_terminate"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_worker_spawn"), "{ir}");
     }
 }

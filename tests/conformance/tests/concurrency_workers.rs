@@ -1,5 +1,6 @@
 //! ROADMAP C01.01: spawn worker isolate from module path or fn entry.
 //! ROADMAP C01.02: join worker — wait for exit; capture result/error.
+//! ROADMAP C01.03: terminate worker; no shared JS heap across isolates.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -68,4 +69,34 @@ fn join_module_fixture_present() {
 #[test]
 fn join_module_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/workers/join_module");
+}
+
+#[test]
+fn terminate_fn_fixture_present() {
+    assert_fixture_present("concurrency/workers/terminate_fn");
+}
+
+#[test]
+fn terminate_fn_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/workers/terminate_fn");
+}
+
+#[test]
+fn terminate_module_fixture_present() {
+    assert_fixture_present("concurrency/workers/terminate_module");
+}
+
+#[test]
+fn terminate_module_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/workers/terminate_module");
+}
+
+#[test]
+fn isolate_heap_fixture_present() {
+    assert_fixture_present("concurrency/workers/isolate_heap");
+}
+
+#[test]
+fn isolate_heap_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/workers/isolate_heap");
 }

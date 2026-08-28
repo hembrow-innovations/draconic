@@ -872,6 +872,12 @@ pub const HOST_WORKER_JOIN: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
+/* C01.03: terminateWorker — force-stop isolate; 0 success, negative error. */
+pub const HOST_WORKER_TERMINATE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_worker_terminate",
+    ret: "i32",
+    params: "i32",
+};
 /// Declares for H15.03 async process wait + Promise then + job drain.
 pub const HOST_PROCESS_ASYNC_DECLARES: &[AbiFn] = &[
     GC_INIT,
@@ -1498,6 +1504,7 @@ pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbo
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
 pub const HOST_WORKER_SPAWN_SYMBOL: &str = HOST_WORKER_SPAWN.symbol;
 pub const HOST_WORKER_JOIN_SYMBOL: &str = HOST_WORKER_JOIN.symbol;
+pub const HOST_WORKER_TERMINATE_SYMBOL: &str = HOST_WORKER_TERMINATE.symbol;
 pub const HOST_WS_HANDSHAKE_RESPONSE_SYMBOL: &str = HOST_WS_HANDSHAKE_RESPONSE.symbol;
 pub const HOST_WS_ENCODE_TEXT_SYMBOL: &str = HOST_WS_ENCODE_TEXT.symbol;
 pub const HOST_WS_ENCODE_BINARY_SYMBOL: &str = HOST_WS_ENCODE_BINARY.symbol;
@@ -1640,6 +1647,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_HTTP_RESPONSE_HEADER_SYMBOL,
     HOST_WORKER_SPAWN_SYMBOL,
     HOST_WORKER_JOIN_SYMBOL,
+    HOST_WORKER_TERMINATE_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1757,6 +1765,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_TLS_WRITE,
     HOST_WORKER_SPAWN,
     HOST_WORKER_JOIN,
+    HOST_WORKER_TERMINATE,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -2101,12 +2110,14 @@ pub fn process_spawn_js_polyfill() -> &'static str {
 "#
 }
 
-/// JS polyfill for `spawnWorker(entry)` (C01.01) and `joinWorker(h)` (C01.02).
+/// JS polyfill for `spawnWorker` (C01.01), `joinWorker` (C01.02),
+/// and `terminateWorker` (C01.03).
 ///
 /// Node `worker_threads`: eval bootstrap + SharedArrayBuffer handshake.
 /// `unref` so the parent can exit without join. Join waits via `Atomics.wait`
 /// and returns 0 on success or a negative code on invalid/already-joined handle.
 /// Worker throw is stored as status 2 and surfaced as join result 1.
+/// Terminate force-stops the worker thread; slot is not shared with the parent heap.
 pub fn spawn_worker_js_polyfill() -> &'static str {
     r#"(function () {
   var nextId = 1;
@@ -2154,9 +2165,20 @@ pub fn spawn_worker_js_polyfill() -> &'static str {
     if (st === 2) return 1;
     return 0;
   }
+  function terminateWorker(h) {
+    var rec = slots[h];
+    if (!rec || rec.joined) return -1;
+    rec.joined = true;
+    try {
+      if (rec.worker && typeof rec.worker.terminate === "function") rec.worker.terminate();
+    } catch (e) {}
+    delete slots[h];
+    return 0;
+  }
   if (typeof globalThis !== "undefined") {
     globalThis.spawnWorker = spawnWorker;
     globalThis.joinWorker = joinWorker;
+    globalThis.terminateWorker = terminateWorker;
   }
 })();
 "#

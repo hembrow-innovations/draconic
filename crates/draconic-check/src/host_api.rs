@@ -113,6 +113,7 @@ pub struct HostApiEntry {
 ///   `http2ParseResponse` (H13.01): native-only HTTP/2 preface + single-stream helpers.
 /// - `spawnWorker` (C01.01): both — spawn worker isolate from fn entry or module path.
 /// - `joinWorker` (C01.02): both — wait for worker exit; 0 success, negative error.
+/// - `terminateWorker` (C01.03): both — stop worker; 0 success, negative error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -708,6 +709,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "joinWorker",
         availability: HostAvailability::BOTH,
         note: "C01.02 join worker wait + result/error",
+    },
+    HostApiEntry {
+        name: "terminateWorker",
+        availability: HostAvailability::BOTH,
+        note: "C01.03 terminate worker; no shared JS heap",
     },
 ];
 
@@ -1383,6 +1389,24 @@ mod tests {
         );
         assert!(
             unsupported_diagnostic("joinWorker", CompileTarget::Native, Span::dummy()).is_none()
+        );
+    }
+
+    #[test]
+    fn registry_lists_terminate_worker_both() {
+        let entry = lookup("terminateWorker").expect("terminateWorker registered");
+        assert_eq!(entry.name, "terminateWorker");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("terminateWorker"));
+        assert!(is_available("terminateWorker", CompileTarget::Js));
+        assert!(is_available("terminateWorker", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("terminateWorker", CompileTarget::Js, Span::dummy()).is_none()
+        );
+        assert!(
+            unsupported_diagnostic("terminateWorker", CompileTarget::Native, Span::dummy())
+                .is_none()
         );
     }
 }
