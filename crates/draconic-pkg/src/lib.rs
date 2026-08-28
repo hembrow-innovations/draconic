@@ -24,6 +24,7 @@
 //! K07.03: build prefers lock pins; does not float versions when lock present.
 //! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 //! K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
+//! D02.01: optional/required toolchain version pin in `draconic.toml`.
 
 mod cache;
 mod ensure;
@@ -68,10 +69,25 @@ use std::fmt;
 
 use toml::Value as TomlValue;
 
-/// Known top-level keys in `draconic.toml` (K01.01–K01.04).
-const KNOWN_TOP_LEVEL_KEYS: &[&str] = &["module", "dependencies", "urls"];
+/// Known top-level keys in `draconic.toml` (K01.01–K01.04, D02.01).
+const KNOWN_TOP_LEVEL_KEYS: &[&str] = &["module", "dependencies", "urls", "toolchain"];
 
-/// Parsed `draconic.toml` (K01: module path + deps + optional URL map).
+/// Known keys inside a `[toolchain]` / inline-table pin (D02.01).
+const KNOWN_TOOLCHAIN_KEYS: &[&str] = &["version", "required"];
+
+/// Toolchain version pin from `draconic.toml` (D02.01).
+///
+/// String form `toolchain = "0.1.0"` is an **optional** pin (`required = false`).
+/// Table form may set `required = true` so D02.02 can hard-fail on mismatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolchainPin {
+    /// Semver-shaped version the Program expects of the running toolchain.
+    pub version: String,
+    /// `true` → mismatch is an error (D02.02); `false` → warn only.
+    pub required: bool,
+}
+
+/// Parsed `draconic.toml` (K01: module path + deps + optional URL map; D02.01 pin).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     /// This package's module path (Go-like), e.g. `github.com/org/pkg`.
@@ -80,6 +96,8 @@ pub struct Manifest {
     pub dependencies: BTreeMap<String, String>,
     /// Optional path → git URL overrides when default derivation is wrong (K01.04).
     pub urls: BTreeMap<String, String>,
+    /// Optional toolchain version pin (D02.01). Omitted → no pin.
+    pub toolchain: Option<ToolchainPin>,
 }
 
 /// Error while parsing or validating a `draconic.toml` document.
@@ -123,6 +141,17 @@ pub enum ManifestError {
         url: String,
         reason: &'static str,
     },
+    /// `toolchain` is present but not a version string or table.
+    InvalidToolchain,
+    /// `toolchain` version is empty or not semver-shaped.
+    InvalidToolchainVersion {
+        version: String,
+        reason: &'static str,
+    },
+    /// Table form `toolchain` is missing `version`.
+    MissingToolchainVersion,
+    /// `toolchain.required` is present but not a boolean.
+    InvalidToolchainRequired,
 }
 
 impl fmt::Display for ManifestError {
@@ -159,7 +188,7 @@ impl fmt::Display for ManifestError {
             ),
             ManifestError::UnknownField { field } => write!(
                 f,
-                "draconic.toml: unknown field `{field}` (expected one of: module, dependencies, urls)"
+                "draconic.toml: unknown field `{field}` (expected one of: module, dependencies, urls, toolchain)"
             ),
             ManifestError::SelfDependency { path } => write!(
                 f,
@@ -181,6 +210,20 @@ impl fmt::Display for ManifestError {
                 f,
                 "draconic.toml: urls entry `{path}` has invalid git URL `{url}`: {reason}"
             ),
+            ManifestError::InvalidToolchain => write!(
+                f,
+                "draconic.toml: `toolchain` must be a version string or a table with `version` and optional `required`"
+            ),
+            ManifestError::InvalidToolchainVersion { version, reason } => write!(
+                f,
+                "draconic.toml: invalid toolchain version `{version}`: {reason}"
+            ),
+            ManifestError::MissingToolchainVersion => {
+                write!(f, "draconic.toml: `toolchain` table is missing `version`")
+            }
+            ManifestError::InvalidToolchainRequired => {
+                write!(f, "draconic.toml: `toolchain.required` must be a boolean")
+            }
         }
     }
 }
@@ -189,9 +232,10 @@ impl std::error::Error for ManifestError {}
 
 /// Parse a `draconic.toml` source string into a schema-valid [`Manifest`].
 ///
-/// Expected shape (K01.01–K01.04):
+/// Expected shape (K01.01–K01.04, D02.01):
 /// ```toml
 /// module = "github.com/org/pkg"
+/// toolchain = "0.1.0"
 ///
 /// [dependencies]
 /// "github.com/other/lib" = "1.2.3"
@@ -200,9 +244,10 @@ impl std::error::Error for ManifestError {}
 /// "github.com/other/lib" = "https://git.example.com/other/lib.git"
 /// ```
 ///
-/// `dependencies` and `urls` may be omitted (empty maps). Performs structural
-/// decode plus schema validation (module paths, version requirements, git URLs,
-/// unknown fields).
+/// `dependencies`, `urls`, and `toolchain` may be omitted. `toolchain` may be a
+/// version string (optional pin) or a table `{ version, required }`. Performs
+/// structural decode plus schema validation (module paths, version requirements,
+/// git URLs, unknown fields).
 pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
     let value: TomlValue =
         toml::from_str(src).map_err(|e| ManifestError::Toml(e.to_string()))?;
@@ -266,13 +311,47 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
         Some(_) => return Err(ManifestError::InvalidUrls),
     };
 
+    let toolchain = parse_toolchain_value(table.get("toolchain"))?;
+
     let manifest = Manifest {
         module,
         dependencies,
         urls,
+        toolchain,
     };
     validate_manifest(&manifest)?;
     Ok(manifest)
+}
+
+fn parse_toolchain_value(value: Option<&TomlValue>) -> Result<Option<ToolchainPin>, ManifestError> {
+    match value {
+        None => Ok(None),
+        Some(TomlValue::String(version)) => Ok(Some(ToolchainPin {
+            version: version.clone(),
+            required: false,
+        })),
+        Some(TomlValue::Table(table)) => {
+            for key in table.keys() {
+                if !KNOWN_TOOLCHAIN_KEYS.contains(&key.as_str()) {
+                    return Err(ManifestError::UnknownField {
+                        field: key.clone(),
+                    });
+                }
+            }
+            let version = match table.get("version") {
+                None => return Err(ManifestError::MissingToolchainVersion),
+                Some(TomlValue::String(v)) => v.clone(),
+                Some(_) => return Err(ManifestError::InvalidToolchain),
+            };
+            let required = match table.get("required") {
+                None => false,
+                Some(TomlValue::Boolean(b)) => *b,
+                Some(_) => return Err(ManifestError::InvalidToolchainRequired),
+            };
+            Ok(Some(ToolchainPin { version, required }))
+        }
+        Some(_) => Err(ManifestError::InvalidToolchain),
+    }
 }
 
 /// Validate schema rules on an already-decoded [`Manifest`].
@@ -320,6 +399,15 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), ManifestError> {
             return Err(ManifestError::InvalidUrl {
                 path: path.clone(),
                 url: url.clone(),
+                reason,
+            });
+        }
+    }
+
+    if let Some(pin) = &manifest.toolchain {
+        if let Err(reason) = validate_version_req(&pin.version) {
+            return Err(ManifestError::InvalidToolchainVersion {
+                version: pin.version.clone(),
                 reason,
             });
         }
@@ -569,8 +657,9 @@ fn is_semver_ident_chain(s: &str) -> bool {
 
 /// Serialize a [`Manifest`] to a stable `draconic.toml` document.
 ///
-/// Emit shape (K01.02 / K01.04):
+/// Emit shape (K01.02 / K01.04 / D02.01):
 /// - `module = "…"` first
+/// - `toolchain = "…"` when optional pin; inline table when `required = true`
 /// - blank line then `[dependencies]` only when non-empty
 /// - dependency keys in sorted (BTreeMap) order, each quoted
 /// - blank line then `[urls]` only when non-empty (sorted keys)
@@ -583,6 +672,18 @@ pub fn write_manifest(manifest: &Manifest) -> String {
     out.push_str("module = ");
     out.push_str(&toml_quoted_string(&manifest.module));
     out.push('\n');
+
+    if let Some(pin) = &manifest.toolchain {
+        out.push_str("toolchain = ");
+        if pin.required {
+            out.push_str("{ version = ");
+            out.push_str(&toml_quoted_string(&pin.version));
+            out.push_str(", required = true }");
+        } else {
+            out.push_str(&toml_quoted_string(&pin.version));
+        }
+        out.push('\n');
+    }
 
     if !manifest.dependencies.is_empty() {
         out.push('\n');
@@ -654,6 +755,7 @@ mod tests {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+            toolchain: None,
         }
     }
 
@@ -1070,6 +1172,7 @@ module = "github.com/acme/app"
             module: "not-valid".into(),
             dependencies: BTreeMap::new(),
             urls: BTreeMap::new(),
+            toolchain: None,
         };
         let err = validate_manifest(&m).expect_err("should fail schema");
         assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
@@ -1358,6 +1461,202 @@ module = "github.com/acme/app"
                 m.urls.get("github.com/org/lib").map(String::as_str),
                 Some(url)
             );
+        }
+    }
+
+    // --- D02.01: toolchain version pin (required / optional) ---
+
+    #[test]
+    fn parse_omitted_toolchain_is_none() {
+        let m = parse_manifest(r#"module = "github.com/org/pkg""#).expect("parse");
+        assert!(m.toolchain.is_none());
+    }
+
+    #[test]
+    fn parse_optional_toolchain_string() {
+        let m = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+toolchain = "0.1.0"
+"#,
+        )
+        .expect("parse");
+        let pin = m.toolchain.expect("optional pin");
+        assert_eq!(pin.version, "0.1.0");
+        assert!(!pin.required);
+    }
+
+    #[test]
+    fn parse_required_toolchain_table() {
+        let m = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+toolchain = { version = "1.2.3", required = true }
+"#,
+        )
+        .expect("parse");
+        let pin = m.toolchain.expect("required pin");
+        assert_eq!(pin.version, "1.2.3");
+        assert!(pin.required);
+    }
+
+    #[test]
+    fn parse_optional_toolchain_table() {
+        let m = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+[toolchain]
+version = "0.2.0"
+required = false
+"#,
+        )
+        .expect("parse");
+        let pin = m.toolchain.expect("optional table pin");
+        assert_eq!(pin.version, "0.2.0");
+        assert!(!pin.required);
+    }
+
+    #[test]
+    fn parse_toolchain_table_version_only_is_optional() {
+        let m = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+[toolchain]
+version = "1.0.0"
+"#,
+        )
+        .expect("parse");
+        let pin = m.toolchain.expect("version-only table");
+        assert_eq!(pin.version, "1.0.0");
+        assert!(!pin.required);
+    }
+
+    #[test]
+    fn reject_toolchain_wrong_type() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+toolchain = 12
+"#,
+        )
+        .expect_err("wrong type");
+        assert!(
+            matches!(err, ManifestError::InvalidToolchain),
+            "{err:?}"
+        );
+        assert!(
+            err.to_string().contains("toolchain"),
+            "diagnostic: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_toolchain_empty_version() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+toolchain = ""
+"#,
+        )
+        .expect_err("empty version");
+        match &err {
+            ManifestError::InvalidToolchainVersion { version, reason } => {
+                assert_eq!(version, "");
+                assert!(!reason.is_empty());
+            }
+            other => panic!("expected InvalidToolchainVersion, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_toolchain_invalid_version() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+toolchain = "not-a-version"
+"#,
+        )
+        .expect_err("bad version");
+        assert!(
+            matches!(err, ManifestError::InvalidToolchainVersion { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn reject_toolchain_table_missing_version() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+toolchain = { required = true }
+"#,
+        )
+        .expect_err("missing version");
+        assert_eq!(err, ManifestError::MissingToolchainVersion);
+    }
+
+    #[test]
+    fn reject_toolchain_unknown_table_field() {
+        let err = parse_manifest(
+            r#"
+module = "github.com/org/pkg"
+toolchain = { version = "1.0.0", extra = true }
+"#,
+        )
+        .expect_err("unknown table field");
+        match err {
+            ManifestError::UnknownField { field } => {
+                assert_eq!(field, "extra");
+            }
+            other => panic!("expected UnknownField, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn write_omits_absent_toolchain() {
+        let m = manifest("github.com/org/pkg", &[]);
+        let s = write_manifest(&m);
+        assert!(!s.contains("toolchain"), "{s}");
+    }
+
+    #[test]
+    fn write_optional_toolchain_as_string() {
+        let mut m = manifest("github.com/org/pkg", &[]);
+        m.toolchain = Some(ToolchainPin {
+            version: "0.1.0".into(),
+            required: false,
+        });
+        assert_eq!(
+            write_manifest(&m),
+            "module = \"github.com/org/pkg\"\ntoolchain = \"0.1.0\"\n"
+        );
+    }
+
+    #[test]
+    fn write_required_toolchain_as_inline_table() {
+        let mut m = manifest("github.com/org/pkg", &[]);
+        m.toolchain = Some(ToolchainPin {
+            version: "1.2.3".into(),
+            required: true,
+        });
+        assert_eq!(
+            write_manifest(&m),
+            "module = \"github.com/org/pkg\"\ntoolchain = { version = \"1.2.3\", required = true }\n"
+        );
+    }
+
+    #[test]
+    fn round_trip_optional_and_required_toolchain() {
+        for required in [false, true] {
+            let mut original = manifest("github.com/acme/app", &[("github.com/org/lib", "1.0.0")]);
+            original.toolchain = Some(ToolchainPin {
+                version: "0.3.0".into(),
+                required,
+            });
+            let written = write_manifest(&original);
+            let parsed = parse_manifest(&written).expect("parse written");
+            assert_eq!(parsed, original);
+            assert_eq!(write_manifest(&parsed), written);
         }
     }
 }

@@ -189,3 +189,63 @@ fn mod_tidy_prunes_unused() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn mod_tidy_accepts_optional_toolchain_pin() {
+    let root = temp_dir();
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/acme/app\"\ntoolchain = \"0.1.0\"\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = run(
+        draconic()
+            .arg("mod")
+            .arg("tidy")
+            .arg("--dir")
+            .arg(&ws)
+            .arg("--cache-dir")
+            .arg(root.join("cache")),
+    );
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    let mf = fs::read_to_string(ws.join("draconic.toml")).unwrap();
+    assert!(
+        mf.contains("toolchain"),
+        "tidy must preserve toolchain pin:\n{mf}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn mod_tidy_accepts_required_toolchain_pin() {
+    let root = temp_dir();
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/acme/app\"\ntoolchain = { version = \"1.2.3\", required = true }\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = run(
+        draconic()
+            .arg("mod")
+            .arg("tidy")
+            .arg("--dir")
+            .arg(&ws)
+            .arg("--cache-dir")
+            .arg(root.join("cache")),
+    );
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    let mf = fs::read_to_string(ws.join("draconic.toml")).unwrap();
+    assert!(
+        mf.contains("toolchain") && mf.contains("1.2.3"),
+        "tidy must preserve required toolchain pin:\n{mf}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
