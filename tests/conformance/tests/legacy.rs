@@ -438,3 +438,13 @@ fn with_closures_fixture_present() {
 fn with_closures_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_closures");
 }
+
+#[test]
+fn with_generators_fixture_present() {
+    assert_fixture_present("es/legacy/with_generators");
+}
+
+#[test]
+fn with_generators_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_generators");
+}

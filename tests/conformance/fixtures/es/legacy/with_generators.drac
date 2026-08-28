@@ -1,0 +1,202 @@
+// E17.02.40: with + generators through object environment (non-strict).
+// function*/yield ident hits object (else outer); resume after yield still sees
+// with (live); params shadow object; nested generator; yield* ident; generator
+// expression/method; with inside generator body; block function* is not Annex B
+// hoisted.
+
+function genYieldHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    function* g() {
+      yield x;
+    }
+    return g().next().value === 1;
+  }
+}
+let a = genYieldHitsObject();
+
+function genLiveClose() {
+  let obj = { x: 1 };
+  let g;
+  with (obj) {
+    g = function* () {
+      yield x;
+    };
+  }
+  obj.x = 9;
+  return g().next().value === 9;
+}
+let b = genLiveClose();
+
+function genResumeLive() {
+  let obj = { x: 1 };
+  let it;
+  with (obj) {
+    function* g() {
+      yield x;
+      yield x;
+    }
+    it = g();
+  }
+  let first = it.next().value;
+  obj.x = 5;
+  return first === 1 && it.next().value === 5;
+}
+let c = genResumeLive();
+
+function genParamsShadow() {
+  let obj = { x: 1 };
+  with (obj) {
+    function* g(x) {
+      yield x;
+    }
+    return g(4).next().value === 4;
+  }
+}
+let d = genParamsShadow();
+
+function genMissIsOuter() {
+  let x = 10;
+  with ({}) {
+    function* g() {
+      yield x;
+    }
+    return g().next().value === 10;
+  }
+}
+let e = genMissIsOuter();
+
+function genAssignHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    function* g() {
+      x = 2;
+      yield x;
+    }
+    let v = g().next().value;
+    return v === 2 && obj.x === 2;
+  }
+}
+let f = genAssignHitsObject();
+
+function genYieldStarHitsObject() {
+  let obj = { xs: [3, 4] };
+  with (obj) {
+    function* g() {
+      yield* xs;
+    }
+    let it = g();
+    return it.next().value === 3 && it.next().value === 4;
+  }
+}
+let g = genYieldStarHitsObject();
+
+function genExpr() {
+  let obj = { x: 6 };
+  with (obj) {
+    let h = function* () {
+      yield x;
+    };
+    return h().next().value === 6;
+  }
+}
+let h = genExpr();
+
+function genMethod() {
+  let obj = { x: 7 };
+  with (obj) {
+    let o = {
+      *m() {
+        yield x;
+      }
+    };
+    return o.m().next().value === 7;
+  }
+}
+let i = genMethod();
+
+function withInsideGenerator() {
+  let obj = { x: 8 };
+  function* gen() {
+    with (obj) {
+      yield x;
+    }
+  }
+  return gen().next().value === 8;
+}
+let j = withInsideGenerator();
+
+function nestedGen() {
+  let obj = { x: 2 };
+  with (obj) {
+    function* outer() {
+      function* inner() {
+        yield x;
+      }
+      yield* inner();
+    }
+    return outer().next().value === 2;
+  }
+}
+let k = nestedGen();
+
+function genNotHoistedAnnexB() {
+  with ({}) {
+    function* gen() {
+      yield 1;
+    }
+  }
+  return typeof gen === "undefined";
+}
+let l = genNotHoistedAnnexB();
+
+function genYieldResumeArg() {
+  let obj = { x: 1 };
+  with (obj) {
+    function* gen() {
+      let y = yield x;
+      yield y;
+    }
+    let it = gen();
+    it.next();
+    return it.next(9).value === 9;
+  }
+}
+let m = genYieldResumeArg();
+
+function genDefaultParamHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    function* gen(p = x) {
+      yield p;
+    }
+    return gen().next().value === 7;
+  }
+}
+let n = genDefaultParamHitsObject();
+
+function genAssignMissIsOuter() {
+  let x = 1;
+  let obj = {};
+  with (obj) {
+    function* gen() {
+      x = 3;
+      yield x;
+    }
+    let v = gen().next().value;
+    return v === 3 && x === 3 && obj.x === undefined;
+  }
+}
+let p = genAssignMissIsOuter();
+
+function genYieldStarMissIsOuter() {
+  let xs = [8, 9];
+  with ({}) {
+    function* gen() {
+      yield* xs;
+    }
+    let it = gen();
+    return it.next().value === 8 && it.next().value === 9;
+  }
+}
+let q = genYieldStarMissIsOuter();
