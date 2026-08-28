@@ -1,0 +1,216 @@
+// E17.02.46: with + optional chaining through object environment (non-strict).
+// ident?.prop / ident?.[expr] / ident?.(args) hit object (else outer);
+// null/undefined short-circuit skips Get/args; 0 not short-circuit; this in
+// optional call is the with object; live close; unresolvable ReferenceError;
+// nested with; delete ident?.prop; assign to optional chain SyntaxError.
+
+function propHitsObject() {
+  let obj = { a: { n: 1 } };
+  with (obj) {
+    return a?.n === 1;
+  }
+}
+let a = propHitsObject();
+
+function missIsOuter() {
+  let a = { n: 2 };
+  with ({}) {
+    return a?.n === 2;
+  }
+}
+let b = missIsOuter();
+
+function nullShortCircuit() {
+  let obj = { a: null };
+  with (obj) {
+    return a?.n === undefined;
+  }
+}
+let c = nullShortCircuit();
+
+function undefShortCircuit() {
+  let obj = { a: undefined };
+  with (obj) {
+    return a?.n === undefined;
+  }
+}
+let d = undefShortCircuit();
+
+function zeroNotShortCircuit() {
+  let obj = { n: 0 };
+  with (obj) {
+    return n?.toString() === "0";
+  }
+}
+let e = zeroNotShortCircuit();
+
+function computedHitsObject() {
+  let obj = {
+    a: { k: 3 },
+    key: "k"
+  };
+  with (obj) {
+    return a?.[key] === 3;
+  }
+}
+let f = computedHitsObject();
+
+function shortCircuitSkipsKeyEval() {
+  let obj = { a: null, key: 0 };
+  with (obj) {
+    let r = a?.[key++];
+    return r === undefined && key === 0;
+  }
+}
+let g = shortCircuitSkipsKeyEval();
+
+function optionalCallHitsObject() {
+  let obj = {
+    m: function () {
+      return 5;
+    }
+  };
+  with (obj) {
+    return m?.() === 5;
+  }
+}
+let h = optionalCallHitsObject();
+
+function optionalCallArgsThroughWith() {
+  let obj = {
+    x: 7,
+    m: function (v) {
+      return v;
+    }
+  };
+  with (obj) {
+    return m?.(x) === 7;
+  }
+}
+let i = optionalCallArgsThroughWith();
+
+function optionalCallThisIsWithObject() {
+  let obj = {
+    n: 4,
+    m: function () {
+      return this.n === 4 && this === obj;
+    }
+  };
+  with (obj) {
+    return m?.() === true;
+  }
+}
+let j = optionalCallThisIsWithObject();
+
+function shortCircuitSkipsCallArgs() {
+  let obj = {
+    f: null,
+    x: 0
+  };
+  with (obj) {
+    let r = f?.(x++);
+    return r === undefined && x === 0;
+  }
+}
+let k = shortCircuitSkipsCallArgs();
+
+function liveClose() {
+  let obj = { a: { n: 1 } };
+  let run;
+  with (obj) {
+    run = function () {
+      return a?.n;
+    };
+  }
+  obj.a = { n: 8 };
+  return run() === 8;
+}
+let l = liveClose();
+
+function unresolvableOptional() {
+  with ({}) {
+    try {
+      e170246_missing?.x;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let m = unresolvableOptional();
+
+function nestedInnerWins() {
+  let inner = { a: { n: 1 } };
+  let outer = { a: { n: 2 } };
+  with (outer) {
+    with (inner) {
+      return a?.n === 1;
+    }
+  }
+}
+let n = nestedInnerWins();
+
+function nestedOuterAfterInner() {
+  let inner = { a: { n: 1 } };
+  let outer = { a: { n: 2 } };
+  with (outer) {
+    with (inner) {
+      a?.n;
+    }
+    return a?.n === 2;
+  }
+}
+let p = nestedOuterAfterInner();
+
+function deleteOptional() {
+  let obj = { a: { x: 1 } };
+  let r = false;
+  with (obj) {
+    r = delete a?.x;
+  }
+  let gone = r === true && obj.a.x === undefined;
+  let obj2 = { a: null };
+  let r2 = false;
+  with (obj2) {
+    r2 = delete a?.x;
+  }
+  return gone && r2 === true;
+}
+let q = deleteOptional();
+
+function assignOptionalSyntaxError() {
+  try {
+    eval("with ({a:{x:1}}) { a?.x = 2; }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let r = assignOptionalSyntaxError();
+
+function nonCallableTypeError() {
+  let obj = { x: 1 };
+  with (obj) {
+    try {
+      x?.();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let s = nonCallableTypeError();
+
+function memberOptionalStillThatMember() {
+  let inner = {
+    n: 9,
+    m: function () {
+      return this.n;
+    }
+  };
+  let obj = { inner: inner };
+  with (obj) {
+    return inner?.m() === 9;
+  }
+}
+let t = memberOptionalStillThatMember();
