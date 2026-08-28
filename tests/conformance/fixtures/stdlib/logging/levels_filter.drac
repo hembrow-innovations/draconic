@@ -1,0 +1,48 @@
+// L06.01: Leveled log (error/warn/info/debug); filter by level.
+// createLogger returns an isolated logger; records() is in-memory (sink → L06.02).
+
+let a = typeof createLogger === "function" && globalThis.createLogger === createLogger;
+let logger = createLogger();
+let b = logger.getLevel() === "info";
+let c = typeof logger.error === "function" && typeof logger.warn === "function"
+  && typeof logger.info === "function" && typeof logger.debug === "function";
+logger.debug("d0");
+logger.info("i0");
+logger.warn("w0");
+logger.error("e0");
+let recs = logger.records();
+let d = recs.length === 3 && recs[0].level === "info" && recs[0].message === "i0"
+  && recs[1].level === "warn" && recs[1].message === "w0"
+  && recs[2].level === "error" && recs[2].message === "e0";
+logger.setLevel("debug");
+let e = logger.getLevel() === "debug";
+logger.debug("d1");
+let recsD = logger.records();
+let f = recsD.length === 4 && recsD[3].level === "debug" && recsD[3].message === "d1";
+logger.setLevel("error");
+logger.warn("hidden");
+logger.error("shown");
+let recsE = logger.records();
+let g = recsE.length === 5 && recsE[4].level === "error" && recsE[4].message === "shown";
+logger.clear();
+let h = logger.records().length === 0;
+let logger2 = createLogger("warn");
+logger2.info("no");
+logger2.warn("yes");
+let recs2 = logger2.records();
+let i = logger2.getLevel() === "warn" && recs2.length === 1 && recs2[0].message === "yes";
+let j = logger.records().length === 0;
+let k = 0;
+try {
+  createLogger("trace");
+  k = -1;
+} catch (err) {
+  k = err.name === "TypeError" ? 1 : -2;
+}
+let l = 0;
+try {
+  logger.setLevel("fatal");
+  l = -1;
+} catch (err2) {
+  l = err2.name === "TypeError" ? 1 : -2;
+}

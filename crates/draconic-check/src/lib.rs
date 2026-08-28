@@ -1226,6 +1226,8 @@ impl Binder {
         binder.install_builtin("sha256", BindingKind::Const);
         // L03.02: OS CSPRNG bytes
         binder.install_builtin("randomBytes", BindingKind::Const);
+        // L06.01: leveled logger factory
+        binder.install_builtin("createLogger", BindingKind::Const);
         binder
     }
 

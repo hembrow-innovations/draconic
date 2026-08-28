@@ -80,6 +80,11 @@ fn module_uses_query(module: &Module) -> bool {
     module_uses_named_local(module, "parseQuery") || module_uses_named_local(module, "serializeQuery")
 }
 
+/// L06.01: `createLogger`.
+fn module_uses_create_logger(module: &Module) -> bool {
+    module_uses_named_local(module, "createLogger")
+}
+
 /// L05.01 / L05.02 / L05.03: free `describe` / `it` / `expect` / hooks (IdentName so user `let it` does not collide).
 fn module_uses_describe_it(module: &Module) -> bool {
     module.body.iter().any(|s| {
@@ -576,6 +581,13 @@ fn emit_js_full(
     // L08.02: portable `parseQuery` / `serializeQuery` polyfill.
     if module_uses_query(module) {
         out.push_str(draconic_runtime::query_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L06.01: portable `createLogger` polyfill.
+    if module_uses_create_logger(module) {
+        out.push_str(draconic_runtime::create_logger_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1211,6 +1223,14 @@ mod tests {
         let js = emit_src("let d = randomBytes(8);");
         assert!(js.contains("function randomBytes("), "{js}");
         assert!(js.contains("globalThis.randomBytes = randomBytes"), "{js}");
+    }
+
+    #[test]
+    fn emit_create_logger_polyfill() {
+        let js = emit_src("let logger = createLogger(); logger.info(\"hi\");");
+        assert!(js.contains("function createLogger("), "{js}");
+        assert!(js.contains("globalThis.createLogger = createLogger"), "{js}");
+        assert!(js.contains("setLevel"), "{js}");
     }
 
     #[test]

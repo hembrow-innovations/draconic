@@ -2,8 +2,10 @@
 //! + host I/O substrate (H00.02–H00.03, H01.01 process args); embed later (N07).
 
 pub mod abi;
+pub mod logging;
 pub use abi::*;
 pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
+pub use logging::create_logger_js_polyfill;
 pub use testing::describe_it_js_polyfill;
 pub use url::{
     parse_query, parse_url, parse_url_js_polyfill, query_js_polyfill, serialize_query, ParsedUrl,
