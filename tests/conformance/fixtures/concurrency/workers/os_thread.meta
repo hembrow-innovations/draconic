@@ -1,0 +1,4 @@
+id: concurrency/workers/os_thread
+targets: native
+native.exit: 0
+native.stdout: 1\n1\ntrue\n0\ntrue\n-1\ntrue\n

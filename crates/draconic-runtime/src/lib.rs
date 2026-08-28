@@ -15,6 +15,8 @@ pub use url::{
 mod host_abi_tests;
 #[cfg(test)]
 mod host_bytes_tests;
+#[cfg(test)]
+mod host_worker_tests;
 
 
 /// L03.01 / L03.02: SHA-256 digest and OS CSPRNG bytes.
@@ -574,6 +576,7 @@ pub fn apply_runtime_link_flags(cmd: &mut Command) {
         cmd.arg("-framework").arg("Security");
         cmd.arg("-framework").arg("CoreFoundation");
     }
+    cmd.arg("-pthread");
 }
 
 /// Build `libdraconic_rt.a` in `out_dir` (clang `-c` + `ar`).

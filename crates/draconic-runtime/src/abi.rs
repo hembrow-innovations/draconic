@@ -878,6 +878,13 @@ pub const HOST_WORKER_TERMINATE: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
+/* C01.04: 1 if handle is a live OS thread distinct from the caller; 0 if same
+   thread / no OS thread; -1 invalid or already joined/terminated. */
+pub const HOST_WORKER_OS_THREAD: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_worker_os_thread",
+    ret: "i32",
+    params: "i32",
+};
 /* C02.01/C02.03: makeChannel — FIFO handle >= 1, or -1 on failure.
    cap > 0 bounds the buffer; cap <= 0 is unbounded. Send on a full
    bounded channel returns -2 (backpressure). */
@@ -1561,6 +1568,7 @@ pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.sym
 pub const HOST_WORKER_SPAWN_SYMBOL: &str = HOST_WORKER_SPAWN.symbol;
 pub const HOST_WORKER_JOIN_SYMBOL: &str = HOST_WORKER_JOIN.symbol;
 pub const HOST_WORKER_TERMINATE_SYMBOL: &str = HOST_WORKER_TERMINATE.symbol;
+pub const HOST_WORKER_OS_THREAD_SYMBOL: &str = HOST_WORKER_OS_THREAD.symbol;
 pub const HOST_CHANNEL_MAKE_SYMBOL: &str = HOST_CHANNEL_MAKE.symbol;
 pub const HOST_CHANNEL_SEND_F64_SYMBOL: &str = HOST_CHANNEL_SEND_F64.symbol;
 pub const HOST_CHANNEL_SEND_STR_SYMBOL: &str = HOST_CHANNEL_SEND_STR.symbol;
@@ -1713,6 +1721,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_WORKER_SPAWN_SYMBOL,
     HOST_WORKER_JOIN_SYMBOL,
     HOST_WORKER_TERMINATE_SYMBOL,
+    HOST_WORKER_OS_THREAD_SYMBOL,
     HOST_CHANNEL_MAKE_SYMBOL,
     HOST_CHANNEL_SEND_F64_SYMBOL,
     HOST_CHANNEL_SEND_STR_SYMBOL,
@@ -1840,6 +1849,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_WORKER_SPAWN,
     HOST_WORKER_JOIN,
     HOST_WORKER_TERMINATE,
+    HOST_WORKER_OS_THREAD,
     HOST_CHANNEL_MAKE,
     HOST_CHANNEL_SEND_F64,
     HOST_CHANNEL_SEND_STR,

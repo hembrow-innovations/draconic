@@ -1,6 +1,7 @@
 //! ROADMAP C01.01: spawn worker isolate from module path or fn entry.
 //! ROADMAP C01.02: join worker — wait for exit; capture result/error.
 //! ROADMAP C01.03: terminate worker; no shared JS heap across isolates.
+//! ROADMAP C01.04: OS thread backing for native workers.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -99,4 +100,32 @@ fn isolate_heap_fixture_present() {
 #[test]
 fn isolate_heap_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/workers/isolate_heap");
+}
+
+fn assert_fixture_runs_native(id: &str) {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
+    assert!(
+        fixture.targets.contains(&Target::Native) && !fixture.targets.contains(&Target::Js),
+        "{id} must target native only"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn os_thread_fixture_present() {
+    assert_fixture_present("concurrency/workers/os_thread");
+}
+
+#[test]
+fn os_thread_runs_native() {
+    assert_fixture_runs_native("concurrency/workers/os_thread");
 }

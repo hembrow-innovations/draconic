@@ -39,9 +39,11 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <pthread.h>
 #include <unistd.h>
 /* setenv / unsetenv; getpid / getppid; fork/execvp/waitpid; mkdir / rmdir / unlink;
-   open/read/write/lseek/close; socket/bind/listen/getsockname; getaddrinfo; poll */
+   open/read/write/lseek/close; socket/bind/listen/getsockname; getaddrinfo; poll;
+   pthread worker threads (C01.04) */
 #endif
 
 /* Core job queue + Promise (draconic_rt.c) — H07.01/H07.02. */
@@ -8368,11 +8370,46 @@ DraconicHostError draconic_rt_host_http2_server_reply(
     return DRACONIC_HOST_OK;
 }
 
-/* --- Worker isolate spawn (C01.01) ---------------------------------------- */
+/* --- Worker isolate spawn (C01.01 / C01.04 OS threads) -------------------- */
 
 #define DRACONIC_WORKER_SLOTS 64
 
-static uint8_t g_worker_live[DRACONIC_WORKER_SLOTS];
+typedef struct DraconicWorker {
+    uint8_t live;
+    uint8_t stop;
+#if !defined(_WIN32)
+    pthread_t th;
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+#endif
+} DraconicWorker;
+
+static DraconicWorker g_workers[DRACONIC_WORKER_SLOTS];
+
+#if !defined(_WIN32)
+static void *draconic_worker_main(void *arg) {
+    DraconicWorker *w = (DraconicWorker *)arg;
+    pthread_mutex_lock(&w->mu);
+    while (w->stop == 0) {
+        pthread_cond_wait(&w->cv, &w->mu);
+    }
+    pthread_mutex_unlock(&w->mu);
+    return NULL;
+}
+
+static int32_t draconic_worker_stop_join(DraconicWorker *w) {
+    pthread_mutex_lock(&w->mu);
+    w->stop = 1;
+    pthread_cond_signal(&w->cv);
+    pthread_mutex_unlock(&w->mu);
+    pthread_join(w->th, NULL);
+    pthread_mutex_destroy(&w->mu);
+    pthread_cond_destroy(&w->cv);
+    w->live = 0;
+    w->stop = 0;
+    return 0;
+}
+#endif
 
 int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path) {
     size_t i;
@@ -8386,9 +8423,30 @@ int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path) {
         return -1;
     }
     for (i = 0; i < DRACONIC_WORKER_SLOTS; i++) {
-        if (g_worker_live[i] == 0) {
-            g_worker_live[i] = 1;
+        if (g_workers[i].live == 0) {
+#if defined(_WIN32)
+            g_workers[i].live = 1;
+            g_workers[i].stop = 0;
             return (int32_t)(i + 1);
+#else
+            DraconicWorker *w = &g_workers[i];
+            w->stop = 0;
+            if (pthread_mutex_init(&w->mu, NULL) != 0) {
+                return -1;
+            }
+            if (pthread_cond_init(&w->cv, NULL) != 0) {
+                pthread_mutex_destroy(&w->mu);
+                return -1;
+            }
+            w->live = 1;
+            if (pthread_create(&w->th, NULL, draconic_worker_main, w) != 0) {
+                pthread_mutex_destroy(&w->mu);
+                pthread_cond_destroy(&w->cv);
+                w->live = 0;
+                return -1;
+            }
+            return (int32_t)(i + 1);
+#endif
         }
     }
     return -1;
@@ -8403,11 +8461,15 @@ int32_t draconic_rt_host_worker_join(int32_t handle) {
     if (i >= DRACONIC_WORKER_SLOTS) {
         return -1;
     }
-    if (g_worker_live[i] == 0) {
+    if (g_workers[i].live == 0) {
         return -1;
     }
-    g_worker_live[i] = 0;
+#if defined(_WIN32)
+    g_workers[i].live = 0;
     return 0;
+#else
+    return draconic_worker_stop_join(&g_workers[i]);
+#endif
 }
 
 int32_t draconic_rt_host_worker_terminate(int32_t handle) {
@@ -8419,11 +8481,37 @@ int32_t draconic_rt_host_worker_terminate(int32_t handle) {
     if (i >= DRACONIC_WORKER_SLOTS) {
         return -1;
     }
-    if (g_worker_live[i] == 0) {
+    if (g_workers[i].live == 0) {
         return -1;
     }
-    g_worker_live[i] = 0;
+#if defined(_WIN32)
+    g_workers[i].live = 0;
     return 0;
+#else
+    return draconic_worker_stop_join(&g_workers[i]);
+#endif
+}
+
+int32_t draconic_rt_host_worker_os_thread(int32_t handle) {
+    size_t i;
+    if (handle < 1) {
+        return -1;
+    }
+    i = (size_t)(handle - 1);
+    if (i >= DRACONIC_WORKER_SLOTS) {
+        return -1;
+    }
+    if (g_workers[i].live == 0) {
+        return -1;
+    }
+#if defined(_WIN32)
+    return 0;
+#else
+    if (pthread_equal(g_workers[i].th, pthread_self())) {
+        return 0;
+    }
+    return 1;
+#endif
 }
 
 /* --- Channels (C02.01 / C02.03) ------------------------------------------- */

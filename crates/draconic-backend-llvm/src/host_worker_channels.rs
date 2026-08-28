@@ -1,5 +1,5 @@
 //! C02.04: `spawnWorker(fn, ch)` + parent/worker `makeChannel` / `channelSend` /
-//! `channelRecv` number FIFO (worker body inlined; C01.04 OS threads later).
+//! `channelRecv` number FIFO (worker body inlined; OS threads back spawn/join).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;

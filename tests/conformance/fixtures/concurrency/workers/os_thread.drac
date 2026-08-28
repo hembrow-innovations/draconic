@@ -1,0 +1,7 @@
+let h = spawnWorker(function () {});
+let os = workerOsThread(h);
+let ok = os === 1;
+let r = joinWorker(h);
+let joined = r === 0;
+let after = workerOsThread(h);
+let dead = after < 0;

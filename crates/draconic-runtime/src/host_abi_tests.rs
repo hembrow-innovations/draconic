@@ -302,6 +302,10 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_worker_terminate(i32)"
     );
     assert_eq!(
+        HOST_WORKER_OS_THREAD.declare(),
+        "declare i32 @draconic_rt_host_worker_os_thread(i32)"
+    );
+    assert_eq!(
         HOST_CHANNEL_MAKE.declare(),
         "declare i32 @draconic_rt_host_channel_make(i32)"
     );

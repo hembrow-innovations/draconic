@@ -115,6 +115,8 @@ pub struct HostApiEntry {
 ///   optional second arg is a channel handle passed into the worker fn.
 /// - `joinWorker` (C01.02): both — wait for worker exit; 0 success, negative error.
 /// - `terminateWorker` (C01.03): both — stop worker; 0 success, negative error.
+/// - `workerOsThread` (C01.04): native-only — 1 if handle is a live OS thread
+///   distinct from the caller; 0 if same thread; -1 invalid/already dead.
 /// - `makeChannel` / `channelSend` / `channelRecv` (C02.01–C02.03): both — FIFO channel of
 ///   scalars (number/bool), strings, and structured-cloned plain objects (shared refs
 ///   rejected); optional capacity `makeChannel(n)` (n>0 bounded; full send → -2);
@@ -719,6 +721,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "terminateWorker",
         availability: HostAvailability::BOTH,
         note: "C01.03 terminate worker; no shared JS heap",
+    },
+    HostApiEntry {
+        name: "workerOsThread",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C01.04 live OS thread distinct from caller",
     },
     HostApiEntry {
         name: "makeChannel",
@@ -1426,6 +1433,24 @@ mod tests {
         );
         assert!(
             unsupported_diagnostic("terminateWorker", CompileTarget::Native, Span::dummy())
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn registry_lists_worker_os_thread_native_only() {
+        let entry = lookup("workerOsThread").expect("workerOsThread registered");
+        assert_eq!(entry.name, "workerOsThread");
+        assert!(!entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("workerOsThread"));
+        assert!(!is_available("workerOsThread", CompileTarget::Js));
+        assert!(is_available("workerOsThread", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("workerOsThread", CompileTarget::Js, Span::dummy()).is_some()
+        );
+        assert!(
+            unsupported_diagnostic("workerOsThread", CompileTarget::Native, Span::dummy())
                 .is_none()
         );
     }
