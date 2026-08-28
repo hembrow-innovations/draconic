@@ -70,11 +70,7 @@ fn test_missing_path_exits_usage() {
 #[test]
 fn test_runs_passing_fixture_dir() {
     let dir = temp_dir();
-    write(
-        &dir,
-        "smoke.drac",
-        "let x = 1 + 2;\n",
-    );
+    write(&dir, "smoke.drac", "let x = 1 + 2;\n");
     write(
         &dir,
         "smoke.meta",
@@ -114,7 +110,10 @@ js.check: if (x !== 99) process.exit(1);
     );
 
     let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
-    assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
+    assert_ne!(
+        code, 0,
+        "expected failure\nstdout={stdout}\nstderr={stderr}"
+    );
     assert!(
         stdout.contains("FAIL")
             || stdout.contains("fail")
@@ -163,11 +162,7 @@ fn test_missing_path_reports_error() {
 #[test]
 fn test_coverage_reports_line_hits() {
     let dir = temp_dir();
-    write(
-        &dir,
-        "cov.drac",
-        "let a = 1;\nlet b = 2;\nlet c = a + b;\n",
-    );
+    write(&dir, "cov.drac", "let a = 1;\nlet b = 2;\nlet c = a + b;\n");
     write(
         &dir,
         "cov.meta",
@@ -199,13 +194,10 @@ js.check: if (c !== 3) process.exit(1);
         "stdout={stdout}"
     );
     let total_ok = stdout.lines().any(|l| {
-        l.starts_with("total:")
-            && l.contains("lines")
-            && !l.contains("0/0")
-            && !l.contains("0/")
-    }) || stdout.lines().any(|l| {
-        l.contains("lines") && l.contains('%') && !l.contains("0%")
-    });
+        l.starts_with("total:") && l.contains("lines") && !l.contains("0/0") && !l.contains("0/")
+    }) || stdout
+        .lines()
+        .any(|l| l.contains("lines") && l.contains('%') && !l.contains("0%"));
     assert!(total_ok, "expected non-zero coverage hits:\n{stdout}");
 }
 
@@ -280,7 +272,10 @@ describe("math", () => {
     );
 
     let (code, stdout, stderr) = run(draconic().arg("test").arg(&src));
-    assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
+    assert_ne!(
+        code, 0,
+        "expected failure\nstdout={stdout}\nstderr={stderr}"
+    );
 }
 
 /// ROADMAP L05.04: passing fixture + passing in-language suite in one dir → exit 0.
@@ -350,7 +345,10 @@ describe("math", () => {
     );
 
     let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
-    assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
+    assert_ne!(
+        code, 0,
+        "expected failure\nstdout={stdout}\nstderr={stderr}"
+    );
     assert!(
         stdout.contains("FAIL")
             || stdout.contains("fail")
@@ -389,7 +387,10 @@ describe("math", () => {
     );
 
     let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
-    assert_ne!(code, 0, "expected failure\nstdout={stdout}\nstderr={stderr}");
+    assert_ne!(
+        code, 0,
+        "expected failure\nstdout={stdout}\nstderr={stderr}"
+    );
 }
 
 /// ROADMAP L05.04: directory of only in-language suites (no .meta) still runs.
@@ -413,5 +414,87 @@ describe("math", () => {
     assert!(
         stdout.contains("ok") || stdout.contains("passed") || stdout.contains("suite"),
         "stdout={stdout}"
+    );
+}
+
+fn barrier_program(self_name: &str, peer_name: &str) -> String {
+    format!(
+        r#"
+let dir = envGet("DRACONIC_C0401_BARRIER");
+writeFileText(dir + "/{self_name}.started", "1");
+let t0 = Date.now();
+while (!exists(dir + "/{peer_name}.started")) {{
+  if (Date.now() - t0 > 8000) {{
+    throw 1;
+  }}
+}}
+"#
+    )
+}
+
+fn write_js_fixture(dir: &Path, id: &str, source: &str) {
+    write(dir, &format!("{id}.drac"), source);
+    write(
+        dir,
+        &format!("{id}.meta"),
+        &format!(
+            "\
+id: {id}
+targets: js
+js.exit: 0
+"
+        ),
+    );
+}
+
+/// ROADMAP C04.01: two fixtures that wait for each other only finish if workers > 1.
+#[test]
+fn test_worker_pool_overlaps_two_fixtures() {
+    let dir = temp_dir();
+    let barrier = dir.join("barrier");
+    fs::create_dir_all(&barrier).unwrap();
+    write_js_fixture(&dir, "left", &barrier_program("left", "right"));
+    write_js_fixture(&dir, "right", &barrier_program("right", "left"));
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("test")
+        .arg("--jobs")
+        .arg("2")
+        .env("DRACONIC_C0401_BARRIER", &barrier)
+        .arg(&dir));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("left") && stdout.contains("right"),
+        "stdout={stdout}"
+    );
+}
+
+/// ROADMAP C04.01: default `draconic test` uses a worker pool (N>1).
+#[test]
+fn test_default_worker_pool_overlaps_two_fixtures() {
+    let dir = temp_dir();
+    let barrier = dir.join("barrier");
+    fs::create_dir_all(&barrier).unwrap();
+    write_js_fixture(&dir, "left", &barrier_program("left", "right"));
+    write_js_fixture(&dir, "right", &barrier_program("right", "left"));
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("test")
+        .env("DRACONIC_C0401_BARRIER", &barrier)
+        .arg(&dir));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("left") && stdout.contains("right"),
+        "stdout={stdout}"
+    );
+}
+
+#[test]
+fn help_lists_test_jobs() {
+    let (code, stdout, stderr) = run(draconic().arg("help"));
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(
+        stdout.contains("--jobs") || stdout.contains("jobs"),
+        "help should mention --jobs:\n{stdout}"
     );
 }

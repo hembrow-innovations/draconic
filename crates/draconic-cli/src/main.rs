@@ -10,7 +10,6 @@ use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{
     build_native_binary, build_native_binary_with_static_libs, emit_llvm_ir_with_debug, SourceDebug,
 };
-use draconic_conformance::{load_path, run_fixture_cov, CoverageReport};
 use draconic_diagnostics::Diagnostic;
 use draconic_embed::{eval_source, EmbedValue};
 use draconic_frontend::{check_path, compile_path, compile_source};
@@ -18,6 +17,7 @@ use draconic_ir::Stmt;
 use draconic_parser::{parse, parse_module};
 use draconic_pkg::ensure_locked_for_entry;
 
+mod cmd_test;
 mod doc;
 
 fn main() -> ExitCode {
@@ -36,7 +36,7 @@ fn main() -> ExitCode {
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
         "repl" => cmd_repl(&args),
-        "test" => cmd_test(&args),
+        "test" => cmd_test::cmd_test(&args),
         "get" => cmd_get(&args),
         "mod" => cmd_mod(&args),
         "help" | "-h" | "--help" => {
@@ -117,14 +117,12 @@ fn cmd_check(args: &[String]) -> ExitCode {
     };
 
     if parsed.watch {
-        return run_watch_loop(&parsed.input, || {
-            match check_path(&parsed.input) {
-                Ok(_) => {
-                    touch_watch_marker();
-                    Ok(())
-                }
-                Err(d) => Err(d.to_string()),
+        return run_watch_loop(&parsed.input, || match check_path(&parsed.input) {
+            Ok(_) => {
+                touch_watch_marker();
+                Ok(())
             }
+            Err(d) => Err(d.to_string()),
         });
     }
 
@@ -430,11 +428,7 @@ fn run_watch_loop(path: &Path, mut action: impl FnMut() -> Result<(), String>) -
 
 fn file_watch_stamp(path: &Path) -> Option<(u64, u64)> {
     let meta = fs::metadata(path).ok()?;
-    let modified = meta
-        .modified()
-        .ok()?
-        .duration_since(UNIX_EPOCH)
-        .ok()?;
+    let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     let len = meta.len();
     Some((modified.as_secs(), modified.subsec_nanos() as u64 ^ len))
 }
@@ -594,12 +588,10 @@ fn execute_artifact(
     cmd.stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    let status = cmd
-        .status()
-        .map_err(|e| match target {
-            Target::Js => format!("spawn node failed: {e}"),
-            Target::Native => format!("spawn binary failed: {e}"),
-        })?;
+    let status = cmd.status().map_err(|e| match target {
+        Target::Js => format!("spawn node failed: {e}"),
+        Target::Native => format!("spawn binary failed: {e}"),
+    })?;
     Ok(status.code().unwrap_or(1))
 }
 
@@ -697,17 +689,12 @@ fn parse_target(s: &str) -> Result<Target, String> {
     match s {
         "js" => Ok(Target::Js),
         "native" => Ok(Target::Native),
-        other => Err(format!(
-            "unknown target: {other} (expected js or native)"
-        )),
+        other => Err(format!("unknown target: {other} (expected js or native)")),
     }
 }
 
 fn default_output(input: &Path, target: Target) -> PathBuf {
-    let stem = input
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("out");
+    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
     let parent = input.parent().unwrap_or_else(|| Path::new("."));
     match target {
         Target::Js => parent.join(format!("{stem}.js")),
@@ -779,108 +766,6 @@ fn build_program(
     Ok(())
 }
 
-fn cmd_test(args: &[String]) -> ExitCode {
-    let opts = match parse_test_args(args) {
-        Ok(o) => o,
-        Err(msg) => {
-            eprintln!("{msg}");
-            eprintln!("usage: draconic test [--coverage] <path>");
-            eprintln!("  --coverage  report JS line coverage for fixture sources (U11)");
-            eprintln!("  <path>      fixture directory or single .drac file (with optional .meta)");
-            return ExitCode::from(2);
-        }
-    };
-
-    let fixtures = match load_path(&opts.path) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(1);
-        }
-    };
-
-    if fixtures.is_empty() {
-        eprintln!("error: no .drac fixtures under {}", opts.path.display());
-        return ExitCode::from(1);
-    }
-
-    let mut coverage = if opts.coverage {
-        Some(CoverageReport::new())
-    } else {
-        None
-    };
-
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    for fixture in &fixtures {
-        let cov = coverage.as_mut();
-        for result in run_fixture_cov(fixture, cov) {
-            if result.ok {
-                passed += 1;
-                println!(
-                    "ok {} {}",
-                    result.fixture_id,
-                    result.target.as_str()
-                );
-            } else {
-                failed += 1;
-                println!(
-                    "FAIL {} {}: {}",
-                    result.fixture_id,
-                    result.target.as_str(),
-                    result.message
-                );
-            }
-        }
-    }
-
-    if let Some(report) = &coverage {
-        print!("{}", report.format_summary());
-    }
-
-    let total = passed + failed;
-    if failed == 0 {
-        println!("{passed} passed");
-        ExitCode::SUCCESS
-    } else {
-        println!("{passed} passed, {failed} failed, {total} total");
-        ExitCode::from(1)
-    }
-}
-
-struct TestOpts {
-    path: PathBuf,
-    coverage: bool,
-}
-
-fn parse_test_args(args: &[String]) -> Result<TestOpts, String> {
-    let mut coverage = false;
-    let mut path: Option<PathBuf> = None;
-    let mut i = 0;
-    while i < args.len() {
-        let a = &args[i];
-        match a.as_str() {
-            "-h" | "--help" => {
-                return Err("usage: draconic test [--coverage] <path>".into());
-            }
-            "--coverage" => coverage = true,
-            other if other.starts_with('-') => {
-                return Err(format!("unknown option: {other}"));
-            }
-            other => {
-                if path.is_some() {
-                    return Err("usage: draconic test [--coverage] <path>".into());
-                }
-                path = Some(PathBuf::from(other));
-            }
-        }
-        i += 1;
-    }
-    let path = path.ok_or_else(|| "usage: draconic test [--coverage] <path>".to_string())?;
-    Ok(TestOpts { path, coverage })
-}
-
-
 /// ROADMAP U08: interactive read-eval-print (js default; optional embed).
 /// Multi-line when parse fails with Eof; prints last expression value.
 fn cmd_repl(args: &[String]) -> ExitCode {
@@ -947,7 +832,10 @@ fn cmd_repl(args: &[String]) -> ExitCode {
         let chunk = std::mem::take(&mut buffer);
         match target {
             ReplTarget::Js => match repl_eval_js(&session, &chunk) {
-                Ok(ReplEval { printed, new_session }) => {
+                Ok(ReplEval {
+                    printed,
+                    new_session,
+                }) => {
                     if let Some(text) = printed {
                         println!("{text}");
                     }
@@ -1004,9 +892,7 @@ fn parse_repl_target(s: &str) -> Result<ReplTarget, String> {
     match s {
         "js" => Ok(ReplTarget::Js),
         "embed" => Ok(ReplTarget::Embed),
-        other => Err(format!(
-            "unknown target: {other} (expected js or embed)"
-        )),
+        other => Err(format!("unknown target: {other} (expected js or embed)")),
     }
 }
 
@@ -1076,10 +962,7 @@ fn repl_eval_js(session: &str, chunk: &str) -> Result<ReplEval, String> {
     if !output.status.success() {
         let msg = stderr.trim();
         if msg.is_empty() {
-            return Err(format!(
-                "node exited {}",
-                output.status.code().unwrap_or(1)
-            ));
+            return Err(format!("node exited {}", output.status.code().unwrap_or(1)));
         }
         return Err(msg.to_string());
     }
@@ -1376,9 +1259,7 @@ fn parse_mod_tidy_args(args: &[String]) -> Result<ModTidyArgs, String> {
     while i < args.len() {
         match args[i].as_str() {
             "-h" | "--help" => {
-                return Err(
-                    "usage: draconic mod tidy [--dir <path>] [--cache-dir <path>]".into(),
-                );
+                return Err("usage: draconic mod tidy [--dir <path>] [--cache-dir <path>]".into());
             }
             "--dir" => {
                 i += 1;
@@ -1433,12 +1314,7 @@ fn cmd_get(args: &[String]) -> ExitCode {
         .unwrap_or_else(|| draconic_pkg::default_cache_root(&workspace));
     let cache = draconic_pkg::ModuleCache::new(cache_root);
 
-    match draconic_pkg::get_package_spec(
-        &workspace,
-        &parsed.spec,
-        parsed.url.as_deref(),
-        &cache,
-    ) {
+    match draconic_pkg::get_package_spec(&workspace, &parsed.spec, parsed.url.as_deref(), &cache) {
         Ok(r) => {
             println!(
                 "got {}@{} (resolved {}) oid={}",
@@ -1542,7 +1418,7 @@ Usage:
   draconic run [--target js|native] <file> [args...]
                                                   Build and execute a Program (default target: js)
   draconic repl [--target js|embed]              Interactive read-eval-print (multi-line; last value)
-  draconic test [--coverage] <path>              Run conformance fixtures (dir or .drac file)
+  draconic test [--coverage] [--jobs <n>] <path> Run conformance fixtures (dir or .drac file)
   draconic get <module_path>@<ver> [--url <git-url>] [--dir <path>] [--cache-dir <path>]
                                                   Add/update a git package dep; fetch; write lock
   draconic mod tidy [--dir <path>] [--cache-dir <path>]
@@ -1645,11 +1521,7 @@ mod tests {
 
     #[test]
     fn parse_run_args_native_target() {
-        let args = vec![
-            "--target".into(),
-            "native".into(),
-            "a.drac".into(),
-        ];
+        let args = vec!["--target".into(), "native".into(), "a.drac".into()];
         let p = parse_run_args(&args).unwrap();
         assert_eq!(p.target, Target::Native);
         assert_eq!(p.input, PathBuf::from("a.drac"));
@@ -1662,17 +1534,6 @@ mod tests {
         assert!(looks_like_script_path("./bin/tool"));
         assert!(!looks_like_script_path("--target"));
         assert!(!looks_like_script_path("build"));
-    }
-
-    #[test]
-    fn parse_test_args_coverage() {
-        let p = parse_test_args(&["--coverage".into(), "fix".into()]).unwrap();
-        assert!(p.coverage);
-        assert_eq!(p.path, PathBuf::from("fix"));
-        let p2 = parse_test_args(&["fix".into(), "--coverage".into()]).unwrap();
-        assert!(p2.coverage);
-        let p3 = parse_test_args(&["fix".into()]).unwrap();
-        assert!(!p3.coverage);
     }
 
     #[test]
@@ -1690,10 +1551,7 @@ mod tests {
 
     #[test]
     fn build_program_js_smoke() {
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-cli-unit-js-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("draconic-cli-unit-js-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let out = dir.join("t.js");
         let input = dir.join("t.drac");
@@ -1724,19 +1582,13 @@ mod tests {
     #[test]
     fn parse_clang_llvm_version_prefers_llvm_line() {
         let text = "clang version 18.1.8\nTarget: x86_64-unknown-linux-gnu\nLLVM version 18.1.8\n";
-        assert_eq!(
-            parse_clang_llvm_version(text).as_deref(),
-            Some("18.1.8")
-        );
+        assert_eq!(parse_clang_llvm_version(text).as_deref(), Some("18.1.8"));
     }
 
     #[test]
     fn parse_clang_llvm_version_apple_banner() {
         let text =
             "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.5.0\n";
-        assert_eq!(
-            parse_clang_llvm_version(text).as_deref(),
-            Some("21.0.0")
-        );
+        assert_eq!(parse_clang_llvm_version(text).as_deref(), Some("21.0.0"));
     }
 }
