@@ -1,0 +1,4 @@
+let tMake = typeof makeCancelToken;
+let tAbort = typeof cancelTokenAbort;
+let tAborted = typeof cancelTokenAborted;
+let tLink = typeof cancelTokenLink;

@@ -338,6 +338,22 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_internal_mutex_unlock(i32)"
     );
     assert_eq!(
+        HOST_CANCEL_MAKE.declare(),
+        "declare i32 @draconic_rt_host_cancel_make()"
+    );
+    assert_eq!(
+        HOST_CANCEL_ABORT.declare(),
+        "declare i32 @draconic_rt_host_cancel_abort(i32)"
+    );
+    assert_eq!(
+        HOST_CANCEL_ABORTED.declare(),
+        "declare i32 @draconic_rt_host_cancel_aborted(i32)"
+    );
+    assert_eq!(
+        HOST_CANCEL_LINK.declare(),
+        "declare i32 @draconic_rt_host_cancel_link(i32, i32)"
+    );
+    assert_eq!(
         HOST_CHANNEL_SEND_BOOL.declare(),
         "declare i32 @draconic_rt_host_channel_send_bool(i32, i32)"
     );

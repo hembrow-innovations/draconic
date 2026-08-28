@@ -1,0 +1,9 @@
+let tok = makeCancelToken();
+let live = tok > 0;
+let before = cancelTokenAborted(tok);
+let abortOk = cancelTokenAbort(tok);
+let after = cancelTokenAborted(tok);
+let again = cancelTokenAbort(tok);
+let still = cancelTokenAborted(tok);
+let badAborted = cancelTokenAborted(0);
+let badAbort = cancelTokenAbort(0);

@@ -9089,3 +9089,141 @@ int32_t draconic_rt_host_internal_mutex_unlock(int32_t handle) {
     return 0;
 #endif
 }
+
+/* --- Cancel token (C05.01) ------------------------------------------------ */
+
+#define DRACONIC_CANCEL_SLOTS 64
+#define DRACONIC_CANCEL_LINKS 8
+
+typedef struct {
+    int live;
+    int aborted;
+    int32_t links[DRACONIC_CANCEL_LINKS];
+    int nlinks;
+} DraconicCancelToken;
+
+static DraconicCancelToken g_cancels[DRACONIC_CANCEL_SLOTS];
+#if !defined(_WIN32)
+static pthread_mutex_t g_cancel_table_mu = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+static void host_cancel_lock(void) {
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_cancel_table_mu);
+#endif
+}
+
+static void host_cancel_unlock(void) {
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&g_cancel_table_mu);
+#endif
+}
+
+static DraconicCancelToken *host_cancel_get_locked(int32_t handle) {
+    size_t i;
+    if (handle < 1) {
+        return NULL;
+    }
+    i = (size_t)(handle - 1);
+    if (i >= DRACONIC_CANCEL_SLOTS) {
+        return NULL;
+    }
+    if (g_cancels[i].live == 0) {
+        return NULL;
+    }
+    return &g_cancels[i];
+}
+
+static void host_cancel_abort_locked(DraconicCancelToken *t) {
+    int i;
+    int n;
+    int32_t kids[DRACONIC_CANCEL_LINKS];
+    if (t->aborted) {
+        return;
+    }
+    t->aborted = 1;
+    n = t->nlinks;
+    for (i = 0; i < n; i++) {
+        kids[i] = t->links[i];
+    }
+    for (i = 0; i < n; i++) {
+        DraconicCancelToken *c = host_cancel_get_locked(kids[i]);
+        if (c) {
+            host_cancel_abort_locked(c);
+        }
+    }
+}
+
+int32_t draconic_rt_host_cancel_make(void) {
+    size_t i;
+    host_cancel_lock();
+    for (i = 0; i < DRACONIC_CANCEL_SLOTS; i++) {
+        if (g_cancels[i].live == 0) {
+            g_cancels[i].aborted = 0;
+            g_cancels[i].nlinks = 0;
+            g_cancels[i].live = 1;
+            host_cancel_unlock();
+            return (int32_t)(i + 1);
+        }
+    }
+    host_cancel_unlock();
+    return -1;
+}
+
+int32_t draconic_rt_host_cancel_abort(int32_t handle) {
+    DraconicCancelToken *t;
+    host_cancel_lock();
+    t = host_cancel_get_locked(handle);
+    if (!t) {
+        host_cancel_unlock();
+        return -1;
+    }
+    host_cancel_abort_locked(t);
+    host_cancel_unlock();
+    return 0;
+}
+
+int32_t draconic_rt_host_cancel_aborted(int32_t handle) {
+    DraconicCancelToken *t;
+    int aborted;
+    host_cancel_lock();
+    t = host_cancel_get_locked(handle);
+    if (!t) {
+        host_cancel_unlock();
+        return -1;
+    }
+    aborted = t->aborted;
+    host_cancel_unlock();
+    return aborted ? 1 : 0;
+}
+
+int32_t draconic_rt_host_cancel_link(int32_t child, int32_t parent) {
+    DraconicCancelToken *c;
+    DraconicCancelToken *p;
+    int i;
+    host_cancel_lock();
+    c = host_cancel_get_locked(child);
+    p = host_cancel_get_locked(parent);
+    if (!c || !p) {
+        host_cancel_unlock();
+        return -1;
+    }
+    if (p->aborted) {
+        host_cancel_abort_locked(c);
+        host_cancel_unlock();
+        return 0;
+    }
+    for (i = 0; i < p->nlinks; i++) {
+        if (p->links[i] == child) {
+            host_cancel_unlock();
+            return 0;
+        }
+    }
+    if (p->nlinks >= DRACONIC_CANCEL_LINKS) {
+        host_cancel_unlock();
+        return -1;
+    }
+    p->links[p->nlinks++] = child;
+    host_cancel_unlock();
+    return 0;
+}

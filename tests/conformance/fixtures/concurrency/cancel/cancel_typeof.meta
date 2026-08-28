@@ -1,0 +1,6 @@
+id: concurrency/cancel/cancel_typeof
+targets: js,native
+js.exit: 0
+js.check: if (tMake !== "function") process.exit(1); if (tAbort !== "function") process.exit(2); if (tAborted !== "function") process.exit(3); if (tLink !== "function") process.exit(4);
+native.exit: 0
+native.stdout: function\nfunction\nfunction\nfunction\n

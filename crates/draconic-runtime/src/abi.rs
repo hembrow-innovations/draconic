@@ -959,6 +959,30 @@ pub const HOST_INTERNAL_MUTEX_UNLOCK: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
+/* C05.01: makeCancelToken — Abort-like handle >= 1, or -1 on failure. */
+pub const HOST_CANCEL_MAKE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_cancel_make",
+    ret: "i32",
+    params: "",
+};
+/* C05.01: abort token. 0 success (sticky/idempotent), -1 invalid. */
+pub const HOST_CANCEL_ABORT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_cancel_abort",
+    ret: "i32",
+    params: "i32",
+};
+/* C05.01: aborted? 1 yes / 0 no / -1 invalid. */
+pub const HOST_CANCEL_ABORTED: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_cancel_aborted",
+    ret: "i32",
+    params: "i32",
+};
+/* C05.01: link child to parent; parent abort propagates. 0 ok, -1 invalid. */
+pub const HOST_CANCEL_LINK: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_cancel_link",
+    ret: "i32",
+    params: "i32, i32",
+};
 /* C02.02: channelSend plain object (structured clone); 0 success, -1 reject. */
 pub const HOST_CHANNEL_SEND_OBJ: AbiFn = AbiFn {
     symbol: "draconic_rt_host_channel_send_obj",
@@ -2419,6 +2443,59 @@ pub fn channel_js_polyfill() -> &'static str {
     globalThis.channelSend = channelSend;
     globalThis.channelRecv = channelRecv;
     globalThis.__draconicChannels = { slots: slots, caps: caps };
+  }
+})();
+"#
+}
+
+/// JS polyfill for `makeCancelToken` / `cancelTokenAbort` / `cancelTokenAborted` /
+/// `cancelTokenLink` (C05.01).
+///
+/// Abort is sticky and idempotent. `cancelTokenLink(child, parent)` makes a
+/// parent abort propagate to the child (immediately if the parent is already
+/// aborted). Invalid handles return -1.
+pub fn cancel_token_js_polyfill() -> &'static str {
+    r#"(function () {
+  var nextId = 1;
+  var slots = Object.create(null);
+  function makeCancelToken() {
+    var id = nextId++;
+    slots[id] = { aborted: 0, links: [] };
+    return id;
+  }
+  function cancelTokenAbort(t) {
+    var s = slots[t];
+    if (!s) return -1;
+    if (s.aborted) return 0;
+    s.aborted = 1;
+    var kids = s.links;
+    var i;
+    for (i = 0; i < kids.length; i++) {
+      cancelTokenAbort(kids[i]);
+    }
+    return 0;
+  }
+  function cancelTokenAborted(t) {
+    var s = slots[t];
+    if (!s) return -1;
+    return s.aborted ? 1 : 0;
+  }
+  function cancelTokenLink(child, parent) {
+    var c = slots[child];
+    var p = slots[parent];
+    if (!c || !p) return -1;
+    if (p.aborted) {
+      cancelTokenAbort(child);
+      return 0;
+    }
+    p.links.push(child);
+    return 0;
+  }
+  if (typeof globalThis !== "undefined") {
+    globalThis.makeCancelToken = makeCancelToken;
+    globalThis.cancelTokenAbort = cancelTokenAbort;
+    globalThis.cancelTokenAborted = cancelTokenAborted;
+    globalThis.cancelTokenLink = cancelTokenLink;
   }
 })();
 "#

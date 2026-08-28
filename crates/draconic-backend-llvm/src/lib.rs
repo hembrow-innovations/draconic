@@ -63,6 +63,7 @@ mod host_http2;
 mod host_time;
 mod host_timers;
 mod host_once;
+mod host_cancel;
 mod host_workers;
 mod host_worker_channels;
 mod host_channels;
@@ -141,6 +142,7 @@ use host_http2::{emit_host_http2, is_host_http2_module};
 use host_time::{emit_host_time, is_host_time_module};
 use host_timers::{emit_host_timers, is_host_timer_module};
 use host_once::{emit_host_once, is_host_once_module};
+use host_cancel::{emit_host_cancel, is_host_cancel_module};
 use host_workers::{emit_host_workers, is_host_workers_module};
 use host_worker_channels::{emit_host_worker_channels, is_host_worker_channels_module};
 use host_channels::{emit_host_channels, is_host_channels_module};
@@ -327,6 +329,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_once_module(module) {
         return emit_host_once(module);
+    }
+    if is_host_cancel_module(module) {
+        return emit_host_cancel(module);
     }
     if is_host_workers_module(module) {
         return emit_host_workers(module);

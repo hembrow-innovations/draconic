@@ -206,6 +206,17 @@ fn module_uses_channel(module: &Module) -> bool {
     })
 }
 
+/// C05.01: free host APIs `makeCancelToken` / `cancelTokenAbort` /
+/// `cancelTokenAborted` / `cancelTokenLink`.
+fn module_uses_cancel_token(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "makeCancelToken")
+            || stmt_uses_ident_name(s, "cancelTokenAbort")
+            || stmt_uses_ident_name(s, "cancelTokenAborted")
+            || stmt_uses_ident_name(s, "cancelTokenLink")
+    })
+}
+
 /// H05.01: free host API `nowMs`.
 fn module_uses_now_ms(module: &Module) -> bool {
     module
@@ -690,6 +701,13 @@ fn emit_js_full(
     // C02.01: makeChannel / channelSend / channelRecv FIFO.
     if module_uses_channel(module) {
         out.push_str(draconic_runtime::channel_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // C05.01: makeCancelToken / cancelTokenAbort / cancelTokenAborted / cancelTokenLink.
+    if module_uses_cancel_token(module) {
+        out.push_str(draconic_runtime::cancel_token_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

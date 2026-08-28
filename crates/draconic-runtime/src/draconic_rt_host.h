@@ -867,3 +867,15 @@ int32_t draconic_rt_host_once_run(int32_t handle, void (*fn)(void));
 int32_t draconic_rt_host_internal_mutex_make(void);
 int32_t draconic_rt_host_internal_mutex_lock(int32_t handle);
 int32_t draconic_rt_host_internal_mutex_unlock(int32_t handle);
+
+/* --- Cancel token (C05.01) ------------------------------------------------
+   makeCancelToken: allocate. Returns handle >= 1, or -1 on failure.
+   cancelTokenAbort: mark aborted (sticky/idempotent). 0 ok, -1 invalid.
+   cancelTokenAborted: 1 aborted / 0 not / -1 invalid.
+   cancelTokenLink: child aborts when parent aborts (immediate if parent
+   already aborted). 0 ok, -1 invalid. */
+
+int32_t draconic_rt_host_cancel_make(void);
+int32_t draconic_rt_host_cancel_abort(int32_t handle);
+int32_t draconic_rt_host_cancel_aborted(int32_t handle);
+int32_t draconic_rt_host_cancel_link(int32_t child, int32_t parent);

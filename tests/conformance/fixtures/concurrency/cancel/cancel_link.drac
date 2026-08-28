@@ -1,0 +1,14 @@
+let parent = makeCancelToken();
+let child = makeCancelToken();
+let other = makeCancelToken();
+let linked = cancelTokenLink(child, parent);
+cancelTokenAbort(parent);
+let childAborted = cancelTokenAborted(child);
+let otherAborted = cancelTokenAborted(other);
+let parentAborted = cancelTokenAborted(parent);
+let already = makeCancelToken();
+cancelTokenAbort(already);
+let late = makeCancelToken();
+let lateLink = cancelTokenLink(late, already);
+let lateAborted = cancelTokenAborted(late);
+let badLink = cancelTokenLink(0, parent);

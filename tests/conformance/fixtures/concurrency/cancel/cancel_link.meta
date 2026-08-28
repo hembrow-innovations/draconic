@@ -1,0 +1,6 @@
+id: concurrency/cancel/cancel_link
+targets: js,native
+js.exit: 0
+js.check: if (linked !== 0) process.exit(1); if (childAborted !== 1) process.exit(2); if (otherAborted !== 0) process.exit(3); if (parentAborted !== 1) process.exit(4); if (lateLink !== 0) process.exit(5); if (lateAborted !== 1) process.exit(6); if (badLink !== -1) process.exit(7);
+native.exit: 0
+native.stdout: 1\n2\n3\n0\n1\n0\n1\n4\n5\n0\n1\n-1\n

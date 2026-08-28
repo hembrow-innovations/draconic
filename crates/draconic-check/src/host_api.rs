@@ -125,6 +125,9 @@ pub struct HostApiEntry {
 ///   returns 1 if this caller ran init, 0 if already done, negative if invalid.
 /// - C03.02: Runtime-internal mutex only (workers/channels). Not a user Host API;
 ///   no `makeMutex` / shared-heap lock.
+/// - `makeCancelToken` / `cancelTokenAbort` / `cancelTokenAborted` / `cancelTokenLink`
+///   (C05.01): both — Abort-like cancel token; abort is sticky/idempotent; link
+///   propagates parent abort to child (immediate if parent already aborted).
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -755,6 +758,26 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "onceRun",
         availability: HostAvailability::NATIVE_ONLY,
         note: "C03.01 run init at most once; 1 ran / 0 already / negative invalid",
+    },
+    HostApiEntry {
+        name: "makeCancelToken",
+        availability: HostAvailability::BOTH,
+        note: "C05.01 Abort-like cancel token handle",
+    },
+    HostApiEntry {
+        name: "cancelTokenAbort",
+        availability: HostAvailability::BOTH,
+        note: "C05.01 abort token; 0 ok sticky, -1 invalid",
+    },
+    HostApiEntry {
+        name: "cancelTokenAborted",
+        availability: HostAvailability::BOTH,
+        note: "C05.01 1 aborted / 0 not / -1 invalid",
+    },
+    HostApiEntry {
+        name: "cancelTokenLink",
+        availability: HostAvailability::BOTH,
+        note: "C05.01 link child to parent; parent abort propagates",
     },
 ];
 
@@ -1538,6 +1561,53 @@ mod tests {
         assert!(is_available("onceRun", CompileTarget::Native));
         assert!(unsupported_diagnostic("onceRun", CompileTarget::Js, Span::dummy()).is_some());
         assert!(unsupported_diagnostic("onceRun", CompileTarget::Native, Span::dummy()).is_none());
+    }
+
+    #[test]
+    fn registry_lists_make_cancel_token_both() {
+        let entry = lookup("makeCancelToken").expect("makeCancelToken registered");
+        assert_eq!(entry.name, "makeCancelToken");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("makeCancelToken"));
+        assert!(is_available("makeCancelToken", CompileTarget::Js));
+        assert!(is_available("makeCancelToken", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("makeCancelToken", CompileTarget::Js, Span::dummy()).is_none()
+        );
+        assert!(
+            unsupported_diagnostic("makeCancelToken", CompileTarget::Native, Span::dummy())
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn registry_lists_cancel_token_abort_both() {
+        let entry = lookup("cancelTokenAbort").expect("cancelTokenAbort registered");
+        assert_eq!(entry.name, "cancelTokenAbort");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("cancelTokenAbort"));
+        assert!(is_available("cancelTokenAbort", CompileTarget::Js));
+        assert!(is_available("cancelTokenAbort", CompileTarget::Native));
+    }
+
+    #[test]
+    fn registry_lists_cancel_token_aborted_both() {
+        let entry = lookup("cancelTokenAborted").expect("cancelTokenAborted registered");
+        assert_eq!(entry.name, "cancelTokenAborted");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("cancelTokenAborted"));
+    }
+
+    #[test]
+    fn registry_lists_cancel_token_link_both() {
+        let entry = lookup("cancelTokenLink").expect("cancelTokenLink registered");
+        assert_eq!(entry.name, "cancelTokenLink");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("cancelTokenLink"));
     }
 
     #[test]
