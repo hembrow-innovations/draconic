@@ -598,3 +598,13 @@ fn with_void_fixture_present() {
 fn with_void_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_void");
 }
+
+#[test]
+fn with_delete_fixture_present() {
+    assert_fixture_present("es/legacy/with_delete");
+}
+
+#[test]
+fn with_delete_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_delete");
+}

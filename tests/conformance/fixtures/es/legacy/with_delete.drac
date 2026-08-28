@@ -1,0 +1,286 @@
+// E17.02.56: with + delete IdentifierReference through object environment
+// (non-strict). delete ident hits object own (else outer); returns boolean;
+// inherited HasBinding does not remove proto; own non-configurable → false;
+// getter not run; unresolvable → true (unlike void); nested with;
+// unscopables skip.
+
+function hitsObject() {
+  let obj = { x: 1 };
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return r === true && Object.prototype.hasOwnProperty.call(obj, "x") === false;
+}
+let a = hitsObject();
+
+function missIsOuter() {
+  let x = 9;
+  let r;
+  with ({}) {
+    r = delete x;
+  }
+  return r === false && x === 9;
+}
+let b = missIsOuter();
+
+function objectShadowsOuter() {
+  let x = 9;
+  let obj = { x: 1 };
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return (
+    r === true &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false &&
+    x === 9
+  );
+}
+let c = objectShadowsOuter();
+
+function resultIsBoolean() {
+  let obj = { x: 1 };
+  with (obj) {
+    return typeof delete x === "boolean";
+  }
+}
+let d = resultIsBoolean();
+
+function undefinedOwnHasBinding() {
+  let obj = { x: undefined };
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return r === true && Object.prototype.hasOwnProperty.call(obj, "x") === false;
+}
+let e = undefinedOwnHasBinding();
+
+function getterNotRun() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 1;
+    },
+    set x(v) {
+      n = n + 10;
+    }
+  };
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return (
+    r === true &&
+    n === 0 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let f = getterNotRun();
+
+function inheritedData() {
+  let proto = { x: 5 };
+  let obj = Object.create(proto);
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return (
+    r === true &&
+    obj.x === 5 &&
+    proto.x === 5 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let g = inheritedData();
+
+function inheritedAccessorNotRun() {
+  let n = 0;
+  let proto = {
+    get x() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  let obj = Object.create(proto);
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return r === true && n === 0 && obj.x === 1 && proto.x === 1;
+}
+let h = inheritedAccessorNotRun();
+
+function unresolvableReturnsTrue() {
+  with ({}) {
+    return delete e170256_missing === true;
+  }
+}
+let i = unresolvableReturnsTrue();
+
+function unresolvableUnlikeVoid() {
+  with ({}) {
+    let d = delete e170256_missing2;
+    try {
+      void e170256_missing2;
+      return false;
+    } catch (err) {
+      return d === true && err instanceof ReferenceError;
+    }
+  }
+}
+let j = unresolvableUnlikeVoid();
+
+function nestedInnerWins() {
+  let inner = { x: 1 };
+  let outer = { x: 2 };
+  let r;
+  with (outer) {
+    with (inner) {
+      r = delete x;
+    }
+  }
+  return (
+    r === true &&
+    Object.prototype.hasOwnProperty.call(inner, "x") === false &&
+    outer.x === 2
+  );
+}
+let k = nestedInnerWins();
+
+function nestedOuterAfterInner() {
+  let inner = { y: 1 };
+  let outer = { x: 2 };
+  let r;
+  with (outer) {
+    with (inner) {
+      r = delete x;
+    }
+  }
+  return (
+    r === true &&
+    Object.prototype.hasOwnProperty.call(outer, "x") === false &&
+    inner.y === 1
+  );
+}
+let l = nestedOuterAfterInner();
+
+function deleteThenUnresolvable() {
+  let obj = { x: 1 };
+  with (obj) {
+    delete x;
+    try {
+      void x;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let m = deleteThenUnresolvable();
+
+function deleteThenOuter() {
+  let x = 9;
+  let obj = { x: 1 };
+  with (obj) {
+    delete x;
+    return x === 9;
+  }
+}
+let p = deleteThenOuter();
+
+function unscopablesUsesOuter() {
+  let x = 9;
+  let obj = { x: 1 };
+  obj[Symbol.unscopables] = { x: true };
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return r === false && x === 9 && obj.x === 1;
+}
+let q = unscopablesUsesOuter();
+
+function unscopablesFalseyStillObject() {
+  let x = 9;
+  let obj = { x: 1 };
+  obj[Symbol.unscopables] = { x: false };
+  let r;
+  with (obj) {
+    r = delete x;
+  }
+  return (
+    r === true &&
+    x === 9 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let r = unscopablesFalseyStillObject();
+
+function nonConfigurableOwn() {
+  let obj = {};
+  Object.defineProperty(obj, "x", {
+    value: 1,
+    writable: true,
+    enumerable: true,
+    configurable: false
+  });
+  let d;
+  with (obj) {
+    d = delete x;
+  }
+  return d === false && obj.x === 1;
+}
+let s = nonConfigurableOwn();
+
+function ownAccessorConfigurable() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  let d;
+  with (obj) {
+    d = delete x;
+  }
+  return (
+    d === true &&
+    n === 0 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let t = ownAccessorConfigurable();
+
+function missCreatesNoOwn() {
+  let obj = {};
+  let d;
+  with (obj) {
+    d = delete e170256_missing3;
+  }
+  return (
+    d === true &&
+    Object.prototype.hasOwnProperty.call(obj, "e170256_missing3") === false
+  );
+}
+let u = missCreatesNoOwn();
+
+function nestedInnerMissFallsToOuterWith() {
+  let inner = {};
+  let outer = { x: 2 };
+  let d;
+  with (outer) {
+    with (inner) {
+      d = delete x;
+    }
+  }
+  return (
+    d === true &&
+    Object.prototype.hasOwnProperty.call(outer, "x") === false &&
+    Object.prototype.hasOwnProperty.call(inner, "x") === false
+  );
+}
+let v = nestedInnerMissFallsToOuterWith();
