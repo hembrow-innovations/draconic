@@ -1,12 +1,16 @@
 //! C05.01: `makeCancelToken` + `cancelTokenAbort` + `cancelTokenAborted` +
 //! `cancelTokenLink`.
+//! C05.02: `withTimeout(ms)` + `clearWithTimeout(token)`.
 //!
 //! Supported subset:
-//! - `typeof` on the four host APIs → `"function"`
+//! - `typeof` on the host APIs → `"function"`
 //! - `makeCancelToken()` → handle number >= 1
 //! - `cancelTokenAbort(h)` / `cancelTokenAborted(h)` → 0 / 1 / -1
 //! - `cancelTokenLink(child, parent)` → 0 / -1
+//! - `withTimeout(ms)` → token that auto-aborts after ms (H05 timer)
+//! - `clearWithTimeout(token)` → 0 / -1 (work won; settle cleanly)
 //! - number comparisons and bool locals
+//! - end of main: `job_drain`, then re-read `cancelTokenAborted` locals
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -15,8 +19,9 @@ use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_CANCEL_ABORT, HOST_CANCEL_ABORTED, HOST_CANCEL_LINK,
-    HOST_CANCEL_MAKE, PRINT_BOOL, PRINT_F64, PRINT_STR,
+    llvm_declares, GC_INIT, HOST_CANCEL_ABORT, HOST_CANCEL_ABORTED, HOST_CANCEL_CLEAR_TIMEOUT,
+    HOST_CANCEL_LINK, HOST_CANCEL_MAKE, HOST_CANCEL_TIMEOUT, JOB_DRAIN, PRINT_BOOL, PRINT_F64,
+    PRINT_STR,
 };
 
 pub(crate) fn is_host_cancel_module(module: &Module) -> bool {
@@ -131,6 +136,28 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.uses_cancel = true;
             Some(SlotTy::Number)
         }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "withTimeout") => {
+            if args.len() != 1 {
+                return None;
+            }
+            let ty = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ty != SlotTy::Number {
+                return None;
+            }
+            ctx.uses_cancel = true;
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "clearWithTimeout") => {
+            if args.len() != 1 {
+                return None;
+            }
+            let ty = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ty != SlotTy::Number {
+                return None;
+            }
+            ctx.uses_cancel = true;
+            Some(SlotTy::Number)
+        }
         Expr::Binary {
             op:
                 BinaryOp::Gt
@@ -187,6 +214,39 @@ fn is_cancel_host_ident(expr: &Expr) -> bool {
         || is_named_ident(expr, "cancelTokenAbort")
         || is_named_ident(expr, "cancelTokenAborted")
         || is_named_ident(expr, "cancelTokenLink")
+        || is_named_ident(expr, "withTimeout")
+        || is_named_ident(expr, "clearWithTimeout")
+}
+
+fn is_aborted_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call { callee, .. } if is_named_callee(callee, "cancelTokenAborted"))
+}
+
+fn is_with_timeout_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Call { callee, .. } if is_named_callee(callee, "withTimeout"))
+}
+
+fn aborted_arg_local(expr: &Expr) -> Option<LocalId> {
+    match expr {
+        Expr::Call { callee, args, .. } if is_named_callee(callee, "cancelTokenAborted") => {
+            match arg_expr(args.first()?)? {
+                Expr::Local { id, .. } => Some(*id),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn local_inited_with_timeout(module: &Module, id: LocalId) -> bool {
+    module.body.iter().any(|stmt| match stmt {
+        Stmt::Declare {
+            local,
+            init: Some(init),
+            ..
+        } if *local == id => is_with_timeout_call(init),
+        _ => false,
+    })
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {
@@ -281,16 +341,19 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_cancel (C05.01)").ok();
+        writeln!(self.out, "; Draconic LLVM host_cancel (C05.01 / C05.02)").ok();
         let decls = vec![
             GC_INIT,
             PRINT_F64,
             PRINT_STR,
             PRINT_BOOL,
+            JOB_DRAIN,
             HOST_CANCEL_MAKE,
             HOST_CANCEL_ABORT,
             HOST_CANCEL_ABORTED,
             HOST_CANCEL_LINK,
+            HOST_CANCEL_TIMEOUT,
+            HOST_CANCEL_CLEAR_TIMEOUT,
         ];
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
@@ -307,6 +370,27 @@ impl<'a> Emitter<'a> {
 
         for stmt in &self.module.body {
             self.emit_stmt(stmt)?;
+        }
+
+        writeln!(self.body, "  {}", JOB_DRAIN.call("")).ok();
+
+        for stmt in &self.module.body {
+            if let Stmt::Declare {
+                local,
+                init: Some(init),
+                ..
+            } = stmt
+            {
+                if is_aborted_call(init) {
+                    if let Some(tok) = aborted_arg_local(init) {
+                        if local_inited_with_timeout(self.module, tok) {
+                            let v = self.emit_number_expr(init)?;
+                            let ptr = self.slot_ptr(*local)?;
+                            writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                        }
+                    }
+                }
+            }
         }
 
         for (id, kind) in &self.info.print_locals {
@@ -429,6 +513,21 @@ impl<'a> Emitter<'a> {
         Ok(r_f)
     }
 
+    fn emit_timeout(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let ms = arg_expr(&args[0]).ok_or_else(|| diag("withTimeout ms"))?;
+        let ms_f = self.emit_number_expr(ms)?;
+        let r_i32 = self.fresh();
+        let r_f = self.fresh();
+        writeln!(
+            self.body,
+            "  {r_i32} = call i32 @{}(double {ms_f})",
+            HOST_CANCEL_TIMEOUT.symbol
+        )
+        .ok();
+        writeln!(self.body, "  {r_f} = sitofp i32 {r_i32} to double").ok();
+        Ok(r_f)
+    }
+
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Number { raw, .. } => {
@@ -455,6 +554,12 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. } if is_named_callee(callee, "cancelTokenLink") => {
                 self.emit_link(args)
             }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "withTimeout") => {
+                self.emit_timeout(args)
+            }
+            Expr::Call { callee, args, .. } if is_named_callee(callee, "clearWithTimeout") => {
+                self.emit_i32_call1(HOST_CANCEL_CLEAR_TIMEOUT.symbol, args)
+            }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
@@ -474,10 +579,7 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt
@@ -580,5 +682,22 @@ mod tests {
         assert!(is_host_cancel_module(&m));
         let ir = emit_host_cancel(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_cancel_link"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_with_timeout() {
+        let m = lower_src(
+            r#"
+            let t = typeof withTimeout;
+            let tok = withTimeout(0);
+            let cleared = clearWithTimeout(tok);
+            let aborted = cancelTokenAborted(tok);
+            "#,
+        );
+        assert!(is_host_cancel_module(&m));
+        let ir = emit_host_cancel(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_cancel_timeout"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_cancel_clear_timeout"), "{ir}");
+        assert!(ir.contains("draconic_rt_job_drain"), "{ir}");
     }
 }

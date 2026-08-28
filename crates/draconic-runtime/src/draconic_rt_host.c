@@ -9100,6 +9100,7 @@ typedef struct {
     int aborted;
     int32_t links[DRACONIC_CANCEL_LINKS];
     int nlinks;
+    int64_t timeout_id;
 } DraconicCancelToken;
 
 static DraconicCancelToken g_cancels[DRACONIC_CANCEL_SLOTS];
@@ -9138,10 +9139,16 @@ static void host_cancel_abort_locked(DraconicCancelToken *t) {
     int i;
     int n;
     int32_t kids[DRACONIC_CANCEL_LINKS];
+    int64_t tid;
     if (t->aborted) {
         return;
     }
+    tid = t->timeout_id;
+    t->timeout_id = 0;
     t->aborted = 1;
+    if (tid > 0) {
+        draconic_rt_timer_clear(tid);
+    }
     n = t->nlinks;
     for (i = 0; i < n; i++) {
         kids[i] = t->links[i];
@@ -9161,6 +9168,7 @@ int32_t draconic_rt_host_cancel_make(void) {
         if (g_cancels[i].live == 0) {
             g_cancels[i].aborted = 0;
             g_cancels[i].nlinks = 0;
+            g_cancels[i].timeout_id = 0;
             g_cancels[i].live = 1;
             host_cancel_unlock();
             return (int32_t)(i + 1);
@@ -9225,5 +9233,60 @@ int32_t draconic_rt_host_cancel_link(int32_t child, int32_t parent) {
     }
     p->links[p->nlinks++] = child;
     host_cancel_unlock();
+    return 0;
+}
+
+static void host_cancel_timeout_job(void *data) {
+    int32_t handle = (int32_t)(intptr_t)data;
+    DraconicCancelToken *t;
+    host_cancel_lock();
+    t = host_cancel_get_locked(handle);
+    if (t) {
+        t->timeout_id = 0;
+        host_cancel_abort_locked(t);
+    }
+    host_cancel_unlock();
+}
+
+int32_t draconic_rt_host_cancel_timeout(double ms) {
+    int32_t handle;
+    int64_t tid;
+    DraconicCancelToken *t;
+    handle = draconic_rt_host_cancel_make();
+    if (handle < 1) {
+        return -1;
+    }
+    tid = draconic_rt_timer_set(
+        host_cancel_timeout_job,
+        (void *)(intptr_t)handle,
+        ms
+    );
+    host_cancel_lock();
+    t = host_cancel_get_locked(handle);
+    if (!t) {
+        host_cancel_unlock();
+        draconic_rt_timer_clear(tid);
+        return -1;
+    }
+    t->timeout_id = tid;
+    host_cancel_unlock();
+    return handle;
+}
+
+int32_t draconic_rt_host_cancel_clear_timeout(int32_t handle) {
+    DraconicCancelToken *t;
+    int64_t tid;
+    host_cancel_lock();
+    t = host_cancel_get_locked(handle);
+    if (!t) {
+        host_cancel_unlock();
+        return -1;
+    }
+    tid = t->timeout_id;
+    t->timeout_id = 0;
+    host_cancel_unlock();
+    if (tid > 0) {
+        draconic_rt_timer_clear(tid);
+    }
     return 0;
 }

@@ -354,6 +354,14 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_cancel_link(i32, i32)"
     );
     assert_eq!(
+        HOST_CANCEL_TIMEOUT.declare(),
+        "declare i32 @draconic_rt_host_cancel_timeout(double)"
+    );
+    assert_eq!(
+        HOST_CANCEL_CLEAR_TIMEOUT.declare(),
+        "declare i32 @draconic_rt_host_cancel_clear_timeout(i32)"
+    );
+    assert_eq!(
         HOST_CHANNEL_SEND_BOOL.declare(),
         "declare i32 @draconic_rt_host_channel_send_bool(i32, i32)"
     );

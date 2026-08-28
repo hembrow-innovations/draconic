@@ -1,0 +1,6 @@
+id: concurrency/cancel/timeout_cleared
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { if (live !== true) process.exit(1); if (cleared !== 0) process.exit(2); if (aborted !== 0) process.exit(3); if (again !== 0) process.exit(4); if (bad !== -1) process.exit(5); }, 20);
+native.exit: 0
+native.stdout: 1\ntrue\n0\n0\n0\n-1\n

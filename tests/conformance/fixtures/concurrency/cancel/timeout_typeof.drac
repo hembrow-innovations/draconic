@@ -1,0 +1,2 @@
+let tWith = typeof withTimeout;
+let tClear = typeof clearWithTimeout;

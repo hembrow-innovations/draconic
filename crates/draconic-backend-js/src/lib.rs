@@ -206,14 +206,16 @@ fn module_uses_channel(module: &Module) -> bool {
     })
 }
 
-/// C05.01: free host APIs `makeCancelToken` / `cancelTokenAbort` /
-/// `cancelTokenAborted` / `cancelTokenLink`.
+/// C05.01 / C05.02: free host APIs `makeCancelToken` / `cancelTokenAbort` /
+/// `cancelTokenAborted` / `cancelTokenLink` / `withTimeout` / `clearWithTimeout`.
 fn module_uses_cancel_token(module: &Module) -> bool {
     module.body.iter().any(|s| {
         stmt_uses_ident_name(s, "makeCancelToken")
             || stmt_uses_ident_name(s, "cancelTokenAbort")
             || stmt_uses_ident_name(s, "cancelTokenAborted")
             || stmt_uses_ident_name(s, "cancelTokenLink")
+            || stmt_uses_ident_name(s, "withTimeout")
+            || stmt_uses_ident_name(s, "clearWithTimeout")
     })
 }
 

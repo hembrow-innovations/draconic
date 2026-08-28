@@ -1,4 +1,5 @@
 //! ROADMAP C05.01: cancel token / Abort-like signal; abort propagates to linked tokens.
+//! ROADMAP C05.02: timeout helper races work vs timer; settle cleanly.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -57,4 +58,34 @@ fn cancel_link_fixture_present() {
 #[test]
 fn cancel_link_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/cancel/cancel_link");
+}
+
+#[test]
+fn timeout_typeof_fixture_present() {
+    assert_fixture_present("concurrency/cancel/timeout_typeof");
+}
+
+#[test]
+fn timeout_typeof_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/cancel/timeout_typeof");
+}
+
+#[test]
+fn timeout_fires_fixture_present() {
+    assert_fixture_present("concurrency/cancel/timeout_fires");
+}
+
+#[test]
+fn timeout_fires_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/cancel/timeout_fires");
+}
+
+#[test]
+fn timeout_cleared_fixture_present() {
+    assert_fixture_present("concurrency/cancel/timeout_cleared");
+}
+
+#[test]
+fn timeout_cleared_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/cancel/timeout_cleared");
 }

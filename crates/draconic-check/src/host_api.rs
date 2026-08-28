@@ -128,6 +128,9 @@ pub struct HostApiEntry {
 /// - `makeCancelToken` / `cancelTokenAbort` / `cancelTokenAborted` / `cancelTokenLink`
 ///   (C05.01): both — Abort-like cancel token; abort is sticky/idempotent; link
 ///   propagates parent abort to child (immediate if parent already aborted).
+/// - `withTimeout` / `clearWithTimeout` (C05.02): both — race work vs timer;
+///   `withTimeout(ms)` returns a token that auto-aborts after ms; `clearWithTimeout`
+///   cancels the pending timer (work won; settle cleanly).
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -778,6 +781,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "cancelTokenLink",
         availability: HostAvailability::BOTH,
         note: "C05.01 link child to parent; parent abort propagates",
+    },
+    HostApiEntry {
+        name: "withTimeout",
+        availability: HostAvailability::BOTH,
+        note: "C05.02 token that auto-aborts after ms",
+    },
+    HostApiEntry {
+        name: "clearWithTimeout",
+        availability: HostAvailability::BOTH,
+        note: "C05.02 clear pending timeout; work won race",
     },
 ];
 
@@ -1608,6 +1621,22 @@ mod tests {
         assert!(entry.availability.js);
         assert!(entry.availability.native);
         assert!(is_host_api("cancelTokenLink"));
+    }
+
+    #[test]
+    fn registry_lists_with_timeout_both() {
+        for name in ["withTimeout", "clearWithTimeout"] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_host_api(name), "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

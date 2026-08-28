@@ -1,0 +1,6 @@
+id: concurrency/cancel/timeout_fires
+targets: js,native
+js.exit: 0
+js.check: setTimeout(function () { if (live !== true) process.exit(1); if (cancelTokenAborted(tok) !== 1) process.exit(2); }, 20);
+native.exit: 0
+native.stdout: 1\ntrue\n1\n

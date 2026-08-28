@@ -1,4 +1,5 @@
 //! C05.01: cancel token / Abort-like signal.
+//! C05.02: withTimeout / clearWithTimeout race vs timer.
 
 use super::*;
 use std::process::Command;
@@ -32,6 +33,22 @@ fn host_cancel_link_declare() {
     assert_eq!(
         HOST_CANCEL_LINK.declare(),
         "declare i32 @draconic_rt_host_cancel_link(i32, i32)"
+    );
+}
+
+#[test]
+fn host_cancel_timeout_declare() {
+    assert_eq!(
+        HOST_CANCEL_TIMEOUT.declare(),
+        "declare i32 @draconic_rt_host_cancel_timeout(double)"
+    );
+}
+
+#[test]
+fn host_cancel_clear_timeout_declare() {
+    assert_eq!(
+        HOST_CANCEL_CLEAR_TIMEOUT.declare(),
+        "declare i32 @draconic_rt_host_cancel_clear_timeout(i32)"
     );
 }
 
@@ -108,4 +125,68 @@ fn host_cancel_abort_and_link() {
         output.status
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "cancel-ok\n");
+}
+
+#[test]
+fn host_cancel_timeout_race() {
+    let clang = test_which_clang().expect("clang required for runtime native tests");
+    let dir = test_tempfile_dir();
+    let archive = build_runtime_static_lib(&dir).expect("build static lib");
+    let main_c = dir.join("main.c");
+    let bin = dir.join("rt_cancel_timeout");
+    let header_dir = c_runtime_header_path()
+        .parent()
+        .expect("header parent")
+        .to_path_buf();
+
+    std::fs::write(
+        &main_c,
+        r#"
+        #include "draconic_rt_host.h"
+        #include "draconic_rt.h"
+        #include <stdio.h>
+
+        int main(void) {
+            int32_t fire = draconic_rt_host_cancel_timeout(0.0);
+            if (fire < 1) return 1;
+            if (draconic_rt_host_cancel_aborted(fire) != 0) return 2;
+            draconic_rt_job_drain();
+            if (draconic_rt_host_cancel_aborted(fire) != 1) return 3;
+
+            int32_t work = draconic_rt_host_cancel_timeout(0.0);
+            if (work < 1) return 4;
+            if (draconic_rt_host_cancel_clear_timeout(work) != 0) return 5;
+            draconic_rt_job_drain();
+            if (draconic_rt_host_cancel_aborted(work) != 0) return 6;
+            if (draconic_rt_host_cancel_clear_timeout(work) != 0) return 7;
+            if (draconic_rt_host_cancel_clear_timeout(0) != -1) return 8;
+
+            puts("timeout-ok");
+            return 0;
+        }
+        "#,
+    )
+    .unwrap();
+
+    let status = {
+        let mut link = Command::new(&clang);
+        link.arg(&main_c)
+            .arg(&archive)
+            .arg("-I")
+            .arg(&header_dir)
+            .arg("-o")
+            .arg(&bin);
+        apply_runtime_link_flags(&mut link);
+        link.status().expect("spawn clang")
+    };
+    assert!(status.success(), "clang failed for cancel C05.02 smoke");
+
+    let output = Command::new(&bin).output().expect("run cancel timeout");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "cancel C05.02 binary failed: {:?}\nstderr={stderr}",
+        output.status
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "timeout-ok\n");
 }

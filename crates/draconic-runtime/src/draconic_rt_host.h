@@ -873,9 +873,14 @@ int32_t draconic_rt_host_internal_mutex_unlock(int32_t handle);
    cancelTokenAbort: mark aborted (sticky/idempotent). 0 ok, -1 invalid.
    cancelTokenAborted: 1 aborted / 0 not / -1 invalid.
    cancelTokenLink: child aborts when parent aborts (immediate if parent
-   already aborted). 0 ok, -1 invalid. */
+   already aborted). 0 ok, -1 invalid.
+   withTimeout (C05.02): allocate token that auto-aborts after ms (H05 timer).
+   Returns handle >= 1, or -1 on failure.
+   clearWithTimeout: cancel pending timer (work won race). 0 ok, -1 invalid. */
 
 int32_t draconic_rt_host_cancel_make(void);
 int32_t draconic_rt_host_cancel_abort(int32_t handle);
 int32_t draconic_rt_host_cancel_aborted(int32_t handle);
 int32_t draconic_rt_host_cancel_link(int32_t child, int32_t parent);
+int32_t draconic_rt_host_cancel_timeout(double ms);
+int32_t draconic_rt_host_cancel_clear_timeout(int32_t handle);

@@ -983,6 +983,18 @@ pub const HOST_CANCEL_LINK: AbiFn = AbiFn {
     ret: "i32",
     params: "i32, i32",
 };
+/* C05.02: withTimeout(ms) — token that auto-aborts after ms. Handle >= 1 or -1. */
+pub const HOST_CANCEL_TIMEOUT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_cancel_timeout",
+    ret: "i32",
+    params: "double",
+};
+/* C05.02: clearWithTimeout(token) — cancel pending timer. 0 ok, -1 invalid. */
+pub const HOST_CANCEL_CLEAR_TIMEOUT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_cancel_clear_timeout",
+    ret: "i32",
+    params: "i32",
+};
 /* C02.02: channelSend plain object (structured clone); 0 success, -1 reject. */
 pub const HOST_CHANNEL_SEND_OBJ: AbiFn = AbiFn {
     symbol: "draconic_rt_host_channel_send_obj",
@@ -2449,18 +2461,22 @@ pub fn channel_js_polyfill() -> &'static str {
 }
 
 /// JS polyfill for `makeCancelToken` / `cancelTokenAbort` / `cancelTokenAborted` /
-/// `cancelTokenLink` (C05.01).
+/// `cancelTokenLink` (C05.01) and `withTimeout` / `clearWithTimeout` (C05.02).
 ///
 /// Abort is sticky and idempotent. `cancelTokenLink(child, parent)` makes a
 /// parent abort propagate to the child (immediately if the parent is already
 /// aborted). Invalid handles return -1.
+///
+/// `withTimeout(ms)` returns a token that auto-aborts after ms (H05 timer).
+/// `clearWithTimeout(token)` cancels the pending timer (work won; settle
+/// cleanly). Invalid handles return -1.
 pub fn cancel_token_js_polyfill() -> &'static str {
     r#"(function () {
   var nextId = 1;
   var slots = Object.create(null);
   function makeCancelToken() {
     var id = nextId++;
-    slots[id] = { aborted: 0, links: [] };
+    slots[id] = { aborted: 0, links: [], timer: null };
     return id;
   }
   function cancelTokenAbort(t) {
@@ -2468,6 +2484,10 @@ pub fn cancel_token_js_polyfill() -> &'static str {
     if (!s) return -1;
     if (s.aborted) return 0;
     s.aborted = 1;
+    if (s.timer != null) {
+      clearTimeout(s.timer);
+      s.timer = null;
+    }
     var kids = s.links;
     var i;
     for (i = 0; i < kids.length; i++) {
@@ -2491,11 +2511,31 @@ pub fn cancel_token_js_polyfill() -> &'static str {
     p.links.push(child);
     return 0;
   }
+  function withTimeout(ms) {
+    var tok = makeCancelToken();
+    var s = slots[tok];
+    s.timer = setTimeout(function () {
+      s.timer = null;
+      cancelTokenAbort(tok);
+    }, ms);
+    return tok;
+  }
+  function clearWithTimeout(t) {
+    var s = slots[t];
+    if (!s) return -1;
+    if (s.timer != null) {
+      clearTimeout(s.timer);
+      s.timer = null;
+    }
+    return 0;
+  }
   if (typeof globalThis !== "undefined") {
     globalThis.makeCancelToken = makeCancelToken;
     globalThis.cancelTokenAbort = cancelTokenAbort;
     globalThis.cancelTokenAborted = cancelTokenAborted;
     globalThis.cancelTokenLink = cancelTokenLink;
+    globalThis.withTimeout = withTimeout;
+    globalThis.clearWithTimeout = clearWithTimeout;
   }
 })();
 "#

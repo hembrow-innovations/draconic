@@ -1,0 +1,3 @@
+let tok = withTimeout(0);
+let live = tok > 0;
+let aborted = cancelTokenAborted(tok);
