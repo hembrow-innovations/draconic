@@ -1,0 +1,3 @@
+extern "C" function draconic_rt_abort(): void;
+draconic_rt_abort();
+let after: i32 = 1;

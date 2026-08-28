@@ -60,6 +60,11 @@ pub const HELLO: AbiFn = AbiFn {
     ret: "void",
     params: "",
 };
+pub const ABORT: AbiFn = AbiFn {
+    symbol: "draconic_rt_abort",
+    ret: "void",
+    params: "",
+};
 pub const PRINT_I64: AbiFn = AbiFn {
     symbol: "draconic_rt_print_i64",
     ret: "void",
@@ -477,6 +482,7 @@ pub const ES_VALUES_DECLARES: &[AbiFn] = &[
 // --- Symbol-name aliases (single source: AbiFn.symbol) ---
 
 pub const HELLO_SYMBOL: &str = HELLO.symbol;
+pub const ABORT_SYMBOL: &str = ABORT.symbol;
 pub const PRINT_I64_SYMBOL: &str = PRINT_I64.symbol;
 pub const PRINT_U64_SYMBOL: &str = PRINT_U64.symbol;
 pub const PRINT_F64_SYMBOL: &str = PRINT_F64.symbol;
@@ -541,6 +547,7 @@ pub const PROMISE_AWAIT_SYMBOL: &str = PROMISE_AWAIT.symbol;
 /// Minimal std I/O + GC ABI symbols (N05 Runtime surface).
 pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
     HELLO_SYMBOL,
+    ABORT_SYMBOL,
     PRINT_I64_SYMBOL,
     PRINT_U64_SYMBOL,
     PRINT_F64_SYMBOL,

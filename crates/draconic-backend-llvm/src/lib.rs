@@ -4442,6 +4442,38 @@ mod tests {
     }
 
     #[test]
+    fn r04_02_abort_process_kills_native() {
+        let ir = emit_llvm_ir(&module_of(include_str!(
+            "../../../tests/conformance/fixtures/security/panic_policy/abort_process.drac"
+        )))
+        .expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "abort_process must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_abort"),
+            "should call Runtime abort:\n{ir}"
+        );
+        let dir = work_dir("draconic-llvm-r04-02-abort").expect("workdir");
+        let bin = dir.join("abort_process");
+        build_native_binary(&ir, &bin).expect("build");
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            !output.status.success(),
+            "abort must kill the process; exit {:?}\nstdout={}\nstderr={}\nir=\n{ir}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.is_empty(),
+            "abort must not print after; stdout={stdout:?}\nir=\n{ir}"
+        );
+    }
+
+    #[test]
     fn es_try_finally_prints_native() {
         let ir = emit_llvm_ir(&module_of(include_str!(
             "../../../tests/conformance/fixtures/es/exceptions/try_finally.drac"

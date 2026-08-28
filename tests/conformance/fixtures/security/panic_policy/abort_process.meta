@@ -1,0 +1,3 @@
+id: security/panic_policy/abort_process
+targets: native
+native.exit: 1

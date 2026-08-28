@@ -27,6 +27,8 @@ mod host_cancel_tests;
 mod gc_alloc_budget_tests;
 #[cfg(test)]
 mod eval_time_budget_tests;
+#[cfg(test)]
+mod abort_policy_tests;
 
 
 /// L03.01 / L03.02: SHA-256 digest and OS CSPRNG bytes.

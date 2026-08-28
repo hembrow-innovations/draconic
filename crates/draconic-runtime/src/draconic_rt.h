@@ -11,6 +11,8 @@ extern "C" {
 
 /* --- Minimal std I/O hooks --- */
 void draconic_rt_hello(void);
+/* R04.02: fail-closed process abort (not a catchable exception). */
+void draconic_rt_abort(void);
 /* F01.01–F01.03: extern "C" call targets (C ABI; linked with runtime). */
 int32_t draconic_rt_add_i32(int32_t a, int32_t b);
 int64_t draconic_rt_add_i64(int64_t a, int64_t b);

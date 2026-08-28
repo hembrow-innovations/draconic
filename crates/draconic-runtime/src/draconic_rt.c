@@ -19,6 +19,12 @@ void draconic_rt_hello(void) {
     puts("hello");
 }
 
+void draconic_rt_abort(void) {
+    fprintf(stderr, "draconic_rt: abort\n");
+    fflush(stderr);
+    abort();
+}
+
 /* F01.01–F01.03: C ABI call targets for extern "C" conformance. */
 int32_t draconic_rt_add_i32(int32_t a, int32_t b) {
     return a + b;
