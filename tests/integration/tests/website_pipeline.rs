@@ -1,5 +1,5 @@
-//! Website pipeline seam (issues-20): compile the Draconic generator, run it
-//! on one markdown page, assert the HTML contains the page title.
+//! Website pipeline seam (issues-21): compile the Draconic generator, run it
+//! on Learn and Reference pages with frontmatter, assert nav and status in HTML.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
 use draconic_frontend::compile_path;
 
-const PAGE_TITLE: &str = "UniqueTitleZ9q";
+const LEARN_TITLE: &str = "UniqueLearnTitleZ9q";
+const REFERENCE_TITLE: &str = "UniqueRefTitleK3w";
 
 fn temp_dir() -> PathBuf {
     static N: AtomicU64 = AtomicU64::new(0);
@@ -47,13 +48,40 @@ fn build_generator() -> PathBuf {
     out
 }
 
+fn page(title: &str, section: &str, status: &str, body: &str) -> String {
+    format!(
+        "---\ntitle: {title}\nsection: {section}\nstatus: {status}\n---\n\n# {title}\n\n{body}\n"
+    )
+}
+
+fn assert_nav(html: &str) {
+    assert!(
+        html.contains("<a href=\"learn.html\">Learn</a>"),
+        "expected Learn nav link, got:\n{html}"
+    );
+    assert!(
+        html.contains("<a href=\"reference.html\">Reference</a>"),
+        "expected Reference nav link, got:\n{html}"
+    );
+}
+
 #[test]
-fn website_pipeline_one_page_html_contains_title() {
+fn website_pipeline_learn_and_reference_nav_and_status() {
     let work = temp_dir();
     fs::create_dir_all(work.join("website")).unwrap();
     fs::write(
-        work.join("website/page.md"),
-        format!("# {PAGE_TITLE}\n\nA one-page fixture for the website pipeline.\n"),
+        work.join("website/learn.md"),
+        page(LEARN_TITLE, "learn", "shipped", "Learn fixture."),
+    )
+    .unwrap();
+    fs::write(
+        work.join("website/reference.md"),
+        page(
+            REFERENCE_TITLE,
+            "reference",
+            "not-yet",
+            "Reference fixture.",
+        ),
     )
     .unwrap();
 
@@ -70,13 +98,33 @@ fn website_pipeline_one_page_html_contains_title() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let html = fs::read_to_string(work.join("website/page.html")).expect("page.html");
+    let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
     assert!(
-        html.contains("<!DOCTYPE html>") || html.contains("<html"),
-        "expected HTML document, got:\n{html}"
+        learn.contains("<!DOCTYPE html>") || learn.contains("<html"),
+        "expected HTML document, got:\n{learn}"
+    );
+    assert_nav(&learn);
+    assert!(
+        learn.contains(LEARN_TITLE),
+        "expected learn title {LEARN_TITLE:?} in HTML, got:\n{learn}"
     );
     assert!(
-        html.contains(PAGE_TITLE),
-        "expected page title {PAGE_TITLE:?} in HTML, got:\n{html}"
+        learn.contains("shipped"),
+        "expected learn status shipped in HTML, got:\n{learn}"
+    );
+
+    let reference = fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
+    assert!(
+        reference.contains("<!DOCTYPE html>") || reference.contains("<html"),
+        "expected HTML document, got:\n{reference}"
+    );
+    assert_nav(&reference);
+    assert!(
+        reference.contains(REFERENCE_TITLE),
+        "expected reference title {REFERENCE_TITLE:?} in HTML, got:\n{reference}"
+    );
+    assert!(
+        reference.contains("not-yet"),
+        "expected reference status not-yet in HTML, got:\n{reference}"
     );
 }

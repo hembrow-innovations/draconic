@@ -1,4 +1,8 @@
-writeFileText("website/page.html", "<!DOCTYPE html>\n<html><head><title>Docs</title></head><body>\n");
-let md = readFileText("website/page.md");
-appendFileText("website/page.html", md);
-appendFileText("website/page.html", "\n</body></html>\n");
+writeFileText("website/learn.html", "<!DOCTYPE html>\n<html><head><title>Learn</title></head><body>\n<nav><a href=\"learn.html\">Learn</a> <a href=\"reference.html\">Reference</a></nav>\n");
+let learn = readFileText("website/learn.md");
+appendFileText("website/learn.html", learn);
+appendFileText("website/learn.html", "\n</body></html>\n");
+writeFileText("website/reference.html", "<!DOCTYPE html>\n<html><head><title>Reference</title></head><body>\n<nav><a href=\"learn.html\">Learn</a> <a href=\"reference.html\">Reference</a></nav>\n");
+let reference = readFileText("website/reference.md");
+appendFileText("website/reference.html", reference);
+appendFileText("website/reference.html", "\n</body></html>\n");

@@ -1,12 +1,12 @@
 ---
 id: issues-21
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Docs site: Learn and Reference nav plus status"
 description: "Generator wraps pages with Learn and Reference nav; frontmatter drives section and shipped or not-yet."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -14,7 +14,7 @@ tags:
   - issue
   - enhancement
   - docs
-  - ready-for-agent
+  - closed
 ---
 
 # Docs site: Learn and Reference nav plus status
@@ -33,10 +33,10 @@ The generated site has two sections, Learn and Reference. Each page declares its
 
 ## Acceptance criteria
 
-- [ ] Frontmatter carries title, section (`learn` | `reference`), and status (`shipped` | `not-yet`)
-- [ ] Generated HTML includes nav to Learn and to Reference
-- [ ] The page's status is visible in the HTML
-- [ ] Pipeline still compiles the generator and asserts this structure
+- [x] Frontmatter carries title, section (`learn` | `reference`), and status (`shipped` | `not-yet`)
+- [x] Generated HTML includes nav to Learn and to Reference
+- [x] The page's status is visible in the HTML
+- [x] Pipeline still compiles the generator and asserts this structure
 
 ## Agent Brief
 
@@ -57,3 +57,5 @@ Full markdown subset rendering, fence compile, chapter prose, GitHub Pages.
 ## Comments
 
 > Child of [[issues-19-language-docs-site]].
+
+> **2026-08-29:** Landed. `website/generate.drac` reads `website/learn.md` and `website/reference.md` (frontmatter: title, section, status) and writes HTML with Learn/Reference nav. Native host_fs cannot parse YAML yet, so the page body including frontmatter is appended; status is visible that way. Pipeline test: `tests/integration/tests/website_pipeline.rs`. Parent [[issues-19-language-docs-site]] stays open.

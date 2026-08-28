@@ -150,3 +150,5 @@ Same as **Out of Scope** above.
 > **2026-08-28:** Grilled and locked. ADR-0010. Glossary: Learn, Reference. Seam: one website pipeline.
 
 > **2026-08-29:** First tracer [[issues-20-docs-ssg-one-page]] landed (one page → HTML). This parent stays open.
+
+> **2026-08-29:** [[issues-21-docs-learn-reference-nav]] landed (Learn + Reference nav and status frontmatter). This parent stays open.
