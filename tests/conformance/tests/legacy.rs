@@ -298,3 +298,13 @@ fn eval_this_residual_fixture_present() {
 fn eval_this_residual_runs() {
     assert_fixture_runs_declared_targets("es/legacy/eval_this_residual");
 }
+
+#[test]
+fn eval_strict_source_fixture_present() {
+    assert_fixture_present("es/legacy/eval_strict_source");
+}
+
+#[test]
+fn eval_strict_source_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/eval_strict_source");
+}

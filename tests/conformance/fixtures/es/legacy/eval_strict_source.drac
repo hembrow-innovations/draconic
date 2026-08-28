@@ -1,0 +1,98 @@
+// E17.02.26: Direct eval `"use strict"` in eval source (non-strict caller).
+// Strict eval code does not inject var/function; `with` / `delete` ident are
+// SyntaxError; `this` still inherits the sloppy caller.
+
+// Strict eval source: var does not inject into the sloppy caller.
+function sloppyVar() {
+  eval("'use strict'; var y = 1");
+  return typeof y;
+}
+let a = sloppyVar();
+
+// Strict eval source: function declaration does not inject.
+function sloppyFn() {
+  eval("'use strict'; function hidden() { return 1; }");
+  return typeof hidden;
+}
+let b = sloppyFn();
+
+// Strict eval source: with is a SyntaxError.
+function sloppyWith() {
+  try {
+    eval("'use strict'; with ({}) {}");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let c = sloppyWith();
+
+// Strict eval source: delete IdentifierReference is a SyntaxError.
+function sloppyDelete() {
+  var x = 1;
+  try {
+    eval("'use strict'; delete x");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let d = sloppyDelete();
+
+// Strict eval source still inherits sloppy caller this (not undefined).
+function sloppyThisBare() {
+  return eval("'use strict'; this") === globalThis;
+}
+let e = sloppyThisBare();
+
+// Method: strict eval this is still the receiver.
+let recv = {
+  id: 7,
+  m: function () {
+    return eval("'use strict'; this").id;
+  }
+};
+let f = recv.m();
+
+// Contrast: the same sloppy caller still injects without the directive.
+function contrastInject() {
+  eval("var injected = 3");
+  let after = injected === 3;
+  eval("'use strict'; var injected2 = 4");
+  return after && typeof injected2 === "undefined";
+}
+let g = contrastInject();
+
+// Strict eval body can still use its own var (completion value).
+function innerReturn() {
+  return eval("'use strict'; var local = 9; local");
+}
+let h = innerReturn();
+
+// Caller stays sloppy after a strict eval.
+function sloppyAfter() {
+  eval("'use strict'; var z = 1");
+  return this === globalThis && typeof z === "undefined";
+}
+let i = sloppyAfter();
+
+// Strict eval source: assignment to eval / arguments is a SyntaxError.
+function sloppyEvalAssign() {
+  try {
+    eval("'use strict'; eval = 1");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let j = sloppyEvalAssign();
+
+function sloppyArgsAssign() {
+  try {
+    eval("'use strict'; arguments = 1");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let k = sloppyArgsAssign();
