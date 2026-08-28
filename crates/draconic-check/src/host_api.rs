@@ -111,6 +111,7 @@ pub struct HostApiEntry {
 /// - `http2ClientPreface` / `http2ServerPreface` / `http2SettingsAck` /
 ///   `http2EncodeRequest` / `http2EncodeResponse` / `http2ParseRequest` /
 ///   `http2ParseResponse` (H13.01): native-only HTTP/2 preface + single-stream helpers.
+/// - `spawnWorker` (C01.01): both — spawn worker isolate from fn entry or module path.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -696,6 +697,11 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "http2ServerReply",
         availability: HostAvailability::NATIVE_ONLY,
         note: "H13.01 HTTP/2 server preface + response in one buffer",
+    },
+    HostApiEntry {
+        name: "spawnWorker",
+        availability: HostAvailability::BOTH,
+        note: "C01.01 spawn worker isolate",
     },
 ];
 
@@ -1338,5 +1344,22 @@ mod tests {
             })
             .expect("ident use");
         assert!(bound.resolve(use_span).is_none());
+    }
+
+    #[test]
+    fn registry_lists_spawn_worker_both() {
+        let entry = lookup("spawnWorker").expect("spawnWorker registered");
+        assert_eq!(entry.name, "spawnWorker");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("spawnWorker"));
+        assert!(is_available("spawnWorker", CompileTarget::Js));
+        assert!(is_available("spawnWorker", CompileTarget::Native));
+        assert!(
+            unsupported_diagnostic("spawnWorker", CompileTarget::Js, Span::dummy()).is_none()
+        );
+        assert!(
+            unsupported_diagnostic("spawnWorker", CompileTarget::Native, Span::dummy()).is_none()
+        );
     }
 }

@@ -8366,3 +8366,29 @@ DraconicHostError draconic_rt_host_http2_server_reply(
     *out_len = acc_len;
     return DRACONIC_HOST_OK;
 }
+
+/* --- Worker isolate spawn (C01.01) ---------------------------------------- */
+
+#define DRACONIC_WORKER_SLOTS 64
+
+static uint8_t g_worker_live[DRACONIC_WORKER_SLOTS];
+
+int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path) {
+    size_t i;
+    if (kind == 0) {
+        /* fn entry: path unused */
+    } else if (kind == 1) {
+        if (!path || path[0] == '\0') {
+            return -1;
+        }
+    } else {
+        return -1;
+    }
+    for (i = 0; i < DRACONIC_WORKER_SLOTS; i++) {
+        if (g_worker_live[i] == 0) {
+            g_worker_live[i] = 1;
+            return (int32_t)(i + 1);
+        }
+    }
+    return -1;
+}

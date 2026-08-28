@@ -860,6 +860,12 @@ pub const HOST_PROCESS_CLOSE: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
+/* C01.01: spawnWorker — isolate from fn entry (kind 0) or module path (kind 1). */
+pub const HOST_WORKER_SPAWN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_worker_spawn",
+    ret: "i32",
+    params: "i32, ptr",
+};
 /// Declares for H15.03 async process wait + Promise then + job drain.
 pub const HOST_PROCESS_ASYNC_DECLARES: &[AbiFn] = &[
     GC_INIT,
@@ -1484,6 +1490,7 @@ pub const HOST_HTTP_SERVE_STATIC_SYMBOL: &str = HOST_HTTP_SERVE_STATIC.symbol;
 pub const HOST_HTTP_WRITE_REQUEST_SYMBOL: &str = HOST_HTTP_WRITE_REQUEST.symbol;
 pub const HOST_HTTP_PARSE_RESPONSE_SYMBOL: &str = HOST_HTTP_PARSE_RESPONSE.symbol;
 pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.symbol;
+pub const HOST_WORKER_SPAWN_SYMBOL: &str = HOST_WORKER_SPAWN.symbol;
 pub const HOST_WS_HANDSHAKE_RESPONSE_SYMBOL: &str = HOST_WS_HANDSHAKE_RESPONSE.symbol;
 pub const HOST_WS_ENCODE_TEXT_SYMBOL: &str = HOST_WS_ENCODE_TEXT.symbol;
 pub const HOST_WS_ENCODE_BINARY_SYMBOL: &str = HOST_WS_ENCODE_BINARY.symbol;
@@ -1624,6 +1631,7 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_TLS_WRITE_SYMBOL,
     HOST_HTTP_PARSE_RESPONSE_SYMBOL,
     HOST_HTTP_RESPONSE_HEADER_SYMBOL,
+    HOST_WORKER_SPAWN_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1739,6 +1747,7 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_TLS_SERVER_WRAP,
     HOST_TLS_READ,
     HOST_TLS_WRITE,
+    HOST_WORKER_SPAWN,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -2079,6 +2088,37 @@ pub fn process_spawn_js_polyfill() -> &'static str {
     globalThis.processKill = processKill;
     globalThis.processClose = processClose;
   }
+})();
+"#
+}
+
+/// JS polyfill for `spawnWorker(entry)` (C01.01).
+///
+/// Node `worker_threads`: eval bootstrap, `unref` so the parent fixture can
+/// exit without join (C01.02). Fn entry runs as an IIFE; module path starts
+/// an empty isolate (module evaluation is join/later).
+pub fn spawn_worker_js_polyfill() -> &'static str {
+    r#"(function () {
+  var nextId = 1;
+  function spawnWorker(entry) {
+    var src;
+    if (typeof entry === "function") {
+      src = "(" + Function.prototype.toString.call(entry) + ")();";
+    } else if (typeof entry === "string" && entry.length > 0) {
+      src = "/* worker isolate */";
+    } else {
+      return -1;
+    }
+    try {
+      var wt = require("worker_threads");
+      var w = new wt.Worker(src, { eval: true });
+      if (typeof w.unref === "function") w.unref();
+    } catch (e) {
+      return -1;
+    }
+    return nextId++;
+  }
+  if (typeof globalThis !== "undefined") globalThis.spawnWorker = spawnWorker;
 })();
 "#
 }

@@ -1,0 +1,6 @@
+id: concurrency/workers/spawn_fn
+targets: js,native
+js.exit: 0
+js.check: if (t !== "function") process.exit(1); if (ok !== true) process.exit(2);
+native.exit: 0
+native.stdout: function\n1\ntrue\n

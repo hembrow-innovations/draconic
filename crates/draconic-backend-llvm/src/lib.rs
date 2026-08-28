@@ -62,6 +62,7 @@ mod host_ws_e2e;
 mod host_http2;
 mod host_time;
 mod host_timers;
+mod host_workers;
 mod native_ints;
 
 pub use debug_info::SourceDebug;
@@ -136,6 +137,7 @@ use host_ws_e2e::{emit_host_ws_e2e, is_host_ws_e2e_module};
 use host_http2::{emit_host_http2, is_host_http2_module};
 use host_time::{emit_host_time, is_host_time_module};
 use host_timers::{emit_host_timers, is_host_timer_module};
+use host_workers::{emit_host_workers, is_host_workers_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
 /// Emit LLVM IR text for a shared IR module.
@@ -313,6 +315,9 @@ fn emit_llvm_ir_raw(
     }
     if is_host_timer_module(module) {
         return emit_host_timers(module);
+    }
+    if is_host_workers_module(module) {
+        return emit_host_workers(module);
     }
     if is_es_async_methods_module(module) {
         return emit_es_async_methods(module);

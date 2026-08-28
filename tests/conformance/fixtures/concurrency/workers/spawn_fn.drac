@@ -1,0 +1,3 @@
+let t = typeof spawnWorker;
+let h = spawnWorker(function () {});
+let ok = h > 0;

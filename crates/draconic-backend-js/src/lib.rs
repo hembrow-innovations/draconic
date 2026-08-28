@@ -188,6 +188,14 @@ fn module_uses_process_spawn(module: &Module) -> bool {
     })
 }
 
+/// C01.01: free host API `spawnWorker`.
+fn module_uses_spawn_worker(module: &Module) -> bool {
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "spawnWorker"))
+}
+
 /// H05.01: free host API `nowMs`.
 fn module_uses_now_ms(module: &Module) -> bool {
     module
@@ -658,6 +666,13 @@ fn emit_js_full(
     // H15.02: processSpawn + stdin/stdout/stderr/kill Node bridge.
     if module_uses_process_spawn(module) {
         out.push_str(draconic_runtime::process_spawn_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // C01.01: spawnWorker isolate (worker_threads, unref).
+    if module_uses_spawn_worker(module) {
+        out.push_str(draconic_runtime::spawn_worker_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

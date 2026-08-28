@@ -804,7 +804,7 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | C01 | todo | both | Worker / OS thread: spawn isolate running module/fn; join/terminate; no shared JS heap by default | `tests/conformance` fixtures `concurrency/workers` |
-| C01.01 | todo | both | Spawn worker isolate from module path or fn entry | `tests/conformance` fixtures `concurrency/workers` |
+| C01.01 | done | both | Spawn worker isolate from module path or fn entry | `tests/conformance` fixtures `concurrency/workers` |
 | C01.02 | todo | both | Join worker: wait for exit; capture result/error | `tests/conformance` fixtures `concurrency/workers` |
 | C01.03 | todo | both | Terminate worker; no shared JS heap across isolates | `tests/conformance` fixtures `concurrency/workers` |
 | C01.04 | todo | native | OS thread backing for native workers | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/workers` |
