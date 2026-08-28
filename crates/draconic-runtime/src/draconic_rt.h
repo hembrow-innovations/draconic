@@ -77,6 +77,10 @@ size_t draconic_rt_gc_live_count(void);
 /* N09.05: auto-collect when live_count reaches threshold after alloc; 0 disables. */
 void draconic_rt_gc_set_alloc_threshold(size_t threshold);
 size_t draconic_rt_gc_alloc_threshold(void);
+/* R01.02: hard live-heap byte budget; 0 = unlimited. Exceeding fails closed (NULL). */
+void draconic_rt_gc_set_alloc_budget(size_t bytes);
+size_t draconic_rt_gc_alloc_budget(void);
+size_t draconic_rt_gc_alloc_bytes(void);
 
 const char *draconic_rt_string_data(DraconicValue *v);
 size_t draconic_rt_string_len(DraconicValue *v);

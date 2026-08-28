@@ -909,7 +909,7 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 |----|--------|---------|------|-------|
 | R01 | todo | native | Embed/eval resource limits: max source size, alloc/time budget | `crates/draconic-embed`, `crates/draconic-runtime` |
 | R01.01 | done | native | Max source size for embed/eval; reject oversize | `crates/draconic-embed` |
-| R01.02 | todo | native | Alloc budget: fail closed when exceeded | `crates/draconic-runtime`, `crates/draconic-embed` |
+| R01.02 | done | native | Alloc budget: fail closed when exceeded | `crates/draconic-runtime`, `crates/draconic-embed` |
 | R01.03 | todo | native | Time budget: interrupt/fail long-running eval | `crates/draconic-embed`, `crates/draconic-runtime` |
 | R02 | todo | both | Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics | `tests/conformance` fixtures `security/permissions` |
 | R02.01 | todo | both | Permission grants: fs read/write, net listen/connect (as designed) | `tests/conformance` fixtures `security/permissions` |

@@ -23,6 +23,30 @@ use draconic_ir::{Expr, LocalId, Module, Stmt};
 /// Checked before compile so oversize input fails closed without parsing.
 pub const MAX_EVAL_SOURCE_BYTES: usize = 1_048_576; // 1 MiB
 
+/// Default embed eval heap budget in bytes of newly allocated strings (R01.02).
+///
+/// `0` means unlimited. [`eval_source`] uses this default.
+pub const DEFAULT_EVAL_ALLOC_BUDGET_BYTES: usize = 16 * 1024 * 1024;
+
+struct EvalAlloc {
+    used: usize,
+    budget: usize,
+}
+
+impl EvalAlloc {
+    fn charge(&mut self, bytes: usize) -> Result<(), Diagnostic> {
+        let next = self.used.saturating_add(bytes);
+        if self.budget > 0 && next > self.budget {
+            return Err(diag(format!(
+                "embed eval: alloc budget exceeded ({next} > {} bytes)",
+                self.budget
+            )));
+        }
+        self.used = next;
+        Ok(())
+    }
+}
+
 /// Reject `source` when longer than [`MAX_EVAL_SOURCE_BYTES`].
 fn check_eval_source_size(source: &str) -> Result<(), Diagnostic> {
     let len = source.len();
@@ -75,9 +99,24 @@ impl EmbedValue {
 /// N07.01 supports expression scripts built from literals, arithmetic, unary
 /// `+/-`, grouping, and `typeof` on the supported value set (incl. `undefined`).
 pub fn eval_source(source: &str) -> Result<EmbedValue, Diagnostic> {
+    eval_source_with_alloc_budget(source, DEFAULT_EVAL_ALLOC_BUDGET_BYTES)
+}
+
+/// Like [`eval_source`], with an explicit alloc budget (R01.02).
+///
+/// `budget_bytes == 0` is unlimited. Newly produced strings (concat, `typeof`)
+/// are charged; exceeding the budget fails closed.
+pub fn eval_source_with_alloc_budget(
+    source: &str,
+    budget_bytes: usize,
+) -> Result<EmbedValue, Diagnostic> {
     check_eval_source_size(source)?;
     let module = compile_source(source)?;
-    interpret_module(&module)
+    let mut alloc = EvalAlloc {
+        used: 0,
+        budget: budget_bytes,
+    };
+    interpret_module(&module, &mut alloc)
 }
 
 /// Like [`eval_source`], but prepends `let` bindings for free names (N07.04).
@@ -223,7 +262,7 @@ fn js_string_literal(s: &str) -> String {
     out
 }
 
-fn interpret_module(module: &Module) -> Result<EmbedValue, Diagnostic> {
+fn interpret_module(module: &Module, alloc: &mut EvalAlloc) -> Result<EmbedValue, Diagnostic> {
     let mut env: HashMap<LocalId, EmbedValue> = HashMap::new();
     for local in &module.locals {
         if local.name == "undefined" {
@@ -232,7 +271,7 @@ fn interpret_module(module: &Module) -> Result<EmbedValue, Diagnostic> {
     }
     let mut completion = EmbedValue::Undefined;
     for stmt in &module.body {
-        completion = exec_stmt(stmt, &mut env, module)?;
+        completion = exec_stmt(stmt, &mut env, module, alloc)?;
     }
     Ok(completion)
 }
@@ -241,19 +280,20 @@ fn exec_stmt(
     stmt: &Stmt,
     env: &mut HashMap<LocalId, EmbedValue>,
     module: &Module,
+    alloc: &mut EvalAlloc,
 ) -> Result<EmbedValue, Diagnostic> {
     match stmt {
-        Stmt::Expr { expr } => eval_expr(expr, env, module),
+        Stmt::Expr { expr } => eval_expr(expr, env, module, alloc),
         Stmt::Block { body } => {
             let mut last = EmbedValue::Undefined;
             for s in body {
-                last = exec_stmt(s, env, module)?;
+                last = exec_stmt(s, env, module, alloc)?;
             }
             Ok(last)
         }
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => eval_expr(e, env, module)?,
+                Some(e) => eval_expr(e, env, module, alloc)?,
                 None => EmbedValue::Undefined,
             };
             env.insert(*local, v);
@@ -269,6 +309,7 @@ fn eval_expr(
     expr: &Expr,
     env: &mut HashMap<LocalId, EmbedValue>,
     module: &Module,
+    alloc: &mut EvalAlloc,
 ) -> Result<EmbedValue, Diagnostic> {
     match expr {
         Expr::Number { raw, .. } => {
@@ -293,16 +334,15 @@ fn eval_expr(
             )))
         }
         Expr::Unary { op, arg, .. } => {
-            let v = eval_expr(arg, env, module)?;
-            eval_unary(*op, v)
+            let v = eval_expr(arg, env, module, alloc)?;
+            eval_unary(*op, v, alloc)
         }
         Expr::Binary {
             left, op, right, ..
         } => {
-            let l = eval_expr(left, env, module)?;
-            // Short-circuit not required for arithmetic subset; still evaluate both.
-            let r = eval_expr(right, env, module)?;
-            eval_binary(*op, l, r)
+            let l = eval_expr(left, env, module, alloc)?;
+            let r = eval_expr(right, env, module, alloc)?;
+            eval_binary(*op, l, r, alloc)
         }
         other => Err(diag(format!(
             "embed eval does not support expression: {other:?}"
@@ -310,11 +350,19 @@ fn eval_expr(
     }
 }
 
-fn eval_unary(op: UnaryOp, v: EmbedValue) -> Result<EmbedValue, Diagnostic> {
+fn eval_unary(
+    op: UnaryOp,
+    v: EmbedValue,
+    alloc: &mut EvalAlloc,
+) -> Result<EmbedValue, Diagnostic> {
     match op {
         UnaryOp::Plus => Ok(EmbedValue::Number(to_number(&v)?)),
         UnaryOp::Minus => Ok(EmbedValue::Number(-to_number(&v)?)),
-        UnaryOp::TypeOf => Ok(EmbedValue::String(v.typeof_name().to_string())),
+        UnaryOp::TypeOf => {
+            let s = v.typeof_name();
+            alloc.charge(s.len())?;
+            Ok(EmbedValue::String(s.to_string()))
+        }
         UnaryOp::Void => Ok(EmbedValue::Undefined),
         UnaryOp::Not => Ok(EmbedValue::Boolean(!to_boolean(&v))),
         other => Err(diag(format!(
@@ -323,15 +371,18 @@ fn eval_unary(op: UnaryOp, v: EmbedValue) -> Result<EmbedValue, Diagnostic> {
     }
 }
 
-fn eval_binary(op: BinaryOp, left: EmbedValue, right: EmbedValue) -> Result<EmbedValue, Diagnostic> {
+fn eval_binary(
+    op: BinaryOp,
+    left: EmbedValue,
+    right: EmbedValue,
+    alloc: &mut EvalAlloc,
+) -> Result<EmbedValue, Diagnostic> {
     match op {
         BinaryOp::Add => {
             if matches!(left, EmbedValue::String(_)) || matches!(right, EmbedValue::String(_)) {
-                Ok(EmbedValue::String(format!(
-                    "{}{}",
-                    to_string_js(&left),
-                    to_string_js(&right)
-                )))
+                let s = format!("{}{}", to_string_js(&left), to_string_js(&right));
+                alloc.charge(s.len())?;
+                Ok(EmbedValue::String(s))
             } else {
                 Ok(EmbedValue::Number(to_number(&left)? + to_number(&right)?))
             }
@@ -621,5 +672,37 @@ mod tests {
             msg.contains("maximum source size") || msg.contains("exceeds"),
             "msg={msg}"
         );
+    }
+
+    #[test]
+    fn eval_source_concat_succeeds_at_alloc_budget() {
+        let v = eval_source_with_alloc_budget("'ab' + 'cd'", 4).unwrap();
+        assert_eq!(v, EmbedValue::String("abcd".into()));
+    }
+
+    #[test]
+    fn eval_source_concat_rejects_when_alloc_budget_exceeded() {
+        let err = eval_source_with_alloc_budget("'ab' + 'cd'", 3).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("alloc budget") || msg.contains("exceeded"),
+            "msg={msg}"
+        );
+    }
+
+    #[test]
+    fn eval_source_typeof_rejects_when_alloc_budget_exceeded() {
+        let err = eval_source_with_alloc_budget("typeof 1", 5).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("alloc budget") || msg.contains("exceeded"),
+            "msg={msg}"
+        );
+    }
+
+    #[test]
+    fn eval_source_zero_alloc_budget_is_unlimited() {
+        let v = eval_source_with_alloc_budget("'ab' + 'cd'", 0).unwrap();
+        assert_eq!(v, EmbedValue::String("abcd".into()));
     }
 }

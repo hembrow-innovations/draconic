@@ -474,6 +474,8 @@ static int g_gc_inited = 0;
 /* N09.05: auto-collect when live_count reaches threshold (0 = off). */
 #define GC_ALLOC_THRESHOLD_DEFAULT 1024
 static size_t g_gc_alloc_threshold = GC_ALLOC_THRESHOLD_DEFAULT;
+static size_t g_alloc_budget = 0;
+static size_t g_alloc_bytes = 0;
 static int g_gc_collecting = 0;
 
 /* N09.04: growable root stack (historic fixed max was 64). */
@@ -488,6 +490,8 @@ void draconic_rt_gc_init(void) {
     g_root_sp = 0;
     g_gc_collecting = 0;
     g_gc_alloc_threshold = GC_ALLOC_THRESHOLD_DEFAULT;
+    g_alloc_budget = 0;
+    g_alloc_bytes = 0;
     if (!g_roots) {
         g_roots = (DraconicValue **)calloc(ROOT_STACK_INITIAL, sizeof(DraconicValue *));
         g_root_cap = g_roots ? ROOT_STACK_INITIAL : 0;
@@ -515,6 +519,15 @@ static void free_props(DraconicProp *head) {
 }
 
 static void free_value(DraconicValue *v) {
+    size_t charged = sizeof(DraconicValue);
+    if (v->tag == DRACONIC_TAG_STRING) {
+        charged += v->as.string.len ? v->as.string.len : 1;
+    }
+    if (g_alloc_bytes >= charged) {
+        g_alloc_bytes -= charged;
+    } else {
+        g_alloc_bytes = 0;
+    }
     if (v->tag == DRACONIC_TAG_STRING && v->as.string.data) {
         free(v->as.string.data);
         v->as.string.data = NULL;
@@ -546,6 +559,8 @@ void draconic_rt_gc_shutdown(void) {
     g_root_sp = 0;
     g_gc_collecting = 0;
     g_gc_alloc_threshold = GC_ALLOC_THRESHOLD_DEFAULT;
+    g_alloc_budget = 0;
+    g_alloc_bytes = 0;
     free(g_roots);
     g_roots = NULL;
     g_root_cap = 0;
@@ -566,8 +581,46 @@ size_t draconic_rt_gc_alloc_threshold(void) {
     return g_gc_alloc_threshold;
 }
 
+void draconic_rt_gc_set_alloc_budget(size_t bytes) {
+    if (!g_gc_inited) {
+        draconic_rt_gc_init();
+    }
+    g_alloc_budget = bytes;
+}
+
+size_t draconic_rt_gc_alloc_budget(void) {
+    if (!g_gc_inited) {
+        draconic_rt_gc_init();
+    }
+    return g_alloc_budget;
+}
+
+size_t draconic_rt_gc_alloc_bytes(void) {
+    if (!g_gc_inited) {
+        draconic_rt_gc_init();
+    }
+    return g_alloc_bytes;
+}
+
 /* Forward decl: heap_alloc may trigger auto-collect (N09.05). */
 void draconic_rt_gc_collect(void);
+
+static int budget_allows(size_t extra) {
+    if (g_alloc_budget == 0) {
+        return 1;
+    }
+    return g_alloc_bytes + extra <= g_alloc_budget;
+}
+
+static int ensure_budget(size_t extra) {
+    if (budget_allows(extra)) {
+        return 1;
+    }
+    if (!g_gc_collecting) {
+        draconic_rt_gc_collect();
+    }
+    return budget_allows(extra);
+}
 
 static DraconicValue *heap_alloc(DraconicTag tag) {
     if (!g_gc_inited) {
@@ -579,6 +632,9 @@ static DraconicValue *heap_alloc(DraconicTag tag) {
         && g_live_count >= g_gc_alloc_threshold) {
         draconic_rt_gc_collect();
     }
+    if (!ensure_budget(sizeof(DraconicValue))) {
+        return NULL;
+    }
     DraconicValue *v = (DraconicValue *)calloc(1, sizeof(DraconicValue));
     if (!v) {
         return NULL;
@@ -588,19 +644,31 @@ static DraconicValue *heap_alloc(DraconicTag tag) {
     v->next = g_heap_head;
     g_heap_head = v;
     g_live_count++;
+    g_alloc_bytes += sizeof(DraconicValue);
     return v;
 }
 
 DraconicValue *draconic_rt_alloc_string(const char *data, size_t len) {
+    size_t payload = len ? len : 1;
+    if (!g_gc_inited) {
+        draconic_rt_gc_init();
+    }
+    if (!ensure_budget(sizeof(DraconicValue) + payload)) {
+        return NULL;
+    }
     DraconicValue *v = heap_alloc(DRACONIC_TAG_STRING);
     if (!v) {
         return NULL;
     }
-    char *buf = (char *)malloc(len ? len : 1);
+    char *buf = (char *)malloc(payload);
     if (!buf) {
-        /* roll back header */
         g_heap_head = v->next;
         g_live_count--;
+        if (g_alloc_bytes >= sizeof(DraconicValue)) {
+            g_alloc_bytes -= sizeof(DraconicValue);
+        } else {
+            g_alloc_bytes = 0;
+        }
         free(v);
         return NULL;
     }
@@ -609,6 +677,7 @@ DraconicValue *draconic_rt_alloc_string(const char *data, size_t len) {
     }
     v->as.string.len = len;
     v->as.string.data = buf;
+    g_alloc_bytes += payload;
     return v;
 }
 

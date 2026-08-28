@@ -23,6 +23,8 @@ mod host_once_tests;
 mod host_mutex_tests;
 #[cfg(test)]
 mod host_cancel_tests;
+#[cfg(test)]
+mod gc_alloc_budget_tests;
 
 
 /// L03.01 / L03.02: SHA-256 digest and OS CSPRNG bytes.
