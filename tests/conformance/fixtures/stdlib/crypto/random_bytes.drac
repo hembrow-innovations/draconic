@@ -1,0 +1,7 @@
+// L03.02: Secure random bytes (OS CSPRNG); length parameter.
+let tp = typeof randomBytes;
+let gp = globalThis.randomBytes === randomBytes;
+let zlen = randomBytes(0).length;
+let alen = randomBytes(8).length;
+let differ = randomBytes(16).toHex() !== randomBytes(16).toHex();
+let notzero = randomBytes(16).toHex() !== "00000000000000000000000000000000";

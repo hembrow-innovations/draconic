@@ -53,6 +53,20 @@ fn module_uses_sha256(module: &Module) -> bool {
     module.body.iter().any(|s| stmt_uses_local(s, &ids))
 }
 
+/// L03.02: true when the Program body references the stdlib `randomBytes` global.
+fn module_uses_random_bytes(module: &Module) -> bool {
+    let ids: Vec<LocalId> = module
+        .locals
+        .iter()
+        .filter(|l| l.name == "randomBytes")
+        .map(|l| l.id)
+        .collect();
+    if ids.is_empty() {
+        return false;
+    }
+    module.body.iter().any(|s| stmt_uses_local(s, &ids))
+}
+
 /// L08.01: true when the Program body references the stdlib `parseUrl` global.
 ///
 /// IR locals include every binder symbol (all builtins), so presence in
@@ -519,6 +533,13 @@ fn emit_js_full(
     // L03.01: portable `sha256` polyfill when the Program references it.
     if module_uses_sha256(module) {
         out.push_str(draconic_runtime::sha256_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L03.02: portable `randomBytes` polyfill when the Program references it.
+    if module_uses_random_bytes(module) {
+        out.push_str(draconic_runtime::random_bytes_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1147,6 +1168,13 @@ mod tests {
         let js = emit_src("let d = sha256(new Uint8Array([]));");
         assert!(js.contains("function sha256("), "{js}");
         assert!(js.contains("globalThis.sha256 = sha256"), "{js}");
+    }
+
+    #[test]
+    fn emit_random_bytes_polyfill() {
+        let js = emit_src("let d = randomBytes(8);");
+        assert!(js.contains("function randomBytes("), "{js}");
+        assert!(js.contains("globalThis.randomBytes = randomBytes"), "{js}");
     }
 
     #[test]

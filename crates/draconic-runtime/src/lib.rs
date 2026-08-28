@@ -3,7 +3,7 @@
 
 pub mod abi;
 pub use abi::*;
-pub use crypto::sha256_js_polyfill;
+pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
 pub use url::{parse_url, parse_url_js_polyfill, ParsedUrl};
 
 #[cfg(test)]
@@ -12,7 +12,7 @@ mod host_abi_tests;
 mod host_bytes_tests;
 
 
-/// L03.01: SHA-256 digest over `Uint8Array` bytes (NIST FIPS 180-2).
+/// L03.01 / L03.02: SHA-256 digest and OS CSPRNG bytes.
 pub mod crypto {
     pub fn sha256_js_polyfill() -> &'static str {
         r#"function sha256(bytes) {
@@ -29,6 +29,41 @@ pub mod crypto {
 }
 if (typeof globalThis !== "undefined") globalThis.sha256 = sha256;
 "#
+    }
+
+    pub fn random_bytes_js_polyfill() -> &'static str {
+        r#"function randomBytes(n) {
+  if (typeof n !== "number" || n !== n || n === Infinity || n === -Infinity) {
+    throw new TypeError("randomBytes expects a length");
+  }
+  if (n < 0 || n !== Math.floor(n) || n > 65536) {
+    throw new RangeError("randomBytes length must be a non-negative integer");
+  }
+  var out = new Uint8Array(n);
+  if (n === 0) return out;
+  var c = null;
+  try { c = require("crypto"); } catch (e) {}
+  if (c && typeof c.randomFillSync === "function") {
+    c.randomFillSync(out);
+    return out;
+  }
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(out);
+    return out;
+  }
+  throw new TypeError("randomBytes unavailable");
+}
+if (typeof globalThis !== "undefined") globalThis.randomBytes = randomBytes;
+"#
+    }
+
+    pub fn fill_random(buf: &mut [u8]) -> Result<(), ()> {
+        if buf.is_empty() {
+            return Ok(());
+        }
+        use std::io::Read;
+        let mut f = std::fs::File::open("/dev/urandom").map_err(|_| ())?;
+        f.read_exact(buf).map_err(|_| ())
     }
 }
 

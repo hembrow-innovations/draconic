@@ -1221,6 +1221,8 @@ impl Binder {
         binder.install_builtin("parseUrl", BindingKind::Const);
         // L03.01: SHA-256 digest over bytes
         binder.install_builtin("sha256", BindingKind::Const);
+        // L03.02: OS CSPRNG bytes
+        binder.install_builtin("randomBytes", BindingKind::Const);
         binder
     }
 

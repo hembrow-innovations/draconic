@@ -1,6 +1,6 @@
-//! L01.01 / L01.02 / L01.03 / L03.01: native observations for UTF-8 TextEncoder /
-//! TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), hex
-//! (`toHex` / `fromHex`), and SHA-256 (`sha256`).
+//! L01.01 / L01.02 / L01.03 / L03.01 / L03.02: native observations for UTF-8
+//! TextEncoder / TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), hex
+//! (`toHex` / `fromHex`), SHA-256 (`sha256`), and `randomBytes`.
 //!
 //! Compile-time evaluation of TextEncoder/TextDecoder encode/decode plus
 //! fatal invalid UTF-8 TypeError. Emits Runtime prints of final top-level
@@ -42,6 +42,7 @@ enum BuiltinId {
     Uint8Array,
     TypeError,
     Sha256,
+    RandomBytes,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -132,6 +133,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "Uint8Array" => Some(BuiltinId::Uint8Array),
         "TypeError" => Some(BuiltinId::TypeError),
         "sha256" => Some(BuiltinId::Sha256),
+        "randomBytes" => Some(BuiltinId::RandomBytes),
         _ => None,
     }
 }
@@ -174,7 +176,7 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
             .is_some_and(|l| {
                 matches!(
                     l.name.as_str(),
-                    "TextEncoder" | "TextDecoder" | "sha256"
+                    "TextEncoder" | "TextDecoder" | "sha256" | "randomBytes"
                 )
             }),
         Expr::Unary { arg, .. } => expr_has_encoding_surface(arg, by_id),
@@ -651,6 +653,40 @@ fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
                 bytes: Rc::new(RefCell::new(sha256::digest(&bytes).to_vec())),
             })
         }
+        JsVal::Builtin(BuiltinId::RandomBytes) => {
+            let n = match args.first() {
+                Some(JsVal::Num(n)) => *n,
+                _ => {
+                    return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                        name: "TypeError".into(),
+                        message: "randomBytes expects a length".into(),
+                    })))
+                }
+            };
+            if !n.is_finite() {
+                return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                    name: "TypeError".into(),
+                    message: "randomBytes expects a length".into(),
+                })));
+            }
+            if n < 0.0 || n != n.trunc() || n > 65536.0 {
+                return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                    name: "RangeError".into(),
+                    message: "randomBytes length must be a non-negative integer".into(),
+                })));
+            }
+            let len = n as usize;
+            let mut buf = vec![0u8; len];
+            if draconic_runtime::crypto::fill_random(&mut buf).is_err() {
+                return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                    name: "TypeError".into(),
+                    message: "randomBytes unavailable".into(),
+                })));
+            }
+            Ok(JsVal::Uint8ArrayInst {
+                bytes: Rc::new(RefCell::new(buf)),
+            })
+        }
         _ => Err(None),
     }
 }
@@ -825,6 +861,7 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "Uint8Array" => Ok(JsVal::Builtin(BuiltinId::Uint8Array)),
             "TypeError" => Ok(JsVal::Builtin(BuiltinId::TypeError)),
             "sha256" => Ok(JsVal::Builtin(BuiltinId::Sha256)),
+            "randomBytes" => Ok(JsVal::Builtin(BuiltinId::RandomBytes)),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
         },
@@ -869,7 +906,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::TextDecoder
             | BuiltinId::Uint8Array
             | BuiltinId::TypeError
-            | BuiltinId::Sha256,
+            | BuiltinId::Sha256
+            | BuiltinId::RandomBytes,
         ) => "function".into(),
         JsVal::Builtin(BuiltinId::GlobalThis) => "object".into(),
     }
@@ -1116,6 +1154,38 @@ mod tests {
             let ok = 0;
             try {
               sha256("abc");
+              ok = -1;
+            } catch (e) {
+              ok = e.name === "TypeError" ? 1 : -2;
+            }
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_random_bytes() {
+        let m = compile_src(
+            r#"
+            let tp = typeof randomBytes;
+            let zlen = randomBytes(0).length;
+            let alen = randomBytes(8).length;
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_random_bytes_invalid() {
+        let m = compile_src(
+            r#"
+            let ok = 0;
+            try {
+              randomBytes("abc");
               ok = -1;
             } catch (e) {
               ok = e.name === "TypeError" ? 1 : -2;

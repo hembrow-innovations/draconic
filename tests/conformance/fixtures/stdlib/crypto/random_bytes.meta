@@ -1,0 +1,6 @@
+id: stdlib/crypto/random_bytes
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\n0\n8\ntrue\ntrue\n
+js.check: if (tp !== "function") process.exit(1); if (gp !== true) process.exit(2); if (zlen !== 0) process.exit(3); if (alen !== 8) process.exit(4); if (differ !== true) process.exit(5); if (notzero !== true) process.exit(6);

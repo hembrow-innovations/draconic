@@ -1,0 +1,23 @@
+// L03.02: randomBytes on missing/non-number → TypeError; negative length → RangeError.
+let ok = 0;
+try {
+  randomBytes("abc");
+  ok = -1;
+} catch (e) {
+  ok = e.name === "TypeError" ? 1 : -2;
+}
+let missing = 0;
+try {
+  randomBytes();
+  missing = -1;
+} catch (e) {
+  missing = e.name === "TypeError" ? 1 : -2;
+}
+let neg = 0;
+try {
+  randomBytes(-1);
+  neg = -1;
+} catch (e) {
+  neg = e.name === "RangeError" ? 1 : -2;
+}
+let zlen = randomBytes(0).length;
