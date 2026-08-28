@@ -508,3 +508,13 @@ fn with_optional_chain_fixture_present() {
 fn with_optional_chain_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_optional_chain");
 }
+
+#[test]
+fn with_typeof_fixture_present() {
+    assert_fixture_present("es/legacy/with_typeof");
+}
+
+#[test]
+fn with_typeof_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_typeof");
+}
