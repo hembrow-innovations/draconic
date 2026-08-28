@@ -30,16 +30,51 @@ let isHead = 0;
 let isItem = 0;
 let header = "";
 let nav = "<nav><a href=\"learn.html\">Learn</a> <a href=\"reference.html\">Reference</a></nav>\n";
+let learnNav = "<nav class=\"learn\"><a href=\"install.html\">Install</a> <a href=\"from-javascript.html\">from JavaScript</a> <a href=\"from-systems.html\">from systems</a> <a href=\"dual-worlds.html\">Dual worlds</a> <a href=\"modules.html\">modules</a> <a href=\"native-types.html\">native types</a> <a href=\"host-io.html\">host I/O</a> <a href=\"packages.html\">packages</a></nav>\n";
+let slug = "";
+let section = "";
 
-while (page < 2) {
-  mdPath = "website/learn.md";
-  htmlPath = "website/learn.html";
+while (page < 10) {
+  slug = "learn";
   title = "Learn";
   if (page === 1) {
-    mdPath = "website/reference.md";
-    htmlPath = "website/reference.html";
+    slug = "reference";
     title = "Reference";
   }
+  if (page === 2) {
+    slug = "install";
+    title = "Install";
+  }
+  if (page === 3) {
+    slug = "from-javascript";
+    title = "from JavaScript";
+  }
+  if (page === 4) {
+    slug = "from-systems";
+    title = "from systems";
+  }
+  if (page === 5) {
+    slug = "dual-worlds";
+    title = "Dual worlds";
+  }
+  if (page === 6) {
+    slug = "modules";
+    title = "modules";
+  }
+  if (page === 7) {
+    slug = "native-types";
+    title = "native types";
+  }
+  if (page === 8) {
+    slug = "host-io";
+    title = "host I/O";
+  }
+  if (page === 9) {
+    slug = "packages";
+    title = "packages";
+  }
+  mdPath = "website/" + slug + ".md";
+  htmlPath = "website/" + slug + ".html";
   src = readFileText(mdPath);
   src = src + "\n";
   i = 0;
@@ -47,6 +82,7 @@ while (page < 2) {
   line = "";
   body = "";
   status = "";
+  section = "";
   inFront = 0;
   inFence = 0;
   inList = 0;
@@ -66,6 +102,12 @@ while (page < 2) {
           }
           if (line === "status: not-yet") {
             status = "not-yet";
+          }
+          if (line === "section: learn") {
+            section = "learn";
+          }
+          if (line === "section: reference") {
+            section = "reference";
           }
         }
       } else {
@@ -290,6 +332,9 @@ while (page < 2) {
     inFence = 0;
   }
   header = "<!DOCTYPE html>\n<html><head><title>" + title + "</title></head><body>\n" + nav;
+  if (section === "learn") {
+    header = header + learnNav;
+  }
   writeFileText(htmlPath, header);
   appendFileText(htmlPath, "<p class=\"status\">" + status + "</p>\n");
   appendFileText(htmlPath, body);

@@ -1,12 +1,12 @@
 ---
 id: issues-24
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Learn skeleton pages"
 description: "Install, two landings, Dual worlds, modules, native types, host I/O, packages — with honest status tags."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -14,7 +14,7 @@ tags:
   - issue
   - enhancement
   - docs
-  - ready-for-agent
+  - closed
 ---
 
 # Learn skeleton pages
@@ -34,10 +34,10 @@ Learn is walkable. Install; landing from JavaScript; landing from systems; Dual 
 
 ## Acceptance criteria
 
-- [ ] Learn nav lists Install, from JavaScript, from systems, Dual worlds, modules, native types, host I/O, packages
-- [ ] Landings assume JS/TS and systems programmers; they join at Dual worlds
-- [ ] Every page has a visible status tag; not-yet pages have no fences
-- [ ] Pipeline still generates the site (fence compile may land in [[issues-23-docs-fence-pipeline]])
+- [x] Learn nav lists Install, from JavaScript, from systems, Dual worlds, modules, native types, host I/O, packages
+- [x] Landings assume JS/TS and systems programmers; they join at Dual worlds
+- [x] Every page has a visible status tag; not-yet pages have no fences
+- [x] Pipeline still generates the site (fence compile may land in [[issues-23-docs-fence-pipeline]])
 
 ## Agent Brief
 
@@ -59,3 +59,5 @@ Reference stubs ([[issues-25-docs-reference-skeleton]]). Playground. GitHub Page
 ## Comments
 
 > Child of [[issues-19-language-docs-site]]. Parallel with [[issues-25-docs-reference-skeleton]].
+>
+> **2026-08-29:** Landed. Learn pages under `website/` (Install, from JavaScript, from systems, Dual worlds, modules, native types, host I/O, packages). Generator emits Learn chapter nav on `section: learn` pages. Install carries a small shipped `drac` fence; not-yet pages are prose only. Pipeline test: `website_pipeline_learn_skeleton_is_walkable`. Parent [[issues-19-language-docs-site]] stays open.

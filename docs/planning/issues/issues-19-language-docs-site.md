@@ -156,3 +156,5 @@ Same as **Out of Scope** above.
 > **2026-08-29:** [[issues-22-docs-markdown-subset]] landed (headings, paragraphs, lists, fenced code, links). This parent stays open.
 >
 > **2026-08-29:** [[issues-23-docs-fence-pipeline]] landed (shipped `drac` fences compile; not-yet fences fail). This parent stays open.
+>
+> **2026-08-29:** [[issues-24-docs-learn-skeleton]] landed (two landings join at Dual worlds; P03 chapter pages with status tags). This parent stays open.

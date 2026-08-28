@@ -1,6 +1,7 @@
-//! Website pipeline seam (issues-21, issues-22, issues-23): compile the Draconic
-//! generator, run it on Learn and Reference pages, assert nav, status, and
-//! markdown subset; extract shipped `drac` fences and `draconic build` them.
+//! Website pipeline seam (issues-21, issues-22, issues-23, issues-24): compile
+//! the Draconic generator, run it on Learn and Reference pages, assert nav,
+//! status, and markdown subset; extract shipped `drac` fences and `draconic
+//! build` them. Learn skeleton nav lists the P03 chapters.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,19 @@ const SUBSET_LIST: &str = "MdSubsetListJ8k";
 const SUBSET_FENCE: &str = "MdSubsetFenceR4p";
 const SUBSET_LINK_TEXT: &str = "MdSubsetLinkY1c";
 const SUBSET_LINK_HREF: &str = "https://example.com/md-subset-z5";
+
+/// Spec labels from issues-24: Install, from JavaScript, from systems, Dual
+/// worlds, modules, native types, host I/O, packages.
+const LEARN_CHAPTERS: &[(&str, &str)] = &[
+    ("install.html", "Install"),
+    ("from-javascript.html", "from JavaScript"),
+    ("from-systems.html", "from systems"),
+    ("dual-worlds.html", "Dual worlds"),
+    ("modules.html", "modules"),
+    ("native-types.html", "native types"),
+    ("host-io.html", "host I/O"),
+    ("packages.html", "packages"),
+];
 
 fn temp_dir() -> PathBuf {
     static N: AtomicU64 = AtomicU64::new(0);
@@ -122,7 +136,24 @@ fn page_status_and_fences(src: &str) -> (String, Vec<(String, String)>) {
     (status, fences)
 }
 
+fn ensure_learn_chapter_sources(work: &Path) {
+    let website = work.join("website");
+    fs::create_dir_all(&website).unwrap();
+    for (href, label) in LEARN_CHAPTERS {
+        let slug = href.trim_end_matches(".html");
+        let path = website.join(format!("{slug}.md"));
+        if !path.exists() {
+            fs::write(
+                &path,
+                page(label, "learn", "not-yet", "Learn chapter stub."),
+            )
+            .unwrap();
+        }
+    }
+}
+
 fn run_website_pipeline(work: &Path) -> Result<(), String> {
+    ensure_learn_chapter_sources(work);
     let bin = build_generator();
     let output = Command::new(&bin)
         .current_dir(work)
@@ -454,5 +485,76 @@ fn website_pipeline_not_yet_page_without_fence_generates() {
     assert!(
         reference.contains("not-yet"),
         "expected reference status not-yet in HTML, got:\n{reference}"
+    );
+}
+
+fn copy_repo_website_pages(work: &Path) {
+    let src = repo_root().join("website");
+    let dst = work.join("website");
+    fs::create_dir_all(&dst).unwrap();
+    for ent in fs::read_dir(&src).unwrap() {
+        let ent = ent.unwrap();
+        let path = ent.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("md") {
+            fs::copy(&path, dst.join(ent.file_name())).unwrap();
+        }
+    }
+}
+
+fn assert_learn_chapter_nav(html: &str) {
+    for (href, label) in LEARN_CHAPTERS {
+        let needle = format!("<a href=\"{href}\">{label}</a>");
+        assert!(
+            html.contains(&needle),
+            "expected Learn nav link {needle}, got:\n{html}"
+        );
+    }
+}
+
+fn assert_visible_status(html: &str, path: &str) {
+    assert!(
+        html.contains("<p class=\"status\">"),
+        "expected visible status tag in {path}, got:\n{html}"
+    );
+    let shipped = html.contains("<p class=\"status\">shipped</p>");
+    let not_yet = html.contains("<p class=\"status\">not-yet</p>");
+    assert!(
+        shipped || not_yet,
+        "expected status shipped or not-yet in {path}, got:\n{html}"
+    );
+}
+
+#[test]
+fn website_pipeline_learn_skeleton_is_walkable() {
+    let work = temp_dir();
+    copy_repo_website_pages(&work);
+
+    run_website_pipeline(&work).expect("pipeline");
+
+    let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
+    assert_nav(&learn);
+    assert_learn_chapter_nav(&learn);
+    assert_visible_status(&learn, "learn.html");
+
+    for (href, _) in LEARN_CHAPTERS {
+        let html_path = work.join("website").join(href);
+        let html = fs::read_to_string(&html_path)
+            .unwrap_or_else(|_| panic!("expected generated {}", html_path.display()));
+        assert_nav(&html);
+        assert_learn_chapter_nav(&html);
+        assert_visible_status(&html, href);
+    }
+
+    let from_js = fs::read_to_string(work.join("website/from-javascript.html"))
+        .expect("from-javascript.html");
+    assert!(
+        from_js.contains("href=\"dual-worlds.html\""),
+        "JS landing must join at Dual worlds, got:\n{from_js}"
+    );
+    let from_sys =
+        fs::read_to_string(work.join("website/from-systems.html")).expect("from-systems.html");
+    assert!(
+        from_sys.contains("href=\"dual-worlds.html\""),
+        "systems landing must join at Dual worlds, got:\n{from_sys}"
     );
 }
