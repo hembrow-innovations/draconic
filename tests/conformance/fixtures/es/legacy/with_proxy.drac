@@ -1,0 +1,206 @@
+// E17.02.31: with + Proxy object environment (non-strict).
+// Empty-handler pass-through get/set; has intercepts identifier lookup
+// (true → object, false → outer); get/set/deleteProperty intercept
+// read/write/delete ident; has throw → TypeError; method-call this is the proxy.
+
+function passThroughRead() {
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {});
+  with (p) {
+    return x === 2;
+  }
+}
+let a = passThroughRead();
+
+function passThroughWrite() {
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {});
+  with (p) {
+    x = 9;
+  }
+  return obj.x === 9;
+}
+let b = passThroughWrite();
+
+function hasTrueUsesObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {
+    has: function () {
+      return true;
+    }
+  });
+  with (p) {
+    return x === 2;
+  }
+}
+let c = hasTrueUsesObject();
+
+function hasFalseUsesOuter() {
+  let x = 1;
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {
+    has: function () {
+      return false;
+    }
+  });
+  with (p) {
+    return x === 1;
+  }
+}
+let d = hasFalseUsesOuter();
+
+function hasInventedKey() {
+  let x = 1;
+  let obj = {};
+  let p = new Proxy(obj, {
+    has: function () {
+      return true;
+    },
+    get: function () {
+      return 9;
+    }
+  });
+  with (p) {
+    return x === 9;
+  }
+}
+let e = hasInventedKey();
+
+function getTrapRead() {
+  let n = 0;
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {
+    get: function (t, k) {
+      n = n + 1;
+      return t[k];
+    }
+  });
+  with (p) {
+    let v = x;
+    return v === 2 && n >= 1;
+  }
+}
+let f = getTrapRead();
+
+function setTrapWrite() {
+  let n = 0;
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {
+    set: function (t, k, v) {
+      n = n + 1;
+      t[k] = v;
+      return true;
+    }
+  });
+  with (p) {
+    x = 8;
+  }
+  return obj.x === 8 && n >= 1;
+}
+let g = setTrapWrite();
+
+function hasFalseAssignFallsThrough() {
+  let x = 1;
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {
+    has: function () {
+      return false;
+    }
+  });
+  with (p) {
+    x = 9;
+  }
+  return x === 9 && obj.x === 2;
+}
+let h = hasFalseAssignFallsThrough();
+
+function hasThrowIsTypeError() {
+  let p = new Proxy(
+    {},
+    {
+      has: function () {
+        throw new TypeError("has-trap");
+      }
+    }
+  );
+  try {
+    with (p) {
+      x;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && err.message === "has-trap";
+  }
+}
+let i = hasThrowIsTypeError();
+
+function deletePropertyTrap() {
+  let n = 0;
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {
+    deleteProperty: function (t, k) {
+      n = n + 1;
+      return delete t[k];
+    }
+  });
+  let r = false;
+  with (p) {
+    r = delete x;
+  }
+  return (
+    r === true &&
+    n >= 1 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let j = deletePropertyTrap();
+
+function methodThisIsProxy() {
+  let obj = {
+    n: 4,
+    m: function () {
+      return this === p && this.n === 4;
+    }
+  };
+  let p = new Proxy(obj, {});
+  with (p) {
+    return m() === true;
+  }
+}
+let k = methodThisIsProxy();
+
+function hasKeySeen() {
+  let keys = [];
+  let obj = { x: 2 };
+  let p = new Proxy(obj, {
+    has: function (t, key) {
+      keys.push(key);
+      return key in t;
+    }
+  });
+  let v = 0;
+  with (p) {
+    v = x;
+  }
+  return v === 2 && keys.indexOf("x") >= 0;
+}
+let l = hasKeySeen();
+
+function nestedProxyOuter() {
+  let x = 1;
+  let inner = { x: 2 };
+  let outer = { x: 5 };
+  let pi = new Proxy(inner, {
+    has: function () {
+      return false;
+    }
+  });
+  let po = new Proxy(outer, {});
+  with (po) {
+    with (pi) {
+      return x === 5;
+    }
+  }
+}
+let m = nestedProxyOuter();

@@ -348,3 +348,13 @@ fn with_unscopables_fixture_present() {
 fn with_unscopables_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_unscopables");
 }
+
+#[test]
+fn with_proxy_fixture_present() {
+    assert_fixture_present("es/legacy/with_proxy");
+}
+
+#[test]
+fn with_proxy_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_proxy");
+}
