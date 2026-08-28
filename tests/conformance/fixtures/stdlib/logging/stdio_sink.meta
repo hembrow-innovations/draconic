@@ -1,0 +1,9 @@
+id: stdlib/logging/stdio_sink
+targets: js,native
+js.exit: 0
+js.stdout: debug d\ninfo i\n
+js.stderr: warn w\nerror e\nerror shown\n
+js.check: if (bad !== 1) process.exit(1);
+native.exit: 0
+native.stdout: debug d\ninfo i\n1\n
+native.stderr: warn w\nerror e\nerror shown\n

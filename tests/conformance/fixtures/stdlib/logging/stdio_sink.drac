@@ -1,0 +1,19 @@
+// L06.02: Sink to stderr/stdout (string format).
+// createLogger(level, "stdio"): debug/info → stdout, warn/error → stderr.
+// Line format: "{level} {message}\n". Filter still applies to the sink.
+
+let logger = createLogger("debug", "stdio");
+logger.debug("d");
+logger.info("i");
+logger.warn("w");
+logger.error("e");
+let filtered = createLogger("error", "stdio");
+filtered.info("hidden");
+filtered.error("shown");
+let bad = 0;
+try {
+  createLogger("info", "file");
+  bad = -1;
+} catch (err) {
+  bad = err.name === "TypeError" ? 1 : -2;
+}

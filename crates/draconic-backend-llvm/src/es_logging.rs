@@ -1,4 +1,4 @@
-//! L06.01: native observations for `createLogger` leveled log + filter.
+//! L06.01 / L06.02: native observations for `createLogger` + stdio sink.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -10,7 +10,13 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
     Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
 };
-use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
+use draconic_runtime::abi::{
+    llvm_declares, ES_EXPR_DECLARES, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_F64, PRINT_STR,
+};
+
+thread_local! {
+    static SINK_LINES: RefCell<Vec<(bool, String)>> = RefCell::new(Vec::new());
+}
 
 pub(crate) fn is_es_logging_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -51,6 +57,7 @@ struct LogRec {
 struct LoggerState {
     level: u8,
     records: Vec<LogRec>,
+    sink: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,6 +80,7 @@ enum JsVal {
 struct ModuleInfo {
     user_locals: Vec<LocalId>,
     values: HashMap<LocalId, JsVal>,
+    sink_lines: Vec<(bool, String)>,
 }
 
 enum Flow {
@@ -94,10 +102,12 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             env.insert(loc.id, JsVal::Builtin(b));
         }
     }
+    SINK_LINES.with(|s| s.borrow_mut().clear());
     match eval_body(&module.body, &mut env) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }
+    let sink_lines = SINK_LINES.with(|s| s.take());
     let mut user_locals = Vec::new();
     let mut values = HashMap::new();
     for stmt in &module.body {
@@ -118,12 +128,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             }
         }
     }
-    if user_locals.is_empty() {
+    if user_locals.is_empty() && sink_lines.is_empty() {
         return None;
     }
     Some(ModuleInfo {
         user_locals,
         values,
+        sink_lines,
     })
 }
 
@@ -582,10 +593,11 @@ fn to_string_val(v: &JsVal) -> String {
     }
 }
 
-fn make_logger(level: u8) -> JsVal {
+fn make_logger(level: u8, sink: bool) -> JsVal {
     JsVal::Logger(Rc::new(RefCell::new(LoggerState {
         level,
         records: Vec::new(),
+        sink,
     })))
 }
 
@@ -598,7 +610,16 @@ fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
                 let s = to_string_val(args.first().unwrap_or(&JsVal::Undef));
                 parse_level(&s).ok_or_else(|| Some(type_error("invalid log level")))?
             };
-            Ok(make_logger(rank))
+            let sink = if args.len() >= 2 {
+                let s = to_string_val(&args[1]);
+                if s != "stdio" {
+                    return Err(Some(type_error("invalid log sink")));
+                }
+                true
+            } else {
+                false
+            };
+            Ok(make_logger(rank, sink))
         }
         JsVal::LogMethod { kind, logger } => call_method(*kind, logger, args),
         _ => Err(None),
@@ -686,8 +707,13 @@ fn emit_log(logger: &Rc<RefCell<LoggerState>>, rank: u8, args: &[JsVal]) {
     let msg = to_string_val(args.first().unwrap_or(&JsVal::Undef));
     st.records.push(LogRec {
         level: level_name(rank).into(),
-        message: msg,
+        message: msg.clone(),
     });
+    if st.sink {
+        let line = format!("{} {}\n", level_name(rank), msg);
+        let stderr = rank >= 2;
+        SINK_LINES.with(|s| s.borrow_mut().push((stderr, line)));
+    }
 }
 
 fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
@@ -793,6 +819,16 @@ impl Emitter {
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
+        for (stderr, line) in &info.sink_lines {
+            let name = self.string_const(line);
+            let n = line.len();
+            let call = if *stderr {
+                HOST_STDERR_WRITE.call(&format!("ptr {name}, i64 {n}"))
+            } else {
+                HOST_STDOUT_WRITE.call(&format!("ptr {name}, i64 {n}"))
+            };
+            writeln!(self.body, "  {call}").ok();
+        }
         for id in &info.user_locals {
             let v = info
                 .values
@@ -814,10 +850,15 @@ impl Emitter {
         }
         writeln!(
             self.out,
-            "; Draconic LLVM backend (L06.01 createLogger)"
+            "; Draconic LLVM backend (L06.01/L06.02 createLogger)"
         )
         .ok();
-        writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
+        let mut decls = ES_EXPR_DECLARES.to_vec();
+        if !info.sink_lines.is_empty() {
+            decls.push(HOST_STDOUT_WRITE);
+            decls.push(HOST_STDERR_WRITE);
+        }
+        writeln!(self.out, "{}", llvm_declares(&decls)).ok();
         for (s, name) in &self.str_consts {
             let n = s.len() + 1;
             let mut esc = String::new();
@@ -875,5 +916,21 @@ mod tests {
         assert!(is_es_logging_module(&m));
         let ir = emit_es_logging(&m).expect("emit");
         assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_stdio_sink() {
+        let m = compile_src(
+            r#"
+            let logger = createLogger("debug", "stdio");
+            logger.debug("d");
+            logger.warn("w");
+            let n = 1;
+            "#,
+        );
+        assert!(is_es_logging_module(&m));
+        let ir = emit_es_logging(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_stderr_write"), "{ir}");
     }
 }

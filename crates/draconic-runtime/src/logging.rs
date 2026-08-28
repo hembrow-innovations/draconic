@@ -1,7 +1,7 @@
-//! L06.01: leveled logger polyfill (`createLogger`).
+//! L06.01 / L06.02: leveled logger polyfill (`createLogger`) + stdio sink.
 
 pub fn create_logger_js_polyfill() -> &'static str {
-    r#"function createLogger(level) {
+    r#"function createLogger(level, sink) {
   var ranks = { debug: 0, info: 1, warn: 2, error: 3 };
   function norm(l) {
     if (typeof l !== "string" || ranks[l] === undefined) {
@@ -10,10 +10,27 @@ pub fn create_logger_js_polyfill() -> &'static str {
     return l;
   }
   var current = arguments.length === 0 ? "info" : norm(level);
+  var useSink = false;
+  if (arguments.length >= 2) {
+    if (sink !== "stdio") {
+      throw new TypeError("invalid log sink");
+    }
+    useSink = true;
+  }
   var recs = [];
   function emit(lvl, msg) {
     if (ranks[lvl] < ranks[current]) return;
     recs.push({ level: lvl, message: String(msg) });
+    if (useSink) {
+      var line = lvl + " " + String(msg) + "\n";
+      if (lvl === "warn" || lvl === "error") {
+        if (typeof process !== "undefined" && process.stderr && typeof process.stderr.write === "function") {
+          process.stderr.write(line);
+        }
+      } else if (typeof process !== "undefined" && process.stdout && typeof process.stdout.write === "function") {
+        process.stdout.write(line);
+      }
+    }
   }
   return {
     error: function (msg) { emit("error", msg); },
@@ -42,5 +59,9 @@ mod tests {
         assert!(s.contains("debug"), "{s}");
         assert!(s.contains("setLevel"), "{s}");
         assert!(s.contains("records"), "{s}");
+        assert!(s.contains("stdio"), "{s}");
+        assert!(s.contains("invalid log sink"), "{s}");
+        assert!(s.contains("process.stderr.write"), "{s}");
+        assert!(s.contains("process.stdout.write"), "{s}");
     }
 }
