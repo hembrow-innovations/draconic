@@ -24,3 +24,6 @@ examples/todo/server/server
 **/fuzz/artifacts
 **/fuzz/coverage
 **/*_seed_corpus.zip
+
+# Zed clones tree-sitter grammars here when compiling the dev extension
+editors/zed/grammars/

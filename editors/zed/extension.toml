@@ -1,0 +1,12 @@
+id = "draconic"
+name = "Draconic"
+description = "Syntax highlighting for Draconic (.drac)"
+version = "0.0.1"
+schema_version = 1
+authors = ["Jared Hembrow <jared.hembrow@gmail.com>"]
+repository = "https://github.com/hembrow-innovations/draconic"
+
+[grammars.draconic]
+repository = "https://github.com/tree-sitter/tree-sitter-typescript"
+rev = "75b3874edb2dc714fb1fd77a32013d0f8699989f"
+path = "typescript"
