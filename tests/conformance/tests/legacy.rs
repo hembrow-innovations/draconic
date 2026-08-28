@@ -388,3 +388,13 @@ fn with_logical_assign_fixture_present() {
 fn with_logical_assign_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_logical_assign");
 }
+
+#[test]
+fn with_destructure_fixture_present() {
+    assert_fixture_present("es/legacy/with_destructure");
+}
+
+#[test]
+fn with_destructure_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_destructure");
+}
