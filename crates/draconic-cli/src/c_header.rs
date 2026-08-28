@@ -1,5 +1,8 @@
 //! F07.01: parse a C header subset — function decls with scalar/pointer params.
 //! F07.02: emit Draconic `extern "C"` decls from a parsed header.
+//! F07.03: default extern-module path for `draconic bindgen`.
+
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
@@ -67,6 +70,11 @@ pub fn emit_externs(header: &Header) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Sibling `.drac` path for `draconic bindgen <header>` when `-o` is omitted.
+pub fn default_extern_module_path(header: &Path) -> PathBuf {
+    header.with_extension("drac")
 }
 
 fn emit_fn(f: &FnDecl) -> String {
@@ -675,6 +683,18 @@ mod tests {
         assert_eq!(
             emit_externs(&h),
             "extern \"C\" function load(p: *i32): i32;\nextern \"C\" function sh(s: i16): i16;\n"
+        );
+    }
+
+    #[test]
+    fn default_extern_module_path_replaces_extension() {
+        assert_eq!(
+            default_extern_module_path(Path::new("api.h")),
+            PathBuf::from("api.drac")
+        );
+        assert_eq!(
+            default_extern_module_path(Path::new("/tmp/foo.H")),
+            PathBuf::from("/tmp/foo.drac")
         );
     }
 }
