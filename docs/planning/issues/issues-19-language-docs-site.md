@@ -1,7 +1,7 @@
 ---
 id: issues-19
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Language Learn + Reference site"
@@ -148,3 +148,5 @@ Same as **Out of Scope** above.
 ## Comments
 
 > **2026-08-28:** Grilled and locked. ADR-0010. Glossary: Learn, Reference. Seam: one website pipeline.
+
+> **2026-08-29:** First tracer [[issues-20-docs-ssg-one-page]] landed (one page → HTML). This parent stays open.

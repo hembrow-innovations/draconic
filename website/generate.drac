@@ -1,0 +1,4 @@
+writeFileText("website/page.html", "<!DOCTYPE html>\n<html><head><title>Docs</title></head><body>\n");
+let md = readFileText("website/page.md");
+appendFileText("website/page.html", md);
+appendFileText("website/page.html", "\n</body></html>\n");

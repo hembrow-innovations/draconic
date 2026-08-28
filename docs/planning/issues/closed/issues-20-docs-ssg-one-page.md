@@ -1,12 +1,12 @@
 ---
 id: issues-20
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Docs SSG: one page to HTML"
 description: "A native Draconic Program reads one markdown page and emits one HTML file."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -14,7 +14,7 @@ tags:
   - issue
   - enhancement
   - docs
-  - ready-for-agent
+  - closed
 ---
 
 # Docs SSG: one page to HTML
@@ -33,9 +33,9 @@ A visitor can generate a single HTML page from a single markdown source by runni
 
 ## Acceptance criteria
 
-- [ ] A native Program reads one markdown page and writes one HTML file
-- [ ] The website pipeline compiles that generator and runs it; the HTML contains the page title
-- [ ] No Node docs generator, no vault pages, no playground
+- [x] A native Program reads one markdown page and writes one HTML file
+- [x] The website pipeline compiles that generator and runs it; the HTML contains the page title
+- [x] No Node docs generator, no vault pages, no playground
 
 ## Agent Brief
 
@@ -57,3 +57,5 @@ Nav, status tags, fence extraction, GitHub Pages, Learn/Reference content, playg
 ## Comments
 
 > Child of [[issues-19-language-docs-site]].
+
+> **2026-08-29:** Landed. `website/generate.drac` reads `website/page.md` and writes `website/page.html`. Pipeline test: `tests/integration/tests/website_pipeline.rs`. Parent [[issues-19-language-docs-site]] stays open.
