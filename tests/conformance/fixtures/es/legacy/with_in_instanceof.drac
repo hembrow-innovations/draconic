@@ -1,0 +1,242 @@
+// E17.02.54: with + in / instanceof through object environment (non-strict).
+// Object/key/ctor/instance idents hit object (else outer); "k" in ident /
+// ident in obj / x instanceof ident / ident instanceof C; missing key false;
+// inherited HasProperty on RHS; primitive in RHS TypeError; non-callable
+// instanceof TypeError; live close; nested with; unresolvable → ReferenceError;
+// accessor this is with object; unscopables skip.
+
+function inObjectHitsObject() {
+  let obj = { box: { x: 1 } };
+  with (obj) {
+    return ("x" in box) === true && ("y" in box) === false;
+  }
+}
+let a = inObjectHitsObject();
+
+function inObjectMissIsOuter() {
+  let box = { x: 1 };
+  with ({}) {
+    return ("x" in box) === true;
+  }
+}
+let b = inObjectMissIsOuter();
+
+function inObjectShadowsOuter() {
+  let box = { x: 1 };
+  let obj = { box: { y: 1 } };
+  with (obj) {
+    return ("x" in box) === false && ("y" in box) === true;
+  }
+}
+let c = inObjectShadowsOuter();
+
+function inKeyHitsObject() {
+  let obj = { k: "x" };
+  let src = { x: 1 };
+  with (obj) {
+    return (k in src) === true;
+  }
+}
+let d = inKeyHitsObject();
+
+function inKeyMissIsOuter() {
+  let k = "x";
+  let src = { x: 1 };
+  with ({}) {
+    return (k in src) === true;
+  }
+}
+let e = inKeyMissIsOuter();
+
+function inMissingKeyFalse() {
+  let obj = { k: "z", src: { x: 1 } };
+  with (obj) {
+    return (k in src) === false;
+  }
+}
+let f = inMissingKeyFalse();
+
+function inInheritedOnRhs() {
+  let obj = { box: {} };
+  with (obj) {
+    return ("toString" in box) === true;
+  }
+}
+let g = inInheritedOnRhs();
+
+function instanceofCtorHitsObject() {
+  function C() {}
+  function D() {}
+  let x = new C();
+  let obj = { C: C };
+  with (obj) {
+    return x instanceof C && (x instanceof D) === false;
+  }
+}
+let h = instanceofCtorHitsObject();
+
+function instanceofCtorMissIsOuter() {
+  function C() {}
+  let x = new C();
+  with ({}) {
+    return x instanceof C;
+  }
+}
+let i = instanceofCtorMissIsOuter();
+
+function instanceofCtorShadowsOuter() {
+  function C() {}
+  function D() {}
+  let x = new C();
+  let obj = { C: D };
+  with (obj) {
+    return (x instanceof C) === false;
+  }
+}
+let j = instanceofCtorShadowsOuter();
+
+function instanceofInstanceHitsObject() {
+  function C() {}
+  let obj = { x: new C() };
+  with (obj) {
+    return x instanceof C;
+  }
+}
+let k = instanceofInstanceHitsObject();
+
+function instanceofClass() {
+  class C {}
+  let obj = { C: C };
+  with (obj) {
+    return new C() instanceof C;
+  }
+}
+let l = instanceofClass();
+
+function liveClose() {
+  let obj = { box: { x: 1 } };
+  let run;
+  with (obj) {
+    run = function () {
+      return "x" in box;
+    };
+  }
+  obj.box = { y: 1 };
+  return run() === false;
+}
+let m = liveClose();
+
+function nestedInnerWins() {
+  let inner = { box: { x: 1 } };
+  let outer = { box: { y: 1 } };
+  with (outer) {
+    with (inner) {
+      return ("x" in box) === true && ("y" in box) === false;
+    }
+  }
+}
+let n = nestedInnerWins();
+
+function unresolvableInRhsThrows() {
+  with ({}) {
+    try {
+      "x" in e170254_missing;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let p = unresolvableInRhsThrows();
+
+function unresolvableInstanceofRhsThrows() {
+  let x = {};
+  with ({}) {
+    try {
+      x instanceof e170254_missing_ctor;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let q = unresolvableInstanceofRhsThrows();
+
+function inPrimitiveRhsTypeError() {
+  let obj = { n: 1 };
+  with (obj) {
+    try {
+      "x" in n;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let r = inPrimitiveRhsTypeError();
+
+function instanceofNonCallableTypeError() {
+  let x = {};
+  let obj = { C: {} };
+  with (obj) {
+    try {
+      x instanceof C;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let s = instanceofNonCallableTypeError();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get box() {
+      seen = this;
+      return { x: 1 };
+    }
+  };
+  with (obj) {
+    let ok = "x" in box;
+    return ok === true && seen === obj;
+  }
+}
+let t = accessorThisIsWithObject();
+
+function unscopablesUsesOuter() {
+  let box = { x: 1 };
+  let obj = { box: { y: 1 } };
+  obj[Symbol.unscopables] = { box: true };
+  with (obj) {
+    return ("x" in box) === true && ("y" in box) === false;
+  }
+}
+let u = unscopablesUsesOuter();
+
+function unscopablesFalseyStillObject() {
+  let box = { x: 1 };
+  let obj = { box: { y: 1 } };
+  obj[Symbol.unscopables] = { box: false };
+  with (obj) {
+    return ("x" in box) === false && ("y" in box) === true;
+  }
+}
+let v = unscopablesFalseyStillObject();
+
+function inheritedBinding() {
+  let proto = { box: { x: 1 } };
+  let obj = Object.create(proto);
+  with (obj) {
+    return ("x" in box) === true;
+  }
+}
+let w = inheritedBinding();
+
+function numericKeyInArray() {
+  let obj = { arr: [1] };
+  with (obj) {
+    return (0 in arr) === true && (1 in arr) === false;
+  }
+}
+let y = numericKeyInArray();

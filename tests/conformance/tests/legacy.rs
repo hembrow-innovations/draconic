@@ -578,3 +578,13 @@ fn with_for_await_fixture_present() {
 fn with_for_await_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_for_await");
 }
+
+#[test]
+fn with_in_instanceof_fixture_present() {
+    assert_fixture_present("es/legacy/with_in_instanceof");
+}
+
+#[test]
+fn with_in_instanceof_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_in_instanceof");
+}
