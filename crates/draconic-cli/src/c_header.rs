@@ -1,4 +1,5 @@
 //! F07.01: parse a C header subset — function decls with scalar/pointer params.
+//! F07.02: emit Draconic `extern "C"` decls from a parsed header.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
@@ -57,6 +58,56 @@ pub fn parse_header(src: &str) -> Result<Header, ParseError> {
         functions.push(parse_fn_decl(&tokens, &mut i)?);
     }
     Ok(Header { functions })
+}
+
+pub fn emit_externs(header: &Header) -> String {
+    let mut out = String::new();
+    for f in &header.functions {
+        out.push_str(&emit_fn(f));
+        out.push('\n');
+    }
+    out
+}
+
+fn emit_fn(f: &FnDecl) -> String {
+    let params = f
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let name = p.name.clone().unwrap_or_else(|| format!("p{i}"));
+            format!("{}: {}", name, emit_ty(&p.ty))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "extern \"C\" function {}({}): {};",
+        f.name,
+        params,
+        emit_ty(&f.return_ty)
+    )
+}
+
+fn emit_ty(ty: &CType) -> String {
+    match ty {
+        CType::Void => "void".into(),
+        CType::Char => "i8".into(),
+        CType::UChar => "u8".into(),
+        CType::Short => "i16".into(),
+        CType::UShort => "u16".into(),
+        CType::Int => "i32".into(),
+        CType::UInt => "u32".into(),
+        CType::Long => "i64".into(),
+        CType::ULong => "u64".into(),
+        CType::LongLong => "i64".into(),
+        CType::ULongLong => "u64".into(),
+        CType::Float => "f32".into(),
+        CType::Double => "f64".into(),
+        CType::Pointer(inner) => match inner.as_ref() {
+            CType::Void | CType::Char | CType::UChar => "*u8".into(),
+            other => format!("*{}", emit_ty(other)),
+        },
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -572,6 +623,58 @@ mod tests {
         assert!(
             err.message.contains("body") || err.message.contains("{"),
             "{err}"
+        );
+    }
+
+    #[test]
+    fn emit_scalar_binary_fn() {
+        let h = parse_header("int add(int a, int b);").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "extern \"C\" function add(a: i32, b: i32): i32;\n"
+        );
+    }
+
+    #[test]
+    fn emit_void_and_pointer() {
+        let h = parse_header("void free(void *p);\nchar *strdup(const char *s);").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "extern \"C\" function free(p: *u8): void;\nextern \"C\" function strdup(s: *u8): *u8;\n"
+        );
+    }
+
+    #[test]
+    fn emit_unnamed_and_void_params() {
+        let h = parse_header("int getpid(void);\nint abs(int);").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "extern \"C\" function getpid(): i32;\nextern \"C\" function abs(p0: i32): i32;\n"
+        );
+    }
+
+    #[test]
+    fn emit_unsigned_long_float() {
+        let h = parse_header(
+            "unsigned int len(unsigned long n);\ndouble sqrt(double x);\nfloat fma(float a, float b, float c);",
+        )
+        .unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            concat!(
+                "extern \"C\" function len(n: u64): u32;\n",
+                "extern \"C\" function sqrt(x: f64): f64;\n",
+                "extern \"C\" function fma(a: f32, b: f32, c: f32): f32;\n",
+            )
+        );
+    }
+
+    #[test]
+    fn emit_int_pointer_and_short() {
+        let h = parse_header("int load(int *p);\nshort sh(signed short s);").unwrap();
+        assert_eq!(
+            emit_externs(&h),
+            "extern \"C\" function load(p: *i32): i32;\nextern \"C\" function sh(s: i16): i16;\n"
         );
     }
 }
