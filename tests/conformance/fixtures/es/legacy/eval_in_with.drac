@@ -1,0 +1,125 @@
+// E17.02.27: Direct eval inside `with` (non-strict).
+// Lookup/assign go through the with object; var injects into the caller's
+// VariableEnvironment; nested with; indirect eval does not see the object.
+
+// Direct eval read: identifier on the with object.
+function readThrough() {
+  let obj = { x: 7 };
+  with (obj) {
+    return eval("x");
+  }
+}
+let a = readThrough();
+
+// Direct eval assign updates the with-object own property.
+function assignThrough() {
+  let obj = { x: 1 };
+  with (obj) {
+    eval("x = 2");
+  }
+  return obj.x;
+}
+let b = assignThrough();
+
+// Direct eval var injects into the function VE, not as an own property.
+function varInject() {
+  let obj = {};
+  with (obj) {
+    eval("var y = 3");
+  }
+  return (
+    y === 3 &&
+    obj.y === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "y") === false
+  );
+}
+let c = varInject();
+
+// Missing name in eval assign falls through (implicit global), not own prop.
+function missingFallsThrough() {
+  let obj = {};
+  with (obj) {
+    eval("e170227_miss = 4");
+  }
+  let ok =
+    e170227_miss === 4 &&
+    globalThis.e170227_miss === 4 &&
+    Object.prototype.hasOwnProperty.call(obj, "e170227_miss") === false;
+  delete globalThis.e170227_miss;
+  return ok;
+}
+let d = missingFallsThrough();
+
+// Nested with: inner object wins for eval lookup.
+function nestedInner() {
+  let inner = { z: 5 };
+  let outer = { z: 6 };
+  with (outer) {
+    with (inner) {
+      return eval("z");
+    }
+  }
+}
+let e = nestedInner();
+
+// After leaving inner with, eval sees the outer object.
+function nestedOuter() {
+  let inner = { z: 5 };
+  let outer = { z: 6 };
+  with (outer) {
+    with (inner) {
+      eval("z");
+    }
+    return eval("z");
+  }
+}
+let f = nestedOuter();
+
+// With object shadows an outer lexical binding in eval source.
+function shadowsLexical() {
+  let x = 10;
+  let obj = { x: 20 };
+  with (obj) {
+    return eval("x");
+  }
+}
+let g = shadowsLexical();
+
+// Indirect eval is global: does not see the with object.
+function indirectIgnoresWith() {
+  let obj = { x: 99 };
+  with (obj) {
+    return (0, eval)("typeof x");
+  }
+}
+let h = indirectIgnoresWith();
+
+// Direct eval this is still the sloppy caller this, not the with object.
+function evalThisBare() {
+  let obj = { id: 1 };
+  with (obj) {
+    return eval("this") === globalThis;
+  }
+}
+let i = evalThisBare();
+
+// Method + with: eval this remains the receiver.
+let recv = {
+  id: 9,
+  m: function () {
+    with ({}) {
+      return eval("this").id;
+    }
+  }
+};
+let j = recv.m();
+
+// Direct eval function declaration injects into VE (callable after with).
+function fnInject() {
+  let obj = {};
+  with (obj) {
+    eval("function injected() { return 8; }");
+  }
+  return injected() === 8 && obj.injected === undefined;
+}
+let k = fnInject();
