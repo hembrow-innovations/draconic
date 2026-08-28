@@ -1,0 +1,276 @@
+// E17.02.41: with + async functions / await through object environment
+// (non-strict). async function / await ident hits object (else outer); resume
+// after await still sees with (live); params shadow object; nested async; async
+// expression/arrow/method; with inside async body; block async function is not
+// Annex B hoisted.
+
+function asyncAwaitHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function f() {
+      return (await x) === 1;
+    }
+    return f();
+  }
+}
+let a = false;
+asyncAwaitHitsObject().then(function (v) {
+  a = v;
+});
+
+function asyncLiveClose() {
+  let obj = { x: 1 };
+  let f;
+  with (obj) {
+    f = async function () {
+      return x;
+    };
+  }
+  obj.x = 9;
+  return f().then(function (v) {
+    return v === 9;
+  });
+}
+let b = false;
+asyncLiveClose().then(function (v) {
+  b = v;
+});
+
+function asyncResumeLive() {
+  let obj = { x: 1 };
+  let p;
+  with (obj) {
+    async function f() {
+      let first = x;
+      await Promise.resolve(0);
+      return first === 1 && x === 5;
+    }
+    p = f();
+  }
+  obj.x = 5;
+  return p;
+}
+let c = false;
+asyncResumeLive().then(function (v) {
+  c = v;
+});
+
+function asyncParamsShadow() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function f(x) {
+      return x;
+    }
+    return f(4).then(function (v) {
+      return v === 4;
+    });
+  }
+}
+let d = false;
+asyncParamsShadow().then(function (v) {
+  d = v;
+});
+
+function asyncMissIsOuter() {
+  let x = 10;
+  with ({}) {
+    async function f() {
+      return x;
+    }
+    return f().then(function (v) {
+      return v === 10;
+    });
+  }
+}
+let e = false;
+asyncMissIsOuter().then(function (v) {
+  e = v;
+});
+
+function asyncAssignHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function f() {
+      x = 2;
+      return x;
+    }
+    return f().then(function (v) {
+      return v === 2 && obj.x === 2;
+    });
+  }
+}
+let f = false;
+asyncAssignHitsObject().then(function (v) {
+  f = v;
+});
+
+function asyncExpr() {
+  let obj = { x: 6 };
+  with (obj) {
+    let h = async function () {
+      return x;
+    };
+    return h().then(function (v) {
+      return v === 6;
+    });
+  }
+}
+let g = false;
+asyncExpr().then(function (v) {
+  g = v;
+});
+
+function asyncArrow() {
+  let obj = { x: 7 };
+  with (obj) {
+    let h = async () => x;
+    return h().then(function (v) {
+      return v === 7;
+    });
+  }
+}
+let h = false;
+asyncArrow().then(function (v) {
+  h = v;
+});
+
+function asyncMethod() {
+  let obj = { x: 8 };
+  with (obj) {
+    let o = {
+      async m() {
+        return x;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 8;
+    });
+  }
+}
+let i = false;
+asyncMethod().then(function (v) {
+  i = v;
+});
+
+function withInsideAsync() {
+  let obj = { x: 9 };
+  async function f() {
+    with (obj) {
+      return x;
+    }
+  }
+  return f().then(function (v) {
+    return v === 9;
+  });
+}
+let j = false;
+withInsideAsync().then(function (v) {
+  j = v;
+});
+
+function nestedAsync() {
+  let obj = { x: 2 };
+  with (obj) {
+    async function outer() {
+      async function inner() {
+        return x;
+      }
+      return inner();
+    }
+    return outer().then(function (v) {
+      return v === 2;
+    });
+  }
+}
+let k = false;
+nestedAsync().then(function (v) {
+  k = v;
+});
+
+function asyncNotHoistedAnnexB() {
+  with ({}) {
+    async function af() {
+      return 1;
+    }
+  }
+  return typeof af === "undefined";
+}
+let l = asyncNotHoistedAnnexB();
+
+function asyncDefaultParamHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    async function f(p = x) {
+      return p;
+    }
+    return f().then(function (v) {
+      return v === 7;
+    });
+  }
+}
+let m = false;
+asyncDefaultParamHitsObject().then(function (v) {
+  m = v;
+});
+
+function asyncAssignMissIsOuter() {
+  let x = 1;
+  let obj = {};
+  with (obj) {
+    async function f() {
+      x = 3;
+      return x;
+    }
+    return f().then(function (v) {
+      return v === 3 && x === 3 && obj.x === undefined;
+    });
+  }
+}
+let n = false;
+asyncAssignMissIsOuter().then(function (v) {
+  n = v;
+});
+
+function asyncAwaitThenableOnObject() {
+  let obj = { x: Promise.resolve(3) };
+  with (obj) {
+    async function f() {
+      return (await x) === 3;
+    }
+    return f();
+  }
+}
+let p = false;
+asyncAwaitThenableOnObject().then(function (v) {
+  p = v;
+});
+
+function asyncArrowLiveClose() {
+  let obj = { x: 1 };
+  let fn;
+  with (obj) {
+    fn = async () => x;
+  }
+  obj.x = 4;
+  return fn().then(function (v) {
+    return v === 4;
+  });
+}
+let q = false;
+asyncArrowLiveClose().then(function (v) {
+  q = v;
+});
+
+function asyncAwaitMissIsOuter() {
+  let x = Promise.resolve(11);
+  with ({}) {
+    async function f() {
+      return (await x) === 11;
+    }
+    return f();
+  }
+}
+let r = false;
+asyncAwaitMissIsOuter().then(function (v) {
+  r = v;
+});
