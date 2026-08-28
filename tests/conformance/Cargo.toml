@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+draconic-diagnostics.workspace = true
 draconic-frontend.workspace = true
 draconic-backend-js.workspace = true
 draconic-backend-llvm.workspace = true

@@ -1,0 +1,6 @@
+id: ffi/policy/bad_param_string
+targets: js,native
+js.error: error[E0307]
+js.error_code: E0307
+native.error: error[E0307]
+native.error_code: E0307

@@ -1,0 +1,2 @@
+// F08.02: JS-only type in an extern param is E0307 with a clear span.
+extern "C" function f(s: string): i32;

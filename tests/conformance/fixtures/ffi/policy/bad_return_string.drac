@@ -1,0 +1,2 @@
+// F08.02: JS-only type in an extern return is E0307 with a clear span.
+extern "C" function f(): string;

@@ -16,6 +16,7 @@ use draconic_backend_llvm::{
     build_c_dynamic_lib, build_c_static_lib, build_native_binary,
     build_native_binary_with_dynamic_libs, build_native_binary_with_static_libs, emit_llvm_ir,
 };
+use draconic_diagnostics::SourceFile;
 use draconic_frontend::compile_path;
 
 use coverage::{instrument_js, read_hits, temp_cov_path, wrap_coverage_dump};
@@ -353,8 +354,14 @@ fn unescape(s: &str) -> String {
 }
 
 /// Compile a fixture entry through the Frontend (links static imports when needed).
-fn compile_module(source_path: &Path, _source: &str) -> Result<draconic_frontend::Module, String> {
-    compile_path(source_path).map_err(|d| format!("compile: {d}"))
+fn compile_module(source_path: &Path, source: &str) -> Result<draconic_frontend::Module, String> {
+    compile_path(source_path).map_err(|d| {
+        let name = source_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("program.drac");
+        format!("compile: {}", d.pretty(&SourceFile::new(name, source)))
+    })
 }
 
 /// Run one fixture on one target.

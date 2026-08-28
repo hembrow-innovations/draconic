@@ -9137,7 +9137,8 @@ mod tests {
 
     #[test]
     fn check_extern_string_param_errors() {
-        let program = parse(r#"extern "C" function f(s: string): i32;"#).unwrap();
+        let src = r#"extern "C" function f(s: string): i32;"#;
+        let program = parse(src).unwrap();
         let err = check(program).unwrap_err();
         assert!(
             err.message.contains("extern parameter") && err.message.contains("string"),
@@ -9145,6 +9146,10 @@ mod tests {
             err.message
         );
         assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+        assert!(!err.span.is_dummy(), "F08.02: span must point at the bad type");
+        let lo = err.span.start.0 as usize;
+        let hi = err.span.end.0 as usize;
+        assert_eq!(&src[lo..hi], "string", "span should cover the unsupported type");
     }
 
     #[test]
@@ -9222,7 +9227,8 @@ mod tests {
 
     #[test]
     fn check_extern_string_return_errors() {
-        let program = parse(r#"extern "C" function f(): string;"#).unwrap();
+        let src = r#"extern "C" function f(): string;"#;
+        let program = parse(src).unwrap();
         let err = check(program).unwrap_err();
         assert!(
             err.message.contains("extern return") && err.message.contains("string"),
@@ -9230,6 +9236,10 @@ mod tests {
             err.message
         );
         assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+        assert!(!err.span.is_dummy(), "F08.02: span must point at the bad type");
+        let lo = err.span.start.0 as usize;
+        let hi = err.span.end.0 as usize;
+        assert_eq!(&src[lo..hi], "string", "span should cover the unsupported type");
     }
 
     #[test]

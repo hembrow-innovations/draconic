@@ -1,0 +1,2 @@
+// F08.02: rest param is not a valid C ABI signature (E0307, span on the binding).
+extern "C" function f(...xs: *u8): void;
