@@ -1,0 +1,78 @@
+// E17.02.28: Direct eval `arguments` residual (non-strict).
+// eval("arguments") is the caller's arguments object; mapped alias via eval;
+// callee; length; arrow sees outer; nested has own; top-level/indirect typeof
+// is "undefined"; "use strict" eval source still sees caller arguments.
+
+function sameObject(a) {
+  return eval("arguments") === arguments;
+}
+let a = sameObject(1);
+
+function mappedWrite(a) {
+  eval("arguments[0] = 99");
+  return a;
+}
+let b = mappedWrite(1);
+
+function mappedRead(a) {
+  a = 42;
+  return eval("arguments[0]");
+}
+let c = mappedRead(1);
+
+function calleeIsFn() {
+  return eval("arguments.callee") === calleeIsFn;
+}
+let d = calleeIsFn();
+
+function arityLen(a, b) {
+  return eval("arguments.length");
+}
+let e = arityLen(1);
+
+let named = function nf(x) {
+  eval("arguments[0] = 10");
+  return x;
+};
+let f = named(1);
+
+let o = {
+  m: function (p) {
+    eval("arguments[0] = 8");
+    return p;
+  }
+};
+let g = o.m(1);
+
+function strictEvalMapped(a) {
+  eval("'use strict'; arguments[0] = 77");
+  return a;
+}
+let h = strictEvalMapped(1);
+
+function outer(x) {
+  function inner(y) {
+    return eval("arguments[0]");
+  }
+  return inner(9) === 9 && eval("arguments[0]") === x;
+}
+let i = outer(3);
+
+function arrowOuter(a) {
+  let ar = () => eval("arguments[0]");
+  return ar();
+}
+let j = arrowOuter(5);
+
+let k = eval("typeof arguments");
+
+function indirect() {
+  return (0, eval)("typeof arguments");
+}
+let l = indirect();
+
+function extra(a) {
+  eval("arguments[1] = 5");
+  return a + eval("arguments[1]") + eval("arguments.length");
+}
+let m = extra(1, 2);
