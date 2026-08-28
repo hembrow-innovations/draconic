@@ -1,8 +1,9 @@
-//! L05.01: native observations for in-language `describe` / `it`.
+//! L05.01 / L05.02: native observations for in-language `describe` / `it` / `expect`.
 //!
 //! Compile-time evaluation: `describe` runs its callback; `it` runs its callback
-//! and yields `true` on success or `false` if the callback throws. Emits Runtime
-//! prints of final top-level number/string/bool locals.
+//! and yields `true` on success or `false` if the callback throws. `expect`
+//! matchers throw a string message on failure. Emits Runtime prints of final
+//! top-level number/string/bool locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -10,7 +11,7 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt,
+    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
@@ -30,6 +31,14 @@ enum BuiltinId {
     GlobalThis,
     Describe,
     It,
+    Expect,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum MatcherKind {
+    ToBe,
+    ToBeTruthy,
+    ToBeFalsy,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,6 +49,8 @@ enum JsVal {
     Undef,
     Builtin(BuiltinId),
     Closure { body: Vec<Stmt> },
+    Matcher { actual: Box<JsVal> },
+    BoundMatcher { kind: MatcherKind, actual: Box<JsVal> },
 }
 
 struct ModuleInfo {
@@ -105,6 +116,7 @@ fn ident_builtin(name: &str) -> Option<BuiltinId> {
         "globalThis" => Some(BuiltinId::GlobalThis),
         "describe" => Some(BuiltinId::Describe),
         "it" => Some(BuiltinId::It),
+        "expect" => Some(BuiltinId::Expect),
         _ => None,
     }
 }
@@ -129,13 +141,27 @@ fn stmt_has_testing_surface(stmt: &Stmt) -> bool {
                 || stmt_has_testing_surface(consequent)
                 || alternate.as_ref().is_some_and(|a| stmt_has_testing_surface(a))
         }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            block.iter().any(stmt_has_testing_surface)
+                || handler
+                    .as_ref()
+                    .is_some_and(|h| h.iter().any(stmt_has_testing_surface))
+                || finalizer
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(stmt_has_testing_surface))
+        }
         _ => false,
     }
 }
 
 fn expr_has_testing_surface(expr: &Expr) -> bool {
     match expr {
-        Expr::IdentName { name, .. } => matches!(name.as_str(), "describe" | "it"),
+        Expr::IdentName { name, .. } => matches!(name.as_str(), "describe" | "it" | "expect"),
         Expr::Unary { arg, .. } => expr_has_testing_surface(arg),
         Expr::Binary { left, right, .. } => {
             expr_has_testing_surface(left) || expr_has_testing_surface(right)
@@ -188,6 +214,16 @@ fn stmt_ok(stmt: &Stmt) -> bool {
             expr_ok(test)
                 && stmt_ok(consequent)
                 && alternate.as_ref().is_none_or(|a| stmt_ok(a))
+        }
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            body_ok(block)
+                && handler.as_ref().is_none_or(|h| body_ok(h))
+                && finalizer.as_ref().is_none_or(|f| body_ok(f))
         }
         _ => false,
     }
@@ -313,6 +349,38 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             } else {
                 Ok(Flow::Normal)
             }
+        }
+        Stmt::Try {
+            block,
+            handler_param,
+            handler,
+            finalizer,
+        } => {
+            let after_try = match eval_body(block, env)? {
+                Flow::Throw(exc) => {
+                    if let Some(h) = handler {
+                        if let Some(param) = handler_param {
+                            match param {
+                                Pattern::Local(id) => {
+                                    env.insert(*id, exc);
+                                }
+                                _ => return Err(()),
+                            }
+                        }
+                        eval_body(h, env)?
+                    } else {
+                        Flow::Throw(exc)
+                    }
+                }
+                other => other,
+            };
+            if let Some(f) = finalizer {
+                match eval_body(f, env)? {
+                    Flow::Normal => {}
+                    other => return Ok(other),
+                }
+            }
+            Ok(after_try)
         }
         _ => Err(()),
     }
@@ -487,6 +555,46 @@ fn eval_call(
                 Err(other) => Err(other),
             }
         }
+        JsVal::Builtin(BuiltinId::Expect) => {
+            let actual = args.first().cloned().unwrap_or(JsVal::Undef);
+            Ok(JsVal::Matcher {
+                actual: Box::new(actual),
+            })
+        }
+        JsVal::BoundMatcher { kind, actual } => match kind {
+            MatcherKind::ToBe => {
+                let expected = args.first().cloned().unwrap_or(JsVal::Undef);
+                if strict_eq(actual, &expected) {
+                    Ok(JsVal::Undef)
+                } else {
+                    Err(Some(Flow::Throw(JsVal::Str(format!(
+                        "expected {} to be {}",
+                        display(actual),
+                        display(&expected)
+                    )))))
+                }
+            }
+            MatcherKind::ToBeTruthy => {
+                if to_boolean(actual) {
+                    Ok(JsVal::Undef)
+                } else {
+                    Err(Some(Flow::Throw(JsVal::Str(format!(
+                        "expected {} to be truthy",
+                        display(actual)
+                    )))))
+                }
+            }
+            MatcherKind::ToBeFalsy => {
+                if !to_boolean(actual) {
+                    Ok(JsVal::Undef)
+                } else {
+                    Err(Some(Flow::Throw(JsVal::Str(format!(
+                        "expected {} to be falsy",
+                        display(actual)
+                    )))))
+                }
+            }
+        },
         JsVal::Closure { .. } => call_closure(callee, env).map(|_| JsVal::Undef),
         _ => Err(None),
     }
@@ -510,9 +618,22 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
         JsVal::Builtin(BuiltinId::GlobalThis) => match key {
             "describe" => Ok(JsVal::Builtin(BuiltinId::Describe)),
             "it" => Ok(JsVal::Builtin(BuiltinId::It)),
+            "expect" => Ok(JsVal::Builtin(BuiltinId::Expect)),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
         },
+        JsVal::Matcher { actual } => {
+            let kind = match key {
+                "toBe" => MatcherKind::ToBe,
+                "toBeTruthy" => MatcherKind::ToBeTruthy,
+                "toBeFalsy" => MatcherKind::ToBeFalsy,
+                _ => return Err(()),
+            };
+            Ok(JsVal::BoundMatcher {
+                kind,
+                actual: actual.clone(),
+            })
+        }
         _ => Err(()),
     }
 }
@@ -523,10 +644,43 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Bool(_) => "boolean".into(),
         JsVal::Str(_) => "string".into(),
         JsVal::Undef => "undefined".into(),
-        JsVal::Builtin(BuiltinId::Describe | BuiltinId::It) | JsVal::Closure { .. } => {
-            "function".into()
+        JsVal::Builtin(BuiltinId::Describe | BuiltinId::It | BuiltinId::Expect)
+        | JsVal::Closure { .. }
+        | JsVal::BoundMatcher { .. } => "function".into(),
+        JsVal::Builtin(BuiltinId::GlobalThis) | JsVal::Matcher { .. } => "object".into(),
+    }
+}
+
+fn display(v: &JsVal) -> String {
+    match v {
+        JsVal::Num(n) => {
+            if n.is_finite() && *n == n.trunc() {
+                format!("{}", *n as i64)
+            } else {
+                format!("{n}")
+            }
         }
-        JsVal::Builtin(BuiltinId::GlobalThis) => "object".into(),
+        JsVal::Bool(b) => {
+            if *b {
+                "true".into()
+            } else {
+                "false".into()
+            }
+        }
+        JsVal::Str(s) => {
+            let mut out = String::from("\"");
+            for c in s.chars() {
+                match c {
+                    '\\' => out.push_str("\\\\"),
+                    '"' => out.push_str("\\\""),
+                    _ => out.push(c),
+                }
+            }
+            out.push('"');
+            out
+        }
+        JsVal::Undef => "undefined".into(),
+        _ => "object".into(),
     }
 }
 
@@ -604,9 +758,9 @@ impl Emitter {
                 _ => return Err(diag("es_testing: non-printable value")),
             }
         }
-        writeln!(
+            writeln!(
             self.out,
-            "; Draconic LLVM backend (L05.01 describe/it)"
+            "; Draconic LLVM backend (L05.02 describe/it/expect)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -670,5 +824,43 @@ mod tests {
         let ir = emit_es_testing(&m).expect("emit");
         assert!(ir.contains("define i32 @main()"), "{ir}");
         assert!(ir.contains("1"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_expect_matchers() {
+        let m = compile_src(
+            r#"
+            let te = typeof expect;
+            let ok;
+            describe("e", () => {
+              ok = it("eq", () => {
+                expect(1).toBe(1);
+                expect(1).toBeTruthy();
+                expect(0).toBeFalsy();
+              });
+            });
+            "#,
+        );
+        assert!(is_es_testing_module(&m));
+        let ir = emit_es_testing(&m).expect("emit");
+        assert!(ir.contains("function"), "{ir}");
+        assert!(ir.contains("true"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_expect_fail_messages() {
+        let m = compile_src(
+            r#"
+            let eqHas = false;
+            try {
+              expect(1).toBe(2);
+            } catch (e) {
+              eqHas = e === "expected 1 to be 2";
+            }
+            "#,
+        );
+        assert!(is_es_testing_module(&m));
+        let ir = emit_es_testing(&m).expect("emit");
+        assert!(ir.contains("true"), "{ir}");
     }
 }

@@ -80,10 +80,12 @@ fn module_uses_query(module: &Module) -> bool {
     module_uses_named_local(module, "parseQuery") || module_uses_named_local(module, "serializeQuery")
 }
 
-/// L05.01: free `describe` / `it` (IdentName so user `let it` does not collide).
+/// L05.01 / L05.02: free `describe` / `it` / `expect` (IdentName so user `let it` does not collide).
 fn module_uses_describe_it(module: &Module) -> bool {
     module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "describe") || stmt_uses_ident_name(s, "it")
+        stmt_uses_ident_name(s, "describe")
+            || stmt_uses_ident_name(s, "it")
+            || stmt_uses_ident_name(s, "expect")
     })
 }
 
@@ -1214,6 +1216,16 @@ mod tests {
         assert!(js.contains("function it("), "{js}");
         assert!(js.contains("globalThis.describe = describe"), "{js}");
         assert!(js.contains("globalThis.it = it"), "{js}");
+        assert!(js.contains("globalThis.expect = expect"), "{js}");
+    }
+
+    #[test]
+    fn emit_expect_polyfill() {
+        let js = emit_src("expect(1).toBe(1);");
+        assert!(js.contains("function expect("), "{js}");
+        assert!(js.contains("globalThis.expect = expect"), "{js}");
+        assert!(js.contains("toBeTruthy"), "{js}");
+        assert!(js.contains("toBeFalsy"), "{js}");
     }
 
     #[test]

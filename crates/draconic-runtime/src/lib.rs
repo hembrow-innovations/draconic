@@ -70,7 +70,7 @@ if (typeof globalThis !== "undefined") globalThis.randomBytes = randomBytes;
     }
 }
 
-/// L05.01: in-language `describe` / `it` — run callbacks; `it` returns pass/fail.
+/// L05.01 / L05.02: in-language `describe` / `it` / `expect`.
 pub mod testing {
     pub fn describe_it_js_polyfill() -> &'static str {
         r#"function describe(name, fn) {
@@ -87,9 +87,30 @@ function it(name, fn) {
     return false;
   }
 }
+function expectDisplay(v) {
+  if (typeof v === "string") return JSON.stringify(v);
+  return String(v);
+}
+function expect(actual) {
+  return {
+    toBe: function (expected) {
+      if (actual === expected) return;
+      throw "expected " + expectDisplay(actual) + " to be " + expectDisplay(expected);
+    },
+    toBeTruthy: function () {
+      if (actual) return;
+      throw "expected " + expectDisplay(actual) + " to be truthy";
+    },
+    toBeFalsy: function () {
+      if (!actual) return;
+      throw "expected " + expectDisplay(actual) + " to be falsy";
+    }
+  };
+}
 if (typeof globalThis !== "undefined") {
   globalThis.describe = describe;
   globalThis.it = it;
+  globalThis.expect = expect;
 }
 "#
     }

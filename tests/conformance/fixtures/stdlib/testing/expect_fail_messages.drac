@@ -1,0 +1,18 @@
+let eqHas = false;
+let truthyHas = false;
+let falsyHas = false;
+try {
+  expect(1).toBe(2);
+} catch (e) {
+  eqHas = e === "expected 1 to be 2";
+}
+try {
+  expect(0).toBeTruthy();
+} catch (e) {
+  truthyHas = e === "expected 0 to be truthy";
+}
+try {
+  expect(1).toBeFalsy();
+} catch (e) {
+  falsyHas = e === "expected 1 to be falsy";
+}

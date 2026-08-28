@@ -1,4 +1,4 @@
-//! ROADMAP L05.01: `describe` / `it` register tests; run via `draconic test`.
+//! ROADMAP L05.01 / L05.02: `describe` / `it` / `expect` matchers.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
@@ -57,6 +57,74 @@ fn describe_it_fail_runs_both_targets() {
         fixture.targets.len(),
         2,
         "L05.01 targets both js and native"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn expect_matchers_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "stdlib/testing/expect_matchers"),
+        "missing stdlib/testing/expect_matchers fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn expect_matchers_runs_both_targets() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/testing/expect_matchers")
+        .expect("stdlib/testing/expect_matchers");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L05.02 targets both js and native"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn expect_fail_messages_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "stdlib/testing/expect_fail_messages"),
+        "missing stdlib/testing/expect_fail_messages fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn expect_fail_messages_runs_both_targets() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/testing/expect_fail_messages")
+        .expect("stdlib/testing/expect_fail_messages");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L05.02 targets both js and native"
     );
     for r in run_fixture(fixture) {
         assert!(

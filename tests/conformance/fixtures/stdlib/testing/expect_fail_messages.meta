@@ -1,0 +1,6 @@
+id: stdlib/testing/expect_fail_messages
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\n
+js.check: if (eqHas !== true) process.exit(1); if (truthyHas !== true) process.exit(2); if (falsyHas !== true) process.exit(3);

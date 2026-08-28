@@ -1,0 +1,6 @@
+id: stdlib/testing/expect_matchers
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\ntrue\ntrue\ntrue\n
+js.check: if (te !== "function") process.exit(1); if (ge !== true) process.exit(2); if (eqOk !== true) process.exit(3); if (truthyOk !== true) process.exit(4); if (falsyOk !== true) process.exit(5);

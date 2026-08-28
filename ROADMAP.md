@@ -849,7 +849,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L04 | todo | both | Compression later: gzip/deflate byte buffers | `tests/conformance` fixtures `stdlib/compression` |
 | L05 | todo | both | In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
 | L05.01 | done | both | `describe` / `it` (or designed) register tests; run via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
-| L05.02 | todo | both | `expect` matchers: equality, truthiness; failure messages | `tests/conformance` fixtures `stdlib/testing` |
+| L05.02 | done | both | `expect` matchers: equality, truthiness; failure messages | `tests/conformance` fixtures `stdlib/testing` |
 | L05.03 | todo | both | Nested describe; before/after hooks as designed | `tests/conformance` fixtures `stdlib/testing` |
 | L05.04 | todo | both | CLI aggregates in-language suite exit codes with fixture runner | `crates/draconic-cli`, `tests/integration` |
 | L06 | todo | both | Logging: leveled logger; stderr/stdout sink | `tests/conformance` fixtures `stdlib/logging` |

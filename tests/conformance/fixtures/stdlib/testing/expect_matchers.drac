@@ -1,0 +1,22 @@
+let te = typeof expect;
+let ge = globalThis.expect === expect;
+let eqOk;
+let truthyOk;
+let falsyOk;
+describe("expect", () => {
+  eqOk = it("eq", () => {
+    expect(1).toBe(1);
+    expect("a").toBe("a");
+    expect(true).toBe(true);
+  });
+  truthyOk = it("truthy", () => {
+    expect(1).toBeTruthy();
+    expect("x").toBeTruthy();
+    expect(true).toBeTruthy();
+  });
+  falsyOk = it("falsy", () => {
+    expect(0).toBeFalsy();
+    expect("").toBeFalsy();
+    expect(false).toBeFalsy();
+  });
+});
