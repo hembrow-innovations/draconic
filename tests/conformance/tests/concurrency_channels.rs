@@ -1,4 +1,5 @@
-//! ROADMAP C02.01–C02.03: channel send/recv — scalars, strings, clone, bounded buffer.
+//! ROADMAP C02.01–C02.04: channel send/recv — scalars, strings, clone, bounded buffer,
+//! worker ↔ parent e2e.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -117,4 +118,14 @@ fn channel_bounded_cap2_fixture_present() {
 #[test]
 fn channel_bounded_cap2_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/channels/channel_bounded_cap2");
+}
+
+#[test]
+fn channel_worker_e2e_fixture_present() {
+    assert_fixture_present("concurrency/channels/channel_worker_e2e");
+}
+
+#[test]
+fn channel_worker_e2e_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/channels/channel_worker_e2e");
 }

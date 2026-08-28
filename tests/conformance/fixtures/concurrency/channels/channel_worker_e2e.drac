@@ -1,0 +1,9 @@
+let ch = makeChannel();
+let sentIn = channelSend(ch, 7);
+let h = spawnWorker(function (ch) {
+  let x = channelRecv(ch);
+  channelSend(ch, x + 1);
+}, ch);
+let joined = joinWorker(h);
+let v = channelRecv(ch);
+let ok = v === 8;

@@ -111,7 +111,8 @@ pub struct HostApiEntry {
 /// - `http2ClientPreface` / `http2ServerPreface` / `http2SettingsAck` /
 ///   `http2EncodeRequest` / `http2EncodeResponse` / `http2ParseRequest` /
 ///   `http2ParseResponse` (H13.01): native-only HTTP/2 preface + single-stream helpers.
-/// - `spawnWorker` (C01.01): both — spawn worker isolate from fn entry or module path.
+/// - `spawnWorker` (C01.01 / C02.04): both — spawn worker isolate from fn entry or module path;
+///   optional second arg is a channel handle passed into the worker fn.
 /// - `joinWorker` (C01.02): both — wait for worker exit; 0 success, negative error.
 /// - `terminateWorker` (C01.03): both — stop worker; 0 success, negative error.
 /// - `makeChannel` / `channelSend` / `channelRecv` (C02.01–C02.03): both — FIFO channel of
@@ -707,7 +708,7 @@ const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "spawnWorker",
         availability: HostAvailability::BOTH,
-        note: "C01.01 spawn worker isolate",
+        note: "C01.01/C02.04 spawn worker isolate; optional channel handle",
     },
     HostApiEntry {
         name: "joinWorker",

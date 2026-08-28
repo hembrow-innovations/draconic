@@ -2194,7 +2194,9 @@ pub fn process_spawn_js_polyfill() -> &'static str {
 }
 
 /// JS polyfill for `spawnWorker` (C01.01), `joinWorker` (C01.02),
-/// and `terminateWorker` (C01.03).
+/// and `terminateWorker` (C01.03). Optional second arg is a channel handle
+/// (C02.04): the worker fn is called with that handle; queued values move
+/// into the isolate and worker `channelSend` drains back on join.
 ///
 /// Node `worker_threads`: eval bootstrap + SharedArrayBuffer handshake.
 /// `unref` so the parent can exit without join. Join waits via `Atomics.wait`
@@ -2205,21 +2207,51 @@ pub fn spawn_worker_js_polyfill() -> &'static str {
     r#"(function () {
   var nextId = 1;
   var slots = Object.create(null);
-  function spawnWorker(entry) {
-    var userSrc;
+  function spawnWorker(entry, ch) {
+    var fnSrc;
     if (typeof entry === "function") {
-      userSrc = "(" + Function.prototype.toString.call(entry) + ")();";
+      fnSrc = "(" + Function.prototype.toString.call(entry) + ")";
     } else if (typeof entry === "string" && entry.length > 0) {
-      userSrc = "/* worker isolate */";
+      fnSrc = "(function(){})";
     } else {
       return -1;
     }
     var sab = new SharedArrayBuffer(4);
     var ia = new Int32Array(sab);
+    var channelId = 0;
+    var chanInit = [];
+    var port2 = null;
+    var drainPort = null;
+    if (arguments.length >= 2 && typeof ch === "number" && ch > 0) {
+      var chans = globalThis.__draconicChannels;
+      if (!chans || !chans.slots[ch]) return -1;
+      try {
+        var wt0 = require("worker_threads");
+        var mc = new wt0.MessageChannel();
+        drainPort = mc.port1;
+        port2 = mc.port2;
+      } catch (e0) {
+        return -1;
+      }
+      channelId = ch;
+      chanInit = chans.slots[ch].slice();
+      chans.slots[ch].length = 0;
+    }
+    var chanBoot = "";
+    if (channelId) {
+      chanBoot =
+        "var __q = (workerData.initial || []).slice();\n" +
+        "var __port = workerData.port;\n" +
+        "var __chid = workerData.channelId;\n" +
+        "function channelSend(c, v) { if (c !== __chid) return -1; if (__port && typeof __port.postMessage === 'function') __port.postMessage(v); return 0; }\n" +
+        "function channelRecv(c) { if (c !== __chid) return undefined; if (!__q.length) return undefined; return __q.shift(); }\n";
+    }
+    var callSrc = channelId ? (fnSrc + "(workerData.channelId);\n") : (fnSrc + "();\n");
     var bootstrap =
       "const { workerData } = require('worker_threads');\n" +
+      chanBoot +
       "try {\n" +
-      userSrc + "\n" +
+      callSrc +
       "  Atomics.store(workerData.ia, 0, 1);\n" +
       "} catch (e) {\n" +
       "  Atomics.store(workerData.ia, 0, 2);\n" +
@@ -2227,10 +2259,12 @@ pub fn spawn_worker_js_polyfill() -> &'static str {
       "Atomics.notify(workerData.ia, 0, 1);\n";
     try {
       var wt = require("worker_threads");
-      var w = new wt.Worker(bootstrap, { eval: true, workerData: { ia: ia } });
+      var opts = { eval: true, workerData: { ia: ia, channelId: channelId, initial: chanInit, port: port2 } };
+      if (port2) opts.transferList = [port2];
+      var w = new wt.Worker(bootstrap, opts);
       if (typeof w.unref === "function") w.unref();
       var id = nextId++;
-      slots[id] = { ia: ia, worker: w, joined: false };
+      slots[id] = { ia: ia, worker: w, joined: false, drainPort: drainPort, channelId: channelId };
       return id;
     } catch (e) {
       return -1;
@@ -2243,6 +2277,20 @@ pub fn spawn_worker_js_polyfill() -> &'static str {
     if (rec.worker && typeof rec.worker.ref === "function") rec.worker.ref();
     Atomics.wait(rec.ia, 0, 0);
     var st = Atomics.load(rec.ia, 0);
+    if (rec.drainPort) {
+      try {
+        var rmp = require("worker_threads").receiveMessageOnPort;
+        var chans2 = globalThis.__draconicChannels;
+        var msg;
+        while (typeof rmp === "function") {
+          msg = rmp(rec.drainPort);
+          if (!msg) break;
+          if (chans2 && rec.channelId && chans2.slots[rec.channelId]) {
+            chans2.slots[rec.channelId].push(msg.message);
+          }
+        }
+      } catch (e1) {}
+    }
     if (rec.worker && typeof rec.worker.unref === "function") rec.worker.unref();
     delete slots[h];
     if (st === 2) return 1;
@@ -2330,6 +2378,7 @@ pub fn channel_js_polyfill() -> &'static str {
     globalThis.makeChannel = makeChannel;
     globalThis.channelSend = channelSend;
     globalThis.channelRecv = channelRecv;
+    globalThis.__draconicChannels = { slots: slots, caps: caps };
   }
 })();
 "#
