@@ -338,3 +338,13 @@ fn eval_var_delete_fixture_present() {
 fn eval_var_delete_runs() {
     assert_fixture_runs_declared_targets("es/legacy/eval_var_delete");
 }
+
+#[test]
+fn with_unscopables_fixture_present() {
+    assert_fixture_present("es/legacy/with_unscopables");
+}
+
+#[test]
+fn with_unscopables_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_unscopables");
+}

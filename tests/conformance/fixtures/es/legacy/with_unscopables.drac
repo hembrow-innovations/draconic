@@ -1,0 +1,194 @@
+// E17.02.30: with + Symbol.unscopables (non-strict).
+// Truthy unscopables prop blocks the object binding (outer used); falsey /
+// non-object unscopables does not block; Array.prototype unscopables;
+// assign/delete skip blocked names.
+
+function blockedRead() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    return x === 1;
+  }
+}
+let a = blockedRead();
+
+function truthyBlocks() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: 1 };
+  with (obj) {
+    return x === 1;
+  }
+}
+let b = truthyBlocks();
+
+function falseyDoesNotBlock() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: false };
+  with (obj) {
+    return x === 2;
+  }
+}
+let c = falseyDoesNotBlock();
+
+function zeroDoesNotBlock() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: 0 };
+  with (obj) {
+    return x === 2;
+  }
+}
+let d = zeroDoesNotBlock();
+
+function missingUnscopablesProp() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = {};
+  with (obj) {
+    return x === 2;
+  }
+}
+let e = missingUnscopablesProp();
+
+function nullUnscopables() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = null;
+  with (obj) {
+    return x === 2;
+  }
+}
+let f = nullUnscopables();
+
+function numberUnscopables() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = 1;
+  with (obj) {
+    return x === 2;
+  }
+}
+let g = numberUnscopables();
+
+function noUnscopables() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    return x === 2;
+  }
+}
+let h = noUnscopables();
+
+function arrayKeysUnscopable() {
+  let keys = 7;
+  with ([]) {
+    return keys === 7 && typeof keys !== "function";
+  }
+}
+let i = arrayKeysUnscopable();
+
+function arrayValuesUnscopable() {
+  let values = 8;
+  with ([]) {
+    return values === 8 && typeof values !== "function";
+  }
+}
+let j = arrayValuesUnscopable();
+
+function blockedAssign() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    x = 9;
+  }
+  return x === 9 && obj.x === 2;
+}
+let k = blockedAssign();
+
+function unblockedAssign() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: false };
+  with (obj) {
+    x = 9;
+  }
+  return x === 1 && obj.x === 9;
+}
+let l = unblockedAssign();
+
+function blockedDelete() {
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: true };
+  let r = false;
+  with (obj) {
+    r = delete x;
+  }
+  return r === true && obj.x === 2;
+}
+let m = blockedDelete();
+
+function unblockedDelete() {
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: false };
+  let r = false;
+  with (obj) {
+    r = delete x;
+  }
+  return r === true && Object.prototype.hasOwnProperty.call(obj, "x") === false;
+}
+let n = unblockedDelete();
+
+function partialUnscopables() {
+  let x = 1;
+  let y = 3;
+  let obj = { x: 2, y: 4 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    return x === 1 && y === 4;
+  }
+}
+let p = partialUnscopables();
+
+function nestedWith() {
+  let x = 1;
+  let inner = { x: 2 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 5 };
+  with (outer) {
+    with (inner) {
+      return x === 5;
+    }
+  }
+}
+let q = nestedWith();
+
+function getterInvoked() {
+  let n = 0;
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = {
+    get x() {
+      n = n + 1;
+      return true;
+    }
+  };
+  with (obj) {
+    let v = x;
+    return v === 1 && n >= 1;
+  }
+}
+let r = getterInvoked();
+
+function computedKey() {
+  let x = 1;
+  let u = { x: true };
+  let obj = { x: 2, [Symbol.unscopables]: u };
+  with (obj) {
+    return x === 1;
+  }
+}
+let s = computedKey();
