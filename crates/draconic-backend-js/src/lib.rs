@@ -1122,6 +1122,20 @@ mod tests {
     }
 
     #[test]
+    fn emit_direct_eval_unparenthesized() {
+        let js = emit_src(r#"eval("var evx = 1");"#);
+        assert!(
+            js.contains("eval(") && !js.contains("(eval)"),
+            "direct eval callee must stay Identifier eval, not (eval): {js}"
+        );
+        let indirect = emit_src(r#"(0, eval)("var evx = 1");"#);
+        assert!(
+            indirect.contains("(0)") || indirect.contains("(eval)"),
+            "comma-eval must stay indirect: {indirect}"
+        );
+    }
+
+    #[test]
     fn emit_import_call() {
         // E19.27: dynamic `import(specifier)` / options.
         let js = emit_src("let p = import('./m.js'); let q = import(p, opts);");

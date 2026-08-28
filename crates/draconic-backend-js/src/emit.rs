@@ -664,6 +664,10 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                 Expr::Super { .. } => {
                     out.push_str("super");
                 }
+                // Direct eval: callee must be Identifier `eval`, not `(eval)(...)`.
+                _ if is_direct_eval_callee(callee, names) && !*optional => {
+                    emit_expr(out, callee, names);
+                }
                 _ => {
                     out.push('(');
                     emit_expr(out, callee, names);
@@ -930,6 +934,14 @@ fn emit_member_access(
                 out.push(']');
             }
         }
+    }
+}
+
+fn is_direct_eval_callee(callee: &Expr, names: &HashMap<LocalId, &str>) -> bool {
+    match callee {
+        Expr::Local { id, .. } => local_name(names, *id) == "eval",
+        Expr::IdentName { name, .. } => name == "eval",
+        _ => false,
     }
 }
 

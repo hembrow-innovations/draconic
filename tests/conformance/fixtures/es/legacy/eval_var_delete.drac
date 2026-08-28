@@ -1,0 +1,118 @@
+// E17.02.29: Direct eval injected `var`/`function` are configurable (non-strict).
+// `delete` of an eval-injected binding returns true and removes it; function-body
+// `var`/param stay; top-level eval `var` global is deletable; redeclare of an
+// existing `var` stays non-configurable; `"use strict"` eval injects nothing.
+// Direct eval must not leak a function-local inject onto globalThis.
+
+function evalVarDeletable() {
+  eval("var evx = 41");
+  let before = evx === 41;
+  let notGlobal = globalThis.evx === undefined;
+  let dlt = delete evx;
+  return before && notGlobal && dlt === true && typeof evx === "undefined";
+}
+let a = evalVarDeletable();
+
+function bodyVarStays() {
+  var evy = 2;
+  let dlt = delete evy;
+  return dlt === false && evy === 2;
+}
+let b = bodyVarStays();
+
+function evalFnDeletable() {
+  eval("function evInjected() { return 7; }");
+  let before = evInjected() === 7;
+  let notGlobal = globalThis.evInjected === undefined;
+  let dlt = delete evInjected;
+  return before && notGlobal && dlt === true && typeof evInjected === "undefined";
+}
+let c = evalFnDeletable();
+
+function paramStays(evp) {
+  eval("var evp = 99");
+  let dlt = delete evp;
+  return dlt === false && evp === 99;
+}
+let d = paramStays(1);
+
+function redeclareExistingVar() {
+  var evn = 1;
+  eval("var evn = 8");
+  let dlt = delete evn;
+  return dlt === false && evn === 8;
+}
+let e = redeclareExistingVar();
+
+function nestedNoLeak() {
+  function inner() {
+    eval("var evOnlyInner = 3");
+    let dlt = delete evOnlyInner;
+    return dlt === true && typeof evOnlyInner === "undefined";
+  }
+  let v = inner();
+  return v && typeof evOnlyInner === "undefined";
+}
+let f = nestedNoLeak();
+
+function reEvalAfterDelete() {
+  eval("var evk = 1");
+  delete evk;
+  eval("var evk = 4");
+  let ok = evk === 4;
+  let notGlobal = globalThis.evk === undefined;
+  delete evk;
+  return ok && notGlobal && typeof evk === "undefined";
+}
+let g = reEvalAfterDelete();
+
+function multiVarPartialDelete() {
+  eval("var evLeft = 10; var evRight = 20");
+  let dlt = delete evLeft;
+  return dlt === true && typeof evLeft === "undefined" && evRight === 20;
+}
+let h = multiVarPartialDelete();
+
+eval("var e170229_top = 55");
+let i = e170229_top === 55 && globalThis.e170229_top === 55;
+let j = delete e170229_top;
+let k = typeof e170229_top === "undefined" && globalThis.e170229_top === undefined;
+
+function strictEvalNoInject() {
+  "use strict";
+  eval("var evs = 1");
+  return typeof evs === "undefined";
+}
+let l = strictEvalNoInject();
+
+function sloppyCallerStrictEval() {
+  eval("'use strict'; var evz = 1");
+  return typeof evz === "undefined";
+}
+let m = sloppyCallerStrictEval();
+
+let fe = function () {
+  eval("var evfev = 4");
+  let dlt = delete evfev;
+  return dlt === true && typeof evfev === "undefined" && globalThis.evfev === undefined;
+};
+let n = fe();
+
+let host = {
+  meth: function () {
+    eval("var evmv = 6");
+    let dlt = delete evmv;
+    return dlt === true && typeof evmv === "undefined";
+  }
+};
+let p = host.meth();
+
+function namedFe() {
+  let nf = function nf() {
+    eval("function evInnerFn() { return 1; }");
+    let dlt = delete evInnerFn;
+    return dlt === true && typeof evInnerFn === "undefined";
+  };
+  return nf();
+}
+let q = namedFe();

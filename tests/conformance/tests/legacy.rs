@@ -328,3 +328,13 @@ fn eval_arguments_fixture_present() {
 fn eval_arguments_runs() {
     assert_fixture_runs_declared_targets("es/legacy/eval_arguments");
 }
+
+#[test]
+fn eval_var_delete_fixture_present() {
+    assert_fixture_present("es/legacy/eval_var_delete");
+}
+
+#[test]
+fn eval_var_delete_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/eval_var_delete");
+}
