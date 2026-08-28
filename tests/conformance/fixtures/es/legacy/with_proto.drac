@@ -1,0 +1,200 @@
+// E17.02.33: with + prototype-chain object environment (non-strict).
+// Inherited data/accessor HasBinding (read, assign creates own or setter,
+// getter-only silent); delete does not remove proto; miss both → outer;
+// own shadows proto; inherited getter/setter this is the with object.
+
+function inheritedRead() {
+  let proto = { x: 5 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return x === 5;
+  }
+}
+let a = inheritedRead();
+
+function inheritedAssignCreatesOwn() {
+  let proto = { x: 5 };
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 6;
+  }
+  return (
+    obj.x === 6 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === true &&
+    proto.x === 5
+  );
+}
+let b = inheritedAssignCreatesOwn();
+
+function inheritedNonWritableSloppySilent() {
+  let proto = {};
+  Object.defineProperty(proto, "x", {
+    value: 5,
+    writable: false,
+    enumerable: true,
+    configurable: true
+  });
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 9;
+  }
+  return (
+    proto.x === 5 &&
+    obj.x === 5 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let c = inheritedNonWritableSloppySilent();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 7;
+    }
+  };
+  let obj = Object.create(proto);
+  let got = 0;
+  with (obj) {
+    got = x;
+  }
+  return got === 7 && seen === obj;
+}
+let d = inheritedGetterThis();
+
+function inheritedSetterThis() {
+  let seen = null;
+  let stored = 0;
+  let proto = {
+    set x(v) {
+      seen = this;
+      stored = v;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 8;
+  }
+  return (
+    stored === 8 &&
+    seen === obj &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let e = inheritedSetterThis();
+
+function inheritedGetterOnlyAssignSilent() {
+  let n = 0;
+  let proto = {
+    get x() {
+      n = n + 1;
+      return 3;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 9;
+  }
+  return (
+    obj.x === 3 &&
+    n === 1 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let f = inheritedGetterOnlyAssignSilent();
+
+function deleteInheritedLeavesProto() {
+  let proto = { x: 5 };
+  let obj = Object.create(proto);
+  let r = false;
+  with (obj) {
+    r = delete x;
+  }
+  return (
+    r === true &&
+    proto.x === 5 &&
+    obj.x === 5 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let g = deleteInheritedLeavesProto();
+
+function typeofInherited() {
+  let proto = { x: 5 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return typeof x === "number";
+  }
+}
+let h = typeofInherited();
+
+function missesProtoUsesOuter() {
+  let x = 10;
+  let obj = Object.create(null);
+  with (obj) {
+    return x === 10;
+  }
+}
+let i = missesProtoUsesOuter();
+
+function missesProtoAssignUsesOuter() {
+  let x = 10;
+  let obj = Object.create(null);
+  with (obj) {
+    x = 11;
+  }
+  return (
+    x === 11 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let j = missesProtoAssignUsesOuter();
+
+function ownShadowsProto() {
+  let proto = { x: 1 };
+  let obj = Object.create(proto);
+  obj.x = 2;
+  with (obj) {
+    return x === 2;
+  }
+}
+let k = ownShadowsProto();
+
+function nestedProtoWins() {
+  let grand = { x: 1 };
+  let proto = Object.create(grand);
+  let obj = Object.create(proto);
+  with (obj) {
+    return x === 1;
+  }
+}
+let l = nestedProtoWins();
+
+function nestedInnerOwnShadows() {
+  let outer = Object.create({ x: 1 });
+  let inner = Object.create({ x: 2 });
+  let got = 0;
+  with (outer) {
+    with (inner) {
+      got = x;
+    }
+  }
+  return got === 2;
+}
+let m = nestedInnerOwnShadows();
+
+function updateInheritedCreatesOwn() {
+  let proto = { n: 4 };
+  let obj = Object.create(proto);
+  let old = 0;
+  with (obj) {
+    old = n++;
+  }
+  return (
+    old === 4 &&
+    obj.n === 5 &&
+    proto.n === 4 &&
+    Object.prototype.hasOwnProperty.call(obj, "n") === true
+  );
+}
+let n = updateInheritedCreatesOwn();
