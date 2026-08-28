@@ -849,3 +849,12 @@ int32_t draconic_rt_host_channel_recv_f64(int32_t handle, double *out);
 int32_t draconic_rt_host_channel_recv_str(int32_t handle, const char **out);
 int32_t draconic_rt_host_channel_recv_bool(int32_t handle, int32_t *out);
 int32_t draconic_rt_host_channel_recv_obj(int32_t handle, void **out);
+
+/* --- Once / thread-safe init (C03.01) -------------------------------------
+   makeOnce: allocate a once cell. Returns handle >= 1, or -1 on failure.
+   onceRun: call fn at most once for this handle. Concurrent callers: one
+   runs fn (or no-op if fn is NULL); others wait until complete.
+   Returns 1 if this caller ran init, 0 if already done, -1 invalid. */
+
+int32_t draconic_rt_host_once_make(void);
+int32_t draconic_rt_host_once_run(int32_t handle, void (*fn)(void));

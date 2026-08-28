@@ -121,6 +121,8 @@ pub struct HostApiEntry {
 ///   scalars (number/bool), strings, and structured-cloned plain objects (shared refs
 ///   rejected); optional capacity `makeChannel(n)` (n>0 bounded; full send → -2);
 ///   send 0 success / negative error.
+/// - `makeOnce` / `onceRun` (C03.01): native-only — thread-safe init cell; `onceRun`
+///   returns 1 if this caller ran init, 0 if already done, negative if invalid.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -741,6 +743,16 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "channelRecv",
         availability: HostAvailability::BOTH,
         note: "C02.01–C02.03 recv FIFO head (number/bool/string/object clone)",
+    },
+    HostApiEntry {
+        name: "makeOnce",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C03.01 thread-safe once cell handle",
+    },
+    HostApiEntry {
+        name: "onceRun",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C03.01 run init at most once; 1 ran / 0 already / negative invalid",
     },
 ];
 
@@ -1498,5 +1510,31 @@ mod tests {
         assert!(
             unsupported_diagnostic("channelRecv", CompileTarget::Native, Span::dummy()).is_none()
         );
+    }
+
+    #[test]
+    fn registry_lists_make_once_native_only() {
+        let entry = lookup("makeOnce").expect("makeOnce registered");
+        assert_eq!(entry.name, "makeOnce");
+        assert!(!entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("makeOnce"));
+        assert!(!is_available("makeOnce", CompileTarget::Js));
+        assert!(is_available("makeOnce", CompileTarget::Native));
+        assert!(unsupported_diagnostic("makeOnce", CompileTarget::Js, Span::dummy()).is_some());
+        assert!(unsupported_diagnostic("makeOnce", CompileTarget::Native, Span::dummy()).is_none());
+    }
+
+    #[test]
+    fn registry_lists_once_run_native_only() {
+        let entry = lookup("onceRun").expect("onceRun registered");
+        assert_eq!(entry.name, "onceRun");
+        assert!(!entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("onceRun"));
+        assert!(!is_available("onceRun", CompileTarget::Js));
+        assert!(is_available("onceRun", CompileTarget::Native));
+        assert!(unsupported_diagnostic("onceRun", CompileTarget::Js, Span::dummy()).is_some());
+        assert!(unsupported_diagnostic("onceRun", CompileTarget::Native, Span::dummy()).is_none());
     }
 }

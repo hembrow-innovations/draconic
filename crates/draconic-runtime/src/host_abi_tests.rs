@@ -318,6 +318,14 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_channel_send_str(i32, ptr)"
     );
     assert_eq!(
+        HOST_ONCE_MAKE.declare(),
+        "declare i32 @draconic_rt_host_once_make()"
+    );
+    assert_eq!(
+        HOST_ONCE_RUN.declare(),
+        "declare i32 @draconic_rt_host_once_run(i32, ptr)"
+    );
+    assert_eq!(
         HOST_CHANNEL_SEND_BOOL.declare(),
         "declare i32 @draconic_rt_host_channel_send_bool(i32, i32)"
     );

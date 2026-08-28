@@ -1,0 +1,13 @@
+let t = typeof makeOnce;
+let u = typeof onceRun;
+let o = makeOnce();
+let a = onceRun(o);
+let b = onceRun(o);
+let live = o > 0;
+let first = a === 1;
+let second = b === 0;
+let o2 = makeOnce();
+let c = onceRun(o2);
+let independent = c === 1;
+let bad = onceRun(0);
+let invalid = bad < 0;

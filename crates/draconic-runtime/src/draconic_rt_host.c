@@ -8776,3 +8776,101 @@ int32_t draconic_rt_host_channel_recv_obj(int32_t handle, void **out) {
     free(msg);
     return 0;
 }
+
+/* --- Once / thread-safe init (C03.01) ------------------------------------- */
+
+#define DRACONIC_ONCE_SLOTS 64
+#define DRACONIC_ONCE_IDLE 0
+#define DRACONIC_ONCE_RUNNING 1
+#define DRACONIC_ONCE_DONE 2
+
+typedef struct {
+    int live;
+    int state;
+#if !defined(_WIN32)
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+#endif
+} DraconicOnceCell;
+
+static DraconicOnceCell g_onces[DRACONIC_ONCE_SLOTS];
+#if !defined(_WIN32)
+static pthread_mutex_t g_once_table_mu = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+int32_t draconic_rt_host_once_make(void) {
+    size_t i;
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_once_table_mu);
+#endif
+    for (i = 0; i < DRACONIC_ONCE_SLOTS; i++) {
+        if (g_onces[i].live == 0) {
+#if !defined(_WIN32)
+            if (pthread_mutex_init(&g_onces[i].mu, NULL) != 0) {
+                pthread_mutex_unlock(&g_once_table_mu);
+                return -1;
+            }
+            if (pthread_cond_init(&g_onces[i].cv, NULL) != 0) {
+                pthread_mutex_destroy(&g_onces[i].mu);
+                pthread_mutex_unlock(&g_once_table_mu);
+                return -1;
+            }
+#endif
+            g_onces[i].state = DRACONIC_ONCE_IDLE;
+            g_onces[i].live = 1;
+#if !defined(_WIN32)
+            pthread_mutex_unlock(&g_once_table_mu);
+#endif
+            return (int32_t)(i + 1);
+        }
+    }
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&g_once_table_mu);
+#endif
+    return -1;
+}
+
+int32_t draconic_rt_host_once_run(int32_t handle, void (*fn)(void)) {
+    size_t i;
+    DraconicOnceCell *c;
+    if (handle < 1) {
+        return -1;
+    }
+    i = (size_t)(handle - 1);
+    if (i >= DRACONIC_ONCE_SLOTS) {
+        return -1;
+    }
+    c = &g_onces[i];
+    if (c->live == 0) {
+        return -1;
+    }
+#if defined(_WIN32)
+    if (c->state == DRACONIC_ONCE_DONE) {
+        return 0;
+    }
+    c->state = DRACONIC_ONCE_DONE;
+    if (fn) {
+        fn();
+    }
+    return 1;
+#else
+    pthread_mutex_lock(&c->mu);
+    while (c->state == DRACONIC_ONCE_RUNNING) {
+        pthread_cond_wait(&c->cv, &c->mu);
+    }
+    if (c->state == DRACONIC_ONCE_DONE) {
+        pthread_mutex_unlock(&c->mu);
+        return 0;
+    }
+    c->state = DRACONIC_ONCE_RUNNING;
+    pthread_mutex_unlock(&c->mu);
+    if (fn) {
+        fn();
+    }
+    pthread_mutex_lock(&c->mu);
+    c->state = DRACONIC_ONCE_DONE;
+    pthread_cond_broadcast(&c->cv);
+    pthread_mutex_unlock(&c->mu);
+    return 1;
+#endif
+}

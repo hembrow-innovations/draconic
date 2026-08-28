@@ -929,6 +929,19 @@ pub const HOST_CHANNEL_RECV_BOOL: AbiFn = AbiFn {
     ret: "i32",
     params: "i32, ptr",
 };
+/* C03.01: makeOnce — thread-safe init cell; handle >= 1, or -1 on failure. */
+pub const HOST_ONCE_MAKE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_once_make",
+    ret: "i32",
+    params: "",
+};
+/* C03.01: onceRun — call fn at most once per handle. 1 ran, 0 already done,
+   -1 invalid. fn may be null (empty init). Concurrent callers wait. */
+pub const HOST_ONCE_RUN: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_once_run",
+    ret: "i32",
+    params: "i32, ptr",
+};
 /* C02.02: channelSend plain object (structured clone); 0 success, -1 reject. */
 pub const HOST_CHANNEL_SEND_OBJ: AbiFn = AbiFn {
     symbol: "draconic_rt_host_channel_send_obj",
