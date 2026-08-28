@@ -81,6 +81,12 @@ size_t draconic_rt_gc_alloc_threshold(void);
 void draconic_rt_gc_set_alloc_budget(size_t bytes);
 size_t draconic_rt_gc_alloc_budget(void);
 size_t draconic_rt_gc_alloc_bytes(void);
+/* R01.03: eval wall-clock budget in ms; 0 = unlimited. begin starts the
+   window; exceeded is 1 after the budget elapses (fail closed). */
+void draconic_rt_eval_set_time_budget_ms(uint64_t ms);
+uint64_t draconic_rt_eval_time_budget_ms(void);
+void draconic_rt_eval_time_begin(void);
+int draconic_rt_eval_time_exceeded(void);
 
 const char *draconic_rt_string_data(DraconicValue *v);
 size_t draconic_rt_string_len(DraconicValue *v);

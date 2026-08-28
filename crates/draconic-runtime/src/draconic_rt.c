@@ -602,6 +602,64 @@ size_t draconic_rt_gc_alloc_bytes(void) {
     return g_alloc_bytes;
 }
 
+/* R01.03: embed/eval wall-clock budget. 0 = unlimited. */
+static uint64_t g_eval_time_budget_ms = 0;
+static int g_eval_time_started = 0;
+#if defined(_WIN32)
+static ULONGLONG g_eval_time_start_ms;
+#else
+static struct timespec g_eval_time_start;
+#endif
+
+void draconic_rt_eval_set_time_budget_ms(uint64_t ms) {
+    g_eval_time_budget_ms = ms;
+}
+
+uint64_t draconic_rt_eval_time_budget_ms(void) {
+    return g_eval_time_budget_ms;
+}
+
+void draconic_rt_eval_time_begin(void) {
+    g_eval_time_started = 1;
+#if defined(_WIN32)
+    g_eval_time_start_ms = GetTickCount64();
+#else
+    if (clock_gettime(CLOCK_MONOTONIC, &g_eval_time_start) != 0) {
+        g_eval_time_started = 0;
+    }
+#endif
+}
+
+int draconic_rt_eval_time_exceeded(void) {
+    uint64_t elapsed;
+    if (g_eval_time_budget_ms == 0 || !g_eval_time_started) {
+        return 0;
+    }
+#if defined(_WIN32)
+    elapsed = GetTickCount64() - g_eval_time_start_ms;
+#else
+    {
+        struct timespec now;
+        int64_t dsec;
+        int64_t dnsec;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+            return 0;
+        }
+        dsec = (int64_t)now.tv_sec - (int64_t)g_eval_time_start.tv_sec;
+        dnsec = (int64_t)now.tv_nsec - (int64_t)g_eval_time_start.tv_nsec;
+        if (dnsec < 0) {
+            dsec -= 1;
+            dnsec += 1000000000L;
+        }
+        if (dsec < 0) {
+            return 0;
+        }
+        elapsed = (uint64_t)dsec * 1000u + (uint64_t)(dnsec / 1000000L);
+    }
+#endif
+    return elapsed >= g_eval_time_budget_ms ? 1 : 0;
+}
+
 /* Forward decl: heap_alloc may trigger auto-collect (N09.05). */
 void draconic_rt_gc_collect(void);
 

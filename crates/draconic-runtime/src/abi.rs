@@ -201,6 +201,26 @@ pub const GC_ALLOC_BYTES: AbiFn = AbiFn {
     ret: "i64",
     params: "",
 };
+pub const EVAL_SET_TIME_BUDGET_MS: AbiFn = AbiFn {
+    symbol: "draconic_rt_eval_set_time_budget_ms",
+    ret: "void",
+    params: "i64",
+};
+pub const EVAL_TIME_BUDGET_MS: AbiFn = AbiFn {
+    symbol: "draconic_rt_eval_time_budget_ms",
+    ret: "i64",
+    params: "",
+};
+pub const EVAL_TIME_BEGIN: AbiFn = AbiFn {
+    symbol: "draconic_rt_eval_time_begin",
+    ret: "void",
+    params: "",
+};
+pub const EVAL_TIME_EXCEEDED: AbiFn = AbiFn {
+    symbol: "draconic_rt_eval_time_exceeded",
+    ret: "i32",
+    params: "",
+};
 pub const STRING_DATA: AbiFn = AbiFn {
     symbol: "draconic_rt_string_data",
     ret: "ptr",
@@ -475,6 +495,10 @@ pub const GC_ALLOC_THRESHOLD_SYMBOL: &str = GC_ALLOC_THRESHOLD.symbol;
 pub const GC_SET_ALLOC_BUDGET_SYMBOL: &str = GC_SET_ALLOC_BUDGET.symbol;
 pub const GC_ALLOC_BUDGET_SYMBOL: &str = GC_ALLOC_BUDGET.symbol;
 pub const GC_ALLOC_BYTES_SYMBOL: &str = GC_ALLOC_BYTES.symbol;
+pub const EVAL_SET_TIME_BUDGET_MS_SYMBOL: &str = EVAL_SET_TIME_BUDGET_MS.symbol;
+pub const EVAL_TIME_BUDGET_MS_SYMBOL: &str = EVAL_TIME_BUDGET_MS.symbol;
+pub const EVAL_TIME_BEGIN_SYMBOL: &str = EVAL_TIME_BEGIN.symbol;
+pub const EVAL_TIME_EXCEEDED_SYMBOL: &str = EVAL_TIME_EXCEEDED.symbol;
 pub const STRING_DATA_SYMBOL: &str = STRING_DATA.symbol;
 pub const STRING_LEN_SYMBOL: &str = STRING_LEN.symbol;
 pub const IS_STRING_SYMBOL: &str = IS_STRING.symbol;
@@ -535,6 +559,10 @@ pub const MINIMAL_STD_AND_GC_SYMBOLS: &[&str] = &[
     GC_SET_ALLOC_BUDGET_SYMBOL,
     GC_ALLOC_BUDGET_SYMBOL,
     GC_ALLOC_BYTES_SYMBOL,
+    EVAL_SET_TIME_BUDGET_MS_SYMBOL,
+    EVAL_TIME_BUDGET_MS_SYMBOL,
+    EVAL_TIME_BEGIN_SYMBOL,
+    EVAL_TIME_EXCEEDED_SYMBOL,
     STRING_DATA_SYMBOL,
     STRING_LEN_SYMBOL,
     IS_STRING_SYMBOL,

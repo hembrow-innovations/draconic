@@ -12,6 +12,7 @@ pub use fold::{fold_eval_program, is_eval_fold_module, Observation};
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::time::{Duration, Instant};
 
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
@@ -44,6 +45,30 @@ impl EvalAlloc {
         }
         self.used = next;
         Ok(())
+    }
+}
+
+struct EvalCtx {
+    alloc: EvalAlloc,
+    deadline: Option<Instant>,
+}
+
+impl EvalCtx {
+    fn check_time(&self) -> Result<(), Diagnostic> {
+        if let Some(deadline) = self.deadline {
+            if Instant::now() >= deadline {
+                return Err(diag("embed eval: time budget exceeded"));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn eval_deadline(budget: Duration) -> Option<Instant> {
+    if budget.is_zero() {
+        None
+    } else {
+        Some(Instant::now() + budget)
     }
 }
 
@@ -110,13 +135,37 @@ pub fn eval_source_with_alloc_budget(
     source: &str,
     budget_bytes: usize,
 ) -> Result<EmbedValue, Diagnostic> {
+    eval_source_with_limits(source, budget_bytes, Duration::ZERO)
+}
+
+/// Like [`eval_source`], with an explicit wall-clock time budget (R01.03).
+///
+/// `budget == Duration::ZERO` is unlimited. Compile plus interpret must finish
+/// before the deadline; exceeding fails closed.
+pub fn eval_source_with_time_budget(
+    source: &str,
+    budget: Duration,
+) -> Result<EmbedValue, Diagnostic> {
+    eval_source_with_limits(source, DEFAULT_EVAL_ALLOC_BUDGET_BYTES, budget)
+}
+
+fn eval_source_with_limits(
+    source: &str,
+    budget_bytes: usize,
+    time_budget: Duration,
+) -> Result<EmbedValue, Diagnostic> {
+    let deadline = eval_deadline(time_budget);
     check_eval_source_size(source)?;
     let module = compile_source(source)?;
-    let mut alloc = EvalAlloc {
-        used: 0,
-        budget: budget_bytes,
+    let mut ctx = EvalCtx {
+        alloc: EvalAlloc {
+            used: 0,
+            budget: budget_bytes,
+        },
+        deadline,
     };
-    interpret_module(&module, &mut alloc)
+    ctx.check_time()?;
+    interpret_module(&module, &mut ctx)
 }
 
 /// Like [`eval_source`], but prepends `let` bindings for free names (N07.04).
@@ -262,7 +311,7 @@ fn js_string_literal(s: &str) -> String {
     out
 }
 
-fn interpret_module(module: &Module, alloc: &mut EvalAlloc) -> Result<EmbedValue, Diagnostic> {
+fn interpret_module(module: &Module, ctx: &mut EvalCtx) -> Result<EmbedValue, Diagnostic> {
     let mut env: HashMap<LocalId, EmbedValue> = HashMap::new();
     for local in &module.locals {
         if local.name == "undefined" {
@@ -271,7 +320,7 @@ fn interpret_module(module: &Module, alloc: &mut EvalAlloc) -> Result<EmbedValue
     }
     let mut completion = EmbedValue::Undefined;
     for stmt in &module.body {
-        completion = exec_stmt(stmt, &mut env, module, alloc)?;
+        completion = exec_stmt(stmt, &mut env, module, ctx)?;
     }
     Ok(completion)
 }
@@ -280,20 +329,21 @@ fn exec_stmt(
     stmt: &Stmt,
     env: &mut HashMap<LocalId, EmbedValue>,
     module: &Module,
-    alloc: &mut EvalAlloc,
+    ctx: &mut EvalCtx,
 ) -> Result<EmbedValue, Diagnostic> {
+    ctx.check_time()?;
     match stmt {
-        Stmt::Expr { expr } => eval_expr(expr, env, module, alloc),
+        Stmt::Expr { expr } => eval_expr(expr, env, module, ctx),
         Stmt::Block { body } => {
             let mut last = EmbedValue::Undefined;
             for s in body {
-                last = exec_stmt(s, env, module, alloc)?;
+                last = exec_stmt(s, env, module, ctx)?;
             }
             Ok(last)
         }
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => eval_expr(e, env, module, alloc)?,
+                Some(e) => eval_expr(e, env, module, ctx)?,
                 None => EmbedValue::Undefined,
             };
             env.insert(*local, v);
@@ -309,8 +359,9 @@ fn eval_expr(
     expr: &Expr,
     env: &mut HashMap<LocalId, EmbedValue>,
     module: &Module,
-    alloc: &mut EvalAlloc,
+    ctx: &mut EvalCtx,
 ) -> Result<EmbedValue, Diagnostic> {
+    ctx.check_time()?;
     match expr {
         Expr::Number { raw, .. } => {
             let n = parse_number_raw(raw)?;
@@ -334,15 +385,15 @@ fn eval_expr(
             )))
         }
         Expr::Unary { op, arg, .. } => {
-            let v = eval_expr(arg, env, module, alloc)?;
-            eval_unary(*op, v, alloc)
+            let v = eval_expr(arg, env, module, ctx)?;
+            eval_unary(*op, v, &mut ctx.alloc)
         }
         Expr::Binary {
             left, op, right, ..
         } => {
-            let l = eval_expr(left, env, module, alloc)?;
-            let r = eval_expr(right, env, module, alloc)?;
-            eval_binary(*op, l, r, alloc)
+            let l = eval_expr(left, env, module, ctx)?;
+            let r = eval_expr(right, env, module, ctx)?;
+            eval_binary(*op, l, r, &mut ctx.alloc)
         }
         other => Err(diag(format!(
             "embed eval does not support expression: {other:?}"
@@ -703,6 +754,28 @@ mod tests {
     #[test]
     fn eval_source_zero_alloc_budget_is_unlimited() {
         let v = eval_source_with_alloc_budget("'ab' + 'cd'", 0).unwrap();
+        assert_eq!(v, EmbedValue::String("abcd".into()));
+    }
+
+    #[test]
+    fn eval_source_succeeds_within_time_budget() {
+        let v = eval_source_with_time_budget("1 + 2", Duration::from_secs(5)).unwrap();
+        assert_eq!(v, EmbedValue::Number(3.0));
+    }
+
+    #[test]
+    fn eval_source_rejects_when_time_budget_exceeded() {
+        let err = eval_source_with_time_budget("1 + 2", Duration::from_nanos(1)).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("time budget") || msg.contains("exceeded"),
+            "msg={msg}"
+        );
+    }
+
+    #[test]
+    fn eval_source_zero_time_budget_is_unlimited() {
+        let v = eval_source_with_time_budget("'ab' + 'cd'", Duration::ZERO).unwrap();
         assert_eq!(v, EmbedValue::String("abcd".into()));
     }
 }
