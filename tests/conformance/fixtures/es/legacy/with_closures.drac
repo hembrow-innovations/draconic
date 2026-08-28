@@ -1,0 +1,203 @@
+// E17.02.39: with + function expressions / arrows / nested closures through
+// object environment (non-strict). FE/arrow/IIFE close over object env (live);
+// params shadow object; nested function has own arguments; arrow arguments/eval
+// hit object (else outer); named FE name is local; nested FE this is not the
+// with object.
+
+function feLiveClose() {
+  let obj = { x: 1 };
+  let f;
+  with (obj) {
+    f = function () {
+      return x;
+    };
+  }
+  obj.x = 9;
+  return f() === 9;
+}
+let a = feLiveClose();
+
+function feParamsShadow() {
+  let obj = { x: 1 };
+  with (obj) {
+    return (function (x) {
+      return x;
+    })(4) === 4;
+  }
+}
+let b = feParamsShadow();
+
+function feNameIsLocal() {
+  let obj = {};
+  with (obj) {
+    let f = function g() {
+      return g === f;
+    };
+    return f() === true && obj.g === undefined;
+  }
+}
+let c = feNameIsLocal();
+
+function iifeHitsObject() {
+  let obj = { x: 2 };
+  with (obj) {
+    return (
+      (function () {
+        return x;
+      })() === 2
+    );
+  }
+}
+let d = iifeHitsObject();
+
+function nestedFeThisNotObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    return (
+      (function () {
+        return this === globalThis;
+      })() === true
+    );
+  }
+}
+let e = nestedFeThisNotObject();
+
+function returnedClosureLive() {
+  let obj = { x: 3 };
+  let f = (function () {
+    with (obj) {
+      return function () {
+        return x;
+      };
+    }
+  })();
+  obj.x = 6;
+  return f() === 6;
+}
+let f = returnedClosureLive();
+
+function defaultParamHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    return (
+      (function (p = x) {
+        return p;
+      })() === 7
+    );
+  }
+}
+let g = defaultParamHitsObject();
+
+function arrowLiveClose() {
+  let obj = { x: 1 };
+  let fn;
+  with (obj) {
+    fn = () => x;
+  }
+  obj.x = 8;
+  return fn() === 8;
+}
+let h = arrowLiveClose();
+
+function arrowParamsShadow() {
+  let obj = { x: 1 };
+  with (obj) {
+    return ((x) => x)(5) === 5;
+  }
+}
+let i = arrowParamsShadow();
+
+function objectShadowsArguments() {
+  let obj = { arguments: 7 };
+  function inner() {
+    with (obj) {
+      return arguments === 7;
+    }
+  }
+  return inner();
+}
+let j = objectShadowsArguments();
+
+function missArgumentsIsArgsObject() {
+  function inner(p) {
+    with ({}) {
+      return arguments[0] === 3 && arguments.length === 1;
+    }
+  }
+  return inner(3);
+}
+let k = missArgumentsIsArgsObject();
+
+function nestedFunctionOwnArguments() {
+  let obj = { arguments: 99 };
+  function outer() {
+    with (obj) {
+      function inner(p) {
+        return arguments[0] === 4 && arguments !== 99;
+      }
+      return inner(4);
+    }
+  }
+  return outer();
+}
+let l = nestedFunctionOwnArguments();
+
+function arrowArgumentsHitsObject() {
+  function inner() {
+    let obj = { arguments: 8 };
+    with (obj) {
+      let fn = () => arguments;
+      return fn() === 8;
+    }
+  }
+  return inner();
+}
+let m = arrowArgumentsHitsObject();
+
+function arrowArgumentsMissIsOuter() {
+  function inner() {
+    with ({}) {
+      let fn = () => arguments[0];
+      return fn();
+    }
+  }
+  return inner(5) === 5;
+}
+let n = arrowArgumentsMissIsOuter();
+
+function objectEvalIsNotDirect() {
+  let injected = false;
+  let obj = {
+    eval: function (s) {
+      return 99;
+    }
+  };
+  with (obj) {
+    let r = eval("injected = true; 1");
+    return r === 99 && injected === false;
+  }
+}
+let p = objectEvalIsNotDirect();
+
+function missEvalIsDirect() {
+  let obj = {};
+  with (obj) {
+    eval("var e170239_x = 7");
+  }
+  let ok = e170239_x === 7;
+  delete globalThis.e170239_x;
+  return ok;
+}
+let q = missEvalIsDirect();
+
+function assignArgumentsHitsObject() {
+  let obj = { arguments: 1 };
+  function inner() {
+    with (obj) {
+      arguments = 2;
+    }
+  }
+  inner();
+  return obj.arguments === 2;
+}
+let r = assignArgumentsHitsObject();
