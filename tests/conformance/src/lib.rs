@@ -13,7 +13,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_backend_js::{emit_js, emit_js_with_map, SourceMapOptions};
 use draconic_backend_llvm::{
-    build_c_static_lib, build_native_binary, build_native_binary_with_static_libs, emit_llvm_ir,
+    build_c_dynamic_lib, build_c_static_lib, build_native_binary,
+    build_native_binary_with_dynamic_libs, build_native_binary_with_static_libs, emit_llvm_ir,
 };
 use draconic_frontend::compile_path;
 
@@ -65,6 +66,8 @@ pub struct TargetExpect {
     pub stdin: Option<String>,
     /// Extra static archives or C sources to compile to `.a` (F04.01 `native.link`).
     pub link: Vec<PathBuf>,
+    /// Extra shared libraries or C sources to compile to `.so`/`.dylib`/`.dll` (F05.01 `native.dylink`).
+    pub dylink: Vec<PathBuf>,
 }
 
 /// One conformance fixture loaded from disk.
@@ -264,6 +267,15 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
                     return Err(format!("meta line {}: native.link requires a path", lineno + 1));
                 }
                 meta.expect_native.link.push(PathBuf::from(value));
+            }
+            "native.dylink" => {
+                if value.is_empty() {
+                    return Err(format!(
+                        "meta line {}: native.dylink requires a path",
+                        lineno + 1
+                    ));
+                }
+                meta.expect_native.dylink.push(PathBuf::from(value));
             }
             // Shared args for both targets (H01.01).
             "args" => {
@@ -557,6 +569,59 @@ fn resolve_native_link_libs(fixture: &Fixture) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
+/// F05.01: `native.dylink` paths are relative to the fixture directory.
+/// `.c` sources are compiled to a temp shared lib; `.so`/`.dylib`/`.dll` used as-is.
+fn resolve_native_dylink_libs(fixture: &Fixture) -> Result<Vec<PathBuf>, String> {
+    if fixture.expect_native.dylink.is_empty() {
+        return Ok(Vec::new());
+    }
+    let base = fixture
+        .source_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let mut out = Vec::new();
+    for (i, rel) in fixture.expect_native.dylink.iter().enumerate() {
+        let path = if rel.is_absolute() {
+            rel.clone()
+        } else {
+            base.join(rel)
+        };
+        if !path.is_file() {
+            return Err(format!("native.dylink not found: {}", path.display()));
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if matches!(ext, "so" | "dylib" | "dll") {
+            out.push(path);
+            continue;
+        }
+        if ext != "c" {
+            return Err(format!(
+                "native.dylink must be a .c or shared lib, got {}",
+                path.display()
+            ));
+        }
+        let dylib = temp_bin_path(&format!("{}-dylink-{i}", fixture.id))
+            .with_extension(dynamic_lib_ext());
+        if let Some(parent) = dylib.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        build_c_dynamic_lib(&path, &dylib)
+            .map_err(|d| format!("build dynamic lib from {}: {d}", path.display()))?;
+        out.push(dylib);
+    }
+    Ok(out)
+}
+
+fn dynamic_lib_ext() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "dll"
+    } else if cfg!(target_os = "macos") {
+        "dylib"
+    } else {
+        "so"
+    }
+}
+
 fn run_native(fixture: &Fixture) -> Result<(), String> {
     let expect = &fixture.expect_native;
     if expect.error_contains.is_some() || expect.error_code.is_some() {
@@ -572,11 +637,19 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
     let ll = emit_llvm_ir(&module).map_err(|d| format!("emit_llvm_ir: {d}"))?;
     let out = temp_bin_path(&fixture.id);
     let extra_libs = resolve_native_link_libs(fixture)?;
-    if extra_libs.is_empty() {
-        build_native_binary(&ll, &out).map_err(|d| format!("build_native_binary: {d}"))?;
-    } else {
-        build_native_binary_with_static_libs(&ll, &out, &extra_libs)
+    let extra_dylibs = resolve_native_dylink_libs(fixture)?;
+    if extra_dylibs.is_empty() {
+        if extra_libs.is_empty() {
+            build_native_binary(&ll, &out).map_err(|d| format!("build_native_binary: {d}"))?;
+        } else {
+            build_native_binary_with_static_libs(&ll, &out, &extra_libs)
+                .map_err(|d| format!("build_native_binary: {d}"))?;
+        }
+    } else if extra_libs.is_empty() {
+        build_native_binary_with_dynamic_libs(&ll, &out, &extra_dylibs)
             .map_err(|d| format!("build_native_binary: {d}"))?;
+    } else {
+        return Err("native.link and native.dylink together are not supported".to_string());
     }
 
     let output = run_with_optional_stdin(Command::new(&out).args(&expect.args), expect.stdin.as_deref())
@@ -762,6 +835,23 @@ native.exit: 0
         .unwrap();
         assert_eq!(
             meta.expect_native.link,
+            vec![PathBuf::from("resolve.c")]
+        );
+    }
+
+    #[test]
+    fn parse_meta_native_dylink() {
+        let meta = parse_meta(
+            "\
+id: ffi/link_dynamic/resolve
+targets: native
+native.dylink: resolve.c
+native.exit: 0
+",
+        )
+        .unwrap();
+        assert_eq!(
+            meta.expect_native.dylink,
             vec![PathBuf::from("resolve.c")]
         );
     }

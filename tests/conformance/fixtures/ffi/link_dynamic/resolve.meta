@@ -1,0 +1,5 @@
+id: ffi/link_dynamic/resolve
+targets: native
+native.dylink: resolve.c
+native.exit: 0
+native.stdout: 1\n

@@ -444,7 +444,7 @@ fn emit_empty_hello() -> String {
 
 /// Compile LLVM IR + Runtime C into a native executable via `clang`.
 pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnostic> {
-    build_native_binary_with_static_libs(llvm_ir, out_bin, &[])
+    build_native_binary_with_libs(llvm_ir, out_bin, &[], &[])
 }
 
 /// F04.01: same as [`build_native_binary`], plus extra `.a` archives on the link line.
@@ -452,6 +452,24 @@ pub fn build_native_binary_with_static_libs(
     llvm_ir: &str,
     out_bin: &Path,
     extra_static_libs: &[PathBuf],
+) -> Result<(), Diagnostic> {
+    build_native_binary_with_libs(llvm_ir, out_bin, extra_static_libs, &[])
+}
+
+/// F05.01: same as [`build_native_binary`], plus extra shared libraries on the link line.
+pub fn build_native_binary_with_dynamic_libs(
+    llvm_ir: &str,
+    out_bin: &Path,
+    extra_dynamic_libs: &[PathBuf],
+) -> Result<(), Diagnostic> {
+    build_native_binary_with_libs(llvm_ir, out_bin, &[], extra_dynamic_libs)
+}
+
+fn build_native_binary_with_libs(
+    llvm_ir: &str,
+    out_bin: &Path,
+    extra_static_libs: &[PathBuf],
+    extra_dynamic_libs: &[PathBuf],
 ) -> Result<(), Diagnostic> {
     let clang = find_clang().ok_or_else(|| {
         Diagnostic::new(
@@ -506,7 +524,17 @@ pub fn build_native_binary_with_static_libs(
         ));
     }
 
+    let mut static_libs: Vec<&Path> = Vec::new();
+    let mut dynamic_libs: Vec<&Path> = extra_dynamic_libs.iter().map(|p| p.as_path()).collect();
     for lib in extra_static_libs {
+        if is_shared_lib(lib) {
+            dynamic_libs.push(lib);
+        } else {
+            static_libs.push(lib);
+        }
+    }
+
+    for lib in &static_libs {
         if !lib.is_file() {
             return Err(Diagnostic::new(
                 format!("static lib not found: {}", lib.display()),
@@ -514,11 +542,37 @@ pub fn build_native_binary_with_static_libs(
             ));
         }
     }
+    for lib in &dynamic_libs {
+        if !lib.is_file() {
+            return Err(Diagnostic::new(
+                format!("dynamic lib not found: {}", lib.display()),
+                Span::dummy(),
+            ));
+        }
+    }
 
     let mut cc_link = Command::new(&clang);
     cc_link.arg(&obj_path);
-    for lib in extra_static_libs {
+    for lib in &static_libs {
         cc_link.arg(lib);
+    }
+    for lib in &dynamic_libs {
+        cc_link.arg(lib);
+        if let Some(parent) = lib.parent() {
+            let parent = if parent.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                parent.to_path_buf()
+            };
+            let rpath = if parent.is_absolute() {
+                parent
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(&parent)
+            };
+            cc_link.arg(format!("-Wl,-rpath,{}", rpath.display()));
+        }
     }
     cc_link.arg(&rt_lib).arg("-o").arg(out_bin);
     if want_debug {
@@ -678,6 +732,83 @@ pub fn build_c_static_lib(c_src: &Path, archive: &Path) -> Result<(), Diagnostic
     if !archive.is_file() {
         return Err(Diagnostic::new(
             format!("static lib missing after ar: {}", archive.display()),
+            Span::dummy(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_shared_lib(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("so") | Some("dylib") | Some("dll")
+    )
+}
+
+/// Host shared-library file name (`libfoo.dylib` / `libfoo.so` / `foo.dll`).
+pub fn dynamic_lib_file_name(stem: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{stem}.dll")
+    } else if cfg!(target_os = "macos") {
+        format!("lib{stem}.dylib")
+    } else {
+        format!("lib{stem}.so")
+    }
+}
+
+/// F05.01: compile one C file into a shared library (`.so` / `.dylib` / `.dll`).
+pub fn build_c_dynamic_lib(c_src: &Path, dylib: &Path) -> Result<(), Diagnostic> {
+    let clang = find_clang().ok_or_else(|| {
+        Diagnostic::new(
+            "clang not found (set CLANG or install a C toolchain)",
+            Span::dummy(),
+        )
+    })?;
+    if !c_src.is_file() {
+        return Err(Diagnostic::new(
+            format!("C source not found: {}", c_src.display()),
+            Span::dummy(),
+        ));
+    }
+    if let Some(parent) = dylib.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                Diagnostic::new(format!("create dylib dir failed: {e}"), Span::dummy())
+            })?;
+        }
+    }
+    let abs_dylib = if dylib.is_absolute() {
+        dylib.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| Diagnostic::new(format!("cwd failed: {e}"), Span::dummy()))?
+            .join(dylib)
+    };
+    let mut compile = Command::new(&clang);
+    compile
+        .arg("-shared")
+        .arg("-fPIC")
+        .arg("-o")
+        .arg(dylib)
+        .arg(c_src);
+    if cfg!(target_os = "macos") {
+        compile.arg("-install_name").arg(&abs_dylib);
+    }
+    let compile = compile
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| Diagnostic::new(format!("spawn clang -shared failed: {e}"), Span::dummy()))?;
+    if !compile.status.success() {
+        let stderr = String::from_utf8_lossy(&compile.stderr);
+        return Err(Diagnostic::new(
+            format!("clang -shared {} failed: {stderr}", c_src.display()),
+            Span::dummy(),
+        ));
+    }
+    if !dylib.is_file() {
+        return Err(Diagnostic::new(
+            format!("dynamic lib missing after clang: {}", dylib.display()),
             Span::dummy(),
         ));
     }
@@ -4546,6 +4677,63 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             "42\n7\n",
             "stdout must be C-computed returns"
+        );
+    }
+
+    /// F05.01: extra shared lib on the link line resolves a C symbol not in Runtime/libc.
+    #[test]
+    fn native_link_dynamic_lib_resolves_c_symbol() {
+        let dir = work_dir("draconic-llvm-f05-01-link-dynamic").expect("workdir");
+        let c_src = dir.join("touch.c");
+        std::fs::write(
+            &c_src,
+            "void draconic_link_dynamic_touch(void) {}\n",
+        )
+        .expect("write c");
+        let dylib = dir.join(dynamic_lib_file_name("touch"));
+        build_c_dynamic_lib(&c_src, &dylib).expect("build shared lib");
+
+        let m = module_of(
+            r#"
+            extern "C" function draconic_link_dynamic_touch(): void;
+            draconic_link_dynamic_touch();
+            let x: i32 = 1;
+            "#,
+        );
+        let ir = emit_llvm_ir(&m).expect("emit");
+        assert!(
+            ir.contains("declare void @draconic_link_dynamic_touch()"),
+            "expected declare:\n{ir}"
+        );
+        assert!(
+            ir.contains("call void @draconic_link_dynamic_touch()"),
+            "expected call:\n{ir}"
+        );
+
+        let missing = dir.join("no_lib");
+        let err = build_native_binary(&ir, &missing).expect_err("link without dylib must fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("draconic_link_dynamic_touch")
+                || msg.contains("undefined")
+                || msg.contains("Unresolved"),
+            "expected unresolved symbol, got {msg}"
+        );
+
+        let bin = dir.join("linked");
+        build_native_binary_with_dynamic_libs(&ir, &bin, &[dylib]).expect("link with shared lib");
+        assert!(bin.is_file(), "native binary missing at {}", bin.display());
+        let output = Command::new(&bin).output().expect("run");
+        assert!(
+            output.status.success(),
+            "exit {:?}\nstderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "1\n",
+            "stdout must be the local let, proving the shared-lib symbol resolved"
         );
     }
 }

@@ -280,6 +280,59 @@ fn build_native_link_static_lib_resolves_symbol() {
     assert!(out.is_file(), "native binary missing at {}", out.display());
 }
 
+/// F05.01: `build --target native --link lib.dylib` resolves one C symbol from the shared lib.
+#[test]
+fn build_native_link_dynamic_lib_resolves_symbol() {
+    use draconic_backend_llvm::{build_c_dynamic_lib, dynamic_lib_file_name};
+
+    let dir = temp_dir();
+    let c_src = dir.join("touch.c");
+    fs::write(&c_src, "void draconic_link_dynamic_touch(void) {}\n").unwrap();
+    let dylib = dir.join(dynamic_lib_file_name("touch"));
+    build_c_dynamic_lib(&c_src, &dylib).expect("build shared lib");
+
+    let src = write_program(
+        &dir,
+        "prog.drac",
+        "extern \"C\" function draconic_link_dynamic_touch(): void;\ndraconic_link_dynamic_touch();\nlet x: i32 = 1;\n",
+    );
+    let out_fail = dir.join("fail");
+    let failed = draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("native")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out_fail)
+        .output()
+        .expect("spawn");
+    assert!(
+        !failed.status.success(),
+        "build without --link must fail to resolve the C symbol"
+    );
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(
+        stderr.contains("draconic_link_dynamic_touch")
+            || stderr.contains("undefined")
+            || stderr.contains("Unresolved"),
+        "stderr={stderr}"
+    );
+
+    let out = dir.join("prog");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("native")
+            .arg("--link")
+            .arg(&dylib)
+            .arg(&src)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert!(out.is_file(), "native binary missing at {}", out.display());
+}
+
 /// F04.02: `build --target native --link lib.a` then run: stdout is the C return value.
 #[test]
 fn build_native_link_static_lib_call_end_to_end() {

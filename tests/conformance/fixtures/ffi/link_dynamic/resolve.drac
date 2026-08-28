@@ -1,0 +1,4 @@
+// F05.01: build links extra shared lib and resolves one C symbol.
+extern "C" function draconic_link_dynamic_touch(): void;
+draconic_link_dynamic_touch();
+let x: i32 = 1;
