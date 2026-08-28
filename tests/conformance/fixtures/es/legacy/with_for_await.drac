@@ -1,0 +1,438 @@
+// E17.02.53: with + for await…of through object environment (non-strict).
+// Iterable ident hits object (else outer); assign binding on object (else
+// outer); for await (let/const …) does not write object; body assign;
+// break / continue; arrays (CreateAsyncFromSyncIterator) + async iterables;
+// live close after await; nested with; unresolvable iterable → ReferenceError;
+// accessor this is with object; unscopables skip.
+
+function iterableHitsObject() {
+  let obj = { it: [1, 2] };
+  let n = 0;
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        n = n + v;
+      }
+      return n === 3;
+    })();
+  }
+}
+let a = false;
+iterableHitsObject().then(function (v) {
+  a = v;
+});
+
+function iterableMissIsOuter() {
+  let it = [4, 5];
+  let n = 0;
+  with ({}) {
+    return (async function () {
+      for await (let v of it) {
+        n = n + v;
+      }
+      return n === 9;
+    })();
+  }
+}
+let b = false;
+iterableMissIsOuter().then(function (v) {
+  b = v;
+});
+
+function iterableShadowsOuter() {
+  let it = [9];
+  let obj = { it: [1, 2] };
+  let n = 0;
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        n = n + v;
+      }
+      return n === 3;
+    })();
+  }
+}
+let c = false;
+iterableShadowsOuter().then(function (v) {
+  c = v;
+});
+
+function assignBindingHitsObject() {
+  let obj = { v: 0 };
+  with (obj) {
+    return (async function () {
+      for await (v of [7, 8]) {
+      }
+      return obj.v === 8;
+    })();
+  }
+}
+let d = false;
+assignBindingHitsObject().then(function (v) {
+  d = v;
+});
+
+function assignBindingMissUsesOuter() {
+  let v = 0;
+  let obj = {};
+  with (obj) {
+    return (async function () {
+      for await (v of [3, 4]) {
+      }
+      return (
+        v === 4 && Object.prototype.hasOwnProperty.call(obj, "v") === false
+      );
+    })();
+  }
+}
+let e = false;
+assignBindingMissUsesOuter().then(function (v) {
+  e = v;
+});
+
+function letBindingDoesNotWriteObject() {
+  let obj = { v: 0 };
+  let n = 0;
+  with (obj) {
+    return (async function () {
+      for await (let v of [3, 4]) {
+        n = n + v;
+      }
+      return obj.v === 0 && n === 7;
+    })();
+  }
+}
+let f = false;
+letBindingDoesNotWriteObject().then(function (v) {
+  f = v;
+});
+
+function constBindingDoesNotWriteObject() {
+  let obj = { v: 0 };
+  let n = 0;
+  with (obj) {
+    return (async function () {
+      for await (const v of [10, 20]) {
+        n = n + v;
+      }
+      return obj.v === 0 && n === 30;
+    })();
+  }
+}
+let g = false;
+constBindingDoesNotWriteObject().then(function (v) {
+  g = v;
+});
+
+function bodyAssignHitsObject() {
+  let obj = { z: 0, it: [1] };
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        z = 9;
+      }
+      return obj.z === 9;
+    })();
+  }
+}
+let h = false;
+bodyAssignHitsObject().then(function (v) {
+  h = v;
+});
+
+function bodyAssignMissUsesOuter() {
+  let z = 0;
+  let obj = { it: [1] };
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        z = 8;
+      }
+      return (
+        z === 8 && Object.prototype.hasOwnProperty.call(obj, "z") === false
+      );
+    })();
+  }
+}
+let i = false;
+bodyAssignMissUsesOuter().then(function (v) {
+  i = v;
+});
+
+function breakEarly() {
+  let obj = { it: [1, 2, 3, 4], z: 0 };
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        z = z + v;
+        if (v === 2) break;
+      }
+      return obj.z === 3;
+    })();
+  }
+}
+let j = false;
+breakEarly().then(function (v) {
+  j = v;
+});
+
+function continueSkip() {
+  let obj = { it: [1, 2, 3], z: 0 };
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        if (v === 2) continue;
+        z = z + v;
+      }
+      return obj.z === 4;
+    })();
+  }
+}
+let k = false;
+continueSkip().then(function (v) {
+  k = v;
+});
+
+function liveClose() {
+  let obj = { it: [1, 2], x: 0 };
+  let run;
+  with (obj) {
+    run = async function () {
+      let n = 0;
+      for await (let v of it) {
+        n = n + v + x;
+      }
+      return n === 9;
+    };
+  }
+  obj.it = [4, 5];
+  obj.x = 0;
+  return run();
+}
+let l = false;
+liveClose().then(function (v) {
+  l = v;
+});
+
+function liveCloseBodyIdent() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    run = async function () {
+      let n = 0;
+      for await (let v of [0]) {
+        n = x;
+      }
+      return n === 8;
+    };
+  }
+  obj.x = 8;
+  return run();
+}
+let m = false;
+liveCloseBodyIdent().then(function (v) {
+  m = v;
+});
+
+function nestedInnerWins() {
+  let inner = { it: [1] };
+  let outer = { it: [9] };
+  let n = 0;
+  with (outer) {
+    with (inner) {
+      return (async function () {
+        for await (let v of it) {
+          n = v;
+        }
+        return n === 1;
+      })();
+    }
+  }
+}
+let n = false;
+nestedInnerWins().then(function (v) {
+  n = v;
+});
+
+function unresolvableIterableThrows() {
+  with ({}) {
+    return (async function () {
+      try {
+        for await (let v of e170253_missing) {
+        }
+      } catch (err) {
+        return err instanceof ReferenceError;
+      }
+    })();
+  }
+}
+let p = false;
+unresolvableIterableThrows().then(function (v) {
+  p = v;
+});
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get it() {
+      seen = this;
+      return [1];
+    }
+  };
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+      }
+      return seen === obj;
+    })();
+  }
+}
+let q = false;
+accessorThisIsWithObject().then(function (v) {
+  q = v;
+});
+
+function unscopablesUsesOuter() {
+  let it = [7];
+  let n = 0;
+  let obj = { it: [1] };
+  obj[Symbol.unscopables] = { it: true };
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        n = v;
+      }
+      return n === 7;
+    })();
+  }
+}
+let r = false;
+unscopablesUsesOuter().then(function (v) {
+  r = v;
+});
+
+function unscopablesFalseyStillObject() {
+  let it = [9];
+  let n = 0;
+  let obj = { it: [1] };
+  obj[Symbol.unscopables] = { it: false };
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        n = v;
+      }
+      return n === 1;
+    })();
+  }
+}
+let s = false;
+unscopablesFalseyStillObject().then(function (v) {
+  s = v;
+});
+
+function asyncIterableHitsObject() {
+  let obj = {
+    it: {
+      [Symbol.asyncIterator]: function () {
+        let i = 0;
+        let values = [1, 2, 3];
+        return {
+          next: function () {
+            if (i < values.length) {
+              let v = values[i];
+              i = i + 1;
+              return Promise.resolve({ value: v, done: false });
+            }
+            return Promise.resolve({ value: undefined, done: true });
+          }
+        };
+      }
+    }
+  };
+  let n = 0;
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        n = n + v;
+      }
+      return n === 6;
+    })();
+  }
+}
+let t = false;
+asyncIterableHitsObject().then(function (v) {
+  t = v;
+});
+
+function withInsideAsync() {
+  let obj = { it: [2, 3] };
+  return (async function () {
+    let n = 0;
+    with (obj) {
+      for await (let v of it) {
+        n = n + v;
+      }
+    }
+    return n === 5;
+  })();
+}
+let u = false;
+withInsideAsync().then(function (v) {
+  u = v;
+});
+
+function inheritedIterable() {
+  let proto = { it: [8] };
+  let obj = Object.create(proto);
+  let n = 0;
+  with (obj) {
+    return (async function () {
+      for await (let v of it) {
+        n = v;
+      }
+      return n === 8;
+    })();
+  }
+}
+let vv = false;
+inheritedIterable().then(function (ok) {
+  vv = ok;
+});
+
+function assignBindingShadowsOuter() {
+  let v = 1;
+  let obj = { v: 0 };
+  let seen;
+  with (obj) {
+    seen = (async function () {
+      for await (v of [5]) {
+      }
+      return obj.v === 5;
+    })();
+  }
+  return seen.then(function (ok) {
+    return ok && v === 1;
+  });
+}
+let w = false;
+assignBindingShadowsOuter().then(function (v) {
+  w = v;
+});
+
+function nestedAssignInnerWins() {
+  let inner = { v: 0 };
+  let outer = { v: 0 };
+  with (outer) {
+    with (inner) {
+      return (async function () {
+        for await (v of [2]) {
+        }
+        return inner.v === 2 && outer.v === 0;
+      })();
+    }
+  }
+}
+let y = false;
+nestedAssignInnerWins().then(function (v) {
+  y = v;
+});

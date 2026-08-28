@@ -568,3 +568,13 @@ fn with_labeled_fixture_present() {
 fn with_labeled_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_labeled");
 }
+
+#[test]
+fn with_for_await_fixture_present() {
+    assert_fixture_present("es/legacy/with_for_await");
+}
+
+#[test]
+fn with_for_await_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_for_await");
+}
