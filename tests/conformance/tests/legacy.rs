@@ -468,3 +468,13 @@ fn with_classes_fixture_present() {
 fn with_classes_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_classes");
 }
+
+#[test]
+fn with_function_ctor_fixture_present() {
+    assert_fixture_present("es/legacy/with_function_ctor");
+}
+
+#[test]
+fn with_function_ctor_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_function_ctor");
+}
