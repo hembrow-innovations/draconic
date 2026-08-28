@@ -1,9 +1,10 @@
-//! L05.01 / L05.02: native observations for in-language `describe` / `it` / `expect`.
+//! L05.01 / L05.02 / L05.03: native observations for `describe` / `it` / `expect` + hooks.
 //!
 //! Compile-time evaluation: `describe` runs its callback; `it` runs its callback
 //! and yields `true` on success or `false` if the callback throws. `expect`
-//! matchers throw a string message on failure. Emits Runtime prints of final
-//! top-level number/string/bool locals.
+//! matchers throw a string message on failure. Nested `describe` plus `before` /
+//! `after` / `beforeEach` / `afterEach` share a suite stack. Emits Runtime prints
+//! of final top-level number/string/bool locals.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -32,6 +33,31 @@ enum BuiltinId {
     Describe,
     It,
     Expect,
+    Before,
+    After,
+    BeforeEach,
+    AfterEach,
+}
+
+#[derive(Clone, Debug, Default)]
+struct SuiteHooks {
+    before_each: Vec<JsVal>,
+    after_each: Vec<JsVal>,
+    after: Vec<JsVal>,
+}
+
+struct EvalCtx {
+    env: HashMap<LocalId, JsVal>,
+    suites: Vec<SuiteHooks>,
+}
+
+impl EvalCtx {
+    fn new() -> Self {
+        Self {
+            env: HashMap::new(),
+            suites: vec![SuiteHooks::default()],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -72,13 +98,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if !body_ok(&module.body) {
         return None;
     }
-    let mut env: HashMap<LocalId, JsVal> = HashMap::new();
+    let mut ctx = EvalCtx::new();
     for loc in &module.locals {
         if loc.name == "globalThis" {
-            env.insert(loc.id, JsVal::Builtin(BuiltinId::GlobalThis));
+            ctx.env.insert(loc.id, JsVal::Builtin(BuiltinId::GlobalThis));
         }
     }
-    match eval_body(&module.body, &mut env) {
+    match eval_body(&module.body, &mut ctx) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }
@@ -87,7 +113,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     for stmt in &module.body {
         if let Stmt::Declare { local, .. } = stmt {
             let loc = by_id.get(local)?;
-            match env.get(local) {
+            match ctx.env.get(local) {
                 Some(v @ (JsVal::Num(_) | JsVal::Str(_) | JsVal::Bool(_))) => {
                     if matches!(
                         loc.ty,
@@ -117,6 +143,10 @@ fn ident_builtin(name: &str) -> Option<BuiltinId> {
         "describe" => Some(BuiltinId::Describe),
         "it" => Some(BuiltinId::It),
         "expect" => Some(BuiltinId::Expect),
+        "before" => Some(BuiltinId::Before),
+        "after" => Some(BuiltinId::After),
+        "beforeEach" => Some(BuiltinId::BeforeEach),
+        "afterEach" => Some(BuiltinId::AfterEach),
         _ => None,
     }
 }
@@ -161,7 +191,10 @@ fn stmt_has_testing_surface(stmt: &Stmt) -> bool {
 
 fn expr_has_testing_surface(expr: &Expr) -> bool {
     match expr {
-        Expr::IdentName { name, .. } => matches!(name.as_str(), "describe" | "it" | "expect"),
+        Expr::IdentName { name, .. } => matches!(
+            name.as_str(),
+            "describe" | "it" | "expect" | "before" | "after" | "beforeEach" | "afterEach"
+        ),
         Expr::Unary { arg, .. } => expr_has_testing_surface(arg),
         Expr::Binary { left, right, .. } => {
             expr_has_testing_surface(left) || expr_has_testing_surface(right)
@@ -291,9 +324,9 @@ fn expr_ok(expr: &Expr) -> bool {
     }
 }
 
-fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+fn eval_body(body: &[Stmt], ctx: &mut EvalCtx) -> Result<Flow, ()> {
     for stmt in body {
-        match eval_stmt(stmt, env)? {
+        match eval_stmt(stmt, ctx)? {
             Flow::Normal => {}
             other => return Ok(other),
         }
@@ -301,30 +334,30 @@ fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, (
     Ok(Flow::Normal)
 }
 
-fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+fn eval_stmt(stmt: &Stmt, ctx: &mut EvalCtx) -> Result<Flow, ()> {
     match stmt {
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => match eval_expr(e, env)? {
+                Some(e) => match eval_expr(e, ctx)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(flow),
                 },
                 None => JsVal::Undef,
             };
-            env.insert(*local, v);
+            ctx.env.insert(*local, v);
             Ok(Flow::Normal)
         }
-        Stmt::Expr { expr } => match eval_expr(expr, env)? {
+        Stmt::Expr { expr } => match eval_expr(expr, ctx)? {
             Ok(_) => Ok(Flow::Normal),
             Err(flow) => Ok(flow),
         }
-        Stmt::Throw { value } => match eval_expr(value, env)? {
+        Stmt::Throw { value } => match eval_expr(value, ctx)? {
             Ok(v) => Ok(Flow::Throw(v)),
             Err(flow) => Ok(flow),
         }
         Stmt::Return { value } => {
             let v = match value {
-                Some(e) => match eval_expr(e, env)? {
+                Some(e) => match eval_expr(e, ctx)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(flow),
                 },
@@ -332,20 +365,20 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             };
             Ok(Flow::Return(v))
         }
-        Stmt::Block { body } => eval_body(body, env),
+        Stmt::Block { body } => eval_body(body, ctx),
         Stmt::If {
             test,
             consequent,
             alternate,
         } => {
-            let t = match eval_expr(test, env)? {
+            let t = match eval_expr(test, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(flow),
             };
             if to_boolean(&t) {
-                eval_stmt(consequent, env)
+                eval_stmt(consequent, ctx)
             } else if let Some(a) = alternate {
-                eval_stmt(a, env)
+                eval_stmt(a, ctx)
             } else {
                 Ok(Flow::Normal)
             }
@@ -356,18 +389,18 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             handler,
             finalizer,
         } => {
-            let after_try = match eval_body(block, env)? {
+            let after_try = match eval_body(block, ctx)? {
                 Flow::Throw(exc) => {
                     if let Some(h) = handler {
                         if let Some(param) = handler_param {
                             match param {
                                 Pattern::Local(id) => {
-                                    env.insert(*id, exc);
+                                    ctx.env.insert(*id, exc);
                                 }
                                 _ => return Err(()),
                             }
                         }
-                        eval_body(h, env)?
+                        eval_body(h, ctx)?
                     } else {
                         Flow::Throw(exc)
                     }
@@ -375,7 +408,7 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
                 other => other,
             };
             if let Some(f) = finalizer {
-                match eval_body(f, env)? {
+                match eval_body(f, ctx)? {
                     Flow::Normal => {}
                     other => return Ok(other),
                 }
@@ -386,16 +419,16 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
     }
 }
 
-fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<JsVal, Flow>, ()> {
+fn eval_expr(expr: &Expr, ctx: &mut EvalCtx) -> Result<Result<JsVal, Flow>, ()> {
     match expr {
         Expr::Number { raw, .. } => Ok(Ok(JsVal::Num(raw.parse().map_err(|_| ())?))),
         Expr::Boolean { value, .. } => Ok(Ok(JsVal::Bool(*value))),
         Expr::String { value, .. } => Ok(Ok(JsVal::Str(js_string_to_utf8(value)))),
         Expr::Null { .. } => Ok(Ok(JsVal::Undef)),
-        Expr::Local { id, .. } => Ok(Ok(env.get(id).cloned().ok_or(())?)),
+        Expr::Local { id, .. } => Ok(Ok(ctx.env.get(id).cloned().ok_or(())?)),
         Expr::IdentName { name, .. } => Ok(Ok(JsVal::Builtin(ident_builtin(name).ok_or(())?))),
         Expr::Unary { op, arg, .. } => {
-            let v = match eval_expr(arg, env)? {
+            let v = match eval_expr(arg, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -415,11 +448,11 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         Expr::Binary {
             op, left, right, ..
         } => {
-            let l = match eval_expr(left, env)? {
+            let l = match eval_expr(left, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let r = match eval_expr(right, env)? {
+            let r = match eval_expr(right, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -452,14 +485,14 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             alternate,
             ..
         } => {
-            let t = match eval_expr(test, env)? {
+            let t = match eval_expr(test, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
             if to_boolean(&t) {
-                eval_expr(consequent, env)
+                eval_expr(consequent, ctx)
             } else {
-                eval_expr(alternate, env)
+                eval_expr(alternate, ctx)
             }
         }
         Expr::Member {
@@ -468,11 +501,11 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             optional: false,
             ..
         } => {
-            let obj = match eval_expr(object, env)? {
+            let obj = match eval_expr(object, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let key = match eval_key(property, env)? {
+            let key = match eval_key(property, ctx)? {
                 Ok(k) => k,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -487,18 +520,18 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             let mut arg_vals = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => match eval_expr(e, env)? {
+                    Arg::Expr(e) => match eval_expr(e, ctx)? {
                         Ok(v) => arg_vals.push(v),
                         Err(flow) => return Ok(Err(flow)),
                     },
                     _ => return Err(()),
                 }
             }
-            let c = match eval_expr(callee, env)? {
+            let c = match eval_expr(callee, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            match eval_call(&c, &arg_vals, env) {
+            match eval_call(&c, &arg_vals, ctx) {
                 Ok(v) => Ok(Ok(v)),
                 Err(Some(flow)) => Ok(Err(flow)),
                 Err(None) => Err(()),
@@ -510,11 +543,11 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             value,
             ..
         } => {
-            let v = match eval_expr(value, env)? {
+            let v = match eval_expr(value, ctx)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            env.insert(*id, v.clone());
+            ctx.env.insert(*id, v.clone());
             Ok(Ok(v))
         }
         Expr::Function { body, .. } => Ok(Ok(JsVal::Closure { body: body.clone() })),
@@ -522,10 +555,10 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
     }
 }
 
-fn eval_key(property: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<String, Flow>, ()> {
+fn eval_key(property: &Expr, ctx: &mut EvalCtx) -> Result<Result<String, Flow>, ()> {
     match property {
         Expr::String { value, .. } => Ok(Ok(js_string_to_utf8(value))),
-        _ => match eval_expr(property, env)? {
+        _ => match eval_expr(property, ctx)? {
             Ok(JsVal::Str(s)) => Ok(Ok(s)),
             Ok(_) => Err(()),
             Err(flow) => Ok(Err(flow)),
@@ -536,24 +569,77 @@ fn eval_key(property: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result
 fn eval_call(
     callee: &JsVal,
     args: &[JsVal],
-    env: &mut HashMap<LocalId, JsVal>,
+    ctx: &mut EvalCtx,
 ) -> Result<JsVal, Option<Flow>> {
     match callee {
         JsVal::Builtin(BuiltinId::Describe) => {
             let fn_val = args.get(1).ok_or(None)?;
-            match call_closure(fn_val, env) {
-                Ok(_) => Ok(JsVal::Undef),
-                Err(Some(Flow::Throw(exc))) => Err(Some(Flow::Throw(exc))),
-                Err(other) => Err(other),
+            ctx.suites.push(SuiteHooks::default());
+            let body_res = call_closure(fn_val, ctx);
+            let afters = ctx
+                .suites
+                .last()
+                .map(|s| s.after.clone())
+                .unwrap_or_default();
+            let after_res = run_hook_list(&afters, ctx);
+            ctx.suites.pop();
+            match after_res {
+                Err(e) => Err(e),
+                Ok(()) => match body_res {
+                    Ok(_) => Ok(JsVal::Undef),
+                    Err(e) => Err(e),
+                },
             }
         }
         JsVal::Builtin(BuiltinId::It) => {
             let fn_val = args.get(1).ok_or(None)?;
-            match call_closure(fn_val, env) {
-                Ok(_) => Ok(JsVal::Bool(true)),
-                Err(Some(Flow::Throw(_))) => Ok(JsVal::Bool(false)),
-                Err(other) => Err(other),
+            let mut ok = true;
+            match run_all_before_each(ctx) {
+                Ok(()) => match call_closure(fn_val, ctx) {
+                    Ok(_) => {}
+                    Err(Some(Flow::Throw(_))) => ok = false,
+                    Err(other) => return Err(other),
+                },
+                Err(Some(Flow::Throw(_))) => ok = false,
+                Err(other) => return Err(other),
             }
+            match run_all_after_each(ctx) {
+                Ok(()) => {}
+                Err(Some(Flow::Throw(_))) => ok = false,
+                Err(other) => return Err(other),
+            }
+            Ok(JsVal::Bool(ok))
+        }
+        JsVal::Builtin(BuiltinId::Before) => {
+            let fn_val = args.first().ok_or(None)?;
+            call_closure(fn_val, ctx).map(|_| JsVal::Undef)
+        }
+        JsVal::Builtin(BuiltinId::After) => {
+            let fn_val = args.first().cloned().ok_or(None)?;
+            ctx.suites
+                .last_mut()
+                .ok_or(None)?
+                .after
+                .push(fn_val);
+            Ok(JsVal::Undef)
+        }
+        JsVal::Builtin(BuiltinId::BeforeEach) => {
+            let fn_val = args.first().cloned().ok_or(None)?;
+            ctx.suites
+                .last_mut()
+                .ok_or(None)?
+                .before_each
+                .push(fn_val);
+            Ok(JsVal::Undef)
+        }
+        JsVal::Builtin(BuiltinId::AfterEach) => {
+            let fn_val = args.first().cloned().ok_or(None)?;
+            ctx.suites
+                .last_mut()
+                .ok_or(None)?
+                .after_each
+                .push(fn_val);
+            Ok(JsVal::Undef)
         }
         JsVal::Builtin(BuiltinId::Expect) => {
             let actual = args.first().cloned().unwrap_or(JsVal::Undef);
@@ -595,17 +681,45 @@ fn eval_call(
                 }
             }
         },
-        JsVal::Closure { .. } => call_closure(callee, env).map(|_| JsVal::Undef),
+        JsVal::Closure { .. } => call_closure(callee, ctx).map(|_| JsVal::Undef),
         _ => Err(None),
     }
 }
 
-fn call_closure(fn_val: &JsVal, env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, Option<Flow>> {
+fn run_hook_list(hooks: &[JsVal], ctx: &mut EvalCtx) -> Result<(), Option<Flow>> {
+    for h in hooks {
+        call_closure(h, ctx)?;
+    }
+    Ok(())
+}
+
+fn run_all_before_each(ctx: &mut EvalCtx) -> Result<(), Option<Flow>> {
+    let hooks: Vec<Vec<JsVal>> = ctx.suites.iter().map(|s| s.before_each.clone()).collect();
+    for list in hooks {
+        run_hook_list(&list, ctx)?;
+    }
+    Ok(())
+}
+
+fn run_all_after_each(ctx: &mut EvalCtx) -> Result<(), Option<Flow>> {
+    let hooks: Vec<Vec<JsVal>> = ctx
+        .suites
+        .iter()
+        .rev()
+        .map(|s| s.after_each.clone())
+        .collect();
+    for list in hooks {
+        run_hook_list(&list, ctx)?;
+    }
+    Ok(())
+}
+
+fn call_closure(fn_val: &JsVal, ctx: &mut EvalCtx) -> Result<JsVal, Option<Flow>> {
     let JsVal::Closure { body } = fn_val else {
         return Err(None);
     };
     let body = body.clone();
-    match eval_body(&body, env) {
+    match eval_body(&body, ctx) {
         Ok(Flow::Normal) => Ok(JsVal::Undef),
         Ok(Flow::Return(v)) => Ok(v),
         Ok(Flow::Throw(exc)) => Err(Some(Flow::Throw(exc))),
@@ -619,6 +733,10 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "describe" => Ok(JsVal::Builtin(BuiltinId::Describe)),
             "it" => Ok(JsVal::Builtin(BuiltinId::It)),
             "expect" => Ok(JsVal::Builtin(BuiltinId::Expect)),
+            "before" => Ok(JsVal::Builtin(BuiltinId::Before)),
+            "after" => Ok(JsVal::Builtin(BuiltinId::After)),
+            "beforeEach" => Ok(JsVal::Builtin(BuiltinId::BeforeEach)),
+            "afterEach" => Ok(JsVal::Builtin(BuiltinId::AfterEach)),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
         },
@@ -644,7 +762,15 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Bool(_) => "boolean".into(),
         JsVal::Str(_) => "string".into(),
         JsVal::Undef => "undefined".into(),
-        JsVal::Builtin(BuiltinId::Describe | BuiltinId::It | BuiltinId::Expect)
+        JsVal::Builtin(
+            BuiltinId::Describe
+                | BuiltinId::It
+                | BuiltinId::Expect
+                | BuiltinId::Before
+                | BuiltinId::After
+                | BuiltinId::BeforeEach
+                | BuiltinId::AfterEach,
+        )
         | JsVal::Closure { .. }
         | JsVal::BoundMatcher { .. } => "function".into(),
         JsVal::Builtin(BuiltinId::GlobalThis) | JsVal::Matcher { .. } => "object".into(),
@@ -760,7 +886,7 @@ impl Emitter {
         }
             writeln!(
             self.out,
-            "; Draconic LLVM backend (L05.02 describe/it/expect)"
+            "; Draconic LLVM backend (L05.03 describe/it/expect/hooks)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -862,5 +988,34 @@ mod tests {
         assert!(is_es_testing_module(&m));
         let ir = emit_es_testing(&m).expect("emit");
         assert!(ir.contains("true"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_nested_hooks() {
+        let m = compile_src(
+            r#"
+            let nestedOk;
+            let hookOk;
+            let order = "";
+            describe("outer", () => {
+              before(() => { order = order + "B"; });
+              after(() => { order = order + "A"; });
+              beforeEach(() => { order = order + "b"; });
+              afterEach(() => { order = order + "a"; });
+              describe("inner", () => {
+                beforeEach(() => { order = order + "i"; });
+                afterEach(() => { order = order + "j"; });
+                nestedOk = it("case", () => {
+                  order = order + "T";
+                });
+              });
+            });
+            hookOk = order === "BbiTjaA";
+            "#,
+        );
+        assert!(is_es_testing_module(&m));
+        let ir = emit_es_testing(&m).expect("emit");
+        assert!(ir.contains("true"), "{ir}");
+        assert!(ir.contains("BbiTjaA"), "{ir}");
     }
 }

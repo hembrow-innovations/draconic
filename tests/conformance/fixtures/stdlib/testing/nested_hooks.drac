@@ -1,0 +1,40 @@
+// L05.03: nested describe + before/after/beforeEach/afterEach.
+// Outer before runs at registration; after runs when the suite callback returns.
+// beforeEach walks outer→inner; afterEach walks inner→outer.
+let tb = typeof before;
+let ta = typeof after;
+let tbe = typeof beforeEach;
+let tae = typeof afterEach;
+let gb = globalThis.before === before;
+let ga = globalThis.after === after;
+let gbe = globalThis.beforeEach === beforeEach;
+let gae = globalThis.afterEach === afterEach;
+let nestedOk;
+let hookOk;
+let order = "";
+describe("outer", () => {
+  before(() => {
+    order = order + "B";
+  });
+  after(() => {
+    order = order + "A";
+  });
+  beforeEach(() => {
+    order = order + "b";
+  });
+  afterEach(() => {
+    order = order + "a";
+  });
+  describe("inner", () => {
+    beforeEach(() => {
+      order = order + "i";
+    });
+    afterEach(() => {
+      order = order + "j";
+    });
+    nestedOk = it("case", () => {
+      order = order + "T";
+    });
+  });
+});
+hookOk = order === "BbiTjaA";

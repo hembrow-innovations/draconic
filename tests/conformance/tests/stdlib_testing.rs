@@ -1,4 +1,4 @@
-//! ROADMAP L05.01 / L05.02: `describe` / `it` / `expect` matchers.
+//! ROADMAP L05.01 / L05.02 / L05.03: `describe` / `it` / `expect` + nested hooks.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
@@ -125,6 +125,40 @@ fn expect_fail_messages_runs_both_targets() {
         fixture.targets.len(),
         2,
         "L05.02 targets both js and native"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn nested_hooks_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter()
+            .any(|id| *id == "stdlib/testing/nested_hooks"),
+        "missing stdlib/testing/nested_hooks fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn nested_hooks_runs_both_targets() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/testing/nested_hooks")
+        .expect("stdlib/testing/nested_hooks");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L05.03 targets both js and native"
     );
     for r in run_fixture(fixture) {
         assert!(

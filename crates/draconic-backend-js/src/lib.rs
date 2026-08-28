@@ -80,12 +80,16 @@ fn module_uses_query(module: &Module) -> bool {
     module_uses_named_local(module, "parseQuery") || module_uses_named_local(module, "serializeQuery")
 }
 
-/// L05.01 / L05.02: free `describe` / `it` / `expect` (IdentName so user `let it` does not collide).
+/// L05.01 / L05.02 / L05.03: free `describe` / `it` / `expect` / hooks (IdentName so user `let it` does not collide).
 fn module_uses_describe_it(module: &Module) -> bool {
     module.body.iter().any(|s| {
         stmt_uses_ident_name(s, "describe")
             || stmt_uses_ident_name(s, "it")
             || stmt_uses_ident_name(s, "expect")
+            || stmt_uses_ident_name(s, "before")
+            || stmt_uses_ident_name(s, "after")
+            || stmt_uses_ident_name(s, "beforeEach")
+            || stmt_uses_ident_name(s, "afterEach")
     })
 }
 
@@ -1217,6 +1221,10 @@ mod tests {
         assert!(js.contains("globalThis.describe = describe"), "{js}");
         assert!(js.contains("globalThis.it = it"), "{js}");
         assert!(js.contains("globalThis.expect = expect"), "{js}");
+        assert!(js.contains("globalThis.before = before"), "{js}");
+        assert!(js.contains("globalThis.after = after"), "{js}");
+        assert!(js.contains("globalThis.beforeEach = beforeEach"), "{js}");
+        assert!(js.contains("globalThis.afterEach = afterEach"), "{js}");
     }
 
     #[test]

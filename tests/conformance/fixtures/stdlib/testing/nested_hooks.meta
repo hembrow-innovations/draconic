@@ -1,0 +1,6 @@
+id: stdlib/testing/nested_hooks
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\nfunction\nfunction\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\nBbiTjaA\n
+js.check: if (tb !== "function") process.exit(1); if (ta !== "function") process.exit(2); if (tbe !== "function") process.exit(3); if (tae !== "function") process.exit(4); if (gb !== true) process.exit(5); if (ga !== true) process.exit(6); if (gbe !== true) process.exit(7); if (gae !== true) process.exit(8); if (nestedOk !== true) process.exit(9); if (hookOk !== true) process.exit(10);
