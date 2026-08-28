@@ -1,0 +1,232 @@
+// E17.02.38: with + try/catch/finally through object environment (non-strict).
+// throw ident hits object (else outer); catch param is catch-local (does not
+// write object; shadows object prop); catch body other idents still through
+// with; finally sees with not catch; optional catch; with inside catch;
+// catch outside with does not see object.
+
+function throwHitsObject() {
+  let obj = { x: 7 };
+  try {
+    with (obj) {
+      throw x;
+    }
+  } catch (err) {
+    return err === 7;
+  }
+}
+let a = throwHitsObject();
+
+function throwMissesObject() {
+  let x = 3;
+  let obj = {};
+  try {
+    with (obj) {
+      throw x;
+    }
+  } catch (err) {
+    return err === 3;
+  }
+}
+let b = throwMissesObject();
+
+function catchParamDoesNotWriteObject() {
+  let obj = { e: 1 };
+  with (obj) {
+    try {
+      throw 2;
+    } catch (e) {
+      e = 9;
+    }
+  }
+  return obj.e === 1;
+}
+let c = catchParamDoesNotWriteObject();
+
+function catchParamShadowsObject() {
+  let obj = { e: 1 };
+  with (obj) {
+    try {
+      throw 5;
+    } catch (e) {
+      return e === 5 && obj.e === 1;
+    }
+  }
+}
+let d = catchParamShadowsObject();
+
+function catchBodyHitsObject() {
+  let obj = { y: 1 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (e) {
+      y = 8;
+    }
+  }
+  return obj.y === 8;
+}
+let e = catchBodyHitsObject();
+
+function catchBodyMissFallsThrough() {
+  let z = 2;
+  let obj = {};
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      z = 9;
+    }
+  }
+  return (
+    z === 9 &&
+    obj.z === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "z") === false
+  );
+}
+let f = catchBodyMissFallsThrough();
+
+function finallyHitsObjectNotCatch() {
+  let obj = { z: 1 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (e) {
+      e = 99;
+    } finally {
+      z = 4;
+    }
+  }
+  return obj.z === 4;
+}
+let g = finallyHitsObjectNotCatch();
+
+function finallyDoesNotSeeCatchParam() {
+  let obj = {};
+  let saw = false;
+  with (obj) {
+    try {
+      throw 1;
+    } catch (caught) {
+    } finally {
+      try {
+        caught;
+        saw = false;
+      } catch (err) {
+        saw = err instanceof ReferenceError;
+      }
+    }
+  }
+  return saw === true;
+}
+let h = finallyDoesNotSeeCatchParam();
+
+function tryFinallyNoCatch() {
+  let obj = { x: 1 };
+  let ran = false;
+  try {
+    with (obj) {
+      try {
+        throw 2;
+      } finally {
+        ran = true;
+        x = 5;
+      }
+    }
+  } catch (err) {
+    return ran === true && obj.x === 5 && err === 2;
+  }
+}
+let i = tryFinallyNoCatch();
+
+function withInsideCatch() {
+  let obj = { x: 3 };
+  try {
+    throw 0;
+  } catch (err) {
+    with (obj) {
+      return x === 3 && err === 0;
+    }
+  }
+}
+let j = withInsideCatch();
+
+function optionalCatchHitsObject() {
+  let obj = { x: 4 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch {
+      x = 6;
+    }
+  }
+  return obj.x === 6;
+}
+let k = optionalCatchHitsObject();
+
+function catchOutsideWith() {
+  let obj = { x: 1 };
+  try {
+    with (obj) {
+      throw x;
+    }
+  } catch (err) {
+    let missed = false;
+    try {
+      x;
+    } catch (inner) {
+      missed = inner instanceof ReferenceError;
+    }
+    return err === 1 && missed === true;
+  }
+}
+let l = catchOutsideWith();
+
+function throwInCatchHitsObject() {
+  let obj = { x: 8 };
+  try {
+    with (obj) {
+      try {
+        throw 1;
+      } catch (err) {
+        throw x;
+      }
+    }
+  } catch (err) {
+    return err === 8;
+  }
+}
+let m = throwInCatchHitsObject();
+
+function throwAccessor() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 10;
+    }
+  };
+  try {
+    with (obj) {
+      throw x;
+    }
+  } catch (err) {
+    return err === 10 && n === 1;
+  }
+}
+let n = throwAccessor();
+
+function finallyAfterThrow() {
+  let obj = { log: 0 };
+  try {
+    with (obj) {
+      try {
+        throw 1;
+      } finally {
+        log = log + 1;
+      }
+    }
+  } catch (err) {
+    return err === 1 && obj.log === 1;
+  }
+}
+let p = finallyAfterThrow();

@@ -418,3 +418,13 @@ fn with_hoist_fixture_present() {
 fn with_hoist_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_hoist");
 }
+
+#[test]
+fn with_try_catch_fixture_present() {
+    assert_fixture_present("es/legacy/with_try_catch");
+}
+
+#[test]
+fn with_try_catch_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_try_catch");
+}
