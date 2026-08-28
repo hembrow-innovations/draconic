@@ -1,0 +1,4 @@
+id: es/legacy/with_while
+targets: js
+js.exit: 0
+js.check: if (a !== true) process.exit(1); if (b !== true) process.exit(2); if (c !== true) process.exit(3); if (d !== true) process.exit(4); if (e !== true) process.exit(5); if (f !== true) process.exit(6); if (g !== true) process.exit(7); if (h !== true) process.exit(8); if (i !== true) process.exit(9); if (j !== true) process.exit(10); if (k !== true) process.exit(11); if (l !== true) process.exit(12); if (m !== true) process.exit(13); if (n !== true) process.exit(14); if (p !== true) process.exit(15); if (q !== true) process.exit(16); if (r !== true) process.exit(17); if (s !== true) process.exit(18); if (t !== true) process.exit(19); if (u !== true) process.exit(20); if (v !== true) process.exit(21);
