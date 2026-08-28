@@ -1,4 +1,4 @@
-//! ROADMAP C02.01–C02.02: channel send/recv — scalars, strings, plain-object clone.
+//! ROADMAP C02.01–C02.03: channel send/recv — scalars, strings, clone, bounded buffer.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -97,4 +97,24 @@ fn channel_object_shared_fixture_present() {
 #[test]
 fn channel_object_shared_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/channels/channel_object_shared");
+}
+
+#[test]
+fn channel_bounded_fixture_present() {
+    assert_fixture_present("concurrency/channels/channel_bounded");
+}
+
+#[test]
+fn channel_bounded_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/channels/channel_bounded");
+}
+
+#[test]
+fn channel_bounded_cap2_fixture_present() {
+    assert_fixture_present("concurrency/channels/channel_bounded_cap2");
+}
+
+#[test]
+fn channel_bounded_cap2_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/channels/channel_bounded_cap2");
 }

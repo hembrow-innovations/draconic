@@ -829,13 +829,14 @@ int32_t draconic_rt_host_worker_spawn(int32_t kind, const char *path);
 int32_t draconic_rt_host_worker_join(int32_t handle);
 int32_t draconic_rt_host_worker_terminate(int32_t handle);
 
-/* --- Channels (C02.01) ----------------------------------------------------
-   makeChannel: allocate a FIFO slot. Returns handle >= 1, or -1 on failure.
+/* --- Channels (C02.01 / C02.03) -------------------------------------------
+   makeChannel: allocate a FIFO slot. cap > 0 bounds the buffer; cap <= 0 is
+   unbounded. Returns handle >= 1, or -1 on failure.
    channelSend: enqueue a number, string, bool, or plain object (C02.02 clone).
-   0 success, -1 invalid handle / unsupported / shared-ref reject.
+   0 success, -1 invalid handle / unsupported / shared-ref reject, -2 full.
    channelRecv: dequeue into out pointer. 0 success, -1 invalid/empty/wrong kind. */
 
-int32_t draconic_rt_host_channel_make(void);
+int32_t draconic_rt_host_channel_make(int32_t cap);
 int32_t draconic_rt_host_channel_send_f64(int32_t handle, double v);
 int32_t draconic_rt_host_channel_send_str(int32_t handle, const char *s);
 int32_t draconic_rt_host_channel_send_bool(int32_t handle, int32_t v);

@@ -303,7 +303,7 @@ fn host_abi_fn_shapes() {
     );
     assert_eq!(
         HOST_CHANNEL_MAKE.declare(),
-        "declare i32 @draconic_rt_host_channel_make()"
+        "declare i32 @draconic_rt_host_channel_make(i32)"
     );
     assert_eq!(
         HOST_CHANNEL_SEND_F64.declare(),

@@ -8426,7 +8426,7 @@ int32_t draconic_rt_host_worker_terminate(int32_t handle) {
     return 0;
 }
 
-/* --- Channels (C02.01) ---------------------------------------------------- */
+/* --- Channels (C02.01 / C02.03) ------------------------------------------- */
 
 #define DRACONIC_CHANNEL_SLOTS 64
 #define DRACONIC_CHAN_KIND_NUM 1
@@ -8445,6 +8445,8 @@ typedef struct DraconicChanMsg {
 
 typedef struct {
     uint8_t live;
+    int32_t cap;
+    int32_t len;
     DraconicChanMsg *head;
     DraconicChanMsg *tail;
 } DraconicChannel;
@@ -8466,6 +8468,10 @@ static DraconicChannel *host_channel_get(int32_t handle) {
     return &g_channels[i];
 }
 
+static int32_t host_channel_full(DraconicChannel *ch) {
+    return ch->cap > 0 && ch->len >= ch->cap;
+}
+
 static int32_t host_channel_enqueue(DraconicChannel *ch, DraconicChanMsg *msg) {
     msg->next = NULL;
     if (ch->tail) {
@@ -8475,6 +8481,7 @@ static int32_t host_channel_enqueue(DraconicChannel *ch, DraconicChanMsg *msg) {
         ch->head = msg;
         ch->tail = msg;
     }
+    ch->len++;
     return 0;
 }
 
@@ -8489,14 +8496,19 @@ static DraconicChanMsg *host_channel_dequeue(DraconicChannel *ch) {
         ch->tail = NULL;
     }
     msg->next = NULL;
+    if (ch->len > 0) {
+        ch->len--;
+    }
     return msg;
 }
 
-int32_t draconic_rt_host_channel_make(void) {
+int32_t draconic_rt_host_channel_make(int32_t cap) {
     size_t i;
     for (i = 0; i < DRACONIC_CHANNEL_SLOTS; i++) {
         if (g_channels[i].live == 0) {
             g_channels[i].live = 1;
+            g_channels[i].cap = cap > 0 ? cap : 0;
+            g_channels[i].len = 0;
             g_channels[i].head = NULL;
             g_channels[i].tail = NULL;
             return (int32_t)(i + 1);
@@ -8510,6 +8522,9 @@ int32_t draconic_rt_host_channel_send_f64(int32_t handle, double v) {
     DraconicChanMsg *msg;
     if (!ch) {
         return -1;
+    }
+    if (host_channel_full(ch)) {
+        return -2;
     }
     msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
     if (!msg) {
@@ -8528,6 +8543,9 @@ int32_t draconic_rt_host_channel_send_str(int32_t handle, const char *s) {
     DraconicChanMsg *msg;
     if (!ch) {
         return -1;
+    }
+    if (host_channel_full(ch)) {
+        return -2;
     }
     msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
     if (!msg) {
@@ -8550,6 +8568,9 @@ int32_t draconic_rt_host_channel_send_bool(int32_t handle, int32_t v) {
     DraconicChanMsg *msg;
     if (!ch) {
         return -1;
+    }
+    if (host_channel_full(ch)) {
+        return -2;
     }
     msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
     if (!msg) {
@@ -8627,6 +8648,9 @@ int32_t draconic_rt_host_channel_send_obj(int32_t handle, void *obj) {
     DraconicValue *clone;
     if (!ch) {
         return -1;
+    }
+    if (host_channel_full(ch)) {
+        return -2;
     }
     clone = draconic_rt_object_structured_clone((DraconicValue *)obj);
     if (!clone) {

@@ -1,9 +1,9 @@
-//! C02.01–C02.02: `makeChannel` + `channelSend` + `channelRecv`.
+//! C02.01–C02.03: `makeChannel` + `channelSend` + `channelRecv`.
 //!
 //! Supported subset:
 //! - `typeof makeChannel` / `typeof channelSend` / `typeof channelRecv` → `"function"`
-//! - `makeChannel()` → handle number
-//! - `channelSend(ch, number|string|bool|plain object)` → 0 success / negative error
+//! - `makeChannel()` / `makeChannel(n)` → handle number (n>0 bounded)
+//! - `channelSend(ch, number|string|bool|plain object)` → 0 success / -1 invalid / -2 full
 //! - `channelRecv(ch)` → FIFO head (type from preceding sends)
 //! - structured clone of plain objects; shared refs rejected at send
 //! - number comparisons (`>` `!==` `===` `<`) and bool locals; object `===`/`!==`
@@ -107,14 +107,20 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
 }
 
 fn is_make_channel_call(expr: &Expr) -> bool {
-    matches!(expr, Expr::Call { callee, args, .. } if is_named_callee(callee, "makeChannel") && args.is_empty())
+    matches!(expr, Expr::Call { callee, args, .. } if is_named_callee(callee, "makeChannel") && args.len() <= 1)
 }
 
 fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
     match expr {
         Expr::Call { callee, args, .. } if is_named_callee(callee, "makeChannel") => {
-            if !args.is_empty() {
+            if args.len() > 1 {
                 return None;
+            }
+            if args.len() == 1 {
+                let cap = arg_expr(&args[0])?;
+                if classify_expr(cap, ctx)? != SlotTy::Number {
+                    return None;
+                }
             }
             ctx.uses_make = true;
             Some(SlotTy::Number)
@@ -375,7 +381,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_channels (C02.01–C02.02)").ok();
+        writeln!(self.out, "; Draconic LLVM host_channels (C02.01–C02.03)").ok();
         let decls = vec![
             GC_INIT,
             ALLOC_OBJECT,
@@ -514,12 +520,23 @@ impl<'a> Emitter<'a> {
         Ok(h_i32)
     }
 
-    fn emit_make(&mut self) -> Result<String, Diagnostic> {
+    fn emit_make(&mut self, args: &[Arg]) -> Result<String, Diagnostic> {
+        let cap_i32 = if args.is_empty() {
+            let z = self.fresh();
+            writeln!(self.body, "  {z} = add i32 0, 0").ok();
+            z
+        } else {
+            let cap_expr = arg_expr(&args[0]).ok_or_else(|| diag("makeChannel capacity"))?;
+            let cap_f = self.emit_number_expr(cap_expr)?;
+            let cap_i32 = self.fresh();
+            writeln!(self.body, "  {cap_i32} = fptosi double {cap_f} to i32").ok();
+            cap_i32
+        };
         let h_i32 = self.fresh();
         let h_f = self.fresh();
         writeln!(
             self.body,
-            "  {h_i32} = call i32 @{}()",
+            "  {h_i32} = call i32 @{}(i32 {cap_i32})",
             HOST_CHANNEL_MAKE.symbol
         )
         .ok();
@@ -820,7 +837,7 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             Expr::Call { callee, args, .. } if is_named_callee(callee, "makeChannel") => {
-                self.emit_make()
+                self.emit_make(args)
             }
             Expr::Call { callee, args, .. } if is_named_callee(callee, "channelSend") => {
                 self.emit_send(args)
@@ -1076,5 +1093,25 @@ mod tests {
         assert!(is_host_channels_module(&m));
         let ir = emit_host_channels(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_channel_send_obj"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_bounded_fifo() {
+        let m = lower_src(
+            r#"
+            let ch = makeChannel(1);
+            let ok1 = channelSend(ch, 10);
+            let full = channelSend(ch, 20);
+            let v = channelRecv(ch);
+            let ok2 = channelSend(ch, 20);
+            let w = channelRecv(ch);
+            "#,
+        );
+        assert!(is_host_channels_module(&m));
+        let ir = emit_host_channels(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_channel_make"), "{ir}");
+        assert!(ir.contains("fptosi double"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_channel_send_f64"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_channel_recv_f64"), "{ir}");
     }
 }

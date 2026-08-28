@@ -878,13 +878,15 @@ pub const HOST_WORKER_TERMINATE: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
-/* C02.01: makeChannel — FIFO handle >= 1, or -1 on failure. */
+/* C02.01/C02.03: makeChannel — FIFO handle >= 1, or -1 on failure.
+   cap > 0 bounds the buffer; cap <= 0 is unbounded. Send on a full
+   bounded channel returns -2 (backpressure). */
 pub const HOST_CHANNEL_MAKE: AbiFn = AbiFn {
     symbol: "draconic_rt_host_channel_make",
     ret: "i32",
-    params: "",
+    params: "i32",
 };
-/* C02.01: channelSend number; 0 success, -1 invalid handle. */
+/* C02.01: channelSend number; 0 success, -1 invalid handle, -2 full. */
 pub const HOST_CHANNEL_SEND_F64: AbiFn = AbiFn {
     symbol: "draconic_rt_host_channel_send_f64",
     ret: "i32",
@@ -2265,15 +2267,19 @@ pub fn spawn_worker_js_polyfill() -> &'static str {
 "#
 }
 
-/// JS polyfill for `makeChannel` / `channelSend` / `channelRecv` (C02.01–C02.02).
+/// JS polyfill for `makeChannel` / `channelSend` / `channelRecv` (C02.01–C02.03).
 ///
-/// Same-isolate unbounded FIFO of numbers, strings, bools, and structured-cloned
-/// plain objects. Shared object refs (cycles / diamonds) and non-plain values
-/// are rejected. Send returns 0 on success or -1 on invalid handle / reject.
+/// Same-isolate FIFO of numbers, strings, bools, and structured-cloned
+/// plain objects. `makeChannel()` / `makeChannel(n<=0)` is unbounded;
+/// `makeChannel(n)` with n > 0 bounds the buffer. Send on a full bounded
+/// channel returns -2 without enqueueing. Shared object refs (cycles /
+/// diamonds) and non-plain values are rejected. Send returns 0 on success
+/// or -1 on invalid handle / reject.
 pub fn channel_js_polyfill() -> &'static str {
     r#"(function () {
   var nextId = 1;
   var slots = Object.create(null);
+  var caps = Object.create(null);
   var FAIL = {};
   function clonePlain(v, seen) {
     var t = typeof v;
@@ -2294,14 +2300,17 @@ pub fn channel_js_polyfill() -> &'static str {
     }
     return out;
   }
-  function makeChannel() {
+  function makeChannel(cap) {
     var id = nextId++;
     slots[id] = [];
+    caps[id] = (typeof cap === "number" && cap > 0) ? cap : 0;
     return id;
   }
   function channelSend(ch, v) {
     var q = slots[ch];
     if (!q) return -1;
+    var cap = caps[ch];
+    if (cap > 0 && q.length >= cap) return -2;
     var t = typeof v;
     if (t === "number" || t === "string" || t === "boolean") {
       q.push(v);

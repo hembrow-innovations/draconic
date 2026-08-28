@@ -197,7 +197,7 @@ fn module_uses_spawn_worker(module: &Module) -> bool {
     })
 }
 
-/// C02.01: free host APIs `makeChannel` / `channelSend` / `channelRecv`.
+/// C02.01–C02.03: free host APIs `makeChannel` / `channelSend` / `channelRecv`.
 fn module_uses_channel(module: &Module) -> bool {
     module.body.iter().any(|s| {
         stmt_uses_ident_name(s, "makeChannel")

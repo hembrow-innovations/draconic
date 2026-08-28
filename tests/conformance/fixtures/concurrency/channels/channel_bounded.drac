@@ -1,0 +1,6 @@
+let ch = makeChannel(1);
+let ok1 = channelSend(ch, 10);
+let full = channelSend(ch, 20);
+let v = channelRecv(ch);
+let ok2 = channelSend(ch, 20);
+let w = channelRecv(ch);
