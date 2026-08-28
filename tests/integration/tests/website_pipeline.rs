@@ -1,5 +1,6 @@
-//! Website pipeline seam (issues-21, issues-22): compile the Draconic generator,
-//! run it on Learn and Reference pages, assert nav, status, and markdown subset.
+//! Website pipeline seam (issues-21, issues-22, issues-23): compile the Draconic
+//! generator, run it on Learn and Reference pages, assert nav, status, and
+//! markdown subset; extract shipped `drac` fences and `draconic build` them.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,6 +61,132 @@ fn page(title: &str, section: &str, status: &str, body: &str) -> String {
     )
 }
 
+fn draconic_bin() -> PathBuf {
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    let bin = repo_root().join("target").join(profile).join("draconic");
+    assert!(
+        bin.is_file(),
+        "missing {} (build draconic-cli first)",
+        bin.display()
+    );
+    bin
+}
+
+fn page_status_and_fences(src: &str) -> (String, Vec<(String, String)>) {
+    let mut status = String::new();
+    let mut fences = Vec::new();
+    let mut in_front = false;
+    let mut seen_fm = false;
+    let mut in_fence = false;
+    let mut lang = String::new();
+    let mut body = String::new();
+    for line in src.lines() {
+        if in_front {
+            if line == "---" {
+                in_front = false;
+            } else if let Some(rest) = line.strip_prefix("status:") {
+                status = rest.trim().to_string();
+            }
+            continue;
+        }
+        if in_fence {
+            if line.starts_with("```") {
+                fences.push((std::mem::take(&mut lang), std::mem::take(&mut body)));
+                in_fence = false;
+            } else {
+                body.push_str(line);
+                body.push('\n');
+            }
+            continue;
+        }
+        if line == "---" && !seen_fm {
+            in_front = true;
+            seen_fm = true;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("```") {
+            in_fence = true;
+            lang = rest
+                .trim()
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            body.clear();
+        }
+    }
+    (status, fences)
+}
+
+fn run_website_pipeline(work: &Path) -> Result<(), String> {
+    let bin = build_generator();
+    let output = Command::new(&bin)
+        .current_dir(work)
+        .output()
+        .map_err(|e| format!("run generate: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "generate failed: status={:?} stdout={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let website = work.join("website");
+    let mut fence_i = 0u32;
+    let entries = fs::read_dir(&website).map_err(|e| format!("read website: {e}"))?;
+    for ent in entries {
+        let ent = ent.map_err(|e| format!("read website entry: {e}"))?;
+        let path = ent.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let src = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+        let (status, fences) = page_status_and_fences(&src);
+        if status == "not-yet" && !fences.is_empty() {
+            return Err(format!("not-yet page {} contains a fence", path.display()));
+        }
+        if status != "shipped" {
+            continue;
+        }
+        for (lang, body) in fences {
+            if lang != "drac" {
+                continue;
+            }
+            let fence_dir = website.join(".fences");
+            fs::create_dir_all(&fence_dir).map_err(|e| format!("mkdir fences: {e}"))?;
+            let src_path = fence_dir.join(format!("fence-{fence_i}.drac"));
+            let out_path = fence_dir.join(format!("fence-{fence_i}.js"));
+            fs::write(&src_path, &body).map_err(|e| format!("write fence: {e}"))?;
+            fence_i += 1;
+            let built = Command::new(draconic_bin())
+                .arg("build")
+                .arg("--target")
+                .arg("js")
+                .arg(&src_path)
+                .arg("-o")
+                .arg(&out_path)
+                .output()
+                .map_err(|e| format!("draconic build: {e}"))?;
+            if !built.status.success() {
+                return Err(format!(
+                    "draconic build failed for {}: status={:?} stdout={} stderr={}",
+                    src_path.display(),
+                    built.status,
+                    String::from_utf8_lossy(&built.stdout),
+                    String::from_utf8_lossy(&built.stderr)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn assert_nav(html: &str) {
     assert!(
         html.contains("<a href=\"learn.html\">Learn</a>"),
@@ -91,18 +218,7 @@ fn website_pipeline_learn_and_reference_nav_and_status() {
     )
     .unwrap();
 
-    let bin = build_generator();
-    let output = Command::new(&bin)
-        .current_dir(&work)
-        .output()
-        .expect("run generate");
-    assert!(
-        output.status.success(),
-        "generate failed: status={:?} stdout={} stderr={}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    run_website_pipeline(&work).expect("pipeline");
 
     let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
     assert!(
@@ -119,7 +235,8 @@ fn website_pipeline_learn_and_reference_nav_and_status() {
         "expected learn status shipped in HTML, got:\n{learn}"
     );
 
-    let reference = fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
+    let reference =
+        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
     assert!(
         reference.contains("<!DOCTYPE html>") || reference.contains("<html"),
         "expected HTML document, got:\n{reference}"
@@ -155,9 +272,7 @@ fn assert_markdown_subset(html: &str) {
         "expected list item {SUBSET_LIST:?} in HTML, got:\n{html}"
     );
     assert!(
-        html.contains("<pre>")
-            && html.contains("<code>")
-            && html.contains(SUBSET_FENCE),
+        html.contains("<pre>") && html.contains("<code>") && html.contains(SUBSET_FENCE),
         "expected fenced code {SUBSET_FENCE:?} in HTML, got:\n{html}"
     );
     assert!(
@@ -179,22 +294,16 @@ fn website_pipeline_renders_markdown_subset() {
     .unwrap();
     fs::write(
         work.join("website/reference.md"),
-        page(REFERENCE_TITLE, "reference", "not-yet", "Reference fixture."),
+        page(
+            REFERENCE_TITLE,
+            "reference",
+            "not-yet",
+            "Reference fixture.",
+        ),
     )
     .unwrap();
 
-    let bin = build_generator();
-    let output = Command::new(&bin)
-        .current_dir(&work)
-        .output()
-        .expect("run generate");
-    assert!(
-        output.status.success(),
-        "generate failed: status={:?} stdout={} stderr={}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    run_website_pipeline(&work).expect("pipeline");
 
     let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
     assert_nav(&learn);
@@ -204,8 +313,144 @@ fn website_pipeline_renders_markdown_subset() {
     );
     assert_markdown_subset(&learn);
 
-    let reference = fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
+    let reference =
+        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
     assert_nav(&reference);
+    assert!(
+        reference.contains("not-yet"),
+        "expected reference status not-yet in HTML, got:\n{reference}"
+    );
+}
+
+#[test]
+fn website_pipeline_shipped_drac_fence_builds() {
+    let work = temp_dir();
+    fs::create_dir_all(work.join("website")).unwrap();
+    fs::write(
+        work.join("website/learn.md"),
+        page(
+            LEARN_TITLE,
+            "learn",
+            "shipped",
+            "```drac\nlet sample = 1 + 2;\n```\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        work.join("website/reference.md"),
+        page(
+            REFERENCE_TITLE,
+            "reference",
+            "not-yet",
+            "Reference fixture.",
+        ),
+    )
+    .unwrap();
+
+    run_website_pipeline(&work).expect("pipeline");
+
+    let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
+    assert_nav(&learn);
+    assert!(
+        learn.contains("shipped"),
+        "expected learn status shipped in HTML, got:\n{learn}"
+    );
+    let built = work.join("website/.fences/fence-0.js");
+    assert!(
+        built.is_file(),
+        "expected draconic build output at {}",
+        built.display()
+    );
+}
+
+#[test]
+fn website_pipeline_shipped_invalid_drac_fence_fails() {
+    let work = temp_dir();
+    fs::create_dir_all(work.join("website")).unwrap();
+    fs::write(
+        work.join("website/learn.md"),
+        page(
+            LEARN_TITLE,
+            "learn",
+            "shipped",
+            "```drac\nthis is not valid draconic !!!\n```\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        work.join("website/reference.md"),
+        page(
+            REFERENCE_TITLE,
+            "reference",
+            "not-yet",
+            "Reference fixture.",
+        ),
+    )
+    .unwrap();
+
+    let err = run_website_pipeline(&work).expect_err("invalid shipped fence must fail build");
+    assert!(
+        err.contains("draconic build"),
+        "expected draconic build failure, got: {err}"
+    );
+}
+
+#[test]
+fn website_pipeline_not_yet_page_with_fence_fails() {
+    let work = temp_dir();
+    fs::create_dir_all(work.join("website")).unwrap();
+    fs::write(
+        work.join("website/learn.md"),
+        page(LEARN_TITLE, "learn", "shipped", "Learn fixture."),
+    )
+    .unwrap();
+    fs::write(
+        work.join("website/reference.md"),
+        page(
+            REFERENCE_TITLE,
+            "reference",
+            "not-yet",
+            "```\nsneaky sample\n```\n",
+        ),
+    )
+    .unwrap();
+
+    let err = run_website_pipeline(&work).expect_err("not-yet fence must fail");
+    assert!(
+        err.contains("not-yet") && err.contains("fence"),
+        "expected not-yet fence failure, got: {err}"
+    );
+}
+
+#[test]
+fn website_pipeline_not_yet_page_without_fence_generates() {
+    let work = temp_dir();
+    fs::create_dir_all(work.join("website")).unwrap();
+    fs::write(
+        work.join("website/learn.md"),
+        page(LEARN_TITLE, "learn", "shipped", "Learn fixture."),
+    )
+    .unwrap();
+    fs::write(
+        work.join("website/reference.md"),
+        page(
+            REFERENCE_TITLE,
+            "reference",
+            "not-yet",
+            "Reference fixture.",
+        ),
+    )
+    .unwrap();
+
+    run_website_pipeline(&work).expect("pipeline");
+
+    let reference =
+        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
+    assert_nav(&reference);
+    assert!(
+        reference.contains(REFERENCE_TITLE),
+        "expected reference title {REFERENCE_TITLE:?} in HTML, got:\n{reference}"
+    );
     assert!(
         reference.contains("not-yet"),
         "expected reference status not-yet in HTML, got:\n{reference}"

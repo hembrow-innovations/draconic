@@ -1,12 +1,12 @@
 ---
 id: issues-23
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Docs pipeline: shipped fences must build"
 description: "Website pipeline extracts shipped drac fences and compiles them; not-yet pages with fences fail."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -14,7 +14,7 @@ tags:
   - issue
   - enhancement
   - docs
-  - ready-for-agent
+  - closed
 ---
 
 # Docs pipeline: shipped fences must build
@@ -34,9 +34,9 @@ The website pipeline gives the must-build rule teeth. Shipped pages' Draconic fe
 
 ## Acceptance criteria
 
-- [ ] Pipeline extracts `drac` fences from shipped pages and `draconic build` succeeds on them
-- [ ] A not-yet page with a fence fails the pipeline
-- [ ] A not-yet page with no fence still generates
+- [x] Pipeline extracts `drac` fences from shipped pages and `draconic build` succeeds on them
+- [x] A not-yet page with a fence fails the pipeline
+- [x] A not-yet page with no fence still generates
 
 ## Agent Brief
 
@@ -58,3 +58,5 @@ Writing the real Learn/Reference chapters. GitHub Pages. Expanding the markdown 
 ## Comments
 
 > Child of [[issues-19-language-docs-site]].
+>
+> **2026-08-29:** Landed. Website pipeline extracts shipped `drac` fences and runs `draconic build --target js`; a not-yet page with a fence fails; a not-yet page with no fence still generates. Pipeline test: `tests/integration/tests/website_pipeline.rs`. Parent [[issues-19-language-docs-site]] stays open.
