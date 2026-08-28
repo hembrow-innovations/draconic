@@ -1,0 +1,16 @@
+// L01.03: invalid hex → SyntaxError.
+let ok = 0;
+try {
+  Uint8Array.fromHex("zzz");
+  ok = -1;
+} catch (e) {
+  ok = e.name === "SyntaxError" ? 1 : -2;
+}
+let odd = 0;
+try {
+  Uint8Array.fromHex("abc");
+  odd = -1;
+} catch (e) {
+  odd = e.name === "SyntaxError" ? 1 : -2;
+}
+let s = new TextDecoder().decode(Uint8Array.fromHex("6869"));

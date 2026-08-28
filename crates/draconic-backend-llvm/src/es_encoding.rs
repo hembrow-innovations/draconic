@@ -1,5 +1,6 @@
-//! L01.01 / L01.02: native observations for UTF-8 TextEncoder / TextDecoder
-//! and Uint8Array Base64 (`toBase64` / `fromBase64`).
+//! L01.01 / L01.02 / L01.03: native observations for UTF-8 TextEncoder /
+//! TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), and hex
+//! (`toHex` / `fromHex`).
 //!
 //! Compile-time evaluation of TextEncoder/TextDecoder encode/decode plus
 //! fatal invalid UTF-8 TypeError. Emits Runtime prints of final top-level
@@ -19,6 +20,7 @@ use draconic_ir::{
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
 use crate::base64;
+use crate::hex;
 
 pub(crate) fn is_es_encoding_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -182,7 +184,7 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
                 || expr_has_encoding_surface(alternate, by_id)
         }
         Expr::Member { object, property, .. } => {
-            is_base64_method_key(property)
+            is_encoding_method_key(property)
                 || expr_has_encoding_surface(object, by_id)
                 || expr_has_encoding_surface(property, by_id)
         }
@@ -208,11 +210,11 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
     }
 }
 
-fn is_base64_method_key(expr: &Expr) -> bool {
+fn is_encoding_method_key(expr: &Expr) -> bool {
     match expr {
         Expr::String { value, .. } => {
             let s = js_string_to_utf8(value);
-            s == "toBase64" || s == "fromBase64"
+            matches!(s.as_str(), "toBase64" | "fromBase64" | "toHex" | "fromHex")
         }
         _ => false,
     }
@@ -737,6 +739,28 @@ fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, Op
             }
             Ok(JsVal::Str(base64::encode(&bytes.borrow())))
         }
+        JsVal::Uint8ArrayInst { bytes } if key == "toHex" => {
+            if !args.is_empty() {
+                return Err(None);
+            }
+            Ok(JsVal::Str(hex::encode(&bytes.borrow())))
+        }
+        JsVal::Builtin(BuiltinId::Uint8Array) if key == "fromHex" => {
+            let s = match args.first() {
+                Some(JsVal::Str(s)) => s.as_str(),
+                Some(JsVal::Undef) | None => "",
+                _ => return Err(None),
+            };
+            match hex::decode(s) {
+                Ok(out) => Ok(JsVal::Uint8ArrayInst {
+                    bytes: Rc::new(RefCell::new(out)),
+                }),
+                Err(()) => Err(Some(Flow::Throw(JsVal::ErrorInst {
+                    name: "SyntaxError".into(),
+                    message: "Invalid hex string".into(),
+                }))),
+            }
+        }
         JsVal::Builtin(BuiltinId::Uint8Array) if key == "fromBase64" => {
             let s = match args.first() {
                 Some(JsVal::Str(s)) => s.as_str(),
@@ -909,7 +933,7 @@ impl Emitter {
         }
         writeln!(
             self.out,
-            "; Draconic LLVM backend (L01.01/L01.02 TextEncoder/TextDecoder UTF-8 + Base64)"
+            "; Draconic LLVM backend (L01.01/L01.02/L01.03 UTF-8 + Base64 + hex)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1009,6 +1033,38 @@ mod tests {
             let ok = 0;
             try {
               Uint8Array.fromBase64("!!!");
+              ok = -1;
+            } catch (e) {
+              ok = e.name === "SyntaxError" ? 1 : -2;
+            }
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_hex_roundtrip() {
+        let m = compile_src(
+            r#"
+            let hi = new Uint8Array([104, 105]).toHex();
+            let v = Uint8Array.fromHex("6869");
+            let n = v.length;
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_hex_invalid() {
+        let m = compile_src(
+            r#"
+            let ok = 0;
+            try {
+              Uint8Array.fromHex("zzz");
               ok = -1;
             } catch (e) {
               ok = e.name === "SyntaxError" ? 1 : -2;

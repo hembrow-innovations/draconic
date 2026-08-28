@@ -1,0 +1,6 @@
+id: stdlib/encoding/hex_roundtrip
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 6869\n\n00\nffffff\n00ff10\n636166c3a9\n2\n104\n105\n0\n255\n16\ncafé\n0\n
+js.check: if (hi !== "6869") process.exit(1); if (empty !== "") process.exit(2); if (one !== "00") process.exit(3); if (fff !== "ffffff") process.exit(4); if (mixed !== "00ff10") process.exit(5); if (cafe !== "636166c3a9") process.exit(6); if (n !== 2) process.exit(7); if (b0 !== 104) process.exit(8); if (b1 !== 105) process.exit(9); if (u0 !== 0) process.exit(10); if (u1 !== 255) process.exit(11); if (u2 !== 16) process.exit(12); if (back !== "café") process.exit(13); if (emptd !== 0) process.exit(14);

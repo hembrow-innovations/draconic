@@ -1,0 +1,17 @@
+// L01.03: Hex encode/decode via Uint8Array.toHex / Uint8Array.fromHex.
+let hi = new Uint8Array([104, 105]).toHex();
+let empty = new Uint8Array([]).toHex();
+let one = new Uint8Array([0]).toHex();
+let fff = new Uint8Array([255, 255, 255]).toHex();
+let mixed = new Uint8Array([0, 255, 16]).toHex();
+let cafe = new TextEncoder().encode("café").toHex();
+let v = Uint8Array.fromHex("6869");
+let n = v.length;
+let b0 = v[0];
+let b1 = v[1];
+let upper = Uint8Array.fromHex("00FF10");
+let u0 = upper[0];
+let u1 = upper[1];
+let u2 = upper[2];
+let back = new TextDecoder().decode(Uint8Array.fromHex(cafe));
+let emptd = Uint8Array.fromHex("").length;
