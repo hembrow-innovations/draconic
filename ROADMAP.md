@@ -782,7 +782,7 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 | F06.02 | done | compiler | Check extern signatures (native types only; reject JS-only types) | `crates/draconic-check` |
 | F06.03 | done | compiler | Lower extern decls to IR/ABI surface for LLVM | `crates/draconic-ir`, `crates/draconic-backend-llvm` |
 | F07 | todo | compiler | Bindgen-ish: generate externs from C header subset | `tests/integration`, `crates/draconic-cli` |
-| F07.01 | todo | compiler | Parse C header subset: functions with scalar/pointer params | `crates/draconic-cli`, `tests/integration` |
+| F07.01 | done | compiler | Parse C header subset: functions with scalar/pointer params | `crates/draconic-cli`, `tests/integration` |
 | F07.02 | todo | compiler | Emit Draconic `extern "C"` decls from parsed header | `tests/integration` |
 | F07.03 | todo | compiler | CLI: `draconic bindgen <header>` (or designed) writes extern module | `crates/draconic-cli`, `tests/integration` |
 | F07.04 | todo | compiler | Header subset: simple structs + typedef names (no full C) | `tests/integration` |

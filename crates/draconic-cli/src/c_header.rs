@@ -1,0 +1,577 @@
+//! F07.01: parse a C header subset — function decls with scalar/pointer params.
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Header {
+    pub functions: Vec<FnDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FnDecl {
+    pub name: String,
+    pub return_ty: CType,
+    pub params: Vec<Param>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Param {
+    pub name: Option<String>,
+    pub ty: CType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CType {
+    Void,
+    Char,
+    UChar,
+    Short,
+    UShort,
+    Int,
+    UInt,
+    Long,
+    ULong,
+    LongLong,
+    ULongLong,
+    Float,
+    Double,
+    Pointer(Box<CType>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseError {
+    pub message: String,
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+pub fn parse_header(src: &str) -> Result<Header, ParseError> {
+    let tokens = tokenize(src)?;
+    let mut i = 0;
+    let mut functions = Vec::new();
+    while !matches!(peek(&tokens, i), Tok::Eof) {
+        functions.push(parse_fn_decl(&tokens, &mut i)?);
+    }
+    Ok(Header { functions })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Tok {
+    Ident(String),
+    Star,
+    LParen,
+    RParen,
+    Comma,
+    Semi,
+    LBrace,
+    RBrace,
+    Eof,
+}
+
+fn err(msg: impl Into<String>) -> ParseError {
+    ParseError {
+        message: msg.into(),
+    }
+}
+
+fn tokenize(src: &str) -> Result<Vec<Tok>, ParseError> {
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    let mut out = Vec::new();
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if c == b'#' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            loop {
+                if i + 1 >= bytes.len() {
+                    return Err(err("unterminated block comment"));
+                }
+                if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    i += 2;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        match c {
+            b'*' => {
+                out.push(Tok::Star);
+                i += 1;
+            }
+            b'(' => {
+                out.push(Tok::LParen);
+                i += 1;
+            }
+            b')' => {
+                out.push(Tok::RParen);
+                i += 1;
+            }
+            b',' => {
+                out.push(Tok::Comma);
+                i += 1;
+            }
+            b';' => {
+                out.push(Tok::Semi);
+                i += 1;
+            }
+            b'{' => {
+                out.push(Tok::LBrace);
+                i += 1;
+            }
+            b'}' => {
+                out.push(Tok::RBrace);
+                i += 1;
+            }
+            _ if is_ident_start(c) => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && is_ident_continue(bytes[i]) {
+                    i += 1;
+                }
+                out.push(Tok::Ident(src[start..i].to_string()));
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    out.push(Tok::Eof);
+    Ok(out)
+}
+
+fn is_ident_start(c: u8) -> bool {
+    c.is_ascii_alphabetic() || c == b'_'
+}
+
+fn is_ident_continue(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
+}
+
+fn peek(tokens: &[Tok], i: usize) -> &Tok {
+    tokens.get(i).unwrap_or(&Tok::Eof)
+}
+
+fn ident_eq(tok: &Tok, s: &str) -> bool {
+    matches!(tok, Tok::Ident(n) if n == s)
+}
+
+fn parse_fn_decl(tokens: &[Tok], i: &mut usize) -> Result<FnDecl, ParseError> {
+    while ident_eq(peek(tokens, *i), "extern")
+        || ident_eq(peek(tokens, *i), "static")
+        || ident_eq(peek(tokens, *i), "inline")
+    {
+        *i += 1;
+    }
+    reject_unsupported(peek(tokens, *i))?;
+    let mut ty = parse_base_type(tokens, i)?;
+    ty = parse_stars(tokens, i, ty);
+    let name = match peek(tokens, *i) {
+        Tok::Ident(n) => {
+            let n = n.clone();
+            *i += 1;
+            n
+        }
+        other => return Err(err(format!("expected function name, found {other:?}"))),
+    };
+    if !matches!(peek(tokens, *i), Tok::LParen) {
+        return Err(err(format!("expected '(' after function name '{name}'")));
+    }
+    *i += 1;
+    let params = parse_params(tokens, i)?;
+    if !matches!(peek(tokens, *i), Tok::RParen) {
+        return Err(err("expected ')' after parameter list"));
+    }
+    *i += 1;
+    match peek(tokens, *i) {
+        Tok::Semi => {
+            *i += 1;
+        }
+        Tok::LBrace => {
+            return Err(err("function body not supported in header subset"));
+        }
+        other => {
+            return Err(err(format!(
+                "expected ';' after function declaration, found {other:?}"
+            )));
+        }
+    }
+    Ok(FnDecl {
+        name,
+        return_ty: ty,
+        params,
+    })
+}
+
+fn reject_unsupported(tok: &Tok) -> Result<(), ParseError> {
+    if let Tok::Ident(n) = tok {
+        match n.as_str() {
+            "struct" => return Err(err("struct not supported in this header subset")),
+            "typedef" => return Err(err("typedef not supported in this header subset")),
+            "enum" => return Err(err("enum not supported in this header subset")),
+            "union" => return Err(err("union not supported in this header subset")),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn parse_base_type(tokens: &[Tok], i: &mut usize) -> Result<CType, ParseError> {
+    let mut signed = false;
+    let mut unsigned = false;
+    let mut longs = 0u8;
+    let mut shorts = 0u8;
+    let mut core: Option<&str> = None;
+    loop {
+        match peek(tokens, *i) {
+            Tok::Ident(n) if n == "const" || n == "volatile" || n == "restrict" => {
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "signed" => {
+                signed = true;
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "unsigned" => {
+                unsigned = true;
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "long" => {
+                longs += 1;
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "short" => {
+                shorts += 1;
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "int" => {
+                core = Some("int");
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "char" => {
+                core = Some("char");
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "float" => {
+                core = Some("float");
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "double" => {
+                core = Some("double");
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "void" => {
+                core = Some("void");
+                *i += 1;
+            }
+            Tok::Ident(n) if n == "struct" || n == "typedef" || n == "enum" || n == "union" => {
+                reject_unsupported(peek(tokens, *i))?;
+                unreachable!();
+            }
+            _ => break,
+        }
+    }
+    if signed && unsigned {
+        return Err(err("type cannot be both signed and unsigned"));
+    }
+    match core {
+        Some("void") => {
+            if signed || unsigned || longs > 0 || shorts > 0 {
+                return Err(err("invalid void type"));
+            }
+            Ok(CType::Void)
+        }
+        Some("float") => {
+            if signed || unsigned || longs > 0 || shorts > 0 {
+                return Err(err("invalid float type"));
+            }
+            Ok(CType::Float)
+        }
+        Some("double") => {
+            if signed || unsigned || shorts > 0 || longs > 1 {
+                return Err(err("invalid double type"));
+            }
+            Ok(CType::Double)
+        }
+        Some("char") => {
+            if longs > 0 || shorts > 0 {
+                return Err(err("invalid char type"));
+            }
+            if unsigned {
+                Ok(CType::UChar)
+            } else {
+                Ok(CType::Char)
+            }
+        }
+        Some("int") | None => {
+            if longs > 0 && shorts > 0 {
+                return Err(err("invalid integer type"));
+            }
+            if core.is_none() && longs == 0 && shorts == 0 && !signed && !unsigned {
+                return Err(err("expected type specifier"));
+            }
+            if shorts > 0 {
+                if unsigned {
+                    Ok(CType::UShort)
+                } else {
+                    Ok(CType::Short)
+                }
+            } else if longs >= 2 {
+                if unsigned {
+                    Ok(CType::ULongLong)
+                } else {
+                    Ok(CType::LongLong)
+                }
+            } else if longs == 1 {
+                if unsigned {
+                    Ok(CType::ULong)
+                } else {
+                    Ok(CType::Long)
+                }
+            } else if unsigned {
+                Ok(CType::UInt)
+            } else {
+                Ok(CType::Int)
+            }
+        }
+        _ => Err(err("unsupported type")),
+    }
+}
+
+fn parse_stars(tokens: &[Tok], i: &mut usize, mut ty: CType) -> CType {
+    while ident_eq(peek(tokens, *i), "const")
+        || ident_eq(peek(tokens, *i), "volatile")
+        || ident_eq(peek(tokens, *i), "restrict")
+    {
+        *i += 1;
+    }
+    while matches!(peek(tokens, *i), Tok::Star) {
+        *i += 1;
+        ty = CType::Pointer(Box::new(ty));
+        while ident_eq(peek(tokens, *i), "const")
+            || ident_eq(peek(tokens, *i), "volatile")
+            || ident_eq(peek(tokens, *i), "restrict")
+        {
+            *i += 1;
+        }
+    }
+    ty
+}
+
+fn parse_params(tokens: &[Tok], i: &mut usize) -> Result<Vec<Param>, ParseError> {
+    if matches!(peek(tokens, *i), Tok::RParen) {
+        return Ok(Vec::new());
+    }
+    if ident_eq(peek(tokens, *i), "void") && matches!(peek(tokens, *i + 1), Tok::RParen) {
+        *i += 1;
+        return Ok(Vec::new());
+    }
+    let mut params = Vec::new();
+    loop {
+        reject_unsupported(peek(tokens, *i))?;
+        let mut ty = parse_base_type(tokens, i)?;
+        ty = parse_stars(tokens, i, ty);
+        let name = match peek(tokens, *i) {
+            Tok::Ident(n) if !is_type_keyword(n) => {
+                let n = n.clone();
+                *i += 1;
+                Some(n)
+            }
+            _ => None,
+        };
+        params.push(Param { name, ty });
+        match peek(tokens, *i) {
+            Tok::Comma => {
+                *i += 1;
+            }
+            Tok::RParen => break,
+            other => {
+                return Err(err(format!(
+                    "expected ',' or ')' in parameter list, found {other:?}"
+                )));
+            }
+        }
+    }
+    Ok(params)
+}
+
+fn is_type_keyword(n: &str) -> bool {
+    matches!(
+        n,
+        "void"
+            | "char"
+            | "short"
+            | "int"
+            | "long"
+            | "float"
+            | "double"
+            | "signed"
+            | "unsigned"
+            | "const"
+            | "volatile"
+            | "restrict"
+            | "struct"
+            | "typedef"
+            | "enum"
+            | "union"
+            | "extern"
+            | "static"
+            | "inline"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ptr(inner: CType) -> CType {
+        CType::Pointer(Box::new(inner))
+    }
+
+    #[test]
+    fn parse_scalar_binary_fn() {
+        let h = parse_header("int add(int a, int b);").unwrap();
+        assert_eq!(h.functions.len(), 1);
+        let f = &h.functions[0];
+        assert_eq!(f.name, "add");
+        assert_eq!(f.return_ty, CType::Int);
+        assert_eq!(
+            f.params,
+            vec![
+                Param {
+                    name: Some("a".into()),
+                    ty: CType::Int,
+                },
+                Param {
+                    name: Some("b".into()),
+                    ty: CType::Int,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_void_return_pointer_param() {
+        let h = parse_header("void free(void *p);").unwrap();
+        let f = &h.functions[0];
+        assert_eq!(f.name, "free");
+        assert_eq!(f.return_ty, CType::Void);
+        assert_eq!(
+            f.params,
+            vec![Param {
+                name: Some("p".into()),
+                ty: ptr(CType::Void),
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_const_char_pointer() {
+        let h = parse_header("int puts(const char *s);").unwrap();
+        let f = &h.functions[0];
+        assert_eq!(f.name, "puts");
+        assert_eq!(f.return_ty, CType::Int);
+        assert_eq!(
+            f.params,
+            vec![Param {
+                name: Some("s".into()),
+                ty: ptr(CType::Char),
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_float_double() {
+        let h = parse_header("double sqrt(double x);").unwrap();
+        let f = &h.functions[0];
+        assert_eq!(f.return_ty, CType::Double);
+        assert_eq!(f.params[0].ty, CType::Double);
+        let h = parse_header("float fma(float a, float b, float c);").unwrap();
+        assert_eq!(h.functions[0].return_ty, CType::Float);
+        assert_eq!(h.functions[0].params.len(), 3);
+    }
+
+    #[test]
+    fn parse_unsigned_and_long() {
+        let h = parse_header("unsigned int len(unsigned long n);").unwrap();
+        let f = &h.functions[0];
+        assert_eq!(f.return_ty, CType::UInt);
+        assert_eq!(f.params[0].ty, CType::ULong);
+    }
+
+    #[test]
+    fn parse_pointer_return_and_star_on_name() {
+        let h = parse_header("void *memcpy(void *dst, const void *src, unsigned long n);").unwrap();
+        let f = &h.functions[0];
+        assert_eq!(f.name, "memcpy");
+        assert_eq!(f.return_ty, ptr(CType::Void));
+        assert_eq!(f.params[0].ty, ptr(CType::Void));
+        assert_eq!(f.params[1].ty, ptr(CType::Void));
+        assert_eq!(f.params[2].ty, CType::ULong);
+        let h = parse_header("char *strdup(const char *s);").unwrap();
+        assert_eq!(h.functions[0].return_ty, ptr(CType::Char));
+    }
+
+    #[test]
+    fn parse_void_params_and_unnamed() {
+        let h = parse_header("int getpid(void);").unwrap();
+        assert!(h.functions[0].params.is_empty());
+        let h = parse_header("int abs(int);").unwrap();
+        assert_eq!(
+            h.functions[0].params,
+            vec![Param {
+                name: None,
+                ty: CType::Int,
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_multiple_and_extern_and_comments() {
+        let src = r#"
+            // comment
+            extern int add(int a, int b);
+            /* block */
+            unsigned long long ull(unsigned long long x);
+            #include <stdio.h>
+            short sh(signed short s);
+        "#;
+        let h = parse_header(src).unwrap();
+        assert_eq!(h.functions.len(), 3);
+        assert_eq!(h.functions[0].name, "add");
+        assert_eq!(h.functions[1].return_ty, CType::ULongLong);
+        assert_eq!(h.functions[2].return_ty, CType::Short);
+        assert_eq!(h.functions[2].params[0].ty, CType::Short);
+    }
+
+    #[test]
+    fn reject_struct_and_body() {
+        let err = parse_header("struct S { int x; };").unwrap_err();
+        assert!(err.message.contains("struct"), "{err}");
+        let err = parse_header("int add(int a, int b) { return a + b; }").unwrap_err();
+        assert!(
+            err.message.contains("body") || err.message.contains("{"),
+            "{err}"
+        );
+    }
+}
