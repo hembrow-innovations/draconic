@@ -478,3 +478,13 @@ fn with_function_ctor_fixture_present() {
 fn with_function_ctor_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_function_ctor");
 }
+
+#[test]
+fn with_tagged_template_fixture_present() {
+    assert_fixture_present("es/legacy/with_tagged_template");
+}
+
+#[test]
+fn with_tagged_template_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_tagged_template");
+}

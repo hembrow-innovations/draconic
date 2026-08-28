@@ -1,0 +1,247 @@
+// E17.02.44: with + tagged templates through object environment (non-strict).
+// tag ident hits object (else outer); interpolations through with; this in tag
+// is the with object (Identifier Reference); live close; non-callable tag
+// TypeError; cooked quasis + interpolations as args.
+
+function tagHitsObject() {
+  let obj = {
+    tag: function (strings) {
+      return strings[0] === "hi" ? 1 : 0;
+    }
+  };
+  with (obj) {
+    return tag`hi` === 1;
+  }
+}
+let a = tagHitsObject();
+
+function missIsOuter() {
+  function tag(strings) {
+    return 2;
+  }
+  with ({}) {
+    return tag`x` === 2;
+  }
+}
+let b = missIsOuter();
+
+function interpHitsObject() {
+  let obj = {
+    x: 7,
+    tag: function (strings, v) {
+      return v;
+    }
+  };
+  with (obj) {
+    return tag`${x}` === 7;
+  }
+}
+let c = interpHitsObject();
+
+function interpMissIsOuter() {
+  let x = 9;
+  let obj = {
+    tag: function (strings, v) {
+      return v;
+    }
+  };
+  with (obj) {
+    return tag`${x}` === 9;
+  }
+}
+let d = interpMissIsOuter();
+
+function tagThisIsObject() {
+  let obj = {
+    n: 4,
+    tag: function (strings) {
+      return this.n;
+    }
+  };
+  with (obj) {
+    return tag`x` === 4;
+  }
+}
+let e = tagThisIsObject();
+
+function tagThisNotGlobal() {
+  let obj = {
+    tag: function (strings) {
+      return this === obj;
+    }
+  };
+  with (obj) {
+    return tag`x` === true;
+  }
+}
+let f = tagThisNotGlobal();
+
+function liveClose() {
+  let obj = {
+    tag: function (strings) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return tag`x`;
+    };
+  }
+  obj.tag = function (strings) {
+    return 8;
+  };
+  return run() === 8;
+}
+let g = liveClose();
+
+function nonCallableTypeError() {
+  let obj = { tag: 1 };
+  with (obj) {
+    try {
+      tag`x`;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let h = nonCallableTypeError();
+
+function cookedAndInterps() {
+  let obj = {
+    x: 3,
+    y: 5,
+    tag: function (strings, a, b) {
+      return (
+        strings.length === 3 &&
+        strings[0] === "p" &&
+        strings[1] === "q" &&
+        strings[2] === "r" &&
+        a === 3 &&
+        b === 5
+      );
+    }
+  };
+  with (obj) {
+    return tag`p${x}q${y}r` === true;
+  }
+}
+let i = cookedAndInterps();
+
+function nestedInnerWins() {
+  let inner = {
+    tag: function (strings) {
+      return 1;
+    }
+  };
+  let outer = {
+    tag: function (strings) {
+      return 2;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return tag`x` === 1;
+    }
+  }
+}
+let j = nestedInnerWins();
+
+function nestedOuterAfterInner() {
+  let inner = {
+    tag: function (strings) {
+      return 1;
+    }
+  };
+  let outer = {
+    tag: function (strings) {
+      return 2;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      tag`x`;
+    }
+    return tag`x` === 2;
+  }
+}
+let k = nestedOuterAfterInner();
+
+function assignTagHitsObject() {
+  function outerTag(strings) {
+    return 0;
+  }
+  let obj = { tag: outerTag };
+  with (obj) {
+    tag = function (strings) {
+      return 6;
+    };
+  }
+  return obj.tag`x` === 6 && outerTag`x` === 0;
+}
+let l = assignTagHitsObject();
+
+function unresolvableTag() {
+  with ({}) {
+    try {
+      e170244_missing`x`;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let m = unresolvableTag();
+
+function arrowTagIgnoresThis() {
+  let obj = {
+    tag: (strings) => strings[0] === "z" && this === globalThis
+  };
+  with (obj) {
+    return tag`z` === true;
+  }
+}
+let n = arrowTagIgnoresThis();
+
+function getterTag() {
+  let n = 0;
+  let obj = {
+    get tag() {
+      n = n + 1;
+      return function (strings) {
+        return strings[0] === "g" && n === 1;
+      };
+    }
+  };
+  with (obj) {
+    return tag`g` === true;
+  }
+}
+let p = getterTag();
+
+function emptyTemplate() {
+  let obj = {
+    tag: function (strings) {
+      return strings.length === 1 && strings[0] === "";
+    }
+  };
+  with (obj) {
+    return tag`` === true;
+  }
+}
+let q = emptyTemplate();
+
+function memberTagStillReceiver() {
+  let inner = {
+    n: 9,
+    tag: function (strings) {
+      return this.n;
+    }
+  };
+  let obj = { inner: inner };
+  with (obj) {
+    return inner.tag`x` === 9;
+  }
+}
+let r = memberTagStillReceiver();
