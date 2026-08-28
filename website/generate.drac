@@ -1,8 +1,298 @@
-writeFileText("website/learn.html", "<!DOCTYPE html>\n<html><head><title>Learn</title></head><body>\n<nav><a href=\"learn.html\">Learn</a> <a href=\"reference.html\">Reference</a></nav>\n");
-let learn = readFileText("website/learn.md");
-appendFileText("website/learn.html", learn);
-appendFileText("website/learn.html", "\n</body></html>\n");
-writeFileText("website/reference.html", "<!DOCTYPE html>\n<html><head><title>Reference</title></head><body>\n<nav><a href=\"learn.html\">Learn</a> <a href=\"reference.html\">Reference</a></nav>\n");
-let reference = readFileText("website/reference.md");
-appendFileText("website/reference.html", reference);
-appendFileText("website/reference.html", "\n</body></html>\n");
+let page = 0;
+let mdPath = "";
+let htmlPath = "";
+let title = "";
+let src = "";
+let i = 0;
+let n = 0;
+let ch = "";
+let line = "";
+let body = "";
+let status = "";
+let inFront = 0;
+let inFence = 0;
+let inList = 0;
+let seenFm = 0;
+let j = 0;
+let h = 0;
+let hashing = 0;
+let rest = "";
+let rendered = "";
+let k = 0;
+let linkText = "";
+let linkHref = "";
+let collecting = 0;
+let foundParen = 0;
+let kind = 0;
+let isClose = 0;
+let isFence = 0;
+let isHead = 0;
+let isItem = 0;
+let header = "";
+let nav = "<nav><a href=\"learn.html\">Learn</a> <a href=\"reference.html\">Reference</a></nav>\n";
+
+while (page < 2) {
+  mdPath = "website/learn.md";
+  htmlPath = "website/learn.html";
+  title = "Learn";
+  if (page === 1) {
+    mdPath = "website/reference.md";
+    htmlPath = "website/reference.html";
+    title = "Reference";
+  }
+  src = readFileText(mdPath);
+  src = src + "\n";
+  i = 0;
+  n = src.length;
+  line = "";
+  body = "";
+  status = "";
+  inFront = 0;
+  inFence = 0;
+  inList = 0;
+  seenFm = 0;
+  while (i < n) {
+    ch = src[i];
+    if (ch === "\n") {
+      kind = 0;
+      rest = "";
+      h = 0;
+      if (inFront === 1) {
+        if (line === "---") {
+          inFront = 0;
+        } else {
+          if (line === "status: shipped") {
+            status = "shipped";
+          }
+          if (line === "status: not-yet") {
+            status = "not-yet";
+          }
+        }
+      } else {
+        if (inFence === 1) {
+          isClose = 0;
+          if (line.length > 2) {
+            if (line[0] === "`") {
+              if (line[1] === "`") {
+                if (line[2] === "`") {
+                  isClose = 1;
+                }
+              }
+            }
+          }
+          if (isClose === 1) {
+            body = body + "</code></pre>\n";
+            inFence = 0;
+          } else {
+            body = body + line + "\n";
+          }
+        } else {
+          if (line === "---") {
+            if (seenFm === 0) {
+              inFront = 1;
+              seenFm = 1;
+            } else {
+              rest = line;
+              kind = 3;
+            }
+          } else {
+            isFence = 0;
+            if (line.length > 2) {
+              if (line[0] === "`") {
+                if (line[1] === "`") {
+                  if (line[2] === "`") {
+                    isFence = 1;
+                  }
+                }
+              }
+            }
+            if (isFence === 1) {
+              if (inList === 1) {
+                body = body + "</ul>\n";
+                inList = 0;
+              }
+              body = body + "<pre><code>";
+              inFence = 1;
+            } else {
+              if (line === "") {
+                if (inList === 1) {
+                  body = body + "</ul>\n";
+                  inList = 0;
+                }
+              } else {
+                isHead = 0;
+                if (line.length > 1) {
+                  if (line[0] === "#") {
+                    isHead = 1;
+                  }
+                }
+                if (isHead === 1) {
+                  if (inList === 1) {
+                    body = body + "</ul>\n";
+                    inList = 0;
+                  }
+                  h = 0;
+                  j = 0;
+                  hashing = 1;
+                  while (hashing === 1) {
+                    if (j < line.length) {
+                      ch = line[j];
+                      if (ch === "#") {
+                        h = h + 1;
+                        j = j + 1;
+                      } else {
+                        hashing = 0;
+                      }
+                    } else {
+                      hashing = 0;
+                    }
+                  }
+                  if (j < line.length) {
+                    ch = line[j];
+                    if (ch === " ") {
+                      j = j + 1;
+                    }
+                  }
+                  rest = "";
+                  while (j < line.length) {
+                    rest = rest + line[j];
+                    j = j + 1;
+                  }
+                  kind = 1;
+                } else {
+                  isItem = 0;
+                  if (line.length > 1) {
+                    if (line[0] === "-") {
+                      ch = line[1];
+                      if (ch === " ") {
+                        isItem = 1;
+                      }
+                    }
+                  }
+                  if (isItem === 1) {
+                    if (inList === 0) {
+                      body = body + "<ul>\n";
+                      inList = 1;
+                    }
+                    j = 2;
+                    rest = "";
+                    while (j < line.length) {
+                      rest = rest + line[j];
+                      j = j + 1;
+                    }
+                    kind = 2;
+                  } else {
+                    if (inList === 1) {
+                      body = body + "</ul>\n";
+                      inList = 0;
+                    }
+                    rest = line;
+                    kind = 3;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if (kind > 0) {
+        k = 0;
+        rendered = "";
+        while (k < rest.length) {
+          ch = rest[k];
+          if (ch === "[") {
+            k = k + 1;
+            linkText = "";
+            collecting = 1;
+            while (collecting === 1) {
+              if (k < rest.length) {
+                ch = rest[k];
+                if (ch === "]") {
+                  collecting = 0;
+                  k = k + 1;
+                } else {
+                  linkText = linkText + ch;
+                  k = k + 1;
+                }
+              } else {
+                collecting = 0;
+              }
+            }
+            foundParen = 0;
+            if (k < rest.length) {
+              ch = rest[k];
+              if (ch === "(") {
+                foundParen = 1;
+                k = k + 1;
+              }
+            }
+            if (foundParen === 1) {
+              linkHref = "";
+              collecting = 1;
+              while (collecting === 1) {
+                if (k < rest.length) {
+                  ch = rest[k];
+                  if (ch === ")") {
+                    collecting = 0;
+                    k = k + 1;
+                  } else {
+                    linkHref = linkHref + ch;
+                    k = k + 1;
+                  }
+                } else {
+                  collecting = 0;
+                }
+              }
+              rendered = rendered + "<a href=\"" + linkHref + "\">" + linkText + "</a>";
+            } else {
+              rendered = rendered + "[" + linkText + "]";
+            }
+          } else {
+            rendered = rendered + ch;
+            k = k + 1;
+          }
+        }
+        if (kind === 1) {
+          if (h === 1) {
+            body = body + "<h1>" + rendered + "</h1>\n";
+          } else {
+            if (h === 2) {
+              body = body + "<h2>" + rendered + "</h2>\n";
+            } else {
+              if (h === 3) {
+                body = body + "<h3>" + rendered + "</h3>\n";
+              } else {
+                body = body + "<h4>" + rendered + "</h4>\n";
+              }
+            }
+          }
+        }
+        if (kind === 2) {
+          body = body + "<li>" + rendered + "</li>\n";
+        }
+        if (kind === 3) {
+          body = body + "<p>" + rendered + "</p>\n";
+        }
+      }
+      line = "";
+      i = i + 1;
+    } else {
+      line = line + ch;
+      i = i + 1;
+    }
+  }
+  if (inList === 1) {
+    body = body + "</ul>\n";
+    inList = 0;
+  }
+  if (inFence === 1) {
+    body = body + "</code></pre>\n";
+    inFence = 0;
+  }
+  header = "<!DOCTYPE html>\n<html><head><title>" + title + "</title></head><body>\n" + nav;
+  writeFileText(htmlPath, header);
+  appendFileText(htmlPath, "<p class=\"status\">" + status + "</p>\n");
+  appendFileText(htmlPath, body);
+  appendFileText(htmlPath, "</body></html>\n");
+  page = page + 1;
+}

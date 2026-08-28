@@ -1,12 +1,12 @@
 ---
 id: issues-22
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Docs SSG: markdown subset"
 description: "Generator renders headings, paragraphs, lists, fenced code, and links from the markdown subset."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -14,7 +14,7 @@ tags:
   - issue
   - enhancement
   - docs
-  - ready-for-agent
+  - closed
 ---
 
 # Docs SSG: markdown subset
@@ -33,9 +33,9 @@ Authors write a markdown subset and see headings, paragraphs, lists, fenced code
 
 ## Acceptance criteria
 
-- [ ] A page using headings, paragraphs, lists, fenced code, and links renders those structures in HTML
-- [ ] Pipeline compiles the generator and asserts the rendered subset
-- [ ] No full CommonMark, MDX, or page DSL in Programs
+- [x] A page using headings, paragraphs, lists, fenced code, and links renders those structures in HTML
+- [x] Pipeline compiles the generator and asserts the rendered subset
+- [x] No full CommonMark, MDX, or page DSL in Programs
 
 ## Agent Brief
 
@@ -56,3 +56,5 @@ Fence compile policy, Learn/Reference chapter content, GitHub Pages, CommonMark 
 ## Comments
 
 > Child of [[issues-19-language-docs-site]]. Parallel with [[issues-21-docs-learn-reference-nav]].
+>
+> **2026-08-29:** Landed. `website/generate.drac` renders headings, paragraphs, lists, fenced code, and links. Native lowering: `host_docs` (file I/O plus string scan). Pipeline test: `tests/integration/tests/website_pipeline.rs` (`website_pipeline_renders_markdown_subset`). Parent [[issues-19-language-docs-site]] stays open.
