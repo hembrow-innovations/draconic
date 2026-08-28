@@ -1,0 +1,9 @@
+// L01.02: invalid Base64 → SyntaxError.
+let ok = 0;
+try {
+  Uint8Array.fromBase64("!!!");
+  ok = -1;
+} catch (e) {
+  ok = e.name === "SyntaxError" ? 1 : -2;
+}
+let s = new TextDecoder().decode(Uint8Array.fromBase64("aGk="));

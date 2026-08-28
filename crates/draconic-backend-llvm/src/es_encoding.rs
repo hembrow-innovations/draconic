@@ -1,4 +1,5 @@
-//! L01.01: native observations for UTF-8 TextEncoder / TextDecoder.
+//! L01.01 / L01.02: native observations for UTF-8 TextEncoder / TextDecoder
+//! and Uint8Array Base64 (`toBase64` / `fromBase64`).
 //!
 //! Compile-time evaluation of TextEncoder/TextDecoder encode/decode plus
 //! fatal invalid UTF-8 TypeError. Emits Runtime prints of final top-level
@@ -16,6 +17,8 @@ use draconic_ir::{
     ObjectPropKey, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
+
+use crate::base64;
 
 pub(crate) fn is_es_encoding_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -179,7 +182,9 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
                 || expr_has_encoding_surface(alternate, by_id)
         }
         Expr::Member { object, property, .. } => {
-            expr_has_encoding_surface(object, by_id) || expr_has_encoding_surface(property, by_id)
+            is_base64_method_key(property)
+                || expr_has_encoding_surface(object, by_id)
+                || expr_has_encoding_surface(property, by_id)
         }
         Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
             expr_has_encoding_surface(callee, by_id)
@@ -199,6 +204,16 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
             }
             ObjectProp::Spread(e) => expr_has_encoding_surface(e, by_id),
         }),
+        _ => false,
+    }
+}
+
+fn is_base64_method_key(expr: &Expr) -> bool {
+    match expr {
+        Expr::String { value, .. } => {
+            let s = js_string_to_utf8(value);
+            s == "toBase64" || s == "fromBase64"
+        }
         _ => false,
     }
 }
@@ -716,6 +731,28 @@ fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, Op
                 Err(_) => Ok(JsVal::Str(String::from_utf8_lossy(&bytes).into_owned())),
             }
         }
+        JsVal::Uint8ArrayInst { bytes } if key == "toBase64" => {
+            if !args.is_empty() {
+                return Err(None);
+            }
+            Ok(JsVal::Str(base64::encode(&bytes.borrow())))
+        }
+        JsVal::Builtin(BuiltinId::Uint8Array) if key == "fromBase64" => {
+            let s = match args.first() {
+                Some(JsVal::Str(s)) => s.as_str(),
+                Some(JsVal::Undef) | None => "",
+                _ => return Err(None),
+            };
+            match base64::decode(s) {
+                Ok(out) => Ok(JsVal::Uint8ArrayInst {
+                    bytes: Rc::new(RefCell::new(out)),
+                }),
+                Err(()) => Err(Some(Flow::Throw(JsVal::ErrorInst {
+                    name: "SyntaxError".into(),
+                    message: "Invalid base64 string".into(),
+                }))),
+            }
+        }
         _ => Err(None),
     }
 }
@@ -872,7 +909,7 @@ impl Emitter {
         }
         writeln!(
             self.out,
-            "; Draconic LLVM backend (L01.01 TextEncoder/TextDecoder UTF-8)"
+            "; Draconic LLVM backend (L01.01/L01.02 TextEncoder/TextDecoder UTF-8 + Base64)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -943,6 +980,38 @@ mod tests {
               ok = -1;
             } catch (e) {
               ok = e.name === "TypeError" ? 1 : -2;
+            }
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_base64_roundtrip() {
+        let m = compile_src(
+            r#"
+            let hi = new Uint8Array([104, 105]).toBase64();
+            let v = Uint8Array.fromBase64("aGk=");
+            let n = v.length;
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_base64_invalid() {
+        let m = compile_src(
+            r#"
+            let ok = 0;
+            try {
+              Uint8Array.fromBase64("!!!");
+              ok = -1;
+            } catch (e) {
+              ok = e.name === "SyntaxError" ? 1 : -2;
             }
             "#,
         );

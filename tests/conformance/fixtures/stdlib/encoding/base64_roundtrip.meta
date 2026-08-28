@@ -1,0 +1,6 @@
+id: stdlib/encoding/base64_roundtrip
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: aGk=\n\nAA==\n////\nY2Fmw6k=\n2\n104\n105\n104\n105\ncafé\n0\n
+js.check: if (hi !== "aGk=") process.exit(1); if (empty !== "") process.exit(2); if (one !== "AA==") process.exit(3); if (fff !== "////") process.exit(4); if (cafe !== "Y2Fmw6k=") process.exit(5); if (n !== 2) process.exit(6); if (b0 !== 104) process.exit(7); if (b1 !== 105) process.exit(8); if (np0 !== 104) process.exit(9); if (np1 !== 105) process.exit(10); if (back !== "café") process.exit(11); if (emptd !== 0) process.exit(12);

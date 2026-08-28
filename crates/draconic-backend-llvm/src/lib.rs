@@ -11,6 +11,7 @@ mod es_static_private_fields;
 mod es_static_private_methods;
 mod es_coercion;
 mod es_destructure_defaults;
+mod base64;
 mod es_encoding;
 mod es_eval;
 mod es_exceptions;

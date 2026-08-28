@@ -1,0 +1,15 @@
+// L01.02: Base64 encode/decode via Uint8Array.toBase64 / Uint8Array.fromBase64.
+let hi = new Uint8Array([104, 105]).toBase64();
+let empty = new Uint8Array([]).toBase64();
+let one = new Uint8Array([0]).toBase64();
+let fff = new Uint8Array([255, 255, 255]).toBase64();
+let cafe = new TextEncoder().encode("café").toBase64();
+let v = Uint8Array.fromBase64("aGk=");
+let n = v.length;
+let b0 = v[0];
+let b1 = v[1];
+let nopad = Uint8Array.fromBase64("aGk");
+let np0 = nopad[0];
+let np1 = nopad[1];
+let back = new TextDecoder().decode(Uint8Array.fromBase64(cafe));
+let emptd = Uint8Array.fromBase64("").length;
