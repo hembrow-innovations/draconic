@@ -1,0 +1,5 @@
+let ch = makeChannel();
+let sent1 = channelSend(ch, true);
+let sent2 = channelSend(ch, false);
+let a = channelRecv(ch);
+let b = channelRecv(ch);

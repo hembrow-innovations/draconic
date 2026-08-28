@@ -809,7 +809,7 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 | C01.03 | done | both | Terminate worker; no shared JS heap across isolates | `tests/conformance` fixtures `concurrency/workers` |
 | C01.04 | todo | native | OS thread backing for native workers | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/workers` |
 | C02 | todo | both | Message-passing channels: send/recv; structured-clone or transfer policy; bounded buffer as designed | `tests/conformance` fixtures `concurrency/channels` |
-| C02.01 | todo | both | Channel send/recv: scalars + strings | `tests/conformance` fixtures `concurrency/channels` |
+| C02.01 | done | both | Channel send/recv: scalars + strings | `tests/conformance` fixtures `concurrency/channels` |
 | C02.02 | todo | both | Structured-clone (or designed) for plain objects; reject shared refs | `tests/conformance` fixtures `concurrency/channels` |
 | C02.03 | todo | both | Bounded buffer: backpressure / full-channel behavior as designed | `tests/conformance` fixtures `concurrency/channels` |
 | C02.04 | todo | both | Worker ↔ parent channel e2e (C01 + C02) | `tests/conformance` fixtures `concurrency/channels` |

@@ -8424,3 +8424,193 @@ int32_t draconic_rt_host_worker_terminate(int32_t handle) {
     g_worker_live[i] = 0;
     return 0;
 }
+
+/* --- Channels (C02.01) ---------------------------------------------------- */
+
+#define DRACONIC_CHANNEL_SLOTS 64
+#define DRACONIC_CHAN_KIND_NUM 1
+#define DRACONIC_CHAN_KIND_STR 2
+#define DRACONIC_CHAN_KIND_BOOL 3
+
+typedef struct DraconicChanMsg {
+    int32_t kind;
+    double num;
+    char *str;
+    int32_t b;
+    struct DraconicChanMsg *next;
+} DraconicChanMsg;
+
+typedef struct {
+    uint8_t live;
+    DraconicChanMsg *head;
+    DraconicChanMsg *tail;
+} DraconicChannel;
+
+static DraconicChannel g_channels[DRACONIC_CHANNEL_SLOTS];
+
+static DraconicChannel *host_channel_get(int32_t handle) {
+    size_t i;
+    if (handle < 1) {
+        return NULL;
+    }
+    i = (size_t)(handle - 1);
+    if (i >= DRACONIC_CHANNEL_SLOTS) {
+        return NULL;
+    }
+    if (g_channels[i].live == 0) {
+        return NULL;
+    }
+    return &g_channels[i];
+}
+
+static int32_t host_channel_enqueue(DraconicChannel *ch, DraconicChanMsg *msg) {
+    msg->next = NULL;
+    if (ch->tail) {
+        ch->tail->next = msg;
+        ch->tail = msg;
+    } else {
+        ch->head = msg;
+        ch->tail = msg;
+    }
+    return 0;
+}
+
+static DraconicChanMsg *host_channel_dequeue(DraconicChannel *ch) {
+    DraconicChanMsg *msg;
+    if (!ch->head) {
+        return NULL;
+    }
+    msg = ch->head;
+    ch->head = msg->next;
+    if (!ch->head) {
+        ch->tail = NULL;
+    }
+    msg->next = NULL;
+    return msg;
+}
+
+int32_t draconic_rt_host_channel_make(void) {
+    size_t i;
+    for (i = 0; i < DRACONIC_CHANNEL_SLOTS; i++) {
+        if (g_channels[i].live == 0) {
+            g_channels[i].live = 1;
+            g_channels[i].head = NULL;
+            g_channels[i].tail = NULL;
+            return (int32_t)(i + 1);
+        }
+    }
+    return -1;
+}
+
+int32_t draconic_rt_host_channel_send_f64(int32_t handle, double v) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    if (!ch) {
+        return -1;
+    }
+    msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
+    if (!msg) {
+        return -1;
+    }
+    msg->kind = DRACONIC_CHAN_KIND_NUM;
+    msg->num = v;
+    msg->str = NULL;
+    msg->b = 0;
+    return host_channel_enqueue(ch, msg);
+}
+
+int32_t draconic_rt_host_channel_send_str(int32_t handle, const char *s) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    if (!ch) {
+        return -1;
+    }
+    msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
+    if (!msg) {
+        return -1;
+    }
+    msg->kind = DRACONIC_CHAN_KIND_STR;
+    msg->num = 0.0;
+    msg->str = s ? strdup(s) : strdup("");
+    msg->b = 0;
+    if (!msg->str) {
+        free(msg);
+        return -1;
+    }
+    return host_channel_enqueue(ch, msg);
+}
+
+int32_t draconic_rt_host_channel_send_bool(int32_t handle, int32_t v) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    if (!ch) {
+        return -1;
+    }
+    msg = (DraconicChanMsg *)malloc(sizeof(DraconicChanMsg));
+    if (!msg) {
+        return -1;
+    }
+    msg->kind = DRACONIC_CHAN_KIND_BOOL;
+    msg->num = 0.0;
+    msg->str = NULL;
+    msg->b = v ? 1 : 0;
+    return host_channel_enqueue(ch, msg);
+}
+
+int32_t draconic_rt_host_channel_recv_f64(int32_t handle, double *out) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    if (!ch || !out) {
+        return -1;
+    }
+    msg = host_channel_dequeue(ch);
+    if (!msg || msg->kind != DRACONIC_CHAN_KIND_NUM) {
+        if (msg) {
+            free(msg->str);
+            free(msg);
+        }
+        return -1;
+    }
+    *out = msg->num;
+    free(msg);
+    return 0;
+}
+
+int32_t draconic_rt_host_channel_recv_str(int32_t handle, const char **out) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    if (!ch || !out) {
+        return -1;
+    }
+    msg = host_channel_dequeue(ch);
+    if (!msg || msg->kind != DRACONIC_CHAN_KIND_STR) {
+        if (msg) {
+            free(msg->str);
+            free(msg);
+        }
+        return -1;
+    }
+    *out = msg->str ? msg->str : "";
+    msg->str = NULL;
+    free(msg);
+    return 0;
+}
+
+int32_t draconic_rt_host_channel_recv_bool(int32_t handle, int32_t *out) {
+    DraconicChannel *ch = host_channel_get(handle);
+    DraconicChanMsg *msg;
+    if (!ch || !out) {
+        return -1;
+    }
+    msg = host_channel_dequeue(ch);
+    if (!msg || msg->kind != DRACONIC_CHAN_KIND_BOOL) {
+        if (msg) {
+            free(msg->str);
+            free(msg);
+        }
+        return -1;
+    }
+    *out = msg->b;
+    free(msg);
+    return 0;
+}

@@ -1,0 +1,2 @@
+let bad = channelSend(0, 1);
+let err = bad < 0;

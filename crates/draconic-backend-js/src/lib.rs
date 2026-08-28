@@ -197,6 +197,15 @@ fn module_uses_spawn_worker(module: &Module) -> bool {
     })
 }
 
+/// C02.01: free host APIs `makeChannel` / `channelSend` / `channelRecv`.
+fn module_uses_channel(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "makeChannel")
+            || stmt_uses_ident_name(s, "channelSend")
+            || stmt_uses_ident_name(s, "channelRecv")
+    })
+}
+
 /// H05.01: free host API `nowMs`.
 fn module_uses_now_ms(module: &Module) -> bool {
     module
@@ -674,6 +683,13 @@ fn emit_js_full(
     // C01.01: spawnWorker isolate (worker_threads, unref).
     if module_uses_spawn_worker(module) {
         out.push_str(draconic_runtime::spawn_worker_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // C02.01: makeChannel / channelSend / channelRecv FIFO.
+    if module_uses_channel(module) {
+        out.push_str(draconic_runtime::channel_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }

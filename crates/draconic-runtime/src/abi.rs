@@ -878,6 +878,48 @@ pub const HOST_WORKER_TERMINATE: AbiFn = AbiFn {
     ret: "i32",
     params: "i32",
 };
+/* C02.01: makeChannel — FIFO handle >= 1, or -1 on failure. */
+pub const HOST_CHANNEL_MAKE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_make",
+    ret: "i32",
+    params: "",
+};
+/* C02.01: channelSend number; 0 success, -1 invalid handle. */
+pub const HOST_CHANNEL_SEND_F64: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_send_f64",
+    ret: "i32",
+    params: "i32, double",
+};
+/* C02.01: channelSend string; 0 success, -1 invalid handle. */
+pub const HOST_CHANNEL_SEND_STR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_send_str",
+    ret: "i32",
+    params: "i32, ptr",
+};
+/* C02.01: channelSend bool (i32 0/1); 0 success, -1 invalid handle. */
+pub const HOST_CHANNEL_SEND_BOOL: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_send_bool",
+    ret: "i32",
+    params: "i32, i32",
+};
+/* C02.01: channelRecv number into out ptr; 0 success, -1 fail. */
+pub const HOST_CHANNEL_RECV_F64: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_recv_f64",
+    ret: "i32",
+    params: "i32, ptr",
+};
+/* C02.01: channelRecv string into out ptr; 0 success, -1 fail. */
+pub const HOST_CHANNEL_RECV_STR: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_recv_str",
+    ret: "i32",
+    params: "i32, ptr",
+};
+/* C02.01: channelRecv bool into out ptr; 0 success, -1 fail. */
+pub const HOST_CHANNEL_RECV_BOOL: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_channel_recv_bool",
+    ret: "i32",
+    params: "i32, ptr",
+};
 /// Declares for H15.03 async process wait + Promise then + job drain.
 pub const HOST_PROCESS_ASYNC_DECLARES: &[AbiFn] = &[
     GC_INIT,
@@ -1505,6 +1547,13 @@ pub const HOST_HTTP_RESPONSE_HEADER_SYMBOL: &str = HOST_HTTP_RESPONSE_HEADER.sym
 pub const HOST_WORKER_SPAWN_SYMBOL: &str = HOST_WORKER_SPAWN.symbol;
 pub const HOST_WORKER_JOIN_SYMBOL: &str = HOST_WORKER_JOIN.symbol;
 pub const HOST_WORKER_TERMINATE_SYMBOL: &str = HOST_WORKER_TERMINATE.symbol;
+pub const HOST_CHANNEL_MAKE_SYMBOL: &str = HOST_CHANNEL_MAKE.symbol;
+pub const HOST_CHANNEL_SEND_F64_SYMBOL: &str = HOST_CHANNEL_SEND_F64.symbol;
+pub const HOST_CHANNEL_SEND_STR_SYMBOL: &str = HOST_CHANNEL_SEND_STR.symbol;
+pub const HOST_CHANNEL_SEND_BOOL_SYMBOL: &str = HOST_CHANNEL_SEND_BOOL.symbol;
+pub const HOST_CHANNEL_RECV_F64_SYMBOL: &str = HOST_CHANNEL_RECV_F64.symbol;
+pub const HOST_CHANNEL_RECV_STR_SYMBOL: &str = HOST_CHANNEL_RECV_STR.symbol;
+pub const HOST_CHANNEL_RECV_BOOL_SYMBOL: &str = HOST_CHANNEL_RECV_BOOL.symbol;
 pub const HOST_WS_HANDSHAKE_RESPONSE_SYMBOL: &str = HOST_WS_HANDSHAKE_RESPONSE.symbol;
 pub const HOST_WS_ENCODE_TEXT_SYMBOL: &str = HOST_WS_ENCODE_TEXT.symbol;
 pub const HOST_WS_ENCODE_BINARY_SYMBOL: &str = HOST_WS_ENCODE_BINARY.symbol;
@@ -1648,6 +1697,13 @@ pub const HOST_SYMBOLS: &[&str] = &[
     HOST_WORKER_SPAWN_SYMBOL,
     HOST_WORKER_JOIN_SYMBOL,
     HOST_WORKER_TERMINATE_SYMBOL,
+    HOST_CHANNEL_MAKE_SYMBOL,
+    HOST_CHANNEL_SEND_F64_SYMBOL,
+    HOST_CHANNEL_SEND_STR_SYMBOL,
+    HOST_CHANNEL_SEND_BOOL_SYMBOL,
+    HOST_CHANNEL_RECV_F64_SYMBOL,
+    HOST_CHANNEL_RECV_STR_SYMBOL,
+    HOST_CHANNEL_RECV_BOOL_SYMBOL,
 ];
 
 /// Declares used when emitting host I/O calls (H01+).
@@ -1766,6 +1822,13 @@ pub const HOST_DECLARES: &[AbiFn] = &[
     HOST_WORKER_SPAWN,
     HOST_WORKER_JOIN,
     HOST_WORKER_TERMINATE,
+    HOST_CHANNEL_MAKE,
+    HOST_CHANNEL_SEND_F64,
+    HOST_CHANNEL_SEND_STR,
+    HOST_CHANNEL_SEND_BOOL,
+    HOST_CHANNEL_RECV_F64,
+    HOST_CHANNEL_RECV_STR,
+    HOST_CHANNEL_RECV_BOOL,
 ];
 
 /// JS polyfill for `processArgs()` (H01.01): user program args as string[].
@@ -2179,6 +2242,41 @@ pub fn spawn_worker_js_polyfill() -> &'static str {
     globalThis.spawnWorker = spawnWorker;
     globalThis.joinWorker = joinWorker;
     globalThis.terminateWorker = terminateWorker;
+  }
+})();
+"#
+}
+
+/// JS polyfill for `makeChannel` / `channelSend` / `channelRecv` (C02.01).
+///
+/// Same-isolate unbounded FIFO of numbers, strings, and bools.
+/// Send returns 0 on success or -1 on invalid handle / unsupported value.
+pub fn channel_js_polyfill() -> &'static str {
+    r#"(function () {
+  var nextId = 1;
+  var slots = Object.create(null);
+  function makeChannel() {
+    var id = nextId++;
+    slots[id] = [];
+    return id;
+  }
+  function channelSend(ch, v) {
+    var q = slots[ch];
+    if (!q) return -1;
+    var t = typeof v;
+    if (t !== "number" && t !== "string" && t !== "boolean") return -1;
+    q.push(v);
+    return 0;
+  }
+  function channelRecv(ch) {
+    var q = slots[ch];
+    if (!q || q.length === 0) return undefined;
+    return q.shift();
+  }
+  if (typeof globalThis !== "undefined") {
+    globalThis.makeChannel = makeChannel;
+    globalThis.channelSend = channelSend;
+    globalThis.channelRecv = channelRecv;
   }
 })();
 "#

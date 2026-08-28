@@ -1,0 +1,6 @@
+id: concurrency/channels/channel_number
+targets: js,native
+js.exit: 0
+js.check: if (sent1 !== 0) process.exit(1); if (sent2 !== 0) process.exit(2); if (a !== 1) process.exit(3); if (b !== 2) process.exit(4);
+native.exit: 0
+native.stdout: 1\n0\n0\n1\n2\n

@@ -114,6 +114,8 @@ pub struct HostApiEntry {
 /// - `spawnWorker` (C01.01): both — spawn worker isolate from fn entry or module path.
 /// - `joinWorker` (C01.02): both — wait for worker exit; 0 success, negative error.
 /// - `terminateWorker` (C01.03): both — stop worker; 0 success, negative error.
+/// - `makeChannel` / `channelSend` / `channelRecv` (C02.01): both — FIFO channel of
+///   scalars (number/bool) and strings; send 0 success / negative error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -714,6 +716,21 @@ const HOST_APIS: &[HostApiEntry] = &[
         name: "terminateWorker",
         availability: HostAvailability::BOTH,
         note: "C01.03 terminate worker; no shared JS heap",
+    },
+    HostApiEntry {
+        name: "makeChannel",
+        availability: HostAvailability::BOTH,
+        note: "C02.01 make FIFO channel handle",
+    },
+    HostApiEntry {
+        name: "channelSend",
+        availability: HostAvailability::BOTH,
+        note: "C02.01 send scalar or string; 0 ok",
+    },
+    HostApiEntry {
+        name: "channelRecv",
+        availability: HostAvailability::BOTH,
+        note: "C02.01 recv FIFO head (number/bool/string)",
     },
 ];
 
@@ -1407,6 +1424,51 @@ mod tests {
         assert!(
             unsupported_diagnostic("terminateWorker", CompileTarget::Native, Span::dummy())
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn registry_lists_make_channel_both() {
+        let entry = lookup("makeChannel").expect("makeChannel registered");
+        assert_eq!(entry.name, "makeChannel");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("makeChannel"));
+        assert!(is_available("makeChannel", CompileTarget::Js));
+        assert!(is_available("makeChannel", CompileTarget::Native));
+        assert!(unsupported_diagnostic("makeChannel", CompileTarget::Js, Span::dummy()).is_none());
+        assert!(
+            unsupported_diagnostic("makeChannel", CompileTarget::Native, Span::dummy()).is_none()
+        );
+    }
+
+    #[test]
+    fn registry_lists_channel_send_both() {
+        let entry = lookup("channelSend").expect("channelSend registered");
+        assert_eq!(entry.name, "channelSend");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("channelSend"));
+        assert!(is_available("channelSend", CompileTarget::Js));
+        assert!(is_available("channelSend", CompileTarget::Native));
+        assert!(unsupported_diagnostic("channelSend", CompileTarget::Js, Span::dummy()).is_none());
+        assert!(
+            unsupported_diagnostic("channelSend", CompileTarget::Native, Span::dummy()).is_none()
+        );
+    }
+
+    #[test]
+    fn registry_lists_channel_recv_both() {
+        let entry = lookup("channelRecv").expect("channelRecv registered");
+        assert_eq!(entry.name, "channelRecv");
+        assert!(entry.availability.js);
+        assert!(entry.availability.native);
+        assert!(is_host_api("channelRecv"));
+        assert!(is_available("channelRecv", CompileTarget::Js));
+        assert!(is_available("channelRecv", CompileTarget::Native));
+        assert!(unsupported_diagnostic("channelRecv", CompileTarget::Js, Span::dummy()).is_none());
+        assert!(
+            unsupported_diagnostic("channelRecv", CompileTarget::Native, Span::dummy()).is_none()
         );
     }
 }

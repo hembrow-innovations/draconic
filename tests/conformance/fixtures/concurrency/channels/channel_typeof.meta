@@ -1,0 +1,6 @@
+id: concurrency/channels/channel_typeof
+targets: js,native
+js.exit: 0
+js.check: if (tMake !== "function") process.exit(1); if (tSend !== "function") process.exit(2); if (tRecv !== "function") process.exit(3);
+native.exit: 0
+native.stdout: function\nfunction\nfunction\n

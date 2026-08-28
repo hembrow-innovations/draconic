@@ -302,6 +302,34 @@ fn host_abi_fn_shapes() {
         "declare i32 @draconic_rt_host_worker_terminate(i32)"
     );
     assert_eq!(
+        HOST_CHANNEL_MAKE.declare(),
+        "declare i32 @draconic_rt_host_channel_make()"
+    );
+    assert_eq!(
+        HOST_CHANNEL_SEND_F64.declare(),
+        "declare i32 @draconic_rt_host_channel_send_f64(i32, double)"
+    );
+    assert_eq!(
+        HOST_CHANNEL_SEND_STR.declare(),
+        "declare i32 @draconic_rt_host_channel_send_str(i32, ptr)"
+    );
+    assert_eq!(
+        HOST_CHANNEL_SEND_BOOL.declare(),
+        "declare i32 @draconic_rt_host_channel_send_bool(i32, i32)"
+    );
+    assert_eq!(
+        HOST_CHANNEL_RECV_F64.declare(),
+        "declare i32 @draconic_rt_host_channel_recv_f64(i32, ptr)"
+    );
+    assert_eq!(
+        HOST_CHANNEL_RECV_STR.declare(),
+        "declare i32 @draconic_rt_host_channel_recv_str(i32, ptr)"
+    );
+    assert_eq!(
+        HOST_CHANNEL_RECV_BOOL.declare(),
+        "declare i32 @draconic_rt_host_channel_recv_bool(i32, ptr)"
+    );
+    assert_eq!(
         HOST_SIGNAL_WATCH.declare(),
         "declare i32 @draconic_rt_host_signal_watch(i32, ptr, ptr)"
     );

@@ -1,0 +1,3 @@
+let tMake = typeof makeChannel;
+let tSend = typeof channelSend;
+let tRecv = typeof channelRecv;
