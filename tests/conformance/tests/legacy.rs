@@ -788,3 +788,13 @@ fn with_string_lit_access_fixture_present() {
 fn with_string_lit_access_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_string_lit_access");
 }
+
+#[test]
+fn with_template_lit_fixture_present() {
+    assert_fixture_present("es/legacy/with_template_lit");
+}
+
+#[test]
+fn with_template_lit_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_template_lit");
+}

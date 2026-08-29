@@ -1,0 +1,570 @@
+// E17.02.75: with + untagged template literals (`…` / `a${x}b`; cooked
+// escapes; multi-interp) through object environment (non-strict).
+// Interpolation idents hit object (else outer); empty/`""`; nested templates;
+// inherited HasBinding; accessor get this is with object; unresolvable
+// interpolation → ReferenceError; live close; nested with; unscopables skip.
+
+function interpHitsObject() {
+  let x = "out";
+  let obj = { x: "in" };
+  let out;
+  with (obj) {
+    out = `a${x}b`;
+  }
+  return out === "ainb" && x === "out";
+}
+let a = interpHitsObject();
+
+function interpMissUsesOuter() {
+  let x = "out";
+  let obj = {};
+  let out;
+  with (obj) {
+    out = `a${x}b`;
+  }
+  return out === "aoutb";
+}
+let b = interpMissUsesOuter();
+
+function bothInterpsHit() {
+  let obj = { x: "ab", y: "cd" };
+  let out;
+  with (obj) {
+    out = `${x}${y}`;
+  }
+  return out === "abcd";
+}
+let c = bothInterpsHit();
+
+function mixedObjectOuter() {
+  let y = "Y";
+  let obj = { x: "X" };
+  let out;
+  with (obj) {
+    out = `${x}${y}`;
+  }
+  return out === "XY" && y === "Y";
+}
+let d = mixedObjectOuter();
+
+function multiInterp() {
+  let obj = { x: 1, y: 2 };
+  let out;
+  with (obj) {
+    out = `p${x}q${y}r`;
+  }
+  return out === "p1q2r";
+}
+let e = multiInterp();
+
+function prefixSuffixMid() {
+  let obj = { name: "world" };
+  let prefix;
+  let suffix;
+  let mid;
+  with (obj) {
+    prefix = `hello ${name}`;
+    suffix = `${name}!`;
+    mid = `a${name}b`;
+  }
+  return prefix === "hello world" && suffix === "world!" && mid === "aworldb";
+}
+let f = prefixSuffixMid();
+
+function emptyTemplate() {
+  let obj = { x: "in" };
+  let out;
+  with (obj) {
+    out = ``;
+  }
+  return out === "";
+}
+let g = emptyTemplate();
+
+function plainNoInterp() {
+  let x = "out";
+  let obj = { x: "in" };
+  let out;
+  with (obj) {
+    out = `hello`;
+  }
+  return out === "hello" && x === "out" && obj.x === "in";
+}
+let h = plainNoInterp();
+
+function nestedTemplate() {
+  let obj = { x: "in", y: "Y" };
+  let out;
+  with (obj) {
+    out = `outer ${`inner ${x}`} ${y}`;
+  }
+  return out === "outer inner in Y";
+}
+let i = nestedTemplate();
+
+function nestedInterpMissUsesOuter() {
+  let x = "out";
+  let obj = { y: "Y" };
+  let out;
+  with (obj) {
+    out = `outer ${`inner ${x}`} ${y}`;
+  }
+  return out === "outer inner out Y";
+}
+let j = nestedInterpMissUsesOuter();
+
+function cookedEscapes() {
+  let env = { s: "x" };
+  let esc;
+  let esc_n;
+  with (env) {
+    esc = `a\`b\$c\\d${s}`;
+    esc_n = `a\n${s}`;
+  }
+  return (
+    esc.length === 8 &&
+    esc[0] === "a" &&
+    esc[1] === "`" &&
+    esc[2] === "b" &&
+    esc[3] === "$" &&
+    esc[4] === "c" &&
+    esc[5] === "\\" &&
+    esc[6] === "d" &&
+    esc[7] === "x" &&
+    esc_n.length === 3 &&
+    esc_n[1] === "\n" &&
+    esc_n[2] === "x"
+  );
+}
+let k = cookedEscapes();
+
+function multiline() {
+  let obj = { x: "z" };
+  let out;
+  with (obj) {
+    out = `a
+${x}`;
+  }
+  return (
+    out.length === 3 &&
+    out[0] === "a" &&
+    out[1] === "\n" &&
+    out[2] === "z"
+  );
+}
+let l = multiline();
+
+function numberToString() {
+  let obj = { n: 3 };
+  let out;
+  with (obj) {
+    out = `n=${n}`;
+  }
+  return out === "n=3";
+}
+let m = numberToString();
+
+function undefinedToString() {
+  let x = "out";
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    out = `${x}`;
+  }
+  return out === "undefined" && x === "out";
+}
+let n = undefinedToString();
+
+function nullToString() {
+  let obj = { x: null };
+  let out;
+  with (obj) {
+    out = `${x}`;
+  }
+  return out === "null";
+}
+let p = nullToString();
+
+function exprUsingWithIdents() {
+  let obj = { a: 1, b: 2 };
+  let out;
+  with (obj) {
+    out = `sum=${a + b}`;
+  }
+  return out === "sum=3";
+}
+let q = exprUsingWithIdents();
+
+function unscopablesSkip() {
+  let x = "out";
+  let obj = { x: "in" };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = `a${x}b`;
+  }
+  return out === "aoutb" && obj.x === "in";
+}
+let r = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = { x: "in" };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = `a${x}b`;
+  }
+  return out === "ainb";
+}
+let s = inheritedHasBinding();
+
+function accessorGetThis() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return "in";
+    }
+  };
+  let out;
+  with (obj) {
+    out = `a${x}b`;
+  }
+  return out === "ainb" && seen === obj;
+}
+let t = accessorGetThis();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      `${e170275_missing}`;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170275_missing === "undefined"
+      );
+    }
+  }
+}
+let u = unresolvableThrows();
+
+function unresolvableSkipsLater() {
+  let ran = false;
+  let obj = {
+    get y() {
+      ran = true;
+      return "y";
+    }
+  };
+  with (obj) {
+    try {
+      `${e170275_first}${y}`;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let v = unresolvableSkipsLater();
+
+function liveClose() {
+  let obj = { x: "a" };
+  let run;
+  with (obj) {
+    run = function () {
+      return `!${x}!`;
+    };
+  }
+  obj.x = "b";
+  return run() === "!b!";
+}
+let w = liveClose();
+
+function nestedInnerWins() {
+  let inner = { x: "in" };
+  let outer = { x: "out" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = `${x}`;
+    }
+  }
+  return out === "in";
+}
+let aa = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: "out" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = `${x}`;
+    }
+  }
+  return out === "out";
+}
+let ab = nestedInnerMissOuter();
+
+function ownUndefinedHasBinding() {
+  let x = "out";
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    out = `${x}!`;
+  }
+  return out === "undefined!" && x === "out";
+}
+let ac = ownUndefinedHasBinding();
+
+function evalOrderLeftToRight() {
+  let order = "";
+  let obj = {
+    get x() {
+      order = order + "X";
+      return "a";
+    },
+    get y() {
+      order = order + "Y";
+      return "b";
+    }
+  };
+  let out;
+  with (obj) {
+    out = `${x}${y}`;
+  }
+  return out === "ab" && order === "XY";
+}
+let ad = evalOrderLeftToRight();
+
+function typeofString() {
+  let obj = { x: 1 };
+  let t;
+  with (obj) {
+    t = typeof `${x}`;
+  }
+  return t === "string";
+}
+let ae = typeofString();
+
+function concatTemplates() {
+  let obj = { x: "a", y: "b" };
+  let out;
+  with (obj) {
+    out = `${x}` + `${y}`;
+  }
+  return out === "ab";
+}
+let af = concatTemplates();
+
+function booleanToString() {
+  let obj = { t: true, f: false };
+  let out0;
+  let out1;
+  with (obj) {
+    out0 = `${t}`;
+    out1 = `${f}`;
+  }
+  return out0 === "true" && out1 === "false";
+}
+let ag = booleanToString();
+
+function emptyStringInterp() {
+  let obj = { s: "", t: "x" };
+  let out0;
+  let out1;
+  with (obj) {
+    out0 = `${s}${t}`;
+    out1 = `${t}${s}`;
+  }
+  return out0 === "x" && out1 === "x";
+}
+let ah = emptyStringInterp();
+
+function liveCloseNested() {
+  let obj = { x: "a" };
+  let run;
+  with (obj) {
+    run = function () {
+      return `outer ${`inner ${x}`}`;
+    };
+  }
+  obj.x = "b";
+  return run() === "outer inner b";
+}
+let ai = liveCloseNested();
+
+function unscopablesSecondInterp() {
+  let y = "out";
+  let obj = { x: "in", y: "IN" };
+  obj[Symbol.unscopables] = { y: true };
+  let out;
+  with (obj) {
+    out = `${x}${y}`;
+  }
+  return out === "inout" && obj.y === "IN";
+}
+let aj = unscopablesSecondInterp();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    try {
+      `${e170275_noglob}`;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170275_noglob === "undefined"
+      );
+    }
+  }
+}
+let ak = unresolvableNotImplicitGlobal();
+
+function toStringHook() {
+  let seen = null;
+  let obj = {
+    x: {
+      toString: function () {
+        seen = this;
+        return "T";
+      }
+    }
+  };
+  let out;
+  with (obj) {
+    out = `${x}`;
+  }
+  return out === "T" && seen === obj.x;
+}
+let al = toStringHook();
+
+function nestedOuterAfterInner() {
+  let inner = { x: "in" };
+  let outer = { x: "out" };
+  let innerOut;
+  let outerOut;
+  with (outer) {
+    with (inner) {
+      innerOut = `${x}`;
+    }
+    outerOut = `${x}`;
+  }
+  return innerOut === "in" && outerOut === "out";
+}
+let am = nestedOuterAfterInner();
+
+function zeroNumber() {
+  let obj = { n: 0 };
+  let out;
+  with (obj) {
+    out = `${n}`;
+  }
+  return out === "0";
+}
+let an = zeroNumber();
+
+function getterRunsOncePerInterp() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return "v";
+    }
+  };
+  let out;
+  with (obj) {
+    out = `${x}${x}`;
+  }
+  return out === "vv" && n === 2;
+}
+let ap = getterRunsOncePerInterp();
+
+function nestedWithUnscopables() {
+  let x = "lex";
+  let inner = { x: "in" };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: "out" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = `${x}`;
+    }
+  }
+  return out === "out";
+}
+let aq = nestedWithUnscopables();
+
+function eqToString() {
+  let obj = { x: "ab" };
+  let out;
+  with (obj) {
+    out = `${x}` === "ab";
+  }
+  return out === true;
+}
+let ar = eqToString();
+
+function inheritedAccessorThis() {
+  let proto = {
+    get x() {
+      return this === obj ? "in" : "no";
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = `${x}`;
+  }
+  return out === "in";
+}
+let at = inheritedAccessorThis();
+
+function unresolvableSecondAfterFirst() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return "x";
+    }
+  };
+  with (obj) {
+    try {
+      `${x}${e170275_second}`;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let au = unresolvableSecondAfterFirst();
+
+function nestedTemplateUnresolvable() {
+  with ({}) {
+    try {
+      `outer ${`inner ${e170275_nested}`}`;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170275_nested === "undefined"
+      );
+    }
+  }
+}
+let av = nestedTemplateUnresolvable();
+
+function liveCloseAfterMutateOuter() {
+  let x = "lex";
+  let obj = {};
+  let run;
+  with (obj) {
+    run = function () {
+      return `${x}`;
+    };
+  }
+  x = "later";
+  return run() === "later";
+}
+let aw = liveCloseAfterMutateOuter();
