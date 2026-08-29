@@ -1,0 +1,939 @@
+// E17.02.102: with + Promise.race (iterable of promises/values; settle
+// with first fulfillment or rejection) through object environment
+// (non-strict). Promise ident hits object (else outer);
+// with (Promise) method idents hit Promise (race / name / length /
+// prototype); inherited HasBinding; accessor this is with object;
+// unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function withRaceTypeof() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return typeof Promise.race === "function";
+  }
+}
+let a = withRaceTypeof();
+
+function withPromiseRaceIdent() {
+  with (Promise) {
+    return typeof race === "function";
+  }
+}
+let b = withPromiseRaceIdent();
+
+function withPromiseRaceIsSame() {
+  with (Promise) {
+    return race === Promise.race;
+  }
+}
+let c = withPromiseRaceIsSame();
+
+function withPromiseName() {
+  with (Promise) {
+    return name === "Promise";
+  }
+}
+let d = withPromiseName();
+
+function withPromiseLength() {
+  with (Promise) {
+    return length === 1;
+  }
+}
+let e = withPromiseLength();
+
+function withPromisePrototype() {
+  with (Promise) {
+    return prototype === Promise.prototype;
+  }
+}
+let f = withPromisePrototype();
+
+function globalThisIdentity() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return (
+      Promise === globalThis.Promise &&
+      Promise.race === globalThis.Promise.race
+    );
+  }
+}
+let g = globalThisIdentity();
+
+function promiseIdentHitsObject() {
+  let obj = {
+    Promise: {
+      race: function (v) {
+        return v === 1 ? "hit" : 0;
+      }
+    }
+  };
+  with (obj) {
+    return Promise.race(1) === "hit";
+  }
+}
+let h = promiseIdentHitsObject();
+
+function promiseIdentMissIsOuter() {
+  with ({}) {
+    return typeof Promise.race === "function";
+  }
+}
+let j = promiseIdentMissIsOuter();
+
+function promiseIdentShadowsOuter() {
+  let obj = {
+    Promise: {
+      race: function (v) {
+        return 0;
+      }
+    }
+  };
+  with (obj) {
+    return Promise.race(1) === 0;
+  }
+}
+let k = promiseIdentShadowsOuter();
+
+function raceIdentHitsObject() {
+  let obj = {
+    race: function (v) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return race(42) === "hit";
+  }
+}
+let l = raceIdentHitsObject();
+
+function raceIdentMissIsOuter() {
+  function race(v) {
+    return 8;
+  }
+  with ({}) {
+    return race(42) === 8;
+  }
+}
+let m = raceIdentMissIsOuter();
+
+function objectShadowsOuterRace() {
+  function race(v) {
+    return 8;
+  }
+  let obj = {
+    race: function (v) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return race(42) === 9;
+  }
+}
+let n = objectShadowsOuterRace();
+
+function callThisIsWithObject() {
+  let obj = {
+    race: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return race(42) === 3;
+  }
+}
+let p = callThisIsWithObject();
+
+function withPromiseRaceThisIsPromise() {
+  let seen = null;
+  let orig = Promise.race;
+  Promise.race = function (v) {
+    seen = this;
+    return orig.call(this, v);
+  };
+  let ok;
+  with (Promise) {
+    race([]);
+    ok = seen === Promise;
+  }
+  Promise.race = orig;
+  return ok;
+}
+let q = withPromiseRaceThisIsPromise();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get race() {
+      n = n + 1;
+      return function (x) {
+        return x;
+      };
+    },
+    get k() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    race(k);
+    return n === 2;
+  }
+}
+let r = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function race(v) {
+    return 11;
+  }
+  let obj = {
+    race: function (v) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { race: true };
+  with (obj) {
+    return race(42) === 11;
+  }
+}
+let s = unscopablesUsesOuter();
+
+function unscopablesPromiseIdent() {
+  let obj = {
+    Promise: {
+      race: function (v) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Promise: true };
+  with (obj) {
+    return typeof Promise.race === "function";
+  }
+}
+let t = unscopablesPromiseIdent();
+
+function inheritedData() {
+  let proto = {
+    race: function (v) {
+      return 4;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return race(42) === 4;
+  }
+}
+let u = inheritedData();
+
+function inheritedFromPromise() {
+  let obj = Object.create(Promise);
+  with (obj) {
+    return (
+      typeof race === "function" &&
+      race === Promise.race &&
+      name === "Promise" &&
+      length === 1 &&
+      prototype === Promise.prototype
+    );
+  }
+}
+let v = inheritedFromPromise();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get race() {
+      seen = this;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return race(42) === 1 && seen === obj;
+  }
+}
+let w = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get race() {
+      seen = this;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return race(42) === 1 && seen === obj;
+  }
+}
+let aa = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    race: function (v) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return race(v);
+    };
+  }
+  obj.race = function (v) {
+    return 2;
+  };
+  return run(42) === 2;
+}
+let ab = liveClose();
+
+function liveClosePromiseIdent() {
+  let obj = {
+    Promise: {
+      race: function (v) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return Promise.race(v);
+    };
+  }
+  obj.Promise = Promise;
+  return typeof run([]).then === "function";
+}
+let ac = liveClosePromiseIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702102_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ad = unresolvableCalleeThrows();
+
+function unresolvablePromiseThrows() {
+  with ({}) {
+    try {
+      e1702102_noglob.race;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702102_noglob === "undefined"
+      );
+    }
+  }
+}
+let ae = unresolvablePromiseThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    race: function (v) {
+      return 5;
+    }
+  };
+  with (Promise) {
+    with (inner) {
+      return race(42) === 5;
+    }
+  }
+}
+let af = nestedInnerWins();
+
+function nestedInnerMissOuterPromise() {
+  with ({
+    race: function (v) {
+      return 5;
+    }
+  }) {
+    with (Promise) {
+      return typeof race === "function" && race === Promise.race;
+    }
+  }
+}
+let ag = nestedInnerMissOuterPromise();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    race: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return race(42) === 6;
+    }
+  }
+}
+let ah = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function race(v) {
+    return 11;
+  }
+  let inner = {
+    race: function (v) {
+      return 0;
+    }
+  };
+  inner[Symbol.unscopables] = { race: true };
+  let outer = {
+    race: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return race(42) === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { race: 1 };
+  with (obj) {
+    try {
+      race(42);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofRaceMethod() {
+  let t;
+  with (Promise) {
+    t = typeof race;
+  }
+  return t === "function";
+}
+let al = typeofRaceMethod();
+
+function memberStillPromise() {
+  let obj = { x: 1 };
+  with (obj) {
+    return typeof Promise.race === "function";
+  }
+}
+let am = memberStillPromise();
+
+function argsHitObject() {
+  let obj = {
+    race: function (v) {
+      return v === 9;
+    },
+    k: 9
+  };
+  with (obj) {
+    return race(k) === true;
+  }
+}
+let an = argsHitObject();
+
+function argsMissIsOuter() {
+  function race(v) {
+    return v === 9;
+  }
+  let k = 9;
+  with ({}) {
+    return race(k) === true;
+  }
+}
+let ap = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get race() {
+      ran = true;
+      return function (v) {
+        return v;
+      };
+    }
+  };
+  with (obj) {
+    try {
+      race(e1702102_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let aq = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702102_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ar = unresolvableCalleeSkipsArg();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get race() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    race(42);
+  }
+  return cnt === 1;
+}
+let at = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalPromise() {
+  let obj = {};
+  with (obj) {
+    return typeof Promise.race === "function";
+  }
+}
+let au = emptyMissUsesGlobalPromise();
+
+function raceTypeofHit() {
+  let obj = { race: 1 };
+  let t;
+  with (obj) {
+    t = typeof race;
+  }
+  return t === "number";
+}
+let av = raceTypeofHit();
+
+function promiseTypeofHit() {
+  let obj = { Promise: 1 };
+  let t;
+  with (obj) {
+    t = typeof Promise;
+  }
+  return t === "number";
+}
+let aw = promiseTypeofHit();
+
+function liveCloseRace() {
+  let obj = { race: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return race;
+    };
+  }
+  obj.race = function (v) {
+    return 2;
+  };
+  return typeof run() === "function";
+}
+let ax = liveCloseRace();
+
+function unscopablesRace() {
+  let obj = { race: 1 };
+  obj[Symbol.unscopables] = { race: true };
+  with (obj) {
+    return typeof race === "undefined";
+  }
+}
+let ay = unscopablesRace();
+
+function nestedRaceInnerWins() {
+  with ({ race: 1 }) {
+    with ({ race: 2 }) {
+      return race === 2;
+    }
+  }
+}
+let az = nestedRaceInnerWins();
+
+function nestedPromiseInnerWins() {
+  with ({ Promise: 1 }) {
+    with ({ Promise: 2 }) {
+      return Promise === 2;
+    }
+  }
+}
+let ba = nestedPromiseInnerWins();
+
+function getterRunsOnceRace() {
+  let cnt = 0;
+  let obj = {
+    get race() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  let out;
+  with (obj) {
+    out = race(42);
+  }
+  return out === 1 && cnt === 1;
+}
+let bb = getterRunsOnceRace();
+
+function identityRace() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return Promise.race === globalThis.Promise.race;
+  }
+}
+let bc = identityRace();
+
+function withPromiseRaceReturnsPromise() {
+  with (Promise) {
+    let pr = race([]);
+    return pr !== Promise && pr instanceof Promise && typeof pr.then === "function";
+  }
+}
+let bd = withPromiseRaceReturnsPromise();
+
+function withPromiseRaceLength() {
+  with (Promise) {
+    return race.length === 1;
+  }
+}
+let be = withPromiseRaceLength();
+
+function memberRaceOnObject() {
+  let obj = {
+    race: function (v) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj.race(1) === 7;
+  }
+}
+let bf = memberRaceOnObject();
+
+function bracketRaceOnObject() {
+  let obj = {
+    race: function (v) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj["race"](1) === 7;
+  }
+}
+let bg = bracketRaceOnObject();
+
+function memberRaceThisIsInstance() {
+  let obj = {
+    race: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return obj.race(1) === 3;
+  }
+}
+let bh = memberRaceThisIsInstance();
+
+function bracketRaceThisIsInstance() {
+  let obj = {
+    race: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return obj["race"](1) === 3;
+  }
+}
+let bi = bracketRaceThisIsInstance();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    race: function (v, x) {
+      return x === 0;
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = 0;
+  with (obj) {
+    return race(1, x) === true && obj.x === 9;
+  }
+}
+let bj = unscopablesSecondIdent();
+
+function withPromiseNameLengthPrototypeTogether() {
+  with (Promise) {
+    return name === "Promise" && length === 1 && prototype === Promise.prototype;
+  }
+}
+let bk = withPromiseNameLengthPrototypeTogether();
+
+function emptyMissPrototypeRace() {
+  with ({}) {
+    return typeof Promise.race === "function";
+  }
+}
+let bl = emptyMissPrototypeRace();
+
+function memberRaceMissingIsUndefined() {
+  let obj = { p: {} };
+  with (obj) {
+    return p.race === undefined;
+  }
+}
+let bm = memberRaceMissingIsUndefined();
+
+function bracketRaceMissingIsUndefined() {
+  let obj = { p: {} };
+  with (obj) {
+    return p["race"] === undefined;
+  }
+}
+let bn = bracketRaceMissingIsUndefined();
+
+function getterRaceThisViaMember() {
+  let seen = null;
+  let obj = {
+    get race() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return obj["race"]() === 1 && seen === obj;
+  }
+}
+let bp = getterRaceThisViaMember();
+
+function inheritedBracketRace() {
+  let proto = {
+    race: function () {
+      return 4;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return obj["race"]() === 4;
+  }
+}
+let bq = inheritedBracketRace();
+
+function liveCloseRaceMember() {
+  let obj = {
+    race: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return obj.race();
+    };
+  }
+  obj.race = function () {
+    return 2;
+  };
+  return run() === 2;
+}
+let br = liveCloseRaceMember();
+
+function nestedRaceMemberInnerWins() {
+  let outer = {
+    p: { race: function () { return 1; } }
+  };
+  let inner = {
+    p: { race: function () { return 2; } }
+  };
+  with (outer) {
+    with (inner) {
+      return p.race() === 2;
+    }
+  }
+}
+let bs = nestedRaceMemberInnerWins();
+
+function unscopablesPUsesOuterRace() {
+  let outer = {
+    p: { race: function () { return 6; } }
+  };
+  let inner = {
+    p: { race: function () { return 0; } }
+  };
+  inner[Symbol.unscopables] = { p: true };
+  with (outer) {
+    with (inner) {
+      return p.race() === 6;
+    }
+  }
+}
+let bt = unscopablesPUsesOuterRace();
+
+function withPromiseRaceName() {
+  with (Promise) {
+    return race.name === "race";
+  }
+}
+let bu = withPromiseRaceName();
+
+let bv = false;
+let bw = false;
+let bx = false;
+let by = false;
+let bz = false;
+let ca = false;
+let cb = false;
+let cc = false;
+let cd = false;
+let ce = false;
+
+function twoResolvedThroughObj() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.race([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+      bv = v === 10;
+    });
+  }
+}
+
+function mixedThroughObj() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.race([1, Promise.resolve(2)]).then(function (v) {
+      bw = v === 1;
+    });
+  }
+}
+
+function rejectThroughObj() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.race([Promise.reject(7), Promise.resolve(1)]).then(
+      function () {
+        bx = false;
+      },
+      function (e) {
+        bx = e === 7;
+      }
+    );
+  }
+}
+
+function twoResolvedThroughIdent() {
+  with (Promise) {
+    race([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+      by = v === 10;
+    });
+  }
+}
+
+function mixedThroughIdent() {
+  with (Promise) {
+    race([1, Promise.resolve(2)]).then(function (v) {
+      bz = v === 1;
+    });
+  }
+}
+
+function rejectThroughIdent() {
+  with (Promise) {
+    race([Promise.reject(11), Promise.resolve(1)]).then(
+      function () {
+        ca = false;
+      },
+      function (e) {
+        ca = e === 11;
+      }
+    );
+  }
+}
+
+function firstFulfillIgnoresLaterReject() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.race([Promise.resolve(5), Promise.reject(1)]).then(function (v) {
+      cb = v === 5;
+    });
+  }
+}
+
+function typeofAndInstance() {
+  let obj = { Promise: Promise };
+  let pr;
+  with (obj) {
+    pr = Promise.race([1]);
+  }
+  cc = typeof pr === "object" && pr instanceof Promise;
+}
+
+function firstRejectIgnoresLaterFulfill() {
+  with (Promise) {
+    race([Promise.reject(9), Promise.resolve(2)]).then(
+      function () {
+        cd = false;
+      },
+      function (e) {
+        cd = e === 9;
+      }
+    );
+  }
+}
+
+function liveCloseRaceAfterSettle() {
+  let obj = {
+    race: function (v) {
+      return v;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return race(v);
+    };
+  }
+  obj.race = function (v) {
+    return Promise.race(v);
+  };
+  run([Promise.resolve(9), Promise.resolve(1)]).then(function (x) {
+    ce = x === 9;
+  });
+}
+
+twoResolvedThroughObj();
+mixedThroughObj();
+rejectThroughObj();
+twoResolvedThroughIdent();
+mixedThroughIdent();
+rejectThroughIdent();
+firstFulfillIgnoresLaterReject();
+typeofAndInstance();
+firstRejectIgnoresLaterFulfill();
+liveCloseRaceAfterSettle();
