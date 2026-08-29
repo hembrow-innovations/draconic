@@ -798,3 +798,13 @@ fn with_template_lit_fixture_present() {
 fn with_template_lit_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_template_lit");
 }
+
+#[test]
+fn with_unicode_escapes_fixture_present() {
+    assert_fixture_present("es/legacy/with_unicode_escapes");
+}
+
+#[test]
+fn with_unicode_escapes_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_unicode_escapes");
+}
