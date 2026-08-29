@@ -1,0 +1,246 @@
+// E17.02.58: with + logical && || ?? through object environment (non-strict).
+// LHS/RHS idents hit object (else outer); short-circuit skips GetValue of RHS;
+// ?? only on null/undefined; inherited HasBinding; accessor this is the with
+// object; unresolvable LHS → ReferenceError; unresolvable RHS only if
+// evaluated; live close; nested with; unscopables skip.
+
+function andHitsObject() {
+  let obj = { x: 1, y: 2 };
+  with (obj) {
+    return (x && y) === 2;
+  }
+}
+let a = andHitsObject();
+
+function orHitsObject() {
+  let obj = { x: 0, y: 3 };
+  with (obj) {
+    return (x || y) === 3;
+  }
+}
+let b = orHitsObject();
+
+function nullishHitsObject() {
+  let obj = { x: null, y: 4 };
+  with (obj) {
+    return (x ?? y) === 4;
+  }
+}
+let c = nullishHitsObject();
+
+function missIsOuter() {
+  let x = 0;
+  let y = 9;
+  with ({}) {
+    return (x || y) === 9;
+  }
+}
+let d = missIsOuter();
+
+function objectShadowsOuter() {
+  let x = 0;
+  let y = 9;
+  let obj = { x: 1, y: 2 };
+  with (obj) {
+    return (x && y) === 2;
+  }
+}
+let e = objectShadowsOuter();
+
+function andFalsySkipsRhs() {
+  let n = 0;
+  let obj = {
+    x: 0,
+    get y() {
+      n = n + 1;
+      return 9;
+    }
+  };
+  with (obj) {
+    return (x && y) === 0 && n === 0;
+  }
+}
+let f = andFalsySkipsRhs();
+
+function andTruthyEvalRhs() {
+  let n = 0;
+  let obj = {
+    x: 1,
+    get y() {
+      n = n + 1;
+      return 8;
+    }
+  };
+  with (obj) {
+    return (x && y) === 8 && n === 1;
+  }
+}
+let g = andTruthyEvalRhs();
+
+function orTruthySkipsRhs() {
+  let n = 0;
+  let obj = {
+    x: 5,
+    get y() {
+      n = n + 1;
+      return 9;
+    }
+  };
+  with (obj) {
+    return (x || y) === 5 && n === 0;
+  }
+}
+let h = orTruthySkipsRhs();
+
+function orFalsyEvalRhs() {
+  let n = 0;
+  let obj = {
+    x: 0,
+    get y() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (obj) {
+    return (x || y) === 7 && n === 1;
+  }
+}
+let i = orFalsyEvalRhs();
+
+function nullishZeroIsNotNullish() {
+  let n = 0;
+  let obj = {
+    x: 0,
+    get y() {
+      n = n + 1;
+      return 9;
+    }
+  };
+  with (obj) {
+    return (x ?? y) === 0 && n === 0;
+  }
+}
+let j = nullishZeroIsNotNullish();
+
+function unscopablesUsesOuter() {
+  let x = 0;
+  let y = 9;
+  let obj = { x: 1, y: 2 };
+  obj[Symbol.unscopables] = { x: true, y: true };
+  with (obj) {
+    return (x || y) === 9;
+  }
+}
+let k = unscopablesUsesOuter();
+
+function nullishUndefEvalRhs() {
+  let n = 0;
+  let obj = {
+    x: undefined,
+    get y() {
+      n = n + 1;
+      return 6;
+    }
+  };
+  with (obj) {
+    return (x ?? y) === 6 && n === 1;
+  }
+}
+let l = nullishUndefEvalRhs();
+
+function inheritedData() {
+  let proto = { x: 0, y: 4 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x || y) === 4;
+  }
+}
+let m = inheritedData();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    x: 1,
+    get y() {
+      seen = this;
+      return 3;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x && y) === 3 && seen === obj;
+  }
+}
+let p = inheritedGetterThis();
+
+function liveClose() {
+  let obj = { x: 1, y: 2 };
+  let run;
+  with (obj) {
+    run = function () {
+      return x && y;
+    };
+  }
+  obj.y = 8;
+  return run() === 8;
+}
+let q = liveClose();
+
+function unresolvableLhsThrows() {
+  with ({}) {
+    try {
+      e170258_missing && 1;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let r = unresolvableLhsThrows();
+
+function unresolvableRhsThrowsWhenEvaled() {
+  let obj = { x: 1 };
+  with (obj) {
+    try {
+      x && e170258_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let s = unresolvableRhsThrowsWhenEvaled();
+
+function unresolvableRhsSkipped() {
+  let obj = { x: 0 };
+  with (obj) {
+    return (x && e170258_missing_skip) === 0;
+  }
+}
+let t = unresolvableRhsSkipped();
+
+function nestedInnerWins() {
+  let inner = { x: 1, y: 2 };
+  let outer = { x: 0, y: 9 };
+  with (outer) {
+    with (inner) {
+      return (x && y) === 2;
+    }
+  }
+}
+let u = nestedInnerWins();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    x: 1,
+    get y() {
+      seen = this;
+      return 4;
+    }
+  };
+  with (obj) {
+    return (x && y) === 4 && seen === obj;
+  }
+}
+let v = accessorThisIsWithObject();
