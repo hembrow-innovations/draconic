@@ -1188,3 +1188,13 @@ fn with_proxy_extensible_fixture_present() {
 fn with_proxy_extensible_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_proxy_extensible");
 }
+
+#[test]
+fn with_escape_unescape_fixture_present() {
+    assert_fixture_present("es/legacy/with_escape_unescape");
+}
+
+#[test]
+fn with_escape_unescape_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_escape_unescape");
+}

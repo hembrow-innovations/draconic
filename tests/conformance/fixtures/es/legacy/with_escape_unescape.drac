@@ -1,0 +1,820 @@
+// E17.02.115: with + global escape / unescape (Annex B.2.1: typeof,
+// globalThis identity, basic call behavior) through object environment
+// (non-strict). Function idents hit object (else outer); with (escape) /
+// with (unescape) name / length idents hit those functions; inherited
+// HasBinding; accessor this is with object; unresolvable → ReferenceError;
+// live close; nested with; unscopables skip.
+
+function withEscapeTypeof() {
+  let obj = { escape: escape };
+  with (obj) {
+    return typeof escape === "function";
+  }
+}
+let a = withEscapeTypeof();
+
+function withUnescapeTypeof() {
+  let obj = { unescape: unescape };
+  with (obj) {
+    return typeof unescape === "function";
+  }
+}
+let b = withUnescapeTypeof();
+
+function withEscapeMiss() {
+  with ({}) {
+    return typeof escape === "function";
+  }
+}
+let c = withEscapeMiss();
+
+function withEscapeIdentity() {
+  let obj = { escape: escape };
+  with (obj) {
+    return escape === globalThis.escape;
+  }
+}
+let d = withEscapeIdentity();
+
+function withUnescapeIdentity() {
+  let obj = { unescape: unescape };
+  with (obj) {
+    return unescape === globalThis.unescape;
+  }
+}
+let e = withUnescapeIdentity();
+
+function withEscapeCall() {
+  let obj = { escape: escape };
+  with (obj) {
+    return escape("a b") === "a%20b";
+  }
+}
+let f = withEscapeCall();
+
+function withUnescapeCall() {
+  let obj = { unescape: unescape };
+  with (obj) {
+    return unescape("%20") === " ";
+  }
+}
+let g = withUnescapeCall();
+
+function withEscapeCafe() {
+  let obj = { escape: escape };
+  with (obj) {
+    return escape("café") === "caf%E9";
+  }
+}
+let h = withEscapeCafe();
+
+function withRoundtrip() {
+  let obj = { escape: escape, unescape: unescape };
+  with (obj) {
+    return unescape(escape("hello world")) === "hello world";
+  }
+}
+let j = withRoundtrip();
+
+function withEscapeEmpty() {
+  let obj = { escape: escape };
+  with (obj) {
+    return escape("") === "";
+  }
+}
+let k = withEscapeEmpty();
+
+function withUnescapeEmpty() {
+  let obj = { unescape: unescape };
+  with (obj) {
+    return unescape("") === "";
+  }
+}
+let l = withUnescapeEmpty();
+
+function withEscapeName() {
+  with (escape) {
+    return name === "escape";
+  }
+}
+let m = withEscapeName();
+
+function withUnescapeName() {
+  with (unescape) {
+    return name === "unescape";
+  }
+}
+let n = withUnescapeName();
+
+function withEscapeLength() {
+  with (escape) {
+    return length === 1;
+  }
+}
+let p = withEscapeLength();
+
+function withUnescapeLength() {
+  with (unescape) {
+    return length === 1;
+  }
+}
+let q = withUnescapeLength();
+
+function withEscapeBracketName() {
+  let obj = { escape: escape };
+  with (obj) {
+    return escape["name"] === "escape";
+  }
+}
+let r = withEscapeBracketName();
+
+function withUnescapeBracketName() {
+  let obj = { unescape: unescape };
+  with (obj) {
+    return unescape["name"] === "unescape";
+  }
+}
+let s = withUnescapeBracketName();
+
+function escapeIdentHitsObject() {
+  let obj = {
+    escape: function (x) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return escape("a b") === "hit";
+  }
+}
+let t = escapeIdentHitsObject();
+
+function escapeIdentMissIsOuter() {
+  with ({}) {
+    return escape("a b") === "a%20b";
+  }
+}
+let u = escapeIdentMissIsOuter();
+
+function escapeIdentShadowsOuter() {
+  function escape(x) {
+    return 8;
+  }
+  let obj = {
+    escape: function (x) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return escape("x") === 9;
+  }
+}
+let v = escapeIdentShadowsOuter();
+
+function unescapeIdentHitsObject() {
+  let obj = {
+    unescape: function (x) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return unescape("%20") === 7;
+  }
+}
+let w = unescapeIdentHitsObject();
+
+function unescapeIdentMissIsOuter() {
+  with ({}) {
+    return unescape("%20") === " ";
+  }
+}
+let aa = unescapeIdentMissIsOuter();
+
+function nameIdentHitsObject() {
+  let obj = { name: "own" };
+  with (obj) {
+    return name === "own";
+  }
+}
+let ab = nameIdentHitsObject();
+
+function nameIdentMissIsOuter() {
+  function name() {
+    return 8;
+  }
+  with ({}) {
+    return name() === 8;
+  }
+}
+let ac = nameIdentMissIsOuter();
+
+function escapeShadowsOuterName() {
+  function name() {
+    return 8;
+  }
+  with (escape) {
+    return name === "escape";
+  }
+}
+let ad = escapeShadowsOuterName();
+
+function callThisIsWithObject() {
+  let obj = {
+    escape: function (x) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return escape("x") === 3;
+  }
+}
+let ae = callThisIsWithObject();
+
+function withEscapeCallThisIsEscape() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(escape, "name");
+  Object.defineProperty(escape, "name", {
+    get: function () {
+      seen = this;
+      return "escape";
+    },
+    configurable: true
+  });
+  let ok;
+  with (escape) {
+    ok = name === "escape" && seen === escape;
+  }
+  Object.defineProperty(escape, "name", orig);
+  return ok;
+}
+let af = withEscapeCallThisIsEscape();
+
+function withUnescapeCallThisIsUnescape() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(unescape, "name");
+  Object.defineProperty(unescape, "name", {
+    get: function () {
+      seen = this;
+      return "unescape";
+    },
+    configurable: true
+  });
+  let ok;
+  with (unescape) {
+    ok = name === "unescape" && seen === unescape;
+  }
+  Object.defineProperty(unescape, "name", orig);
+  return ok;
+}
+let ag = withUnescapeCallThisIsUnescape();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get escape() {
+      n = n + 1;
+      return escape;
+    },
+    get x() {
+      n = n + 1;
+      return "a b";
+    }
+  };
+  with (obj) {
+    return escape(x) === "a%20b" && n === 2;
+  }
+}
+let ah = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function escape(x) {
+    return 11;
+  }
+  let obj = { escape: globalThis.escape };
+  obj[Symbol.unscopables] = { escape: true };
+  with (obj) {
+    return escape("a b") === 11;
+  }
+}
+let aj = unscopablesUsesOuter();
+
+function unscopablesEscapeIdent() {
+  let obj = {
+    escape: function (x) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { escape: true };
+  with (obj) {
+    return escape("a b") === "a%20b";
+  }
+}
+let ak = unscopablesEscapeIdent();
+
+function inheritedData() {
+  let proto = { escape: escape, name: "fromProto" };
+  let obj = Object.create(proto);
+  with (obj) {
+    return escape("a b") === "a%20b" && name === "fromProto";
+  }
+}
+let al = inheritedData();
+
+function inheritedFromEscape() {
+  let obj = Object.create(escape);
+  with (obj) {
+    return name === "escape" && length === 1;
+  }
+}
+let am = inheritedFromEscape();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get escape() {
+      seen = this;
+      return function (x) {
+        return 1;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return escape("x") === 1 && seen === obj;
+  }
+}
+let an = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get escape() {
+      seen = this;
+      return function (x) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return escape("x") === 1 && seen === obj;
+  }
+}
+let ap = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    escape: function (x) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return escape(x);
+    };
+  }
+  obj.escape = escape;
+  return run("a b") === "a%20b";
+}
+let aq = liveClose();
+
+function liveCloseEscapeIdent() {
+  let obj = {
+    escape: {
+      name: "Live"
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return escape.name;
+    };
+  }
+  obj.escape = escape;
+  return run() === "escape";
+}
+let ar = liveCloseEscapeIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702115_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let at = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702115_noglob.name;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702115_noglob === "undefined"
+      );
+    }
+  }
+}
+let au = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    escape: function (x) {
+      return 5;
+    }
+  };
+  with ({ escape: escape }) {
+    with (inner) {
+      return escape("x") === 5;
+    }
+  }
+}
+let av = nestedInnerWins();
+
+function nestedInnerMissOuterEscape() {
+  with ({
+    escape: function (x) {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return escape("x") === 5;
+    }
+  }
+}
+let aw = nestedInnerMissOuterEscape();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { escape: escape };
+  with (outer) {
+    with (inner) {
+      return escape("a b") === "a%20b";
+    }
+  }
+}
+let ax = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function escape(x) {
+    return 11;
+  }
+  let inner = { escape: globalThis.escape };
+  inner[Symbol.unscopables] = { escape: true };
+  let outer = {
+    escape: function (x) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return escape("x") === 6;
+    }
+  }
+}
+let ay = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { escape: 1 };
+  with (obj) {
+    try {
+      escape("x");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let az = nonCallableTypeError();
+
+function typeofEscapeThroughWith() {
+  let t;
+  let obj = { escape: escape };
+  with (obj) {
+    t = typeof escape;
+  }
+  return t === "function";
+}
+let ba = typeofEscapeThroughWith();
+
+function typeofNameThroughWith() {
+  let t;
+  with (escape) {
+    t = typeof name;
+  }
+  return t === "string";
+}
+let bb = typeofNameThroughWith();
+
+function memberEscapeStillGlobal() {
+  let obj = { x: 1 };
+  with (obj) {
+    return escape("a b") === "a%20b";
+  }
+}
+let bc = memberEscapeStillGlobal();
+
+function argsHitObject() {
+  let obj = {
+    x: "a b",
+    escape: escape
+  };
+  with (obj) {
+    return escape(x) === "a%20b";
+  }
+}
+let bd = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = "a b";
+  let obj = { escape: escape };
+  with (obj) {
+    return escape(x) === "a%20b";
+  }
+}
+let be = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get escape() {
+      ran = true;
+      return escape;
+    }
+  };
+  with (obj) {
+    try {
+      escape(e1702115_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bf = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return "a b";
+    }
+  };
+  with (obj) {
+    try {
+      e1702115_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bg = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let obj = {
+    escape: function (x) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return escape(x);
+    };
+  }
+  obj.escape = function (x) {
+    return 2;
+  };
+  return run("x") === 2;
+}
+let bh = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get escape() {
+      c = c + 1;
+      return escape;
+    }
+  };
+  let out;
+  with (obj) {
+    out = escape("a b");
+  }
+  return out === "a%20b" && c === 1;
+}
+let bi = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalEscape() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = escape("a b");
+  }
+  return out === "a%20b";
+}
+let bj = emptyMissUsesGlobalEscape();
+
+function bracketNameOnEscape() {
+  let obj = { escape: escape };
+  with (obj) {
+    return obj["escape"].name === "escape";
+  }
+}
+let bk = bracketNameOnEscape();
+
+function unscopablesSecondIdent() {
+  let x = "a b";
+  let obj = { escape: escape, x: "skip" };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = escape(x);
+  }
+  return out === "a%20b";
+}
+let bl = unscopablesSecondIdent();
+
+function escapeTypeofHit() {
+  let obj = { escape: 1 };
+  let t;
+  with (obj) {
+    t = typeof escape;
+  }
+  return t === "number";
+}
+let bm = escapeTypeofHit();
+
+function unescapeTypeofHit() {
+  let obj = { unescape: "n" };
+  let t;
+  with (obj) {
+    t = typeof unescape;
+  }
+  return t === "string";
+}
+let bn = unescapeTypeofHit();
+
+function liveCloseUnescape() {
+  let obj = { unescape: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return unescape;
+    };
+  }
+  obj.unescape = unescape;
+  return run() === unescape;
+}
+let bp = liveCloseUnescape();
+
+function unscopablesUnescape() {
+  let obj = { unescape: 1 };
+  obj[Symbol.unscopables] = { unescape: true };
+  with (obj) {
+    return typeof unescape === "function";
+  }
+}
+let bq = unscopablesUnescape();
+
+function nestedEscapeInnerWins() {
+  with ({ escape: 1 }) {
+    with ({ escape: 2 }) {
+      return escape === 2;
+    }
+  }
+}
+let br = nestedEscapeInnerWins();
+
+function nestedNameInnerWins() {
+  with (escape) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let bs = nestedNameInnerWins();
+
+function nestedNameMissOuterEscape() {
+  with (escape) {
+    with ({}) {
+      return name === "escape";
+    }
+  }
+}
+let bt = nestedNameMissOuterEscape();
+
+function liveCloseName() {
+  let obj = { name: "A" };
+  let run;
+  with (obj) {
+    run = function () {
+      return name;
+    };
+  }
+  obj.name = "B";
+  return run() === "B";
+}
+let bu = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (escape) {
+    let obj = { name: "skip" };
+    obj[Symbol.unscopables] = { name: true };
+    with (obj) {
+      return name === "escape";
+    }
+  }
+}
+let bv = unscopablesNameUsesOuter();
+
+function emptyMissUsesGlobalUnescape() {
+  with ({}) {
+    return unescape("%20") === " ";
+  }
+}
+let bw = emptyMissUsesGlobalUnescape();
+
+function withUnescapeNameViaInherited() {
+  let obj = Object.create(unescape);
+  with (obj) {
+    return name === "unescape" && length === 1;
+  }
+}
+let bx = withUnescapeNameViaInherited();
+
+function getterRunsOnceUnescape() {
+  let c = 0;
+  let obj = {
+    get unescape() {
+      c = c + 1;
+      return unescape;
+    }
+  };
+  let out;
+  with (obj) {
+    out = unescape("%20");
+  }
+  return out === " " && c === 1;
+}
+let by = getterRunsOnceUnescape();
+
+function unescapeArgHitObject() {
+  let obj = { s: "%20", unescape: unescape };
+  with (obj) {
+    return unescape(s) === " ";
+  }
+}
+let bz = unescapeArgHitObject();
+
+function withEscapeUnescapeTogether() {
+  let obj = { escape: escape, unescape: unescape };
+  with (obj) {
+    return unescape(escape("hello world")) === "hello world";
+  }
+}
+let ca = withEscapeUnescapeTogether();
+
+function identityEscape() {
+  let obj = { escape: escape };
+  with (obj) {
+    return escape === globalThis.escape;
+  }
+}
+let cb = identityEscape();
+
+function identityUnescape() {
+  let obj = { unescape: unescape };
+  with (obj) {
+    return unescape === globalThis.unescape;
+  }
+}
+let cc = identityUnescape();
+
+function withEscapeNameLengthTogether() {
+  with (escape) {
+    return name === "escape" && length === 1;
+  }
+}
+let cd = withEscapeNameLengthTogether();
+
+function withUnescapeNameLengthTogether() {
+  with (unescape) {
+    return name === "unescape" && length === 1;
+  }
+}
+let ce = withUnescapeNameLengthTogether();
+
+function cafeRoundtripThroughWith() {
+  let obj = { escape: escape, unescape: unescape };
+  with (obj) {
+    return unescape(escape("café")) === "café";
+  }
+}
+let cf = cafeRoundtripThroughWith();
