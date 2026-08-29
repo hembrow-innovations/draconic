@@ -818,3 +818,13 @@ fn with_utf16_semantics_fixture_present() {
 fn with_utf16_semantics_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_utf16_semantics");
 }
+
+#[test]
+fn with_number_literals_fixture_present() {
+    assert_fixture_present("es/legacy/with_number_literals");
+}
+
+#[test]
+fn with_number_literals_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_number_literals");
+}
