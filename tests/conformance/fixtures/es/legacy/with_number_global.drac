@@ -1,0 +1,677 @@
+// E17.02.83: with + global NaN / Infinity + Number constants
+// (NaN, POSITIVE_INFINITY, NEGATIVE_INFINITY, MAX_VALUE, MIN_VALUE,
+// EPSILON, MAX_SAFE_INTEGER, MIN_SAFE_INTEGER) + static methods
+// (isNaN, isFinite, isInteger, isSafeInteger) via . / [] and calls
+// through object environment (non-strict). Number ident hits object
+// (else outer); with (Number) method/constant idents hit Number;
+// NaN/Infinity idents hit object (else outer); inherited HasBinding;
+// accessor this is with object; unresolvable → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function withNumberIsNaN() {
+  with (Number) {
+    return isNaN(NaN) === true && isNaN(1) === false;
+  }
+}
+let a = withNumberIsNaN();
+
+function withNumberIsFinite() {
+  with (Number) {
+    return isFinite(1) === true && isFinite(Infinity) === false;
+  }
+}
+let b = withNumberIsFinite();
+
+function withNumberIsInteger() {
+  with (Number) {
+    return isInteger(3) === true && isInteger(3.5) === false;
+  }
+}
+let c = withNumberIsInteger();
+
+function withNumberIsSafeInteger() {
+  with (Number) {
+    return (
+      isSafeInteger(9007199254740991) === true &&
+      isSafeInteger(9007199254740992) === false
+    );
+  }
+}
+let d = withNumberIsSafeInteger();
+
+function withNumberPosInf() {
+  with (Number) {
+    return POSITIVE_INFINITY === Infinity;
+  }
+}
+let e = withNumberPosInf();
+
+function withNumberNegInf() {
+  with (Number) {
+    return NEGATIVE_INFINITY === -Infinity;
+  }
+}
+let f = withNumberNegInf();
+
+function withNumberMaxValue() {
+  with (Number) {
+    return MAX_VALUE > 0;
+  }
+}
+let g = withNumberMaxValue();
+
+function withNumberMinValue() {
+  with (Number) {
+    return MIN_VALUE > 0 && MIN_VALUE < 1;
+  }
+}
+let h = withNumberMinValue();
+
+function withNumberEpsilon() {
+  with (Number) {
+    return EPSILON > 0 && EPSILON < 1;
+  }
+}
+let j = withNumberEpsilon();
+
+function withNumberMaxSafe() {
+  with (Number) {
+    return MAX_SAFE_INTEGER === 9007199254740991;
+  }
+}
+let k = withNumberMaxSafe();
+
+function withNumberMinSafe() {
+  with (Number) {
+    return MIN_SAFE_INTEGER === -9007199254740991;
+  }
+}
+let l = withNumberMinSafe();
+
+function withNumberNaNConst() {
+  with (Number) {
+    return NaN !== NaN;
+  }
+}
+let m = withNumberNaNConst();
+
+function withNumberNoCoerce() {
+  with (Number) {
+    return isNaN("foo") === false && isFinite("1") === false;
+  }
+}
+let n = withNumberNoCoerce();
+
+function emptyMissUsesGlobalCoerce() {
+  with ({}) {
+    return isNaN("foo") === true && isFinite("1") === true;
+  }
+}
+let p = emptyMissUsesGlobalCoerce();
+
+function withNumberBracketIsNaN() {
+  let obj = { Number: Number };
+  with (obj) {
+    return Number["isNaN"](NaN) === true;
+  }
+}
+let q = withNumberBracketIsNaN();
+
+function withNumberBracketMaxSafe() {
+  let obj = { Number: Number };
+  with (obj) {
+    return Number["MAX_SAFE_INTEGER"] === Number.MAX_SAFE_INTEGER;
+  }
+}
+let r = withNumberBracketMaxSafe();
+
+function numberIdentHitsObject() {
+  let obj = {
+    Number: {
+      isNaN: function (x) {
+        return 42;
+      }
+    }
+  };
+  with (obj) {
+    return Number.isNaN(NaN) === 42;
+  }
+}
+let s = numberIdentHitsObject();
+
+function numberIdentMissIsOuter() {
+  with ({}) {
+    return Number.isNaN(NaN) === true;
+  }
+}
+let t = numberIdentMissIsOuter();
+
+function numberIdentShadowsOuter() {
+  let obj = {
+    Number: {
+      MAX_SAFE_INTEGER: 1,
+      isNaN: function (x) {
+        return 0;
+      }
+    }
+  };
+  with (obj) {
+    return Number.MAX_SAFE_INTEGER === 1 && Number.isNaN(NaN) === 0;
+  }
+}
+let u = numberIdentShadowsOuter();
+
+function methodIdentHitsObject() {
+  let obj = {
+    isNaN: function (x) {
+      return 7;
+    },
+    MAX_SAFE_INTEGER: 1
+  };
+  with (obj) {
+    return isNaN(NaN) === 7 && MAX_SAFE_INTEGER === 1;
+  }
+}
+let v = methodIdentHitsObject();
+
+function methodIdentMissIsOuter() {
+  function isNaN(x) {
+    return 8;
+  }
+  with ({}) {
+    return isNaN(1) === 8;
+  }
+}
+let w = methodIdentMissIsOuter();
+
+function objectShadowsOuterIsNaN() {
+  function isNaN(x) {
+    return 8;
+  }
+  let obj = {
+    isNaN: function (x) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return isNaN(1) === 9;
+  }
+}
+let aa = objectShadowsOuterIsNaN();
+
+function callThisIsWithObject() {
+  let obj = {
+    isNaN: function (x) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return isNaN(1) === 3;
+  }
+}
+let ab = callThisIsWithObject();
+
+function withNumberCallThisIsNumber() {
+  let seen = null;
+  let orig = Number.isNaN;
+  Number.isNaN = function (x) {
+    seen = this;
+    return orig.call(this, x);
+  };
+  let ok;
+  with (Number) {
+    ok = isNaN(NaN) === true && seen === Number;
+  }
+  Number.isNaN = orig;
+  return ok;
+}
+let ac = withNumberCallThisIsNumber();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get isNaN() {
+      n = n + 1;
+      return function (x) {
+        return x !== x;
+      };
+    },
+    get x() {
+      n = n + 1;
+      return NaN;
+    }
+  };
+  with (obj) {
+    return isNaN(x) === true && n === 2;
+  }
+}
+let ad = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function isNaN(x) {
+    return 11;
+  }
+  let obj = { isNaN: Number.isNaN };
+  obj[Symbol.unscopables] = { isNaN: true };
+  with (obj) {
+    return isNaN(1) === 11;
+  }
+}
+let ae = unscopablesUsesOuter();
+
+function unscopablesNumberIdent() {
+  let obj = {
+    Number: {
+      isNaN: function (x) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Number: true };
+  with (obj) {
+    return Number.isNaN(NaN) === true;
+  }
+}
+let af = unscopablesNumberIdent();
+
+function inheritedData() {
+  let proto = { isNaN: Number.isNaN, MAX_SAFE_INTEGER: Number.MAX_SAFE_INTEGER };
+  let obj = Object.create(proto);
+  with (obj) {
+    return isNaN(NaN) === true && MAX_SAFE_INTEGER === 9007199254740991;
+  }
+}
+let ag = inheritedData();
+
+function inheritedFromNumber() {
+  let obj = Object.create(Number);
+  with (obj) {
+    return isNaN(NaN) === true && isInteger(3) === true;
+  }
+}
+let ah = inheritedFromNumber();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get isNaN() {
+      seen = this;
+      return function (x) {
+        return x !== x;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return isNaN(NaN) === true && seen === obj;
+  }
+}
+let ai = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get isNaN() {
+      seen = this;
+      return function (x) {
+        return x !== x;
+      };
+    }
+  };
+  with (obj) {
+    return isNaN(NaN) === true && seen === obj;
+  }
+}
+let aj = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    isNaN: function (x) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return isNaN(x);
+    };
+  }
+  obj.isNaN = Number.isNaN;
+  return run(NaN) === true;
+}
+let ak = liveClose();
+
+function liveCloseNumberIdent() {
+  let obj = {
+    Number: {
+      isNaN: function (x) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return Number.isNaN(x);
+    };
+  }
+  obj.Number = Number;
+  return run(NaN) === true;
+}
+let al = liveCloseNumberIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170283_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let am = unresolvableCalleeThrows();
+
+function unresolvableNumberThrows() {
+  with ({}) {
+    try {
+      e170283_noglob.isNaN(1);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170283_noglob === "undefined"
+      );
+    }
+  }
+}
+let an = unresolvableNumberThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    isNaN: function (x) {
+      return 5;
+    }
+  };
+  with (Number) {
+    with (inner) {
+      return isNaN(1) === 5;
+    }
+  }
+}
+let ap = nestedInnerWins();
+
+function nestedInnerMissOuterNumber() {
+  with ({
+    isNaN: function (x) {
+      return 5;
+    }
+  }) {
+    with (Number) {
+      return isNaN(NaN) === true;
+    }
+  }
+}
+let aq = nestedInnerMissOuterNumber();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { isNaN: Number.isNaN };
+  with (outer) {
+    with (inner) {
+      return isNaN(NaN) === true;
+    }
+  }
+}
+let ar = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function isNaN(x) {
+    return 11;
+  }
+  let inner = { isNaN: Number.isNaN };
+  inner[Symbol.unscopables] = { isNaN: true };
+  let outer = {
+    isNaN: function (x) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return isNaN(1) === 6;
+    }
+  }
+}
+let at = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { isNaN: 1 };
+  with (obj) {
+    try {
+      isNaN(1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let au = nonCallableTypeError();
+
+function typeofIsNaN() {
+  let t;
+  with (Number) {
+    t = typeof isNaN;
+  }
+  return t === "function";
+}
+let av = typeofIsNaN();
+
+function typeofPosInf() {
+  let t;
+  with (Number) {
+    t = typeof POSITIVE_INFINITY;
+  }
+  return t === "number";
+}
+let aw = typeofPosInf();
+
+function typeofNumberThroughWith() {
+  let obj = { Number: Number };
+  let t;
+  with (obj) {
+    t = typeof Number;
+  }
+  return t === "function";
+}
+let ax = typeofNumberThroughWith();
+
+function memberIsNaNStillNumber() {
+  let obj = { x: 1 };
+  with (obj) {
+    return Number.isNaN(NaN) === true;
+  }
+}
+let ay = memberIsNaNStillNumber();
+
+function argsHitObject() {
+  let obj = {
+    x: NaN,
+    isNaN: Number.isNaN
+  };
+  with (obj) {
+    return isNaN(x) === true;
+  }
+}
+let az = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = 1;
+  let obj = { isNaN: Number.isNaN };
+  with (obj) {
+    return isNaN(x) === false;
+  }
+}
+let ba = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get isNaN() {
+      ran = true;
+      return Number.isNaN;
+    }
+  };
+  with (obj) {
+    try {
+      isNaN(e170283_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bb = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      e170283_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bc = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function isNaN(x) {
+    return 1;
+  }
+  let obj = { isNaN: Number.isNaN };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return isNaN(x);
+    };
+  }
+  obj.isNaN = function (x) {
+    return 2;
+  };
+  return run(NaN) === 2;
+}
+let bd = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get isNaN() {
+      c = c + 1;
+      return Number.isNaN;
+    }
+  };
+  let out;
+  with (obj) {
+    out = isNaN(NaN);
+  }
+  return out === true && c === 1;
+}
+let be = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalNumber() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = Number.isInteger(3);
+  }
+  return out === true;
+}
+let bf = emptyMissUsesGlobalNumber();
+
+function bracketMethodOnObject() {
+  let obj = { isNaN: Number.isNaN };
+  with (obj) {
+    return obj["isNaN"](NaN) === true;
+  }
+}
+let bg = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let x = 1;
+  let obj = { isNaN: Number.isNaN, x: NaN };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = isNaN(x);
+  }
+  return out === false && obj.x !== obj.x;
+}
+let bh = unscopablesSecondIdent();
+
+function nanIdentHitsObject() {
+  let obj = { NaN: 1 };
+  with (obj) {
+    return NaN === 1;
+  }
+}
+let bi = nanIdentHitsObject();
+
+function nanIdentMissIsOuter() {
+  with ({}) {
+    return NaN !== NaN;
+  }
+}
+let bj = nanIdentMissIsOuter();
+
+function infinityIdentHitsObject() {
+  let obj = { Infinity: 1 };
+  with (obj) {
+    return Infinity === 1;
+  }
+}
+let bk = infinityIdentHitsObject();
+
+function infinityIdentMissIsOuter() {
+  with ({}) {
+    return Infinity === Infinity && Infinity > 0;
+  }
+}
+let bl = infinityIdentMissIsOuter();
+
+function nanUnscopablesUsesOuter() {
+  let obj = { NaN: 1 };
+  obj[Symbol.unscopables] = { NaN: true };
+  with (obj) {
+    return NaN !== NaN;
+  }
+}
+let bm = nanUnscopablesUsesOuter();
+
+function infinityUnscopablesUsesOuter() {
+  let obj = { Infinity: 1 };
+  obj[Symbol.unscopables] = { Infinity: true };
+  with (obj) {
+    return Infinity === Infinity;
+  }
+}
+let bn = infinityUnscopablesUsesOuter();
+
+function liveCloseNanIdent() {
+  let obj = { NaN: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return NaN;
+    };
+  }
+  obj.NaN = 2;
+  return run() === 2;
+}
+let bp = liveCloseNanIdent();
