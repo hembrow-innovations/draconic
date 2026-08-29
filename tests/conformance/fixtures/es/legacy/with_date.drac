@@ -1,0 +1,697 @@
+// E17.02.93: with + global Date (typeof Date, globalThis identity,
+// Date.now, new Date(ms) / .getTime() / .valueOf() basics) through
+// object environment (non-strict). Date ident hits object (else outer);
+// with (Date) method idents hit Date (now / UTC / name / length /
+// prototype); inherited HasBinding; accessor this is with object;
+// unresolvable → ReferenceError; live close; nested with; unscopables
+// skip.
+
+function withDateNow() {
+  with (Date) {
+    return typeof now() === "number";
+  }
+}
+let a = withDateNow();
+
+function withDateUtc() {
+  with (Date) {
+    return UTC(1970, 0, 1) === 0;
+  }
+}
+let b = withDateUtc();
+
+function withDateNewGetTime() {
+  let obj = { Date: Date };
+  with (obj) {
+    return new Date(0).getTime() === 0;
+  }
+}
+let c = withDateNewGetTime();
+
+function withDateNewValueOf() {
+  let obj = { Date: Date };
+  with (obj) {
+    return new Date(0).valueOf() === 0;
+  }
+}
+let d = withDateNewValueOf();
+
+function withDateTypeof() {
+  let obj = { Date: Date };
+  with (obj) {
+    return typeof Date === "function";
+  }
+}
+let e = withDateTypeof();
+
+function withDateNowTypeof() {
+  with (Date) {
+    return typeof now === "function";
+  }
+}
+let f = withDateNowTypeof();
+
+function withDateUtcTypeof() {
+  with (Date) {
+    return typeof UTC === "function";
+  }
+}
+let g = withDateUtcTypeof();
+
+function withDateBracketNow() {
+  let obj = { Date: Date };
+  with (obj) {
+    return typeof Date["now"]() === "number";
+  }
+}
+let h = withDateBracketNow();
+
+function dateIdentHitsObject() {
+  let obj = {
+    Date: function (ms) {
+      this.t = 42;
+    }
+  };
+  with (obj) {
+    return new Date(0).t === 42;
+  }
+}
+let j = dateIdentHitsObject();
+
+function dateIdentMissIsOuter() {
+  with ({}) {
+    return new Date(0).getTime() === 0;
+  }
+}
+let k = dateIdentMissIsOuter();
+
+function dateIdentShadowsOuter() {
+  let obj = {
+    Date: function (ms) {
+      this.t = 0;
+    }
+  };
+  with (obj) {
+    return new Date(0).t === 0;
+  }
+}
+let l = dateIdentShadowsOuter();
+
+function nowIdentHitsObject() {
+  let obj = {
+    now: function () {
+      return 7;
+    }
+  };
+  with (obj) {
+    return now() === 7;
+  }
+}
+let m = nowIdentHitsObject();
+
+function nowIdentMissIsOuter() {
+  function now() {
+    return 8;
+  }
+  with ({}) {
+    return now() === 8;
+  }
+}
+let n = nowIdentMissIsOuter();
+
+function objectShadowsOuterNow() {
+  function now() {
+    return 8;
+  }
+  let obj = {
+    now: function () {
+      return 9;
+    }
+  };
+  with (obj) {
+    return now() === 9;
+  }
+}
+let p = objectShadowsOuterNow();
+
+function callThisIsWithObject() {
+  let obj = {
+    now: function () {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return now() === 3;
+  }
+}
+let q = callThisIsWithObject();
+
+function withDateCallThisIsDate() {
+  let seen = null;
+  let orig = Date.now;
+  Date.now = function () {
+    seen = this;
+    return orig.call(this);
+  };
+  let ok;
+  with (Date) {
+    ok = typeof now() === "number" && seen === Date;
+  }
+  Date.now = orig;
+  return ok;
+}
+let r = withDateCallThisIsDate();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get Date() {
+      n = n + 1;
+      return Date;
+    },
+    get x() {
+      n = n + 1;
+      return 0;
+    }
+  };
+  with (obj) {
+    return new Date(x).getTime() === 0 && n === 2;
+  }
+}
+let s = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function now() {
+    return 11;
+  }
+  let obj = { now: Date.now };
+  obj[Symbol.unscopables] = { now: true };
+  with (obj) {
+    return now() === 11;
+  }
+}
+let t = unscopablesUsesOuter();
+
+function unscopablesDateIdent() {
+  let obj = {
+    Date: function (ms) {
+      this.t = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Date: true };
+  with (obj) {
+    return new Date(0).getTime() === 0;
+  }
+}
+let u = unscopablesDateIdent();
+
+function inheritedData() {
+  let proto = { now: Date.now, UTC: Date.UTC };
+  let obj = Object.create(proto);
+  with (obj) {
+    return typeof now() === "number" && UTC(1970, 0, 1) === 0;
+  }
+}
+let v = inheritedData();
+
+function inheritedFromDate() {
+  let obj = Object.create(Date);
+  with (obj) {
+    return typeof now() === "number" && UTC(1970, 0, 1) === 0;
+  }
+}
+let w = inheritedFromDate();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get now() {
+      seen = this;
+      return Date.now;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return typeof now() === "number" && seen === obj;
+  }
+}
+let aa = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get now() {
+      seen = this;
+      return Date.now;
+    }
+  };
+  with (obj) {
+    return typeof now() === "number" && seen === obj;
+  }
+}
+let ab = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    now: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return now();
+    };
+  }
+  obj.now = Date.now;
+  return typeof run() === "number";
+}
+let ac = liveClose();
+
+function liveCloseDateIdent() {
+  let obj = {
+    Date: function (ms) {
+      this.t = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (ms) {
+      return new Date(ms);
+    };
+  }
+  obj.Date = Date;
+  return run(0).getTime() === 0;
+}
+let ad = liveCloseDateIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170293_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ae = unresolvableCalleeThrows();
+
+function unresolvableDateThrows() {
+  with ({}) {
+    try {
+      e170293_noglob.now();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170293_noglob === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableDateThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    now: function () {
+      return 5;
+    }
+  };
+  with (Date) {
+    with (inner) {
+      return now() === 5;
+    }
+  }
+}
+let ag = nestedInnerWins();
+
+function nestedInnerMissOuterDate() {
+  with ({ now: function () { return 5; } }) {
+    with (Date) {
+      return typeof now() === "number";
+    }
+  }
+}
+let ah = nestedInnerMissOuterDate();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { now: Date.now };
+  with (outer) {
+    with (inner) {
+      return typeof now() === "number";
+    }
+  }
+}
+let ai = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function now() {
+    return 11;
+  }
+  let inner = { now: Date.now };
+  inner[Symbol.unscopables] = { now: true };
+  let outer = {
+    now: function () {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return now() === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { now: 1 };
+  with (obj) {
+    try {
+      now();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofNow() {
+  let t;
+  with (Date) {
+    t = typeof now;
+  }
+  return t === "function";
+}
+let al = typeofNow();
+
+function typeofDateThroughWith() {
+  let obj = { Date: Date };
+  let t;
+  with (obj) {
+    t = typeof Date;
+  }
+  return t === "function";
+}
+let am = typeofDateThroughWith();
+
+function typeofUtc() {
+  let t;
+  with (Date) {
+    t = typeof UTC;
+  }
+  return t === "function";
+}
+let an = typeofUtc();
+
+function memberNowStillDate() {
+  let obj = { x: 1 };
+  with (obj) {
+    return typeof Date.now() === "number";
+  }
+}
+let ap = memberNowStillDate();
+
+function argsHitObject() {
+  let obj = {
+    x: 1970,
+    UTC: Date.UTC
+  };
+  with (obj) {
+    return UTC(x, 0, 1) === 0;
+  }
+}
+let aq = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = 1970;
+  let obj = { UTC: Date.UTC };
+  with (obj) {
+    return UTC(x, 0, 1) === 0;
+  }
+}
+let ar = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get UTC() {
+      ran = true;
+      return Date.UTC;
+    }
+  };
+  with (obj) {
+    try {
+      UTC(e170293_arg, 0, 1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let at = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return 1970;
+    }
+  };
+  with (obj) {
+    try {
+      e170293_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let au = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function now() {
+    return 1;
+  }
+  let obj = { now: Date.now };
+  let run;
+  with (obj) {
+    run = function () {
+      return now();
+    };
+  }
+  obj.now = function () {
+    return 2;
+  };
+  return run() === 2;
+}
+let av = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get now() {
+      c = c + 1;
+      return Date.now;
+    }
+  };
+  let out;
+  with (obj) {
+    out = now();
+  }
+  return typeof out === "number" && c === 1;
+}
+let aw = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalDate() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = new Date(0).getTime();
+  }
+  return out === 0;
+}
+let ax = emptyMissUsesGlobalDate();
+
+function globalThisIdentity() {
+  let obj = { Date: Date };
+  with (obj) {
+    return Date === globalThis.Date;
+  }
+}
+let ay = globalThisIdentity();
+
+function utcIdentHitsObject() {
+  let obj = {
+    UTC: function (y, m, d) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return UTC(1970, 0, 1) === "hit";
+  }
+}
+let az = utcIdentHitsObject();
+
+function bracketMethodOnObject() {
+  let obj = { now: Date.now };
+  with (obj) {
+    return typeof obj["now"]() === "number";
+  }
+}
+let ba = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let x = 1970;
+  let obj = { UTC: Date.UTC, x: 0 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = UTC(x, 0, 1);
+  }
+  return out === 0 && obj.x === 0;
+}
+let bb = unscopablesSecondIdent();
+
+function dateTypeofHit() {
+  let obj = { Date: 1 };
+  let t;
+  with (obj) {
+    t = typeof Date;
+  }
+  return t === "number";
+}
+let bc = dateTypeofHit();
+
+function nowMissUsesGlobalNow() {
+  with ({}) {
+    return typeof Date.now === "function" && typeof Date.now() === "number";
+  }
+}
+let bd = nowMissUsesGlobalNow();
+
+function utcIdentMissIsOuter() {
+  with ({}) {
+    return Date.UTC(1970, 0, 1) === 0;
+  }
+}
+let be = utcIdentMissIsOuter();
+
+function liveCloseUtc() {
+  let obj = { UTC: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return UTC;
+    };
+  }
+  obj.UTC = Date.UTC;
+  return run() === Date.UTC;
+}
+let bf = liveCloseUtc();
+
+function unscopablesUtc() {
+  let obj = { UTC: 1 };
+  obj[Symbol.unscopables] = { UTC: true };
+  with (obj) {
+    return typeof UTC === "undefined";
+  }
+}
+let bg = unscopablesUtc();
+
+function nestedUtcInnerWins() {
+  with ({ UTC: 1 }) {
+    with ({ UTC: 2 }) {
+      return UTC === 2;
+    }
+  }
+}
+let bh = nestedUtcInnerWins();
+
+function getterRunsOnceUtc() {
+  let c = 0;
+  let obj = {
+    get UTC() {
+      c = c + 1;
+      return Date.UTC;
+    }
+  };
+  let out;
+  with (obj) {
+    out = UTC(1970, 0, 1);
+  }
+  return out === 0 && c === 1;
+}
+let bi = getterRunsOnceUtc();
+
+function identityNow() {
+  let obj = { Date: Date };
+  with (obj) {
+    return Date.now === globalThis.Date.now;
+  }
+}
+let bj = identityNow();
+
+function identityUtc() {
+  let obj = { Date: Date };
+  with (obj) {
+    return Date.UTC === globalThis.Date.UTC;
+  }
+}
+let bk = identityUtc();
+
+function nestedDateInnerWins() {
+  with ({ Date: 1 }) {
+    with ({ Date: 2 }) {
+      return Date === 2;
+    }
+  }
+}
+let bl = nestedDateInnerWins();
+
+function emptyMissUsesGlobalNow() {
+  with ({}) {
+    return typeof Date.now() === "number";
+  }
+}
+let bm = emptyMissUsesGlobalNow();
+
+function withDateName() {
+  with (Date) {
+    return name === "Date";
+  }
+}
+let bn = withDateName();
+
+function withDateLength() {
+  with (Date) {
+    return length === 7;
+  }
+}
+let bp = withDateLength();
+
+function withDatePrototype() {
+  with (Date) {
+    return prototype === Date.prototype;
+  }
+}
+let bq = withDatePrototype();
+
+function withDateNewThisIsInstance() {
+  let obj = { Date: Date };
+  with (obj) {
+    let d = new Date(0);
+    return d.getTime() === 0 && d !== obj && d instanceof Date;
+  }
+}
+let br = withDateNewThisIsInstance();
+
+function withDateValueOfMiss() {
+  with ({}) {
+    return new Date(0).valueOf() === 0;
+  }
+}
+let bs = withDateValueOfMiss();

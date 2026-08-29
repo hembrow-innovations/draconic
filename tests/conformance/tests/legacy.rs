@@ -968,3 +968,13 @@ fn with_json_fixture_present() {
 fn with_json_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_json");
 }
+
+#[test]
+fn with_date_fixture_present() {
+    assert_fixture_present("es/legacy/with_date");
+}
+
+#[test]
+fn with_date_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_date");
+}
