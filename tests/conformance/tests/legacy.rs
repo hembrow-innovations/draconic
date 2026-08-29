@@ -888,3 +888,13 @@ fn with_symbol_basics_fixture_present() {
 fn with_symbol_basics_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_symbol_basics");
 }
+
+#[test]
+fn with_symbol_property_keys_fixture_present() {
+    assert_fixture_present("es/legacy/with_symbol_property_keys");
+}
+
+#[test]
+fn with_symbol_property_keys_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_symbol_property_keys");
+}

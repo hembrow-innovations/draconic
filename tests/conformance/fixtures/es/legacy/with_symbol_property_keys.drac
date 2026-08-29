@@ -1,0 +1,722 @@
+// E17.02.85: with + Symbol property keys (obj[sym], computed keys in
+// literals; own-key read/write; no string collision) through object
+// environment (non-strict). Object/base/symbol-key/value idents hit
+// object (else outer); { [sym]: v } computed key; own-key read/write;
+// string key does not collide; inherited HasBinding; accessor get/set
+// this is with object; unresolvable → ReferenceError; live close;
+// nested with; unscopables skip.
+
+function bracketGetBaseHitsObject() {
+  let box = {};
+  let sym = Symbol("k");
+  box[sym] = 0;
+  let inner = {};
+  inner[sym] = 1;
+  let env = { box: inner };
+  let out;
+  with (env) {
+    out = box[sym];
+  }
+  return out === 1 && box[sym] === 0;
+}
+let a = bracketGetBaseHitsObject();
+
+function bracketGetBaseMissUsesOuter() {
+  let box = {};
+  let sym = Symbol("k");
+  box[sym] = 2;
+  with ({}) {
+    return box[sym] === 2;
+  }
+}
+let b = bracketGetBaseMissUsesOuter();
+
+function bracketGetKeyHitsObject() {
+  let box = {};
+  let outer = Symbol("o");
+  let inner = Symbol("i");
+  box[outer] = 0;
+  box[inner] = 3;
+  let env = { box: box, sym: inner };
+  with (env) {
+    return box[sym] === 3;
+  }
+}
+let c = bracketGetKeyHitsObject();
+
+function bracketGetKeyMissUsesOuter() {
+  let box = {};
+  let sym = Symbol("k");
+  box[sym] = 4;
+  with ({ box: box }) {
+    return box[sym] === 4;
+  }
+}
+let d = bracketGetKeyMissUsesOuter();
+
+function computedKeyHitsObject() {
+  let outer = Symbol("o");
+  let inner = Symbol("i");
+  let env = { sym: inner, v: 5 };
+  let out;
+  with (env) {
+    out = { [sym]: v };
+  }
+  return out[inner] === 5 && out[outer] === undefined;
+}
+let e = computedKeyHitsObject();
+
+function computedKeyMissUsesOuter() {
+  let sym = Symbol("k");
+  let v = 6;
+  let out;
+  with ({}) {
+    out = { [sym]: v };
+  }
+  return out[sym] === 6;
+}
+let f = computedKeyMissUsesOuter();
+
+function computedValueHitsObject() {
+  let sym = Symbol("k");
+  let v = 0;
+  let env = { v: 7, sym: sym };
+  let out;
+  with (env) {
+    out = { [sym]: v };
+  }
+  return out[sym] === 7 && v === 0;
+}
+let g = computedValueHitsObject();
+
+function noStringCollisionWrite() {
+  let sym = Symbol("k");
+  let env = { box: {}, sym: sym, v: 8 };
+  with (env) {
+    box[sym] = v;
+    box["k"] = 99;
+  }
+  return env.box[sym] === 8 && env.box["k"] === 99;
+}
+let h = noStringCollisionWrite();
+
+function noStringCollisionComputedLit() {
+  let sym = Symbol("k");
+  let env = { sym: sym, v: 9 };
+  let out;
+  with (env) {
+    out = { [sym]: v, k: 88 };
+  }
+  return out[sym] === 9 && out["k"] === 88 && out.k === 88;
+}
+let j = noStringCollisionComputedLit();
+
+function symbolForSharedRead() {
+  let env = { box: {}, shared: Symbol.for("e170285a") };
+  env.box[Symbol.for("e170285a")] = 10;
+  with (env) {
+    return box[shared] === 10 && box[Symbol.for("e170285a")] === 10;
+  }
+}
+let k = symbolForSharedRead();
+
+function symbolForWriteThenRead() {
+  let env = { box: {}, shared: Symbol.for("e170285b"), v: 11 };
+  with (env) {
+    box[shared] = v;
+  }
+  return env.box[Symbol.for("e170285b")] === 11 && env.box["e170285b"] === undefined;
+}
+let l = symbolForWriteThenRead();
+
+function distinctSymbolsNoCollide() {
+  let s1 = Symbol();
+  let s2 = Symbol();
+  let env = { box: {}, s1: s1, s2: s2 };
+  with (env) {
+    box[s1] = 12;
+    box[s2] = 13;
+    box[s1] = 14;
+    return box[s1] === 14 && box[s2] === 13;
+  }
+}
+let m = distinctSymbolsNoCollide();
+
+function assignYieldsRhs() {
+  let sym = Symbol("k");
+  let env = { box: {}, sym: sym };
+  let r;
+  with (env) {
+    r = box[sym] = 15;
+  }
+  return r === 15 && env.box[sym] === 15;
+}
+let n = assignYieldsRhs();
+
+function missingSymbolKeyUndefined() {
+  let box = { k: 1 };
+  let sym = Symbol("k");
+  let env = { box: box, sym: sym };
+  with (env) {
+    return box[sym] === undefined && box["k"] === 1;
+  }
+}
+let p = missingSymbolKeyUndefined();
+
+function writeThenReadBack() {
+  let sym = Symbol("k");
+  let env = { box: {}, sym: sym, v: 16 };
+  with (env) {
+    box[sym] = v;
+    return box[sym] === 16;
+  }
+}
+let q = writeThenReadBack();
+
+function inheritedBaseHasBinding() {
+  let sym = Symbol("k");
+  let inner = {};
+  inner[sym] = 17;
+  let proto = { box: inner, sym: sym };
+  let env = Object.create(proto);
+  with (env) {
+    return box[sym] === 17;
+  }
+}
+let r = inheritedBaseHasBinding();
+
+function inheritedKeyHasBinding() {
+  let box = {};
+  let inner = Symbol("i");
+  box[inner] = 18;
+  let proto = { box: box, sym: inner };
+  let env = Object.create(proto);
+  with (env) {
+    return box[sym] === 18;
+  }
+}
+let s = inheritedKeyHasBinding();
+
+function accessorKeyThisIsWithObject() {
+  let seen = null;
+  let inner = Symbol("i");
+  let box = {};
+  box[inner] = 19;
+  let env = {
+    box: box,
+    get sym() {
+      seen = this;
+      return inner;
+    }
+  };
+  with (env) {
+    return box[sym] === 19 && seen === env;
+  }
+}
+let t = accessorKeyThisIsWithObject();
+
+function accessorBaseThisIsWithObject() {
+  let seen = null;
+  let sym = Symbol("k");
+  let inner = {};
+  inner[sym] = 20;
+  let env = {
+    sym: sym,
+    get box() {
+      seen = this;
+      return inner;
+    }
+  };
+  with (env) {
+    return box[sym] === 20 && seen === env;
+  }
+}
+let u = accessorBaseThisIsWithObject();
+
+function unscopablesKeyUsesOuter() {
+  let box = {};
+  let outer = Symbol("o");
+  let inner = Symbol("i");
+  box[outer] = 21;
+  box[inner] = 0;
+  let env = { box: box, sym: inner };
+  env[Symbol.unscopables] = { sym: true };
+  let sym = outer;
+  with (env) {
+    return box[sym] === 21;
+  }
+}
+let v = unscopablesKeyUsesOuter();
+
+function unscopablesBaseUsesOuter() {
+  let outer = {};
+  let inner = {};
+  let sym = Symbol("k");
+  outer[sym] = 22;
+  inner[sym] = 0;
+  let env = { box: inner, sym: sym };
+  env[Symbol.unscopables] = { box: true };
+  let box = outer;
+  with (env) {
+    return box[sym] === 22;
+  }
+}
+let w = unscopablesBaseUsesOuter();
+
+function liveCloseMutateKey() {
+  let box = {};
+  let s1 = Symbol("a");
+  let s2 = Symbol("b");
+  box[s1] = 1;
+  box[s2] = 23;
+  let env = { box: box, sym: s1 };
+  let run;
+  with (env) {
+    run = function () {
+      return box[sym];
+    };
+  }
+  env.sym = s2;
+  return run() === 23;
+}
+let aa = liveCloseMutateKey();
+
+function liveCloseMutateBase() {
+  let a = {};
+  let b = {};
+  let sym = Symbol("k");
+  a[sym] = 0;
+  b[sym] = 24;
+  let env = { box: a, sym: sym };
+  let run;
+  with (env) {
+    run = function () {
+      return box[sym];
+    };
+  }
+  env.box = b;
+  return run() === 24;
+}
+let ab = liveCloseMutateBase();
+
+function nestedInnerWinsKey() {
+  let box = {};
+  let outer = Symbol("o");
+  let inner = Symbol("i");
+  box[outer] = 0;
+  box[inner] = 25;
+  with ({ box: box, sym: outer }) {
+    with ({ box: box, sym: inner }) {
+      return box[sym] === 25;
+    }
+  }
+}
+let ac = nestedInnerWinsKey();
+
+function nestedInnerMissUsesOuter() {
+  let box = {};
+  let outer = Symbol("o");
+  box[outer] = 26;
+  with ({ box: box, sym: outer }) {
+    with ({}) {
+      return box[sym] === 26;
+    }
+  }
+}
+let ad = nestedInnerMissUsesOuter();
+
+function unresolvableKeyThrows() {
+  let box = {};
+  with ({ box: box }) {
+    try {
+      box[e170285_key];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170285_key === "undefined"
+      );
+    }
+  }
+}
+let ae = unresolvableKeyThrows();
+
+function unresolvableBaseThrows() {
+  let sym = Symbol("k");
+  with ({ sym: sym }) {
+    try {
+      e170285_box[sym];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170285_box === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableBaseThrows();
+
+function unresolvableRhsThrows() {
+  let box = {};
+  let sym = Symbol("k");
+  let ran = false;
+  let env = {
+    box: box,
+    get sym() {
+      ran = true;
+      return sym;
+    }
+  };
+  with (env) {
+    try {
+      box[sym] = e170285_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ag = unresolvableRhsThrows();
+
+function unresolvableComputedKeyThrows() {
+  with ({ v: 1 }) {
+    try {
+      return { [e170285_ckey]: v };
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ah = unresolvableComputedKeyThrows();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let inner = Symbol("i");
+  let box = {};
+  box[inner] = 27;
+  let env = {
+    get box() {
+      n = n + 1;
+      return box;
+    },
+    get sym() {
+      n = n + 1;
+      return inner;
+    }
+  };
+  with (env) {
+    return box[sym] === 27 && n === 2;
+  }
+}
+let ai = bothSidesAlwaysEvaled();
+
+function unresolvableKeySkipsRhs() {
+  let ran = false;
+  let env = {
+    box: {},
+    get v() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (env) {
+    try {
+      box[e170285_first] = v;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let aj = unresolvableKeySkipsRhs();
+
+function unresolvableBaseSkipsKey() {
+  let ran = false;
+  let env = {
+    get sym() {
+      ran = true;
+      return Symbol("k");
+    }
+  };
+  with (env) {
+    try {
+      e170285_first[sym];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ak = unresolvableBaseSkipsKey();
+
+function nestedWithUnscopables() {
+  let box = {};
+  let outer = Symbol("o");
+  let inner = Symbol("i");
+  box[outer] = 28;
+  box[inner] = 0;
+  let innerEnv = { box: box, sym: inner };
+  innerEnv[Symbol.unscopables] = { sym: true };
+  with ({ box: box, sym: outer }) {
+    with (innerEnv) {
+      return box[sym] === 28;
+    }
+  }
+}
+let al = nestedWithUnscopables();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let inner = Symbol("i");
+  let box = {};
+  box[inner] = 29;
+  let proto = {
+    box: box,
+    get sym() {
+      seen = this;
+      return inner;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return box[sym] === 29 && seen === env;
+  }
+}
+let am = inheritedGetterThis();
+
+function emptyMissUsesOuterSymbol() {
+  let box = {};
+  let sym = Symbol("k");
+  box[sym] = 30;
+  with ({}) {
+    return box[sym] === 30;
+  }
+}
+let an = emptyMissUsesOuterSymbol();
+
+function writeCreatesOwnOnBox() {
+  let proto = {};
+  let box = Object.create(proto);
+  let sym = Symbol("k");
+  let env = { box: box, sym: sym, v: 31 };
+  with (env) {
+    box[sym] = v;
+  }
+  return Object.prototype.hasOwnProperty.call(box, sym) && box[sym] === 31;
+}
+let ap = writeCreatesOwnOnBox();
+
+function stringDescNoCollideWithFor() {
+  let env = { box: {}, shared: Symbol.for("e170285c"), v: 32 };
+  with (env) {
+    box[shared] = v;
+    box["e170285c"] = 77;
+  }
+  return (
+    env.box[Symbol.for("e170285c")] === 32 && env.box["e170285c"] === 77
+  );
+}
+let aq = stringDescNoCollideWithFor();
+
+function computedLitOuterObject() {
+  let outer = {};
+  let inner = Symbol("i");
+  outer[inner] = 0;
+  let env = { sym: inner, v: 33 };
+  let out;
+  with (env) {
+    out = { [sym]: v };
+  }
+  return out[inner] === 33 && outer[inner] === 0;
+}
+let ar = computedLitOuterObject();
+
+function liveCloseAfterMutateOuter() {
+  let box = {};
+  let s1 = Symbol("a");
+  let s2 = Symbol("b");
+  box[s1] = 1;
+  box[s2] = 34;
+  function getSym() {
+    return s1;
+  }
+  let env = { box: box, getSym: getSym };
+  let run;
+  with (env) {
+    run = function () {
+      return box[getSym()];
+    };
+  }
+  env.getSym = function () {
+    return s2;
+  };
+  return run() === 34;
+}
+let at = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerAccess() {
+  let c = 0;
+  let inner = Symbol("i");
+  let box = {};
+  box[inner] = 35;
+  let env = {
+    box: box,
+    get sym() {
+      c = c + 1;
+      return inner;
+    }
+  };
+  let out;
+  with (env) {
+    out = box[sym];
+  }
+  return out === 35 && c === 1;
+}
+let au = getterRunsOncePerAccess();
+
+function unscopablesSecondIdent() {
+  let boxOuter = {};
+  let boxInner = {};
+  let sym = Symbol("k");
+  boxOuter[sym] = 36;
+  boxInner[sym] = 0;
+  let env = { box: boxInner, sym: sym };
+  env[Symbol.unscopables] = { box: true };
+  let box = boxOuter;
+  with (env) {
+    return box[sym] === 36;
+  }
+}
+let av = unscopablesSecondIdent();
+
+function assignMissingCreatesOwn() {
+  let box = { k: 1 };
+  let sym = Symbol("k");
+  let env = { box: box, sym: sym, v: 37 };
+  with (env) {
+    box[sym] = v;
+  }
+  return box[sym] === 37 && box["k"] === 1;
+}
+let aw = assignMissingCreatesOwn();
+
+function inheritedSymbolKeyRead() {
+  let proto = {};
+  let sym = Symbol("k");
+  proto[sym] = 38;
+  let box = Object.create(proto);
+  let env = { box: box, sym: sym };
+  with (env) {
+    return box[sym] === 38;
+  }
+}
+let ax = inheritedSymbolKeyRead();
+
+function writeInheritedCreatesOwn() {
+  let proto = {};
+  let sym = Symbol("k");
+  proto[sym] = 1;
+  let box = Object.create(proto);
+  let env = { box: box, sym: sym, v: 39 };
+  with (env) {
+    box[sym] = v;
+  }
+  return (
+    box[sym] === 39 &&
+    proto[sym] === 1 &&
+    Object.prototype.hasOwnProperty.call(box, sym)
+  );
+}
+let ay = writeInheritedCreatesOwn();
+
+function typeofMissingStringVsSymbol() {
+  let box = {};
+  let sym = Symbol("k");
+  box[sym] = 40;
+  let env = { box: box, sym: sym };
+  with (env) {
+    return typeof box[sym] === "number" && typeof box["k"] === "undefined";
+  }
+}
+let az = typeofMissingStringVsSymbol();
+
+function memberStillThatObject() {
+  let other = {};
+  let env = { x: 1 };
+  let sym = Symbol("k");
+  other[sym] = 41;
+  with (env) {
+    return other[sym] === 41;
+  }
+}
+let ba = memberStillThatObject();
+
+function rhsHitsObject() {
+  let box = {};
+  let sym = Symbol("k");
+  let v = 0;
+  let env = { box: box, sym: sym, v: 42 };
+  with (env) {
+    box[sym] = v;
+  }
+  return box[sym] === 42 && v === 0;
+}
+let bb = rhsHitsObject();
+
+function rhsMissUsesOuter() {
+  let box = {};
+  let sym = Symbol("k");
+  let v = 43;
+  let env = { box: box, sym: sym };
+  with (env) {
+    box[sym] = v;
+  }
+  return box[sym] === 43;
+}
+let bc = rhsMissUsesOuter();
+
+function nestedComputed() {
+  let inner = Symbol("i");
+  let env = { sym: inner, v: 44 };
+  let out;
+  with (env) {
+    out = { nested: { [sym]: v } };
+  }
+  return out.nested[inner] === 44;
+}
+let bd = nestedComputed();
+
+function accessorSetThisIsBox() {
+  let seen = null;
+  let inner = Symbol("i");
+  let box = {};
+  Object.defineProperty(box, inner, {
+    set: function (val) {
+      seen = this;
+      this._v = val;
+    },
+    get: function () {
+      return this._v;
+    }
+  });
+  let env = { box: box, sym: inner, v: 45 };
+  with (env) {
+    box[sym] = v;
+  }
+  return seen === box && box[inner] === 45;
+}
+let be = accessorSetThisIsBox();
+
+function unscopablesValueUsesOuter() {
+  let box = {};
+  let sym = Symbol("k");
+  let v = 46;
+  let env = { box: box, sym: sym, v: 0 };
+  env[Symbol.unscopables] = { v: true };
+  with (env) {
+    box[sym] = v;
+  }
+  return box[sym] === 46;
+}
+let bf = unscopablesValueUsesOuter();
