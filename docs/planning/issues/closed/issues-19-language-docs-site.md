@@ -6,7 +6,7 @@ area: planning
 domain: language
 title: "Language Learn + Reference site"
 description: "Public docs site generated in Draconic: Learn and Reference, status tags, shipped samples that build, GitHub Pages."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -16,7 +16,7 @@ tags:
   - docs
   - dx
   - phase-2
-  - ready-for-agent
+  - closed
 ---
 
 # Language Learn + Reference site
@@ -162,3 +162,5 @@ Same as **Out of Scope** above.
 > **2026-08-29:** [[issues-25-docs-reference-skeleton]] landed (CLI, types, Dual-world rules, host I/O, packages stubs with status tags). This parent stays open.
 >
 > **2026-08-29:** [[issues-26-docs-pages-readme]] landed (GitHub Pages from CI, README link, **P03** done). This parent stays open for human review.
+>
+> **2026-08-29:** Review complete. Children 20–26 closed; website pipeline 12/12; **P03** done; README links the site. Closing this parent. Latent follow-ups (not blocking the skeleton): native-only fences still compile as js; generator still hardcodes the page catalog instead of driving nav from frontmatter.
