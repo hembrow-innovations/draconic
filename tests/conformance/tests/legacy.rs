@@ -878,3 +878,13 @@ fn with_number_global_fixture_present() {
 fn with_number_global_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_number_global");
 }
+
+#[test]
+fn with_symbol_basics_fixture_present() {
+    assert_fixture_present("es/legacy/with_symbol_basics");
+}
+
+#[test]
+fn with_symbol_basics_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_symbol_basics");
+}

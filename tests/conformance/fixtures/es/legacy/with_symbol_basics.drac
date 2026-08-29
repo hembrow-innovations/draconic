@@ -1,0 +1,624 @@
+// E17.02.84: with + Symbol constructor basics (Symbol() / Symbol(desc),
+// typeof "symbol", uniqueness; Symbol.for / Symbol.keyFor) through
+// object environment (non-strict). Symbol ident hits object (else outer);
+// with (Symbol) keyFor ident hits Symbol (for is reserved); inherited
+// HasBinding; accessor this is with object; unresolvable → ReferenceError;
+// live close; nested with; unscopables skip.
+
+function withSymbolCall() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return typeof Symbol() === "symbol";
+  }
+}
+let a = withSymbolCall();
+
+function withSymbolDesc() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return typeof Symbol("desc") === "symbol";
+  }
+}
+let b = withSymbolDesc();
+
+function withSymbolUniq() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol() !== Symbol();
+  }
+}
+let c = withSymbolUniq();
+
+function withSymbolForSame() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol.for("e170284a") === Symbol.for("e170284a");
+  }
+}
+let d = withSymbolForSame();
+
+function withSymbolKeyFor() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol.keyFor(Symbol.for("e170284b")) === "e170284b";
+  }
+}
+let e = withSymbolKeyFor();
+
+function withSymbolTypeof() {
+  let obj = { Symbol: Symbol };
+  let t;
+  with (obj) {
+    t = typeof Symbol;
+  }
+  return t === "function";
+}
+let f = withSymbolTypeof();
+
+function withSymbolTypeofFor() {
+  let obj = { Symbol: Symbol };
+  let t;
+  with (obj) {
+    t = typeof Symbol.for;
+  }
+  return t === "function";
+}
+let g = withSymbolTypeofFor();
+
+function withSymbolTypeofKeyFor() {
+  let obj = { Symbol: Symbol };
+  let t;
+  with (obj) {
+    t = typeof Symbol.keyFor;
+  }
+  return t === "function";
+}
+let h = withSymbolTypeofKeyFor();
+
+function withSymbolBracketFor() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol["for"]("e170284c") === Symbol.for("e170284c");
+  }
+}
+let j = withSymbolBracketFor();
+
+function withSymbolBracketKeyFor() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol["keyFor"](Symbol.for("e170284d")) === "e170284d";
+  }
+}
+let k = withSymbolBracketKeyFor();
+
+function symbolIdentHitsObject() {
+  let obj = {
+    Symbol: {
+      for: function (key) {
+        return 42;
+      }
+    }
+  };
+  with (obj) {
+    return Symbol.for("e170284e") === 42;
+  }
+}
+let l = symbolIdentHitsObject();
+
+function symbolIdentMissIsOuter() {
+  with ({}) {
+    return typeof Symbol() === "symbol";
+  }
+}
+let m = symbolIdentMissIsOuter();
+
+function symbolIdentShadowsOuter() {
+  let obj = {
+    Symbol: {
+      keyFor: function (s) {
+        return 0;
+      },
+      for: function (key) {
+        return 1;
+      }
+    }
+  };
+  with (obj) {
+    return Symbol.keyFor(1) === 0 && Symbol.for("e170284f") === 1;
+  }
+}
+let n = symbolIdentShadowsOuter();
+
+function keyForIdentHitsObject() {
+  let obj = {
+    keyFor: function (s) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return keyFor(1) === 7;
+  }
+}
+let p = keyForIdentHitsObject();
+
+function keyForIdentMissIsOuter() {
+  function keyFor(s) {
+    return 8;
+  }
+  with ({}) {
+    return keyFor(1) === 8;
+  }
+}
+let q = keyForIdentMissIsOuter();
+
+function objectShadowsOuterKeyFor() {
+  function keyFor(s) {
+    return 8;
+  }
+  let obj = {
+    keyFor: function (s) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return keyFor(1) === 9;
+  }
+}
+let r = objectShadowsOuterKeyFor();
+
+function callThisIsWithObject() {
+  let obj = {
+    keyFor: function (s) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return keyFor(1) === 3;
+  }
+}
+let s = callThisIsWithObject();
+
+function withSymbolCallThisIsSymbol() {
+  let seen = null;
+  let orig = Symbol.keyFor;
+  Symbol.keyFor = function (sym) {
+    seen = this;
+    return orig.call(this, sym);
+  };
+  let ok;
+  with (Symbol) {
+    ok = keyFor(Symbol.for("e170284g")) === "e170284g" && seen === Symbol;
+  }
+  Symbol.keyFor = orig;
+  return ok;
+}
+let t = withSymbolCallThisIsSymbol();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get keyFor() {
+      n = n + 1;
+      return function (s) {
+        return "ok";
+      };
+    },
+    get x() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    return keyFor(x) === "ok" && n === 2;
+  }
+}
+let u = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function keyFor(s) {
+    return 11;
+  }
+  let obj = { keyFor: Symbol.keyFor };
+  obj[Symbol.unscopables] = { keyFor: true };
+  with (obj) {
+    return keyFor(1) === 11;
+  }
+}
+let v = unscopablesUsesOuter();
+
+function unscopablesSymbolIdent() {
+  let obj = {
+    Symbol: {
+      for: function (key) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Symbol: true };
+  with (obj) {
+    return typeof Symbol.for("e170284h") === "symbol";
+  }
+}
+let w = unscopablesSymbolIdent();
+
+function inheritedData() {
+  let proto = { keyFor: Symbol.keyFor, Symbol: Symbol };
+  let obj = Object.create(proto);
+  with (obj) {
+    return keyFor(Symbol.for("e170284i")) === "e170284i";
+  }
+}
+let aa = inheritedData();
+
+function inheritedFromSymbol() {
+  let obj = Object.create(Symbol);
+  with (obj) {
+    return keyFor(Symbol.for("e170284j")) === "e170284j";
+  }
+}
+let ab = inheritedFromSymbol();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get keyFor() {
+      seen = this;
+      return function (s) {
+        return "g";
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return keyFor(1) === "g" && seen === obj;
+  }
+}
+let ac = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get keyFor() {
+      seen = this;
+      return function (s) {
+        return "g";
+      };
+    }
+  };
+  with (obj) {
+    return keyFor(1) === "g" && seen === obj;
+  }
+}
+let ad = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    keyFor: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return keyFor(s);
+    };
+  }
+  obj.keyFor = Symbol.keyFor;
+  return run(Symbol.for("e170284k")) === "e170284k";
+}
+let ae = liveClose();
+
+function liveCloseSymbolIdent() {
+  let obj = {
+    Symbol: {
+      for: function (key) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (key) {
+      return Symbol.for(key);
+    };
+  }
+  obj.Symbol = Symbol;
+  return typeof run("e170284l") === "symbol";
+}
+let af = liveCloseSymbolIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170284_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ag = unresolvableCalleeThrows();
+
+function unresolvableSymbolThrows() {
+  with ({}) {
+    try {
+      e170284_noglob.for("x");
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170284_noglob === "undefined"
+      );
+    }
+  }
+}
+let ah = unresolvableSymbolThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    keyFor: function (s) {
+      return 5;
+    }
+  };
+  with (Symbol) {
+    with (inner) {
+      return keyFor(1) === 5;
+    }
+  }
+}
+let ai = nestedInnerWins();
+
+function nestedInnerMissOuterSymbol() {
+  with ({
+    keyFor: function (s) {
+      return 5;
+    }
+  }) {
+    with (Symbol) {
+      return keyFor(Symbol.for("e170284m")) === "e170284m";
+    }
+  }
+}
+let aj = nestedInnerMissOuterSymbol();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { keyFor: Symbol.keyFor };
+  with (outer) {
+    with (inner) {
+      return keyFor(Symbol.for("e170284n")) === "e170284n";
+    }
+  }
+}
+let ak = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function keyFor(s) {
+    return 11;
+  }
+  let inner = { keyFor: Symbol.keyFor };
+  inner[Symbol.unscopables] = { keyFor: true };
+  let outer = {
+    keyFor: function (s) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return keyFor(1) === 6;
+    }
+  }
+}
+let al = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { keyFor: 1 };
+  with (obj) {
+    try {
+      keyFor(1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let am = nonCallableTypeError();
+
+function typeofKeyForThroughWith() {
+  let t;
+  with (Symbol) {
+    t = typeof keyFor;
+  }
+  return t === "function";
+}
+let an = typeofKeyForThroughWith();
+
+function typeofSymbolThroughWith() {
+  let obj = { Symbol: Symbol };
+  let t;
+  with (obj) {
+    t = typeof Symbol;
+  }
+  return t === "function";
+}
+let ap = typeofSymbolThroughWith();
+
+function memberForStillSymbol() {
+  let obj = { x: 1 };
+  with (obj) {
+    return Symbol.for("e170284p") === Symbol.for("e170284p");
+  }
+}
+let aq = memberForStillSymbol();
+
+function argsHitObject() {
+  let obj = {
+    x: Symbol.for("e170284q"),
+    keyFor: Symbol.keyFor
+  };
+  with (obj) {
+    return keyFor(x) === "e170284q";
+  }
+}
+let ar = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = Symbol();
+  let obj = { keyFor: Symbol.keyFor };
+  with (obj) {
+    return keyFor(x) === undefined;
+  }
+}
+let at = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get keyFor() {
+      ran = true;
+      return Symbol.keyFor;
+    }
+  };
+  with (obj) {
+    try {
+      keyFor(e170284_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let au = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      e170284_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let av = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function keyFor(s) {
+    return 1;
+  }
+  let obj = { keyFor: Symbol.keyFor };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return keyFor(s);
+    };
+  }
+  obj.keyFor = function (s) {
+    return 2;
+  };
+  return run(Symbol.for("e170284r")) === 2;
+}
+let aw = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get keyFor() {
+      c = c + 1;
+      return Symbol.keyFor;
+    }
+  };
+  let out;
+  with (obj) {
+    out = keyFor(Symbol.for("e170284s"));
+  }
+  return out === "e170284s" && c === 1;
+}
+let ax = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalSymbol() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = typeof Symbol("x") === "symbol";
+  }
+  return out === true;
+}
+let ay = emptyMissUsesGlobalSymbol();
+
+function bracketMethodOnObject() {
+  let obj = { keyFor: Symbol.keyFor };
+  with (obj) {
+    return obj["keyFor"](Symbol.for("e170284t")) === "e170284t";
+  }
+}
+let az = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let x = Symbol();
+  let obj = { keyFor: Symbol.keyFor, x: Symbol.for("e170284u") };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = keyFor(x);
+  }
+  return out === undefined && Symbol.keyFor(obj.x) === "e170284u";
+}
+let ba = unscopablesSecondIdent();
+
+function keyForUnregisteredUndefined() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol.keyFor(Symbol()) === undefined;
+  }
+}
+let bb = keyForUnregisteredUndefined();
+
+function symbolForDifferentKeys() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol.for("e170284v") !== Symbol.for("e170284w");
+  }
+}
+let bc = symbolForDifferentKeys();
+
+function withSymbolKeyForOfFor() {
+  with (Symbol) {
+    return keyFor(Symbol.for("e170284x")) === "e170284x";
+  }
+}
+let bd = withSymbolKeyForOfFor();
+
+function liveCloseKeyForAfterMutate() {
+  let obj = {
+    keyFor: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return keyFor(s);
+    };
+  }
+  obj.keyFor = function (s) {
+    return 2;
+  };
+  return run(1) === 2;
+}
+let be = liveCloseKeyForAfterMutate();
+
+function symbolCallNotFor() {
+  let obj = { Symbol: Symbol };
+  with (obj) {
+    return Symbol() !== Symbol.for("e170284y");
+  }
+}
+let bf = symbolCallNotFor();
