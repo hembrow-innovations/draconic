@@ -1,0 +1,713 @@
+// E17.02.92: with + global JSON (typeof JSON, globalThis identity,
+// JSON.parse / JSON.stringify basics) through object environment
+// (non-strict). JSON ident hits object (else outer); with (JSON)
+// method idents hit JSON; inherited HasBinding; accessor this is with
+// object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function withJsonParse() {
+  with (JSON) {
+    return parse("1") === 1;
+  }
+}
+let a = withJsonParse();
+
+function withJsonStringify() {
+  with (JSON) {
+    return stringify(1) === "1";
+  }
+}
+let b = withJsonStringify();
+
+function withJsonParseString() {
+  with (JSON) {
+    return parse("\"hi\"") === "hi";
+  }
+}
+let c = withJsonParseString();
+
+function withJsonStringifyString() {
+  with (JSON) {
+    return stringify("hi") === "\"hi\"";
+  }
+}
+let d = withJsonStringifyString();
+
+function withJsonParseTrue() {
+  with (JSON) {
+    return parse("true") === true;
+  }
+}
+let e = withJsonParseTrue();
+
+function withJsonStringifyTrue() {
+  with (JSON) {
+    return stringify(true) === "true";
+  }
+}
+let f = withJsonStringifyTrue();
+
+function withJsonParseNull() {
+  with (JSON) {
+    return parse("null") === null;
+  }
+}
+let g = withJsonParseNull();
+
+function withJsonStringifyNull() {
+  with (JSON) {
+    return stringify(null) === "null";
+  }
+}
+let h = withJsonStringifyNull();
+
+function withJsonParseObject() {
+  with (JSON) {
+    return parse("{\"x\":2}").x === 2;
+  }
+}
+let j = withJsonParseObject();
+
+function withJsonParseArray() {
+  with (JSON) {
+    let arr = parse("[1,2]");
+    return arr[0] === 1 && arr[1] === 2;
+  }
+}
+let k = withJsonParseArray();
+
+function withJsonRoundtrip() {
+  with (JSON) {
+    let round = parse(stringify({ a: 1, b: "two" }));
+    return round.a === 1 && round.b === "two";
+  }
+}
+let l = withJsonRoundtrip();
+
+function withJsonBracketParse() {
+  let obj = { JSON: JSON };
+  with (obj) {
+    return JSON["parse"]("1") === 1;
+  }
+}
+let m = withJsonBracketParse();
+
+function jsonIdentHitsObject() {
+  let obj = {
+    JSON: {
+      parse: function (s) {
+        return 42;
+      }
+    }
+  };
+  with (obj) {
+    return JSON.parse("1") === 42;
+  }
+}
+let n = jsonIdentHitsObject();
+
+function jsonIdentMissIsOuter() {
+  with ({}) {
+    return JSON.parse("1") === 1;
+  }
+}
+let p = jsonIdentMissIsOuter();
+
+function jsonIdentShadowsOuter() {
+  let obj = {
+    JSON: {
+      parse: function (s) {
+        return 0;
+      },
+      stringify: function (v) {
+        return "x";
+      }
+    }
+  };
+  with (obj) {
+    return JSON.parse("1") === 0 && JSON.stringify(1) === "x";
+  }
+}
+let q = jsonIdentShadowsOuter();
+
+function methodIdentHitsObject() {
+  let obj = {
+    parse: function (s) {
+      return 7;
+    },
+    stringify: function (v) {
+      return "y";
+    }
+  };
+  with (obj) {
+    return parse("1") === 7 && stringify(1) === "y";
+  }
+}
+let r = methodIdentHitsObject();
+
+function methodIdentMissIsOuter() {
+  function parse(s) {
+    return 8;
+  }
+  with ({}) {
+    return parse("1") === 8;
+  }
+}
+let s = methodIdentMissIsOuter();
+
+function objectShadowsOuterParse() {
+  function parse(s) {
+    return 8;
+  }
+  let obj = {
+    parse: function (s) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return parse("1") === 9;
+  }
+}
+let t = objectShadowsOuterParse();
+
+function callThisIsWithObject() {
+  let obj = {
+    parse: function (s) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return parse("1") === 3;
+  }
+}
+let u = callThisIsWithObject();
+
+function withJsonCallThisIsJson() {
+  let seen = null;
+  let orig = JSON.parse;
+  JSON.parse = function (s) {
+    seen = this;
+    return orig.call(this, s);
+  };
+  let ok;
+  with (JSON) {
+    ok = parse("1") === 1 && seen === JSON;
+  }
+  JSON.parse = orig;
+  return ok;
+}
+let v = withJsonCallThisIsJson();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get parse() {
+      n = n + 1;
+      return function (s) {
+        return JSON.parse(s);
+      };
+    },
+    get x() {
+      n = n + 1;
+      return "1";
+    }
+  };
+  with (obj) {
+    return parse(x) === 1 && n === 2;
+  }
+}
+let w = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function parse(s) {
+    return 11;
+  }
+  let obj = { parse: JSON.parse };
+  obj[Symbol.unscopables] = { parse: true };
+  with (obj) {
+    return parse("1") === 11;
+  }
+}
+let aa = unscopablesUsesOuter();
+
+function unscopablesJsonIdent() {
+  let obj = {
+    JSON: {
+      parse: function (s) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { JSON: true };
+  with (obj) {
+    return JSON.parse("1") === 1;
+  }
+}
+let ab = unscopablesJsonIdent();
+
+function inheritedData() {
+  let proto = { parse: JSON.parse, stringify: JSON.stringify };
+  let obj = Object.create(proto);
+  with (obj) {
+    return parse("1") === 1 && stringify(1) === "1";
+  }
+}
+let ac = inheritedData();
+
+function inheritedFromJson() {
+  let obj = Object.create(JSON);
+  with (obj) {
+    return parse("1") === 1 && stringify(true) === "true";
+  }
+}
+let ad = inheritedFromJson();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get parse() {
+      seen = this;
+      return function (s) {
+        return JSON.parse(s);
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return parse("1") === 1 && seen === obj;
+  }
+}
+let ae = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get parse() {
+      seen = this;
+      return function (s) {
+        return JSON.parse(s);
+      };
+    }
+  };
+  with (obj) {
+    return parse("1") === 1 && seen === obj;
+  }
+}
+let af = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    parse: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return parse(s);
+    };
+  }
+  obj.parse = JSON.parse;
+  return run("1") === 1;
+}
+let ag = liveClose();
+
+function liveCloseJsonIdent() {
+  let obj = {
+    JSON: {
+      parse: function (s) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return JSON.parse(s);
+    };
+  }
+  obj.JSON = JSON;
+  return run("1") === 1;
+}
+let ah = liveCloseJsonIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170292_missing("1");
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ai = unresolvableCalleeThrows();
+
+function unresolvableJsonThrows() {
+  with ({}) {
+    try {
+      e170292_noglob.parse("1");
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170292_noglob === "undefined"
+      );
+    }
+  }
+}
+let aj = unresolvableJsonThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    parse: function (s) {
+      return 5;
+    }
+  };
+  with (JSON) {
+    with (inner) {
+      return parse("1") === 5;
+    }
+  }
+}
+let ak = nestedInnerWins();
+
+function nestedInnerMissOuterJson() {
+  with ({ parse: function (s) { return 5; } }) {
+    with (JSON) {
+      return parse("1") === 1;
+    }
+  }
+}
+let al = nestedInnerMissOuterJson();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { parse: JSON.parse };
+  with (outer) {
+    with (inner) {
+      return parse("1") === 1;
+    }
+  }
+}
+let am = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function parse(s) {
+    return 11;
+  }
+  let inner = { parse: JSON.parse };
+  inner[Symbol.unscopables] = { parse: true };
+  let outer = {
+    parse: function (s) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return parse("1") === 6;
+    }
+  }
+}
+let an = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { parse: 1 };
+  with (obj) {
+    try {
+      parse("1");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ap = nonCallableTypeError();
+
+function typeofParse() {
+  let t;
+  with (JSON) {
+    t = typeof parse;
+  }
+  return t === "function";
+}
+let aq = typeofParse();
+
+function typeofJsonThroughWith() {
+  let obj = { JSON: JSON };
+  let t;
+  with (obj) {
+    t = typeof JSON;
+  }
+  return t === "object";
+}
+let ar = typeofJsonThroughWith();
+
+function typeofStringify() {
+  let t;
+  with (JSON) {
+    t = typeof stringify;
+  }
+  return t === "function";
+}
+let at = typeofStringify();
+
+function memberParseStillJson() {
+  let obj = { x: 1 };
+  with (obj) {
+    return JSON.parse("1") === 1;
+  }
+}
+let au = memberParseStillJson();
+
+function argsHitObject() {
+  let obj = {
+    x: "1",
+    parse: JSON.parse
+  };
+  with (obj) {
+    return parse(x) === 1;
+  }
+}
+let av = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = "true";
+  let obj = { parse: JSON.parse };
+  with (obj) {
+    return parse(x) === true;
+  }
+}
+let aw = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get parse() {
+      ran = true;
+      return JSON.parse;
+    }
+  };
+  with (obj) {
+    try {
+      parse(e170292_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ax = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return "1";
+    }
+  };
+  with (obj) {
+    try {
+      e170292_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ay = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function parse(s) {
+    return 1;
+  }
+  let obj = { parse: JSON.parse };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return parse(s);
+    };
+  }
+  obj.parse = function (s) {
+    return 2;
+  };
+  return run("1") === 2;
+}
+let az = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get parse() {
+      c = c + 1;
+      return JSON.parse;
+    }
+  };
+  let out;
+  with (obj) {
+    out = parse("1");
+  }
+  return out === 1 && c === 1;
+}
+let ba = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalJson() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = JSON.stringify(1);
+  }
+  return out === "1";
+}
+let bb = emptyMissUsesGlobalJson();
+
+function globalThisIdentity() {
+  let obj = { JSON: JSON };
+  with (obj) {
+    return JSON === globalThis.JSON;
+  }
+}
+let bc = globalThisIdentity();
+
+function stringifyIdentHitsObject() {
+  let obj = {
+    stringify: function (v) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return stringify(1) === "hit";
+  }
+}
+let bd = stringifyIdentHitsObject();
+
+function bracketMethodOnObject() {
+  let obj = { parse: JSON.parse };
+  with (obj) {
+    return obj["parse"]("1") === 1;
+  }
+}
+let be = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let x = "1";
+  let obj = { parse: JSON.parse, x: "skip" };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = parse(x);
+  }
+  return out === 1 && obj.x === "skip";
+}
+let bf = unscopablesSecondIdent();
+
+function jsonTypeofHit() {
+  let obj = { JSON: 1 };
+  let t;
+  with (obj) {
+    t = typeof JSON;
+  }
+  return t === "number";
+}
+let bg = jsonTypeofHit();
+
+function parseIdentMissIsOuter() {
+  with ({}) {
+    return typeof JSON.parse === "function" && JSON.parse("null") === null;
+  }
+}
+let bh = parseIdentMissIsOuter();
+
+function stringifyIdentMissIsOuter() {
+  with ({}) {
+    return JSON.stringify(null) === "null";
+  }
+}
+let bi = stringifyIdentMissIsOuter();
+
+function liveCloseStringify() {
+  let obj = { stringify: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return stringify;
+    };
+  }
+  obj.stringify = JSON.stringify;
+  return run() === JSON.stringify;
+}
+let bj = liveCloseStringify();
+
+function unscopablesStringify() {
+  let obj = { stringify: 1 };
+  obj[Symbol.unscopables] = { stringify: true };
+  with (obj) {
+    return typeof stringify === "undefined";
+  }
+}
+let bk = unscopablesStringify();
+
+function nestedStringifyInnerWins() {
+  with ({ stringify: 1 }) {
+    with ({ stringify: 2 }) {
+      return stringify === 2;
+    }
+  }
+}
+let bl = nestedStringifyInnerWins();
+
+function getterRunsOnceStringify() {
+  let c = 0;
+  let obj = {
+    get stringify() {
+      c = c + 1;
+      return JSON.stringify;
+    }
+  };
+  let out;
+  with (obj) {
+    out = stringify("hi");
+  }
+  return out === "\"hi\"" && c === 1;
+}
+let bm = getterRunsOnceStringify();
+
+function identityParse() {
+  let obj = { JSON: JSON };
+  with (obj) {
+    return JSON.parse === globalThis.JSON.parse;
+  }
+}
+let bn = identityParse();
+
+function identityStringify() {
+  let obj = { JSON: JSON };
+  with (obj) {
+    return JSON.stringify === globalThis.JSON.stringify;
+  }
+}
+let bp = identityStringify();
+
+function nestedJsonInnerWins() {
+  with ({ JSON: 1 }) {
+    with ({ JSON: 2 }) {
+      return JSON === 2;
+    }
+  }
+}
+let bq = nestedJsonInnerWins();
+
+function emptyMissUsesGlobalParse() {
+  with ({}) {
+    return JSON.parse("\"hi\"") === "hi";
+  }
+}
+let br = emptyMissUsesGlobalParse();
+
+function withJsonStringifyObject() {
+  with (JSON) {
+    return stringify({ x: 2 }) === "{\"x\":2}";
+  }
+}
+let bs = withJsonStringifyObject();

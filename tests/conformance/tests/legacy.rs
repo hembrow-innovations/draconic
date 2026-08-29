@@ -958,3 +958,13 @@ fn with_uri_functions_fixture_present() {
 fn with_uri_functions_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_uri_functions");
 }
+
+#[test]
+fn with_json_fixture_present() {
+    assert_fixture_present("es/legacy/with_json");
+}
+
+#[test]
+fn with_json_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_json");
+}
