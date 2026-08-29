@@ -1,0 +1,1184 @@
+// E17.02.110: with + Proxy construct trap (empty-handler pass-through
+// new, trap intercept new, constructable target) through object
+// environment (non-strict). Proxy ident hits object (else outer);
+// with (Proxy) method idents hit Proxy (name / length); construct ident
+// hits object (else outer); inherited HasBinding; accessor this is
+// with object; unresolvable → ReferenceError; live close; nested
+// with; unscopables skip.
+
+function plainConstructorNew() {
+  let obj = {
+    F: function (a, b) {
+      this.sum = a + b;
+    }
+  };
+  with (obj) {
+    return new F(2, 3).sum === 5;
+  }
+}
+let a = plainConstructorNew();
+
+function emptyHandlerPassThroughNew() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let Target = function (a, b) {
+      this.sum = a + b;
+    };
+    let p = new Proxy(Target, {});
+    let inst = new p(2, 3);
+    return inst.sum === 5 && inst instanceof Target;
+  }
+}
+let b = emptyHandlerPassThroughNew();
+
+function emptyHandlerPassThroughTwoArgs() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let Target = function (a, b) {
+      this.prod = a * b;
+    };
+    let p = new Proxy(Target, {});
+    return new p(4, 5).prod === 20;
+  }
+}
+let c = emptyHandlerPassThroughTwoArgs();
+
+function constructTrapIntercepts() {
+  let obj = { Proxy: Proxy };
+  let calls = 0;
+  let lastArg0 = 0;
+  let lastArg1 = 0;
+  let lastLen = 0;
+  let lastNewTarget = 0;
+  with (obj) {
+    let P = new Proxy(
+      function (a, b) {
+        this.prod = a * b;
+      },
+      {
+        construct: function (t, args, newTarget) {
+          calls = calls + 1;
+          lastArg0 = args[0];
+          lastArg1 = args[1];
+          lastLen = args.length;
+          lastNewTarget = newTarget;
+          let inst = new t(args[0], args[1]);
+          inst.extra = 1;
+          return inst;
+        }
+      }
+    );
+    let r = new P(4, 5);
+    return (
+      r.prod === 20 &&
+      r.extra === 1 &&
+      calls === 1 &&
+      lastArg0 === 4 &&
+      lastArg1 === 5 &&
+      lastLen === 2 &&
+      lastNewTarget === P &&
+      r instanceof P
+    );
+  }
+}
+let d = constructTrapIntercepts();
+
+function constructTrapNewTarget() {
+  let obj = { Proxy: Proxy };
+  let lastNewTarget = 0;
+  with (obj) {
+    let P = new Proxy(
+      function (a, b) {
+        this.sum = a + b;
+      },
+      {
+        construct: function (t, args, newTarget) {
+          lastNewTarget = newTarget;
+          let inst = new t(args[0], args[1]);
+          inst.extra = 1;
+          return inst;
+        }
+      }
+    );
+    let r = new P(6, 7);
+    return r.sum === 13 && r.extra === 1 && lastNewTarget === P;
+  }
+}
+let e = constructTrapNewTarget();
+
+function withProxyTypeof() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return typeof Proxy === "function";
+  }
+}
+let f = withProxyTypeof();
+
+function withProxyName() {
+  with (Proxy) {
+    return name === "Proxy";
+  }
+}
+let g = withProxyName();
+
+function withProxyLength() {
+  with (Proxy) {
+    return length === 2;
+  }
+}
+let h = withProxyLength();
+
+function withProxyPrototypeUndefined() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy.prototype === undefined;
+  }
+}
+let j = withProxyPrototypeUndefined();
+
+function globalThisIdentity() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let k = globalThisIdentity();
+
+function proxyIdentHitsObject() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Proxy({}, {}).p === "hit";
+  }
+}
+let l = proxyIdentHitsObject();
+
+function proxyIdentMissIsOuter() {
+  with ({}) {
+    let Target = function (a, b) {
+      this.sum = a + b;
+    };
+    let p = new Proxy(Target, {});
+    return new p(2, 3).sum === 5;
+  }
+}
+let m = proxyIdentMissIsOuter();
+
+function constructIdentHitsObject() {
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return args[0] === 1;
+    }
+  };
+  with (obj) {
+    return construct(null, [1], null) === true && construct(null, [0], null) === false;
+  }
+}
+let n = constructIdentHitsObject();
+
+function constructIdentMissIsOuter() {
+  function construct(t, args, newTarget) {
+    return args[0] === 7;
+  }
+  with ({}) {
+    return construct(null, [7], null) === true && construct(null, [1], null) === false;
+  }
+}
+let p = constructIdentMissIsOuter();
+
+function objectShadowsOuterConstruct() {
+  function construct(t, args, newTarget) {
+    return false;
+  }
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return true;
+    }
+  };
+  with (obj) {
+    return construct(null, [], null) === true;
+  }
+}
+let q = objectShadowsOuterConstruct();
+
+function callThisIsWithObject() {
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return construct(null, [], null) === 3;
+  }
+}
+let r = callThisIsWithObject();
+
+function withHandlerConstructThisIsHandler() {
+  let handler = {
+    construct: function (t, args, newTarget) {
+      return true;
+    }
+  };
+  let seen = null;
+  let orig = handler.construct;
+  handler.construct = function (t, args, newTarget) {
+    seen = this;
+    return orig.call(this, t, args, newTarget);
+  };
+  let ok;
+  with (handler) {
+    construct(null, [], null);
+    ok = seen === handler;
+  }
+  return ok;
+}
+let s = withHandlerConstructThisIsHandler();
+
+function bothSidesAlwaysEvaled() {
+  let cnt = 0;
+  let obj = {
+    get Proxy() {
+      cnt = cnt + 1;
+      return Proxy;
+    },
+    get target() {
+      cnt = cnt + 1;
+      return function (x) {
+        this.v = x;
+      };
+    }
+  };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    let r = new pr(9);
+    return r.v === 9 && cnt === 2;
+  }
+}
+let t = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function construct(t, args, newTarget) {
+    return true;
+  }
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return false;
+    }
+  };
+  obj[Symbol.unscopables] = { construct: true };
+  with (obj) {
+    return construct(null, [], null) === true;
+  }
+}
+let u = unscopablesUsesOuter();
+
+function unscopablesProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Proxy: true };
+  with (obj) {
+    let Target = function (a, b) {
+      this.sum = a + b;
+    };
+    let pr = new Proxy(Target, {});
+    return new pr(2, 3).sum === 5;
+  }
+}
+let v = unscopablesProxyIdent();
+
+function inheritedData() {
+  let proto = {
+    construct: function (t, args, newTarget) {
+      return args[0] === "ok";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return construct(null, ["ok"], null) === true && construct(null, ["no"], null) === false;
+  }
+}
+let w = inheritedData();
+
+function inheritedFromProxy() {
+  let obj = Object.create(Proxy);
+  with (obj) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let aa = inheritedFromProxy();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get construct() {
+      seen = this;
+      return function (t, args, newTarget) {
+        return true;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return construct(null, [], null) === true && seen === obj;
+  }
+}
+let ab = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get construct() {
+      seen = this;
+      return function (t, args, newTarget) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    return construct(null, [], null) === true && seen === obj;
+  }
+}
+let ac = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (t, args, newTarget) {
+      return construct(t, args, newTarget);
+    };
+  }
+  obj.construct = function (t, args, newTarget) {
+    return true;
+  };
+  return run(null, [], null) === true;
+}
+let ad = liveClose();
+
+function liveCloseProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (target, handler) {
+      return new Proxy(target, handler);
+    };
+  }
+  obj.Proxy = Proxy;
+  let Target = function (a, b) {
+    this.sum = a + b;
+  };
+  let pr = run(Target, {});
+  return new pr(2, 3).sum === 5;
+}
+let ae = liveCloseProxyIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702110_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let af = unresolvableCalleeThrows();
+
+function unresolvableProxyThrows() {
+  with ({}) {
+    try {
+      e1702110_noglob.construct;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702110_noglob === "undefined"
+      );
+    }
+  }
+}
+let ag = unresolvableProxyThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    construct: function (t, args, newTarget) {
+      return true;
+    }
+  };
+  let handler = {
+    construct: function (t, args, newTarget) {
+      return false;
+    }
+  };
+  with (handler) {
+    with (inner) {
+      return construct(null, [], null) === true;
+    }
+  }
+}
+let ah = nestedInnerWins();
+
+function nestedInnerMissOuterHandler() {
+  with ({
+    construct: function (t, args, newTarget) {
+      return true;
+    }
+  }) {
+    let handler = {
+      construct: function (t, args, newTarget) {
+        return false;
+      }
+    };
+    with (handler) {
+      return typeof construct === "function" && construct(null, [], null) === false;
+    }
+  }
+}
+let ai = nestedInnerMissOuterHandler();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    construct: function (t, args, newTarget) {
+      return true;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return construct(null, [], null) === true;
+    }
+  }
+}
+let aj = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function construct(t, args, newTarget) {
+    return true;
+  }
+  let inner = {
+    construct: function (t, args, newTarget) {
+      return false;
+    }
+  };
+  inner[Symbol.unscopables] = { construct: true };
+  let outer = {
+    construct: function (t, args, newTarget) {
+      return args[0] === "fromOuter";
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return construct(null, ["fromOuter"], null) === true;
+    }
+  }
+}
+let ak = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { construct: 1 };
+  with (obj) {
+    try {
+      construct(null, [], null);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let al = nonCallableTypeError();
+
+function typeofConstructMethod() {
+  let ty;
+  let handler = {
+    construct: function (t, args, newTarget) {
+      return true;
+    }
+  };
+  with (handler) {
+    ty = typeof construct;
+  }
+  return ty === "function";
+}
+let am = typeofConstructMethod();
+
+function typeofProxyThroughWith() {
+  let obj = { Proxy: Proxy };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "function";
+}
+let an = typeofProxyThroughWith();
+
+function memberStillProxy() {
+  let obj = { x: 1 };
+  with (obj) {
+    let Target = function (n) {
+      this.v = n + 1;
+    };
+    let pr = new Proxy(Target, {});
+    return new pr(3).v === 4;
+  }
+}
+let ap = memberStillProxy();
+
+function argsHitObject() {
+  let obj = {
+    target: function (n) {
+      this.v = n + 9;
+    },
+    Proxy: Proxy
+  };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    return new pr(1).v === 10;
+  }
+}
+let aq = argsHitObject();
+
+function argsMissIsOuter() {
+  let target = function (n) {
+    this.v = n + 9;
+  };
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    return new pr(1).v === 10;
+  }
+}
+let ar = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get Proxy() {
+      ran = true;
+      return Proxy;
+    }
+  };
+  with (obj) {
+    try {
+      new Proxy(e1702110_arg, {});
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let at = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702110_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let au = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function construct(t, args, newTarget) {
+    return false;
+  }
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (t, args, newTarget) {
+      return construct(t, args, newTarget);
+    };
+  }
+  obj.construct = function (t, args, newTarget) {
+    return true;
+  };
+  return run(null, [], null) === true;
+}
+let av = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get construct() {
+      cnt = cnt + 1;
+      return function (t, args, newTarget) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    construct(null, [], null);
+  }
+  return cnt === 1;
+}
+let aw = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalProxy() {
+  let obj = {};
+  with (obj) {
+    let Target = function (a, b) {
+      this.sum = a + b;
+    };
+    let pr = new Proxy(Target, {});
+    return new pr(2, 3).sum === 5;
+  }
+}
+let ax = emptyMissUsesGlobalProxy();
+
+function constructTypeofHit() {
+  let obj = { construct: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof construct;
+  }
+  return ty === "number";
+}
+let ay = constructTypeofHit();
+
+function proxyTypeofHit() {
+  let obj = { Proxy: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "number";
+}
+let az = proxyTypeofHit();
+
+function missUsesGlobalProxy() {
+  with ({}) {
+    let Target = function (x) {
+      this.v = x;
+    };
+    let pr = new Proxy(Target, {});
+    return new pr(1).v === 1;
+  }
+}
+let ba = missUsesGlobalProxy();
+
+function liveCloseConstruct() {
+  let obj = { construct: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return construct;
+    };
+  }
+  obj.construct = function (t, args, newTarget) {
+    return true;
+  };
+  return typeof run() === "function";
+}
+let bb = liveCloseConstruct();
+
+function unscopablesConstruct() {
+  let obj = { construct: 1 };
+  obj[Symbol.unscopables] = { construct: true };
+  with (obj) {
+    return typeof construct === "undefined";
+  }
+}
+let bc = unscopablesConstruct();
+
+function nestedConstructInnerWins() {
+  with ({ construct: 1 }) {
+    with ({ construct: 2 }) {
+      return construct === 2;
+    }
+  }
+}
+let bd = nestedConstructInnerWins();
+
+function nestedProxyInnerWins() {
+  with ({ Proxy: 1 }) {
+    with ({ Proxy: 2 }) {
+      return Proxy === 2;
+    }
+  }
+}
+let be = nestedProxyInnerWins();
+
+function getterRunsOnceConstruct() {
+  let cnt = 0;
+  let obj = {
+    get construct() {
+      cnt = cnt + 1;
+      return function (t, args, newTarget) {
+        return true;
+      };
+    }
+  };
+  let out;
+  with (obj) {
+    out = construct(null, [], null);
+  }
+  return out === true && cnt === 1;
+}
+let bf = getterRunsOnceConstruct();
+
+function identityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let bg = identityProxy();
+
+function withProxyNewThisIsInstance() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let pr = new Proxy(function (n) {
+      this.v = n;
+    }, {});
+    let inst = new pr(8);
+    return inst !== obj && typeof pr === "function" && inst.v === 8;
+  }
+}
+let bh = withProxyNewThisIsInstance();
+
+function bracketMethodOnObject() {
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return args[0] === "ok";
+    }
+  };
+  with (obj) {
+    return obj["construct"](null, ["ok"], null) === true;
+  }
+}
+let bi = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return args[0] === "z";
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = "z";
+  with (obj) {
+    return construct(null, [x], null) === true && obj.x === 9;
+  }
+}
+let bj = unscopablesSecondIdent();
+
+function withProxyNameLengthTogether() {
+  with (Proxy) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let bk = withProxyNameLengthTogether();
+
+function constructTrapThroughObj() {
+  let obj = { Proxy: Proxy };
+  let calls = 0;
+  with (obj) {
+    let P = new Proxy(
+      function (a, b) {
+        this.prod = a * b;
+      },
+      {
+        construct: function (t, args, newTarget) {
+          calls = calls + 1;
+          let inst = new t(args[0], args[1]);
+          inst.extra = 1;
+          return inst;
+        }
+      }
+    );
+    let r1 = new P(4, 5);
+    let r2 = new P(6, 7);
+    return (
+      r1.prod === 20 &&
+      r1.extra === 1 &&
+      r2.prod === 42 &&
+      r2.extra === 1 &&
+      calls === 2 &&
+      typeof P === "function"
+    );
+  }
+}
+let bl = constructTrapThroughObj();
+
+function constructTrapHandlerIdentHitsObject() {
+  let obj = {
+    construct: function (t, args, newTarget) {
+      let inst = new t(args[0], args[1]);
+      inst.extra = 1;
+      return inst;
+    }
+  };
+  with (obj) {
+    let P = new Proxy(
+      function (a, b) {
+        this.prod = a * b;
+      },
+      { construct: construct }
+    );
+    let r = new P(4, 5);
+    return r.prod === 20 && r.extra === 1;
+  }
+}
+let bm = constructTrapHandlerIdentHitsObject();
+
+function passThroughZeroArgs() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let Target = function () {
+      this.v = 42;
+    };
+    let p = new Proxy(Target, {});
+    return new p().v === 42;
+  }
+}
+let bn = passThroughZeroArgs();
+
+function typeofAndFunction() {
+  let obj = { Proxy: Proxy };
+  let pr;
+  with (obj) {
+    pr = new Proxy(function (n) {
+      this.v = n + 1;
+    }, {});
+  }
+  return typeof pr === "function" && new pr(1).v === 2;
+}
+let bp = typeofAndFunction();
+
+function constructIdentOnHandlerMissOuter() {
+  function construct(t, args, newTarget) {
+    return true;
+  }
+  with ({}) {
+    let Target = function (x) {
+      this.v = x;
+    };
+    let p = new Proxy(Target, {});
+    return new p(3).v === 3 && typeof construct === "function";
+  }
+}
+let bq = constructIdentOnHandlerMissOuter();
+
+function liveCloseConstructAfterTrap() {
+  let obj = {
+    construct: function (t, args, newTarget) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (t, args, newTarget) {
+      return construct(t, args, newTarget);
+    };
+  }
+  obj.construct = function (t, args, newTarget) {
+    return args[0] === "x";
+  };
+  return run(null, ["x"], null) === true;
+}
+let br = liveCloseConstructAfterTrap();
+
+function targetIdentHitsObject() {
+  let obj = {
+    t: function (n) {
+      this.v = n + 42;
+    },
+    Proxy: Proxy
+  };
+  with (obj) {
+    let p = new Proxy(t, {});
+    return new p(1).v === 43;
+  }
+}
+let bs = targetIdentHitsObject();
+
+function constructTrapThisIsHandler() {
+  let obj = { Proxy: Proxy };
+  let seen = null;
+  with (obj) {
+    let handler = {
+      construct: function (t, args, newTarget) {
+        seen = this;
+        return new t(args[0]);
+      }
+    };
+    let P = new Proxy(function (n) {
+      this.v = n;
+    }, handler);
+    let r = new P(5);
+    return seen === handler && r.v === 5;
+  }
+}
+let bt = constructTrapThisIsHandler();
+
+function argIdentHitsObject() {
+  let obj = { Proxy: Proxy, k: 3 };
+  with (obj) {
+    let Target = function (n) {
+      this.v = n * 2;
+    };
+    let p = new Proxy(Target, {});
+    return new p(k).v === 6;
+  }
+}
+let bu = argIdentHitsObject();
+
+function argIdentMissUsesOuter() {
+  let k = 3;
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let Target = function (n) {
+      this.v = n * 2;
+    };
+    let p = new Proxy(Target, {});
+    return new p(k).v === 6;
+  }
+}
+let bv = argIdentMissUsesOuter();
+
+function unresolvableArgAfterGetProxy() {
+  let ran = false;
+  let obj = {
+    get Proxy() {
+      ran = true;
+      return Proxy;
+    }
+  };
+  with (obj) {
+    try {
+      let p = new Proxy(function (n) {
+        this.v = n;
+      }, {});
+      new p(e1702110_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bw = unresolvableArgAfterGetProxy();
+
+function constructTrapThrowTypeError() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let P = new Proxy(
+      function () {
+        this.v = 0;
+      },
+      {
+        construct: function (t, args, newTarget) {
+          throw new TypeError("construct-boom");
+        }
+      }
+    );
+    try {
+      new P(1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && err.message === "construct-boom";
+    }
+  }
+}
+let bx = constructTrapThrowTypeError();
+
+function emptyHandlerPassThroughArgIdent() {
+  let obj = { Proxy: Proxy, n: 4 };
+  with (obj) {
+    let p = new Proxy(function (x, y) {
+      this.sum = x + y;
+    }, {});
+    return new p(n, 5).sum === 9;
+  }
+}
+let by = emptyHandlerPassThroughArgIdent();
+
+function constructResultHasSum() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let p = new Proxy(function (x, y) {
+      this.sum = x + y;
+    }, {});
+    let r = new p(2, 3);
+    return r.sum === 5 && typeof r === "object";
+  }
+}
+let bz = constructResultHasSum();
+
+function nonConstructableTargetTypeError() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let p = new Proxy({}, {});
+    try {
+      new p(1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ca = nonConstructableTargetTypeError();
+
+function constructTrapNewTargetWithIdentNew() {
+  let lastNewTarget = 0;
+  let P = new Proxy(
+    function () {
+      this.v = 1;
+    },
+    {
+      construct: function (t, args, newTarget) {
+        lastNewTarget = newTarget;
+        return new t();
+      }
+    }
+  );
+  let box = { P: P };
+  with (box) {
+    let r = new P();
+    return r.v === 1 && lastNewTarget === P;
+  }
+}
+let cb = constructTrapNewTargetWithIdentNew();
+
+function constructTrapNewTargetLetBound() {
+  let lastNewTarget = 0;
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let P = new Proxy(
+      function () {
+        this.v = 1;
+      },
+      {
+        construct: function (t, args, newTarget) {
+          lastNewTarget = newTarget;
+          return new t();
+        }
+      }
+    );
+    let r = new P();
+    return r.v === 1 && lastNewTarget === P;
+  }
+}
+let cc = constructTrapNewTargetLetBound();
+
+function nestedConstructInnerWinsNew() {
+  with ({
+    F: function () {
+      this.v = 1;
+    }
+  }) {
+    with ({
+      F: function () {
+        this.v = 2;
+      }
+    }) {
+      return new F().v === 2;
+    }
+  }
+}
+let cd = nestedConstructInnerWinsNew();
+
+function constructTrapReturnsWithoutCallingTarget() {
+  let obj = { Proxy: Proxy };
+  let called = false;
+  with (obj) {
+    let P = new Proxy(
+      function () {
+        called = true;
+        this.v = 0;
+      },
+      {
+        construct: function (t, args, newTarget) {
+          return { v: 99 };
+        }
+      }
+    );
+    let r = new P();
+    return r.v === 99 && called === false;
+  }
+}
+let ce = constructTrapReturnsWithoutCallingTarget();
+
+function constructTrapCallCount() {
+  let obj = { Proxy: Proxy };
+  let calls = 0;
+  with (obj) {
+    let P = new Proxy(
+      function (a, b) {
+        this.sum = a + b;
+      },
+      {
+        construct: function (t, args, newTarget) {
+          calls = calls + 1;
+          return new t(args[0], args[1]);
+        }
+      }
+    );
+    let r1 = new P(1, 2);
+    let r2 = new P(3, 4);
+    return r1.sum === 3 && r2.sum === 7 && calls === 2;
+  }
+}
+let cf = constructTrapCallCount();
+
+function liveCloseConstructTarget() {
+  let obj = {
+    box: function (n) {
+      this.v = n + 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (n) {
+      return new box(n);
+    };
+  }
+  obj.box = function (n) {
+    this.v = n + 10;
+  };
+  return run(1).v === 11;
+}
+let cg = liveCloseConstructTarget();
+
+function unscopablesArgIdent() {
+  let obj = {
+    Proxy: Proxy,
+    k: 0
+  };
+  obj[Symbol.unscopables] = { k: true };
+  let k = 5;
+  with (obj) {
+    let p = new Proxy(function (n) {
+      this.v = n;
+    }, {});
+    return new p(k).v === 5;
+  }
+}
+let ch = unscopablesArgIdent();
