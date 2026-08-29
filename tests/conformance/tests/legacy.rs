@@ -748,3 +748,13 @@ fn with_array_lit_access_fixture_present() {
 fn with_array_lit_access_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_array_lit_access");
 }
+
+#[test]
+fn with_array_element_assign_fixture_present() {
+    assert_fixture_present("es/legacy/with_array_element_assign");
+}
+
+#[test]
+fn with_array_element_assign_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_array_element_assign");
+}

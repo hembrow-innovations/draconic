@@ -1,0 +1,371 @@
+// E17.02.71: with + array element assignment `ident[i] = v` / `ident["k"] = v`
+// (simple `=`; read-back; length may grow) through object environment (non-strict).
+// Base/index/value idents hit object (else outer); result is RHS; nested `[]`;
+// inherited HasBinding on base; accessor set this is the array; missing index
+// creates own and may grow length; unresolvable base/index/RHS → ReferenceError;
+// live close; nested with; unscopables skip.
+
+function baseHitsObject() {
+  let arr = [0];
+  let env = { arr: [1] };
+  with (env) {
+    arr[0] = 9;
+  }
+  return env.arr[0] === 9 && arr[0] === 0;
+}
+let a = baseHitsObject();
+
+function baseMissUsesOuter() {
+  let arr = [0];
+  let env = {};
+  with (env) {
+    arr[0] = 8;
+  }
+  return arr[0] === 8;
+}
+let b = baseMissUsesOuter();
+
+function stringIndexHitsObject() {
+  let arr = [0];
+  let env = { arr: [1] };
+  with (env) {
+    arr["0"] = 7;
+  }
+  return env.arr[0] === 7 && arr[0] === 0;
+}
+let c = stringIndexHitsObject();
+
+function indexIdentHitsObject() {
+  let i = 0;
+  let env = { arr: [0, 0], i: 1 };
+  with (env) {
+    arr[i] = 11;
+  }
+  return env.arr[1] === 11 && env.arr[0] === 0 && i === 0;
+}
+let d = indexIdentHitsObject();
+
+function indexIdentMissUsesOuter() {
+  let i = 1;
+  let env = { arr: [0, 0] };
+  with (env) {
+    arr[i] = 12;
+  }
+  return env.arr[1] === 12 && env.arr[0] === 0;
+}
+let e = indexIdentMissUsesOuter();
+
+function rhsHitsObject() {
+  let arr = [0];
+  let env = { v: 13 };
+  with (env) {
+    arr[0] = v;
+  }
+  return arr[0] === 13;
+}
+let f = rhsHitsObject();
+
+function rhsMissUsesOuter() {
+  let v = 14;
+  let env = { arr: [0] };
+  with (env) {
+    arr[0] = v;
+  }
+  return env.arr[0] === 14;
+}
+let g = rhsMissUsesOuter();
+
+function assignYieldsRhs() {
+  let env = { arr: [0] };
+  let r;
+  with (env) {
+    r = (arr[0] = 15);
+  }
+  return r === 15 && env.arr[0] === 15;
+}
+let h = assignYieldsRhs();
+
+function rhsAlwaysEvaluated() {
+  let n = 0;
+  let env = { arr: [0] };
+  with (env) {
+    arr[0] = (n = n + 1, 16);
+  }
+  return env.arr[0] === 16 && n === 1;
+}
+let i = rhsAlwaysEvaluated();
+
+function nestedIndex() {
+  let env = { arr: [[0], [1, 0]] };
+  with (env) {
+    arr[0][0] = 17;
+    arr[1][1] = 18;
+  }
+  return env.arr[0][0] === 17 && env.arr[1][1] === 18;
+}
+let j = nestedIndex();
+
+function growLength() {
+  let env = { arr: [1] };
+  with (env) {
+    arr[2] = 19;
+  }
+  return env.arr[2] === 19 && env.arr.length === 3 && env.arr[1] === undefined;
+}
+let k = growLength();
+
+function growEmpty() {
+  let env = { arr: [] };
+  with (env) {
+    arr[0] = 7;
+  }
+  return env.arr[0] === 7 && env.arr.length === 1;
+}
+let l = growEmpty();
+
+function fillHole() {
+  let env = { arr: [1, , 3] };
+  with (env) {
+    arr[1] = 20;
+  }
+  return env.arr[1] === 20 && env.arr.length === 3 && "1" in env.arr;
+}
+let m = fillHole();
+
+function unscopablesBaseUsesOuter() {
+  let arr = [0];
+  let env = { arr: [0] };
+  env[Symbol.unscopables] = { arr: true };
+  with (env) {
+    arr[0] = 21;
+  }
+  return arr[0] === 21 && env.arr[0] === 0;
+}
+let n = unscopablesBaseUsesOuter();
+
+function unscopablesIndexUsesOuter() {
+  let i = 0;
+  let env = { arr: [0, 0], i: 1 };
+  env[Symbol.unscopables] = { i: true };
+  with (env) {
+    arr[i] = 22;
+  }
+  return env.arr[0] === 22 && env.arr[1] === 0;
+}
+let p = unscopablesIndexUsesOuter();
+
+function unscopablesRhsUsesOuter() {
+  let v = 23;
+  let env = { arr: [0], v: 99 };
+  env[Symbol.unscopables] = { v: true };
+  with (env) {
+    arr[0] = v;
+  }
+  return env.arr[0] === 23;
+}
+let q = unscopablesRhsUsesOuter();
+
+function inheritedBase() {
+  let proto = { arr: [0] };
+  let env = Object.create(proto);
+  with (env) {
+    arr[0] = 24;
+  }
+  return proto.arr[0] === 24;
+}
+let r = inheritedBase();
+
+function accessorSetThisIsArray() {
+  let seen = null;
+  let arr = [];
+  Object.defineProperty(arr, "0", {
+    set: function (v) {
+      seen = this;
+      this._v = v;
+    },
+    get: function () {
+      return this._v;
+    },
+    configurable: true
+  });
+  let env = { arr: arr };
+  with (env) {
+    arr[0] = 25;
+  }
+  return seen === arr && arr[0] === 25;
+}
+let s = accessorSetThisIsArray();
+
+function accessorGetThisBase() {
+  let seen = null;
+  let inner = [0];
+  let env = {
+    get arr() {
+      seen = this;
+      return inner;
+    }
+  };
+  with (env) {
+    arr[0] = 26;
+  }
+  return inner[0] === 26 && seen === env;
+}
+let t = accessorGetThisBase();
+
+function unresolvableBaseThrows() {
+  with ({}) {
+    try {
+      e170271_arr[0] = 1;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170271_arr === "undefined"
+      );
+    }
+  }
+}
+let u = unresolvableBaseThrows();
+
+function unresolvableIndexThrows() {
+  let env = { arr: [1] };
+  with (env) {
+    try {
+      arr[e170271_i] = 2;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && env.arr[0] === 1;
+    }
+  }
+}
+let v = unresolvableIndexThrows();
+
+function unresolvableRhsThrows() {
+  let env = { arr: [1] };
+  with (env) {
+    try {
+      arr[0] = e170271_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && env.arr[0] === 1;
+    }
+  }
+}
+let w = unresolvableRhsThrows();
+
+function unresolvableBaseSkipsIndex() {
+  let ran = false;
+  let env = {
+    get i() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (env) {
+    try {
+      e170271_skip[i] = 1;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let aa = unresolvableBaseSkipsIndex();
+
+function unresolvableIndexSkipsRhs() {
+  let ran = false;
+  let env = {
+    arr: [1],
+    get v() {
+      ran = true;
+      return 9;
+    }
+  };
+  with (env) {
+    try {
+      arr[e170271_idx] = v;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false && env.arr[0] === 1;
+    }
+  }
+}
+let ab = unresolvableIndexSkipsRhs();
+
+function liveClose() {
+  let env = { arr: [1], i: 0 };
+  let run;
+  with (env) {
+    run = function () {
+      arr[i] = 27;
+    };
+  }
+  env.arr = [0, 0];
+  env.i = 1;
+  run();
+  return env.arr[1] === 27 && env.arr[0] === 0;
+}
+let ac = liveClose();
+
+function nestedInnerWins() {
+  let inner = { arr: [0] };
+  let outer = { arr: [0] };
+  with (outer) {
+    with (inner) {
+      arr[0] = 28;
+    }
+  }
+  return inner.arr[0] === 28 && outer.arr[0] === 0;
+}
+let ad = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { arr: [0] };
+  with (outer) {
+    with (inner) {
+      arr[0] = 29;
+    }
+  }
+  return outer.arr[0] === 29;
+}
+let ae = nestedInnerMissOuter();
+
+function nonWritableSilent() {
+  let arr = [1];
+  Object.defineProperty(arr, "0", {
+    value: 1,
+    writable: false,
+    configurable: true
+  });
+  let env = { arr: arr };
+  with (env) {
+    arr[0] = 9;
+  }
+  return arr[0] === 1;
+}
+let af = nonWritableSilent();
+
+function evalOrderBaseIndexRhs() {
+  let order = "";
+  let target = [0];
+  let env = {
+    get arr() {
+      order = order + "A";
+      return target;
+    },
+    get i() {
+      order = order + "I";
+      return 0;
+    },
+    get v() {
+      order = order + "V";
+      return 30;
+    }
+  };
+  with (env) {
+    arr[i] = v;
+  }
+  return target[0] === 30 && order === "AIV";
+}
+let ag = evalOrderBaseIndexRhs();
