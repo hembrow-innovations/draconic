@@ -1128,3 +1128,13 @@ fn with_proxy_delete_fixture_present() {
 fn with_proxy_delete_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_proxy_delete");
 }
+
+#[test]
+fn with_proxy_apply_fixture_present() {
+    assert_fixture_present("es/legacy/with_proxy_apply");
+}
+
+#[test]
+fn with_proxy_apply_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_proxy_apply");
+}
