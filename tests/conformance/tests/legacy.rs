@@ -838,3 +838,13 @@ fn with_bigint_literals_fixture_present() {
 fn with_bigint_literals_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_bigint_literals");
 }
+
+#[test]
+fn with_bigint_ops_fixture_present() {
+    assert_fixture_present("es/legacy/with_bigint_ops");
+}
+
+#[test]
+fn with_bigint_ops_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_bigint_ops");
+}
