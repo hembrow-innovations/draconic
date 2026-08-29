@@ -1,0 +1,888 @@
+// E17.02.119: with + RegExp.prototype.compile (Annex B.2.6: typeof,
+// recompile pattern/flags, read-back .source/.flags/.test) through
+// object environment (non-strict).
+// Regexp/method/arg idents hit object (else outer); with (RegExp.prototype)
+// method idents hit those methods (compile); with (RegExp.prototype.compile)
+// name/length idents hit that function; inherited HasBinding; accessor this
+// is with object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function memberCompileHitsObject() {
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    r.compile("b+", "i");
+    return r.source === "b+" && r.flags === "i" && r.test("BB") === true;
+  }
+}
+let a = memberCompileHitsObject();
+
+function memberCompileMissUsesOuter() {
+  let r = new RegExp("a+");
+  with ({}) {
+    r.compile("b+", "i");
+    return r.source === "b+" && r.flags === "i" && r.test("aa") === false;
+  }
+}
+let b = memberCompileMissUsesOuter();
+
+function memberCompileNoFlagsClearsFlags() {
+  let env = { r: new RegExp("foo", "g") };
+  with (env) {
+    r.compile("bar");
+    return r.source === "bar" && r.flags === "" && r.test("bar") === true;
+  }
+}
+let c = memberCompileNoFlagsClearsFlags();
+
+function memberCompileFromRegexp() {
+  let env = { r: new RegExp("z"), other: new RegExp("w", "i") };
+  with (env) {
+    r.compile(other);
+    return r.source === "w" && r.flags === "i";
+  }
+}
+let d = memberCompileFromRegexp();
+
+function memberCompileReturnsThis() {
+  let env = { r: new RegExp("x") };
+  with (env) {
+    return r.compile("y+", "g") === r;
+  }
+}
+let e = memberCompileReturnsThis();
+
+function memberCompileThenTest() {
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    r.compile("b+", "i");
+    return r.test("BB") === true && r.test("aa") === false;
+  }
+}
+let f = memberCompileThenTest();
+
+function memberCompileEmptyPattern() {
+  let env = { r: new RegExp("z") };
+  with (env) {
+    r.compile("");
+    return r.source === "(?:)" || r.source === "";
+  }
+}
+let g = memberCompileEmptyPattern();
+
+function memberCompileGlobalFlag() {
+  let env = { r: new RegExp("a") };
+  with (env) {
+    r.compile("b", "g");
+    return r.flags === "g" && r.global === true && r.test("b") === true;
+  }
+}
+let h = memberCompileGlobalFlag();
+
+function typeofCompileThroughWith() {
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    return typeof r.compile === "function";
+  }
+}
+let j = typeofCompileThroughWith();
+
+function identCompileOnRegexpInstance() {
+  let r = new RegExp("a+");
+  with (r) {
+    compile("b+", "i");
+    return source === "b+" && flags === "i" && test("BB") === true;
+  }
+}
+let k = identCompileOnRegexpInstance();
+
+function identCompileMissUsesOuter() {
+  function compile(p, f) {
+    return 8;
+  }
+  with ({}) {
+    return compile("b+", "i") === 8;
+  }
+}
+let l = identCompileMissUsesOuter();
+
+function identCompileHitsObject() {
+  let env = {
+    compile: function (p, f) {
+      return "hit";
+    }
+  };
+  with (env) {
+    return compile("b+", "i") === "hit";
+  }
+}
+let m = identCompileHitsObject();
+
+function identCompileShadowsOuter() {
+  function compile(p, f) {
+    return 8;
+  }
+  let env = {
+    compile: function (p, f) {
+      return 9;
+    }
+  };
+  with (env) {
+    return compile("b+", "i") === 9;
+  }
+}
+let n = identCompileShadowsOuter();
+
+function argsHitObject() {
+  let env = { r: new RegExp("a+"), p: "b+", f: "i" };
+  with (env) {
+    r.compile(p, f);
+    return r.source === "b+" && r.flags === "i";
+  }
+}
+let p = argsHitObject();
+
+function argsMissUsesOuter() {
+  let p = "b+";
+  let f = "i";
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    r.compile(p, f);
+    return r.source === "b+" && r.flags === "i";
+  }
+}
+let q = argsMissUsesOuter();
+
+function withRegexpProtoCompileTypeof() {
+  with (RegExp.prototype) {
+    return typeof compile === "function";
+  }
+}
+let r = withRegexpProtoCompileTypeof();
+
+function withRegexpProtoCompileName() {
+  with (RegExp.prototype.compile) {
+    return name === "compile";
+  }
+}
+let s = withRegexpProtoCompileName();
+
+function withRegexpProtoCompileLength() {
+  with (RegExp.prototype.compile) {
+    return length === 2;
+  }
+}
+let t = withRegexpProtoCompileLength();
+
+function withRegexpProtoCompileCall() {
+  with (RegExp.prototype) {
+    let re = new RegExp("x");
+    compile.call(re, "y+", "g");
+    return re.source === "y+" && re.flags === "g";
+  }
+}
+let u = withRegexpProtoCompileCall();
+
+function withRegexpProtoCompileCallReturnsThis() {
+  with (RegExp.prototype) {
+    let re = new RegExp("x");
+    return compile.call(re, "y+", "g") === re;
+  }
+}
+let v = withRegexpProtoCompileCallReturnsThis();
+
+function identCompileReturnsThis() {
+  let re = new RegExp("x");
+  with (re) {
+    return compile("y+") === re;
+  }
+}
+let w = identCompileReturnsThis();
+
+function callThisIsWithObject() {
+  let env = {
+    compile: function (p, f) {
+      return this === env ? 3 : 0;
+    }
+  };
+  with (env) {
+    return compile("b+", "i") === 3;
+  }
+}
+let aa = callThisIsWithObject();
+
+function withCompileCallThisIsFn() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(RegExp.prototype.compile, "name");
+  Object.defineProperty(RegExp.prototype.compile, "name", {
+    get: function () {
+      seen = this;
+      return "compile";
+    },
+    configurable: true
+  });
+  let ok;
+  with (RegExp.prototype.compile) {
+    ok = name === "compile" && seen === RegExp.prototype.compile;
+  }
+  Object.defineProperty(RegExp.prototype.compile, "name", orig);
+  return ok;
+}
+let ab = withCompileCallThisIsFn();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let env = {
+    get r() {
+      n = n + 1;
+      return new RegExp("a+");
+    },
+    get p() {
+      n = n + 1;
+      return "b+";
+    }
+  };
+  with (env) {
+    r.compile(p, "i");
+    return n === 2;
+  }
+}
+let ac = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function compile(p, f) {
+    return 11;
+  }
+  let env = { compile: RegExp.prototype.compile };
+  env[Symbol.unscopables] = { compile: true };
+  with (env) {
+    return compile("b+", "i") === 11;
+  }
+}
+let ad = unscopablesUsesOuter();
+
+function unscopablesCompileIdent() {
+  let env = {
+    compile: function (p, f) {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { compile: true };
+  with (env) {
+    return typeof compile === "undefined";
+  }
+}
+let ae = unscopablesCompileIdent();
+
+function inheritedData() {
+  let proto = { r: new RegExp("a+"), name: "fromProto" };
+  let env = Object.create(proto);
+  with (env) {
+    r.compile("b+", "i");
+    return r.source === "b+" && name === "fromProto";
+  }
+}
+let af = inheritedData();
+
+function inheritedFromRegexpProto() {
+  let env = Object.create(RegExp.prototype);
+  with (env) {
+    return typeof compile === "function";
+  }
+}
+let ag = inheritedFromRegexpProto();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get compile() {
+      seen = this;
+      return function (p, f) {
+        return 1;
+      };
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return compile("b+", "i") === 1 && seen === env;
+  }
+}
+let ah = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get compile() {
+      seen = this;
+      return function (p, f) {
+        return 1;
+      };
+    }
+  };
+  with (env) {
+    return compile("b+", "i") === 1 && seen === env;
+  }
+}
+let aj = accessorThisIsWithObject();
+
+function liveClose() {
+  let env = {
+    compile: function (p, f) {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return compile;
+    };
+  }
+  env.compile = RegExp.prototype.compile;
+  return run() === RegExp.prototype.compile;
+}
+let ak = liveClose();
+
+function liveCloseRegexpIdent() {
+  let env = { r: new RegExp("a+") };
+  let run;
+  with (env) {
+    run = function () {
+      r.compile("b+", "i");
+      return r.source;
+    };
+  }
+  env.r = new RegExp("z");
+  return run() === "b+";
+}
+let al = liveCloseRegexpIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702119_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let am = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702119_noglob.compile;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702119_noglob === "undefined"
+      );
+    }
+  }
+}
+let an = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    compile: function (p, f) {
+      return 5;
+    }
+  };
+  with ({ compile: RegExp.prototype.compile }) {
+    with (inner) {
+      return compile("b+", "i") === 5;
+    }
+  }
+}
+let ap = nestedInnerWins();
+
+function nestedInnerMissOuterCompile() {
+  with ({
+    compile: function (p, f) {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return compile("b+", "i") === 5;
+    }
+  }
+}
+let aq = nestedInnerMissOuterCompile();
+
+function nestedInnerMissOuterRegexp() {
+  let inner = {};
+  let outer = { r: new RegExp("a+") };
+  with (outer) {
+    with (inner) {
+      r.compile("b+", "i");
+      return r.source === "b+" && r.flags === "i";
+    }
+  }
+}
+let ar = nestedInnerMissOuterRegexp();
+
+function nestedWithUnscopables() {
+  function compile(p, f) {
+    return 11;
+  }
+  let inner = { compile: RegExp.prototype.compile };
+  inner[Symbol.unscopables] = { compile: true };
+  let outer = {
+    compile: function (p, f) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return compile("b+", "i") === 6;
+    }
+  }
+}
+let at = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let env = { compile: 1 };
+  with (env) {
+    try {
+      compile("b+", "i");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let au = nonCallableTypeError();
+
+function memberCompileStillProto() {
+  let env = { x: 1 };
+  with (env) {
+    let re = new RegExp("a+");
+    re.compile("b+", "i");
+    return re.source === "b+" && re.flags === "i";
+  }
+}
+let av = memberCompileStillProto();
+
+function protoCallThroughWith() {
+  let env = { RegExp: RegExp };
+  with (env) {
+    let re = new RegExp("x");
+    return (
+      RegExp.prototype.compile.call(re, "y+", "g") === re &&
+      re.source === "y+" &&
+      re.flags === "g"
+    );
+  }
+}
+let aw = protoCallThroughWith();
+
+function regexpIdentHitsObjectShadowsOuter() {
+  let r = new RegExp("outer");
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    r.compile("b+", "i");
+    return r.source === "b+";
+  }
+}
+let ax = regexpIdentHitsObjectShadowsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let env = {
+    get compile() {
+      ran = true;
+      return RegExp.prototype.compile;
+    }
+  };
+  with (env) {
+    try {
+      compile(e1702119_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ay = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let env = {
+    get p() {
+      ran = true;
+      return "b+";
+    }
+  };
+  with (env) {
+    try {
+      e1702119_first(p);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let az = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let env = {
+    compile: function (p, f) {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function (p, f) {
+      return compile(p, f);
+    };
+  }
+  env.compile = function (p, f) {
+    return 2;
+  };
+  return run("b+", "i") === 2;
+}
+let ba = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let env = {
+    get r() {
+      c = c + 1;
+      return new RegExp("a+");
+    }
+  };
+  let out;
+  with (env) {
+    out = r.compile("b+", "i");
+  }
+  return out.source === "b+" && out.flags === "i" && c === 1;
+}
+let bb = getterRunsOncePerCall();
+
+function emptyMissUsesProtoCompile() {
+  with ({}) {
+    let re = new RegExp("a+");
+    re.compile("b+", "i");
+    return re.source === "b+" && re.test("BB") === true;
+  }
+}
+let bc = emptyMissUsesProtoCompile();
+
+function bracketCompileOnRegexp() {
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    r["compile"]("b+", "i");
+    return r.source === "b+" && r.flags === "i";
+  }
+}
+let bd = bracketCompileOnRegexp();
+
+function unscopablesSecondIdent() {
+  let p = "b+";
+  let env = { r: new RegExp("a+"), p: "nope" };
+  env[Symbol.unscopables] = { p: true };
+  with (env) {
+    r.compile(p, "i");
+    return r.source === "b+";
+  }
+}
+let be = unscopablesSecondIdent();
+
+function compileTypeofHit() {
+  let env = { compile: 1 };
+  let t;
+  with (env) {
+    t = typeof compile;
+  }
+  return t === "number";
+}
+let bf = compileTypeofHit();
+
+function liveCloseCompile() {
+  let env = { compile: 1 };
+  let run;
+  with (env) {
+    run = function () {
+      return compile;
+    };
+  }
+  env.compile = RegExp.prototype.compile;
+  return run() === RegExp.prototype.compile;
+}
+let bg = liveCloseCompile();
+
+function nestedCompileInnerWins() {
+  with ({ compile: 1 }) {
+    with ({ compile: 2 }) {
+      return compile === 2;
+    }
+  }
+}
+let bh = nestedCompileInnerWins();
+
+function nestedNameInnerWins() {
+  with (RegExp.prototype.compile) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let bi = nestedNameInnerWins();
+
+function nestedNameMissOuterCompile() {
+  with (RegExp.prototype.compile) {
+    with ({}) {
+      return name === "compile";
+    }
+  }
+}
+let bj = nestedNameMissOuterCompile();
+
+function liveCloseName() {
+  let env = { name: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return name;
+    };
+  }
+  env.name = "B";
+  return run() === "B";
+}
+let bk = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (RegExp.prototype.compile) {
+    let env = { name: "skip" };
+    env[Symbol.unscopables] = { name: true };
+    with (env) {
+      return name === "compile";
+    }
+  }
+}
+let bl = unscopablesNameUsesOuter();
+
+function emptyMissCompileStillWorks() {
+  with ({}) {
+    let re = new RegExp("foo", "g");
+    re.compile("bar");
+    return re.source === "bar" && re.flags === "" && re.test("bar") === true;
+  }
+}
+let bm = emptyMissCompileStillWorks();
+
+function inheritedCompileFromRegexpProto() {
+  let env = Object.create(RegExp.prototype);
+  with (env) {
+    return typeof compile === "function";
+  }
+}
+let bn = inheritedCompileFromRegexpProto();
+
+function getterRunsOnceCompile() {
+  let c = 0;
+  let env = {
+    get r() {
+      c = c + 1;
+      return new RegExp("x");
+    }
+  };
+  let out;
+  with (env) {
+    out = r.compile("y+", "g");
+  }
+  return out.source === "y+" && out.flags === "g" && c === 1;
+}
+let bp = getterRunsOnceCompile();
+
+function compileArgHitObject() {
+  let env = { p: "y+", f: "g", r: new RegExp("x") };
+  with (env) {
+    r.compile(p, f);
+    return r.source === "y+" && r.flags === "g";
+  }
+}
+let bq = compileArgHitObject();
+
+function compileAndTestTogether() {
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    r.compile("b+", "i");
+    return r.source === "b+" && r.test("BB") === true && r.test("aa") === false;
+  }
+}
+let br = compileAndTestTogether();
+
+function withRegexpProtoNameLengthTogether() {
+  with (RegExp.prototype.compile) {
+    return name === "compile" && length === 2;
+  }
+}
+let bs = withRegexpProtoNameLengthTogether();
+
+function identCompileOnRegexpProto() {
+  with (RegExp.prototype) {
+    return typeof compile === "function";
+  }
+}
+let bt = identCompileOnRegexpProto();
+
+function memberCompileMissUsesOuterFull() {
+  let r = new RegExp("foo", "g");
+  with ({}) {
+    r.compile("bar");
+    return r.source === "bar" && r.flags === "" && r.test("bar") === true;
+  }
+}
+let bu = memberCompileMissUsesOuterFull();
+
+function compileThenSourceFlags() {
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    let via = r.compile("y+", "g");
+    return via.source === "y+" && via.flags === "g" && via === r;
+  }
+}
+let bv = compileThenSourceFlags();
+
+function identCompileFlagsOnInstance() {
+  let re = new RegExp("foo", "g");
+  with (re) {
+    compile("bar");
+    return source === "bar" && flags === "" && test("bar") === true;
+  }
+}
+let bw = identCompileFlagsOnInstance();
+
+function compileFromRegexpThroughWith() {
+  let env = { r: new RegExp("z") };
+  with (env) {
+    r.compile(new RegExp("w", "i"));
+    return r.source === "w" && r.flags === "i";
+  }
+}
+let bx = compileFromRegexpThroughWith();
+
+function compileCallThisIsRegexp() {
+  let re = new RegExp("a+");
+  with (re) {
+    compile("b+", "i");
+    return this !== re && source === "b+";
+  }
+}
+let by = compileCallThisIsRegexp();
+
+function lastIndexResetOnCompile() {
+  let env = { r: new RegExp("a", "g") };
+  env.r.lastIndex = 5;
+  with (env) {
+    r.compile("b", "g");
+    return r.lastIndex === 0 && r.source === "b";
+  }
+}
+let bz = lastIndexResetOnCompile();
+
+function compilePatternIdent() {
+  let env = { pat: "b+", r: new RegExp("a+") };
+  with (env) {
+    r.compile(pat, "i");
+    return r.source === "b+" && r.flags === "i";
+  }
+}
+let ca = compilePatternIdent();
+
+function nestedCompileMissUsesOuterTest() {
+  with ({ r: new RegExp("a+") }) {
+    with ({}) {
+      r.compile("b+", "i");
+      return r.test("BB") === true;
+    }
+  }
+}
+let cb = nestedCompileMissUsesOuterTest();
+
+function unscopablesFlagsArg() {
+  let f = "i";
+  let env = { r: new RegExp("a+"), f: "g" };
+  env[Symbol.unscopables] = { f: true };
+  with (env) {
+    r.compile("b+", f);
+    return r.flags === "i";
+  }
+}
+let cc = unscopablesFlagsArg();
+
+function compileViaBracketIdent() {
+  let env = { r: new RegExp("a+"), k: "compile" };
+  with (env) {
+    r[k]("b+", "i");
+    return r.source === "b+" && r.flags === "i";
+  }
+}
+let cd = compileViaBracketIdent();
+
+function liveCloseAfterCompileMutate() {
+  let env = { r: new RegExp("a+") };
+  let run;
+  with (env) {
+    run = function () {
+      return r.flags;
+    };
+  }
+  env.r.compile("b+", "i");
+  return run() === "i";
+}
+let ce = liveCloseAfterCompileMutate();
+
+function accessorThisOnCompileGet() {
+  let seen = null;
+  let held = new RegExp("a+");
+  let env = {
+    get r() {
+      seen = this;
+      return held;
+    }
+  };
+  with (env) {
+    r.compile("b+", "i");
+    return seen === env && r.source === "b+";
+  }
+}
+let cf = accessorThisOnCompileGet();
+
+function nestedUnscopablesName() {
+  with (RegExp.prototype.compile) {
+    let inner = { name: "skip" };
+    inner[Symbol.unscopables] = { name: true };
+    with (inner) {
+      return name === "compile" && length === 2;
+    }
+  }
+}
+let cg = nestedUnscopablesName();
+
+function compileIFlagTest() {
+  let env = { r: new RegExp("foo") };
+  with (env) {
+    r.compile("bar", "i");
+    return r.test("BAR") === true && r.test("bar") === true;
+  }
+}
+let ch = compileIFlagTest();
+
+function typeofCompileIsFunctionOnInstance() {
+  let re = new RegExp("a+");
+  with (re) {
+    return typeof compile === "function";
+  }
+}
+let cj = typeofCompileIsFunctionOnInstance();
+
+function compileThisNotWithWhenMember() {
+  let env = { r: new RegExp("a+") };
+  with (env) {
+    r.compile("b+", "i");
+    return this !== env && r.source === "b+";
+  }
+}
+let ck = compileThisNotWithWhenMember();
