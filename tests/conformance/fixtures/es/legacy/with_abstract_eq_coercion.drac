@@ -1,0 +1,734 @@
+// E17.02.86: with + abstract equality & coercion (==/!= mixed types;
+// ToNumber/ToString/ToBoolean via +/==/if) through object environment
+// (non-strict). LHS/RHS/condition idents hit object (else outer); both
+// sides of ==/!=/+ always evaluated (no short-circuit); ==/!= coerce,
+// ===/!== do not; unary + ident hits object; if (ident) ToBoolean;
+// inherited HasBinding; accessor this is with object; unresolvable LHS
+// or RHS or condition → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function eqNumStrHitsObject() {
+  let obj = { x: 1, y: "1" };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let a = eqNumStrHitsObject();
+
+function neNumStrHitsObject() {
+  let obj = { x: 1, y: "2" };
+  with (obj) {
+    return (x != y) === true && (x !== y) === true;
+  }
+}
+let b = neNumStrHitsObject();
+
+function eqNumBoolHitsObject() {
+  let obj = { x: 1, y: true };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let c = eqNumBoolHitsObject();
+
+function eqZeroFalseHitsObject() {
+  let obj = { x: 0, y: false };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let d = eqZeroFalseHitsObject();
+
+function eqEmptyFalseHitsObject() {
+  let obj = { x: "", y: false };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let e = eqEmptyFalseHitsObject();
+
+function eqStr0FalseHitsObject() {
+  let obj = { x: "0", y: false };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let f = eqStr0FalseHitsObject();
+
+function eqNullZeroHitsObject() {
+  let obj = { x: null, y: 0 };
+  with (obj) {
+    return (x == y) === false && (x === y) === false;
+  }
+}
+let g = eqNullZeroHitsObject();
+
+function eqNullNullHitsObject() {
+  let obj = { x: null, y: null };
+  with (obj) {
+    return (x == y) === true && (x === y) === true;
+  }
+}
+let h = eqNullNullHitsObject();
+
+function eqNullUndefHitsObject() {
+  let obj = { x: null, y: undefined };
+  with (obj) {
+    return (x == y) === true && (x === y) === false && (x != y) === false;
+  }
+}
+let j = eqNullUndefHitsObject();
+
+function eqTrueOneHitsObject() {
+  let obj = { x: true, y: 1 };
+  with (obj) {
+    return (x == y) === true;
+  }
+}
+let k = eqTrueOneHitsObject();
+
+function eqFalseZeroHitsObject() {
+  let obj = { x: false, y: 0 };
+  with (obj) {
+    return (x == y) === true;
+  }
+}
+let l = eqFalseZeroHitsObject();
+
+function eqWsZeroHitsObject() {
+  let obj = { x: " \t\n", y: 0 };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let m = eqWsZeroHitsObject();
+
+function eqStr1TrueHitsObject() {
+  let obj = { x: "1", y: true };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let n = eqStr1TrueHitsObject();
+
+function eqStrStrHitsObject() {
+  let obj = { x: "abc", y: "abc" };
+  with (obj) {
+    return (x == y) === true && (x === y) === true;
+  }
+}
+let p = eqStrStrHitsObject();
+
+function nanEqHitsObject() {
+  let obj = { x: NaN, y: NaN };
+  with (obj) {
+    return (x == y) === false && (x === y) === false && (x != y) === true;
+  }
+}
+let q = nanEqHitsObject();
+
+function sameObjEqHitsObject() {
+  let same = {};
+  let obj = { x: same, y: same };
+  with (obj) {
+    return (x == y) === true && (x === y) === true;
+  }
+}
+let r = sameObjEqHitsObject();
+
+function diffObjEqHitsObject() {
+  let obj = { x: {}, y: {} };
+  with (obj) {
+    return (x == y) === false && (x === y) === false;
+  }
+}
+let s = diffObjEqHitsObject();
+
+function toStringStrNumHitsObject() {
+  let obj = { x: "5", y: 1 };
+  with (obj) {
+    return (x + y) === "51";
+  }
+}
+let t = toStringStrNumHitsObject();
+
+function toStringNumStrHitsObject() {
+  let obj = { x: 1, y: "5" };
+  with (obj) {
+    return (x + y) === "15";
+  }
+}
+let u = toStringNumStrHitsObject();
+
+function toStringStrBoolHitsObject() {
+  let obj = { x: "a", y: true };
+  with (obj) {
+    return (x + y) === "atrue";
+  }
+}
+let v = toStringStrBoolHitsObject();
+
+function toStringStrNullHitsObject() {
+  let obj = { x: "a", y: null };
+  with (obj) {
+    return (x + y) === "anull";
+  }
+}
+let w = toStringStrNullHitsObject();
+
+function toStringStrUndefHitsObject() {
+  let obj = { x: "a", y: undefined };
+  with (obj) {
+    return (x + y) === "aundefined";
+  }
+}
+let aa = toStringStrUndefHitsObject();
+
+function toNumberStrHitsObject() {
+  let obj = { x: "42" };
+  with (obj) {
+    return +x === 42;
+  }
+}
+let ab = toNumberStrHitsObject();
+
+function toNumberBoolHitsObject() {
+  let obj = { x: true, y: false };
+  with (obj) {
+    return +x === 1 && +y === 0;
+  }
+}
+let ac = toNumberBoolHitsObject();
+
+function toNumberNullEmptyHitsObject() {
+  let obj = { x: null, y: "" };
+  with (obj) {
+    return +x === 0 && +y === 0;
+  }
+}
+let ad = toNumberNullEmptyHitsObject();
+
+function toNumberUndefHitsObject() {
+  let obj = { x: undefined };
+  with (obj) {
+    return +x !== +x;
+  }
+}
+let ae = toNumberUndefHitsObject();
+
+function boolPlusNumHitsObject() {
+  let obj = { x: true, y: 1 };
+  with (obj) {
+    return (x + y) === 2;
+  }
+}
+let af = boolPlusNumHitsObject();
+
+function nullPlusNumHitsObject() {
+  let obj = { x: null, y: 1 };
+  with (obj) {
+    return (x + y) === 1;
+  }
+}
+let ag = nullPlusNumHitsObject();
+
+function falsePlusTrueHitsObject() {
+  let obj = { x: false, y: true };
+  with (obj) {
+    return (x + y) === 1;
+  }
+}
+let ah = falsePlusTrueHitsObject();
+
+function toBooleanZeroIf() {
+  let obj = { x: 0 };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === false;
+}
+let ai = toBooleanZeroIf();
+
+function toBooleanOneIf() {
+  let obj = { x: 1 };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === true;
+}
+let aj = toBooleanOneIf();
+
+function toBooleanEmptyIf() {
+  let obj = { x: "" };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === false;
+}
+let ak = toBooleanEmptyIf();
+
+function toBooleanStrIf() {
+  let obj = { x: "x" };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === true;
+}
+let al = toBooleanStrIf();
+
+function toBooleanNullIf() {
+  let obj = { x: null };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === false;
+}
+let am = toBooleanNullIf();
+
+function toBooleanUndefIf() {
+  let obj = { x: undefined };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === false;
+}
+let an = toBooleanUndefIf();
+
+function toBooleanObjIf() {
+  let obj = { x: {} };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === true;
+}
+let ap = toBooleanObjIf();
+
+function missIsOuterEq() {
+  let x = 1;
+  let y = "1";
+  with ({}) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let aq = missIsOuterEq();
+
+function objectShadowsOuterEq() {
+  let x = 9;
+  let y = "0";
+  let obj = { x: 1, y: "1" };
+  with (obj) {
+    return (x == y) === true;
+  }
+}
+let ar = objectShadowsOuterEq();
+
+function bothSidesAlwaysEvaledEq() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 1;
+    },
+    get y() {
+      n = n + 1;
+      return "1";
+    }
+  };
+  with (obj) {
+    return (x == y) === true && n === 2;
+  }
+}
+let at = bothSidesAlwaysEvaledEq();
+
+function bothSidesAlwaysEvaledPlus() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return "a";
+    },
+    get y() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    return (x + y) === "a1" && n === 2;
+  }
+}
+let au = bothSidesAlwaysEvaledPlus();
+
+function unscopablesUsesOuterEq() {
+  let x = 1;
+  let y = "1";
+  let obj = { x: 9, y: "0" };
+  obj[Symbol.unscopables] = { x: true, y: true };
+  with (obj) {
+    return (x == y) === true;
+  }
+}
+let av = unscopablesUsesOuterEq();
+
+function inheritedDataEq() {
+  let proto = { x: 1, y: "1" };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let aw = inheritedDataEq();
+
+function inheritedGetterThisEq() {
+  let seen = null;
+  let proto = {
+    x: 1,
+    get y() {
+      seen = this;
+      return "1";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x == y) === true && seen === obj;
+  }
+}
+let ax = inheritedGetterThisEq();
+
+function liveCloseEq() {
+  let obj = { x: 1, y: "1" };
+  let run;
+  with (obj) {
+    run = function () {
+      return x == y;
+    };
+  }
+  obj.y = "2";
+  return run() === false;
+}
+let ay = liveCloseEq();
+
+function unresolvableLhsThrows() {
+  with ({ y: 1 }) {
+    try {
+      e170286_missing == y;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170286_missing === "undefined"
+      );
+    }
+  }
+}
+let az = unresolvableLhsThrows();
+
+function unresolvableRhsThrowsAlways() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      x == e170286_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ba = unresolvableRhsThrowsAlways();
+
+function unresolvableLhsSkipsRhs() {
+  let ran = false;
+  let obj = {
+    get y() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      e170286_first == y;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bb = unresolvableLhsSkipsRhs();
+
+function nestedInnerWinsEq() {
+  let inner = { x: 1, y: "1" };
+  let outer = { x: 9, y: "0" };
+  with (outer) {
+    with (inner) {
+      return (x == y) === true;
+    }
+  }
+}
+let bc = nestedInnerWinsEq();
+
+function nestedInnerMissUsesOuterEq() {
+  with ({ x: 9, y: "0" }) {
+    with ({}) {
+      return (x == y) === false && (x == "9") === true;
+    }
+  }
+}
+let bd = nestedInnerMissUsesOuterEq();
+
+function accessorThisIsWithObjectEq() {
+  let seen = null;
+  let obj = {
+    x: 1,
+    get y() {
+      seen = this;
+      return "1";
+    }
+  };
+  with (obj) {
+    return (x == y) === true && seen === obj;
+  }
+}
+let be = accessorThisIsWithObjectEq();
+
+function unresolvableIfCondition() {
+  with ({}) {
+    try {
+      if (e170286_cond) {
+        return false;
+      }
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let bf = unresolvableIfCondition();
+
+function unresolvableUnaryPlus() {
+  with ({}) {
+    try {
+      +e170286_unary;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let bg = unresolvableUnaryPlus();
+
+function unresolvableConcatRhs() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return "a";
+    }
+  };
+  with (obj) {
+    try {
+      x + e170286_concat;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bh = unresolvableConcatRhs();
+
+function liveCloseToNumber() {
+  let obj = { x: "7" };
+  let run;
+  with (obj) {
+    run = function () {
+      return +x;
+    };
+  }
+  obj.x = "9";
+  return run() === 9;
+}
+let bi = liveCloseToNumber();
+
+function liveCloseToString() {
+  let obj = { x: "a", y: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return x + y;
+    };
+  }
+  obj.y = 2;
+  return run() === "a2";
+}
+let bj = liveCloseToString();
+
+function liveCloseToBoolean() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      if (x) {
+        return true;
+      }
+      return false;
+    };
+  }
+  obj.x = 0;
+  return run() === false;
+}
+let bk = liveCloseToBoolean();
+
+function nestedWithUnscopablesEq() {
+  let inner = { x: 9, y: "0" };
+  inner[Symbol.unscopables] = { x: true, y: true };
+  with ({ x: 1, y: "1" }) {
+    with (inner) {
+      return (x == y) === true;
+    }
+  }
+}
+let bl = nestedWithUnscopablesEq();
+
+function unscopablesOneSideUsesOuter() {
+  let x = 1;
+  let obj = { x: 9, y: "1" };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let bm = unscopablesOneSideUsesOuter();
+
+function inheritedUnaryPlus() {
+  let proto = { x: "8" };
+  let obj = Object.create(proto);
+  with (obj) {
+    return +x === 8;
+  }
+}
+let bn = inheritedUnaryPlus();
+
+function inheritedIfCondition() {
+  let proto = { x: "" };
+  let obj = Object.create(proto);
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === false;
+}
+let bp = inheritedIfCondition();
+
+function accessorThisUnaryPlus() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return "6";
+    }
+  };
+  with (obj) {
+    return +x === 6 && seen === obj;
+  }
+}
+let bq = accessorThisUnaryPlus();
+
+function accessorThisIf() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 1;
+    }
+  };
+  let hit = false;
+  with (obj) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === true && seen === obj;
+}
+let br = accessorThisIf();
+
+function missIsOuterToNumber() {
+  let x = "11";
+  with ({}) {
+    return +x === 11;
+  }
+}
+let bs = missIsOuterToNumber();
+
+function missIsOuterToString() {
+  let x = "z";
+  let y = 3;
+  with ({}) {
+    return (x + y) === "z3";
+  }
+}
+let bt = missIsOuterToString();
+
+function missIsOuterToBoolean() {
+  let x = 0;
+  let hit = false;
+  with ({}) {
+    if (x) {
+      hit = true;
+    }
+  }
+  return hit === false;
+}
+let bu = missIsOuterToBoolean();
+
+function objectShadowsOuterToNumber() {
+  let x = "1";
+  let obj = { x: "99" };
+  with (obj) {
+    return +x === 99;
+  }
+}
+let bv = objectShadowsOuterToNumber();
+
+function neNullUndefHitsObject() {
+  let obj = { x: null, y: undefined };
+  with (obj) {
+    return (x != y) === false;
+  }
+}
+let bw = neNullUndefHitsObject();
+
+function emptyMissUsesOuterCoerce() {
+  let x = false;
+  let y = 0;
+  with ({}) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let bx = emptyMissUsesOuterCoerce();
