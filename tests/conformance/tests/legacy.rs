@@ -658,3 +658,13 @@ fn with_bitwise_fixture_present() {
 fn with_bitwise_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_bitwise");
 }
+
+#[test]
+fn with_exponentiation_fixture_present() {
+    assert_fixture_present("es/legacy/with_exponentiation");
+}
+
+#[test]
+fn with_exponentiation_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_exponentiation");
+}

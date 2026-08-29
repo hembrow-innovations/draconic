@@ -1,0 +1,248 @@
+// E17.02.62: with + exponentiation ** through object environment (non-strict).
+// LHS/RHS idents hit object (else outer); both sides always evaluated (no
+// short-circuit); right-associative; grouping/precedence vs *; inherited
+// HasBinding; accessor this is the with object; unresolvable LHS or RHS →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function powHitsObject() {
+  let obj = { x: 2, y: 3 };
+  with (obj) {
+    return (x ** y) === 8;
+  }
+}
+let a = powHitsObject();
+
+function rightAssocHitsObject() {
+  let obj = { x: 2, y: 3, z: 2 };
+  with (obj) {
+    return (x ** y ** z) === 512;
+  }
+}
+let b = rightAssocHitsObject();
+
+function groupingOverridesAssoc() {
+  let obj = { x: 2, y: 3, z: 2 };
+  with (obj) {
+    return ((x ** y) ** z) === 64;
+  }
+}
+let c = groupingOverridesAssoc();
+
+function precedenceOverMul() {
+  let obj = { x: 2, y: 3, z: 2 };
+  with (obj) {
+    return (x * y ** z) === 18;
+  }
+}
+let d = precedenceOverMul();
+
+function groupingOverridesMul() {
+  let obj = { x: 2, y: 3, z: 2 };
+  with (obj) {
+    return ((x * y) ** z) === 36;
+  }
+}
+let e = groupingOverridesMul();
+
+function zeroExponent() {
+  let obj = { x: 5, y: 0 };
+  with (obj) {
+    return (x ** y) === 1;
+  }
+}
+let f = zeroExponent();
+
+function oneExponent() {
+  let obj = { x: 9, y: 1 };
+  with (obj) {
+    return (x ** y) === 9;
+  }
+}
+let g = oneExponent();
+
+function groupedUnaryBase() {
+  let obj = { x: 2, y: 3 };
+  with (obj) {
+    return ((-x) ** y) === -8;
+  }
+}
+let h = groupedUnaryBase();
+
+function missIsOuter() {
+  let x = 2;
+  let y = 3;
+  with ({}) {
+    return (x ** y) === 8;
+  }
+}
+let j = missIsOuter();
+
+function objectShadowsOuter() {
+  let x = 9;
+  let y = 0;
+  let obj = { x: 2, y: 3 };
+  with (obj) {
+    return (x ** y) === 8;
+  }
+}
+let k = objectShadowsOuter();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 2;
+    },
+    get y() {
+      n = n + 1;
+      return 3;
+    }
+  };
+  with (obj) {
+    return (x ** y) === 8 && n === 2;
+  }
+}
+let l = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  let x = 2;
+  let y = 3;
+  let obj = { x: 9, y: 0 };
+  obj[Symbol.unscopables] = { x: true, y: true };
+  with (obj) {
+    return (x ** y) === 8;
+  }
+}
+let m = unscopablesUsesOuter();
+
+function inheritedData() {
+  let proto = { x: 2, y: 3 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x ** y) === 8;
+  }
+}
+let p = inheritedData();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    x: 2,
+    get y() {
+      seen = this;
+      return 3;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x ** y) === 8 && seen === obj;
+  }
+}
+let q = inheritedGetterThis();
+
+function liveClose() {
+  let obj = { x: 2, y: 3 };
+  let run;
+  with (obj) {
+    run = function () {
+      return x ** y;
+    };
+  }
+  obj.y = 2;
+  return run() === 4;
+}
+let r = liveClose();
+
+function unresolvableLhsThrows() {
+  with ({}) {
+    try {
+      e170262_missing ** 1;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let s = unresolvableLhsThrows();
+
+function unresolvableRhsThrowsAlways() {
+  let obj = { x: 2 };
+  with (obj) {
+    try {
+      x ** e170262_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let t = unresolvableRhsThrowsAlways();
+
+function nestedInnerWins() {
+  let inner = { x: 2, y: 3 };
+  let outer = { x: 9, y: 0 };
+  with (outer) {
+    with (inner) {
+      return (x ** y) === 8;
+    }
+  }
+}
+let u = nestedInnerWins();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    x: 2,
+    get y() {
+      seen = this;
+      return 3;
+    }
+  };
+  with (obj) {
+    return (x ** y) === 8 && seen === obj;
+  }
+}
+let v = accessorThisIsWithObject();
+
+function toNumberCoerce() {
+  let obj = { x: "2", y: "3" };
+  with (obj) {
+    return (x ** y) === 8;
+  }
+}
+let w = toNumberCoerce();
+
+function rightAssocEvalOrder() {
+  let order = "";
+  let obj = {
+    get x() {
+      order = order + "x";
+      return 2;
+    },
+    get y() {
+      order = order + "y";
+      return 3;
+    },
+    get z() {
+      order = order + "z";
+      return 2;
+    }
+  };
+  with (obj) {
+    return (x ** y ** z) === 512 && order === "xyz";
+  }
+}
+let aa = rightAssocEvalOrder();
+
+function nestedInnerMissOuter() {
+  let y = 3;
+  let inner = {};
+  let outer = { x: 2 };
+  with (outer) {
+    with (inner) {
+      return (x ** y) === 8;
+    }
+  }
+}
+let ab = nestedInnerMissOuter();
