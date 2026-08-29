@@ -808,3 +808,13 @@ fn with_unicode_escapes_fixture_present() {
 fn with_unicode_escapes_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_unicode_escapes");
 }
+
+#[test]
+fn with_utf16_semantics_fixture_present() {
+    assert_fixture_present("es/legacy/with_utf16_semantics");
+}
+
+#[test]
+fn with_utf16_semantics_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_utf16_semantics");
+}
