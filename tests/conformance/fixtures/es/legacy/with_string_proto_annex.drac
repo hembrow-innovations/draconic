@@ -1,0 +1,824 @@
+// E17.02.117: with + String.prototype Annex B (B.2.3: substr + HTML
+// wrappers anchor/big/blink/bold/fixed/fontcolor/fontsize/italics/link/
+// small/strike/sub/sup) through object environment (non-strict).
+// String/method/arg idents hit object (else outer); with (String.prototype)
+// method idents hit those methods (substr/anchor); with (String.prototype.substr)
+// name/length idents hit that function; inherited HasBinding; accessor this
+// is with object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function memberSubstrHitsObject() {
+  let env = { s: "hello" };
+  with (env) {
+    return s.substr(1, 3) === "ell";
+  }
+}
+let a = memberSubstrHitsObject();
+
+function memberSubstrMissUsesOuter() {
+  let s = "hello";
+  with ({}) {
+    return s.substr(1) === "ello";
+  }
+}
+let b = memberSubstrMissUsesOuter();
+
+function memberSubstrNegative() {
+  let env = { s: "hello" };
+  with (env) {
+    return s.substr(-2) === "lo";
+  }
+}
+let c = memberSubstrNegative();
+
+function memberSubstrZeroLen() {
+  let env = { s: "hello" };
+  with (env) {
+    return s.substr(0, 0) === "";
+  }
+}
+let d = memberSubstrZeroLen();
+
+function memberSubstrPastEnd() {
+  let env = { s: "hello" };
+  with (env) {
+    return s.substr(10) === "";
+  }
+}
+let e = memberSubstrPastEnd();
+
+function memberSubstrEmpty() {
+  let env = { s: "" };
+  with (env) {
+    return s.substr(0, 1) === "";
+  }
+}
+let f = memberSubstrEmpty();
+
+function memberSubstrCafe() {
+  let env = { s: "café" };
+  with (env) {
+    return s.substr(1, 2) === "af";
+  }
+}
+let g = memberSubstrCafe();
+
+function memberSubstrNegStartLen() {
+  let env = { s: "hello" };
+  with (env) {
+    return s.substr(-10, 2) === "he";
+  }
+}
+let h = memberSubstrNegStartLen();
+
+function typeofSubstrThroughWith() {
+  let env = { s: "hello" };
+  with (env) {
+    return typeof s.substr === "function";
+  }
+}
+let j = typeofSubstrThroughWith();
+
+function identSubstrOnStringWrapper() {
+  with ("hello") {
+    return substr(1, 3) === "ell";
+  }
+}
+let k = identSubstrOnStringWrapper();
+
+function identSubstrMissUsesOuter() {
+  function substr(x, y) {
+    return 8;
+  }
+  with ({}) {
+    return substr(1, 3) === 8;
+  }
+}
+let l = identSubstrMissUsesOuter();
+
+function identSubstrHitsObject() {
+  let env = {
+    substr: function (start, len) {
+      return "hit";
+    }
+  };
+  with (env) {
+    return substr(1, 3) === "hit";
+  }
+}
+let m = identSubstrHitsObject();
+
+function identSubstrShadowsOuter() {
+  function substr(x, y) {
+    return 8;
+  }
+  let env = {
+    substr: function (x, y) {
+      return 9;
+    }
+  };
+  with (env) {
+    return substr(1, 3) === 9;
+  }
+}
+let n = identSubstrShadowsOuter();
+
+function argsHitObject() {
+  let env = { s: "hello", start: 1, len: 3 };
+  with (env) {
+    return s.substr(start, len) === "ell";
+  }
+}
+let p = argsHitObject();
+
+function argsMissUsesOuter() {
+  let start = 1;
+  let len = 3;
+  let env = { s: "hello" };
+  with (env) {
+    return s.substr(start, len) === "ell";
+  }
+}
+let q = argsMissUsesOuter();
+
+function withStringProtoSubstrTypeof() {
+  with (String.prototype) {
+    return typeof substr === "function";
+  }
+}
+let r = withStringProtoSubstrTypeof();
+
+function withStringProtoSubstrName() {
+  with (String.prototype.substr) {
+    return name === "substr";
+  }
+}
+let s = withStringProtoSubstrName();
+
+function withStringProtoSubstrLength() {
+  with (String.prototype.substr) {
+    return length === 2;
+  }
+}
+let t = withStringProtoSubstrLength();
+
+function withStringProtoSubstrCall() {
+  with (String.prototype) {
+    return substr.call("ab", 1) === "b";
+  }
+}
+let u = withStringProtoSubstrCall();
+
+function withStringProtoAnchorTypeof() {
+  with (String.prototype) {
+    return typeof anchor === "function";
+  }
+}
+let v = withStringProtoAnchorTypeof();
+
+function memberAnchorHitsObject() {
+  let env = { x: "x" };
+  with (env) {
+    return x.anchor("n") === '<a name="n">x</a>';
+  }
+}
+let w = memberAnchorHitsObject();
+
+function memberHtmlWrappers() {
+  let env = { x: "x" };
+  with (env) {
+    return (
+      x.big() === "<big>x</big>" &&
+      x.blink() === "<blink>x</blink>" &&
+      x.bold() === "<b>x</b>" &&
+      x.fixed() === "<tt>x</tt>" &&
+      x.fontcolor("red") === '<font color="red">x</font>' &&
+      x.fontsize("3") === '<font size="3">x</font>' &&
+      x.italics() === "<i>x</i>" &&
+      x.link("u") === '<a href="u">x</a>' &&
+      x.small() === "<small>x</small>" &&
+      x.strike() === "<strike>x</strike>" &&
+      x.sub() === "<sub>x</sub>" &&
+      x.sup() === "<sup>x</sup>"
+    );
+  }
+}
+let aa = memberHtmlWrappers();
+
+function typeofHtmlThroughWith() {
+  let env = { x: "x" };
+  with (env) {
+    return (
+      typeof x.anchor === "function" &&
+      typeof x.big === "function" &&
+      typeof x.blink === "function" &&
+      typeof x.bold === "function" &&
+      typeof x.fixed === "function" &&
+      typeof x.fontcolor === "function" &&
+      typeof x.fontsize === "function" &&
+      typeof x.italics === "function" &&
+      typeof x.link === "function" &&
+      typeof x.small === "function" &&
+      typeof x.strike === "function" &&
+      typeof x.sub === "function" &&
+      typeof x.sup === "function"
+    );
+  }
+}
+let ab = typeofHtmlThroughWith();
+
+function identAnchorOnStringWrapper() {
+  with ("x") {
+    return anchor("n") === '<a name="n">x</a>';
+  }
+}
+let ac = identAnchorOnStringWrapper();
+
+function identBoldOnStringWrapper() {
+  with ("x") {
+    return bold() === "<b>x</b>";
+  }
+}
+let ad = identBoldOnStringWrapper();
+
+function identSubOnStringWrapper() {
+  with ("x") {
+    return sub() === "<sub>x</sub>";
+  }
+}
+let ae = identSubOnStringWrapper();
+
+function identLinkArgHitsObject() {
+  let env = { href: "u" };
+  with (env) {
+    with ("x") {
+      return link(href) === '<a href="u">x</a>';
+    }
+  }
+}
+let af = identLinkArgHitsObject();
+
+function identFontcolorArgHitsObject() {
+  let env = { color: "red" };
+  with (env) {
+    with ("x") {
+      return fontcolor(color) === '<font color="red">x</font>';
+    }
+  }
+}
+let ag = identFontcolorArgHitsObject();
+
+function callThisIsWithObject() {
+  let env = {
+    substr: function (start, len) {
+      return this === env ? 3 : 0;
+    }
+  };
+  with (env) {
+    return substr(1, 3) === 3;
+  }
+}
+let ah = callThisIsWithObject();
+
+function withSubstrCallThisIsFn() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(String.prototype.substr, "name");
+  Object.defineProperty(String.prototype.substr, "name", {
+    get: function () {
+      seen = this;
+      return "substr";
+    },
+    configurable: true
+  });
+  let ok;
+  with (String.prototype.substr) {
+    ok = name === "substr" && seen === String.prototype.substr;
+  }
+  Object.defineProperty(String.prototype.substr, "name", orig);
+  return ok;
+}
+let aj = withSubstrCallThisIsFn();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let env = {
+    get s() {
+      n = n + 1;
+      return "hello";
+    },
+    get start() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (env) {
+    return s.substr(start, 3) === "ell" && n === 2;
+  }
+}
+let ak = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function substr(x, y) {
+    return 11;
+  }
+  let env = { substr: String.prototype.substr };
+  env[Symbol.unscopables] = { substr: true };
+  with (env) {
+    return substr(1, 3) === 11;
+  }
+}
+let al = unscopablesUsesOuter();
+
+function unscopablesSubstrIdent() {
+  let env = {
+    substr: function (x, y) {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { substr: true };
+  with (env) {
+    return typeof substr === "undefined";
+  }
+}
+let am = unscopablesSubstrIdent();
+
+function inheritedData() {
+  let proto = { s: "hello", name: "fromProto" };
+  let env = Object.create(proto);
+  with (env) {
+    return s.substr(1, 3) === "ell" && name === "fromProto";
+  }
+}
+let an = inheritedData();
+
+function inheritedFromStringProto() {
+  let env = Object.create(String.prototype);
+  with (env) {
+    return typeof substr === "function" && typeof anchor === "function";
+  }
+}
+let ap = inheritedFromStringProto();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get substr() {
+      seen = this;
+      return function (x, y) {
+        return 1;
+      };
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return substr(1, 3) === 1 && seen === env;
+  }
+}
+let aq = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get substr() {
+      seen = this;
+      return function (x, y) {
+        return 1;
+      };
+    }
+  };
+  with (env) {
+    return substr(1, 3) === 1 && seen === env;
+  }
+}
+let ar = accessorThisIsWithObject();
+
+function liveClose() {
+  let env = {
+    substr: function (x, y) {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return substr;
+    };
+  }
+  env.substr = String.prototype.substr;
+  return run() === String.prototype.substr;
+}
+let at = liveClose();
+
+function liveCloseStringIdent() {
+  let env = { s: "hello" };
+  let run;
+  with (env) {
+    run = function () {
+      return s.substr(1, 3);
+    };
+  }
+  env.s = "world";
+  return run() === "orl";
+}
+let au = liveCloseStringIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702117_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let av = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702117_noglob.substr;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702117_noglob === "undefined"
+      );
+    }
+  }
+}
+let aw = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    substr: function (x, y) {
+      return 5;
+    }
+  };
+  with ({ substr: String.prototype.substr }) {
+    with (inner) {
+      return substr(1, 3) === 5;
+    }
+  }
+}
+let ax = nestedInnerWins();
+
+function nestedInnerMissOuterSubstr() {
+  with ({
+    substr: function (x, y) {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return substr(1, 3) === 5;
+    }
+  }
+}
+let ay = nestedInnerMissOuterSubstr();
+
+function nestedInnerMissOuterString() {
+  let inner = {};
+  let outer = { s: "hello" };
+  with (outer) {
+    with (inner) {
+      return s.substr(1, 3) === "ell";
+    }
+  }
+}
+let az = nestedInnerMissOuterString();
+
+function nestedWithUnscopables() {
+  function substr(x, y) {
+    return 11;
+  }
+  let inner = { substr: String.prototype.substr };
+  inner[Symbol.unscopables] = { substr: true };
+  let outer = {
+    substr: function (x, y) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return substr(1, 3) === 6;
+    }
+  }
+}
+let ba = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let env = { substr: 1 };
+  with (env) {
+    try {
+      substr(1, 3);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bb = nonCallableTypeError();
+
+function memberSubstrStillProto() {
+  let env = { x: 1 };
+  with (env) {
+    return "hello".substr(1, 3) === "ell";
+  }
+}
+let bc = memberSubstrStillProto();
+
+function protoCallThroughWith() {
+  let env = { String: String };
+  with (env) {
+    return String.prototype.substr.call("ab", 1) === "b";
+  }
+}
+let bd = protoCallThroughWith();
+
+function stringIdentHitsObjectShadowsOuter() {
+  let s = "outer";
+  let env = { s: "hello" };
+  with (env) {
+    return s.substr(0, 1) === "h";
+  }
+}
+let be = stringIdentHitsObjectShadowsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let env = {
+    get substr() {
+      ran = true;
+      return String.prototype.substr;
+    }
+  };
+  with (env) {
+    try {
+      substr(e1702117_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bf = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let env = {
+    get start() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (env) {
+    try {
+      e1702117_first(start);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bg = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let env = {
+    substr: function (x, y) {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function (x, y) {
+      return substr(x, y);
+    };
+  }
+  env.substr = function (x, y) {
+    return 2;
+  };
+  return run(1, 3) === 2;
+}
+let bh = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let env = {
+    get s() {
+      c = c + 1;
+      return "hello";
+    }
+  };
+  let out;
+  with (env) {
+    out = s.substr(1, 3);
+  }
+  return out === "ell" && c === 1;
+}
+let bi = getterRunsOncePerCall();
+
+function emptyMissUsesProtoSubstr() {
+  with ({}) {
+    return "hello".substr(1, 3) === "ell";
+  }
+}
+let bj = emptyMissUsesProtoSubstr();
+
+function bracketSubstrOnString() {
+  let env = { s: "hello" };
+  with (env) {
+    return s["substr"](1, 3) === "ell";
+  }
+}
+let bk = bracketSubstrOnString();
+
+function unscopablesSecondIdent() {
+  let start = 1;
+  let env = { s: "hello", start: 99 };
+  env[Symbol.unscopables] = { start: true };
+  with (env) {
+    return s.substr(start, 3) === "ell";
+  }
+}
+let bl = unscopablesSecondIdent();
+
+function substrTypeofHit() {
+  let env = { substr: 1 };
+  let t;
+  with (env) {
+    t = typeof substr;
+  }
+  return t === "number";
+}
+let bm = substrTypeofHit();
+
+function anchorTypeofHit() {
+  let env = { anchor: "n" };
+  let t;
+  with (env) {
+    t = typeof anchor;
+  }
+  return t === "string";
+}
+let bn = anchorTypeofHit();
+
+function liveCloseAnchor() {
+  let env = { anchor: 1 };
+  let run;
+  with (env) {
+    run = function () {
+      return anchor;
+    };
+  }
+  env.anchor = String.prototype.anchor;
+  return run() === String.prototype.anchor;
+}
+let bp = liveCloseAnchor();
+
+function unscopablesAnchor() {
+  let env = { anchor: 1 };
+  env[Symbol.unscopables] = { anchor: true };
+  with (env) {
+    return typeof anchor === "undefined";
+  }
+}
+let bq = unscopablesAnchor();
+
+function nestedSubstrInnerWins() {
+  with ({ substr: 1 }) {
+    with ({ substr: 2 }) {
+      return substr === 2;
+    }
+  }
+}
+let br = nestedSubstrInnerWins();
+
+function nestedNameInnerWins() {
+  with (String.prototype.substr) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let bs = nestedNameInnerWins();
+
+function nestedNameMissOuterSubstr() {
+  with (String.prototype.substr) {
+    with ({}) {
+      return name === "substr";
+    }
+  }
+}
+let bt = nestedNameMissOuterSubstr();
+
+function liveCloseName() {
+  let env = { name: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return name;
+    };
+  }
+  env.name = "B";
+  return run() === "B";
+}
+let bu = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (String.prototype.substr) {
+    let env = { name: "skip" };
+    env[Symbol.unscopables] = { name: true };
+    with (env) {
+      return name === "substr";
+    }
+  }
+}
+let bv = unscopablesNameUsesOuter();
+
+function emptyMissHtmlStillWorks() {
+  with ({}) {
+    return "x".bold() === "<b>x</b>";
+  }
+}
+let bw = emptyMissHtmlStillWorks();
+
+function inheritedHtmlFromStringProto() {
+  let env = Object.create(String.prototype);
+  with (env) {
+    return typeof bold === "function" && typeof sub === "function";
+  }
+}
+let bx = inheritedHtmlFromStringProto();
+
+function getterRunsOnceAnchor() {
+  let c = 0;
+  let env = {
+    get x() {
+      c = c + 1;
+      return "x";
+    }
+  };
+  let out;
+  with (env) {
+    out = x.anchor("n");
+  }
+  return out === '<a name="n">x</a>' && c === 1;
+}
+let by = getterRunsOnceAnchor();
+
+function fontsizeArgHitObject() {
+  let env = { size: "3", x: "x" };
+  with (env) {
+    return x.fontsize(size) === '<font size="3">x</font>';
+  }
+}
+let bz = fontsizeArgHitObject();
+
+function substrAndHtmlTogether() {
+  let env = { s: "hello", x: "x" };
+  with (env) {
+    return s.substr(1, 3) === "ell" && x.big() === "<big>x</big>";
+  }
+}
+let ca = substrAndHtmlTogether();
+
+function withStringProtoNameLengthTogether() {
+  with (String.prototype.substr) {
+    return name === "substr" && length === 2;
+  }
+}
+let cb = withStringProtoNameLengthTogether();
+
+function withStringProtoAnchorName() {
+  with (String.prototype.anchor) {
+    return name === "anchor" && length === 1;
+  }
+}
+let cc = withStringProtoAnchorName();
+
+function cafeSubstrThroughWith() {
+  let env = { s: "café" };
+  with (env) {
+    return s.substr(1, 2) === "af";
+  }
+}
+let cd = cafeSubstrThroughWith();
+
+function identSupOnStringWrapper() {
+  with ("x") {
+    return sup() === "<sup>x</sup>";
+  }
+}
+let ce = identSupOnStringWrapper();
+
+function memberHtmlMissUsesOuter() {
+  let x = "x";
+  with ({}) {
+    return (
+      x.anchor("n") === '<a name="n">x</a>' &&
+      x.italics() === "<i>x</i>" &&
+      x.strike() === "<strike>x</strike>"
+    );
+  }
+}
+let cf = memberHtmlMissUsesOuter();

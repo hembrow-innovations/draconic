@@ -1208,3 +1208,13 @@ fn with_object_proto_fixture_present() {
 fn with_object_proto_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_object_proto");
 }
+
+#[test]
+fn with_string_proto_annex_fixture_present() {
+    assert_fixture_present("es/legacy/with_string_proto_annex");
+}
+
+#[test]
+fn with_string_proto_annex_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_string_proto_annex");
+}
