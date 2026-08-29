@@ -1,0 +1,1098 @@
+// E17.02.108: with + Proxy deleteProperty trap + delete (empty-handler
+// pass-through delete obj.k, trap intercept, plain object delete)
+// through object environment (non-strict). Proxy ident hits object
+// (else outer); with (Proxy) method idents hit Proxy (name / length);
+// deleteProperty ident hits object (else outer); inherited HasBinding;
+// accessor this is with object; unresolvable → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function plainObjectDelete() {
+  let obj = { target: { a: 1, b: 2 } };
+  with (obj) {
+    let r = delete target.a;
+    return r === true && !("a" in target) && target.b === 2;
+  }
+}
+let a = plainObjectDelete();
+
+function emptyHandlerPassThroughDot() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let target = { a: 1, b: 2 };
+    let p = new Proxy(target, {});
+    let r = delete p.a;
+    return r === true && !("a" in p) && !("a" in target) && p.b === 2 && target.b === 2;
+  }
+}
+let b = emptyHandlerPassThroughDot();
+
+function emptyHandlerPassThroughBracket() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let target = { a: 1, b: 2 };
+    let p = new Proxy(target, {});
+    let r = delete p["b"];
+    return r === true && !("b" in p) && !("b" in target) && p.a === 1;
+  }
+}
+let c = emptyHandlerPassThroughBracket();
+
+function deletePropertyTrapIntercepts() {
+  let obj = { Proxy: Proxy };
+  let deletes = 0;
+  let lastKey = "";
+  with (obj) {
+    let p = new Proxy(
+      { m: 1, n: 2 },
+      {
+        deleteProperty: function (t, key) {
+          deletes = deletes + 1;
+          lastKey = key;
+          if (key === "m") {
+            return true;
+          }
+          if (key === "keep") {
+            return false;
+          }
+          return delete t[key];
+        }
+      }
+    );
+    let dm = delete p.m;
+    let pm = p.m;
+    let dn = delete p["n"];
+    let pn = p.n;
+    p.keep = 3;
+    let dk = delete p.keep;
+    let pk = p.keep;
+    return (
+      dm === true &&
+      pm === 1 &&
+      dn === true &&
+      pn === undefined &&
+      dk === false &&
+      pk === 3 &&
+      deletes === 3 &&
+      lastKey === "keep"
+    );
+  }
+}
+let d = deletePropertyTrapIntercepts();
+
+function deleteMissingOwnReturnsTrue() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let target = { a: 1 };
+    let p = new Proxy(target, {});
+    let r = delete p.z;
+    return r === true && p.a === 1 && !("z" in p);
+  }
+}
+let e = deleteMissingOwnReturnsTrue();
+
+function withProxyTypeof() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return typeof Proxy === "function";
+  }
+}
+let f = withProxyTypeof();
+
+function withProxyName() {
+  with (Proxy) {
+    return name === "Proxy";
+  }
+}
+let g = withProxyName();
+
+function withProxyLength() {
+  with (Proxy) {
+    return length === 2;
+  }
+}
+let h = withProxyLength();
+
+function withProxyPrototypeUndefined() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy.prototype === undefined;
+  }
+}
+let j = withProxyPrototypeUndefined();
+
+function globalThisIdentity() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let k = globalThisIdentity();
+
+function proxyIdentHitsObject() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Proxy({}, {}).p === "hit";
+  }
+}
+let l = proxyIdentHitsObject();
+
+function proxyIdentMissIsOuter() {
+  with ({}) {
+    let target = { a: 1 };
+    let p = new Proxy(target, {});
+    let r = delete p.a;
+    return r === true && !("a" in p) && !("a" in target);
+  }
+}
+let m = proxyIdentMissIsOuter();
+
+function deletePropertyIdentHitsObject() {
+  let obj = {
+    deleteProperty: function (t, key) {
+      return key === "x";
+    }
+  };
+  with (obj) {
+    return deleteProperty({ x: 0 }, "x") === true && deleteProperty({ x: 0 }, "y") === false;
+  }
+}
+let n = deletePropertyIdentHitsObject();
+
+function deletePropertyIdentMissIsOuter() {
+  function deleteProperty(t, key) {
+    return key === "z";
+  }
+  with ({}) {
+    return deleteProperty({}, "z") === true && deleteProperty({}, "x") === false;
+  }
+}
+let p = deletePropertyIdentMissIsOuter();
+
+function objectShadowsOuterDeleteProperty() {
+  function deleteProperty(t, key) {
+    return false;
+  }
+  let obj = {
+    deleteProperty: function (t, key) {
+      return true;
+    }
+  };
+  with (obj) {
+    return deleteProperty({}, "x") === true;
+  }
+}
+let q = objectShadowsOuterDeleteProperty();
+
+function callThisIsWithObject() {
+  let obj = {
+    deleteProperty: function (t, key) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return deleteProperty({}, "x") === 3;
+  }
+}
+let r = callThisIsWithObject();
+
+function withHandlerDeletePropertyThisIsHandler() {
+  let handler = {
+    deleteProperty: function (t, key) {
+      return true;
+    }
+  };
+  let seen = null;
+  let orig = handler.deleteProperty;
+  handler.deleteProperty = function (t, key) {
+    seen = this;
+    return orig.call(this, t, key);
+  };
+  let ok;
+  with (handler) {
+    deleteProperty({}, "x");
+    ok = seen === handler;
+  }
+  return ok;
+}
+let s = withHandlerDeletePropertyThisIsHandler();
+
+function bothSidesAlwaysEvaled() {
+  let cnt = 0;
+  let obj = {
+    get Proxy() {
+      cnt = cnt + 1;
+      return Proxy;
+    },
+    get target() {
+      cnt = cnt + 1;
+      return { a: 1 };
+    }
+  };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    let r = delete pr.a;
+    return r === true && cnt === 2 && !("a" in pr);
+  }
+}
+let t = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function deleteProperty(t, key) {
+    return true;
+  }
+  let obj = {
+    deleteProperty: function (t, key) {
+      return false;
+    }
+  };
+  obj[Symbol.unscopables] = { deleteProperty: true };
+  with (obj) {
+    return deleteProperty({}, "x") === true;
+  }
+}
+let u = unscopablesUsesOuter();
+
+function unscopablesProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Proxy: true };
+  with (obj) {
+    let target = { a: 1 };
+    let pr = new Proxy(target, {});
+    let r = delete pr.a;
+    return r === true && !("a" in pr) && !("a" in target);
+  }
+}
+let v = unscopablesProxyIdent();
+
+function inheritedData() {
+  let proto = {
+    deleteProperty: function (t, key) {
+      return key === "ok";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return deleteProperty({}, "ok") === true && deleteProperty({}, "no") === false;
+  }
+}
+let w = inheritedData();
+
+function inheritedFromProxy() {
+  let obj = Object.create(Proxy);
+  with (obj) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let aa = inheritedFromProxy();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get deleteProperty() {
+      seen = this;
+      return function (t, key) {
+        return true;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return deleteProperty({}, "x") === true && seen === obj;
+  }
+}
+let ab = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get deleteProperty() {
+      seen = this;
+      return function (t, key) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    return deleteProperty({}, "x") === true && seen === obj;
+  }
+}
+let ac = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    deleteProperty: function (t, key) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (t, key) {
+      return deleteProperty(t, key);
+    };
+  }
+  obj.deleteProperty = function (t, key) {
+    return true;
+  };
+  return run({}, "x") === true;
+}
+let ad = liveClose();
+
+function liveCloseProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (target, handler) {
+      return new Proxy(target, handler);
+    };
+  }
+  obj.Proxy = Proxy;
+  let target = { a: 1 };
+  let pr = run(target, {});
+  let r = delete pr.a;
+  return r === true && !("a" in pr) && !("a" in target);
+}
+let ae = liveCloseProxyIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702108_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let af = unresolvableCalleeThrows();
+
+function unresolvableProxyThrows() {
+  with ({}) {
+    try {
+      e1702108_noglob.deleteProperty;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702108_noglob === "undefined"
+      );
+    }
+  }
+}
+let ag = unresolvableProxyThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    deleteProperty: function (t, key) {
+      return true;
+    }
+  };
+  let handler = {
+    deleteProperty: function (t, key) {
+      return false;
+    }
+  };
+  with (handler) {
+    with (inner) {
+      return deleteProperty({}, "x") === true;
+    }
+  }
+}
+let ah = nestedInnerWins();
+
+function nestedInnerMissOuterHandler() {
+  with ({
+    deleteProperty: function (t, key) {
+      return true;
+    }
+  }) {
+    let handler = {
+      deleteProperty: function (t, key) {
+        return false;
+      }
+    };
+    with (handler) {
+      return typeof deleteProperty === "function" && deleteProperty({}, "x") === false;
+    }
+  }
+}
+let ai = nestedInnerMissOuterHandler();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    deleteProperty: function (t, key) {
+      return true;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return deleteProperty({}, "x") === true;
+    }
+  }
+}
+let aj = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function deleteProperty(t, key) {
+    return true;
+  }
+  let inner = {
+    deleteProperty: function (t, key) {
+      return false;
+    }
+  };
+  inner[Symbol.unscopables] = { deleteProperty: true };
+  let outer = {
+    deleteProperty: function (t, key) {
+      return key === "fromOuter";
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return deleteProperty({}, "fromOuter") === true;
+    }
+  }
+}
+let ak = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { deleteProperty: 1 };
+  with (obj) {
+    try {
+      deleteProperty({}, "x");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let al = nonCallableTypeError();
+
+function typeofDeletePropertyMethod() {
+  let ty;
+  let handler = {
+    deleteProperty: function (t, key) {
+      return true;
+    }
+  };
+  with (handler) {
+    ty = typeof deleteProperty;
+  }
+  return ty === "function";
+}
+let am = typeofDeletePropertyMethod();
+
+function typeofProxyThroughWith() {
+  let obj = { Proxy: Proxy };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "function";
+}
+let an = typeofProxyThroughWith();
+
+function memberStillProxy() {
+  let obj = { x: 1 };
+  with (obj) {
+    let target = { a: 1 };
+    let pr = new Proxy(target, {});
+    let r = delete pr.a;
+    return r === true && !("a" in pr) && !("a" in target);
+  }
+}
+let ap = memberStillProxy();
+
+function argsHitObject() {
+  let obj = {
+    target: { a: 9, b: 1 },
+    Proxy: Proxy
+  };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    let r = delete pr.a;
+    return r === true && !("a" in pr) && obj.target.b === 1;
+  }
+}
+let aq = argsHitObject();
+
+function argsMissIsOuter() {
+  let target = { a: 9 };
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    let r = delete pr.a;
+    return r === true && !("a" in target);
+  }
+}
+let ar = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get Proxy() {
+      ran = true;
+      return Proxy;
+    }
+  };
+  with (obj) {
+    try {
+      new Proxy(e1702108_arg, {});
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let at = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702108_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let au = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function deleteProperty(t, key) {
+    return false;
+  }
+  let obj = {
+    deleteProperty: function (t, key) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (t, key) {
+      return deleteProperty(t, key);
+    };
+  }
+  obj.deleteProperty = function (t, key) {
+    return true;
+  };
+  return run({}, "x") === true;
+}
+let av = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get deleteProperty() {
+      cnt = cnt + 1;
+      return function (t, key) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    deleteProperty({}, "x");
+  }
+  return cnt === 1;
+}
+let aw = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalProxy() {
+  let obj = {};
+  with (obj) {
+    let target = { a: 1 };
+    let pr = new Proxy(target, {});
+    let r = delete pr.a;
+    return r === true && !("a" in pr) && !("a" in target);
+  }
+}
+let ax = emptyMissUsesGlobalProxy();
+
+function deletePropertyTypeofHit() {
+  let obj = { deleteProperty: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof deleteProperty;
+  }
+  return ty === "number";
+}
+let ay = deletePropertyTypeofHit();
+
+function proxyTypeofHit() {
+  let obj = { Proxy: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "number";
+}
+let az = proxyTypeofHit();
+
+function missUsesGlobalProxy() {
+  with ({}) {
+    let target = { a: 1 };
+    let pr = new Proxy(target, {});
+    let r = delete pr.a;
+    return r === true;
+  }
+}
+let ba = missUsesGlobalProxy();
+
+function liveCloseDeleteProperty() {
+  let obj = { deleteProperty: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return deleteProperty;
+    };
+  }
+  obj.deleteProperty = function (t, key) {
+    return true;
+  };
+  return typeof run() === "function";
+}
+let bb = liveCloseDeleteProperty();
+
+function unscopablesDeleteProperty() {
+  let obj = { deleteProperty: 1 };
+  obj[Symbol.unscopables] = { deleteProperty: true };
+  with (obj) {
+    return typeof deleteProperty === "undefined";
+  }
+}
+let bc = unscopablesDeleteProperty();
+
+function nestedDeletePropertyInnerWins() {
+  with ({ deleteProperty: 1 }) {
+    with ({ deleteProperty: 2 }) {
+      return deleteProperty === 2;
+    }
+  }
+}
+let bd = nestedDeletePropertyInnerWins();
+
+function nestedProxyInnerWins() {
+  with ({ Proxy: 1 }) {
+    with ({ Proxy: 2 }) {
+      return Proxy === 2;
+    }
+  }
+}
+let be = nestedProxyInnerWins();
+
+function getterRunsOnceDeleteProperty() {
+  let cnt = 0;
+  let obj = {
+    get deleteProperty() {
+      cnt = cnt + 1;
+      return function (t, key) {
+        return true;
+      };
+    }
+  };
+  let out;
+  with (obj) {
+    out = deleteProperty({}, "x");
+  }
+  return out === true && cnt === 1;
+}
+let bf = getterRunsOnceDeleteProperty();
+
+function identityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let bg = identityProxy();
+
+function withProxyNewThisIsInstance() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let pr = new Proxy({ a: 1 }, {});
+    let r = delete pr.a;
+    return pr !== obj && typeof pr === "object" && r === true && !("a" in pr);
+  }
+}
+let bh = withProxyNewThisIsInstance();
+
+function bracketMethodOnObject() {
+  let obj = {
+    deleteProperty: function (t, key) {
+      return key === "ok";
+    }
+  };
+  with (obj) {
+    return obj["deleteProperty"]({}, "ok") === true;
+  }
+}
+let bi = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    deleteProperty: function (t, key) {
+      return key === "z";
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = "z";
+  with (obj) {
+    return deleteProperty({}, x) === true && obj.x === 9;
+  }
+}
+let bj = unscopablesSecondIdent();
+
+function withProxyNameLengthTogether() {
+  with (Proxy) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let bk = withProxyNameLengthTogether();
+
+function deletePropertyTrapThroughObj() {
+  let obj = { Proxy: Proxy };
+  let deletes = 0;
+  with (obj) {
+    let p = new Proxy(
+      { m: 1, n: 2 },
+      {
+        deleteProperty: function (t, key) {
+          deletes = deletes + 1;
+          if (key === "m") {
+            return true;
+          }
+          return delete t[key];
+        }
+      }
+    );
+    let dm = delete p.m;
+    let dn = delete p.n;
+    return (
+      dm === true &&
+      p.m === 1 &&
+      dn === true &&
+      p.n === undefined &&
+      deletes === 2 &&
+      typeof p === "object"
+    );
+  }
+}
+let bl = deletePropertyTrapThroughObj();
+
+function deletePropertyTrapHandlerIdentHitsObject() {
+  let obj = {
+    deleteProperty: function (t, key) {
+      if (key === "m") {
+        return true;
+      }
+      return delete t[key];
+    }
+  };
+  with (obj) {
+    let p = new Proxy({ m: 1, n: 2 }, { deleteProperty: deleteProperty });
+    let dm = delete p.m;
+    let dn = delete p.n;
+    return dm === true && p.m === 1 && dn === true && p.n === undefined;
+  }
+}
+let bm = deletePropertyTrapHandlerIdentHitsObject();
+
+function passThroughMissingIsTrue() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let target = { a: 1 };
+    let p = new Proxy(target, {});
+    return (delete p.z) === true && (delete p.a) === true && !("a" in p);
+  }
+}
+let bn = passThroughMissingIsTrue();
+
+function typeofAndObject() {
+  let obj = { Proxy: Proxy };
+  let pr;
+  with (obj) {
+    pr = new Proxy({ a: 1 }, {});
+    delete pr.a;
+  }
+  return typeof pr === "object" && !("a" in pr);
+}
+let bp = typeofAndObject();
+
+function deletePropertyIdentOnHandlerMissOuter() {
+  function deleteProperty(t, key) {
+    return true;
+  }
+  with ({}) {
+    let target = { a: 1 };
+    let p = new Proxy(target, {});
+    let r = delete p.a;
+    return r === true && typeof deleteProperty === "function";
+  }
+}
+let bq = deletePropertyIdentOnHandlerMissOuter();
+
+function liveCloseDeletePropertyAfterTrap() {
+  let obj = {
+    deleteProperty: function (t, key) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (t, key) {
+      return deleteProperty(t, key);
+    };
+  }
+  obj.deleteProperty = function (t, key) {
+    if (key === "x") {
+      return true;
+    }
+    return false;
+  };
+  return run({ x: 1 }, "x") === true;
+}
+let br = liveCloseDeletePropertyAfterTrap();
+
+function targetIdentHitsObject() {
+  let obj = { t: { a: 42, b: 1 }, Proxy: Proxy };
+  with (obj) {
+    let p = new Proxy(t, {});
+    let r = delete p.a;
+    return r === true && !("a" in p) && obj.t.b === 1;
+  }
+}
+let bs = targetIdentHitsObject();
+
+function deletePropertyTrapThisIsHandler() {
+  let obj = { Proxy: Proxy };
+  let seen = null;
+  with (obj) {
+    let handler = {
+      deleteProperty: function (t, key) {
+        seen = this;
+        return delete t[key];
+      }
+    };
+    let p = new Proxy({ x: 1 }, handler);
+    let r = delete p.x;
+    return seen === handler && r === true && !("x" in p);
+  }
+}
+let bt = deletePropertyTrapThisIsHandler();
+
+function keyIdentHitsObject() {
+  let obj = { Proxy: Proxy, k: "a" };
+  with (obj) {
+    let target = { a: 1, b: 2 };
+    let p = new Proxy(target, {});
+    let r = delete p[k];
+    return r === true && !("a" in p) && p.b === 2;
+  }
+}
+let bu = keyIdentHitsObject();
+
+function keyIdentMissUsesOuter() {
+  let k = "a";
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let target = { a: 1 };
+    let p = new Proxy(target, {});
+    let r = delete p[k];
+    return r === true && !("a" in p);
+  }
+}
+let bv = keyIdentMissUsesOuter();
+
+function unresolvableKeyAfterGetProxy() {
+  let ran = false;
+  let obj = {
+    get Proxy() {
+      ran = true;
+      return Proxy;
+    }
+  };
+  with (obj) {
+    try {
+      let p = new Proxy({ a: 1 }, {});
+      delete p[e1702108_key];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bw = unresolvableKeyAfterGetProxy();
+
+function unresolvableBaseOfDelete() {
+  let obj = { k: "a" };
+  with (obj) {
+    try {
+      delete e1702108_base.k;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let bx = unresolvableBaseOfDelete();
+
+function unresolvableBaseSkipsKey() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return "a";
+    }
+  };
+  with (obj) {
+    try {
+      delete e1702108_base[k];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let by = unresolvableBaseSkipsKey();
+
+function trapReturnsFalseKeeps() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let p = new Proxy(
+      { keep: 3 },
+      {
+        deleteProperty: function (t, key) {
+          return false;
+        }
+      }
+    );
+    let r = delete p.keep;
+    return r === false && p.keep === 3;
+  }
+}
+let bz = trapReturnsFalseKeeps();
+
+function trapReturnsTrueWithoutDeleting() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let p = new Proxy(
+      { m: 1 },
+      {
+        deleteProperty: function (t, key) {
+          return true;
+        }
+      }
+    );
+    let r = delete p.m;
+    return r === true && p.m === 1;
+  }
+}
+let ca = trapReturnsTrueWithoutDeleting();
+
+function liveCloseDeleteTarget() {
+  let obj = { box: { a: 1, b: 2 } };
+  let run;
+  with (obj) {
+    run = function (key) {
+      return delete box[key];
+    };
+  }
+  obj.box = { a: 0, z: 1 };
+  return run("z") === true && !("z" in obj.box) && obj.box.a === 0;
+}
+let cb = liveCloseDeleteTarget();
+
+function unscopablesKeyIdent() {
+  let obj = {
+    Proxy: Proxy,
+    k: "hidden"
+  };
+  obj[Symbol.unscopables] = { k: true };
+  let k = "a";
+  with (obj) {
+    let p = new Proxy({ a: 1 }, {});
+    let r = delete p[k];
+    return r === true && !("a" in p);
+  }
+}
+let cc = unscopablesKeyIdent();
+
+function nestedDeleteInnerWins() {
+  with ({ box: { a: 1 } }) {
+    with ({ box: { b: 1 } }) {
+      let r = delete box.b;
+      return r === true && !("b" in box) && ("a" in box) === false;
+    }
+  }
+}
+let cd = nestedDeleteInnerWins();
+
+function deletePropertyTrapThrowTypeError() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        deleteProperty: function (t, key) {
+          throw new TypeError("delete-boom");
+        }
+      }
+    );
+    try {
+      delete p.x;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && err.message === "delete-boom";
+    }
+  }
+}
+let ce = deletePropertyTrapThrowTypeError();
+
+function emptyHandlerPassThroughStringKeyIdent() {
+  let obj = { Proxy: Proxy, key: "a" };
+  with (obj) {
+    let p = new Proxy({ a: 1, b: 2 }, {});
+    let r = delete p[key];
+    return r === true && !("a" in p) && p.b === 2;
+  }
+}
+let cf = emptyHandlerPassThroughStringKeyIdent();
+
+function deleteResultIsBoolean() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let p = new Proxy({ a: 1 }, {});
+    let r = (delete p.a);
+    return r === true && typeof r === "boolean";
+  }
+}
+let cg = deleteResultIsBoolean();
+
+function plainDeleteMissing() {
+  let obj = { target: { a: 1 } };
+  with (obj) {
+    let r = delete target.z;
+    return r === true && target.a === 1;
+  }
+}
+let ch = plainDeleteMissing();

@@ -1118,3 +1118,13 @@ fn with_proxy_has_fixture_present() {
 fn with_proxy_has_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_proxy_has");
 }
+
+#[test]
+fn with_proxy_delete_fixture_present() {
+    assert_fixture_present("es/legacy/with_proxy_delete");
+}
+
+#[test]
+fn with_proxy_delete_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_proxy_delete");
+}
