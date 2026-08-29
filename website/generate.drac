@@ -31,10 +31,11 @@ let isItem = 0;
 let header = "";
 let nav = "<nav><a href=\"learn.html\">Learn</a> <a href=\"reference.html\">Reference</a></nav>\n";
 let learnNav = "<nav class=\"learn\"><a href=\"install.html\">Install</a> <a href=\"from-javascript.html\">from JavaScript</a> <a href=\"from-systems.html\">from systems</a> <a href=\"dual-worlds.html\">Dual worlds</a> <a href=\"modules.html\">modules</a> <a href=\"native-types.html\">native types</a> <a href=\"host-io.html\">host I/O</a> <a href=\"packages.html\">packages</a></nav>\n";
+let referenceNav = "<nav class=\"reference\"><a href=\"cli.html\">CLI</a> <a href=\"types.html\">types</a> <a href=\"dual-world-rules.html\">Dual-world rules</a> <a href=\"reference-host-io.html\">host I/O</a> <a href=\"reference-packages.html\">packages</a></nav>\n";
 let slug = "";
 let section = "";
 
-while (page < 10) {
+while (page < 15) {
   slug = "learn";
   title = "Learn";
   if (page === 1) {
@@ -71,6 +72,26 @@ while (page < 10) {
   }
   if (page === 9) {
     slug = "packages";
+    title = "packages";
+  }
+  if (page === 10) {
+    slug = "cli";
+    title = "CLI";
+  }
+  if (page === 11) {
+    slug = "types";
+    title = "types";
+  }
+  if (page === 12) {
+    slug = "dual-world-rules";
+    title = "Dual-world rules";
+  }
+  if (page === 13) {
+    slug = "reference-host-io";
+    title = "host I/O";
+  }
+  if (page === 14) {
+    slug = "reference-packages";
     title = "packages";
   }
   mdPath = "website/" + slug + ".md";
@@ -334,6 +355,9 @@ while (page < 10) {
   header = "<!DOCTYPE html>\n<html><head><title>" + title + "</title></head><body>\n" + nav;
   if (section === "learn") {
     header = header + learnNav;
+  }
+  if (section === "reference") {
+    header = header + referenceNav;
   }
   writeFileText(htmlPath, header);
   appendFileText(htmlPath, "<p class=\"status\">" + status + "</p>\n");

@@ -1,7 +1,7 @@
-//! Website pipeline seam (issues-21, issues-22, issues-23, issues-24): compile
-//! the Draconic generator, run it on Learn and Reference pages, assert nav,
-//! status, and markdown subset; extract shipped `drac` fences and `draconic
-//! build` them. Learn skeleton nav lists the P03 chapters.
+//! Website pipeline seam (issues-21, issues-22, issues-23, issues-24,
+//! issues-25): compile the Draconic generator, run it on Learn and Reference
+//! pages, assert nav, status, and markdown subset; extract shipped `drac`
+//! fences and `draconic build` them. Learn and Reference skeletons are walkable.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,15 @@ const LEARN_CHAPTERS: &[(&str, &str)] = &[
     ("native-types.html", "native types"),
     ("host-io.html", "host I/O"),
     ("packages.html", "packages"),
+];
+
+/// Spec labels from issues-25: CLI, types, Dual-world rules, host I/O, packages.
+const REFERENCE_PAGES: &[(&str, &str)] = &[
+    ("cli.html", "CLI"),
+    ("types.html", "types"),
+    ("dual-world-rules.html", "Dual-world rules"),
+    ("reference-host-io.html", "host I/O"),
+    ("reference-packages.html", "packages"),
 ];
 
 fn temp_dir() -> PathBuf {
@@ -152,8 +161,25 @@ fn ensure_learn_chapter_sources(work: &Path) {
     }
 }
 
+fn ensure_reference_page_sources(work: &Path) {
+    let website = work.join("website");
+    fs::create_dir_all(&website).unwrap();
+    for (href, label) in REFERENCE_PAGES {
+        let slug = href.trim_end_matches(".html");
+        let path = website.join(format!("{slug}.md"));
+        if !path.exists() {
+            fs::write(
+                &path,
+                page(label, "reference", "not-yet", "Reference page stub."),
+            )
+            .unwrap();
+        }
+    }
+}
+
 fn run_website_pipeline(work: &Path) -> Result<(), String> {
     ensure_learn_chapter_sources(work);
+    ensure_reference_page_sources(work);
     let bin = build_generator();
     let output = Command::new(&bin)
         .current_dir(work)
@@ -557,4 +583,37 @@ fn website_pipeline_learn_skeleton_is_walkable() {
         from_sys.contains("href=\"dual-worlds.html\""),
         "systems landing must join at Dual worlds, got:\n{from_sys}"
     );
+}
+
+fn assert_reference_page_nav(html: &str) {
+    for (href, label) in REFERENCE_PAGES {
+        let needle = format!("<a href=\"{href}\">{label}</a>");
+        assert!(
+            html.contains(&needle),
+            "expected Reference nav link {needle}, got:\n{html}"
+        );
+    }
+}
+
+#[test]
+fn website_pipeline_reference_skeleton_is_walkable() {
+    let work = temp_dir();
+    copy_repo_website_pages(&work);
+
+    run_website_pipeline(&work).expect("pipeline");
+
+    let reference =
+        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
+    assert_nav(&reference);
+    assert_reference_page_nav(&reference);
+    assert_visible_status(&reference, "reference.html");
+
+    for (href, _) in REFERENCE_PAGES {
+        let html_path = work.join("website").join(href);
+        let html = fs::read_to_string(&html_path)
+            .unwrap_or_else(|_| panic!("expected generated {}", html_path.display()));
+        assert_nav(&html);
+        assert_reference_page_nav(&html);
+        assert_visible_status(&html, href);
+    }
 }

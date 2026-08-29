@@ -1,12 +1,12 @@
 ---
 id: issues-25
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Reference skeleton pages"
 description: "Thin Reference pages for CLI, types, Dual-world rules, host I/O, and packages."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -14,7 +14,7 @@ tags:
   - issue
   - enhancement
   - docs
-  - ready-for-agent
+  - closed
 ---
 
 # Reference skeleton pages
@@ -34,9 +34,9 @@ Reference is walkable while writing a Program. Thin written pages for CLI, types
 
 ## Acceptance criteria
 
-- [ ] Reference nav lists CLI, types, Dual-world rules, host I/O, packages
-- [ ] Pages are written stubs with visible shipped or not-yet; no fences on not-yet
-- [ ] Pipeline still generates the site
+- [x] Reference nav lists CLI, types, Dual-world rules, host I/O, packages
+- [x] Pages are written stubs with visible shipped or not-yet; no fences on not-yet
+- [x] Pipeline still generates the site
 
 ## Agent Brief
 
@@ -57,3 +57,5 @@ Learn chapters. Generated API. Playground. GitHub Pages.
 ## Comments
 
 > Child of [[issues-19-language-docs-site]]. Parallel with [[issues-24-docs-learn-skeleton]].
+>
+> **2026-08-29:** Landed. Reference pages under `website/` (CLI, types, Dual-world rules, host I/O, packages). Generator emits Reference page nav on `section: reference` pages. CLI is shipped; other stubs are not-yet prose with no fences. Pipeline test: `website_pipeline_reference_skeleton_is_walkable`. Parent [[issues-19-language-docs-site]] stays open.
