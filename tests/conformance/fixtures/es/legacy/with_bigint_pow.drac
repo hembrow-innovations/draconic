@@ -1,0 +1,625 @@
+// E17.02.81: with + BigInt exponentiation ** (right-associative) and **=
+// (same-type BigInt only) through object environment (non-strict).
+// LHS/RHS idents hit object (else outer); both sides always evaluated (no
+// short-circuit); grouping/precedence vs *; mixed Number TypeError; negative
+// exponent RangeError; inherited HasBinding; accessor this is with object;
+// unresolvable LHS or RHS → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function powHitsObject() {
+  let obj = { x: 2n, y: 3n };
+  with (obj) {
+    return (x ** y) === 8n;
+  }
+}
+let a = powHitsObject();
+
+function rightAssocHitsObject() {
+  let obj = { x: 2n, y: 3n, z: 2n };
+  with (obj) {
+    return (x ** y ** z) === 512n;
+  }
+}
+let b = rightAssocHitsObject();
+
+function groupingOverridesAssoc() {
+  let obj = { x: 2n, y: 3n, z: 2n };
+  with (obj) {
+    return ((x ** y) ** z) === 64n;
+  }
+}
+let c = groupingOverridesAssoc();
+
+function precedenceOverMul() {
+  let obj = { x: 2n, y: 3n, z: 2n };
+  with (obj) {
+    return (x * y ** z) === 18n;
+  }
+}
+let d = precedenceOverMul();
+
+function groupingOverridesMul() {
+  let obj = { x: 2n, y: 3n, z: 2n };
+  with (obj) {
+    return ((x * y) ** z) === 36n;
+  }
+}
+let e = groupingOverridesMul();
+
+function zeroExponent() {
+  let obj = { x: 10n, y: 0n };
+  with (obj) {
+    return (x ** y) === 1n;
+  }
+}
+let f = zeroExponent();
+
+function zeroToZero() {
+  let obj = { x: 0n, y: 0n };
+  with (obj) {
+    return (x ** y) === 1n;
+  }
+}
+let g = zeroToZero();
+
+function groupedUnaryBase() {
+  let obj = { x: 2n, y: 3n };
+  with (obj) {
+    return ((-x) ** y) === -8n;
+  }
+}
+let h = groupedUnaryBase();
+
+function missIsOuter() {
+  let x = 2n;
+  let y = 3n;
+  with ({}) {
+    return (x ** y) === 8n;
+  }
+}
+let j = missIsOuter();
+
+function objectShadowsOuter() {
+  let x = 9n;
+  let y = 0n;
+  let obj = { x: 2n, y: 3n };
+  with (obj) {
+    return (x ** y) === 8n;
+  }
+}
+let k = objectShadowsOuter();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 2n;
+    },
+    get y() {
+      n = n + 1;
+      return 3n;
+    }
+  };
+  with (obj) {
+    return (x ** y) === 8n && n === 2;
+  }
+}
+let l = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  let x = 2n;
+  let y = 3n;
+  let obj = { x: 9n, y: 0n };
+  obj[Symbol.unscopables] = { x: true, y: true };
+  with (obj) {
+    return (x ** y) === 8n;
+  }
+}
+let m = unscopablesUsesOuter();
+
+function inheritedData() {
+  let proto = { x: 2n, y: 3n };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x ** y) === 8n;
+  }
+}
+let p = inheritedData();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    x: 2n,
+    get y() {
+      seen = this;
+      return 3n;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x ** y) === 8n && seen === obj;
+  }
+}
+let q = inheritedGetterThis();
+
+function liveClose() {
+  let obj = { x: 2n, y: 3n };
+  let run;
+  with (obj) {
+    run = function () {
+      return x ** y;
+    };
+  }
+  obj.y = 2n;
+  return run() === 4n;
+}
+let r = liveClose();
+
+function unresolvableLhsThrows() {
+  with ({}) {
+    try {
+      e170281_missing ** 1n;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let s = unresolvableLhsThrows();
+
+function unresolvableRhsThrowsAlways() {
+  let obj = { x: 2n };
+  with (obj) {
+    try {
+      x ** e170281_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let t = unresolvableRhsThrowsAlways();
+
+function nestedInnerWins() {
+  let inner = { x: 2n, y: 3n };
+  let outer = { x: 9n, y: 0n };
+  with (outer) {
+    with (inner) {
+      return (x ** y) === 8n;
+    }
+  }
+}
+let u = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: 2n, y: 3n };
+  with (outer) {
+    with (inner) {
+      return (x ** y) === 8n;
+    }
+  }
+}
+let v = nestedInnerMissOuter();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    x: 2n,
+    get y() {
+      seen = this;
+      return 3n;
+    }
+  };
+  with (obj) {
+    return (x ** y) === 8n && seen === obj;
+  }
+}
+let w = accessorThisIsWithObject();
+
+function mixedTypeError() {
+  let obj = { x: 2n, y: 3 };
+  with (obj) {
+    try {
+      x ** y;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let aa = mixedTypeError();
+
+function mixedNumberLeftTypeError() {
+  let obj = { x: 2, y: 3n };
+  with (obj) {
+    try {
+      x ** y;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ab = mixedNumberLeftTypeError();
+
+function negativeExponentRangeError() {
+  let obj = { x: 2n, y: -1n };
+  with (obj) {
+    try {
+      x ** y;
+      return false;
+    } catch (err) {
+      return err instanceof RangeError;
+    }
+  }
+}
+let ac = negativeExponentRangeError();
+
+function rightAssocEvalOrder() {
+  let order = "";
+  let obj = {
+    get x() {
+      order = order + "x";
+      return 2n;
+    },
+    get y() {
+      order = order + "y";
+      return 3n;
+    },
+    get z() {
+      order = order + "z";
+      return 2n;
+    }
+  };
+  with (obj) {
+    return (x ** y ** z) === 512n && order === "xyz";
+  }
+}
+let ad = rightAssocEvalOrder();
+
+function typeofResult() {
+  let obj = { x: 2n, y: 3n };
+  let t;
+  with (obj) {
+    t = typeof (x ** y);
+  }
+  return t === "bigint";
+}
+let ae = typeofResult();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    try {
+      e170281_noglob ** 1n;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170281_noglob === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableNotImplicitGlobal();
+
+function unresolvableFirstSkipsRhs() {
+  let ran = false;
+  let obj = {
+    get y() {
+      ran = true;
+      return 3n;
+    }
+  };
+  with (obj) {
+    try {
+      e170281_first ** y;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ag = unresolvableFirstSkipsRhs();
+
+function unresolvableSecondAfterFirst() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return 2n;
+    }
+  };
+  with (obj) {
+    try {
+      x ** e170281_second;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ah = unresolvableSecondAfterFirst();
+
+function liveCloseAfterMutateOuter() {
+  let x = 2n;
+  let obj = { x: 3n, y: 2n };
+  let run;
+  with (obj) {
+    run = function () {
+      return x ** y;
+    };
+  }
+  obj.x = 2n;
+  x = 9n;
+  return run() === 4n && x === 9n;
+}
+let ai = liveCloseAfterMutateOuter();
+
+function unscopablesSecondIdent() {
+  let y = 3n;
+  let obj = { x: 2n, y: 99n };
+  obj[Symbol.unscopables] = { y: true };
+  let out;
+  with (obj) {
+    out = x ** y;
+  }
+  return out === 8n && obj.y === 99n;
+}
+let aj = unscopablesSecondIdent();
+
+function nestedWithUnscopables() {
+  let x = 2n;
+  let y = 3n;
+  let inner = { x: 9n, y: 0n };
+  inner[Symbol.unscopables] = { x: true, y: true };
+  let outer = { x: 4n, y: 1n };
+  with (outer) {
+    with (inner) {
+      return (x ** y) === 4n;
+    }
+  }
+}
+let ak = nestedWithUnscopables();
+
+function getterRunsOncePerUse() {
+  let c = 0;
+  let obj = {
+    get x() {
+      c = c + 1;
+      return 2n;
+    }
+  };
+  let out;
+  with (obj) {
+    out = x ** 3n;
+  }
+  return out === 8n && c === 1;
+}
+let al = getterRunsOncePerUse();
+
+function emptyZeroMiss() {
+  let x = 0n;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = x ** 0n;
+  }
+  return out === 1n;
+}
+let am = emptyZeroMiss();
+
+function hexBinPow() {
+  let obj = { x: 0xffn, y: 0b10n };
+  with (obj) {
+    return (x ** y) === 65025n;
+  }
+}
+let an = hexBinPow();
+
+function powAssignHitsObject() {
+  let obj = { x: 2n };
+  with (obj) {
+    x **= 3n;
+  }
+  return obj.x === 8n;
+}
+let ap = powAssignHitsObject();
+
+function powAssignResultIsComputed() {
+  let obj = { x: 2n };
+  let r;
+  with (obj) {
+    r = (x **= 5n);
+  }
+  return r === 32n && obj.x === 32n;
+}
+let aq = powAssignResultIsComputed();
+
+function powAssignMissIsOuter() {
+  let x = 2n;
+  with ({}) {
+    x **= 3n;
+  }
+  return x === 8n;
+}
+let ar = powAssignMissIsOuter();
+
+function powAssignInheritedCreatesOwn() {
+  let proto = { x: 2n };
+  let obj = Object.create(proto);
+  with (obj) {
+    x **= 3n;
+  }
+  return (
+    obj.x === 8n &&
+    proto.x === 2n &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === true
+  );
+}
+let at = powAssignInheritedCreatesOwn();
+
+function powAssignUnresolvableLhsThrows() {
+  let n = 0;
+  with ({}) {
+    try {
+      e170281_miss **= (n = n + 1, 1n);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        n === 0 &&
+        typeof globalThis.e170281_miss === "undefined"
+      );
+    }
+  }
+}
+let au = powAssignUnresolvableLhsThrows();
+
+function powAssignUnresolvableRhsAfterGetValue() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 2n;
+    },
+    set x(v) {
+      n = n + 10;
+    }
+  };
+  with (obj) {
+    try {
+      x **= e170281_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && n === 1 && obj.x === 2n;
+    }
+  }
+}
+let av = powAssignUnresolvableRhsAfterGetValue();
+
+function powAssignMixedTypeError() {
+  let obj = { x: 2n };
+  with (obj) {
+    try {
+      x **= 3;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && obj.x === 2n;
+    }
+  }
+}
+let aw = powAssignMixedTypeError();
+
+function powAssignNegativeExponent() {
+  let obj = { x: 2n };
+  with (obj) {
+    try {
+      x **= -1n;
+      return false;
+    } catch (err) {
+      return err instanceof RangeError && obj.x === 2n;
+    }
+  }
+}
+let ax = powAssignNegativeExponent();
+
+function powAssignLiveClose() {
+  let obj = { x: 2n };
+  let run;
+  with (obj) {
+    run = function (v) {
+      x **= v;
+    };
+  }
+  run(3n);
+  return obj.x === 8n;
+}
+let ay = powAssignLiveClose();
+
+function powAssignAccessorGetSetThis() {
+  let seenG = null;
+  let seenS = null;
+  let obj = {
+    _x: 2n,
+    get x() {
+      seenG = this;
+      return this._x;
+    },
+    set x(v) {
+      seenS = this;
+      this._x = v;
+    }
+  };
+  with (obj) {
+    x **= 3n;
+  }
+  return obj._x === 8n && seenG === obj && seenS === obj;
+}
+let az = powAssignAccessorGetSetThis();
+
+function powAssignGetterOnlySilent() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 2n;
+    }
+  };
+  with (obj) {
+    x **= 3n;
+  }
+  return n === 1 && obj.x === 2n;
+}
+let ba = powAssignGetterOnlySilent();
+
+function powAssignUnscopables() {
+  let x = 2n;
+  let obj = { x: 9n };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    x **= 3n;
+  }
+  return x === 8n && obj.x === 9n;
+}
+let bb = powAssignUnscopables();
+
+function oneExponent() {
+  let obj = { x: 9n, y: 1n };
+  with (obj) {
+    return (x ** y) === 9n;
+  }
+}
+let bc = oneExponent();
+
+function sepLiteralPow() {
+  let obj = { x: 2n };
+  with (obj) {
+    return (x ** 10n) === 1_024n;
+  }
+}
+let bd = sepLiteralPow();
+
+function powAssignNumberRightOnNumberLeft() {
+  let obj = { x: 2 };
+  with (obj) {
+    try {
+      x **= 3n;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && obj.x === 2;
+    }
+  }
+}
+let be = powAssignNumberRightOnNumberLeft();
+
+function powAssignShadowsOuter() {
+  let x = 9n;
+  let obj = { x: 2n };
+  with (obj) {
+    x **= 3n;
+  }
+  return obj.x === 8n && x === 9n;
+}
+let bf = powAssignShadowsOuter();
