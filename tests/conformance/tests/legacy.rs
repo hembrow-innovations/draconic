@@ -648,3 +648,13 @@ fn with_arithmetic_fixture_present() {
 fn with_arithmetic_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_arithmetic");
 }
+
+#[test]
+fn with_bitwise_fixture_present() {
+    assert_fixture_present("es/legacy/with_bitwise");
+}
+
+#[test]
+fn with_bitwise_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_bitwise");
+}

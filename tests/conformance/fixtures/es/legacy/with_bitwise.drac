@@ -1,0 +1,250 @@
+// E17.02.61: with + bitwise through object environment (non-strict).
+// LHS/RHS idents hit object (else outer); both sides always evaluated (no
+// short-circuit); unary ~ ident hits object; grouping/precedence; inherited
+// HasBinding; accessor this is the with object; unresolvable LHS or RHS →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function andHitsObject() {
+  let obj = { x: 5, y: 3 };
+  with (obj) {
+    return (x & y) === 1;
+  }
+}
+let a = andHitsObject();
+
+function orHitsObject() {
+  let obj = { x: 5, y: 2 };
+  with (obj) {
+    return (x | y) === 7;
+  }
+}
+let b = orHitsObject();
+
+function xorHitsObject() {
+  let obj = { x: 5, y: 1 };
+  with (obj) {
+    return (x ^ y) === 4;
+  }
+}
+let c = xorHitsObject();
+
+function notHitsObject() {
+  let obj = { x: 0 };
+  with (obj) {
+    return ~x === -1;
+  }
+}
+let d = notHitsObject();
+
+function shlHitsObject() {
+  let obj = { x: 1, y: 3 };
+  with (obj) {
+    return (x << y) === 8;
+  }
+}
+let e = shlHitsObject();
+
+function shrHitsObject() {
+  let obj = { x: -8, y: 2 };
+  with (obj) {
+    return (x >> y) === -2;
+  }
+}
+let f = shrHitsObject();
+
+function ushrHitsObject() {
+  let obj = { x: -8, y: 2 };
+  with (obj) {
+    return (x >>> y) === 1073741822;
+  }
+}
+let g = ushrHitsObject();
+
+function precedenceAndOverOr() {
+  let obj = { x: 1, y: 2, z: 4 };
+  with (obj) {
+    return (x | y & z) === 1;
+  }
+}
+let h = precedenceAndOverOr();
+
+function groupingOverrides() {
+  let obj = { x: 1, y: 2, z: 4 };
+  with (obj) {
+    return ((x | y) & z) === 0;
+  }
+}
+let i = groupingOverrides();
+
+function missIsOuter() {
+  let x = 5;
+  let y = 3;
+  with ({}) {
+    return (x & y) === 1;
+  }
+}
+let j = missIsOuter();
+
+function objectShadowsOuter() {
+  let x = 9;
+  let y = 0;
+  let obj = { x: 5, y: 3 };
+  with (obj) {
+    return (x & y) === 1;
+  }
+}
+let k = objectShadowsOuter();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 5;
+    },
+    get y() {
+      n = n + 1;
+      return 3;
+    }
+  };
+  with (obj) {
+    return (x & y) === 1 && n === 2;
+  }
+}
+let l = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  let x = 5;
+  let y = 3;
+  let obj = { x: 9, y: 0 };
+  obj[Symbol.unscopables] = { x: true, y: true };
+  with (obj) {
+    return (x & y) === 1;
+  }
+}
+let m = unscopablesUsesOuter();
+
+function inheritedData() {
+  let proto = { x: 5, y: 3 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x & y) === 1;
+  }
+}
+let p = inheritedData();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    x: 5,
+    get y() {
+      seen = this;
+      return 3;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x & y) === 1 && seen === obj;
+  }
+}
+let q = inheritedGetterThis();
+
+function liveClose() {
+  let obj = { x: 5, y: 3 };
+  let run;
+  with (obj) {
+    run = function () {
+      return x & y;
+    };
+  }
+  obj.y = 1;
+  return run() === 1;
+}
+let r = liveClose();
+
+function unresolvableLhsThrows() {
+  with ({}) {
+    try {
+      e170261_missing & 1;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let s = unresolvableLhsThrows();
+
+function unresolvableRhsThrowsAlways() {
+  let obj = { x: 0 };
+  with (obj) {
+    try {
+      x & e170261_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let t = unresolvableRhsThrowsAlways();
+
+function nestedInnerWins() {
+  let inner = { x: 5, y: 3 };
+  let outer = { x: 9, y: 0 };
+  with (outer) {
+    with (inner) {
+      return (x & y) === 1;
+    }
+  }
+}
+let u = nestedInnerWins();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    x: 5,
+    get y() {
+      seen = this;
+      return 3;
+    }
+  };
+  with (obj) {
+    return (x & y) === 1 && seen === obj;
+  }
+}
+let v = accessorThisIsWithObject();
+
+function unaryMissIsOuter() {
+  let x = 0;
+  with ({}) {
+    return ~x === -1;
+  }
+}
+let w = unaryMissIsOuter();
+
+function chainAndOr() {
+  let obj = { x: 15, y: 7, z: 8 };
+  with (obj) {
+    return (x & y | z) === 15;
+  }
+}
+let aa = chainAndOr();
+
+function unaryUnresolvableThrows() {
+  with ({}) {
+    try {
+      ~e170261_missing_unary;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ab = unaryUnresolvableThrows();
+
+function toInt32Coerce() {
+  let obj = { x: 5.9, y: 3.1 };
+  with (obj) {
+    return (x & y) === 1;
+  }
+}
+let ac = toInt32Coerce();
