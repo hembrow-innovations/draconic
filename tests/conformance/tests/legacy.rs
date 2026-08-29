@@ -678,3 +678,13 @@ fn with_conditional_fixture_present() {
 fn with_conditional_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_conditional");
 }
+
+#[test]
+fn with_assignment_fixture_present() {
+    assert_fixture_present("es/legacy/with_assignment");
+}
+
+#[test]
+fn with_assignment_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_assignment");
+}

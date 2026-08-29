@@ -1,0 +1,327 @@
+// E17.02.64: with + assignment `=` (simple, right-associative) through object
+// environment (non-strict). LHS/RHS idents hit object (else outer); RHS always
+// evaluated; result is RHS; inherited HasBinding assign creates own or setter;
+// accessor set this is the with object; getter-only / non-writable silent;
+// unresolvable LHS → implicit global (not ReferenceError); unresolvable RHS →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function lhsHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    x = 9;
+  }
+  return obj.x === 9 && x === 1;
+}
+let a = lhsHitsObject();
+
+function missUsesOuter() {
+  let x = 1;
+  let obj = {};
+  with (obj) {
+    x = 9;
+  }
+  return (
+    x === 9 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let b = missUsesOuter();
+
+function rhsHitsObject() {
+  let obj = { x: 0, y: 4 };
+  with (obj) {
+    x = y;
+  }
+  return obj.x === 4;
+}
+let c = rhsHitsObject();
+
+function rhsMissUsesOuter() {
+  let y = 7;
+  let obj = { x: 0 };
+  with (obj) {
+    x = y;
+  }
+  return obj.x === 7;
+}
+let d = rhsMissUsesOuter();
+
+function assignYieldsRhs() {
+  let obj = { x: 0 };
+  let r;
+  with (obj) {
+    r = (x = 5);
+  }
+  return r === 5 && obj.x === 5;
+}
+let e = assignYieldsRhs();
+
+function rhsAlwaysEvaluated() {
+  let n = 0;
+  let obj = { x: 0 };
+  with (obj) {
+    x = (n = n + 1, 7);
+  }
+  return obj.x === 7 && n === 1;
+}
+let f = rhsAlwaysEvaluated();
+
+function rightAssoc() {
+  let obj = { p: 0, q: 0, r: 3 };
+  with (obj) {
+    p = q = r;
+  }
+  return obj.p === 3 && obj.q === 3 && obj.r === 3;
+}
+let g = rightAssoc();
+
+function rightAssocMixed() {
+  let q = 0;
+  let obj = { p: 0, r: 5 };
+  with (obj) {
+    p = q = r;
+  }
+  return obj.p === 5 && q === 5 && obj.r === 5;
+}
+let h = rightAssocMixed();
+
+function groupingLhsIdent() {
+  let obj = { x: 0 };
+  with (obj) {
+    (x) = 9;
+  }
+  return obj.x === 9;
+}
+let i = groupingLhsIdent();
+
+function precedenceVsOr() {
+  let obj = { x: 0, y: 0, z: 5 };
+  with (obj) {
+    x = y || z;
+  }
+  return obj.x === 5;
+}
+let j = precedenceVsOr();
+
+function groupingOverridesOr() {
+  let obj = { x: 1, y: 0, z: 5 };
+  let t;
+  with (obj) {
+    t = (x = y) || z;
+  }
+  return t === 5 && obj.x === 0;
+}
+let k = groupingOverridesOr();
+
+function unscopablesUsesOuter() {
+  let x = 1;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    x = 9;
+  }
+  return x === 9 && obj.x === 2;
+}
+let l = unscopablesUsesOuter();
+
+function inheritedAssignCreatesOwn() {
+  let proto = { x: 1 };
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 7;
+  }
+  return (
+    obj.x === 7 &&
+    proto.x === 1 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === true
+  );
+}
+let m = inheritedAssignCreatesOwn();
+
+function accessorSetThis() {
+  let seen = null;
+  let stored = 0;
+  let obj = {
+    set x(v) {
+      seen = this;
+      stored = v;
+    }
+  };
+  with (obj) {
+    x = 8;
+  }
+  return stored === 8 && seen === obj;
+}
+let n = accessorSetThis();
+
+function inheritedSetterThis() {
+  let seen = null;
+  let stored = 0;
+  let proto = {
+    set x(v) {
+      seen = this;
+      stored = v;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 4;
+  }
+  return stored === 4 && seen === obj;
+}
+let p = inheritedSetterThis();
+
+function getterOnlySilent() {
+  let obj = {
+    get x() {
+      return 1;
+    }
+  };
+  with (obj) {
+    x = 9;
+  }
+  return obj.x === 1;
+}
+let q = getterOnlySilent();
+
+function rhsEvalBeforeSilentPut() {
+  let n = 0;
+  let obj = {
+    get x() {
+      return 1;
+    }
+  };
+  with (obj) {
+    x = (n = n + 1, 9);
+  }
+  return n === 1 && obj.x === 1;
+}
+let r = rhsEvalBeforeSilentPut();
+
+function inheritedGetterOnlySilent() {
+  let proto = {
+    get x() {
+      return 1;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 9;
+  }
+  return (
+    obj.x === 1 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let s = inheritedGetterOnlySilent();
+
+function nonWritableSilent() {
+  let obj = {};
+  Object.defineProperty(obj, "x", {
+    value: 1,
+    writable: false,
+    configurable: true
+  });
+  with (obj) {
+    x = 9;
+  }
+  return obj.x === 1;
+}
+let t = nonWritableSilent();
+
+function liveClose() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    run = function (v) {
+      x = v;
+    };
+  }
+  run(7);
+  return obj.x === 7;
+}
+let u = liveClose();
+
+function unresolvableLhsCreatesGlobal() {
+  with ({}) {
+    e170264_miss = 9;
+  }
+  let ok =
+    e170264_miss === 9 &&
+    globalThis.e170264_miss === 9 &&
+    typeof e170264_miss === "number";
+  delete globalThis.e170264_miss;
+  return ok;
+}
+let v = unresolvableLhsCreatesGlobal();
+
+function unresolvableRhsThrows() {
+  let obj = { x: 1 };
+  with (obj) {
+    try {
+      x = e170264_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && obj.x === 1;
+    }
+  }
+}
+let w = unresolvableRhsThrows();
+
+function nestedInnerWins() {
+  let inner = { x: 1 };
+  let outer = { x: 10 };
+  with (outer) {
+    with (inner) {
+      x = 3;
+    }
+  }
+  return inner.x === 3 && outer.x === 10;
+}
+let aa = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: 10 };
+  with (outer) {
+    with (inner) {
+      x = 3;
+    }
+  }
+  return (
+    outer.x === 3 &&
+    Object.prototype.hasOwnProperty.call(inner, "x") === false
+  );
+}
+let ab = nestedInnerMissOuter();
+
+function constOuterThrows() {
+  const x = 1;
+  let obj = {};
+  with (obj) {
+    try {
+      x = 2;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let ac = constOuterThrows();
+
+function rhsUnresolvableSkipsPut() {
+  let n = 0;
+  let obj = {
+    set x(v) {
+      n = n + 1;
+    }
+  };
+  with (obj) {
+    try {
+      x = e170264_missing_rhs2;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && n === 0;
+    }
+  }
+}
+let ad = rhsUnresolvableSkipsPut();
