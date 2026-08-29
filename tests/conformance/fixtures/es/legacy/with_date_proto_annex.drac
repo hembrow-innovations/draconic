@@ -1,0 +1,850 @@
+// E17.02.118: with + Date.prototype Annex B (B.2.4–B.2.6: getYear /
+// setYear / toGMTString) through object environment (non-strict).
+// Date/method/arg idents hit object (else outer); with (Date.prototype)
+// method idents hit those methods (getYear/setYear/toGMTString);
+// with (Date.prototype.getYear) name/length idents hit that function;
+// inherited HasBinding; accessor this is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function memberGetYearHitsObject() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return d.getYear() === d.getFullYear() - 1900;
+  }
+}
+let a = memberGetYearHitsObject();
+
+function memberGetYearMissUsesOuter() {
+  let d = new Date(0);
+  with ({}) {
+    return d.getYear() === d.getFullYear() - 1900;
+  }
+}
+let b = memberGetYearMissUsesOuter();
+
+function memberToGmtHitsObject() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return d.toGMTString() === "Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+}
+let c = memberToGmtHitsObject();
+
+function memberToGmtMissUsesOuter() {
+  let d = new Date(0);
+  with ({}) {
+    return d.toGMTString() === "Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+}
+let d = memberToGmtMissUsesOuter();
+
+function memberSetYear99HitsObject() {
+  let env = { d: new Date(0) };
+  with (env) {
+    d.setYear(99);
+    return d.getFullYear() === 1999;
+  }
+}
+let e = memberSetYear99HitsObject();
+
+function memberSetYear2000HitsObject() {
+  let env = { d: new Date(0) };
+  with (env) {
+    d.setYear(2000);
+    return d.getFullYear() === 2000;
+  }
+}
+let f = memberSetYear2000HitsObject();
+
+function memberSetYearNegHitsObject() {
+  let env = { d: new Date(0) };
+  with (env) {
+    d.setYear(-1);
+    return d.getFullYear() === -1;
+  }
+}
+let g = memberSetYearNegHitsObject();
+
+function memberSetYearMissUsesOuter() {
+  let d = new Date(0);
+  with ({}) {
+    d.setYear(99);
+    return d.getFullYear() === 1999;
+  }
+}
+let h = memberSetYearMissUsesOuter();
+
+function typeofGetYearThroughWith() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return typeof d.getYear === "function";
+  }
+}
+let j = typeofGetYearThroughWith();
+
+function typeofSetYearThroughWith() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return typeof d.setYear === "function";
+  }
+}
+let k = typeofSetYearThroughWith();
+
+function typeofToGmtThroughWith() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return typeof d.toGMTString === "function";
+  }
+}
+let l = typeofToGmtThroughWith();
+
+function identGetYearOnDateInstance() {
+  let d = new Date(0);
+  with (d) {
+    return getYear() === getFullYear() - 1900;
+  }
+}
+let m = identGetYearOnDateInstance();
+
+function identToGmtOnDateInstance() {
+  let d = new Date(0);
+  with (d) {
+    return toGMTString() === "Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+}
+let n = identToGmtOnDateInstance();
+
+function identSetYearOnDateInstance() {
+  let d = new Date(0);
+  with (d) {
+    setYear(99);
+    return getFullYear() === 1999;
+  }
+}
+let p = identSetYearOnDateInstance();
+
+function identGetYearMissUsesOuter() {
+  function getYear() {
+    return 8;
+  }
+  with ({}) {
+    return getYear() === 8;
+  }
+}
+let q = identGetYearMissUsesOuter();
+
+function identGetYearHitsObject() {
+  let env = {
+    getYear: function () {
+      return "hit";
+    }
+  };
+  with (env) {
+    return getYear() === "hit";
+  }
+}
+let r = identGetYearHitsObject();
+
+function identGetYearShadowsOuter() {
+  function getYear() {
+    return 8;
+  }
+  let env = {
+    getYear: function () {
+      return 9;
+    }
+  };
+  with (env) {
+    return getYear() === 9;
+  }
+}
+let s = identGetYearShadowsOuter();
+
+function argsHitObject() {
+  let env = { d: new Date(0), y: 99 };
+  with (env) {
+    d.setYear(y);
+    return d.getFullYear() === 1999;
+  }
+}
+let t = argsHitObject();
+
+function argsMissUsesOuter() {
+  let y = 99;
+  let env = { d: new Date(0) };
+  with (env) {
+    d.setYear(y);
+    return d.getFullYear() === 1999;
+  }
+}
+let u = argsMissUsesOuter();
+
+function withDateProtoGetYearTypeof() {
+  with (Date.prototype) {
+    return typeof getYear === "function";
+  }
+}
+let v = withDateProtoGetYearTypeof();
+
+function withDateProtoGetYearName() {
+  with (Date.prototype.getYear) {
+    return name === "getYear";
+  }
+}
+let w = withDateProtoGetYearName();
+
+function withDateProtoGetYearLength() {
+  with (Date.prototype.getYear) {
+    return length === 0;
+  }
+}
+let aa = withDateProtoGetYearLength();
+
+function withDateProtoGetYearCall() {
+  with (Date.prototype) {
+    let d = new Date(0);
+    return getYear.call(d) === d.getFullYear() - 1900;
+  }
+}
+let ab = withDateProtoGetYearCall();
+
+function withDateProtoSetYearTypeof() {
+  with (Date.prototype) {
+    return typeof setYear === "function";
+  }
+}
+let ac = withDateProtoSetYearTypeof();
+
+function withDateProtoSetYearName() {
+  with (Date.prototype.setYear) {
+    return name === "setYear" && length === 1;
+  }
+}
+let ad = withDateProtoSetYearName();
+
+function withDateProtoSetYearCall() {
+  with (Date.prototype) {
+    let d = new Date(0);
+    setYear.call(d, 2000);
+    return d.getFullYear() === 2000;
+  }
+}
+let ae = withDateProtoSetYearCall();
+
+function withDateProtoToGmtTypeof() {
+  with (Date.prototype) {
+    return typeof toGMTString === "function";
+  }
+}
+let af = withDateProtoToGmtTypeof();
+
+function withDateProtoToGmtName() {
+  with (Date.prototype.toGMTString) {
+    return name === "toUTCString" && length === 0;
+  }
+}
+let ag = withDateProtoToGmtName();
+
+function withDateProtoToGmtCall() {
+  with (Date.prototype) {
+    return toGMTString.call(new Date(0)) === "Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+}
+let ah = withDateProtoToGmtCall();
+
+function callThisIsWithObject() {
+  let env = {
+    getYear: function () {
+      return this === env ? 3 : 0;
+    }
+  };
+  with (env) {
+    return getYear() === 3;
+  }
+}
+let aj = callThisIsWithObject();
+
+function withGetYearCallThisIsFn() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(Date.prototype.getYear, "name");
+  Object.defineProperty(Date.prototype.getYear, "name", {
+    get: function () {
+      seen = this;
+      return "getYear";
+    },
+    configurable: true
+  });
+  let ok;
+  with (Date.prototype.getYear) {
+    ok = name === "getYear" && seen === Date.prototype.getYear;
+  }
+  Object.defineProperty(Date.prototype.getYear, "name", orig);
+  return ok;
+}
+let ak = withGetYearCallThisIsFn();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let env = {
+    get d() {
+      n = n + 1;
+      return new Date(0);
+    },
+    get y() {
+      n = n + 1;
+      return 99;
+    }
+  };
+  with (env) {
+    d.setYear(y);
+    return n === 2;
+  }
+}
+let al = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function getYear() {
+    return 11;
+  }
+  let env = { getYear: Date.prototype.getYear };
+  env[Symbol.unscopables] = { getYear: true };
+  with (env) {
+    return getYear() === 11;
+  }
+}
+let am = unscopablesUsesOuter();
+
+function unscopablesGetYearIdent() {
+  let env = {
+    getYear: function () {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { getYear: true };
+  with (env) {
+    return typeof getYear === "undefined";
+  }
+}
+let an = unscopablesGetYearIdent();
+
+function inheritedData() {
+  let proto = { d: new Date(0), name: "fromProto" };
+  let env = Object.create(proto);
+  with (env) {
+    return d.getYear() === d.getFullYear() - 1900 && name === "fromProto";
+  }
+}
+let ap = inheritedData();
+
+function inheritedFromDateProto() {
+  let env = Object.create(Date.prototype);
+  with (env) {
+    return (
+      typeof getYear === "function" &&
+      typeof setYear === "function" &&
+      typeof toGMTString === "function"
+    );
+  }
+}
+let aq = inheritedFromDateProto();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get getYear() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return getYear() === 1 && seen === env;
+  }
+}
+let ar = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get getYear() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  with (env) {
+    return getYear() === 1 && seen === env;
+  }
+}
+let at = accessorThisIsWithObject();
+
+function liveClose() {
+  let env = {
+    getYear: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return getYear;
+    };
+  }
+  env.getYear = Date.prototype.getYear;
+  return run() === Date.prototype.getYear;
+}
+let au = liveClose();
+
+function liveCloseDateIdent() {
+  let env = { d: new Date(0) };
+  let run;
+  with (env) {
+    run = function () {
+      return d.getYear();
+    };
+  }
+  env.d = new Date(Date.UTC(2000, 0, 1));
+  return run() === env.d.getFullYear() - 1900;
+}
+let av = liveCloseDateIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702118_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let aw = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702118_noglob.getYear;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702118_noglob === "undefined"
+      );
+    }
+  }
+}
+let ax = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    getYear: function () {
+      return 5;
+    }
+  };
+  with ({ getYear: Date.prototype.getYear }) {
+    with (inner) {
+      return getYear() === 5;
+    }
+  }
+}
+let ay = nestedInnerWins();
+
+function nestedInnerMissOuterGetYear() {
+  with ({
+    getYear: function () {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return getYear() === 5;
+    }
+  }
+}
+let az = nestedInnerMissOuterGetYear();
+
+function nestedInnerMissOuterDate() {
+  let inner = {};
+  let outer = { d: new Date(0) };
+  with (outer) {
+    with (inner) {
+      return d.getYear() === d.getFullYear() - 1900;
+    }
+  }
+}
+let ba = nestedInnerMissOuterDate();
+
+function nestedWithUnscopables() {
+  function getYear() {
+    return 11;
+  }
+  let inner = { getYear: Date.prototype.getYear };
+  inner[Symbol.unscopables] = { getYear: true };
+  let outer = {
+    getYear: function () {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return getYear() === 6;
+    }
+  }
+}
+let bb = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let env = { getYear: 1 };
+  with (env) {
+    try {
+      getYear();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bc = nonCallableTypeError();
+
+function memberGetYearStillProto() {
+  let env = { x: 1 };
+  with (env) {
+    let d = new Date(0);
+    return d.getYear() === d.getFullYear() - 1900;
+  }
+}
+let bd = memberGetYearStillProto();
+
+function protoCallThroughWith() {
+  let env = { Date: Date };
+  with (env) {
+    let d = new Date(0);
+    return Date.prototype.getYear.call(d) === d.getFullYear() - 1900;
+  }
+}
+let be = protoCallThroughWith();
+
+function dateIdentHitsObjectShadowsOuter() {
+  let d = new Date(Date.UTC(2000, 0, 1));
+  let env = { d: new Date(0) };
+  with (env) {
+    return d.toGMTString() === "Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+}
+let bf = dateIdentHitsObjectShadowsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let env = {
+    get setYear() {
+      ran = true;
+      return Date.prototype.setYear;
+    }
+  };
+  with (env) {
+    try {
+      setYear(e1702118_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bg = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let env = {
+    get y() {
+      ran = true;
+      return 99;
+    }
+  };
+  with (env) {
+    try {
+      e1702118_first(y);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bh = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let env = {
+    getYear: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return getYear();
+    };
+  }
+  env.getYear = function () {
+    return 2;
+  };
+  return run() === 2;
+}
+let bi = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let env = {
+    get d() {
+      c = c + 1;
+      return new Date(0);
+    }
+  };
+  let out;
+  with (env) {
+    out = d.toGMTString();
+  }
+  return out === "Thu, 01 Jan 1970 00:00:00 GMT" && c === 1;
+}
+let bj = getterRunsOncePerCall();
+
+function emptyMissUsesProtoGetYear() {
+  with ({}) {
+    let d = new Date(0);
+    return d.getYear() === d.getFullYear() - 1900;
+  }
+}
+let bk = emptyMissUsesProtoGetYear();
+
+function bracketGetYearOnDate() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return d["getYear"]() === d.getFullYear() - 1900;
+  }
+}
+let bl = bracketGetYearOnDate();
+
+function unscopablesSecondIdent() {
+  let y = 99;
+  let env = { d: new Date(0), y: 0 };
+  env[Symbol.unscopables] = { y: true };
+  with (env) {
+    d.setYear(y);
+    return d.getFullYear() === 1999;
+  }
+}
+let bm = unscopablesSecondIdent();
+
+function getYearTypeofHit() {
+  let env = { getYear: 1 };
+  let t;
+  with (env) {
+    t = typeof getYear;
+  }
+  return t === "number";
+}
+let bn = getYearTypeofHit();
+
+function setYearTypeofHit() {
+  let env = { setYear: "n" };
+  let t;
+  with (env) {
+    t = typeof setYear;
+  }
+  return t === "string";
+}
+let bp = setYearTypeofHit();
+
+function liveCloseSetYear() {
+  let env = { setYear: 1 };
+  let run;
+  with (env) {
+    run = function () {
+      return setYear;
+    };
+  }
+  env.setYear = Date.prototype.setYear;
+  return run() === Date.prototype.setYear;
+}
+let bq = liveCloseSetYear();
+
+function liveCloseToGmt() {
+  let env = { toGMTString: 1 };
+  let run;
+  with (env) {
+    run = function () {
+      return toGMTString;
+    };
+  }
+  env.toGMTString = Date.prototype.toGMTString;
+  return run() === Date.prototype.toGMTString;
+}
+let br = liveCloseToGmt();
+
+function unscopablesSetYear() {
+  let env = { setYear: 1 };
+  env[Symbol.unscopables] = { setYear: true };
+  with (env) {
+    return typeof setYear === "undefined";
+  }
+}
+let bs = unscopablesSetYear();
+
+function unscopablesToGmt() {
+  let env = { toGMTString: 1 };
+  env[Symbol.unscopables] = { toGMTString: true };
+  with (env) {
+    return typeof toGMTString === "undefined";
+  }
+}
+let bt = unscopablesToGmt();
+
+function nestedGetYearInnerWins() {
+  with ({ getYear: 1 }) {
+    with ({ getYear: 2 }) {
+      return getYear === 2;
+    }
+  }
+}
+let bu = nestedGetYearInnerWins();
+
+function nestedNameInnerWins() {
+  with (Date.prototype.getYear) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let bv = nestedNameInnerWins();
+
+function nestedNameMissOuterGetYear() {
+  with (Date.prototype.getYear) {
+    with ({}) {
+      return name === "getYear";
+    }
+  }
+}
+let bw = nestedNameMissOuterGetYear();
+
+function liveCloseName() {
+  let env = { name: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return name;
+    };
+  }
+  env.name = "B";
+  return run() === "B";
+}
+let bx = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (Date.prototype.getYear) {
+    let env = { name: "skip" };
+    env[Symbol.unscopables] = { name: true };
+    with (env) {
+      return name === "getYear";
+    }
+  }
+}
+let by = unscopablesNameUsesOuter();
+
+function emptyMissToGmtStillWorks() {
+  with ({}) {
+    return new Date(0).toGMTString() === "Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+}
+let bz = emptyMissToGmtStillWorks();
+
+function inheritedToGmtFromDateProto() {
+  let env = Object.create(Date.prototype);
+  with (env) {
+    return typeof toGMTString === "function" && typeof setYear === "function";
+  }
+}
+let ca = inheritedToGmtFromDateProto();
+
+function getterRunsOnceToGmt() {
+  let c = 0;
+  let env = {
+    get d() {
+      c = c + 1;
+      return new Date(0);
+    }
+  };
+  let out;
+  with (env) {
+    out = d.toGMTString();
+  }
+  return out === "Thu, 01 Jan 1970 00:00:00 GMT" && c === 1;
+}
+let cb = getterRunsOnceToGmt();
+
+function setYearArgHitObject() {
+  let env = { y: 2000, d: new Date(0) };
+  with (env) {
+    d.setYear(y);
+    return d.getFullYear() === 2000;
+  }
+}
+let cc = setYearArgHitObject();
+
+function getYearAndToGmtTogether() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return (
+      d.getYear() === d.getFullYear() - 1900 &&
+      d.toGMTString() === "Thu, 01 Jan 1970 00:00:00 GMT"
+    );
+  }
+}
+let cd = getYearAndToGmtTogether();
+
+function withDateProtoNameLengthTogether() {
+  with (Date.prototype.getYear) {
+    return name === "getYear" && length === 0;
+  }
+}
+let ce = withDateProtoNameLengthTogether();
+
+function withDateProtoSetYearNameLength() {
+  with (Date.prototype.setYear) {
+    return name === "setYear" && length === 1;
+  }
+}
+let cf = withDateProtoSetYearNameLength();
+
+function identSetYearOnDateProto() {
+  with (Date.prototype) {
+    return typeof setYear === "function" && typeof toGMTString === "function";
+  }
+}
+let cg = identSetYearOnDateProto();
+
+function memberHtmlMissUsesOuter() {
+  let d = new Date(0);
+  with ({}) {
+    return (
+      d.getYear() === d.getFullYear() - 1900 &&
+      d.toGMTString() === "Thu, 01 Jan 1970 00:00:00 GMT"
+    );
+  }
+}
+let ch = memberHtmlMissUsesOuter();
+
+function identityToGmtIsToUtc() {
+  let env = { d: new Date(0) };
+  with (env) {
+    return d.toGMTString === d.toUTCString;
+  }
+}
+let cj = identityToGmtIsToUtc();
+
+function dateProtoGetYearOnInstanceThis() {
+  let d = new Date(0);
+  with (d) {
+    return getYear() === d.getFullYear() - 1900 && this !== d;
+  }
+}
+let ck = dateProtoGetYearOnInstanceThis();

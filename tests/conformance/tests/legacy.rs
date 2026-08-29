@@ -1218,3 +1218,13 @@ fn with_string_proto_annex_fixture_present() {
 fn with_string_proto_annex_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_string_proto_annex");
 }
+
+#[test]
+fn with_date_proto_annex_fixture_present() {
+    assert_fixture_present("es/legacy/with_date_proto_annex");
+}
+
+#[test]
+fn with_date_proto_annex_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_date_proto_annex");
+}
