@@ -1,0 +1,1035 @@
+// E17.02.114: with + Proxy isExtensible/preventExtensions traps +
+// Reflect.isExtensible/preventExtensions (empty-handler pass-through,
+// trap intercept, plain object) through object environment
+// (non-strict). Proxy ident hits object (else outer); with (Proxy) method
+// idents hit Proxy (name / length); isExtensible / preventExtensions
+// ident hits object (else outer); Reflect ident hits object (else outer);
+// with (Reflect) method idents hit Reflect (isExtensible /
+// preventExtensions); inherited HasBinding; accessor this is with
+// object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function plainObjectIsExtensible() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect.isExtensible({}) === true;
+  }
+}
+let a = plainObjectIsExtensible();
+
+function plainObjectPreventExtensions() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let plain = {};
+    let ok = Reflect.preventExtensions(plain);
+    return ok === true && Reflect.isExtensible(plain) === false;
+  }
+}
+let b = plainObjectPreventExtensions();
+
+function emptyHandlerPassThroughGet() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    return Reflect.isExtensible(p) === true;
+  }
+}
+let c = emptyHandlerPassThroughGet();
+
+function emptyHandlerPassThroughSet() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.preventExtensions(p);
+    return (
+      ok === true &&
+      Reflect.isExtensible(p) === false &&
+      Reflect.isExtensible(target) === false
+    );
+  }
+}
+let d = emptyHandlerPassThroughSet();
+
+function getTrapIntercepts() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let sealed = {};
+    Reflect.preventExtensions(sealed);
+    let p = new Proxy(sealed, {
+      isExtensible: function (t) {
+        calls = calls + 1;
+        return false;
+      }
+    });
+    return calls === 0 && Reflect.isExtensible(p) === false && calls === 1;
+  }
+}
+let e = getTrapIntercepts();
+
+function setTrapIntercepts() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        preventExtensions: function (t) {
+          calls = calls + 1;
+          return Reflect.preventExtensions(t);
+        }
+      }
+    );
+    let ok = Reflect.preventExtensions(p);
+    return calls === 1 && ok === true && Reflect.isExtensible(p) === false;
+  }
+}
+let f = setTrapIntercepts();
+
+function typeofReflectGetSet() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return (
+      typeof Reflect.isExtensible === "function" &&
+      typeof Reflect.preventExtensions === "function"
+    );
+  }
+}
+let g = typeofReflectGetSet();
+
+function withReflectIsExtensible() {
+  with (Reflect) {
+    return isExtensible({}) === true;
+  }
+}
+let h = withReflectIsExtensible();
+
+function withReflectPreventExtensions() {
+  with (Reflect) {
+    let plain = {};
+    let ok = preventExtensions(plain);
+    return ok === true && isExtensible(plain) === false;
+  }
+}
+let j = withReflectPreventExtensions();
+
+function withReflectPassThroughGet() {
+  with (Reflect) {
+    let p = new Proxy({}, {});
+    return isExtensible(p) === true;
+  }
+}
+let k = withReflectPassThroughGet();
+
+function withReflectPassThroughSet() {
+  with (Reflect) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = preventExtensions(p);
+    return ok === true && isExtensible(target) === false;
+  }
+}
+let l = withReflectPassThroughSet();
+
+function withReflectGetTrap() {
+  let calls = 0;
+  with (Reflect) {
+    let sealed = {};
+    preventExtensions(sealed);
+    let p = new Proxy(sealed, {
+      isExtensible: function (t) {
+        calls = calls + 1;
+        return false;
+      }
+    });
+    return calls === 0 && isExtensible(p) === false && calls === 1;
+  }
+}
+let m = withReflectGetTrap();
+
+function withReflectSetTrap() {
+  let calls = 0;
+  with (Reflect) {
+    let p = new Proxy(
+      {},
+      {
+        preventExtensions: function (t) {
+          calls = calls + 1;
+          return Reflect.preventExtensions(t);
+        }
+      }
+    );
+    let ok = preventExtensions(p);
+    return calls === 1 && ok === true;
+  }
+}
+let n = withReflectSetTrap();
+
+function withReflectName() {
+  with (Reflect) {
+    return (
+      typeof isExtensible === "function" &&
+      typeof preventExtensions === "function"
+    );
+  }
+}
+let p = withReflectName();
+
+function withProxyTypeof() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return typeof Proxy === "function";
+  }
+}
+let q = withProxyTypeof();
+
+function withProxyName() {
+  with (Proxy) {
+    return name === "Proxy";
+  }
+}
+let r = withProxyName();
+
+function withProxyLength() {
+  with (Proxy) {
+    return length === 2;
+  }
+}
+let s = withProxyLength();
+
+function withProxyPrototypeUndefined() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy.prototype === undefined;
+  }
+}
+let t = withProxyPrototypeUndefined();
+
+function globalThisIdentityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let u = globalThisIdentityProxy();
+
+function globalThisIdentityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let v = globalThisIdentityReflect();
+
+function proxyIdentHitsObject() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Proxy({}, {}).p === "hit";
+  }
+}
+let w = proxyIdentHitsObject();
+
+function proxyIdentMissIsOuter() {
+  with ({}) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.preventExtensions(p);
+    return ok === true && Reflect.isExtensible(target) === false;
+  }
+}
+let aa = proxyIdentMissIsOuter();
+
+function reflectIdentHitsObject() {
+  let obj = {
+    Reflect: {
+      isExtensible: function (o) {
+        return "hit";
+      }
+    }
+  };
+  with (obj) {
+    return Reflect.isExtensible({}) === "hit";
+  }
+}
+let ab = reflectIdentHitsObject();
+
+function reflectIdentMissIsOuter() {
+  with ({}) {
+    return Reflect.isExtensible({}) === true;
+  }
+}
+let ac = reflectIdentMissIsOuter();
+
+function isExtensibleIdentHitsObject() {
+  let obj = {
+    isExtensible: function (o) {
+      return o === 1;
+    }
+  };
+  with (obj) {
+    return isExtensible(1) === true && isExtensible(0) === false;
+  }
+}
+let ad = isExtensibleIdentHitsObject();
+
+function isExtensibleIdentMissIsOuter() {
+  function isExtensible(o) {
+    return o === 7;
+  }
+  with ({}) {
+    return isExtensible(7) === true && isExtensible(1) === false;
+  }
+}
+let ae = isExtensibleIdentMissIsOuter();
+
+function preventExtensionsIdentHitsObject() {
+  let obj = {
+    preventExtensions: function (o) {
+      return o === 1;
+    }
+  };
+  with (obj) {
+    return preventExtensions(1) === true && preventExtensions(0) === false;
+  }
+}
+let af = preventExtensionsIdentHitsObject();
+
+function preventExtensionsIdentMissIsOuter() {
+  function preventExtensions(o) {
+    return o === 7;
+  }
+  with ({}) {
+    return preventExtensions(7) === true && preventExtensions(1) === false;
+  }
+}
+let ag = preventExtensionsIdentMissIsOuter();
+
+function objectShadowsOuterGet() {
+  function isExtensible(o) {
+    return false;
+  }
+  let obj = {
+    isExtensible: function (o) {
+      return true;
+    }
+  };
+  with (obj) {
+    return isExtensible(null) === true;
+  }
+}
+let ah = objectShadowsOuterGet();
+
+function callThisIsWithObject() {
+  let obj = {
+    isExtensible: function (o) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return isExtensible(null) === 3;
+  }
+}
+let aj = callThisIsWithObject();
+
+function withHandlerGetThisIsHandler() {
+  let handler = {
+    isExtensible: function (t) {
+      return true;
+    }
+  };
+  let seen = null;
+  let orig = handler.isExtensible;
+  handler.isExtensible = function (t) {
+    seen = this;
+    return orig.call(this, t);
+  };
+  let ok;
+  with (handler) {
+    isExtensible({});
+    ok = seen === handler;
+  }
+  return ok;
+}
+let ak = withHandlerGetThisIsHandler();
+
+function unscopablesUsesOuter() {
+  function isExtensible(o) {
+    return true;
+  }
+  let obj = {
+    isExtensible: function (o) {
+      return false;
+    }
+  };
+  obj[Symbol.unscopables] = { isExtensible: true };
+  with (obj) {
+    return isExtensible(null) === true;
+  }
+}
+let al = unscopablesUsesOuter();
+
+function unscopablesProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Proxy: true };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.preventExtensions(p);
+    return ok === true && Reflect.isExtensible(target) === false;
+  }
+}
+let am = unscopablesProxyIdent();
+
+function unscopablesReflectIdent() {
+  let obj = {
+    Reflect: {
+      isExtensible: function (o) {
+        return "no";
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Reflect: true };
+  with (obj) {
+    return Reflect.isExtensible({}) === true;
+  }
+}
+let an = unscopablesReflectIdent();
+
+function inheritedData() {
+  let proto = {
+    isExtensible: function (o) {
+      return o === "ok";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return isExtensible("ok") === true && isExtensible("no") === false;
+  }
+}
+let ap = inheritedData();
+
+function inheritedFromProxy() {
+  let obj = Object.create(Proxy);
+  with (obj) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let aq = inheritedFromProxy();
+
+function inheritedFromReflect() {
+  let obj = Object.create(Reflect);
+  with (obj) {
+    return isExtensible({}) === true;
+  }
+}
+let ar = inheritedFromReflect();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get isExtensible() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return isExtensible(null) === true && seen === obj;
+  }
+}
+let at = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get isExtensible() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    return isExtensible(null) === true && seen === obj;
+  }
+}
+let au = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    isExtensible: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return isExtensible(o);
+    };
+  }
+  obj.isExtensible = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let av = liveClose();
+
+function liveCloseProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (target, handler) {
+      return new Proxy(target, handler);
+    };
+  }
+  obj.Proxy = Proxy;
+  let target = {};
+  let p = run(target, {});
+  let ok = Reflect.preventExtensions(p);
+  return ok === true && Reflect.isExtensible(target) === false;
+}
+let aw = liveCloseProxyIdent();
+
+function liveCloseReflectIdent() {
+  let obj = {
+    Reflect: {
+      isExtensible: function (o) {
+        return "old";
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return Reflect.isExtensible(o);
+    };
+  }
+  obj.Reflect = Reflect;
+  return run({}) === true;
+}
+let ax = liveCloseReflectIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702114_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ay = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702114_noglob.isExtensible;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702114_noglob === "undefined"
+      );
+    }
+  }
+}
+let az = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    isExtensible: function (o) {
+      return true;
+    }
+  };
+  let handler = {
+    isExtensible: function (o) {
+      return false;
+    }
+  };
+  with (handler) {
+    with (inner) {
+      return isExtensible(null) === true;
+    }
+  }
+}
+let ba = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    isExtensible: function (o) {
+      return true;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return isExtensible(null) === true;
+    }
+  }
+}
+let bb = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function isExtensible(o) {
+    return true;
+  }
+  let inner = {
+    isExtensible: function (o) {
+      return false;
+    }
+  };
+  inner[Symbol.unscopables] = { isExtensible: true };
+  let outer = {
+    isExtensible: function (o) {
+      return o === "fromOuter";
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return isExtensible("fromOuter") === true;
+    }
+  }
+}
+let bc = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { isExtensible: 1 };
+  with (obj) {
+    try {
+      isExtensible(null);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bd = nonCallableTypeError();
+
+function typeofGetMethod() {
+  let ty;
+  let handler = {
+    isExtensible: function (t) {
+      return true;
+    }
+  };
+  with (handler) {
+    ty = typeof isExtensible;
+  }
+  return ty === "function";
+}
+let be = typeofGetMethod();
+
+function typeofReflectThroughWith() {
+  let obj = { Reflect: Reflect };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "object";
+}
+let bf = typeofReflectThroughWith();
+
+function typeofProxyThroughWith() {
+  let obj = { Proxy: Proxy };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "function";
+}
+let bg = typeofProxyThroughWith();
+
+function memberStillProxy() {
+  let obj = { x: 1 };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.preventExtensions(p);
+    return ok === true && Reflect.isExtensible(target) === false;
+  }
+}
+let bh = memberStillProxy();
+
+function argsHitObject() {
+  let obj = {
+    target: {},
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let p = new Proxy(target, {});
+    let ok = Reflect.preventExtensions(p);
+    return ok === true && Reflect.isExtensible(target) === false;
+  }
+}
+let bi = argsHitObject();
+
+function argsMissIsOuter() {
+  let target = {};
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let p = new Proxy(target, {});
+    let ok = Reflect.preventExtensions(p);
+    return ok === true && Reflect.isExtensible(target) === false;
+  }
+}
+let bj = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get Reflect() {
+      ran = true;
+      return Reflect;
+    }
+  };
+  with (obj) {
+    try {
+      Reflect.isExtensible(e1702114_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bk = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702114_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bl = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function isExtensible(o) {
+    return false;
+  }
+  let obj = {
+    isExtensible: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return isExtensible(o);
+    };
+  }
+  obj.isExtensible = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let bm = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get isExtensible() {
+      cnt = cnt + 1;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    isExtensible(null);
+  }
+  return cnt === 1;
+}
+let bn = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalProxy() {
+  let obj = {};
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.preventExtensions(p);
+    return ok === true && Reflect.isExtensible(target) === false;
+  }
+}
+let bp = emptyMissUsesGlobalProxy();
+
+function emptyMissUsesGlobalReflect() {
+  let obj = {};
+  with (obj) {
+    return Reflect.isExtensible({}) === true;
+  }
+}
+let bq = emptyMissUsesGlobalReflect();
+
+function getTypeofHit() {
+  let obj = { isExtensible: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof isExtensible;
+  }
+  return ty === "number";
+}
+let br = getTypeofHit();
+
+function proxyTypeofHit() {
+  let obj = { Proxy: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "number";
+}
+let bs = proxyTypeofHit();
+
+function reflectTypeofHit() {
+  let obj = { Reflect: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "number";
+}
+let bt = reflectTypeofHit();
+
+function unscopablesIsExtensible() {
+  let obj = { isExtensible: 1 };
+  obj[Symbol.unscopables] = { isExtensible: true };
+  with (obj) {
+    return typeof isExtensible === "undefined";
+  }
+}
+let bu = unscopablesIsExtensible();
+
+function nestedGetInnerWins() {
+  with ({ isExtensible: 1 }) {
+    with ({ isExtensible: 2 }) {
+      return isExtensible === 2;
+    }
+  }
+}
+let bv = nestedGetInnerWins();
+
+function nestedProxyInnerWins() {
+  with ({ Proxy: 1 }) {
+    with ({ Proxy: 2 }) {
+      return Proxy === 2;
+    }
+  }
+}
+let bw = nestedProxyInnerWins();
+
+function nestedReflectInnerWins() {
+  with ({ Reflect: 1 }) {
+    with ({ Reflect: 2 }) {
+      return Reflect === 2;
+    }
+  }
+}
+let bx = nestedReflectInnerWins();
+
+function identityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let by = identityProxy();
+
+function identityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let bz = identityReflect();
+
+function withProxyNameLengthTogether() {
+  with (Proxy) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let ca = withProxyNameLengthTogether();
+
+function trapThroughObj() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let sealed = {};
+    Reflect.preventExtensions(sealed);
+    let p = new Proxy(sealed, {
+      isExtensible: function (t) {
+        calls = calls + 1;
+        return false;
+      }
+    });
+    let d1 = Reflect.isExtensible(p);
+    let d2 = Reflect.isExtensible(p);
+    return d1 === false && d2 === false && calls === 2;
+  }
+}
+let cb = trapThroughObj();
+
+function trapHandlerIdentHitsObject() {
+  let obj = {
+    isExtensible: function (t) {
+      return false;
+    }
+  };
+  with (obj) {
+    let sealed = {};
+    Object.preventExtensions(sealed);
+    let p = new Proxy(sealed, { isExtensible: isExtensible });
+    return Reflect.isExtensible(p) === false;
+  }
+}
+let cc = trapHandlerIdentHitsObject();
+
+function trapThisIsHandler() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let seen = null;
+  with (obj) {
+    let handler = {
+      isExtensible: function (t) {
+        seen = this;
+        return Reflect.isExtensible(t);
+      }
+    };
+    let p = new Proxy({}, handler);
+    let ext = Reflect.isExtensible(p);
+    return seen === handler && ext === true;
+  }
+}
+let cd = trapThisIsHandler();
+
+function trapThrowTypeError() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        isExtensible: function (t) {
+          throw new TypeError("isExtensible-boom");
+        }
+      }
+    );
+    try {
+      Reflect.isExtensible(p);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && err.message === "isExtensible-boom";
+    }
+  }
+}
+let ce = trapThrowTypeError();
+
+function bracketMethodOnObject() {
+  let obj = {
+    isExtensible: function (o) {
+      return o === "ok";
+    }
+  };
+  with (obj) {
+    return obj["isExtensible"]("ok") === true;
+  }
+}
+let cf = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    isExtensible: function (o) {
+      return o === "z";
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = "z";
+  with (obj) {
+    return isExtensible(x) === true && obj.x === 9;
+  }
+}
+let cg = unscopablesSecondIdent();
+
+function targetIdentHitsObject() {
+  let obj = {
+    t: {},
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let p = new Proxy(t, {});
+    let ok = Reflect.preventExtensions(p);
+    return ok === true && Reflect.isExtensible(t) === false;
+  }
+}
+let ch = targetIdentHitsObject();
+
+function withReflectGetArgIdent() {
+  let obj = { k: {} };
+  with (obj) {
+    with (Reflect) {
+      return isExtensible(k) === true;
+    }
+  }
+}
+let ci = withReflectGetArgIdent();
+
+function nestedReflectInnerWinsGet() {
+  with ({
+    Reflect: {
+      isExtensible: function (o) {
+        return "outer";
+      }
+    }
+  }) {
+    with ({
+      Reflect: {
+        isExtensible: function (o) {
+          return "inner";
+        }
+      }
+    }) {
+      return Reflect.isExtensible({}) === "inner";
+    }
+  }
+}
+let cj = nestedReflectInnerWinsGet();
+
+function alreadyNonExtensible() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let sealed = {};
+    Reflect.preventExtensions(sealed);
+    return (
+      Reflect.preventExtensions(sealed) === true &&
+      Reflect.isExtensible(sealed) === false
+    );
+  }
+}
+let ck = alreadyNonExtensible();

@@ -1178,3 +1178,13 @@ fn with_proxy_define_property_fixture_present() {
 fn with_proxy_define_property_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_proxy_define_property");
 }
+
+#[test]
+fn with_proxy_extensible_fixture_present() {
+    assert_fixture_present("es/legacy/with_proxy_extensible");
+}
+
+#[test]
+fn with_proxy_extensible_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_proxy_extensible");
+}
