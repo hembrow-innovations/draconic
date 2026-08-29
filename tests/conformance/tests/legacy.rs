@@ -978,3 +978,13 @@ fn with_date_fixture_present() {
 fn with_date_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_date");
 }
+
+#[test]
+fn with_regexp_fixture_present() {
+    assert_fixture_present("es/legacy/with_regexp");
+}
+
+#[test]
+fn with_regexp_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_regexp");
+}

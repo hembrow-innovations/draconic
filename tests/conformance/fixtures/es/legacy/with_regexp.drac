@@ -1,0 +1,752 @@
+// E17.02.94: with + global RegExp (typeof RegExp, globalThis identity,
+// new RegExp(pattern) / new RegExp(pattern, flags), .test / .exec /
+// .source / .flags basics) through object environment (non-strict).
+// RegExp ident hits object (else outer); with (RegExp) method idents
+// hit RegExp (name / length / prototype); instance test / exec /
+// source / flags; inherited HasBinding; accessor this is with object;
+// unresolvable → ReferenceError; live close; nested with; unscopables
+// skip.
+
+function withRegexpTest() {
+  let re = new RegExp("a+b");
+  with (re) {
+    return test("xaabx") === true;
+  }
+}
+let a = withRegexpTest();
+
+function withRegexpExec() {
+  let re = new RegExp("foo", "i");
+  with (re) {
+    return exec("xFOOy")[0] === "FOO";
+  }
+}
+let b = withRegexpExec();
+
+function withRegexpNewTest() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    return new RegExp("a+b").test("xaabx") === true;
+  }
+}
+let c = withRegexpNewTest();
+
+function withRegexpNewFlags() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    let r = new RegExp("foo", "i");
+    return r.source === "foo" && r.flags === "i" && r.test("FOO") === true;
+  }
+}
+let d = withRegexpNewFlags();
+
+function withRegexpTypeof() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    return typeof RegExp === "function";
+  }
+}
+let e = withRegexpTypeof();
+
+function withRegexpTestTypeof() {
+  let re = new RegExp("a+b");
+  with (re) {
+    return typeof test === "function";
+  }
+}
+let f = withRegexpTestTypeof();
+
+function withRegexpExecTypeof() {
+  let re = new RegExp("foo", "i");
+  with (re) {
+    return typeof exec === "function";
+  }
+}
+let g = withRegexpExecTypeof();
+
+function withRegexpBracketTest() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    return new RegExp("a+b")["test"]("xaabx") === true;
+  }
+}
+let h = withRegexpBracketTest();
+
+function regexpIdentHitsObject() {
+  let obj = {
+    RegExp: function (p) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new RegExp("a+b").p === "hit";
+  }
+}
+let j = regexpIdentHitsObject();
+
+function regexpIdentMissIsOuter() {
+  with ({}) {
+    return new RegExp("a+b").test("xaabx") === true;
+  }
+}
+let k = regexpIdentMissIsOuter();
+
+function regexpIdentShadowsOuter() {
+  let obj = {
+    RegExp: function (p) {
+      this.p = 0;
+    }
+  };
+  with (obj) {
+    return new RegExp("a+b").p === 0;
+  }
+}
+let l = regexpIdentShadowsOuter();
+
+function testIdentHitsObject() {
+  let obj = {
+    test: function (s) {
+      return s === "xaabx" ? 7 : 0;
+    }
+  };
+  with (obj) {
+    return test("xaabx") === 7;
+  }
+}
+let m = testIdentHitsObject();
+
+function testIdentMissIsOuter() {
+  function test(s) {
+    return 8;
+  }
+  with ({}) {
+    return test("xaabx") === 8;
+  }
+}
+let n = testIdentMissIsOuter();
+
+function objectShadowsOuterTest() {
+  function test(s) {
+    return 8;
+  }
+  let obj = {
+    test: function (s) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return test("xaabx") === 9;
+  }
+}
+let p = objectShadowsOuterTest();
+
+function callThisIsWithObject() {
+  let obj = {
+    test: function (s) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return test("xaabx") === 3;
+  }
+}
+let q = callThisIsWithObject();
+
+function withReCallThisIsRe() {
+  let re = new RegExp("a+b");
+  let seen = null;
+  let orig = re.test;
+  re.test = function (s) {
+    seen = this;
+    return orig.call(this, s);
+  };
+  let ok;
+  with (re) {
+    ok = test("xaabx") === true && seen === re;
+  }
+  return ok;
+}
+let r = withReCallThisIsRe();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get RegExp() {
+      n = n + 1;
+      return RegExp;
+    },
+    get p() {
+      n = n + 1;
+      return "a+b";
+    }
+  };
+  with (obj) {
+    return new RegExp(p).test("xaabx") === true && n === 2;
+  }
+}
+let s = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function test(s) {
+    return 11;
+  }
+  let re = new RegExp("a+b");
+  let obj = { test: re.test.bind(re) };
+  obj[Symbol.unscopables] = { test: true };
+  with (obj) {
+    return test("xaabx") === 11;
+  }
+}
+let t = unscopablesUsesOuter();
+
+function unscopablesRegexpIdent() {
+  let obj = {
+    RegExp: function (p) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { RegExp: true };
+  with (obj) {
+    return new RegExp("a+b").test("xaabx") === true;
+  }
+}
+let u = unscopablesRegexpIdent();
+
+function inheritedData() {
+  let re = new RegExp("a+b");
+  let proto = { test: re.test.bind(re), exec: re.exec.bind(re) };
+  let obj = Object.create(proto);
+  with (obj) {
+    return test("xaabx") === true && exec("xyz") === null;
+  }
+}
+let v = inheritedData();
+
+function inheritedFromRe() {
+  let obj = Object.create(RegExp);
+  with (obj) {
+    return name === "RegExp" && length === 2 && prototype === RegExp.prototype;
+  }
+}
+let w = inheritedFromRe();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let re = new RegExp("a+b");
+  let proto = {
+    get test() {
+      seen = this;
+      return re.test.bind(re);
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return test("xaabx") === true && seen === obj;
+  }
+}
+let aa = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let re = new RegExp("a+b");
+  let obj = {
+    get test() {
+      seen = this;
+      return re.test.bind(re);
+    }
+  };
+  with (obj) {
+    return test("xaabx") === true && seen === obj;
+  }
+}
+let ab = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    test: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return test(s);
+    };
+  }
+  let re = new RegExp("a+b");
+  obj.test = re.test.bind(re);
+  return run("xaabx") === true;
+}
+let ac = liveClose();
+
+function liveCloseRegexpIdent() {
+  let obj = {
+    RegExp: function (p) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (p) {
+      return new RegExp(p);
+    };
+  }
+  obj.RegExp = RegExp;
+  return run("a+b").test("xaabx") === true;
+}
+let ad = liveCloseRegexpIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170294_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ae = unresolvableCalleeThrows();
+
+function unresolvableRegexpThrows() {
+  with ({}) {
+    try {
+      e170294_noglob.test("xaabx");
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170294_noglob === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableRegexpThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    test: function (s) {
+      return 5;
+    }
+  };
+  let re = new RegExp("a+b");
+  with (re) {
+    with (inner) {
+      return test("xaabx") === 5;
+    }
+  }
+}
+let ag = nestedInnerWins();
+
+function nestedInnerMissOuterRe() {
+  with ({ test: function (s) { return 5; } }) {
+    let re = new RegExp("a+b");
+    with (re) {
+      return test("xaabx") === true;
+    }
+  }
+}
+let ah = nestedInnerMissOuterRe();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let re = new RegExp("a+b");
+  let outer = { test: re.test.bind(re) };
+  with (outer) {
+    with (inner) {
+      return test("xaabx") === true;
+    }
+  }
+}
+let ai = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function test(s) {
+    return 11;
+  }
+  let re = new RegExp("a+b");
+  let inner = { test: re.test.bind(re) };
+  inner[Symbol.unscopables] = { test: true };
+  let outer = {
+    test: function (s) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return test("xaabx") === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { test: 1 };
+  with (obj) {
+    try {
+      test("xaabx");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofTest() {
+  let t;
+  let re = new RegExp("a+b");
+  with (re) {
+    t = typeof test;
+  }
+  return t === "function";
+}
+let al = typeofTest();
+
+function typeofRegexpThroughWith() {
+  let obj = { RegExp: RegExp };
+  let t;
+  with (obj) {
+    t = typeof RegExp;
+  }
+  return t === "function";
+}
+let am = typeofRegexpThroughWith();
+
+function typeofExec() {
+  let t;
+  let re = new RegExp("foo", "i");
+  with (re) {
+    t = typeof exec;
+  }
+  return t === "function";
+}
+let an = typeofExec();
+
+function memberTestStillRe() {
+  let obj = { x: 1 };
+  with (obj) {
+    return new RegExp("a+b").test("xaabx") === true;
+  }
+}
+let ap = memberTestStillRe();
+
+function argsHitObject() {
+  let re = new RegExp("a+b");
+  let obj = {
+    s: "xaabx",
+    test: re.test.bind(re)
+  };
+  with (obj) {
+    return test(s) === true;
+  }
+}
+let aq = argsHitObject();
+
+function argsMissIsOuter() {
+  let s = "xaabx";
+  let re = new RegExp("a+b");
+  let obj = { test: re.test.bind(re) };
+  with (obj) {
+    return test(s) === true;
+  }
+}
+let ar = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let re = new RegExp("a+b");
+  let obj = {
+    get test() {
+      ran = true;
+      return re.test.bind(re);
+    }
+  };
+  with (obj) {
+    try {
+      test(e170294_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let at = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get s() {
+      ran = true;
+      return "xaabx";
+    }
+  };
+  with (obj) {
+    try {
+      e170294_first(s);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let au = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function test(s) {
+    return 1;
+  }
+  let re = new RegExp("a+b");
+  let obj = { test: re.test.bind(re) };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return test(s);
+    };
+  }
+  obj.test = function (s) {
+    return 2;
+  };
+  return run("xaabx") === 2;
+}
+let av = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let re = new RegExp("a+b");
+  let obj = {
+    get test() {
+      c = c + 1;
+      return re.test.bind(re);
+    }
+  };
+  let out;
+  with (obj) {
+    out = test("xaabx");
+  }
+  return out === true && c === 1;
+}
+let aw = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalRegexp() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = new RegExp("a+b").test("xyz");
+  }
+  return out === false;
+}
+let ax = emptyMissUsesGlobalRegexp();
+
+function globalThisIdentity() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    return RegExp === globalThis.RegExp;
+  }
+}
+let ay = globalThisIdentity();
+
+function execIdentHitsObject() {
+  let obj = {
+    exec: function (s) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return exec("xFOOy") === "hit";
+  }
+}
+let az = execIdentHitsObject();
+
+function bracketMethodOnObject() {
+  let re = new RegExp("a+b");
+  let obj = { test: re.test.bind(re) };
+  with (obj) {
+    return obj["test"]("xaabx") === true;
+  }
+}
+let ba = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let s = "xaabx";
+  let re = new RegExp("a+b");
+  let obj = { test: re.test.bind(re), s: "xyz" };
+  obj[Symbol.unscopables] = { s: true };
+  let out;
+  with (obj) {
+    out = test(s);
+  }
+  return out === true && obj.s === "xyz";
+}
+let bb = unscopablesSecondIdent();
+
+function regexpTypeofHit() {
+  let obj = { RegExp: 1 };
+  let t;
+  with (obj) {
+    t = typeof RegExp;
+  }
+  return t === "number";
+}
+let bc = regexpTypeofHit();
+
+function testMissUsesGlobalTest() {
+  with ({}) {
+    return (
+      typeof RegExp.prototype.test === "function" &&
+      new RegExp("a+b").test("xaabx") === true
+    );
+  }
+}
+let bd = testMissUsesGlobalTest();
+
+function execIdentMissIsOuter() {
+  with ({}) {
+    return new RegExp("foo", "i").exec("xFOOy")[0] === "FOO";
+  }
+}
+let be = execIdentMissIsOuter();
+
+function liveCloseExec() {
+  let obj = { exec: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return exec;
+    };
+  }
+  let re = new RegExp("foo", "i");
+  obj.exec = re.exec.bind(re);
+  return run()("xFOOy")[0] === "FOO";
+}
+let bf = liveCloseExec();
+
+function unscopablesExec() {
+  let obj = { exec: 1 };
+  obj[Symbol.unscopables] = { exec: true };
+  with (obj) {
+    return typeof exec === "undefined";
+  }
+}
+let bg = unscopablesExec();
+
+function nestedExecInnerWins() {
+  with ({ exec: 1 }) {
+    with ({ exec: 2 }) {
+      return exec === 2;
+    }
+  }
+}
+let bh = nestedExecInnerWins();
+
+function getterRunsOnceExec() {
+  let c = 0;
+  let re = new RegExp("foo", "i");
+  let obj = {
+    get exec() {
+      c = c + 1;
+      return re.exec.bind(re);
+    }
+  };
+  let out;
+  with (obj) {
+    out = exec("xFOOy");
+  }
+  return out[0] === "FOO" && c === 1;
+}
+let bi = getterRunsOnceExec();
+
+function identityTest() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    return RegExp.prototype.test === globalThis.RegExp.prototype.test;
+  }
+}
+let bj = identityTest();
+
+function identityExec() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    return RegExp.prototype.exec === globalThis.RegExp.prototype.exec;
+  }
+}
+let bk = identityExec();
+
+function nestedRegexpInnerWins() {
+  with ({ RegExp: 1 }) {
+    with ({ RegExp: 2 }) {
+      return RegExp === 2;
+    }
+  }
+}
+let bl = nestedRegexpInnerWins();
+
+function emptyMissUsesGlobalTest() {
+  with ({}) {
+    return new RegExp("a+b").test("xaabx") === true;
+  }
+}
+let bm = emptyMissUsesGlobalTest();
+
+function withRegexpName() {
+  with (RegExp) {
+    return name === "RegExp";
+  }
+}
+let bn = withRegexpName();
+
+function withRegexpLength() {
+  with (RegExp) {
+    return length === 2;
+  }
+}
+let bp = withRegexpLength();
+
+function withRegexpPrototype() {
+  with (RegExp) {
+    return prototype === RegExp.prototype;
+  }
+}
+let bq = withRegexpPrototype();
+
+function withRegexpNewThisIsInstance() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    let r = new RegExp("a+b");
+    return r.test("xaabx") === true && r !== obj && r instanceof RegExp;
+  }
+}
+let br = withRegexpNewThisIsInstance();
+
+function withRegexpSourceFlagsMiss() {
+  with ({}) {
+    let r = new RegExp("foo", "i");
+    return r.source === "foo" && r.flags === "i";
+  }
+}
+let bs = withRegexpSourceFlagsMiss();
+
+function withRegexpCallAsFunction() {
+  let obj = { RegExp: RegExp };
+  with (obj) {
+    let r = RegExp("bar");
+    return r.source === "bar" && r.test("bar") === true;
+  }
+}
+let bt = withRegexpCallAsFunction();
+
+function withRegexpSourceIdent() {
+  let re = new RegExp("a+b");
+  with (re) {
+    return source === "a+b" && flags === "";
+  }
+}
+let bu = withRegexpSourceIdent();
+
+function withRegexpFlagsIdent() {
+  let re = new RegExp("foo", "i");
+  with (re) {
+    return source === "foo" && flags === "i";
+  }
+}
+let bv = withRegexpFlagsIdent();
