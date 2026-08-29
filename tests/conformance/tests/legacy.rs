@@ -738,3 +738,13 @@ fn with_object_lit_sugar_fixture_present() {
 fn with_object_lit_sugar_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_object_lit_sugar");
 }
+
+#[test]
+fn with_array_lit_access_fixture_present() {
+    assert_fixture_present("es/legacy/with_array_lit_access");
+}
+
+#[test]
+fn with_array_lit_access_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_array_lit_access");
+}

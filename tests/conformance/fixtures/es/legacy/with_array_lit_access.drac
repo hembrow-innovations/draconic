@@ -1,0 +1,443 @@
+// E17.02.70: with + array literals `[a, b]` + index access `ident[i]` /
+// `ident.length` (read) through object environment (non-strict).
+// Element/base/index idents hit object (else outer); missing index undefined;
+// nested `[]`; holes; inherited HasBinding; accessor get this is with object;
+// unresolvable element/base/index → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function litElementHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  let out;
+  with (obj) {
+    out = [x];
+  }
+  return out[0] === 2 && out.length === 1 && x === 1;
+}
+let a = litElementHitsObject();
+
+function litElementMissUsesOuter() {
+  let x = 3;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = [x];
+  }
+  return out[0] === 3;
+}
+let b = litElementMissUsesOuter();
+
+function litMultiMixed() {
+  let y = 9;
+  let obj = { x: 4 };
+  let out;
+  with (obj) {
+    out = [x, y];
+  }
+  return out[0] === 4 && out[1] === 9 && out.length === 2;
+}
+let c = litMultiMixed();
+
+function emptyLit() {
+  let obj = { x: 1 };
+  let out;
+  with (obj) {
+    out = [];
+  }
+  return out.length === 0 && out[0] === undefined && obj.x === 1;
+}
+let d = emptyLit();
+
+function trailingComma() {
+  let obj = { x: 5 };
+  let out;
+  with (obj) {
+    out = [x,];
+  }
+  return out[0] === 5 && out.length === 1;
+}
+let e = trailingComma();
+
+function holeLit() {
+  let obj = { x: 6, y: 7 };
+  let out;
+  with (obj) {
+    out = [x, , y];
+  }
+  return (
+    out[0] === 6 &&
+    out[1] === undefined &&
+    out[2] === 7 &&
+    out.length === 3 &&
+    !("1" in out)
+  );
+}
+let f = holeLit();
+
+function nestedLit() {
+  let obj = { x: 8 };
+  let out;
+  with (obj) {
+    out = [[x], [x, 1]];
+  }
+  return out[0][0] === 8 && out[1][0] === 8 && out[1][1] === 1;
+}
+let g = nestedLit();
+
+function indexBaseHitsObject() {
+  let arr = [0];
+  let env = { arr: [10, 11] };
+  let out;
+  with (env) {
+    out = arr[0];
+  }
+  return out === 10 && arr[0] === 0;
+}
+let h = indexBaseHitsObject();
+
+function indexBaseMissUsesOuter() {
+  let arr = [12];
+  let env = {};
+  let out;
+  with (env) {
+    out = arr[0];
+  }
+  return out === 12;
+}
+let i = indexBaseMissUsesOuter();
+
+function indexIdentHitsObject() {
+  let i = 0;
+  let env = { arr: [0, 13], i: 1 };
+  let out;
+  with (env) {
+    out = arr[i];
+  }
+  return out === 13 && i === 0;
+}
+let j = indexIdentHitsObject();
+
+function indexIdentMissUsesOuter() {
+  let i = 1;
+  let env = { arr: [0, 14] };
+  let out;
+  with (env) {
+    out = arr[i];
+  }
+  return out === 14;
+}
+let k = indexIdentMissUsesOuter();
+
+function lengthHitsObject() {
+  let arr = [1];
+  let env = { arr: [1, 2, 3] };
+  let out;
+  with (env) {
+    out = arr.length;
+  }
+  return out === 3 && arr.length === 1;
+}
+let l = lengthHitsObject();
+
+function lengthMissUsesOuter() {
+  let arr = [1, 2];
+  let env = {};
+  let out;
+  with (env) {
+    out = arr.length;
+  }
+  return out === 2;
+}
+let m = lengthMissUsesOuter();
+
+function missingIndexUndefined() {
+  let env = { arr: [15] };
+  let out;
+  with (env) {
+    out = arr[9];
+  }
+  return out === undefined;
+}
+let n = missingIndexUndefined();
+
+function nestedIndex() {
+  let env = { arr: [[0, 16], [17]] };
+  let out;
+  with (env) {
+    out = arr[0][1];
+  }
+  return out === 16;
+}
+let p = nestedIndex();
+
+function numericVsStringIndex() {
+  let env = { arr: [18, 19] };
+  let out0;
+  let out1;
+  with (env) {
+    out0 = arr["0"];
+    out1 = arr[1];
+  }
+  return out0 === 18 && out1 === 19;
+}
+let q = numericVsStringIndex();
+
+function unscopablesElementUsesOuter() {
+  let x = 20;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = [x];
+  }
+  return out[0] === 20 && obj.x === 2;
+}
+let r = unscopablesElementUsesOuter();
+
+function unscopablesBaseUsesOuter() {
+  let arr = [21];
+  let env = { arr: [0] };
+  env[Symbol.unscopables] = { arr: true };
+  let out;
+  with (env) {
+    out = arr[0];
+  }
+  return out === 21;
+}
+let s = unscopablesBaseUsesOuter();
+
+function inheritedElement() {
+  let proto = { x: 22 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = [x];
+  }
+  return out[0] === 22;
+}
+let t = inheritedElement();
+
+function inheritedIndexBase() {
+  let proto = { arr: [23] };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    out = arr[0];
+  }
+  return out === 23;
+}
+let u = inheritedIndexBase();
+
+function accessorGetThisElement() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 24;
+    }
+  };
+  let out;
+  with (obj) {
+    out = [x];
+  }
+  return out[0] === 24 && seen === obj;
+}
+let v = accessorGetThisElement();
+
+function accessorGetThisIndex() {
+  let seen = null;
+  let env = {
+    get arr() {
+      seen = this;
+      return [25];
+    }
+  };
+  let out;
+  with (env) {
+    out = arr[0];
+  }
+  return out === 25 && seen === env;
+}
+let w = accessorGetThisIndex();
+
+function unresolvableElementThrows() {
+  with ({}) {
+    try {
+      [e170270_el];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170270_el === "undefined"
+      );
+    }
+  }
+}
+let aa = unresolvableElementThrows();
+
+function unresolvableBaseThrows() {
+  with ({}) {
+    try {
+      e170270_arr[0];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170270_arr === "undefined"
+      );
+    }
+  }
+}
+let ab = unresolvableBaseThrows();
+
+function unresolvableIndexThrows() {
+  let env = { arr: [1] };
+  with (env) {
+    try {
+      arr[e170270_i];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170270_i === "undefined"
+      );
+    }
+  }
+}
+let ac = unresolvableIndexThrows();
+
+function unresolvableLaterElementSkipsAfterThrow() {
+  let ran = false;
+  let obj = {
+    get y() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      [e170270_first, y];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ad = unresolvableLaterElementSkipsAfterThrow();
+
+function liveCloseElement() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return [x];
+    };
+  }
+  obj.x = 26;
+  return run()[0] === 26;
+}
+let ae = liveCloseElement();
+
+function liveCloseIndex() {
+  let env = { arr: [1], i: 0 };
+  let run;
+  with (env) {
+    run = function () {
+      return arr[i];
+    };
+  }
+  env.arr = [27, 28];
+  env.i = 1;
+  return run() === 28;
+}
+let af = liveCloseIndex();
+
+function nestedInnerWinsElement() {
+  let inner = { x: 29 };
+  let outer = { x: 1 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = [x];
+    }
+  }
+  return out[0] === 29;
+}
+let ag = nestedInnerWinsElement();
+
+function nestedInnerMissOuterElement() {
+  let inner = {};
+  let outer = { x: 30 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = [x];
+    }
+  }
+  return out[0] === 30;
+}
+let ah = nestedInnerMissOuterElement();
+
+function nestedInnerWinsIndex() {
+  let inner = { arr: [31] };
+  let outer = { arr: [0] };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = arr[0];
+    }
+  }
+  return out === 31;
+}
+let ai = nestedInnerWinsIndex();
+
+function ownUndefinedHasBindingElement() {
+  let x = 99;
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    out = [x];
+  }
+  return out[0] === undefined && x === 99;
+}
+let aj = ownUndefinedHasBindingElement();
+
+function evalOrderElementsLeftToRight() {
+  let order = "";
+  let obj = {
+    get x() {
+      order = order + "X";
+      return 32;
+    },
+    get y() {
+      order = order + "Y";
+      return 33;
+    }
+  };
+  let out;
+  with (obj) {
+    out = [x, y];
+  }
+  return out[0] === 32 && out[1] === 33 && order === "XY";
+}
+let ak = evalOrderElementsLeftToRight();
+
+function evalOrderBaseThenIndex() {
+  let order = "";
+  let env = {
+    get arr() {
+      order = order + "A";
+      return [0, 34];
+    },
+    get i() {
+      order = order + "I";
+      return 1;
+    }
+  };
+  let out;
+  with (env) {
+    out = arr[i];
+  }
+  return out === 34 && order === "AI";
+}
+let al = evalOrderBaseThenIndex();
