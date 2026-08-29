@@ -1,0 +1,362 @@
+// E17.02.69: with + object literal sugar: property shorthand `{ a }`, method
+// shorthand `{ m() {…} }`, computed keys `{ [expr]: v }` through object
+// environment (non-strict). Shorthand/computed-key/method-body idents hit
+// object (else outer); method `this` is the receiver not with object;
+// inherited HasBinding; accessor get this is with object; unresolvable
+// shorthand/key/value → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function shorthandHitsObject() {
+  let a = 1;
+  let obj = { a: 2 };
+  let out;
+  with (obj) {
+    out = { a };
+  }
+  return out.a === 2 && a === 1;
+}
+let a = shorthandHitsObject();
+
+function shorthandMissUsesOuter() {
+  let a = 3;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = { a };
+  }
+  return out.a === 3;
+}
+let b = shorthandMissUsesOuter();
+
+function shorthandMulti() {
+  let b = 9;
+  let obj = { a: 4 };
+  let out;
+  with (obj) {
+    out = { a, b };
+  }
+  return out.a === 4 && out.b === 9;
+}
+let c = shorthandMulti();
+
+function computedKeyHitsObject() {
+  let k = "outer";
+  let obj = { k: "inner", v: 5 };
+  let out;
+  with (obj) {
+    out = { [k]: v };
+  }
+  return out.inner === 5 && out.outer === undefined;
+}
+let d = computedKeyHitsObject();
+
+function computedKeyMissUsesOuter() {
+  let k = "inner";
+  let obj = { v: 6 };
+  let out;
+  with (obj) {
+    out = { [k]: v };
+  }
+  return out.inner === 6;
+}
+let e = computedKeyMissUsesOuter();
+
+function computedValueHitsObject() {
+  let v = 1;
+  let obj = { k: "p", v: 7 };
+  let out;
+  with (obj) {
+    out = { [k]: v };
+  }
+  return out.p === 7 && v === 1;
+}
+let f = computedValueHitsObject();
+
+function computedValueMissUsesOuter() {
+  let v = 8;
+  let obj = { k: "p" };
+  let out;
+  with (obj) {
+    out = { [k]: v };
+  }
+  return out.p === 8;
+}
+let g = computedValueMissUsesOuter();
+
+function computedStringKey() {
+  let obj = { x: 9 };
+  let out;
+  with (obj) {
+    out = { ["w"]: x };
+  }
+  return out.w === 9 && out["w"] === 9;
+}
+let h = computedStringKey();
+
+function methodBodyHitsObject() {
+  let x = 1;
+  let obj = { x: 10 };
+  let o;
+  with (obj) {
+    o = {
+      m() {
+        return x;
+      }
+    };
+  }
+  return o.m() === 10 && x === 1;
+}
+let i = methodBodyHitsObject();
+
+function methodBodyMissUsesOuter() {
+  let x = 11;
+  let obj = {};
+  let o;
+  with (obj) {
+    o = {
+      m() {
+        return x;
+      }
+    };
+  }
+  return o.m() === 11;
+}
+let j = methodBodyMissUsesOuter();
+
+function methodThisIsReceiver() {
+  let obj = { x: 1 };
+  let o;
+  with (obj) {
+    o = {
+      x: 12,
+      m() {
+        return this.x;
+      }
+    };
+  }
+  return o.m() === 12;
+}
+let k = methodThisIsReceiver();
+
+function computedMethodNameHitsObject() {
+  let k = "outer";
+  let obj = { k: "inner" };
+  let o;
+  with (obj) {
+    o = {
+      [k]() {
+        return 13;
+      }
+    };
+  }
+  return typeof o.inner === "function" && o.inner() === 13 && o.outer === undefined;
+}
+let l = computedMethodNameHitsObject();
+
+function mixedSugar() {
+  let a = 1;
+  let k = "z";
+  let obj = { a: 14, k: "w" };
+  let o;
+  with (obj) {
+    o = { a, n() { return a; }, [k]: a };
+  }
+  return o.a === 14 && o.n() === 14 && o.w === 14 && o.z === undefined;
+}
+let m = mixedSugar();
+
+function unscopablesShorthandUsesOuter() {
+  let a = 15;
+  let obj = { a: 2 };
+  obj[Symbol.unscopables] = { a: true };
+  let out;
+  with (obj) {
+    out = { a };
+  }
+  return out.a === 15 && obj.a === 2;
+}
+let n = unscopablesShorthandUsesOuter();
+
+function unscopablesComputedKeyUsesOuter() {
+  let k = "outer";
+  let obj = { k: "inner", v: 16 };
+  obj[Symbol.unscopables] = { k: true };
+  let out;
+  with (obj) {
+    out = { [k]: v };
+  }
+  return out.outer === 16 && out.inner === undefined;
+}
+let p = unscopablesComputedKeyUsesOuter();
+
+function inheritedShorthand() {
+  let proto = { a: 17 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = { a };
+  }
+  return out.a === 17;
+}
+let q = inheritedShorthand();
+
+function accessorGetThisShorthand() {
+  let seen = null;
+  let obj = {
+    get a() {
+      seen = this;
+      return 18;
+    }
+  };
+  let out;
+  with (obj) {
+    out = { a };
+  }
+  return out.a === 18 && seen === obj;
+}
+let r = accessorGetThisShorthand();
+
+function unresolvableShorthandThrows() {
+  with ({}) {
+    try {
+      ({ e170269_sh });
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170269_sh === "undefined"
+      );
+    }
+  }
+}
+let s = unresolvableShorthandThrows();
+
+function unresolvableComputedKeyThrows() {
+  with ({}) {
+    try {
+      ({ [e170269_key]: 1 });
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170269_key === "undefined"
+      );
+    }
+  }
+}
+let t = unresolvableComputedKeyThrows();
+
+function unresolvableComputedValueThrows() {
+  let obj = { k: "x" };
+  with (obj) {
+    try {
+      ({ [k]: e170269_val });
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170269_val === "undefined"
+      );
+    }
+  }
+}
+let u = unresolvableComputedValueThrows();
+
+function liveCloseShorthand() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return { x };
+    };
+  }
+  obj.x = 19;
+  return run().x === 19;
+}
+let v = liveCloseShorthand();
+
+function liveCloseMethodBody() {
+  let obj = { x: 1 };
+  let o;
+  with (obj) {
+    o = {
+      m() {
+        return x;
+      }
+    };
+  }
+  obj.x = 20;
+  return o.m() === 20;
+}
+let w = liveCloseMethodBody();
+
+function nestedInnerWinsShorthand() {
+  let inner = { a: 21 };
+  let outer = { a: 1 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = { a };
+    }
+  }
+  return out.a === 21;
+}
+let aa = nestedInnerWinsShorthand();
+
+function nestedInnerMissOuterShorthand() {
+  let inner = {};
+  let outer = { a: 22 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = { a };
+    }
+  }
+  return out.a === 22;
+}
+let ab = nestedInnerMissOuterShorthand();
+
+function ownUndefinedHasBindingShorthand() {
+  let a = 99;
+  let obj = { a: undefined };
+  let out;
+  with (obj) {
+    out = { a };
+  }
+  return out.a === undefined && a === 99;
+}
+let ac = ownUndefinedHasBindingShorthand();
+
+function methodParamsShadow() {
+  let obj = { x: 2 };
+  let o;
+  with (obj) {
+    o = {
+      m(x) {
+        return x;
+      }
+    };
+  }
+  return o.m(23) === 23;
+}
+let ad = methodParamsShadow();
+
+function evalOrderComputedKeyThenValue() {
+  let order = "";
+  let obj = {
+    get k() {
+      order = order + "K";
+      return "p";
+    },
+    get v() {
+      order = order + "V";
+      return 24;
+    }
+  };
+  let out;
+  with (obj) {
+    out = { [k]: v };
+  }
+  return out.p === 24 && order === "KV";
+}
+let ae = evalOrderComputedKeyThenValue();
