@@ -1,0 +1,281 @@
+// E17.02.57: with + CallExpression through object environment (non-strict).
+// callee ident hits object (else outer); args through with; this in callee is
+// the with object (WithBaseObject); miss → sloppy globalThis; live close;
+// non-callable TypeError; unresolvable → ReferenceError; nested with; member
+// obj.m() still that object; unscopables skip; inherited method this is with
+// object.
+
+function calleeHitsObject() {
+  let obj = {
+    f: function () {
+      return 1;
+    }
+  };
+  with (obj) {
+    return f() === 1;
+  }
+}
+let a = calleeHitsObject();
+
+function missIsOuter() {
+  function f() {
+    return 2;
+  }
+  with ({}) {
+    return f() === 2;
+  }
+}
+let b = missIsOuter();
+
+function argsHitObject() {
+  let obj = {
+    x: 7,
+    f: function (v) {
+      return v;
+    }
+  };
+  with (obj) {
+    return f(x) === 7;
+  }
+}
+let c = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = 9;
+  let obj = {
+    f: function (v) {
+      return v;
+    }
+  };
+  with (obj) {
+    return f(x) === 9;
+  }
+}
+let d = argsMissIsOuter();
+
+function callThisIsWithObject() {
+  let obj = {
+    f: function () {
+      return this === obj;
+    }
+  };
+  with (obj) {
+    return f() === true;
+  }
+}
+let e = callThisIsWithObject();
+
+function callThisNotGlobal() {
+  let obj = {
+    f: function () {
+      return this !== globalThis;
+    }
+  };
+  with (obj) {
+    return f() === true;
+  }
+}
+let f = callThisNotGlobal();
+
+function missThisIsGlobal() {
+  function g() {
+    return this === globalThis;
+  }
+  with ({}) {
+    return g() === true;
+  }
+}
+let g = missThisIsGlobal();
+
+function liveClose() {
+  let obj = {
+    f: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return f();
+    };
+  }
+  obj.f = function () {
+    return 8;
+  };
+  return run() === 8;
+}
+let h = liveClose();
+
+function nonCallableTypeError() {
+  let obj = { f: 1 };
+  with (obj) {
+    try {
+      f();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let i = nonCallableTypeError();
+
+function nestedInnerWins() {
+  function innerF() {
+    return 1;
+  }
+  function outerF() {
+    return 2;
+  }
+  let inner = { f: innerF };
+  let outer = { f: outerF };
+  with (outer) {
+    with (inner) {
+      return f() === 1;
+    }
+  }
+}
+let j = nestedInnerWins();
+
+function nestedOuterAfterInner() {
+  function innerF() {
+    return 1;
+  }
+  function outerF() {
+    return 2;
+  }
+  let inner = { f: innerF };
+  let outer = { f: outerF };
+  with (outer) {
+    with (inner) {
+      f();
+    }
+    return f() === 2;
+  }
+}
+let k = nestedOuterAfterInner();
+
+function unresolvableCallee() {
+  with ({}) {
+    try {
+      e170257_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let l = unresolvableCallee();
+
+function getterCallee() {
+  let n = 0;
+  let obj = {
+    get f() {
+      n = n + 1;
+      let self = this;
+      return function () {
+        return n === 1 && self === obj && this === obj;
+      };
+    }
+  };
+  with (obj) {
+    return f() === true;
+  }
+}
+let m = getterCallee();
+
+function emptyCall() {
+  let obj = {
+    f: function () {
+      return arguments.length === 0;
+    }
+  };
+  with (obj) {
+    return f() === true;
+  }
+}
+let p = emptyCall();
+
+function memberCallStillThatObject() {
+  let inner = {
+    n: 9,
+    m: function () {
+      return this.n;
+    }
+  };
+  let obj = { inner: inner, n: 1 };
+  with (obj) {
+    return inner.m() === 9;
+  }
+}
+let q = memberCallStillThatObject();
+
+function unscopablesUsesOuter() {
+  function f() {
+    return 9;
+  }
+  let obj = {
+    f: function () {
+      return 1;
+    }
+  };
+  obj[Symbol.unscopables] = { f: true };
+  with (obj) {
+    return f() === 9;
+  }
+}
+let r = unscopablesUsesOuter();
+
+function inheritedMethodThisIsWithObject() {
+  let proto = {
+    f: function () {
+      return this === obj;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return f() === true;
+  }
+}
+let s = inheritedMethodThisIsWithObject();
+
+function assignCalleeHitsObject() {
+  function outerF() {
+    return 0;
+  }
+  let obj = { f: outerF };
+  with (obj) {
+    f = function () {
+      return 6;
+    };
+  }
+  return obj.f() === 6 && outerF() === 0;
+}
+let t = assignCalleeHitsObject();
+
+function objectShadowsOuter() {
+  function f() {
+    return 9;
+  }
+  let obj = {
+    f: function () {
+      return 1;
+    }
+  };
+  with (obj) {
+    return f() === 1;
+  }
+}
+let u = objectShadowsOuter();
+
+function strictCalleeThisIsWithObject() {
+  let obj = {
+    f: function () {
+      "use strict";
+      return this === obj;
+    }
+  };
+  with (obj) {
+    return f() === true;
+  }
+}
+let v = strictCalleeThisIsWithObject();

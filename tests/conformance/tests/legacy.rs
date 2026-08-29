@@ -608,3 +608,13 @@ fn with_delete_fixture_present() {
 fn with_delete_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_delete");
 }
+
+#[test]
+fn with_call_fixture_present() {
+    assert_fixture_present("es/legacy/with_call");
+}
+
+#[test]
+fn with_call_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_call");
+}
