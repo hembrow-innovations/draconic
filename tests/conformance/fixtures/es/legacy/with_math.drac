@@ -1,0 +1,591 @@
+// E17.02.82: with + global Math constants (E, PI) + methods (abs, floor,
+// ceil, round, min, max, pow, sqrt, sign) via . / [] and calls through
+// object environment (non-strict). Math ident hits object (else outer);
+// with (Math) method/constant idents hit Math; inherited HasBinding;
+// accessor this is with object; unresolvable → ReferenceError; live close;
+// nested with; unscopables skip.
+
+function withMathAbs() {
+  with (Math) {
+    return abs(-3) === 3;
+  }
+}
+let a = withMathAbs();
+
+function withMathFloor() {
+  with (Math) {
+    return floor(3.7) === 3;
+  }
+}
+let b = withMathFloor();
+
+function withMathCeil() {
+  with (Math) {
+    return ceil(3.2) === 4;
+  }
+}
+let c = withMathCeil();
+
+function withMathRound() {
+  with (Math) {
+    return round(3.5) === 4;
+  }
+}
+let d = withMathRound();
+
+function withMathMin() {
+  with (Math) {
+    return min(3, 1, 2) === 1;
+  }
+}
+let e = withMathMin();
+
+function withMathMax() {
+  with (Math) {
+    return max(3, 1, 2) === 3;
+  }
+}
+let f = withMathMax();
+
+function withMathPow() {
+  with (Math) {
+    return pow(2, 10) === 1024;
+  }
+}
+let g = withMathPow();
+
+function withMathSqrt() {
+  with (Math) {
+    return sqrt(9) === 3;
+  }
+}
+let h = withMathSqrt();
+
+function withMathSign() {
+  with (Math) {
+    return sign(-5) === -1;
+  }
+}
+let j = withMathSign();
+
+function withMathPi() {
+  with (Math) {
+    return PI > 3 && PI < 4;
+  }
+}
+let k = withMathPi();
+
+function withMathE() {
+  with (Math) {
+    return E > 2 && E < 3;
+  }
+}
+let l = withMathE();
+
+function withMathBracketAbs() {
+  let obj = { Math: Math };
+  with (obj) {
+    return Math["abs"](-4) === 4;
+  }
+}
+let m = withMathBracketAbs();
+
+function mathIdentHitsObject() {
+  let obj = {
+    Math: {
+      abs: function (x) {
+        return 42;
+      }
+    }
+  };
+  with (obj) {
+    return Math.abs(-3) === 42;
+  }
+}
+let n = mathIdentHitsObject();
+
+function mathIdentMissIsOuter() {
+  with ({}) {
+    return Math.abs(-3) === 3;
+  }
+}
+let p = mathIdentMissIsOuter();
+
+function mathIdentShadowsOuter() {
+  let obj = {
+    Math: {
+      PI: 1,
+      abs: function (x) {
+        return 0;
+      }
+    }
+  };
+  with (obj) {
+    return Math.PI === 1 && Math.abs(-3) === 0;
+  }
+}
+let q = mathIdentShadowsOuter();
+
+function methodIdentHitsObject() {
+  let obj = {
+    abs: function (x) {
+      return 7;
+    },
+    PI: 1
+  };
+  with (obj) {
+    return abs(-3) === 7 && PI === 1;
+  }
+}
+let r = methodIdentHitsObject();
+
+function methodIdentMissIsOuter() {
+  function abs(x) {
+    return 8;
+  }
+  with ({}) {
+    return abs(-3) === 8;
+  }
+}
+let s = methodIdentMissIsOuter();
+
+function objectShadowsOuterAbs() {
+  function abs(x) {
+    return 8;
+  }
+  let obj = {
+    abs: function (x) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return abs(-3) === 9;
+  }
+}
+let t = objectShadowsOuterAbs();
+
+function callThisIsWithObject() {
+  let obj = {
+    abs: function (x) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return abs(-3) === 3;
+  }
+}
+let u = callThisIsWithObject();
+
+function withMathCallThisIsMath() {
+  let seen = null;
+  let orig = Math.abs;
+  Math.abs = function (x) {
+    seen = this;
+    return orig.call(this, x);
+  };
+  let ok;
+  with (Math) {
+    ok = abs(-3) === 3 && seen === Math;
+  }
+  Math.abs = orig;
+  return ok;
+}
+let v = withMathCallThisIsMath();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get abs() {
+      n = n + 1;
+      return function (x) {
+        return x < 0 ? -x : x;
+      };
+    },
+    get x() {
+      n = n + 1;
+      return -3;
+    }
+  };
+  with (obj) {
+    return abs(x) === 3 && n === 2;
+  }
+}
+let w = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function abs(x) {
+    return 11;
+  }
+  let obj = { abs: Math.abs };
+  obj[Symbol.unscopables] = { abs: true };
+  with (obj) {
+    return abs(-3) === 11;
+  }
+}
+let aa = unscopablesUsesOuter();
+
+function unscopablesMathIdent() {
+  let obj = {
+    Math: {
+      abs: function (x) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Math: true };
+  with (obj) {
+    return Math.abs(-3) === 3;
+  }
+}
+let ab = unscopablesMathIdent();
+
+function inheritedData() {
+  let proto = { abs: Math.abs, PI: Math.PI };
+  let obj = Object.create(proto);
+  with (obj) {
+    return abs(-3) === 3 && PI > 3 && PI < 4;
+  }
+}
+let ac = inheritedData();
+
+function inheritedFromMath() {
+  let obj = Object.create(Math);
+  with (obj) {
+    return abs(-3) === 3 && floor(3.7) === 3;
+  }
+}
+let ad = inheritedFromMath();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get abs() {
+      seen = this;
+      return function (x) {
+        return x < 0 ? -x : x;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return abs(-3) === 3 && seen === obj;
+  }
+}
+let ae = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get abs() {
+      seen = this;
+      return function (x) {
+        return x < 0 ? -x : x;
+      };
+    }
+  };
+  with (obj) {
+    return abs(-3) === 3 && seen === obj;
+  }
+}
+let af = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    abs: function (x) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return abs(x);
+    };
+  }
+  obj.abs = Math.abs;
+  return run(-3) === 3;
+}
+let ag = liveClose();
+
+function liveCloseMathIdent() {
+  let obj = {
+    Math: {
+      abs: function (x) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return Math.abs(x);
+    };
+  }
+  obj.Math = Math;
+  return run(-3) === 3;
+}
+let ah = liveCloseMathIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170282_missing(-3);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ai = unresolvableCalleeThrows();
+
+function unresolvableMathThrows() {
+  with ({}) {
+    try {
+      e170282_noglob.abs(-3);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170282_noglob === "undefined"
+      );
+    }
+  }
+}
+let aj = unresolvableMathThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    abs: function (x) {
+      return 5;
+    }
+  };
+  with (Math) {
+    with (inner) {
+      return abs(-3) === 5;
+    }
+  }
+}
+let ak = nestedInnerWins();
+
+function nestedInnerMissOuterMath() {
+  with ({ abs: function (x) { return 5; } }) {
+    with (Math) {
+      return abs(-3) === 3;
+    }
+  }
+}
+let al = nestedInnerMissOuterMath();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { abs: Math.abs };
+  with (outer) {
+    with (inner) {
+      return abs(-3) === 3;
+    }
+  }
+}
+let am = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function abs(x) {
+    return 11;
+  }
+  let inner = { abs: Math.abs };
+  inner[Symbol.unscopables] = { abs: true };
+  let outer = {
+    abs: function (x) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return abs(-3) === 6;
+    }
+  }
+}
+let an = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { abs: 1 };
+  with (obj) {
+    try {
+      abs(-3);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ap = nonCallableTypeError();
+
+function typeofAbs() {
+  let t;
+  with (Math) {
+    t = typeof abs;
+  }
+  return t === "function";
+}
+let aq = typeofAbs();
+
+function typeofPi() {
+  let t;
+  with (Math) {
+    t = typeof PI;
+  }
+  return t === "number";
+}
+let ar = typeofPi();
+
+function typeofMathThroughWith() {
+  let obj = { Math: Math };
+  let t;
+  with (obj) {
+    t = typeof Math;
+  }
+  return t === "object";
+}
+let at = typeofMathThroughWith();
+
+function memberAbsStillMath() {
+  let obj = { x: 1 };
+  with (obj) {
+    return Math.abs(-3) === 3;
+  }
+}
+let au = memberAbsStillMath();
+
+function argsHitObject() {
+  let obj = {
+    x: -3,
+    abs: Math.abs
+  };
+  with (obj) {
+    return abs(x) === 3;
+  }
+}
+let av = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = -4;
+  let obj = { abs: Math.abs };
+  with (obj) {
+    return abs(x) === 4;
+  }
+}
+let aw = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get abs() {
+      ran = true;
+      return Math.abs;
+    }
+  };
+  with (obj) {
+    try {
+      abs(e170282_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ax = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return -3;
+    }
+  };
+  with (obj) {
+    try {
+      e170282_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ay = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function abs(x) {
+    return 1;
+  }
+  let obj = { abs: Math.abs };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return abs(x);
+    };
+  }
+  obj.abs = function (x) {
+    return 2;
+  };
+  return run(-3) === 2;
+}
+let az = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get abs() {
+      c = c + 1;
+      return Math.abs;
+    }
+  };
+  let out;
+  with (obj) {
+    out = abs(-3);
+  }
+  return out === 3 && c === 1;
+}
+let ba = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalMath() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = Math.pow(2, 10);
+  }
+  return out === 1024;
+}
+let bb = emptyMissUsesGlobalMath();
+
+function withMathSignZero() {
+  with (Math) {
+    return sign(0) === 0 && sign(5) === 1;
+  }
+}
+let bc = withMathSignZero();
+
+function withMathSqrtNaN() {
+  with (Math) {
+    return sqrt(-1) !== sqrt(-1);
+  }
+}
+let bd = withMathSqrtNaN();
+
+function bracketMethodOnObject() {
+  let obj = { abs: Math.abs };
+  with (obj) {
+    return obj["abs"](-4) === 4;
+  }
+}
+let be = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let x = -3;
+  let obj = { abs: Math.abs, x: -9 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = abs(x);
+  }
+  return out === 3 && obj.x === -9;
+}
+let bf = unscopablesSecondIdent();

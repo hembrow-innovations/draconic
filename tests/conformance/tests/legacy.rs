@@ -858,3 +858,13 @@ fn with_bigint_pow_fixture_present() {
 fn with_bigint_pow_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_bigint_pow");
 }
+
+#[test]
+fn with_math_fixture_present() {
+    assert_fixture_present("es/legacy/with_math");
+}
+
+#[test]
+fn with_math_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_math");
+}
