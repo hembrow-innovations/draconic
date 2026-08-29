@@ -1,0 +1,330 @@
+// E17.02.68: with + property assignment `ident.k = v` / `ident["k"] = v`
+// (simple `=`; read-back) through object environment (non-strict).
+// Base/value/bracket-key idents hit object (else outer); result is RHS;
+// nested `.`/`[]`; inherited HasBinding on base; accessor set this is the
+// member object; missing prop creates own; unresolvable base/key/RHS →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function dotBaseHitsObject() {
+  let box = { k: 0 };
+  let env = { box: { k: 1 } };
+  with (env) {
+    box.k = 9;
+  }
+  return env.box.k === 9 && box.k === 0;
+}
+let a = dotBaseHitsObject();
+
+function dotBaseMissUsesOuter() {
+  let box = { k: 0 };
+  let env = {};
+  with (env) {
+    box.k = 8;
+  }
+  return box.k === 8;
+}
+let b = dotBaseMissUsesOuter();
+
+function bracketStringHitsObject() {
+  let box = { k: 0 };
+  let env = { box: { k: 1 } };
+  with (env) {
+    box["k"] = 7;
+  }
+  return env.box.k === 7 && box.k === 0;
+}
+let c = bracketStringHitsObject();
+
+function bracketKeyIdentHitsObject() {
+  let k = "outer";
+  let env = { box: { inner: 0, outer: 0 }, k: "inner" };
+  with (env) {
+    box[k] = 11;
+  }
+  return env.box.inner === 11 && env.box.outer === 0;
+}
+let d = bracketKeyIdentHitsObject();
+
+function bracketKeyMissUsesOuter() {
+  let k = "inner";
+  let env = { box: { inner: 0, outer: 0 } };
+  with (env) {
+    box[k] = 12;
+  }
+  return env.box.inner === 12 && env.box.outer === 0;
+}
+let e = bracketKeyMissUsesOuter();
+
+function rhsHitsObject() {
+  let box = { k: 0 };
+  let env = { v: 13 };
+  with (env) {
+    box.k = v;
+  }
+  return box.k === 13;
+}
+let f = rhsHitsObject();
+
+function rhsMissUsesOuter() {
+  let v = 14;
+  let env = { box: { k: 0 } };
+  with (env) {
+    box.k = v;
+  }
+  return env.box.k === 14;
+}
+let g = rhsMissUsesOuter();
+
+function assignYieldsRhs() {
+  let env = { box: { k: 0 } };
+  let r;
+  with (env) {
+    r = (box.k = 15);
+  }
+  return r === 15 && env.box.k === 15;
+}
+let h = assignYieldsRhs();
+
+function rhsAlwaysEvaluated() {
+  let n = 0;
+  let env = { box: { k: 0 } };
+  with (env) {
+    box.k = (n = n + 1, 16);
+  }
+  return env.box.k === 16 && n === 1;
+}
+let i = rhsAlwaysEvaluated();
+
+function nestedDot() {
+  let env = { box: { inner: { n: 0 } } };
+  with (env) {
+    box.inner.n = 17;
+  }
+  return env.box.inner.n === 17;
+}
+let j = nestedDot();
+
+function nestedBracket() {
+  let env = { box: { inner: { n: 0 } }, p: "inner", q: "n" };
+  with (env) {
+    box[p][q] = 18;
+  }
+  return env.box.inner.n === 18;
+}
+let k = nestedBracket();
+
+function createNewProp() {
+  let env = { box: {} };
+  with (env) {
+    box.k = 19;
+  }
+  return env.box.k === 19;
+}
+let l = createNewProp();
+
+function unscopablesBaseUsesOuter() {
+  let box = { k: 0 };
+  let env = { box: { k: 0 } };
+  env[Symbol.unscopables] = { box: true };
+  with (env) {
+    box.k = 20;
+  }
+  return box.k === 20 && env.box.k === 0;
+}
+let m = unscopablesBaseUsesOuter();
+
+function unscopablesKeyUsesOuter() {
+  let k = "outer";
+  let env = { box: { inner: 0, outer: 0 }, k: "inner" };
+  env[Symbol.unscopables] = { k: true };
+  with (env) {
+    box[k] = 21;
+  }
+  return env.box.outer === 21 && env.box.inner === 0;
+}
+let n = unscopablesKeyUsesOuter();
+
+function unscopablesRhsUsesOuter() {
+  let v = 22;
+  let env = { box: { k: 0 }, v: 99 };
+  env[Symbol.unscopables] = { v: true };
+  with (env) {
+    box.k = v;
+  }
+  return env.box.k === 22;
+}
+let p = unscopablesRhsUsesOuter();
+
+function inheritedBase() {
+  let proto = { box: { k: 0 } };
+  let env = Object.create(proto);
+  with (env) {
+    box.k = 23;
+  }
+  return proto.box.k === 23;
+}
+let q = inheritedBase();
+
+function accessorSetThisIsMember() {
+  let seen = null;
+  let box = {
+    set k(v) {
+      seen = this;
+      this._k = v;
+    }
+  };
+  let env = { box: box };
+  with (env) {
+    box.k = 24;
+  }
+  return seen === box && box._k === 24;
+}
+let r = accessorSetThisIsMember();
+
+function accessorGetThisBase() {
+  let seen = null;
+  let inner = { k: 0 };
+  let env = {
+    get box() {
+      seen = this;
+      return inner;
+    }
+  };
+  with (env) {
+    box.k = 25;
+  }
+  return inner.k === 25 && seen === env;
+}
+let s = accessorGetThisBase();
+
+function unresolvableBaseThrows() {
+  with ({}) {
+    try {
+      e170268_base.k = 1;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170268_base === "undefined"
+      );
+    }
+  }
+}
+let t = unresolvableBaseThrows();
+
+function unresolvableKeyThrows() {
+  let env = { box: { k: 1 } };
+  with (env) {
+    try {
+      box[e170268_key] = 2;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && env.box.k === 1;
+    }
+  }
+}
+let u = unresolvableKeyThrows();
+
+function unresolvableRhsThrows() {
+  let env = { box: { k: 1 } };
+  with (env) {
+    try {
+      box.k = e170268_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && env.box.k === 1;
+    }
+  }
+}
+let v = unresolvableRhsThrows();
+
+function liveClose() {
+  let env = { box: { k: 1 } };
+  let run;
+  with (env) {
+    run = function () {
+      box.k = 26;
+    };
+  }
+  env.box = { k: 0 };
+  run();
+  return env.box.k === 26;
+}
+let w = liveClose();
+
+function nestedInnerWins() {
+  let inner = { box: { k: 0 } };
+  let outer = { box: { k: 0 } };
+  with (outer) {
+    with (inner) {
+      box.k = 27;
+    }
+  }
+  return inner.box.k === 27 && outer.box.k === 0;
+}
+let aa = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { box: { k: 0 } };
+  with (outer) {
+    with (inner) {
+      box.k = 28;
+    }
+  }
+  return outer.box.k === 28;
+}
+let ab = nestedInnerMissOuter();
+
+function nonWritableSilent() {
+  let box = {};
+  Object.defineProperty(box, "k", {
+    value: 1,
+    writable: false,
+    configurable: true
+  });
+  let env = { box: box };
+  with (env) {
+    box.k = 9;
+  }
+  return box.k === 1;
+}
+let ac = nonWritableSilent();
+
+function getterOnlySilent() {
+  let box = {
+    get k() {
+      return 2;
+    }
+  };
+  let env = { box: box };
+  with (env) {
+    box.k = 9;
+  }
+  return box.k === 2 && Object.prototype.hasOwnProperty.call(box, "k") === true;
+}
+let ad = getterOnlySilent();
+
+function evalOrderBaseKeyRhs() {
+  let order = "";
+  let target = { k: 0 };
+  let env = {
+    get box() {
+      order = order + "B";
+      return target;
+    },
+    get p() {
+      order = order + "K";
+      return "k";
+    },
+    get v() {
+      order = order + "V";
+      return 29;
+    }
+  };
+  with (env) {
+    box[p] = v;
+  }
+  return target.k === 29 && order === "BKV";
+}
+let ae = evalOrderBaseKeyRhs();
