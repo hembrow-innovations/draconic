@@ -1,0 +1,602 @@
+// E17.02.73: with + spread in call/new args `f(...a)` / `f(x, ...a, y)` /
+// `new F(...a)` (iterable expand into arguments) through object environment
+// (non-strict). Callee/ctor/spread/arg idents hit object (else outer);
+// empty/`""` spread; nested; inherited HasBinding; accessor get this is with
+// object; unresolvable callee/ctor/spread/arg → ReferenceError; non-iterable
+// TypeError; live close; nested with; unscopables skip; call this is with
+// object; new this is instance.
+
+function spreadHitsObject() {
+  function sum(x, y) {
+    return x + y;
+  }
+  let a = [1, 2];
+  let env = { a: [3, 4] };
+  let out;
+  with (env) {
+    out = sum(...a);
+  }
+  return out === 7 && a[0] === 1;
+}
+let a = spreadHitsObject();
+
+function spreadMissUsesOuter() {
+  function sum(x, y) {
+    return x + y;
+  }
+  let src = [5, 6];
+  let env = {};
+  let out;
+  with (env) {
+    out = sum(...src);
+  }
+  return out === 11;
+}
+let b = spreadMissUsesOuter();
+
+function calleeHitsObject() {
+  let env = {
+    f: function (x, y) {
+      return x + y;
+    },
+    a: [8, 9]
+  };
+  let out;
+  with (env) {
+    out = f(...a);
+  }
+  return out === 17;
+}
+let c = calleeHitsObject();
+
+function calleeMissUsesOuter() {
+  function f(x, y) {
+    return x * y;
+  }
+  let env = { a: [2, 5] };
+  let out;
+  with (env) {
+    out = f(...a);
+  }
+  return out === 10;
+}
+let d = calleeMissUsesOuter();
+
+function prefixThenSpread() {
+  function sum(x, y, z) {
+    return x + y + z;
+  }
+  let env = { x: 1, a: [2, 3] };
+  let out;
+  with (env) {
+    out = sum(x, ...a);
+  }
+  return out === 6;
+}
+let e = prefixThenSpread();
+
+function spreadThenSuffix() {
+  function sum(x, y, z) {
+    return x + y + z;
+  }
+  let y = 12;
+  let env = { a: [10, 11] };
+  let out;
+  with (env) {
+    out = sum(...a, y);
+  }
+  return out === 33;
+}
+let f = spreadThenSuffix();
+
+function prefixSpreadSuffix() {
+  function sum(x, y, z) {
+    return x + y + z;
+  }
+  let z = 6;
+  let env = { x: 4, a: [5] };
+  let out;
+  with (env) {
+    out = sum(x, ...a, z);
+  }
+  return out === 15;
+}
+let g = prefixSpreadSuffix();
+
+function mixedHitAndMiss() {
+  function sum(x, y) {
+    return x + y;
+  }
+  let y = 20;
+  let env = { a: [19] };
+  let out;
+  with (env) {
+    out = sum(...a, y);
+  }
+  return out === 39;
+}
+let h = mixedHitAndMiss();
+
+function emptySpread() {
+  function sum(x, y, z) {
+    return x + y + z;
+  }
+  let env = { empty: [], x: 1, y: 2, z: 3 };
+  let out;
+  with (env) {
+    out = sum(x, ...empty, y, ...empty, z);
+  }
+  return out === 6;
+}
+let i = emptySpread();
+
+function emptySpreadOnly() {
+  function none() {
+    return arguments.length === 0;
+  }
+  let env = { empty: [] };
+  let out;
+  with (env) {
+    out = none(...empty);
+  }
+  return out === true;
+}
+let j = emptySpreadOnly();
+
+function stringSpread() {
+  function join2(x, y) {
+    return x + y;
+  }
+  let env = { s: "ab" };
+  let out;
+  with (env) {
+    out = join2(...s);
+  }
+  return out === "ab";
+}
+let k = stringSpread();
+
+function stringSpreadMissUsesOuter() {
+  function join2(x, y) {
+    return x + y;
+  }
+  let s = "cd";
+  let env = {};
+  let out;
+  with (env) {
+    out = join2(...s);
+  }
+  return out === "cd";
+}
+let l = stringSpreadMissUsesOuter();
+
+function multipleSpreads() {
+  function sum(w, x, y, z) {
+    return w + x + y + z;
+  }
+  let env = { a: [1], b: [2, 3], x: 4 };
+  let out;
+  with (env) {
+    out = sum(...a, ...b, x);
+  }
+  return out === 10;
+}
+let m = multipleSpreads();
+
+function nestedIndexSpread() {
+  function sum(x, y, z) {
+    return x + y + z;
+  }
+  let env = { nested: [[1], [2, 3]] };
+  let out;
+  with (env) {
+    out = sum(...nested[0], ...nested[1]);
+  }
+  return out === 6;
+}
+let n = nestedIndexSpread();
+
+function newSpreadHitsObject() {
+  function C(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  let env = { a: [7, 8] };
+  let inst;
+  with (env) {
+    inst = new C(...a);
+  }
+  return inst.x === 7 && inst.y === 8;
+}
+let p = newSpreadHitsObject();
+
+function newPrefixSpread() {
+  function C(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  let env = { x: 1, a: [2] };
+  let inst;
+  with (env) {
+    inst = new C(x, ...a);
+  }
+  return inst.x === 1 && inst.y === 2;
+}
+let q = newPrefixSpread();
+
+function ctorHitsObject() {
+  let env = {
+    C: function (x, y) {
+      this.x = x;
+      this.y = y;
+    },
+    a: [9, 10]
+  };
+  let inst;
+  with (env) {
+    inst = new C(...a);
+  }
+  return inst.x === 9 && inst.y === 10;
+}
+let r = ctorHitsObject();
+
+function callThisIsWithObject() {
+  let env = {
+    f: function (x) {
+      return this === env && x === 1;
+    },
+    a: [1]
+  };
+  let out;
+  with (env) {
+    out = f(...a);
+  }
+  return out === true;
+}
+let s = callThisIsWithObject();
+
+function missCalleeThisIsGlobal() {
+  function g(x) {
+    return this === globalThis && x === 2;
+  }
+  let env = { a: [2] };
+  let out;
+  with (env) {
+    out = g(...a);
+  }
+  return out === true;
+}
+let t = missCalleeThisIsGlobal();
+
+function newThisIsInstance() {
+  let env = {
+    C: function (x) {
+      this.ok = this !== env && this !== globalThis && x === 3;
+    },
+    a: [3]
+  };
+  let inst;
+  with (env) {
+    inst = new C(...a);
+  }
+  return inst.ok === true;
+}
+let u = newThisIsInstance();
+
+function unscopablesSpreadUsesOuter() {
+  function sum(x, y) {
+    return x + y;
+  }
+  let a = [22, 23];
+  let env = { a: [0, 0] };
+  env[Symbol.unscopables] = { a: true };
+  let out;
+  with (env) {
+    out = sum(...a);
+  }
+  return out === 45 && env.a[0] === 0;
+}
+let v = unscopablesSpreadUsesOuter();
+
+function unscopablesCalleeUsesOuter() {
+  function f(x) {
+    return x + 1;
+  }
+  let env = {
+    f: function (x) {
+      return 0;
+    },
+    a: [4]
+  };
+  env[Symbol.unscopables] = { f: true };
+  let out;
+  with (env) {
+    out = f(...a);
+  }
+  return out === 5;
+}
+let w = unscopablesCalleeUsesOuter();
+
+function inheritedSpread() {
+  function sum(x) {
+    return x;
+  }
+  let proto = { a: [25] };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    out = sum(...a);
+  }
+  return out === 25;
+}
+let aa = inheritedSpread();
+
+function accessorGetThisIsWithObject() {
+  function sum(x) {
+    return x;
+  }
+  let seen = null;
+  let env = {
+    get a() {
+      seen = this;
+      return [26];
+    }
+  };
+  let out;
+  with (env) {
+    out = sum(...a);
+  }
+  return out === 26 && seen === env;
+}
+let ab = accessorGetThisIsWithObject();
+
+function unresolvableSpreadThrows() {
+  function f() {
+    return 1;
+  }
+  with ({}) {
+    try {
+      f(...e170273_src);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170273_src === "undefined"
+      );
+    }
+  }
+}
+let ac = unresolvableSpreadThrows();
+
+function unresolvableCalleeThrows() {
+  let env = { a: [1] };
+  with (env) {
+    try {
+      e170273_fn(...a);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ad = unresolvableCalleeThrows();
+
+function unresolvableCtorThrows() {
+  let env = { a: [1] };
+  with (env) {
+    try {
+      new e170273_ctor(...a);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ae = unresolvableCtorThrows();
+
+function unresolvableSpreadSkipsLater() {
+  function f() {
+    return 1;
+  }
+  let ran = false;
+  let env = {
+    get x() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (env) {
+    try {
+      f(...e170273_skip, x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let af = unresolvableSpreadSkipsLater();
+
+function unresolvableArgAfterSpread() {
+  function f() {
+    return 1;
+  }
+  let env = { a: [27] };
+  with (env) {
+    try {
+      f(...a, e170273_after);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ag = unresolvableArgAfterSpread();
+
+function unresolvableCalleeSkipsSpread() {
+  let ran = false;
+  let env = {
+    get a() {
+      ran = true;
+      return [1];
+    }
+  };
+  with (env) {
+    try {
+      e170273_skipfn(...a);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ah = unresolvableCalleeSkipsSpread();
+
+function nonIterableTypeError() {
+  function f() {
+    return 1;
+  }
+  let env = { a: 1 };
+  with (env) {
+    try {
+      f(...a);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ai = nonIterableTypeError();
+
+function nullSpreadTypeError() {
+  function f() {
+    return 1;
+  }
+  let env = { a: null };
+  with (env) {
+    try {
+      f(...a);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let aj = nullSpreadTypeError();
+
+function liveClose() {
+  function sum(x) {
+    return x;
+  }
+  let env = { a: [28] };
+  let run;
+  with (env) {
+    run = function () {
+      return sum(...a);
+    };
+  }
+  env.a = [29];
+  return run() === 29;
+}
+let ak = liveClose();
+
+function nestedInnerWins() {
+  function sum(x) {
+    return x;
+  }
+  let inner = { a: [31] };
+  let outer = { a: [0] };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = sum(...a);
+    }
+  }
+  return out === 31 && outer.a[0] === 0;
+}
+let al = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  function sum(x) {
+    return x;
+  }
+  let inner = {};
+  let outer = { a: [32] };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = sum(...a);
+    }
+  }
+  return out === 32;
+}
+let am = nestedInnerMissOuter();
+
+function evalOrderCalleeThenSpreadsThenArg() {
+  let order = "";
+  function sink() {
+    return order;
+  }
+  let env = {
+    get f() {
+      order = order + "F";
+      return sink;
+    },
+    get a() {
+      order = order + "A";
+      return [1];
+    },
+    get b() {
+      order = order + "B";
+      return [2];
+    },
+    get x() {
+      order = order + "X";
+      return 3;
+    }
+  };
+  let out;
+  with (env) {
+    out = f(...a, ...b, x);
+  }
+  return out === "FABX";
+}
+let an = evalOrderCalleeThenSpreadsThenArg();
+
+function customIteratorHitsObject() {
+  function take(x) {
+    return x;
+  }
+  let env = {
+    a: {
+      [Symbol.iterator]: function () {
+        let n = 0;
+        return {
+          next: function () {
+            n = n + 1;
+            if (n === 1) return { value: 33, done: false };
+            return { value: undefined, done: true };
+          }
+        };
+      }
+    }
+  };
+  let out;
+  with (env) {
+    out = take(...a);
+  }
+  return out === 33;
+}
+let ap = customIteratorHitsObject();
+
+function newMissUsesOuter() {
+  function C(x) {
+    this.x = x;
+  }
+  let env = { a: [34] };
+  let inst;
+  with (env) {
+    inst = new C(...a);
+  }
+  return inst.x === 34;
+}
+let aq = newMissUsesOuter();
