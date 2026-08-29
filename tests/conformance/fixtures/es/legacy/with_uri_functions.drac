@@ -1,0 +1,958 @@
+// E17.02.91: with + URI encode/decode (encodeURI / decodeURI /
+// encodeURIComponent / decodeURIComponent: typeof, globalThis identity,
+// basic call behavior) through object environment (non-strict). Function
+// idents hit object (else outer); with (encodeURI) / with (decodeURI)
+// name / length idents hit those functions; inherited HasBinding;
+// accessor this is with object; unresolvable → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function withEncodeURITypeof() {
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return typeof encodeURI === "function";
+  }
+}
+let a = withEncodeURITypeof();
+
+function withDecodeURITypeof() {
+  let obj = { decodeURI: decodeURI };
+  with (obj) {
+    return typeof decodeURI === "function";
+  }
+}
+let b = withDecodeURITypeof();
+
+function withEncodeURIComponentTypeof() {
+  let obj = { encodeURIComponent: encodeURIComponent };
+  with (obj) {
+    return typeof encodeURIComponent === "function";
+  }
+}
+let c = withEncodeURIComponentTypeof();
+
+function withDecodeURIComponentTypeof() {
+  let obj = { decodeURIComponent: decodeURIComponent };
+  with (obj) {
+    return typeof decodeURIComponent === "function";
+  }
+}
+let d = withDecodeURIComponentTypeof();
+
+function withEncodeURIMiss() {
+  with ({}) {
+    return typeof encodeURI === "function";
+  }
+}
+let e = withEncodeURIMiss();
+
+function withEncodeURIIdentity() {
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return encodeURI === globalThis.encodeURI;
+  }
+}
+let f = withEncodeURIIdentity();
+
+function withDecodeURIIdentity() {
+  let obj = { decodeURI: decodeURI };
+  with (obj) {
+    return decodeURI === globalThis.decodeURI;
+  }
+}
+let g = withDecodeURIIdentity();
+
+function withEncodeURIComponentIdentity() {
+  let obj = { encodeURIComponent: encodeURIComponent };
+  with (obj) {
+    return encodeURIComponent === globalThis.encodeURIComponent;
+  }
+}
+let h = withEncodeURIComponentIdentity();
+
+function withDecodeURIComponentIdentity() {
+  let obj = { decodeURIComponent: decodeURIComponent };
+  with (obj) {
+    return decodeURIComponent === globalThis.decodeURIComponent;
+  }
+}
+let j = withDecodeURIComponentIdentity();
+
+function withEncodeURICall() {
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return encodeURI("https://example.com/a b") === "https://example.com/a%20b";
+  }
+}
+let k = withEncodeURICall();
+
+function withDecodeURICall() {
+  let obj = { decodeURI: decodeURI };
+  with (obj) {
+    return decodeURI("https://example.com/a%20b") === "https://example.com/a b";
+  }
+}
+let l = withDecodeURICall();
+
+function withEncodeURIComponentCall() {
+  let obj = { encodeURIComponent: encodeURIComponent };
+  with (obj) {
+    return encodeURIComponent("a b&c=d") === "a%20b%26c%3Dd";
+  }
+}
+let m = withEncodeURIComponentCall();
+
+function withDecodeURIComponentCall() {
+  let obj = { decodeURIComponent: decodeURIComponent };
+  with (obj) {
+    return decodeURIComponent("a%20b%26c%3Dd") === "a b&c=d";
+  }
+}
+let n = withDecodeURIComponentCall();
+
+function withEncodeURICafe() {
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return encodeURI("café") === "caf%C3%A9";
+  }
+}
+let p = withEncodeURICafe();
+
+function withRoundtrip() {
+  let obj = {
+    encodeURIComponent: encodeURIComponent,
+    decodeURIComponent: decodeURIComponent
+  };
+  with (obj) {
+    return decodeURIComponent(encodeURIComponent("x/y?z=1")) === "x/y?z=1";
+  }
+}
+let q = withRoundtrip();
+
+function withEncodeURILeavesReserved() {
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return encodeURI("a b&c=d") === "a%20b&c=d";
+  }
+}
+let r = withEncodeURILeavesReserved();
+
+function withEncodeURIName() {
+  with (encodeURI) {
+    return name === "encodeURI";
+  }
+}
+let s = withEncodeURIName();
+
+function withDecodeURIName() {
+  with (decodeURI) {
+    return name === "decodeURI";
+  }
+}
+let t = withDecodeURIName();
+
+function withEncodeURIComponentName() {
+  with (encodeURIComponent) {
+    return name === "encodeURIComponent";
+  }
+}
+let u = withEncodeURIComponentName();
+
+function withDecodeURIComponentName() {
+  with (decodeURIComponent) {
+    return name === "decodeURIComponent";
+  }
+}
+let v = withDecodeURIComponentName();
+
+function withEncodeURILength() {
+  with (encodeURI) {
+    return length === 1;
+  }
+}
+let w = withEncodeURILength();
+
+function withDecodeURILength() {
+  with (decodeURI) {
+    return length === 1;
+  }
+}
+let aa = withDecodeURILength();
+
+function withEncodeURIComponentLength() {
+  with (encodeURIComponent) {
+    return length === 1;
+  }
+}
+let ab = withEncodeURIComponentLength();
+
+function withDecodeURIComponentLength() {
+  with (decodeURIComponent) {
+    return length === 1;
+  }
+}
+let ac = withDecodeURIComponentLength();
+
+function withEncodeURIBracketName() {
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return encodeURI["name"] === "encodeURI";
+  }
+}
+let ad = withEncodeURIBracketName();
+
+function withDecodeURIBracketName() {
+  let obj = { decodeURI: decodeURI };
+  with (obj) {
+    return decodeURI["name"] === "decodeURI";
+  }
+}
+let ae = withDecodeURIBracketName();
+
+function encodeURIIdentHitsObject() {
+  let obj = {
+    encodeURI: function (s) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return encodeURI("https://example.com/a b") === "hit";
+  }
+}
+let af = encodeURIIdentHitsObject();
+
+function encodeURIIdentMissIsOuter() {
+  with ({}) {
+    return encodeURI("https://example.com/a b") === "https://example.com/a%20b";
+  }
+}
+let ag = encodeURIIdentMissIsOuter();
+
+function encodeURIIdentShadowsOuter() {
+  function encodeURI(s) {
+    return 8;
+  }
+  let obj = {
+    encodeURI: function (s) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return encodeURI("x") === 9;
+  }
+}
+let ah = encodeURIIdentShadowsOuter();
+
+function decodeURIIdentHitsObject() {
+  let obj = {
+    decodeURI: function (s) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return decodeURI("https://example.com/a%20b") === 7;
+  }
+}
+let ai = decodeURIIdentHitsObject();
+
+function encodeURIComponentIdentHitsObject() {
+  let obj = {
+    encodeURIComponent: function (s) {
+      return 5;
+    }
+  };
+  with (obj) {
+    return encodeURIComponent("a b&c=d") === 5;
+  }
+}
+let aj = encodeURIComponentIdentHitsObject();
+
+function decodeURIComponentIdentHitsObject() {
+  let obj = {
+    decodeURIComponent: function (s) {
+      return 4;
+    }
+  };
+  with (obj) {
+    return decodeURIComponent("a%20b%26c%3Dd") === 4;
+  }
+}
+let ak = decodeURIComponentIdentHitsObject();
+
+function nameIdentHitsObject() {
+  let obj = { name: "own" };
+  with (obj) {
+    return name === "own";
+  }
+}
+let al = nameIdentHitsObject();
+
+function nameIdentMissIsOuter() {
+  function name() {
+    return 8;
+  }
+  with ({}) {
+    return name() === 8;
+  }
+}
+let am = nameIdentMissIsOuter();
+
+function encodeURIShadowsOuterName() {
+  function name() {
+    return 8;
+  }
+  with (encodeURI) {
+    return name === "encodeURI";
+  }
+}
+let an = encodeURIShadowsOuterName();
+
+function callThisIsWithObject() {
+  let obj = {
+    encodeURI: function (s) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return encodeURI("x") === 3;
+  }
+}
+let ap = callThisIsWithObject();
+
+function withEncodeURICallThisIsEncodeURI() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(encodeURI, "name");
+  Object.defineProperty(encodeURI, "name", {
+    get: function () {
+      seen = this;
+      return "encodeURI";
+    },
+    configurable: true
+  });
+  let ok;
+  with (encodeURI) {
+    ok = name === "encodeURI" && seen === encodeURI;
+  }
+  Object.defineProperty(encodeURI, "name", orig);
+  return ok;
+}
+let aq = withEncodeURICallThisIsEncodeURI();
+
+function withDecodeURICallThisIsDecodeURI() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(decodeURI, "name");
+  Object.defineProperty(decodeURI, "name", {
+    get: function () {
+      seen = this;
+      return "decodeURI";
+    },
+    configurable: true
+  });
+  let ok;
+  with (decodeURI) {
+    ok = name === "decodeURI" && seen === decodeURI;
+  }
+  Object.defineProperty(decodeURI, "name", orig);
+  return ok;
+}
+let ar = withDecodeURICallThisIsDecodeURI();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get encodeURI() {
+      n = n + 1;
+      return encodeURI;
+    },
+    get x() {
+      n = n + 1;
+      return "https://example.com/a b";
+    }
+  };
+  with (obj) {
+    return encodeURI(x) === "https://example.com/a%20b" && n === 2;
+  }
+}
+let at = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function encodeURI(s) {
+    return 11;
+  }
+  let obj = { encodeURI: globalThis.encodeURI };
+  obj[Symbol.unscopables] = { encodeURI: true };
+  with (obj) {
+    return encodeURI("https://example.com/a b") === 11;
+  }
+}
+let au = unscopablesUsesOuter();
+
+function unscopablesEncodeURIIdent() {
+  let obj = {
+    encodeURI: function (s) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { encodeURI: true };
+  with (obj) {
+    return encodeURI("https://example.com/a b") === "https://example.com/a%20b";
+  }
+}
+let av = unscopablesEncodeURIIdent();
+
+function inheritedData() {
+  let proto = { encodeURI: encodeURI, name: "fromProto" };
+  let obj = Object.create(proto);
+  with (obj) {
+    return encodeURI("https://example.com/a b") === "https://example.com/a%20b" && name === "fromProto";
+  }
+}
+let aw = inheritedData();
+
+function inheritedFromEncodeURI() {
+  let obj = Object.create(encodeURI);
+  with (obj) {
+    return name === "encodeURI" && length === 1;
+  }
+}
+let ax = inheritedFromEncodeURI();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get encodeURI() {
+      seen = this;
+      return function (s) {
+        return 1;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return encodeURI("x") === 1 && seen === obj;
+  }
+}
+let ay = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get encodeURI() {
+      seen = this;
+      return function (s) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return encodeURI("x") === 1 && seen === obj;
+  }
+}
+let az = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    encodeURI: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return encodeURI(s);
+    };
+  }
+  obj.encodeURI = encodeURI;
+  return run("https://example.com/a b") === "https://example.com/a%20b";
+}
+let ba = liveClose();
+
+function liveCloseEncodeURIIdent() {
+  let obj = {
+    encodeURI: {
+      name: "Live"
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return encodeURI.name;
+    };
+  }
+  obj.encodeURI = encodeURI;
+  return run() === "encodeURI";
+}
+let bb = liveCloseEncodeURIIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170291_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let bc = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e170291_noglob.name;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170291_noglob === "undefined"
+      );
+    }
+  }
+}
+let bd = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    encodeURI: function (s) {
+      return 5;
+    }
+  };
+  with ({ encodeURI: encodeURI }) {
+    with (inner) {
+      return encodeURI("x") === 5;
+    }
+  }
+}
+let be = nestedInnerWins();
+
+function nestedInnerMissOuterEncodeURI() {
+  with ({
+    encodeURI: function (s) {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return encodeURI("x") === 5;
+    }
+  }
+}
+let bf = nestedInnerMissOuterEncodeURI();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { encodeURI: encodeURI };
+  with (outer) {
+    with (inner) {
+      return encodeURI("https://example.com/a b") === "https://example.com/a%20b";
+    }
+  }
+}
+let bg = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function encodeURI(s) {
+    return 11;
+  }
+  let inner = { encodeURI: globalThis.encodeURI };
+  inner[Symbol.unscopables] = { encodeURI: true };
+  let outer = {
+    encodeURI: function (s) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return encodeURI("x") === 6;
+    }
+  }
+}
+let bh = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { encodeURI: 1 };
+  with (obj) {
+    try {
+      encodeURI("x");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bi = nonCallableTypeError();
+
+function typeofEncodeURIThroughWith() {
+  let t;
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    t = typeof encodeURI;
+  }
+  return t === "function";
+}
+let bj = typeofEncodeURIThroughWith();
+
+function typeofNameThroughWith() {
+  let t;
+  with (encodeURI) {
+    t = typeof name;
+  }
+  return t === "string";
+}
+let bk = typeofNameThroughWith();
+
+function memberEncodeURIStillGlobal() {
+  let obj = { x: 1 };
+  with (obj) {
+    return encodeURI("https://example.com/a b") === "https://example.com/a%20b";
+  }
+}
+let bl = memberEncodeURIStillGlobal();
+
+function argsHitObject() {
+  let obj = {
+    x: "https://example.com/a b",
+    encodeURI: encodeURI
+  };
+  with (obj) {
+    return encodeURI(x) === "https://example.com/a%20b";
+  }
+}
+let bm = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = "https://example.com/a b";
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return encodeURI(x) === "https://example.com/a%20b";
+  }
+}
+let bn = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get encodeURI() {
+      ran = true;
+      return encodeURI;
+    }
+  };
+  with (obj) {
+    try {
+      encodeURI(e170291_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bp = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return "https://example.com/a b";
+    }
+  };
+  with (obj) {
+    try {
+      e170291_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bq = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let obj = {
+    encodeURI: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return encodeURI(s);
+    };
+  }
+  obj.encodeURI = function (s) {
+    return 2;
+  };
+  return run("x") === 2;
+}
+let br = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get encodeURI() {
+      c = c + 1;
+      return encodeURI;
+    }
+  };
+  let out;
+  with (obj) {
+    out = encodeURI("https://example.com/a b");
+  }
+  return out === "https://example.com/a%20b" && c === 1;
+}
+let bs = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalEncodeURI() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = encodeURI("https://example.com/a b");
+  }
+  return out === "https://example.com/a%20b";
+}
+let bt = emptyMissUsesGlobalEncodeURI();
+
+function bracketNameOnEncodeURI() {
+  let obj = { encodeURI: encodeURI };
+  with (obj) {
+    return obj["encodeURI"].name === "encodeURI";
+  }
+}
+let bu = bracketNameOnEncodeURI();
+
+function unscopablesSecondIdent() {
+  let x = "https://example.com/a b";
+  let obj = { encodeURI: encodeURI, x: "skip" };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = encodeURI(x);
+  }
+  return out === "https://example.com/a%20b";
+}
+let bv = unscopablesSecondIdent();
+
+function encodeURITypeofHit() {
+  let obj = { encodeURI: 1 };
+  let t;
+  with (obj) {
+    t = typeof encodeURI;
+  }
+  return t === "number";
+}
+let bw = encodeURITypeofHit();
+
+function decodeURITypeofHit() {
+  let obj = { decodeURI: "n" };
+  let t;
+  with (obj) {
+    t = typeof decodeURI;
+  }
+  return t === "string";
+}
+let bx = decodeURITypeofHit();
+
+function liveCloseDecodeURI() {
+  let obj = { decodeURI: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return decodeURI;
+    };
+  }
+  obj.decodeURI = decodeURI;
+  return run() === decodeURI;
+}
+let by = liveCloseDecodeURI();
+
+function unscopablesDecodeURI() {
+  let obj = { decodeURI: 1 };
+  obj[Symbol.unscopables] = { decodeURI: true };
+  with (obj) {
+    return typeof decodeURI === "function";
+  }
+}
+let bz = unscopablesDecodeURI();
+
+function nestedEncodeURIInnerWins() {
+  with ({ encodeURI: 1 }) {
+    with ({ encodeURI: 2 }) {
+      return encodeURI === 2;
+    }
+  }
+}
+let ca = nestedEncodeURIInnerWins();
+
+function nestedNameInnerWins() {
+  with (encodeURI) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let cb = nestedNameInnerWins();
+
+function nestedNameMissOuterEncodeURI() {
+  with (encodeURI) {
+    with ({}) {
+      return name === "encodeURI";
+    }
+  }
+}
+let cc = nestedNameMissOuterEncodeURI();
+
+function liveCloseName() {
+  let obj = { name: "A" };
+  let run;
+  with (obj) {
+    run = function () {
+      return name;
+    };
+  }
+  obj.name = "B";
+  return run() === "B";
+}
+let cd = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (encodeURI) {
+    let obj = { name: "skip" };
+    obj[Symbol.unscopables] = { name: true };
+    with (obj) {
+      return name === "encodeURI";
+    }
+  }
+}
+let ce = unscopablesNameUsesOuter();
+
+function emptyMissUsesGlobalDecode() {
+  with ({}) {
+    return decodeURI("https://example.com/a%20b") === "https://example.com/a b";
+  }
+}
+let cf = emptyMissUsesGlobalDecode();
+
+function decodeURIIdentMissIsOuter() {
+  with ({}) {
+    return decodeURI("https://example.com/a%20b") === "https://example.com/a b";
+  }
+}
+let cg = decodeURIIdentMissIsOuter();
+
+function encodeURIComponentIdentMissIsOuter() {
+  with ({}) {
+    return encodeURIComponent("a b&c=d") === "a%20b%26c%3Dd";
+  }
+}
+let ch = encodeURIComponentIdentMissIsOuter();
+
+function decodeURIComponentIdentMissIsOuter() {
+  with ({}) {
+    return decodeURIComponent("a%20b%26c%3Dd") === "a b&c=d";
+  }
+}
+let ci = decodeURIComponentIdentMissIsOuter();
+
+function withDecodeURINameViaInherited() {
+  let obj = Object.create(decodeURI);
+  with (obj) {
+    return name === "decodeURI" && length === 1;
+  }
+}
+let cj = withDecodeURINameViaInherited();
+
+function unscopablesEncodeURIComponent() {
+  let obj = { encodeURIComponent: 1 };
+  obj[Symbol.unscopables] = { encodeURIComponent: true };
+  with (obj) {
+    return typeof encodeURIComponent === "function";
+  }
+}
+let ck = unscopablesEncodeURIComponent();
+
+function liveCloseEncodeURIComponent() {
+  let obj = { encodeURIComponent: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return encodeURIComponent;
+    };
+  }
+  obj.encodeURIComponent = encodeURIComponent;
+  return run() === encodeURIComponent;
+}
+let cl = liveCloseEncodeURIComponent();
+
+function nestedDecodeURIInnerWins() {
+  with ({ decodeURI: 1 }) {
+    with ({ decodeURI: 2 }) {
+      return decodeURI === 2;
+    }
+  }
+}
+let cm = nestedDecodeURIInnerWins();
+
+function encodeURIComponentHit() {
+  let obj = { s: "a b&c=d", encodeURIComponent: encodeURIComponent };
+  with (obj) {
+    return encodeURIComponent(s) === "a%20b%26c%3Dd";
+  }
+}
+let cn = encodeURIComponentHit();
+
+function getterRunsOnceDecodeURI() {
+  let c = 0;
+  let obj = {
+    get decodeURI() {
+      c = c + 1;
+      return decodeURI;
+    }
+  };
+  let out;
+  with (obj) {
+    out = decodeURI("https://example.com/a%20b");
+  }
+  return out === "https://example.com/a b" && c === 1;
+}
+let cp = getterRunsOnceDecodeURI();
+
+function decodeURIComponentRoundtripThroughWith() {
+  let obj = {
+    encodeURIComponent: encodeURIComponent,
+    decodeURIComponent: decodeURIComponent,
+    s: "x/y?z=1"
+  };
+  with (obj) {
+    return decodeURIComponent(encodeURIComponent(s)) === "x/y?z=1";
+  }
+}
+let cq = decodeURIComponentRoundtripThroughWith();
+
+function liveCloseDecodeURIComponent() {
+  let obj = { decodeURIComponent: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return decodeURIComponent;
+    };
+  }
+  obj.decodeURIComponent = decodeURIComponent;
+  return run() === decodeURIComponent;
+}
+let cr = liveCloseDecodeURIComponent();
+
+function unscopablesDecodeURIComponent() {
+  let obj = { decodeURIComponent: 1 };
+  obj[Symbol.unscopables] = { decodeURIComponent: true };
+  with (obj) {
+    return typeof decodeURIComponent === "function";
+  }
+}
+let cs = unscopablesDecodeURIComponent();
+
+function nestedEncodeURIComponentInnerWins() {
+  with ({ encodeURIComponent: 1 }) {
+    with ({ encodeURIComponent: 2 }) {
+      return encodeURIComponent === 2;
+    }
+  }
+}
+let ct = nestedEncodeURIComponentInnerWins();
