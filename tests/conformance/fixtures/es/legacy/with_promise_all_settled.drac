@@ -1,0 +1,952 @@
+// E17.02.103: with + Promise.allSettled (iterable of promises/values;
+// fulfill with {status,value|reason}[]; empty → []) through object
+// environment (non-strict). Promise ident hits object (else outer);
+// with (Promise) method idents hit Promise (allSettled / name / length /
+// prototype); inherited HasBinding; accessor this is with object;
+// unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function withAllSettledTypeof() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return typeof Promise.allSettled === "function";
+  }
+}
+let a = withAllSettledTypeof();
+
+function withPromiseAllSettledIdent() {
+  with (Promise) {
+    return typeof allSettled === "function";
+  }
+}
+let b = withPromiseAllSettledIdent();
+
+function withPromiseAllSettledIsSame() {
+  with (Promise) {
+    return allSettled === Promise.allSettled;
+  }
+}
+let c = withPromiseAllSettledIsSame();
+
+function withPromiseName() {
+  with (Promise) {
+    return name === "Promise";
+  }
+}
+let d = withPromiseName();
+
+function withPromiseLength() {
+  with (Promise) {
+    return length === 1;
+  }
+}
+let e = withPromiseLength();
+
+function withPromisePrototype() {
+  with (Promise) {
+    return prototype === Promise.prototype;
+  }
+}
+let f = withPromisePrototype();
+
+function globalThisIdentity() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return (
+      Promise === globalThis.Promise &&
+      Promise.allSettled === globalThis.Promise.allSettled
+    );
+  }
+}
+let g = globalThisIdentity();
+
+function promiseIdentHitsObject() {
+  let obj = {
+    Promise: {
+      allSettled: function (v) {
+        return v === 1 ? "hit" : 0;
+      }
+    }
+  };
+  with (obj) {
+    return Promise.allSettled(1) === "hit";
+  }
+}
+let h = promiseIdentHitsObject();
+
+function promiseIdentMissIsOuter() {
+  with ({}) {
+    return typeof Promise.allSettled === "function";
+  }
+}
+let j = promiseIdentMissIsOuter();
+
+function promiseIdentShadowsOuter() {
+  let obj = {
+    Promise: {
+      allSettled: function (v) {
+        return 0;
+      }
+    }
+  };
+  with (obj) {
+    return Promise.allSettled(1) === 0;
+  }
+}
+let k = promiseIdentShadowsOuter();
+
+function allIdentHitsObject() {
+  let obj = {
+    allSettled: function (v) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return allSettled(42) === "hit";
+  }
+}
+let l = allIdentHitsObject();
+
+function allIdentMissIsOuter() {
+  function allSettled(v) {
+    return 8;
+  }
+  with ({}) {
+    return allSettled(42) === 8;
+  }
+}
+let m = allIdentMissIsOuter();
+
+function objectShadowsOuterAllSettled() {
+  function allSettled(v) {
+    return 8;
+  }
+  let obj = {
+    allSettled: function (v) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return allSettled(42) === 9;
+  }
+}
+let n = objectShadowsOuterAllSettled();
+
+function callThisIsWithObject() {
+  let obj = {
+    allSettled: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return allSettled(42) === 3;
+  }
+}
+let p = callThisIsWithObject();
+
+function withPromiseAllSettledThisIsPromise() {
+  let seen = null;
+  let orig = Promise.allSettled;
+  Promise.allSettled = function (v) {
+    seen = this;
+    return orig.call(this, v);
+  };
+  let ok;
+  with (Promise) {
+    allSettled([]);
+    ok = seen === Promise;
+  }
+  Promise.allSettled = orig;
+  return ok;
+}
+let q = withPromiseAllSettledThisIsPromise();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get allSettled() {
+      n = n + 1;
+      return function (x) {
+        return x;
+      };
+    },
+    get k() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    allSettled(k);
+    return n === 2;
+  }
+}
+let r = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function allSettled(v) {
+    return 11;
+  }
+  let obj = {
+    allSettled: function (v) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { allSettled: true };
+  with (obj) {
+    return allSettled(42) === 11;
+  }
+}
+let s = unscopablesUsesOuter();
+
+function unscopablesPromiseIdent() {
+  let obj = {
+    Promise: {
+      allSettled: function (v) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Promise: true };
+  with (obj) {
+    return typeof Promise.allSettled === "function";
+  }
+}
+let t = unscopablesPromiseIdent();
+
+function inheritedData() {
+  let proto = {
+    allSettled: function (v) {
+      return 4;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return allSettled(42) === 4;
+  }
+}
+let u = inheritedData();
+
+function inheritedFromPromise() {
+  let obj = Object.create(Promise);
+  with (obj) {
+    return (
+      typeof allSettled === "function" &&
+      allSettled === Promise.allSettled &&
+      name === "Promise" &&
+      length === 1 &&
+      prototype === Promise.prototype
+    );
+  }
+}
+let v = inheritedFromPromise();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get allSettled() {
+      seen = this;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return allSettled(42) === 1 && seen === obj;
+  }
+}
+let w = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get allSettled() {
+      seen = this;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return allSettled(42) === 1 && seen === obj;
+  }
+}
+let aa = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    allSettled: function (v) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return allSettled(v);
+    };
+  }
+  obj.allSettled = function (v) {
+    return 2;
+  };
+  return run(42) === 2;
+}
+let ab = liveClose();
+
+function liveClosePromiseIdent() {
+  let obj = {
+    Promise: {
+      allSettled: function (v) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return Promise.allSettled(v);
+    };
+  }
+  obj.Promise = Promise;
+  return typeof run([]).then === "function";
+}
+let ac = liveClosePromiseIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702103_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ad = unresolvableCalleeThrows();
+
+function unresolvablePromiseThrows() {
+  with ({}) {
+    try {
+      e1702103_noglob.allSettled;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702103_noglob === "undefined"
+      );
+    }
+  }
+}
+let ae = unresolvablePromiseThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    allSettled: function (v) {
+      return 5;
+    }
+  };
+  with (Promise) {
+    with (inner) {
+      return allSettled(42) === 5;
+    }
+  }
+}
+let af = nestedInnerWins();
+
+function nestedInnerMissOuterPromise() {
+  with ({
+    allSettled: function (v) {
+      return 5;
+    }
+  }) {
+    with (Promise) {
+      return typeof allSettled === "function" && allSettled === Promise.allSettled;
+    }
+  }
+}
+let ag = nestedInnerMissOuterPromise();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    allSettled: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return allSettled(42) === 6;
+    }
+  }
+}
+let ah = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function allSettled(v) {
+    return 11;
+  }
+  let inner = {
+    allSettled: function (v) {
+      return 0;
+    }
+  };
+  inner[Symbol.unscopables] = { allSettled: true };
+  let outer = {
+    allSettled: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return allSettled(42) === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { allSettled: 1 };
+  with (obj) {
+    try {
+      allSettled(42);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofAllSettledMethod() {
+  let t;
+  with (Promise) {
+    t = typeof allSettled;
+  }
+  return t === "function";
+}
+let al = typeofAllSettledMethod();
+
+function memberStillPromise() {
+  let obj = { x: 1 };
+  with (obj) {
+    return typeof Promise.allSettled === "function";
+  }
+}
+let am = memberStillPromise();
+
+function argsHitObject() {
+  let obj = {
+    allSettled: function (v) {
+      return v === 9;
+    },
+    k: 9
+  };
+  with (obj) {
+    return allSettled(k) === true;
+  }
+}
+let an = argsHitObject();
+
+function argsMissIsOuter() {
+  function allSettled(v) {
+    return v === 9;
+  }
+  let k = 9;
+  with ({}) {
+    return allSettled(k) === true;
+  }
+}
+let ap = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get allSettled() {
+      ran = true;
+      return function (v) {
+        return v;
+      };
+    }
+  };
+  with (obj) {
+    try {
+      allSettled(e1702103_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let aq = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702103_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ar = unresolvableCalleeSkipsArg();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get allSettled() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    allSettled(42);
+  }
+  return cnt === 1;
+}
+let at = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalPromise() {
+  let obj = {};
+  with (obj) {
+    return typeof Promise.allSettled === "function";
+  }
+}
+let au = emptyMissUsesGlobalPromise();
+
+function allTypeofHit() {
+  let obj = { allSettled: 1 };
+  let t;
+  with (obj) {
+    t = typeof allSettled;
+  }
+  return t === "number";
+}
+let av = allTypeofHit();
+
+function promiseTypeofHit() {
+  let obj = { Promise: 1 };
+  let t;
+  with (obj) {
+    t = typeof Promise;
+  }
+  return t === "number";
+}
+let aw = promiseTypeofHit();
+
+function liveCloseAllSettled() {
+  let obj = { allSettled: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return allSettled;
+    };
+  }
+  obj.allSettled = function (v) {
+    return 2;
+  };
+  return typeof run() === "function";
+}
+let ax = liveCloseAllSettled();
+
+function unscopablesAllSettled() {
+  let obj = { allSettled: 1 };
+  obj[Symbol.unscopables] = { allSettled: true };
+  with (obj) {
+    return typeof allSettled === "undefined";
+  }
+}
+let ay = unscopablesAllSettled();
+
+function nestedAllSettledInnerWins() {
+  with ({ allSettled: 1 }) {
+    with ({ allSettled: 2 }) {
+      return allSettled === 2;
+    }
+  }
+}
+let az = nestedAllSettledInnerWins();
+
+function nestedPromiseInnerWins() {
+  with ({ Promise: 1 }) {
+    with ({ Promise: 2 }) {
+      return Promise === 2;
+    }
+  }
+}
+let ba = nestedPromiseInnerWins();
+
+function getterRunsOnceAllSettled() {
+  let cnt = 0;
+  let obj = {
+    get allSettled() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  let out;
+  with (obj) {
+    out = allSettled(42);
+  }
+  return out === 1 && cnt === 1;
+}
+let bb = getterRunsOnceAllSettled();
+
+function identityAllSettled() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return Promise.allSettled === globalThis.Promise.allSettled;
+  }
+}
+let bc = identityAllSettled();
+
+function withPromiseAllSettledReturnsPromise() {
+  with (Promise) {
+    let pr = allSettled([]);
+    return pr !== Promise && pr instanceof Promise && typeof pr.then === "function";
+  }
+}
+let bd = withPromiseAllSettledReturnsPromise();
+
+function withPromiseAllSettledLength() {
+  with (Promise) {
+    return allSettled.length === 1;
+  }
+}
+let be = withPromiseAllSettledLength();
+
+function memberAllSettledOnObject() {
+  let obj = {
+    allSettled: function (v) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj.allSettled(1) === 7;
+  }
+}
+let bf = memberAllSettledOnObject();
+
+function bracketAllSettledOnObject() {
+  let obj = {
+    allSettled: function (v) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj["allSettled"](1) === 7;
+  }
+}
+let bg = bracketAllSettledOnObject();
+
+function memberAllSettledThisIsInstance() {
+  let obj = {
+    allSettled: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return obj.allSettled(1) === 3;
+  }
+}
+let bh = memberAllSettledThisIsInstance();
+
+function bracketAllSettledThisIsInstance() {
+  let obj = {
+    allSettled: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return obj["allSettled"](1) === 3;
+  }
+}
+let bi = bracketAllSettledThisIsInstance();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    allSettled: function (v, x) {
+      return x === 0;
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = 0;
+  with (obj) {
+    return allSettled(1, x) === true && obj.x === 9;
+  }
+}
+let bj = unscopablesSecondIdent();
+
+function withPromiseNameLengthPrototypeTogether() {
+  with (Promise) {
+    return name === "Promise" && length === 1 && prototype === Promise.prototype;
+  }
+}
+let bk = withPromiseNameLengthPrototypeTogether();
+
+function emptyMissPrototypeAllSettled() {
+  with ({}) {
+    return typeof Promise.allSettled === "function";
+  }
+}
+let bl = emptyMissPrototypeAllSettled();
+
+function memberAllSettledMissingIsUndefined() {
+  let obj = { p: {} };
+  with (obj) {
+    return p.allSettled === undefined;
+  }
+}
+let bm = memberAllSettledMissingIsUndefined();
+
+function bracketAllSettledMissingIsUndefined() {
+  let obj = { p: {} };
+  with (obj) {
+    return p["allSettled"] === undefined;
+  }
+}
+let bn = bracketAllSettledMissingIsUndefined();
+
+function getterAllSettledThisViaMember() {
+  let seen = null;
+  let obj = {
+    get allSettled() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return obj["allSettled"]() === 1 && seen === obj;
+  }
+}
+let bp = getterAllSettledThisViaMember();
+
+function inheritedBracketAllSettled() {
+  let proto = {
+    allSettled: function () {
+      return 4;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return obj["allSettled"]() === 4;
+  }
+}
+let bq = inheritedBracketAllSettled();
+
+function liveCloseAllSettledMember() {
+  let obj = {
+    allSettled: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return obj.allSettled();
+    };
+  }
+  obj.allSettled = function () {
+    return 2;
+  };
+  return run() === 2;
+}
+let br = liveCloseAllSettledMember();
+
+function nestedAllSettledMemberInnerWins() {
+  let outer = {
+    p: { allSettled: function () { return 1; } }
+  };
+  let inner = {
+    p: { allSettled: function () { return 2; } }
+  };
+  with (outer) {
+    with (inner) {
+      return p.allSettled() === 2;
+    }
+  }
+}
+let bs = nestedAllSettledMemberInnerWins();
+
+function unscopablesPUsesOuterAllSettled() {
+  let outer = {
+    p: { allSettled: function () { return 6; } }
+  };
+  let inner = {
+    p: { allSettled: function () { return 0; } }
+  };
+  inner[Symbol.unscopables] = { p: true };
+  with (outer) {
+    with (inner) {
+      return p.allSettled() === 6;
+    }
+  }
+}
+let bt = unscopablesPUsesOuterAllSettled();
+
+function withPromiseAllSettledName() {
+  with (Promise) {
+    return allSettled.name === "allSettled";
+  }
+}
+let bu = withPromiseAllSettledName();
+
+let bv = false;
+let bw = false;
+let bx = false;
+let by = false;
+let bz = false;
+let ca = false;
+let cb = false;
+let cc = false;
+let cd = false;
+let ce = false;
+
+function emptyAllSettledFulfillsEmpty() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.allSettled([]).then(function (v) {
+      bv = v.length === 0;
+    });
+  }
+}
+
+function resolveAndRejectThroughObj() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.allSettled([Promise.resolve(10), Promise.reject(7)]).then(function (v) {
+      bw =
+        v.length === 2 &&
+        v[0].status === "fulfilled" &&
+        v[0].value === 10 &&
+        v[1].status === "rejected" &&
+        v[1].reason === 7;
+    });
+  }
+}
+
+function mixedValuesFulfill() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.allSettled([1, Promise.resolve(2)]).then(function (v) {
+      bx =
+        v[0].status === "fulfilled" &&
+        v[0].value === 1 &&
+        v[1].status === "fulfilled" &&
+        v[1].value === 2;
+    });
+  }
+}
+
+function emptyThroughIdent() {
+  with (Promise) {
+    allSettled([]).then(function (v) {
+      by = v.length === 0;
+    });
+  }
+}
+
+function resolveAndRejectThroughIdent() {
+  with (Promise) {
+    allSettled([Promise.resolve(10), Promise.reject(7)]).then(function (v) {
+      bz =
+        v.length === 2 &&
+        v[0].status === "fulfilled" &&
+        v[0].value === 10 &&
+        v[1].status === "rejected" &&
+        v[1].reason === 7;
+    });
+  }
+}
+
+function mixedThroughIdent() {
+  with (Promise) {
+    allSettled([1, Promise.resolve(2)]).then(function (v) {
+      ca =
+        v[0].status === "fulfilled" &&
+        v[0].value === 1 &&
+        v[1].status === "fulfilled" &&
+        v[1].value === 2;
+    });
+  }
+}
+
+function typeofAndInstance() {
+  let obj = { Promise: Promise };
+  let pr;
+  with (obj) {
+    pr = Promise.allSettled([]);
+  }
+  cb = typeof pr === "object" && pr instanceof Promise;
+}
+
+function twoFulfillsThroughObj() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.allSettled([Promise.resolve(10), Promise.resolve(20)]).then(function (v) {
+      cc =
+        v.length === 2 &&
+        v[0].status === "fulfilled" &&
+        v[0].value === 10 &&
+        v[1].status === "fulfilled" &&
+        v[1].value === 20;
+    });
+  }
+}
+
+function allRejectsStillFulfills() {
+  with (Promise) {
+    allSettled([Promise.reject(11), Promise.reject(9)]).then(function (v) {
+      cd =
+        v.length === 2 &&
+        v[0].status === "rejected" &&
+        v[0].reason === 11 &&
+        v[1].status === "rejected" &&
+        v[1].reason === 9;
+    });
+  }
+}
+
+function liveCloseAllSettledAfterSettle() {
+  let obj = {
+    allSettled: function (v) {
+      return v;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return allSettled(v);
+    };
+  }
+  obj.allSettled = function (v) {
+    return Promise.allSettled(v);
+  };
+  run([Promise.resolve(9)]).then(function (x) {
+    ce = x.length === 1 && x[0].status === "fulfilled" && x[0].value === 9;
+  });
+}
+
+emptyAllSettledFulfillsEmpty();
+resolveAndRejectThroughObj();
+mixedValuesFulfill();
+emptyThroughIdent();
+resolveAndRejectThroughIdent();
+mixedThroughIdent();
+typeofAndInstance();
+twoFulfillsThroughObj();
+allRejectsStillFulfills();
+liveCloseAllSettledAfterSettle();

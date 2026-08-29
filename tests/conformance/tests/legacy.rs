@@ -1068,3 +1068,13 @@ fn with_promise_race_fixture_present() {
 fn with_promise_race_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_promise_race");
 }
+
+#[test]
+fn with_promise_all_settled_fixture_present() {
+    assert_fixture_present("es/legacy/with_promise_all_settled");
+}
+
+#[test]
+fn with_promise_all_settled_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_promise_all_settled");
+}
