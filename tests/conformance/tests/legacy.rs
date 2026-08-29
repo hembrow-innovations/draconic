@@ -698,3 +698,13 @@ fn with_comma_fixture_present() {
 fn with_comma_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_comma");
 }
+
+#[test]
+fn with_compound_assign_fixture_present() {
+    assert_fixture_present("es/legacy/with_compound_assign");
+}
+
+#[test]
+fn with_compound_assign_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_compound_assign");
+}

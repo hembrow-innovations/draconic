@@ -1,0 +1,375 @@
+// E17.02.66: with + compound assignment `+=` `-=` `*=` `/=` `%=` `**=`
+// `<<=` `>>=` `>>>=` `&=` `^=` `|=` through object environment (non-strict).
+// LHS/RHS idents hit object (else outer); GetValue(LHS) then RHS always
+// evaluated (no short-circuit); result is computed value; inherited HasBinding
+// GetValue reads proto, PutValue creates own or setter; accessor get/set this
+// is with object; getter-only / non-writable silent after GetValue;
+// unresolvable LHS → ReferenceError (GetValue, not implicit global);
+// unresolvable RHS → ReferenceError after GetValue of LHS; live close;
+// nested with; unscopables skip.
+
+function lhsHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    x += 3;
+  }
+  return obj.x === 5 && x === 1;
+}
+let a = lhsHitsObject();
+
+function missUsesOuter() {
+  let x = 10;
+  let obj = {};
+  with (obj) {
+    x += 2;
+  }
+  return (
+    x === 12 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let b = missUsesOuter();
+
+function rhsHitsObject() {
+  let obj = { x: 2, y: 3 };
+  with (obj) {
+    x += y;
+  }
+  return obj.x === 5;
+}
+let c = rhsHitsObject();
+
+function rhsMissUsesOuter() {
+  let y = 4;
+  let obj = { x: 2 };
+  with (obj) {
+    x += y;
+  }
+  return obj.x === 6;
+}
+let d = rhsMissUsesOuter();
+
+function yieldsComputed() {
+  let obj = { x: 2 };
+  let r;
+  with (obj) {
+    r = (x += 3);
+  }
+  return r === 5 && obj.x === 5;
+}
+let e = yieldsComputed();
+
+function lhsGetThenRhs() {
+  let order = "";
+  let obj = {
+    get x() {
+      order = order + "L";
+      return 2;
+    },
+    set x(v) {
+      order = order + "P";
+      this._x = v;
+    },
+    y: 3
+  };
+  with (obj) {
+    x += y;
+  }
+  return obj._x === 5 && order === "LP";
+}
+let f = lhsGetThenRhs();
+
+function rhsAlwaysAfterGet() {
+  let n = 0;
+  let obj = { x: 1 };
+  with (obj) {
+    x += (n = n + 1, 4);
+  }
+  return obj.x === 5 && n === 1;
+}
+let g = rhsAlwaysAfterGet();
+
+function addSubMulDivMod() {
+  let obj = { p: 10, q: 10, r: 4, s: 20, t: 17 };
+  with (obj) {
+    p += 5;
+    q -= 3;
+    r *= 3;
+    s /= 4;
+    t %= 5;
+  }
+  return (
+    obj.p === 15 &&
+    obj.q === 7 &&
+    obj.r === 12 &&
+    obj.s === 5 &&
+    obj.t === 2
+  );
+}
+let h = addSubMulDivMod();
+
+function powShiftBitwise() {
+  let obj = { p: 2, q: 1, r: 16, s: -8, t: 15, u: 12, v: 8 };
+  with (obj) {
+    p **= 3;
+    q <<= 3;
+    r >>= 2;
+    s >>>= 1;
+    t &= 9;
+    u ^= 5;
+    v |= 3;
+  }
+  return (
+    obj.p === 8 &&
+    obj.q === 8 &&
+    obj.r === 4 &&
+    obj.s === 2147483644 &&
+    obj.t === 9 &&
+    obj.u === 9 &&
+    obj.v === 11
+  );
+}
+let i = powShiftBitwise();
+
+function stringConcat() {
+  let obj = { x: "a" };
+  with (obj) {
+    x += "b";
+  }
+  return obj.x === "ab";
+}
+let j = stringConcat();
+
+function groupingLhsIdent() {
+  let obj = { x: 2 };
+  with (obj) {
+    (x) += 3;
+  }
+  return obj.x === 5;
+}
+let k = groupingLhsIdent();
+
+function rightAssocCompound() {
+  let obj = { p: 2, q: 3 };
+  with (obj) {
+    p += q += 4;
+  }
+  return obj.p === 9 && obj.q === 7;
+}
+let l = rightAssocCompound();
+
+function unscopablesUsesOuter() {
+  let x = 10;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    x += 3;
+  }
+  return x === 13 && obj.x === 2;
+}
+let m = unscopablesUsesOuter();
+
+function inheritedGetCreatesOwn() {
+  let proto = { x: 2 };
+  let obj = Object.create(proto);
+  with (obj) {
+    x += 3;
+  }
+  return (
+    obj.x === 5 &&
+    proto.x === 2 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === true
+  );
+}
+let n = inheritedGetCreatesOwn();
+
+function accessorGetSetThis() {
+  let seenG = null;
+  let seenS = null;
+  let obj = {
+    _x: 2,
+    get x() {
+      seenG = this;
+      return this._x;
+    },
+    set x(v) {
+      seenS = this;
+      this._x = v;
+    }
+  };
+  with (obj) {
+    x += 3;
+  }
+  return obj._x === 5 && seenG === obj && seenS === obj;
+}
+let p = accessorGetSetThis();
+
+function inheritedSetterThis() {
+  let seenG = null;
+  let seenS = null;
+  let stored = 4;
+  let proto = {
+    get x() {
+      seenG = this;
+      return stored;
+    },
+    set x(v) {
+      seenS = this;
+      stored = v;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    x += 1;
+  }
+  return stored === 5 && seenG === obj && seenS === obj;
+}
+let q = inheritedSetterThis();
+
+function getterOnlySilent() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    x += 9;
+  }
+  let after = n;
+  return after === 1 && obj.x === 1;
+}
+let r = getterOnlySilent();
+
+function inheritedGetterOnlySilent() {
+  let proto = {
+    get x() {
+      return 1;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    x += 9;
+  }
+  return (
+    obj.x === 1 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let s = inheritedGetterOnlySilent();
+
+function nonWritableSilent() {
+  let obj = {};
+  Object.defineProperty(obj, "x", {
+    value: 1,
+    writable: false,
+    configurable: true
+  });
+  with (obj) {
+    x += 9;
+  }
+  return obj.x === 1;
+}
+let t = nonWritableSilent();
+
+function liveClose() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    run = function (v) {
+      x += v;
+    };
+  }
+  run(7);
+  return obj.x === 8;
+}
+let u = liveClose();
+
+function unresolvableLhsThrows() {
+  let n = 0;
+  with ({}) {
+    try {
+      e170266_miss += (n = n + 1, 1);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        n === 0 &&
+        typeof globalThis.e170266_miss === "undefined"
+      );
+    }
+  }
+}
+let v = unresolvableLhsThrows();
+
+function unresolvableRhsThrows() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 1;
+    },
+    set x(v) {
+      n = n + 10;
+    }
+  };
+  with (obj) {
+    try {
+      x += e170266_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && n === 1 && obj.x === 1;
+    }
+  }
+}
+let w = unresolvableRhsThrows();
+
+function nestedInnerWins() {
+  let inner = { x: 1 };
+  let outer = { x: 10 };
+  with (outer) {
+    with (inner) {
+      x += 3;
+    }
+  }
+  return inner.x === 4 && outer.x === 10;
+}
+let aa = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: 10 };
+  with (outer) {
+    with (inner) {
+      x += 3;
+    }
+  }
+  return (
+    outer.x === 13 &&
+    Object.prototype.hasOwnProperty.call(inner, "x") === false
+  );
+}
+let ab = nestedInnerMissOuter();
+
+function constOuterThrows() {
+  const x = 1;
+  let obj = {};
+  with (obj) {
+    try {
+      x += 2;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let ac = constOuterThrows();
+
+function ownUndefinedHasBinding() {
+  let obj = { x: undefined };
+  with (obj) {
+    x += 1;
+  }
+  return obj.x !== obj.x;
+}
+let ad = ownUndefinedHasBinding();
