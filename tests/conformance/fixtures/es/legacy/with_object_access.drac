@@ -1,0 +1,325 @@
+// E17.02.67: with + object literals `{ k: v }` + property access `ident.k` /
+// `ident["k"]` (read; string keys) through object environment (non-strict).
+// Value/base/bracket-key idents hit object (else outer); missing prop undefined;
+// nested `.`/`[]`; inherited HasBinding; accessor get this is with object;
+// unresolvable value/base/key → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function litValueHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  let out;
+  with (obj) {
+    out = { k: x };
+  }
+  return out.k === 2 && x === 1;
+}
+let a = litValueHitsObject();
+
+function litValueMissUsesOuter() {
+  let x = 3;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = { k: x };
+  }
+  return out.k === 3;
+}
+let b = litValueMissUsesOuter();
+
+function multiPropValues() {
+  let y = 9;
+  let obj = { x: 4 };
+  let out;
+  with (obj) {
+    out = { a: x, b: y };
+  }
+  return out.a === 4 && out.b === 9;
+}
+let c = multiPropValues();
+
+function stringKeyLit() {
+  let obj = { x: 5 };
+  let out;
+  with (obj) {
+    out = { "c": x };
+  }
+  return out.c === 5 && out["c"] === 5;
+}
+let d = stringKeyLit();
+
+function emptyLit() {
+  let obj = { x: 1 };
+  let out;
+  with (obj) {
+    out = {};
+  }
+  return out.x === undefined && obj.x === 1;
+}
+let e = emptyLit();
+
+function dotAccessHitsObject() {
+  let box = { k: 0 };
+  let env = { box: { k: 7 } };
+  let out;
+  with (env) {
+    out = (box).k;
+  }
+  return out === 7 && box.k === 0;
+}
+let f = dotAccessHitsObject();
+
+function dotAccessMissUsesOuter() {
+  let box = { k: 8 };
+  let env = {};
+  let out;
+  with (env) {
+    out = box.k;
+  }
+  return out === 8;
+}
+let g = dotAccessMissUsesOuter();
+
+function bracketStringHitsObject() {
+  let box = { k: 0 };
+  let env = { box: { k: 6 } };
+  let out;
+  with (env) {
+    out = box["k"];
+  }
+  return out === 6;
+}
+let h = bracketStringHitsObject();
+
+function bracketKeyIdentHitsObject() {
+  let k = "outer";
+  let env = { box: { inner: 11, outer: 0 }, k: "inner" };
+  let out;
+  with (env) {
+    out = box[k];
+  }
+  return out === 11;
+}
+let i = bracketKeyIdentHitsObject();
+
+function bracketKeyMissUsesOuter() {
+  let k = "inner";
+  let env = { box: { inner: 12, outer: 0 } };
+  let out;
+  with (env) {
+    out = box[k];
+  }
+  return out === 12;
+}
+let j = bracketKeyMissUsesOuter();
+
+function nestedDot() {
+  let env = { box: { inner: { n: 13 } } };
+  let out;
+  with (env) {
+    out = box.inner.n;
+  }
+  return out === 13;
+}
+let k = nestedDot();
+
+function nestedBracket() {
+  let env = { box: { inner: { n: 14 } }, p: "inner", q: "n" };
+  let out;
+  with (env) {
+    out = box[p][q];
+  }
+  return out === 14;
+}
+let l = nestedBracket();
+
+function missingPropUndefined() {
+  let env = { box: { k: 1 } };
+  let out;
+  with (env) {
+    out = box.nope;
+  }
+  return out === undefined;
+}
+let m = missingPropUndefined();
+
+function unscopablesValueUsesOuter() {
+  let x = 10;
+  let obj = { x: 2 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = { k: x };
+  }
+  return out.k === 10 && obj.x === 2;
+}
+let n = unscopablesValueUsesOuter();
+
+function unscopablesBaseUsesOuter() {
+  let box = { k: 15 };
+  let env = { box: { k: 99 } };
+  env[Symbol.unscopables] = { box: true };
+  let out;
+  with (env) {
+    out = box.k;
+  }
+  return out === 15;
+}
+let p = unscopablesBaseUsesOuter();
+
+function inheritedValue() {
+  let proto = { x: 16 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = { k: x };
+  }
+  return out.k === 16;
+}
+let q = inheritedValue();
+
+function accessorGetThisValue() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 17;
+    }
+  };
+  let out;
+  with (obj) {
+    out = { k: x };
+  }
+  return out.k === 17 && seen === obj;
+}
+let r = accessorGetThisValue();
+
+function accessorGetThisBase() {
+  let seen = null;
+  let inner = { k: 18 };
+  let env = {
+    get box() {
+      seen = this;
+      return inner;
+    }
+  };
+  let out;
+  with (env) {
+    out = box.k;
+  }
+  return out === 18 && seen === env;
+}
+let s = accessorGetThisBase();
+
+function unresolvableValueThrows() {
+  with ({}) {
+    try {
+      ({ k: e170267_miss });
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170267_miss === "undefined"
+      );
+    }
+  }
+}
+let t = unresolvableValueThrows();
+
+function unresolvableBaseThrows() {
+  with ({}) {
+    try {
+      e170267_base.k;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170267_base === "undefined"
+      );
+    }
+  }
+}
+let u = unresolvableBaseThrows();
+
+function unresolvableKeyThrows() {
+  let env = { box: { k: 1 } };
+  with (env) {
+    try {
+      box[e170267_key];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let v = unresolvableKeyThrows();
+
+function liveClose() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return { k: x };
+    };
+  }
+  obj.x = 19;
+  return run().k === 19;
+}
+let w = liveClose();
+
+function nestedInnerWins() {
+  let inner = { x: 20 };
+  let outer = { x: 1 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = { k: x };
+    }
+  }
+  return out.k === 20;
+}
+let aa = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: 21 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = { k: x };
+    }
+  }
+  return out.k === 21;
+}
+let ab = nestedInnerMissOuter();
+
+function ownUndefinedHasBinding() {
+  let x = 99;
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    out = { k: x };
+  }
+  return out.k === undefined && x === 99;
+}
+let ac = ownUndefinedHasBinding();
+
+function evalOrderGetters() {
+  let order = "";
+  let obj = {
+    get x() {
+      order = order + "X";
+      return 1;
+    },
+    get y() {
+      order = order + "Y";
+      return 2;
+    }
+  };
+  let out;
+  with (obj) {
+    out = { a: x, b: y };
+  }
+  return out.a === 1 && out.b === 2 && order === "XY";
+}
+let ad = evalOrderGetters();
