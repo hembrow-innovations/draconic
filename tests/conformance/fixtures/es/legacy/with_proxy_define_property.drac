@@ -1,0 +1,1161 @@
+// E17.02.113: with + Proxy defineProperty/getOwnPropertyDescriptor traps +
+// Reflect.defineProperty/getOwnPropertyDescriptor (empty-handler pass-through,
+// trap intercept, plain object data descriptors) through object environment
+// (non-strict). Proxy ident hits object (else outer); with (Proxy) method
+// idents hit Proxy (name / length); defineProperty / getOwnPropertyDescriptor
+// ident hits object (else outer); Reflect ident hits object (else outer);
+// with (Reflect) method idents hit Reflect (defineProperty /
+// getOwnPropertyDescriptor); inherited HasBinding; accessor this is with
+// object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function plainObjectGetOwnPropertyDescriptor() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let desc = Reflect.getOwnPropertyDescriptor({ a: 1 }, "a");
+    return (
+      desc.value === 1 &&
+      desc.writable === true &&
+      desc.enumerable === true &&
+      desc.configurable === true
+    );
+  }
+}
+let a = plainObjectGetOwnPropertyDescriptor();
+
+function plainObjectDefineProperty() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let plain = {};
+    let ok = Reflect.defineProperty(plain, "a", {
+      value: 1,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    let desc = Reflect.getOwnPropertyDescriptor(plain, "a");
+    return ok === true && desc.value === 1 && plain.a === 1;
+  }
+}
+let b = plainObjectDefineProperty();
+
+function emptyHandlerPassThroughGet() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let target = { x: 10 };
+    let p = new Proxy(target, {});
+    let desc = Reflect.getOwnPropertyDescriptor(p, "x");
+    return desc.value === 10 && desc.writable === true;
+  }
+}
+let c = emptyHandlerPassThroughGet();
+
+function emptyHandlerPassThroughSet() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10 && p.x === 10;
+  }
+}
+let d = emptyHandlerPassThroughSet();
+
+function getTrapIntercepts() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      { n: 7 },
+      {
+        getOwnPropertyDescriptor: function (t, key) {
+          calls = calls + 1;
+          let d = Reflect.getOwnPropertyDescriptor(t, key);
+          if (d === void 0) {
+            return d;
+          }
+          return {
+            value: d.value + 1,
+            writable: d.writable,
+            enumerable: d.enumerable,
+            configurable: d.configurable
+          };
+        }
+      }
+    );
+    let desc = Reflect.getOwnPropertyDescriptor(p, "n");
+    return calls === 1 && desc.value === 8;
+  }
+}
+let e = getTrapIntercepts();
+
+function setTrapIntercepts() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  let lastKey = "";
+  let lastVal = 0;
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        defineProperty: function (t, key, desc) {
+          calls = calls + 1;
+          lastKey = key;
+          lastVal = desc.value;
+          return Reflect.defineProperty(t, key, desc);
+        }
+      }
+    );
+    let ok = Reflect.defineProperty(p, "m", {
+      value: 42,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return calls === 1 && ok === true && lastKey === "m" && lastVal === 42 && p.m === 42;
+  }
+}
+let f = setTrapIntercepts();
+
+function typeofReflectGetSet() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return (
+      typeof Reflect.defineProperty === "function" &&
+      typeof Reflect.getOwnPropertyDescriptor === "function"
+    );
+  }
+}
+let g = typeofReflectGetSet();
+
+function withReflectGetOwnPropertyDescriptor() {
+  with (Reflect) {
+    let desc = getOwnPropertyDescriptor({ a: 1 }, "a");
+    return desc.value === 1 && desc.writable === true;
+  }
+}
+let h = withReflectGetOwnPropertyDescriptor();
+
+function withReflectDefineProperty() {
+  with (Reflect) {
+    let plain = {};
+    let ok = defineProperty(plain, "a", {
+      value: 1,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    let desc = getOwnPropertyDescriptor(plain, "a");
+    return ok === true && desc.value === 1;
+  }
+}
+let j = withReflectDefineProperty();
+
+function withReflectPassThroughGet() {
+  with (Reflect) {
+    let p = new Proxy({ x: 10 }, {});
+    let desc = getOwnPropertyDescriptor(p, "x");
+    return desc.value === 10;
+  }
+}
+let k = withReflectPassThroughGet();
+
+function withReflectPassThroughSet() {
+  with (Reflect) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10;
+  }
+}
+let l = withReflectPassThroughSet();
+
+function withReflectGetTrap() {
+  let calls = 0;
+  with (Reflect) {
+    let p = new Proxy(
+      { n: 7 },
+      {
+        getOwnPropertyDescriptor: function (t, key) {
+          calls = calls + 1;
+          let d = Reflect.getOwnPropertyDescriptor(t, key);
+          if (d === void 0) {
+            return d;
+          }
+          return {
+            value: d.value + 1,
+            writable: d.writable,
+            enumerable: d.enumerable,
+            configurable: d.configurable
+          };
+        }
+      }
+    );
+    return calls === 0 && getOwnPropertyDescriptor(p, "n").value === 8 && calls === 1;
+  }
+}
+let m = withReflectGetTrap();
+
+function withReflectSetTrap() {
+  let calls = 0;
+  let lastKey = "";
+  let lastVal = 0;
+  with (Reflect) {
+    let p = new Proxy(
+      {},
+      {
+        defineProperty: function (t, key, desc) {
+          calls = calls + 1;
+          lastKey = key;
+          lastVal = desc.value;
+          return true;
+        }
+      }
+    );
+    let ok = defineProperty(p, "m", {
+      value: 42,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return calls === 1 && ok === true && lastKey === "m" && lastVal === 42;
+  }
+}
+let n = withReflectSetTrap();
+
+function withReflectName() {
+  with (Reflect) {
+    return (
+      typeof defineProperty === "function" &&
+      typeof getOwnPropertyDescriptor === "function"
+    );
+  }
+}
+let p = withReflectName();
+
+function withProxyTypeof() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return typeof Proxy === "function";
+  }
+}
+let q = withProxyTypeof();
+
+function withProxyName() {
+  with (Proxy) {
+    return name === "Proxy";
+  }
+}
+let r = withProxyName();
+
+function withProxyLength() {
+  with (Proxy) {
+    return length === 2;
+  }
+}
+let s = withProxyLength();
+
+function withProxyPrototypeUndefined() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy.prototype === undefined;
+  }
+}
+let t = withProxyPrototypeUndefined();
+
+function globalThisIdentityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let u = globalThisIdentityProxy();
+
+function globalThisIdentityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let v = globalThisIdentityReflect();
+
+function proxyIdentHitsObject() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Proxy({}, {}).p === "hit";
+  }
+}
+let w = proxyIdentHitsObject();
+
+function proxyIdentMissIsOuter() {
+  with ({}) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10;
+  }
+}
+let aa = proxyIdentMissIsOuter();
+
+function reflectIdentHitsObject() {
+  let obj = {
+    Reflect: {
+      getOwnPropertyDescriptor: function (o, k) {
+        return "hit";
+      }
+    }
+  };
+  with (obj) {
+    return Reflect.getOwnPropertyDescriptor({}, "a") === "hit";
+  }
+}
+let ab = reflectIdentHitsObject();
+
+function reflectIdentMissIsOuter() {
+  with ({}) {
+    let desc = Reflect.getOwnPropertyDescriptor({ a: 1 }, "a");
+    return desc.value === 1;
+  }
+}
+let ac = reflectIdentMissIsOuter();
+
+function getOwnPropertyDescriptorIdentHitsObject() {
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return o === 1;
+    }
+  };
+  with (obj) {
+    return getOwnPropertyDescriptor(1) === true && getOwnPropertyDescriptor(0) === false;
+  }
+}
+let ad = getOwnPropertyDescriptorIdentHitsObject();
+
+function getOwnPropertyDescriptorIdentMissIsOuter() {
+  function getOwnPropertyDescriptor(o) {
+    return o === 7;
+  }
+  with ({}) {
+    return getOwnPropertyDescriptor(7) === true && getOwnPropertyDescriptor(1) === false;
+  }
+}
+let ae = getOwnPropertyDescriptorIdentMissIsOuter();
+
+function definePropertyIdentHitsObject() {
+  let obj = {
+    defineProperty: function (o, k, d) {
+      return o === 1 && k === "a";
+    }
+  };
+  with (obj) {
+    return defineProperty(1, "a", {}) === true && defineProperty(0, "a", {}) === false;
+  }
+}
+let af = definePropertyIdentHitsObject();
+
+function definePropertyIdentMissIsOuter() {
+  function defineProperty(o, k, d) {
+    return o === 7;
+  }
+  with ({}) {
+    return defineProperty(7, "a", {}) === true && defineProperty(1, "a", {}) === false;
+  }
+}
+let ag = definePropertyIdentMissIsOuter();
+
+function objectShadowsOuterGet() {
+  function getOwnPropertyDescriptor(o) {
+    return false;
+  }
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return true;
+    }
+  };
+  with (obj) {
+    return getOwnPropertyDescriptor(null) === true;
+  }
+}
+let ah = objectShadowsOuterGet();
+
+function callThisIsWithObject() {
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return getOwnPropertyDescriptor(null) === 3;
+  }
+}
+let aj = callThisIsWithObject();
+
+function withHandlerGetThisIsHandler() {
+  let handler = {
+    getOwnPropertyDescriptor: function (t, key) {
+      return undefined;
+    }
+  };
+  let seen = null;
+  let orig = handler.getOwnPropertyDescriptor;
+  handler.getOwnPropertyDescriptor = function (t, key) {
+    seen = this;
+    return orig.call(this, t, key);
+  };
+  let ok;
+  with (handler) {
+    getOwnPropertyDescriptor({});
+    ok = seen === handler;
+  }
+  return ok;
+}
+let ak = withHandlerGetThisIsHandler();
+
+function unscopablesUsesOuter() {
+  function getOwnPropertyDescriptor(o) {
+    return true;
+  }
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return false;
+    }
+  };
+  obj[Symbol.unscopables] = { getOwnPropertyDescriptor: true };
+  with (obj) {
+    return getOwnPropertyDescriptor(null) === true;
+  }
+}
+let al = unscopablesUsesOuter();
+
+function unscopablesProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Proxy: true };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10;
+  }
+}
+let am = unscopablesProxyIdent();
+
+function unscopablesReflectIdent() {
+  let obj = {
+    Reflect: {
+      getOwnPropertyDescriptor: function (o, k) {
+        return "no";
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Reflect: true };
+  with (obj) {
+    let desc = Reflect.getOwnPropertyDescriptor({ a: 1 }, "a");
+    return desc.value === 1;
+  }
+}
+let an = unscopablesReflectIdent();
+
+function inheritedData() {
+  let proto = {
+    getOwnPropertyDescriptor: function (o) {
+      return o === "ok";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return getOwnPropertyDescriptor("ok") === true && getOwnPropertyDescriptor("no") === false;
+  }
+}
+let ap = inheritedData();
+
+function inheritedFromProxy() {
+  let obj = Object.create(Proxy);
+  with (obj) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let aq = inheritedFromProxy();
+
+function inheritedFromReflect() {
+  let obj = Object.create(Reflect);
+  with (obj) {
+    let desc = getOwnPropertyDescriptor({ a: 1 }, "a");
+    return desc.value === 1;
+  }
+}
+let ar = inheritedFromReflect();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get getOwnPropertyDescriptor() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return getOwnPropertyDescriptor(null) === true && seen === obj;
+  }
+}
+let at = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get getOwnPropertyDescriptor() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    return getOwnPropertyDescriptor(null) === true && seen === obj;
+  }
+}
+let au = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return getOwnPropertyDescriptor(o);
+    };
+  }
+  obj.getOwnPropertyDescriptor = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let av = liveClose();
+
+function liveCloseProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (target, handler) {
+      return new Proxy(target, handler);
+    };
+  }
+  obj.Proxy = Proxy;
+  let target = {};
+  let p = run(target, {});
+  let ok = Reflect.defineProperty(p, "x", {
+    value: 10,
+    writable: true,
+    enumerable: true,
+    configurable: true
+  });
+  return ok === true && target.x === 10;
+}
+let aw = liveCloseProxyIdent();
+
+function liveCloseReflectIdent() {
+  let obj = {
+    Reflect: {
+      getOwnPropertyDescriptor: function (o, k) {
+        return "old";
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o, k) {
+      return Reflect.getOwnPropertyDescriptor(o, k);
+    };
+  }
+  obj.Reflect = Reflect;
+  let desc = run({ a: 1 }, "a");
+  return desc.value === 1;
+}
+let ax = liveCloseReflectIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702113_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ay = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702113_noglob.getOwnPropertyDescriptor;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702113_noglob === "undefined"
+      );
+    }
+  }
+}
+let az = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    getOwnPropertyDescriptor: function (o) {
+      return true;
+    }
+  };
+  let handler = {
+    getOwnPropertyDescriptor: function (o) {
+      return false;
+    }
+  };
+  with (handler) {
+    with (inner) {
+      return getOwnPropertyDescriptor(null) === true;
+    }
+  }
+}
+let ba = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    getOwnPropertyDescriptor: function (o) {
+      return true;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return getOwnPropertyDescriptor(null) === true;
+    }
+  }
+}
+let bb = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function getOwnPropertyDescriptor(o) {
+    return true;
+  }
+  let inner = {
+    getOwnPropertyDescriptor: function (o) {
+      return false;
+    }
+  };
+  inner[Symbol.unscopables] = { getOwnPropertyDescriptor: true };
+  let outer = {
+    getOwnPropertyDescriptor: function (o) {
+      return o === "fromOuter";
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return getOwnPropertyDescriptor("fromOuter") === true;
+    }
+  }
+}
+let bc = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { getOwnPropertyDescriptor: 1 };
+  with (obj) {
+    try {
+      getOwnPropertyDescriptor(null);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bd = nonCallableTypeError();
+
+function typeofGetMethod() {
+  let ty;
+  let handler = {
+    getOwnPropertyDescriptor: function (t, key) {
+      return undefined;
+    }
+  };
+  with (handler) {
+    ty = typeof getOwnPropertyDescriptor;
+  }
+  return ty === "function";
+}
+let be = typeofGetMethod();
+
+function typeofReflectThroughWith() {
+  let obj = { Reflect: Reflect };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "object";
+}
+let bf = typeofReflectThroughWith();
+
+function typeofProxyThroughWith() {
+  let obj = { Proxy: Proxy };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "function";
+}
+let bg = typeofProxyThroughWith();
+
+function memberStillProxy() {
+  let obj = { x: 1 };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10;
+  }
+}
+let bh = memberStillProxy();
+
+function argsHitObject() {
+  let obj = {
+    target: {},
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let p = new Proxy(target, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10;
+  }
+}
+let bi = argsHitObject();
+
+function argsMissIsOuter() {
+  let target = {};
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let p = new Proxy(target, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10;
+  }
+}
+let bj = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get Reflect() {
+      ran = true;
+      return Reflect;
+    }
+  };
+  with (obj) {
+    try {
+      Reflect.getOwnPropertyDescriptor(e1702113_arg, "a");
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bk = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702113_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bl = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function getOwnPropertyDescriptor(o) {
+    return false;
+  }
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return getOwnPropertyDescriptor(o);
+    };
+  }
+  obj.getOwnPropertyDescriptor = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let bm = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get getOwnPropertyDescriptor() {
+      cnt = cnt + 1;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    getOwnPropertyDescriptor(null);
+  }
+  return cnt === 1;
+}
+let bn = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalProxy() {
+  let obj = {};
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && target.x === 10;
+  }
+}
+let bp = emptyMissUsesGlobalProxy();
+
+function emptyMissUsesGlobalReflect() {
+  let obj = {};
+  with (obj) {
+    let desc = Reflect.getOwnPropertyDescriptor({ a: 1 }, "a");
+    return desc.value === 1;
+  }
+}
+let bq = emptyMissUsesGlobalReflect();
+
+function getTypeofHit() {
+  let obj = { getOwnPropertyDescriptor: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof getOwnPropertyDescriptor;
+  }
+  return ty === "number";
+}
+let br = getTypeofHit();
+
+function proxyTypeofHit() {
+  let obj = { Proxy: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "number";
+}
+let bs = proxyTypeofHit();
+
+function reflectTypeofHit() {
+  let obj = { Reflect: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "number";
+}
+let bt = reflectTypeofHit();
+
+function unscopablesGetOwnPropertyDescriptor() {
+  let obj = { getOwnPropertyDescriptor: 1 };
+  obj[Symbol.unscopables] = { getOwnPropertyDescriptor: true };
+  with (obj) {
+    return typeof getOwnPropertyDescriptor === "undefined";
+  }
+}
+let bu = unscopablesGetOwnPropertyDescriptor();
+
+function nestedGetInnerWins() {
+  with ({ getOwnPropertyDescriptor: 1 }) {
+    with ({ getOwnPropertyDescriptor: 2 }) {
+      return getOwnPropertyDescriptor === 2;
+    }
+  }
+}
+let bv = nestedGetInnerWins();
+
+function nestedProxyInnerWins() {
+  with ({ Proxy: 1 }) {
+    with ({ Proxy: 2 }) {
+      return Proxy === 2;
+    }
+  }
+}
+let bw = nestedProxyInnerWins();
+
+function nestedReflectInnerWins() {
+  with ({ Reflect: 1 }) {
+    with ({ Reflect: 2 }) {
+      return Reflect === 2;
+    }
+  }
+}
+let bx = nestedReflectInnerWins();
+
+function identityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let by = identityProxy();
+
+function identityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let bz = identityReflect();
+
+function withProxyNameLengthTogether() {
+  with (Proxy) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let ca = withProxyNameLengthTogether();
+
+function trapThroughObj() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      { n: 7 },
+      {
+        getOwnPropertyDescriptor: function (t, key) {
+          calls = calls + 1;
+          let d = Reflect.getOwnPropertyDescriptor(t, key);
+          if (d === void 0) {
+            return d;
+          }
+          return {
+            value: d.value + 1,
+            writable: d.writable,
+            enumerable: d.enumerable,
+            configurable: d.configurable
+          };
+        }
+      }
+    );
+    let d1 = Reflect.getOwnPropertyDescriptor(p, "n");
+    let d2 = Reflect.getOwnPropertyDescriptor(p, "n");
+    return d1.value === 8 && d2.value === 8 && calls === 2;
+  }
+}
+let cb = trapThroughObj();
+
+function trapHandlerIdentHitsObject() {
+  let obj = {
+    getOwnPropertyDescriptor: function (t, key) {
+      return {
+        value: 9,
+        writable: true,
+        enumerable: true,
+        configurable: true
+      };
+    }
+  };
+  with (obj) {
+    let p = new Proxy({ n: 1 }, { getOwnPropertyDescriptor: getOwnPropertyDescriptor });
+    return Reflect.getOwnPropertyDescriptor(p, "n").value === 9;
+  }
+}
+let cc = trapHandlerIdentHitsObject();
+
+function trapThisIsHandler() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let seen = null;
+  with (obj) {
+    let handler = {
+      getOwnPropertyDescriptor: function (t, key) {
+        seen = this;
+        return {
+          value: 1,
+          writable: true,
+          enumerable: true,
+          configurable: true
+        };
+      }
+    };
+    let p = new Proxy({}, handler);
+    let desc = Reflect.getOwnPropertyDescriptor(p, "n");
+    return seen === handler && desc.value === 1;
+  }
+}
+let cd = trapThisIsHandler();
+
+function trapThrowTypeError() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor: function (t, key) {
+          throw new TypeError("getOwnPropertyDescriptor-boom");
+        }
+      }
+    );
+    try {
+      Reflect.getOwnPropertyDescriptor(p, "n");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && err.message === "getOwnPropertyDescriptor-boom";
+    }
+  }
+}
+let ce = trapThrowTypeError();
+
+function bracketMethodOnObject() {
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return o === "ok";
+    }
+  };
+  with (obj) {
+    return obj["getOwnPropertyDescriptor"]("ok") === true;
+  }
+}
+let cf = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    getOwnPropertyDescriptor: function (o) {
+      return o === "z";
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = "z";
+  with (obj) {
+    return getOwnPropertyDescriptor(x) === true && obj.x === 9;
+  }
+}
+let cg = unscopablesSecondIdent();
+
+function targetIdentHitsObject() {
+  let obj = {
+    t: {},
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let p = new Proxy(t, {});
+    let ok = Reflect.defineProperty(p, "x", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    return ok === true && t.x === 10;
+  }
+}
+let ch = targetIdentHitsObject();
+
+function withReflectGetArgIdent() {
+  let obj = { k: { a: 1 } };
+  with (obj) {
+    with (Reflect) {
+      let desc = getOwnPropertyDescriptor(k, "a");
+      return desc.value === 1;
+    }
+  }
+}
+let ci = withReflectGetArgIdent();
+
+function nestedReflectInnerWinsGet() {
+  with ({
+    Reflect: {
+      getOwnPropertyDescriptor: function (o, k) {
+        return "outer";
+      }
+    }
+  }) {
+    with ({
+      Reflect: {
+        getOwnPropertyDescriptor: function (o, k) {
+          return "inner";
+        }
+      }
+    }) {
+      return Reflect.getOwnPropertyDescriptor({}, "a") === "inner";
+    }
+  }
+}
+let cj = nestedReflectInnerWinsGet();
+
+function missingDescriptorUndefined() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let missing = Reflect.getOwnPropertyDescriptor({ a: 1 }, "missing");
+    return missing === void 0;
+  }
+}
+let ck = missingDescriptorUndefined();
