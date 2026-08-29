@@ -1,0 +1,214 @@
+// E17.02.59: with + comparison & equality through object environment (non-strict).
+// LHS/RHS idents hit object (else outer); both sides always evaluated (no
+// short-circuit); ==/!= coerce, ===/!== do not; inherited HasBinding; accessor
+// this is the with object; unresolvable LHS or RHS → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function ltHitsObject() {
+  let obj = { x: 1, y: 2 };
+  with (obj) {
+    return (x < y) === true;
+  }
+}
+let a = ltHitsObject();
+
+function leHitsObject() {
+  let obj = { x: 2, y: 2 };
+  with (obj) {
+    return (x <= y) === true;
+  }
+}
+let b = leHitsObject();
+
+function gtHitsObject() {
+  let obj = { x: 3, y: 1 };
+  with (obj) {
+    return (x > y) === true;
+  }
+}
+let c = gtHitsObject();
+
+function geHitsObject() {
+  let obj = { x: 2, y: 2 };
+  with (obj) {
+    return (x >= y) === true;
+  }
+}
+let d = geHitsObject();
+
+function eqNeHitsObject() {
+  let obj = { x: 1, y: 2 };
+  with (obj) {
+    return (x != y) === true && (x == y) === false;
+  }
+}
+let e = eqNeHitsObject();
+
+function seqSneqHitsObject() {
+  let obj = { x: 1, y: "1" };
+  with (obj) {
+    return (x == y) === true && (x === y) === false && (x !== y) === true;
+  }
+}
+let f = seqSneqHitsObject();
+
+function missIsOuter() {
+  let x = 1;
+  let y = 2;
+  with ({}) {
+    return (x < y) === true;
+  }
+}
+let g = missIsOuter();
+
+function objectShadowsOuter() {
+  let x = 9;
+  let y = 0;
+  let obj = { x: 1, y: 2 };
+  with (obj) {
+    return (x < y) === true;
+  }
+}
+let h = objectShadowsOuter();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get x() {
+      n = n + 1;
+      return 0;
+    },
+    get y() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    return (x < y) === true && n === 2;
+  }
+}
+let i = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  let x = 1;
+  let y = 2;
+  let obj = { x: 9, y: 0 };
+  obj[Symbol.unscopables] = { x: true, y: true };
+  with (obj) {
+    return (x < y) === true;
+  }
+}
+let j = unscopablesUsesOuter();
+
+function inheritedData() {
+  let proto = { x: 1, y: 2 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x < y) === true;
+  }
+}
+let k = inheritedData();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    x: 1,
+    get y() {
+      seen = this;
+      return 2;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (x < y) === true && seen === obj;
+  }
+}
+let l = inheritedGetterThis();
+
+function liveClose() {
+  let obj = { x: 1, y: 2 };
+  let run;
+  with (obj) {
+    run = function () {
+      return x < y;
+    };
+  }
+  obj.y = 0;
+  return run() === false;
+}
+let m = liveClose();
+
+function unresolvableLhsThrows() {
+  with ({}) {
+    try {
+      e170259_missing < 1;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let p = unresolvableLhsThrows();
+
+function unresolvableRhsThrowsAlways() {
+  let obj = { x: 0 };
+  with (obj) {
+    try {
+      x < e170259_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let q = unresolvableRhsThrowsAlways();
+
+function nestedInnerWins() {
+  let inner = { x: 1, y: 2 };
+  let outer = { x: 9, y: 0 };
+  with (outer) {
+    with (inner) {
+      return (x < y) === true;
+    }
+  }
+}
+let r = nestedInnerWins();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    x: 1,
+    get y() {
+      seen = this;
+      return 2;
+    }
+  };
+  with (obj) {
+    return (x < y) === true && seen === obj;
+  }
+}
+let s = accessorThisIsWithObject();
+
+function abstractEqNullUndef() {
+  let obj = { x: null, y: undefined };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let t = abstractEqNullUndef();
+
+function stringRelational() {
+  let obj = { x: "b", y: "a" };
+  with (obj) {
+    return (x > y) === true && (x >= y) === true && (x < y) === false;
+  }
+}
+let u = stringRelational();
+
+function leFalseWhenGreater() {
+  let obj = { x: 3, y: 1 };
+  with (obj) {
+    return (x <= y) === false && (x >= y) === true;
+  }
+}
+let v = leFalseWhenGreater();

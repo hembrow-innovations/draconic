@@ -628,3 +628,13 @@ fn with_logical_fixture_present() {
 fn with_logical_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_logical");
 }
+
+#[test]
+fn with_comparison_fixture_present() {
+    assert_fixture_present("es/legacy/with_comparison");
+}
+
+#[test]
+fn with_comparison_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_comparison");
+}
