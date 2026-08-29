@@ -1,0 +1,780 @@
+// E17.02.88: with + global object basics (undefined, globalThis,
+// Object / Function / Array / String / Boolean typeof) through
+// object environment (non-strict). Constructor / undefined /
+// globalThis idents hit object (else outer); with (Object) /
+// with (Array) / with (String) method idents hit those
+// constructors; inherited HasBinding; accessor this is with
+// object; unresolvable → ReferenceError; live close; nested
+// with; unscopables skip.
+
+function withObjectTypeof() {
+  let obj = { Object: Object };
+  with (obj) {
+    return typeof Object === "function";
+  }
+}
+let a = withObjectTypeof();
+
+function withFunctionTypeof() {
+  let obj = { Function: Function };
+  with (obj) {
+    return typeof Function === "function";
+  }
+}
+let b = withFunctionTypeof();
+
+function withArrayTypeof() {
+  let obj = { Array: Array };
+  with (obj) {
+    return typeof Array === "function";
+  }
+}
+let c = withArrayTypeof();
+
+function withStringTypeof() {
+  let obj = { String: String };
+  with (obj) {
+    return typeof String === "function";
+  }
+}
+let d = withStringTypeof();
+
+function withBooleanTypeof() {
+  let obj = { Boolean: Boolean };
+  with (obj) {
+    return typeof Boolean === "function";
+  }
+}
+let e = withBooleanTypeof();
+
+function withUndefinedHit() {
+  let obj = { undefined: 1 };
+  with (obj) {
+    return undefined === 1;
+  }
+}
+let f = withUndefinedHit();
+
+function withUndefinedMiss() {
+  with ({}) {
+    return typeof undefined === "undefined" && undefined === void 0;
+  }
+}
+let g = withUndefinedMiss();
+
+function withGlobalThisHit() {
+  let obj = { globalThis: 2 };
+  with (obj) {
+    return globalThis === 2;
+  }
+}
+let h = withGlobalThisHit();
+
+function withGlobalThisMiss() {
+  with ({}) {
+    return globalThis === globalThis.globalThis;
+  }
+}
+let j = withGlobalThisMiss();
+
+function withObjectKeys() {
+  with (Object) {
+    return keys({ a: 1, b: 2 }).length === 2;
+  }
+}
+let k = withObjectKeys();
+
+function withObjectCreate() {
+  with (Object) {
+    let p = create(null);
+    return typeof p === "object" && p !== null && !(p instanceof Object);
+  }
+}
+let l = withObjectCreate();
+
+function withArrayIsArray() {
+  with (Array) {
+    return isArray([]) === true && isArray({}) === false;
+  }
+}
+let m = withArrayIsArray();
+
+function withStringFromCharCode() {
+  with (String) {
+    return fromCharCode(65, 66) === "AB";
+  }
+}
+let n = withStringFromCharCode();
+
+function withObjectIdentity() {
+  let obj = { Object: Object };
+  with (obj) {
+    return Object === globalThis.Object;
+  }
+}
+let p = withObjectIdentity();
+
+function withArrayIdentity() {
+  let obj = { Array: Array };
+  with (obj) {
+    return Array === globalThis.Array;
+  }
+}
+let q = withArrayIdentity();
+
+function withFunctionCall() {
+  let obj = { Function: Function };
+  with (obj) {
+    return Function("return 7")() === 7;
+  }
+}
+let r = withFunctionCall();
+
+function withBooleanCall() {
+  let obj = { Boolean: Boolean };
+  with (obj) {
+    return Boolean(1) === true && Boolean(0) === false;
+  }
+}
+let s = withBooleanCall();
+
+function withObjectBracketKeys() {
+  let obj = { Object: Object };
+  with (obj) {
+    return Object["keys"]({ a: 1 }).length === 1;
+  }
+}
+let t = withObjectBracketKeys();
+
+function withArrayBracketIsArray() {
+  let obj = { Array: Array };
+  with (obj) {
+    return Array["isArray"]([1]) === true;
+  }
+}
+let u = withArrayBracketIsArray();
+
+function objectIdentHitsObject() {
+  let obj = {
+    Object: {
+      keys: function (x) {
+        return 42;
+      }
+    }
+  };
+  with (obj) {
+    return Object.keys({}) === 42;
+  }
+}
+let v = objectIdentHitsObject();
+
+function objectIdentMissIsOuter() {
+  with ({}) {
+    return Object.keys({ a: 1 }).length === 1;
+  }
+}
+let w = objectIdentMissIsOuter();
+
+function objectIdentShadowsOuter() {
+  let obj = {
+    Object: {
+      keys: function (x) {
+        return 0;
+      },
+      create: function (x) {
+        return 1;
+      }
+    }
+  };
+  with (obj) {
+    return Object.keys({}) === 0 && Object.create(null) === 1;
+  }
+}
+let aa = objectIdentShadowsOuter();
+
+function keysIdentHitsObject() {
+  let obj = {
+    keys: function (x) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return keys({}) === 7;
+  }
+}
+let ab = keysIdentHitsObject();
+
+function keysIdentMissIsOuter() {
+  function keys(x) {
+    return 8;
+  }
+  with ({}) {
+    return keys({}) === 8;
+  }
+}
+let ac = keysIdentMissIsOuter();
+
+function objectShadowsOuterKeys() {
+  function keys(x) {
+    return 8;
+  }
+  let obj = {
+    keys: function (x) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return keys({}) === 9;
+  }
+}
+let ad = objectShadowsOuterKeys();
+
+function callThisIsWithObject() {
+  let obj = {
+    keys: function (x) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return keys({}) === 3;
+  }
+}
+let ae = callThisIsWithObject();
+
+function withObjectCallThisIsObject() {
+  let seen = null;
+  let orig = Object.keys;
+  Object.keys = function (x) {
+    seen = this;
+    return orig.call(this, x);
+  };
+  let ok;
+  with (Object) {
+    ok = keys({ a: 1 }).length === 1 && seen === Object;
+  }
+  Object.keys = orig;
+  return ok;
+}
+let af = withObjectCallThisIsObject();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get keys() {
+      n = n + 1;
+      return function (x) {
+        return ["ok"];
+      };
+    },
+    get x() {
+      n = n + 1;
+      return {};
+    }
+  };
+  with (obj) {
+    return keys(x)[0] === "ok" && n === 2;
+  }
+}
+let ag = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function keys(x) {
+    return 11;
+  }
+  let obj = { keys: Object.keys };
+  obj[Symbol.unscopables] = { keys: true };
+  with (obj) {
+    return keys({}) === 11;
+  }
+}
+let ah = unscopablesUsesOuter();
+
+function unscopablesObjectIdent() {
+  let obj = {
+    Object: {
+      keys: function (x) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Object: true };
+  with (obj) {
+    return Object.keys({ a: 1 }).length === 1;
+  }
+}
+let ai = unscopablesObjectIdent();
+
+function inheritedData() {
+  let proto = { keys: Object.keys, Object: Object };
+  let obj = Object.create(proto);
+  with (obj) {
+    return keys({ a: 1 }).length === 1;
+  }
+}
+let aj = inheritedData();
+
+function inheritedFromObject() {
+  let obj = Object.create(Object);
+  with (obj) {
+    return keys({ a: 1 }).length === 1 && typeof create === "function";
+  }
+}
+let ak = inheritedFromObject();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get keys() {
+      seen = this;
+      return function (x) {
+        return ["g"];
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return keys({})[0] === "g" && seen === obj;
+  }
+}
+let al = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get keys() {
+      seen = this;
+      return function (x) {
+        return ["g"];
+      };
+    }
+  };
+  with (obj) {
+    return keys({})[0] === "g" && seen === obj;
+  }
+}
+let am = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    keys: function (x) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return keys(x);
+    };
+  }
+  obj.keys = Object.keys;
+  return run({ a: 1 }).length === 1;
+}
+let an = liveClose();
+
+function liveCloseObjectIdent() {
+  let obj = {
+    Object: {
+      keys: function (x) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return Object.keys(x);
+    };
+  }
+  obj.Object = Object;
+  return run({ a: 1 }).length === 1;
+}
+let ap = liveCloseObjectIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170288_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let aq = unresolvableCalleeThrows();
+
+function unresolvableObjectThrows() {
+  with ({}) {
+    try {
+      e170288_noglob.keys({});
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170288_noglob === "undefined"
+      );
+    }
+  }
+}
+let ar = unresolvableObjectThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    keys: function (x) {
+      return 5;
+    }
+  };
+  with (Object) {
+    with (inner) {
+      return keys({}) === 5;
+    }
+  }
+}
+let at = nestedInnerWins();
+
+function nestedInnerMissOuterObject() {
+  with ({
+    keys: function (x) {
+      return 5;
+    }
+  }) {
+    with (Object) {
+      return keys({ a: 1 }).length === 1;
+    }
+  }
+}
+let au = nestedInnerMissOuterObject();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { keys: Object.keys };
+  with (outer) {
+    with (inner) {
+      return keys({ a: 1 }).length === 1;
+    }
+  }
+}
+let av = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function keys(x) {
+    return 11;
+  }
+  let inner = { keys: Object.keys };
+  inner[Symbol.unscopables] = { keys: true };
+  let outer = {
+    keys: function (x) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return keys({}) === 6;
+    }
+  }
+}
+let aw = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { keys: 1 };
+  with (obj) {
+    try {
+      keys({});
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ax = nonCallableTypeError();
+
+function typeofKeysThroughWith() {
+  let t;
+  with (Object) {
+    t = typeof keys;
+  }
+  return t === "function";
+}
+let ay = typeofKeysThroughWith();
+
+function typeofObjectThroughWith() {
+  let obj = { Object: Object };
+  let t;
+  with (obj) {
+    t = typeof Object;
+  }
+  return t === "function";
+}
+let az = typeofObjectThroughWith();
+
+function memberKeysStillObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    return Object.keys({ a: 1 }).length === 1;
+  }
+}
+let ba = memberKeysStillObject();
+
+function argsHitObject() {
+  let obj = {
+    x: { a: 1 },
+    keys: Object.keys
+  };
+  with (obj) {
+    return keys(x).length === 1;
+  }
+}
+let bb = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = { a: 1, b: 2 };
+  let obj = { keys: Object.keys };
+  with (obj) {
+    return keys(x).length === 2;
+  }
+}
+let bc = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get keys() {
+      ran = true;
+      return Object.keys;
+    }
+  };
+  with (obj) {
+    try {
+      keys(e170288_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bd = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return {};
+    }
+  };
+  with (obj) {
+    try {
+      e170288_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let be = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function keys(x) {
+    return 1;
+  }
+  let obj = { keys: Object.keys };
+  let run;
+  with (obj) {
+    run = function (x) {
+      return keys(x);
+    };
+  }
+  obj.keys = function (x) {
+    return 2;
+  };
+  return run({}) === 2;
+}
+let bf = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get keys() {
+      c = c + 1;
+      return Object.keys;
+    }
+  };
+  let out;
+  with (obj) {
+    out = keys({ a: 1 });
+  }
+  return out.length === 1 && c === 1;
+}
+let bg = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalObject() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = typeof Object === "function";
+  }
+  return out === true;
+}
+let bh = emptyMissUsesGlobalObject();
+
+function bracketMethodOnObject() {
+  let obj = { keys: Object.keys };
+  with (obj) {
+    return obj["keys"]({ a: 1 }).length === 1;
+  }
+}
+let bi = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let x = { a: 1 };
+  let obj = { keys: Object.keys, x: { a: 1, b: 2 } };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = keys(x);
+  }
+  return out.length === 1 && Object.keys(obj.x).length === 2;
+}
+let bj = unscopablesSecondIdent();
+
+function undefinedTypeofHit() {
+  let obj = { undefined: 1 };
+  let t;
+  with (obj) {
+    t = typeof undefined;
+  }
+  return t === "number";
+}
+let bk = undefinedTypeofHit();
+
+function globalThisTypeofHit() {
+  let obj = { globalThis: "g" };
+  let t;
+  with (obj) {
+    t = typeof globalThis;
+  }
+  return t === "string";
+}
+let bl = globalThisTypeofHit();
+
+function arrayIdentHitsObject() {
+  let obj = {
+    Array: {
+      isArray: function (x) {
+        return 42;
+      }
+    }
+  };
+  with (obj) {
+    return Array.isArray([]) === 42;
+  }
+}
+let bm = arrayIdentHitsObject();
+
+function isArrayIdentHitsObject() {
+  let obj = {
+    isArray: function (x) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return isArray([]) === 7;
+  }
+}
+let bn = isArrayIdentHitsObject();
+
+function withArrayCallThisIsArray() {
+  let seen = null;
+  let orig = Array.isArray;
+  Array.isArray = function (x) {
+    seen = this;
+    return orig.call(this, x);
+  };
+  let ok;
+  with (Array) {
+    ok = isArray([]) === true && seen === Array;
+  }
+  Array.isArray = orig;
+  return ok;
+}
+let bp = withArrayCallThisIsArray();
+
+function stringIdentHitsObject() {
+  let obj = {
+    String: {
+      fromCharCode: function (x) {
+        return 42;
+      }
+    }
+  };
+  with (obj) {
+    return String.fromCharCode(65) === 42;
+  }
+}
+let bq = stringIdentHitsObject();
+
+function fromCharCodeIdentHitsObject() {
+  let obj = {
+    fromCharCode: function (x) {
+      return "Z";
+    }
+  };
+  with (obj) {
+    return fromCharCode(65) === "Z";
+  }
+}
+let br = fromCharCodeIdentHitsObject();
+
+function functionIdentHitsObject() {
+  let obj = {
+    Function: function (src) {
+      return 42;
+    }
+  };
+  with (obj) {
+    return Function("return 1") === 42;
+  }
+}
+let bs = functionIdentHitsObject();
+
+function booleanIdentHitsObject() {
+  let obj = {
+    Boolean: function (x) {
+      return 42;
+    }
+  };
+  with (obj) {
+    return Boolean(1) === 42;
+  }
+}
+let bt = booleanIdentHitsObject();
+
+function liveCloseUndefined() {
+  let obj = { undefined: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return undefined;
+    };
+  }
+  obj.undefined = 2;
+  return run() === 2;
+}
+let bu = liveCloseUndefined();
+
+function unscopablesUndefined() {
+  let obj = { undefined: 1 };
+  obj[Symbol.unscopables] = { undefined: true };
+  with (obj) {
+    return typeof undefined === "undefined";
+  }
+}
+let bv = unscopablesUndefined();
+
+function nestedUndefinedInnerWins() {
+  with ({ undefined: 1 }) {
+    with ({ undefined: 2 }) {
+      return undefined === 2;
+    }
+  }
+}
+let bw = nestedUndefinedInnerWins();

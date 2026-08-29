@@ -918,3 +918,13 @@ fn with_to_primitive_fixture_present() {
 fn with_to_primitive_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_to_primitive");
 }
+
+#[test]
+fn with_global_basics_fixture_present() {
+    assert_fixture_present("es/legacy/with_global_basics");
+}
+
+#[test]
+fn with_global_basics_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_global_basics");
+}
