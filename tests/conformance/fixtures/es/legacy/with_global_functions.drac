@@ -1,0 +1,945 @@
+// E17.02.90: with + global functions (parseInt / parseFloat / isNaN /
+// isFinite: typeof, globalThis identity, basic call behavior) through
+// object environment (non-strict). Function idents hit object (else
+// outer); with (parseInt) / with (isNaN) name / length idents hit those
+// functions; inherited HasBinding; accessor this is with object;
+// unresolvable → ReferenceError; live close; nested with; unscopables
+// skip.
+
+function withParseIntTypeof() {
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    return typeof parseInt === "function";
+  }
+}
+let a = withParseIntTypeof();
+
+function withParseFloatTypeof() {
+  let obj = { parseFloat: parseFloat };
+  with (obj) {
+    return typeof parseFloat === "function";
+  }
+}
+let b = withParseFloatTypeof();
+
+function withIsNaNTypeof() {
+  let obj = { isNaN: isNaN };
+  with (obj) {
+    return typeof isNaN === "function";
+  }
+}
+let c = withIsNaNTypeof();
+
+function withIsFiniteTypeof() {
+  let obj = { isFinite: isFinite };
+  with (obj) {
+    return typeof isFinite === "function";
+  }
+}
+let d = withIsFiniteTypeof();
+
+function withParseIntMiss() {
+  with ({}) {
+    return typeof parseInt === "function";
+  }
+}
+let e = withParseIntMiss();
+
+function withParseIntIdentity() {
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    return parseInt === globalThis.parseInt;
+  }
+}
+let f = withParseIntIdentity();
+
+function withParseFloatIdentity() {
+  let obj = { parseFloat: parseFloat };
+  with (obj) {
+    return parseFloat === globalThis.parseFloat;
+  }
+}
+let g = withParseFloatIdentity();
+
+function withIsNaNIdentity() {
+  let obj = { isNaN: isNaN };
+  with (obj) {
+    return isNaN === globalThis.isNaN;
+  }
+}
+let h = withIsNaNIdentity();
+
+function withIsFiniteIdentity() {
+  let obj = { isFinite: isFinite };
+  with (obj) {
+    return isFinite === globalThis.isFinite;
+  }
+}
+let j = withIsFiniteIdentity();
+
+function withParseIntCall() {
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    return parseInt("42") === 42;
+  }
+}
+let k = withParseIntCall();
+
+function withParseIntRadix() {
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    return parseInt("10", 16) === 16;
+  }
+}
+let l = withParseIntRadix();
+
+function withParseFloatCall() {
+  let obj = { parseFloat: parseFloat };
+  with (obj) {
+    return parseFloat("3.14") === 3.14;
+  }
+}
+let m = withParseFloatCall();
+
+function withParseFloatExp() {
+  let obj = { parseFloat: parseFloat };
+  with (obj) {
+    return parseFloat("1e2") === 100;
+  }
+}
+let n = withParseFloatExp();
+
+function withIsNaNTrue() {
+  let obj = { isNaN: isNaN };
+  with (obj) {
+    return isNaN(NaN) === true;
+  }
+}
+let p = withIsNaNTrue();
+
+function withIsNaNFalse() {
+  let obj = { isNaN: isNaN };
+  with (obj) {
+    return isNaN(1) === false;
+  }
+}
+let q = withIsNaNFalse();
+
+function withIsFiniteTrue() {
+  let obj = { isFinite: isFinite };
+  with (obj) {
+    return isFinite(1) === true;
+  }
+}
+let r = withIsFiniteTrue();
+
+function withIsFiniteInf() {
+  let obj = { isFinite: isFinite };
+  with (obj) {
+    return isFinite(Infinity) === false;
+  }
+}
+let s = withIsFiniteInf();
+
+function withIsNaNCoerce() {
+  let obj = { isNaN: isNaN };
+  with (obj) {
+    return isNaN("foo") === true;
+  }
+}
+let t = withIsNaNCoerce();
+
+function withIsFiniteCoerce() {
+  let obj = { isFinite: isFinite };
+  with (obj) {
+    return isFinite("10") === true;
+  }
+}
+let u = withIsFiniteCoerce();
+
+function withParseIntName() {
+  with (parseInt) {
+    return name === "parseInt";
+  }
+}
+let v = withParseIntName();
+
+function withParseFloatName() {
+  with (parseFloat) {
+    return name === "parseFloat";
+  }
+}
+let w = withParseFloatName();
+
+function withIsNaNName() {
+  with (isNaN) {
+    return name === "isNaN";
+  }
+}
+let aa = withIsNaNName();
+
+function withIsFiniteName() {
+  with (isFinite) {
+    return name === "isFinite";
+  }
+}
+let ab = withIsFiniteName();
+
+function withParseIntLength() {
+  with (parseInt) {
+    return length === 2;
+  }
+}
+let ac = withParseIntLength();
+
+function withParseFloatLength() {
+  with (parseFloat) {
+    return length === 1;
+  }
+}
+let ad = withParseFloatLength();
+
+function withIsNaNLength() {
+  with (isNaN) {
+    return length === 1;
+  }
+}
+let ae = withIsNaNLength();
+
+function withIsFiniteLength() {
+  with (isFinite) {
+    return length === 1;
+  }
+}
+let af = withIsFiniteLength();
+
+function withParseIntBracketName() {
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    return parseInt["name"] === "parseInt";
+  }
+}
+let ag = withParseIntBracketName();
+
+function withIsNaNBracketName() {
+  let obj = { isNaN: isNaN };
+  with (obj) {
+    return isNaN["name"] === "isNaN";
+  }
+}
+let ah = withIsNaNBracketName();
+
+function parseIntIdentHitsObject() {
+  let obj = {
+    parseInt: function (s) {
+      return 99;
+    }
+  };
+  with (obj) {
+    return parseInt("42") === 99;
+  }
+}
+let ai = parseIntIdentHitsObject();
+
+function parseIntIdentMissIsOuter() {
+  with ({}) {
+    return parseInt("42") === 42;
+  }
+}
+let aj = parseIntIdentMissIsOuter();
+
+function parseIntIdentShadowsOuter() {
+  function parseInt(s) {
+    return 8;
+  }
+  let obj = {
+    parseInt: function (s) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return parseInt("42") === 9;
+  }
+}
+let ak = parseIntIdentShadowsOuter();
+
+function parseFloatIdentHitsObject() {
+  let obj = {
+    parseFloat: function (s) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return parseFloat("3.14") === 7;
+  }
+}
+let al = parseFloatIdentHitsObject();
+
+function isNaNIdentHitsObject() {
+  let obj = {
+    isNaN: function (x) {
+      return 5;
+    }
+  };
+  with (obj) {
+    return isNaN(NaN) === 5;
+  }
+}
+let am = isNaNIdentHitsObject();
+
+function isFiniteIdentHitsObject() {
+  let obj = {
+    isFinite: function (x) {
+      return 4;
+    }
+  };
+  with (obj) {
+    return isFinite(1) === 4;
+  }
+}
+let an = isFiniteIdentHitsObject();
+
+function nameIdentHitsObject() {
+  let obj = { name: "own" };
+  with (obj) {
+    return name === "own";
+  }
+}
+let ap = nameIdentHitsObject();
+
+function nameIdentMissIsOuter() {
+  function name() {
+    return 8;
+  }
+  with ({}) {
+    return name() === 8;
+  }
+}
+let aq = nameIdentMissIsOuter();
+
+function parseIntShadowsOuterName() {
+  function name() {
+    return 8;
+  }
+  with (parseInt) {
+    return name === "parseInt";
+  }
+}
+let ar = parseIntShadowsOuterName();
+
+function callThisIsWithObject() {
+  let obj = {
+    parseInt: function (s) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return parseInt("42") === 3;
+  }
+}
+let at = callThisIsWithObject();
+
+function withParseIntCallThisIsParseInt() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(parseInt, "name");
+  Object.defineProperty(parseInt, "name", {
+    get: function () {
+      seen = this;
+      return "parseInt";
+    },
+    configurable: true
+  });
+  let ok;
+  with (parseInt) {
+    ok = name === "parseInt" && seen === parseInt;
+  }
+  Object.defineProperty(parseInt, "name", orig);
+  return ok;
+}
+let au = withParseIntCallThisIsParseInt();
+
+function withIsNaNCallThisIsIsNaN() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(isNaN, "name");
+  Object.defineProperty(isNaN, "name", {
+    get: function () {
+      seen = this;
+      return "isNaN";
+    },
+    configurable: true
+  });
+  let ok;
+  with (isNaN) {
+    ok = name === "isNaN" && seen === isNaN;
+  }
+  Object.defineProperty(isNaN, "name", orig);
+  return ok;
+}
+let av = withIsNaNCallThisIsIsNaN();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get parseInt() {
+      n = n + 1;
+      return parseInt;
+    },
+    get x() {
+      n = n + 1;
+      return "42";
+    }
+  };
+  with (obj) {
+    return parseInt(x) === 42 && n === 2;
+  }
+}
+let aw = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function parseInt(s) {
+    return 11;
+  }
+  let obj = { parseInt: globalThis.parseInt };
+  obj[Symbol.unscopables] = { parseInt: true };
+  with (obj) {
+    return parseInt("42") === 11;
+  }
+}
+let ax = unscopablesUsesOuter();
+
+function unscopablesParseIntIdent() {
+  let obj = {
+    parseInt: function (s) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { parseInt: true };
+  with (obj) {
+    return parseInt("42") === 42;
+  }
+}
+let ay = unscopablesParseIntIdent();
+
+function inheritedData() {
+  let proto = { parseInt: parseInt, name: "fromProto" };
+  let obj = Object.create(proto);
+  with (obj) {
+    return parseInt("42") === 42 && name === "fromProto";
+  }
+}
+let az = inheritedData();
+
+function inheritedFromParseInt() {
+  let obj = Object.create(parseInt);
+  with (obj) {
+    return name === "parseInt" && length === 2;
+  }
+}
+let ba = inheritedFromParseInt();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get parseInt() {
+      seen = this;
+      return function (s) {
+        return 1;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return parseInt("42") === 1 && seen === obj;
+  }
+}
+let bb = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get parseInt() {
+      seen = this;
+      return function (s) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return parseInt("42") === 1 && seen === obj;
+  }
+}
+let bc = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    parseInt: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return parseInt(s);
+    };
+  }
+  obj.parseInt = parseInt;
+  return run("42") === 42;
+}
+let bd = liveClose();
+
+function liveCloseParseIntIdent() {
+  let obj = {
+    parseInt: {
+      name: "Live"
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return parseInt.name;
+    };
+  }
+  obj.parseInt = parseInt;
+  return run() === "parseInt";
+}
+let be = liveCloseParseIntIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170290_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let bf = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e170290_noglob.name;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170290_noglob === "undefined"
+      );
+    }
+  }
+}
+let bg = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    parseInt: function (s) {
+      return 5;
+    }
+  };
+  with ({ parseInt: parseInt }) {
+    with (inner) {
+      return parseInt("42") === 5;
+    }
+  }
+}
+let bh = nestedInnerWins();
+
+function nestedInnerMissOuterParseInt() {
+  with ({
+    parseInt: function (s) {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return parseInt("42") === 5;
+    }
+  }
+}
+let bi = nestedInnerMissOuterParseInt();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { parseInt: parseInt };
+  with (outer) {
+    with (inner) {
+      return parseInt("42") === 42;
+    }
+  }
+}
+let bj = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function parseInt(s) {
+    return 11;
+  }
+  let inner = { parseInt: globalThis.parseInt };
+  inner[Symbol.unscopables] = { parseInt: true };
+  let outer = {
+    parseInt: function (s) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return parseInt("42") === 6;
+    }
+  }
+}
+let bk = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { parseInt: 1 };
+  with (obj) {
+    try {
+      parseInt("42");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bl = nonCallableTypeError();
+
+function typeofParseIntThroughWith() {
+  let t;
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    t = typeof parseInt;
+  }
+  return t === "function";
+}
+let bm = typeofParseIntThroughWith();
+
+function typeofNameThroughWith() {
+  let t;
+  with (parseInt) {
+    t = typeof name;
+  }
+  return t === "string";
+}
+let bn = typeofNameThroughWith();
+
+function memberParseIntStillGlobal() {
+  let obj = { x: 1 };
+  with (obj) {
+    return parseInt("42") === 42;
+  }
+}
+let bp = memberParseIntStillGlobal();
+
+function argsHitObject() {
+  let obj = {
+    x: "42",
+    parseInt: parseInt
+  };
+  with (obj) {
+    return parseInt(x) === 42;
+  }
+}
+let bq = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = "10";
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    return parseInt(x, 16) === 16;
+  }
+}
+let br = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get parseInt() {
+      ran = true;
+      return parseInt;
+    }
+  };
+  with (obj) {
+    try {
+      parseInt(e170290_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bs = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return "42";
+    }
+  };
+  with (obj) {
+    try {
+      e170290_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bt = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let obj = {
+    parseInt: function (s) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (s) {
+      return parseInt(s);
+    };
+  }
+  obj.parseInt = function (s) {
+    return 2;
+  };
+  return run("42") === 2;
+}
+let bu = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let obj = {
+    get parseInt() {
+      c = c + 1;
+      return parseInt;
+    }
+  };
+  let out;
+  with (obj) {
+    out = parseInt("42");
+  }
+  return out === 42 && c === 1;
+}
+let bv = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalParseInt() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = parseInt("10", 16);
+  }
+  return out === 16;
+}
+let bw = emptyMissUsesGlobalParseInt();
+
+function bracketNameOnParseInt() {
+  let obj = { parseInt: parseInt };
+  with (obj) {
+    return obj["parseInt"].name === "parseInt";
+  }
+}
+let bx = bracketNameOnParseInt();
+
+function unscopablesSecondIdent() {
+  let x = "10";
+  let obj = { parseInt: parseInt, x: "99" };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = parseInt(x, 16);
+  }
+  return out === 16;
+}
+let by = unscopablesSecondIdent();
+
+function parseIntTypeofHit() {
+  let obj = { parseInt: 1 };
+  let t;
+  with (obj) {
+    t = typeof parseInt;
+  }
+  return t === "number";
+}
+let bz = parseIntTypeofHit();
+
+function isNaNTypeofHit() {
+  let obj = { isNaN: "n" };
+  let t;
+  with (obj) {
+    t = typeof isNaN;
+  }
+  return t === "string";
+}
+let ca = isNaNTypeofHit();
+
+function liveCloseIsNaN() {
+  let obj = { isNaN: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return isNaN;
+    };
+  }
+  obj.isNaN = isNaN;
+  return run() === isNaN;
+}
+let cb = liveCloseIsNaN();
+
+function unscopablesIsNaN() {
+  let obj = { isNaN: 1 };
+  obj[Symbol.unscopables] = { isNaN: true };
+  with (obj) {
+    return typeof isNaN === "function";
+  }
+}
+let cc = unscopablesIsNaN();
+
+function nestedParseIntInnerWins() {
+  with ({ parseInt: 1 }) {
+    with ({ parseInt: 2 }) {
+      return parseInt === 2;
+    }
+  }
+}
+let cd = nestedParseIntInnerWins();
+
+function nestedNameInnerWins() {
+  with (parseInt) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let ce = nestedNameInnerWins();
+
+function nestedNameMissOuterParseInt() {
+  with (parseInt) {
+    with ({}) {
+      return name === "parseInt";
+    }
+  }
+}
+let cf = nestedNameMissOuterParseInt();
+
+function liveCloseName() {
+  let obj = { name: "A" };
+  let run;
+  with (obj) {
+    run = function () {
+      return name;
+    };
+  }
+  obj.name = "B";
+  return run() === "B";
+}
+let cg = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (parseInt) {
+    let obj = { name: "skip" };
+    obj[Symbol.unscopables] = { name: true };
+    with (obj) {
+      return name === "parseInt";
+    }
+  }
+}
+let ch = unscopablesNameUsesOuter();
+
+function isNaNNumberIsNaNNoCoerce() {
+  let obj = { isNaN: Number.isNaN };
+  with (obj) {
+    return isNaN("foo") === false && isNaN(NaN) === true;
+  }
+}
+let ci = isNaNNumberIsNaNNoCoerce();
+
+function emptyMissUsesGlobalCoerce() {
+  with ({}) {
+    return isNaN("foo") === true && isFinite("1") === true;
+  }
+}
+let cj = emptyMissUsesGlobalCoerce();
+
+function parseFloatIdentMissIsOuter() {
+  with ({}) {
+    return parseFloat("3.14") === 3.14;
+  }
+}
+let ck = parseFloatIdentMissIsOuter();
+
+function isFiniteIdentMissIsOuter() {
+  with ({}) {
+    return isFinite(1) === true && isFinite(Infinity) === false;
+  }
+}
+let cl = isFiniteIdentMissIsOuter();
+
+function radixHitObject() {
+  let obj = { r: 16, parseInt: parseInt };
+  with (obj) {
+    return parseInt("10", r) === 16;
+  }
+}
+let cm = radixHitObject();
+
+function withIsNaNNameViaInherited() {
+  let obj = Object.create(isNaN);
+  with (obj) {
+    return name === "isNaN" && length === 1;
+  }
+}
+let cn = withIsNaNNameViaInherited();
+
+function unscopablesIsFinite() {
+  let obj = { isFinite: 1 };
+  obj[Symbol.unscopables] = { isFinite: true };
+  with (obj) {
+    return typeof isFinite === "function";
+  }
+}
+let cp = unscopablesIsFinite();
+
+function liveCloseParseFloat() {
+  let obj = { parseFloat: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return parseFloat;
+    };
+  }
+  obj.parseFloat = parseFloat;
+  return run() === parseFloat;
+}
+let cq = liveCloseParseFloat();
+
+function nestedIsNaNInnerWins() {
+  with ({ isNaN: 1 }) {
+    with ({ isNaN: 2 }) {
+      return isNaN === 2;
+    }
+  }
+}
+let cr = nestedIsNaNInnerWins();
+
+function parseIntTwoArgsHit() {
+  let obj = { s: "ff", r: 16, parseInt: parseInt };
+  with (obj) {
+    return parseInt(s, r) === 255;
+  }
+}
+let cs = parseIntTwoArgsHit();
+
+function getterRunsOnceIsNaN() {
+  let c = 0;
+  let obj = {
+    get isNaN() {
+      c = c + 1;
+      return isNaN;
+    }
+  };
+  let out;
+  with (obj) {
+    out = isNaN(NaN);
+  }
+  return out === true && c === 1;
+}
+let ct = getterRunsOnceIsNaN();

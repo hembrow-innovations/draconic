@@ -938,3 +938,13 @@ fn with_error_ctors_fixture_present() {
 fn with_error_ctors_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_error_ctors");
 }
+
+#[test]
+fn with_global_functions_fixture_present() {
+    assert_fixture_present("es/legacy/with_global_functions");
+}
+
+#[test]
+fn with_global_functions_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_global_functions");
+}
