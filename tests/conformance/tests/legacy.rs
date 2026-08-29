@@ -1048,3 +1048,13 @@ fn with_promise_finally_fixture_present() {
 fn with_promise_finally_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_promise_finally");
 }
+
+#[test]
+fn with_promise_all_fixture_present() {
+    assert_fixture_present("es/legacy/with_promise_all");
+}
+
+#[test]
+fn with_promise_all_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_promise_all");
+}
