@@ -1,0 +1,1095 @@
+// E17.02.96: with + global WeakMap / WeakSet (typeof, globalThis
+// identity, new WeakMap / new WeakSet, .set/.get/.has/.delete and
+// .add/.has/.delete, object keys only) through object environment
+// (non-strict). WeakMap / WeakSet ident hits object (else outer);
+// with (WeakMap) / with (WeakSet) method idents hit WeakMap /
+// WeakSet (name / length / prototype); instance set / get / has /
+// add; delete via member / [] (keyword, not ident); inherited
+// HasBinding; accessor this is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function withWeakMapSetGet() {
+  let k = {};
+  let wm = new WeakMap();
+  with (wm) {
+    set(k, 1);
+    return get(k) === 1;
+  }
+}
+let a = withWeakMapSetGet();
+
+function withWeakMapHas() {
+  let k1 = {};
+  let k2 = {};
+  let wm = new WeakMap();
+  with (wm) {
+    set(k1, 1);
+    return has(k1) === true && has(k2) === false;
+  }
+}
+let b = withWeakMapHas();
+
+function withWeakMapNew() {
+  let k = {};
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    let wm = new WeakMap();
+    wm.set(k, 1);
+    return wm.get(k) === 1 && wm.has(k) === true;
+  }
+}
+let c = withWeakMapNew();
+
+function withWeakSetAddHas() {
+  let k1 = {};
+  let k2 = {};
+  let ws = new WeakSet();
+  with (ws) {
+    add(k1);
+    return has(k1) === true && has(k2) === false;
+  }
+}
+let d = withWeakSetAddHas();
+
+function withWeakMapTypeof() {
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    return typeof WeakMap === "function";
+  }
+}
+let e = withWeakMapTypeof();
+
+function withWeakMapSetTypeof() {
+  let wm = new WeakMap();
+  with (wm) {
+    return typeof set === "function";
+  }
+}
+let f = withWeakMapSetTypeof();
+
+function withWeakMapGetTypeof() {
+  let wm = new WeakMap();
+  with (wm) {
+    return typeof get === "function";
+  }
+}
+let g = withWeakMapGetTypeof();
+
+function withWeakMapBracketSet() {
+  let k = {};
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    let wm = new WeakMap();
+    return wm["set"](k, 1) === wm && wm["get"](k) === 1;
+  }
+}
+let h = withWeakMapBracketSet();
+
+function weakMapIdentHitsObject() {
+  let obj = {
+    WeakMap: function () {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new WeakMap().p === "hit";
+  }
+}
+let j = weakMapIdentHitsObject();
+
+function weakMapIdentMissIsOuter() {
+  let k = {};
+  with ({}) {
+    let wm = new WeakMap();
+    wm.set(k, 1);
+    return wm.get(k) === 1;
+  }
+}
+let k = weakMapIdentMissIsOuter();
+
+function weakMapIdentShadowsOuter() {
+  let obj = {
+    WeakMap: function () {
+      this.p = 0;
+    }
+  };
+  with (obj) {
+    return new WeakMap().p === 0;
+  }
+}
+let l = weakMapIdentShadowsOuter();
+
+function setIdentHitsObject() {
+  let obj = {
+    set: function (key, v) {
+      return key === obj && v === 1 ? 7 : 0;
+    }
+  };
+  with (obj) {
+    return set(obj, 1) === 7;
+  }
+}
+let m = setIdentHitsObject();
+
+function setIdentMissIsOuter() {
+  function set(key, v) {
+    return 8;
+  }
+  with ({}) {
+    return set({}, 1) === 8;
+  }
+}
+let n = setIdentMissIsOuter();
+
+function objectShadowsOuterSet() {
+  function set(key, v) {
+    return 8;
+  }
+  let obj = {
+    set: function (key, v) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return set({}, 1) === 9;
+  }
+}
+let p = objectShadowsOuterSet();
+
+function callThisIsWithObject() {
+  let obj = {
+    set: function (key, v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return set({}, 1) === 3;
+  }
+}
+let q = callThisIsWithObject();
+
+function withWeakMapCallThisIsWeakMap() {
+  let wm = new WeakMap();
+  let seen = null;
+  let orig = wm.set;
+  let k = {};
+  wm.set = function (key, v) {
+    seen = this;
+    return orig.call(this, key, v);
+  };
+  let ok;
+  with (wm) {
+    ok = set(k, 1) === wm && seen === wm && get(k) === 1;
+  }
+  return ok;
+}
+let r = withWeakMapCallThisIsWeakMap();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let key = {};
+  let obj = {
+    get WeakMap() {
+      n = n + 1;
+      return WeakMap;
+    },
+    get k() {
+      n = n + 1;
+      return key;
+    }
+  };
+  with (obj) {
+    let wm = new WeakMap();
+    wm.set(k, 1);
+    return wm.get(key) === 1 && n === 2;
+  }
+}
+let s = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function set(key, v) {
+    return 11;
+  }
+  let wm = new WeakMap();
+  let obj = { set: wm.set.bind(wm) };
+  obj[Symbol.unscopables] = { set: true };
+  with (obj) {
+    return set({}, 1) === 11;
+  }
+}
+let t = unscopablesUsesOuter();
+
+function unscopablesWeakMapIdent() {
+  let key = {};
+  let obj = {
+    WeakMap: function () {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { WeakMap: true };
+  with (obj) {
+    let wm = new WeakMap();
+    wm.set(key, 1);
+    return wm.get(key) === 1;
+  }
+}
+let u = unscopablesWeakMapIdent();
+
+function inheritedData() {
+  let key = {};
+  let wm = new WeakMap();
+  let proto = { set: wm.set.bind(wm), get: wm.get.bind(wm) };
+  let obj = Object.create(proto);
+  with (obj) {
+    set(key, 1);
+    return get(key) === 1;
+  }
+}
+let v = inheritedData();
+
+function inheritedFromWeakMap() {
+  let obj = Object.create(WeakMap);
+  with (obj) {
+    return name === "WeakMap" && length === 0 && prototype === WeakMap.prototype;
+  }
+}
+let w = inheritedFromWeakMap();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let wm = new WeakMap();
+  let proto = {
+    get set() {
+      seen = this;
+      return wm.set.bind(wm);
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return set({}, 1) === wm && seen === obj;
+  }
+}
+let aa = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let wm = new WeakMap();
+  let obj = {
+    get set() {
+      seen = this;
+      return wm.set.bind(wm);
+    }
+  };
+  with (obj) {
+    return set({}, 1) === wm && seen === obj;
+  }
+}
+let ab = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    set: function (key, v) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (key, v) {
+      return set(key, v);
+    };
+  }
+  let wm = new WeakMap();
+  obj.set = wm.set.bind(wm);
+  let key = {};
+  return run(key, 1) === wm && wm.get(key) === 1;
+}
+let ac = liveClose();
+
+function liveCloseWeakMapIdent() {
+  let obj = {
+    WeakMap: function () {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return new WeakMap();
+    };
+  }
+  obj.WeakMap = WeakMap;
+  let wm = run();
+  let key = {};
+  wm.set(key, 1);
+  return wm.get(key) === 1;
+}
+let ad = liveCloseWeakMapIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170296_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ae = unresolvableCalleeThrows();
+
+function unresolvableWeakMapThrows() {
+  with ({}) {
+    try {
+      e170296_noglob.set({}, 1);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170296_noglob === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableWeakMapThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    set: function (key, v) {
+      return 5;
+    }
+  };
+  let wm = new WeakMap();
+  with (wm) {
+    with (inner) {
+      return set({}, 1) === 5;
+    }
+  }
+}
+let ag = nestedInnerWins();
+
+function nestedInnerMissOuterWeakMap() {
+  let key = {};
+  with ({ set: function (key, v) { return 5; } }) {
+    let wm = new WeakMap();
+    with (wm) {
+      return set(key, 1) === wm && get(key) === 1;
+    }
+  }
+}
+let ah = nestedInnerMissOuterWeakMap();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let wm = new WeakMap();
+  let outer = { set: wm.set.bind(wm) };
+  let key = {};
+  with (outer) {
+    with (inner) {
+      return set(key, 1) === wm && wm.get(key) === 1;
+    }
+  }
+}
+let ai = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function set(key, v) {
+    return 11;
+  }
+  let wm = new WeakMap();
+  let inner = { set: wm.set.bind(wm) };
+  inner[Symbol.unscopables] = { set: true };
+  let outer = {
+    set: function (key, v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return set({}, 1) === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { set: 1 };
+  with (obj) {
+    try {
+      set({}, 1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofSetMethod() {
+  let t;
+  let wm = new WeakMap();
+  with (wm) {
+    t = typeof set;
+  }
+  return t === "function";
+}
+let al = typeofSetMethod();
+
+function typeofWeakMapThroughWith() {
+  let obj = { WeakMap: WeakMap };
+  let t;
+  with (obj) {
+    t = typeof WeakMap;
+  }
+  return t === "function";
+}
+let am = typeofWeakMapThroughWith();
+
+function typeofGet() {
+  let t;
+  let wm = new WeakMap();
+  with (wm) {
+    t = typeof get;
+  }
+  return t === "function";
+}
+let an = typeofGet();
+
+function memberSetStillWeakMap() {
+  let key = {};
+  let obj = { x: 1 };
+  with (obj) {
+    let wm = new WeakMap();
+    wm.set(key, 1);
+    return wm.get(key) === 1;
+  }
+}
+let ap = memberSetStillWeakMap();
+
+function argsHitObject() {
+  let wm = new WeakMap();
+  let key = {};
+  let obj = {
+    k: key,
+    v: 1,
+    set: wm.set.bind(wm)
+  };
+  with (obj) {
+    return set(k, v) === wm && wm.get(key) === 1;
+  }
+}
+let aq = argsHitObject();
+
+function argsMissIsOuter() {
+  let key = {};
+  let v = 1;
+  let wm = new WeakMap();
+  let obj = { set: wm.set.bind(wm) };
+  with (obj) {
+    return set(key, v) === wm && wm.get(key) === 1;
+  }
+}
+let ar = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let wm = new WeakMap();
+  let obj = {
+    get set() {
+      ran = true;
+      return wm.set.bind(wm);
+    }
+  };
+  with (obj) {
+    try {
+      set(e170296_arg, 1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let at = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return {};
+    }
+  };
+  with (obj) {
+    try {
+      e170296_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let au = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function set(key, v) {
+    return 1;
+  }
+  let wm = new WeakMap();
+  let obj = { set: wm.set.bind(wm) };
+  let run;
+  with (obj) {
+    run = function (key, v) {
+      return set(key, v);
+    };
+  }
+  obj.set = function (key, v) {
+    return 2;
+  };
+  return run({}, 1) === 2;
+}
+let av = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let wm = new WeakMap();
+  let key = {};
+  let obj = {
+    get set() {
+      c = c + 1;
+      return wm.set.bind(wm);
+    }
+  };
+  let out;
+  with (obj) {
+    out = set(key, 1);
+  }
+  return out === wm && wm.get(key) === 1 && c === 1;
+}
+let aw = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalWeakMap() {
+  let key = {};
+  let obj = {};
+  let out;
+  with (obj) {
+    let wm = new WeakMap();
+    wm.set(key, 1);
+    out = wm.get({});
+  }
+  return out === undefined;
+}
+let ax = emptyMissUsesGlobalWeakMap();
+
+function globalThisIdentity() {
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    return WeakMap === globalThis.WeakMap;
+  }
+}
+let ay = globalThisIdentity();
+
+function getIdentHitsObject() {
+  let obj = {
+    get: function (key) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return get({}) === "hit";
+  }
+}
+let az = getIdentHitsObject();
+
+function bracketMethodOnObject() {
+  let wm = new WeakMap();
+  let key = {};
+  let obj = { set: wm.set.bind(wm) };
+  with (obj) {
+    return obj["set"](key, 1) === wm && wm.get(key) === 1;
+  }
+}
+let ba = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let key = {};
+  let wm = new WeakMap();
+  let obj = { set: wm.set.bind(wm), k: {} };
+  obj[Symbol.unscopables] = { k: true };
+  let out;
+  with (obj) {
+    out = set(key, 1);
+  }
+  return out === wm && wm.get(key) === 1;
+}
+let bb = unscopablesSecondIdent();
+
+function weakMapTypeofHit() {
+  let obj = { WeakMap: 1 };
+  let t;
+  with (obj) {
+    t = typeof WeakMap;
+  }
+  return t === "number";
+}
+let bc = weakMapTypeofHit();
+
+function setMissUsesGlobalWeakMap() {
+  let key = {};
+  with ({}) {
+    return (
+      typeof WeakMap.prototype.set === "function" &&
+      new WeakMap().set(key, 1).get(key) === 1
+    );
+  }
+}
+let bd = setMissUsesGlobalWeakMap();
+
+function getIdentMissIsOuter() {
+  let key = {};
+  with ({}) {
+    let wm = new WeakMap();
+    wm.set(key, 1);
+    return wm.get(key) === 1;
+  }
+}
+let be = getIdentMissIsOuter();
+
+function liveCloseGet() {
+  let obj = { get: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return get;
+    };
+  }
+  let wm = new WeakMap();
+  let key = {};
+  wm.set(key, 1);
+  obj.get = wm.get.bind(wm);
+  return run()(key) === 1;
+}
+let bf = liveCloseGet();
+
+function unscopablesGet() {
+  let obj = { get: 1 };
+  obj[Symbol.unscopables] = { get: true };
+  with (obj) {
+    return typeof get === "undefined";
+  }
+}
+let bg = unscopablesGet();
+
+function nestedGetInnerWins() {
+  with ({ get: 1 }) {
+    with ({ get: 2 }) {
+      return get === 2;
+    }
+  }
+}
+let bh = nestedGetInnerWins();
+
+function getterRunsOnceGet() {
+  let c = 0;
+  let wm = new WeakMap();
+  let key = {};
+  wm.set(key, 1);
+  let obj = {
+    get get() {
+      c = c + 1;
+      return wm.get.bind(wm);
+    }
+  };
+  let out;
+  with (obj) {
+    out = get(key);
+  }
+  return out === 1 && c === 1;
+}
+let bi = getterRunsOnceGet();
+
+function identitySet() {
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    return WeakMap.prototype.set === globalThis.WeakMap.prototype.set;
+  }
+}
+let bj = identitySet();
+
+function identityGet() {
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    return WeakMap.prototype.get === globalThis.WeakMap.prototype.get;
+  }
+}
+let bk = identityGet();
+
+function nestedWeakMapInnerWins() {
+  with ({ WeakMap: 1 }) {
+    with ({ WeakMap: 2 }) {
+      return WeakMap === 2;
+    }
+  }
+}
+let bl = nestedWeakMapInnerWins();
+
+function emptyMissUsesGlobalSetMethod() {
+  let key = {};
+  with ({}) {
+    let wm = new WeakMap();
+    return wm.set(key, 1).get(key) === 1;
+  }
+}
+let bm = emptyMissUsesGlobalSetMethod();
+
+function withWeakMapName() {
+  with (WeakMap) {
+    return name === "WeakMap";
+  }
+}
+let bn = withWeakMapName();
+
+function withWeakMapLength() {
+  with (WeakMap) {
+    return length === 0;
+  }
+}
+let bp = withWeakMapLength();
+
+function withWeakMapPrototype() {
+  with (WeakMap) {
+    return prototype === WeakMap.prototype;
+  }
+}
+let bq = withWeakMapPrototype();
+
+function withWeakMapNewThisIsInstance() {
+  let key = {};
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    let wm = new WeakMap();
+    wm.set(key, 1);
+    return wm.get(key) === 1 && wm !== obj && wm instanceof WeakMap;
+  }
+}
+let br = withWeakMapNewThisIsInstance();
+
+function withWeakSetNewThisIsInstance() {
+  let key = {};
+  let obj = { WeakSet: WeakSet };
+  with (obj) {
+    let ws = new WeakSet();
+    ws.add(key);
+    return ws.has(key) === true && ws !== obj && ws instanceof WeakSet;
+  }
+}
+let bs = withWeakSetNewThisIsInstance();
+
+function withWeakSetTypeof() {
+  let obj = { WeakSet: WeakSet };
+  with (obj) {
+    return typeof WeakSet === "function";
+  }
+}
+let bt = withWeakSetTypeof();
+
+function globalThisIdentityWeakSet() {
+  let obj = { WeakSet: WeakSet };
+  with (obj) {
+    return WeakSet === globalThis.WeakSet;
+  }
+}
+let bu = globalThisIdentityWeakSet();
+
+function withWeakSetName() {
+  with (WeakSet) {
+    return name === "WeakSet";
+  }
+}
+let bv = withWeakSetName();
+
+function withWeakSetLength() {
+  with (WeakSet) {
+    return length === 0;
+  }
+}
+let bw = withWeakSetLength();
+
+function withWeakSetPrototype() {
+  with (WeakSet) {
+    return prototype === WeakSet.prototype;
+  }
+}
+let bx = withWeakSetPrototype();
+
+function weakSetCtorIdentHitsObject() {
+  let obj = {
+    WeakSet: function () {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new WeakSet().p === "hit";
+  }
+}
+let by = weakSetCtorIdentHitsObject();
+
+function weakSetCtorIdentMissIsOuter() {
+  let key = {};
+  with ({}) {
+    let ws = new WeakSet();
+    ws.add(key);
+    return ws.has(key) === true;
+  }
+}
+let bz = weakSetCtorIdentMissIsOuter();
+
+function addIdentHitsObject() {
+  let obj = {
+    add: function (v) {
+      return v === obj ? 7 : 0;
+    }
+  };
+  with (obj) {
+    return add(obj) === 7;
+  }
+}
+let ca = addIdentHitsObject();
+
+function withWeakSetAddThisIsWeakSet() {
+  let ws = new WeakSet();
+  let seen = null;
+  let orig = ws.add;
+  let key = {};
+  ws.add = function (v) {
+    seen = this;
+    return orig.call(this, v);
+  };
+  let ok;
+  with (ws) {
+    ok = add(key) === ws && seen === ws && has(key) === true;
+  }
+  return ok;
+}
+let cb = withWeakSetAddThisIsWeakSet();
+
+function withWeakMapHasIdent() {
+  let k1 = {};
+  let k2 = {};
+  let wm = new WeakMap();
+  with (wm) {
+    set(k1, 1);
+    return has(k1) === true && has(k2) === false;
+  }
+}
+let cc = withWeakMapHasIdent();
+
+function withWeakSetHasIdent() {
+  let k1 = {};
+  let k2 = {};
+  let ws = new WeakSet();
+  with (ws) {
+    add(k1);
+    return has(k1) === true && has(k2) === false;
+  }
+}
+let cd = withWeakSetHasIdent();
+
+function weakMapSetReturnsWeakMap() {
+  let k1 = {};
+  let k2 = {};
+  let wm = new WeakMap();
+  with (wm) {
+    return set(k1, 1) === wm && set(k2, "two") === wm && get(k1) === 1 && get(k2) === "two";
+  }
+}
+let ce = weakMapSetReturnsWeakMap();
+
+function weakSetAddReturnsWeakSet() {
+  let k1 = {};
+  let k2 = {};
+  let ws = new WeakSet();
+  with (ws) {
+    return add(k1) === ws && add(k2) === ws && has(k1) === true && has(k2) === true;
+  }
+}
+let cf = weakSetAddReturnsWeakSet();
+
+function unscopablesWeakSetCtor() {
+  let key = {};
+  let obj = {
+    WeakSet: function () {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { WeakSet: true };
+  with (obj) {
+    let ws = new WeakSet();
+    ws.add(key);
+    return ws.has(key) === true;
+  }
+}
+let cg = unscopablesWeakSetCtor();
+
+function nestedWeakSetInnerWins() {
+  with ({ WeakSet: 1 }) {
+    with ({ WeakSet: 2 }) {
+      return WeakSet === 2;
+    }
+  }
+}
+let ch = nestedWeakSetInnerWins();
+
+function liveCloseWeakSetCtor() {
+  let obj = {
+    WeakSet: function () {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return new WeakSet();
+    };
+  }
+  obj.WeakSet = WeakSet;
+  let ws = run();
+  let key = {};
+  ws.add(key);
+  return ws.has(key) === true;
+}
+let ci = liveCloseWeakSetCtor();
+
+function memberDeleteStillWeakMap() {
+  let k1 = {};
+  let k2 = {};
+  let wm = new WeakMap();
+  wm.set(k1, 1);
+  wm.set(k2, 2);
+  with (wm) {
+    let d1 = wm.delete(k1);
+    return d1 === true && has(k1) === false && get(k2) === 2;
+  }
+}
+let cj = memberDeleteStillWeakMap();
+
+function bracketDeleteOnWeakMap() {
+  let k1 = {};
+  let wm = new WeakMap();
+  wm.set(k1, 1);
+  with (wm) {
+    return wm["delete"](k1) === true && has(k1) === false && get(k1) === undefined;
+  }
+}
+let ck = bracketDeleteOnWeakMap();
+
+function memberDeleteStillWeakSet() {
+  let k1 = {};
+  let k2 = {};
+  let ws = new WeakSet();
+  ws.add(k1);
+  ws.add(k2);
+  with (ws) {
+    let d1 = ws.delete(k1);
+    return d1 === true && has(k1) === false && has(k2) === true;
+  }
+}
+let cl = memberDeleteStillWeakSet();
+
+function unaryDeleteIsNotWeakMapDelete() {
+  let key = { keep: 1 };
+  let wm = new WeakMap();
+  wm.set(key, 1);
+  with (wm) {
+    let r = delete key;
+    return r === false && has(key) === true && get(key) === 1;
+  }
+}
+let cm = unaryDeleteIsNotWeakMapDelete();
+
+function primitiveKeyTypeError() {
+  let wm = new WeakMap();
+  with (wm) {
+    try {
+      set(1, 2);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let cn = primitiveKeyTypeError();
+
+function weakSetPrimitiveTypeError() {
+  let ws = new WeakSet();
+  with (ws) {
+    try {
+      add(1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let cp = weakSetPrimitiveTypeError();
+
+function hasIdentHitsObject() {
+  let obj = {
+    has: function (key) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return has({}) === "hit";
+  }
+}
+let cq = hasIdentHitsObject();
+
+function identityDelete() {
+  let obj = { WeakMap: WeakMap };
+  with (obj) {
+    return WeakMap.prototype.delete === globalThis.WeakMap.prototype.delete;
+  }
+}
+let cr = identityDelete();
+
+function identityAdd() {
+  let obj = { WeakSet: WeakSet };
+  with (obj) {
+    return WeakSet.prototype.add === globalThis.WeakSet.prototype.add;
+  }
+}
+let cs = identityAdd();
+
+function withWeakMapHasTypeof() {
+  let wm = new WeakMap();
+  with (wm) {
+    return typeof has === "function";
+  }
+}
+let ct = withWeakMapHasTypeof();
+
+function withWeakSetAddTypeof() {
+  let ws = new WeakSet();
+  with (ws) {
+    return typeof add === "function";
+  }
+}
+let cu = withWeakSetAddTypeof();
+
+function getMissUndefined() {
+  let k1 = {};
+  let wm = new WeakMap();
+  with (wm) {
+    set(k1, 1);
+    return get({}) === undefined && get(k1) === 1;
+  }
+}
+let cv = getMissUndefined();
+
+function deleteMissingReturnsFalse() {
+  let wm = new WeakMap();
+  let key = {};
+  with (wm) {
+    return wm.delete(key) === false && has(key) === false;
+  }
+}
+let cw = deleteMissingReturnsFalse();

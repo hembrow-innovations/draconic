@@ -998,3 +998,13 @@ fn with_map_set_fixture_present() {
 fn with_map_set_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_map_set");
 }
+
+#[test]
+fn with_weak_map_set_fixture_present() {
+    assert_fixture_present("es/legacy/with_weak_map_set");
+}
+
+#[test]
+fn with_weak_map_set_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_weak_map_set");
+}
