@@ -1,0 +1,368 @@
+// E17.02.72: with + spread in array literals `[...a]` / `[...a, b]` /
+// `[a, ...b, c]` (iterable copy/concat) through object environment (non-strict).
+// Spread/element idents hit object (else outer); empty/`""` spread; nested `[]`;
+// inherited HasBinding; accessor get this is with object; unresolvable
+// spread/element → ReferenceError; non-iterable TypeError; live close;
+// nested with; unscopables skip.
+
+function spreadHitsObject() {
+  let a = [1];
+  let env = { a: [2, 3] };
+  let out;
+  with (env) {
+    out = [...a];
+  }
+  return (
+    out[0] === 2 &&
+    out[1] === 3 &&
+    out.length === 2 &&
+    a[0] === 1 &&
+    a.length === 1
+  );
+}
+let a = spreadHitsObject();
+
+function spreadMissUsesOuter() {
+  let src = [4, 5];
+  let env = {};
+  let out;
+  with (env) {
+    out = [...src];
+  }
+  return out[0] === 4 && out[1] === 5 && out.length === 2;
+}
+let b = spreadMissUsesOuter();
+
+function spreadThenElement() {
+  let env = { a: [6], x: 7 };
+  let out;
+  with (env) {
+    out = [...a, x];
+  }
+  return out[0] === 6 && out[1] === 7 && out.length === 2;
+}
+let c = spreadThenElement();
+
+function elementThenSpreadThenElement() {
+  let y = 10;
+  let env = { x: 8, b: [9] };
+  let out;
+  with (env) {
+    out = [x, ...b, y];
+  }
+  return out[0] === 8 && out[1] === 9 && out[2] === 10 && out.length === 3;
+}
+let d = elementThenSpreadThenElement();
+
+function mixedHitAndMiss() {
+  let y = 12;
+  let env = { a: [11] };
+  let out;
+  with (env) {
+    out = [...a, y];
+  }
+  return out[0] === 11 && out[1] === 12 && out.length === 2;
+}
+let e = mixedHitAndMiss();
+
+function emptySpread() {
+  let env = { empty: [] };
+  let out;
+  with (env) {
+    out = [...empty];
+  }
+  return out.length === 0 && out[0] === undefined && Array.isArray(out);
+}
+let f = emptySpread();
+
+function emptySpreadWithElements() {
+  let env = { empty: [], x: 13 };
+  let out;
+  with (env) {
+    out = [...empty, x, ...empty];
+  }
+  return out[0] === 13 && out.length === 1;
+}
+let g = emptySpreadWithElements();
+
+function stringSpread() {
+  let env = { s: "ab" };
+  let out;
+  with (env) {
+    out = [...s];
+  }
+  return out[0] === "a" && out[1] === "b" && out.length === 2;
+}
+let h = stringSpread();
+
+function stringSpreadMissUsesOuter() {
+  let s = "cd";
+  let env = {};
+  let out;
+  with (env) {
+    out = [...s];
+  }
+  return out[0] === "c" && out[1] === "d" && out.length === 2;
+}
+let i = stringSpreadMissUsesOuter();
+
+function multipleSpreads() {
+  let env = { a: [14], b: [15, 16], x: 17 };
+  let out;
+  with (env) {
+    out = [...a, ...b, x];
+  }
+  return (
+    out[0] === 14 &&
+    out[1] === 15 &&
+    out[2] === 16 &&
+    out[3] === 17 &&
+    out.length === 4
+  );
+}
+let j = multipleSpreads();
+
+function nestedIndexSpread() {
+  let env = { nested: [[18], [19, 20]] };
+  let out;
+  with (env) {
+    out = [...nested[0], ...nested[1]];
+  }
+  return out[0] === 18 && out[1] === 19 && out[2] === 20 && out.length === 3;
+}
+let k = nestedIndexSpread();
+
+function copyIsIndependent() {
+  let env = { a: [21] };
+  let out;
+  with (env) {
+    out = [...a];
+    out[0] = 99;
+  }
+  return env.a[0] === 21 && out[0] === 99;
+}
+let l = copyIsIndependent();
+
+function unscopablesSpreadUsesOuter() {
+  let a = [22];
+  let env = { a: [0] };
+  env[Symbol.unscopables] = { a: true };
+  let out;
+  with (env) {
+    out = [...a];
+  }
+  return out[0] === 22 && out.length === 1 && env.a[0] === 0;
+}
+let m = unscopablesSpreadUsesOuter();
+
+function unscopablesElementUsesOuter() {
+  let x = 24;
+  let env = { a: [23], x: 0 };
+  env[Symbol.unscopables] = { x: true };
+  let out;
+  with (env) {
+    out = [...a, x];
+  }
+  return out[0] === 23 && out[1] === 24 && env.x === 0;
+}
+let n = unscopablesElementUsesOuter();
+
+function inheritedSpread() {
+  let proto = { a: [25] };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    out = [...a];
+  }
+  return out[0] === 25 && out.length === 1;
+}
+let p = inheritedSpread();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get a() {
+      seen = this;
+      return [26];
+    }
+  };
+  let out;
+  with (env) {
+    out = [...a];
+  }
+  return out[0] === 26 && seen === env;
+}
+let q = accessorGetThisIsWithObject();
+
+function unresolvableSpreadThrows() {
+  with ({}) {
+    try {
+      [...e170272_src];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170272_src === "undefined"
+      );
+    }
+  }
+}
+let r = unresolvableSpreadThrows();
+
+function unresolvableElementThrows() {
+  let env = { a: [1] };
+  with (env) {
+    try {
+      [...a, e170272_el];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let s = unresolvableElementThrows();
+
+function unresolvableSpreadSkipsLater() {
+  let ran = false;
+  let env = {
+    get x() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (env) {
+    try {
+      [...e170272_skip, x];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let t = unresolvableSpreadSkipsLater();
+
+function unresolvableElementAfterSpread() {
+  let env = { a: [27] };
+  with (env) {
+    try {
+      [...a, e170272_after];
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let u = unresolvableElementAfterSpread();
+
+function nonIterableTypeError() {
+  let env = { a: 1 };
+  with (env) {
+    try {
+      [...a];
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let v = nonIterableTypeError();
+
+function nullSpreadTypeError() {
+  let env = { a: null };
+  with (env) {
+    try {
+      [...a];
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let w = nullSpreadTypeError();
+
+function liveClose() {
+  let env = { a: [28] };
+  let run;
+  with (env) {
+    run = function () {
+      return [...a];
+    };
+  }
+  env.a = [29, 30];
+  let out = run();
+  return out[0] === 29 && out[1] === 30 && out.length === 2;
+}
+let aa = liveClose();
+
+function nestedInnerWins() {
+  let inner = { a: [31] };
+  let outer = { a: [0] };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = [...a];
+    }
+  }
+  return out[0] === 31 && out.length === 1 && outer.a[0] === 0;
+}
+let ab = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { a: [32] };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = [...a];
+    }
+  }
+  return out[0] === 32 && out.length === 1;
+}
+let ac = nestedInnerMissOuter();
+
+function evalOrderSpreadsThenElement() {
+  let order = "";
+  let env = {
+    get a() {
+      order = order + "A";
+      return [1];
+    },
+    get b() {
+      order = order + "B";
+      return [2];
+    },
+    get x() {
+      order = order + "X";
+      return 3;
+    }
+  };
+  let out;
+  with (env) {
+    out = [...a, ...b, x];
+  }
+  return out[0] === 1 && out[1] === 2 && out[2] === 3 && order === "ABX";
+}
+let ad = evalOrderSpreadsThenElement();
+
+function customIteratorHitsObject() {
+  let env = {
+    a: {
+      [Symbol.iterator]: function () {
+        let n = 0;
+        return {
+          next: function () {
+            n = n + 1;
+            if (n === 1) return { value: 33, done: false };
+            return { value: undefined, done: true };
+          }
+        };
+      }
+    }
+  };
+  let out;
+  with (env) {
+    out = [...a];
+  }
+  return out[0] === 33 && out.length === 1;
+}
+let ae = customIteratorHitsObject();
