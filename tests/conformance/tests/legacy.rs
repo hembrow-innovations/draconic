@@ -1198,3 +1198,13 @@ fn with_escape_unescape_fixture_present() {
 fn with_escape_unescape_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_escape_unescape");
 }
+
+#[test]
+fn with_object_proto_fixture_present() {
+    assert_fixture_present("es/legacy/with_object_proto");
+}
+
+#[test]
+fn with_object_proto_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_object_proto");
+}
