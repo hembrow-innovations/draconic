@@ -37,6 +37,7 @@ Places `draconic` in `~/.draconic/bin`. Add that directory to `PATH` if needed:
 
 ```bash
 draconic -V
+draconic parse hello.drac
 ```
 
 Native builds need an LLVM toolchain on the machine.

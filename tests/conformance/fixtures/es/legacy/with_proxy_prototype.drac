@@ -1,0 +1,1034 @@
+// E17.02.112: with + Proxy getPrototypeOf/setPrototypeOf traps +
+// Reflect.getPrototypeOf/setPrototypeOf (empty-handler pass-through,
+// trap intercept, plain object) through object environment (non-strict).
+// Proxy ident hits object (else outer); with (Proxy) method idents hit
+// Proxy (name / length); getPrototypeOf / setPrototypeOf ident hits
+// object (else outer); Reflect ident hits object (else outer);
+// with (Reflect) method idents hit Reflect (getPrototypeOf /
+// setPrototypeOf); inherited HasBinding; accessor this is with object;
+// unresolvable → ReferenceError; live close; nested with; unscopables skip.
+
+function plainObjectGetPrototypeOf() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let proto = Reflect.getPrototypeOf({});
+    return typeof proto === "object" && proto !== null;
+  }
+}
+let a = plainObjectGetPrototypeOf();
+
+function plainObjectSetPrototypeOf() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let plain = {};
+    let ok = Reflect.setPrototypeOf(plain, null);
+    return ok === true && Reflect.getPrototypeOf(plain) === null;
+  }
+}
+let b = plainObjectSetPrototypeOf();
+
+function emptyHandlerPassThroughGet() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let c = emptyHandlerPassThroughGet();
+
+function emptyHandlerPassThroughSet() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let base = {};
+    let ok = Reflect.setPrototypeOf(p, base);
+    return (
+      ok === true &&
+      Reflect.getPrototypeOf(target) === base &&
+      Reflect.getPrototypeOf(p) === base
+    );
+  }
+}
+let d = emptyHandlerPassThroughSet();
+
+function getTrapIntercepts() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        getPrototypeOf: function (t) {
+          calls = calls + 1;
+          return null;
+        }
+      }
+    );
+    let proto = Reflect.getPrototypeOf(p);
+    return calls === 1 && proto === null;
+  }
+}
+let e = getTrapIntercepts();
+
+function setTrapIntercepts() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  let lastProto = 0;
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        setPrototypeOf: function (t, proto) {
+          calls = calls + 1;
+          lastProto = proto;
+          return true;
+        }
+      }
+    );
+    let ok = Reflect.setPrototypeOf(p, null);
+    return calls === 1 && ok === true && lastProto === null;
+  }
+}
+let f = setTrapIntercepts();
+
+function typeofReflectGetSet() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return (
+      typeof Reflect.getPrototypeOf === "function" &&
+      typeof Reflect.setPrototypeOf === "function"
+    );
+  }
+}
+let g = typeofReflectGetSet();
+
+function withReflectGetPrototypeOf() {
+  with (Reflect) {
+    let proto = getPrototypeOf({});
+    return typeof proto === "object" && proto !== null;
+  }
+}
+let h = withReflectGetPrototypeOf();
+
+function withReflectSetPrototypeOf() {
+  with (Reflect) {
+    let plain = {};
+    let ok = setPrototypeOf(plain, null);
+    return ok === true && getPrototypeOf(plain) === null;
+  }
+}
+let j = withReflectSetPrototypeOf();
+
+function withReflectPassThroughGet() {
+  with (Reflect) {
+    let p = new Proxy({}, {});
+    let other = {};
+    return getPrototypeOf(p) === getPrototypeOf(other);
+  }
+}
+let k = withReflectPassThroughGet();
+
+function withReflectPassThroughSet() {
+  with (Reflect) {
+    let target = {};
+    let p = new Proxy(target, {});
+    let base = {};
+    let ok = setPrototypeOf(p, base);
+    return ok === true && getPrototypeOf(target) === base;
+  }
+}
+let l = withReflectPassThroughSet();
+
+function withReflectGetTrap() {
+  let calls = 0;
+  with (Reflect) {
+    let p = new Proxy(
+      {},
+      {
+        getPrototypeOf: function (t) {
+          calls = calls + 1;
+          return null;
+        }
+      }
+    );
+    return calls === 0 && getPrototypeOf(p) === null && calls === 1;
+  }
+}
+let m = withReflectGetTrap();
+
+function withReflectSetTrap() {
+  let calls = 0;
+  let lastProto = 0;
+  with (Reflect) {
+    let p = new Proxy(
+      {},
+      {
+        setPrototypeOf: function (t, proto) {
+          calls = calls + 1;
+          lastProto = proto;
+          return true;
+        }
+      }
+    );
+    let ok = setPrototypeOf(p, null);
+    return calls === 1 && ok === true && lastProto === null;
+  }
+}
+let n = withReflectSetTrap();
+
+function withReflectName() {
+  with (Reflect) {
+    return (
+      typeof getPrototypeOf === "function" &&
+      typeof setPrototypeOf === "function"
+    );
+  }
+}
+let p = withReflectName();
+
+function withProxyTypeof() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return typeof Proxy === "function";
+  }
+}
+let q = withProxyTypeof();
+
+function withProxyName() {
+  with (Proxy) {
+    return name === "Proxy";
+  }
+}
+let r = withProxyName();
+
+function withProxyLength() {
+  with (Proxy) {
+    return length === 2;
+  }
+}
+let s = withProxyLength();
+
+function withProxyPrototypeUndefined() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy.prototype === undefined;
+  }
+}
+let t = withProxyPrototypeUndefined();
+
+function globalThisIdentityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let u = globalThisIdentityProxy();
+
+function globalThisIdentityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let v = globalThisIdentityReflect();
+
+function proxyIdentHitsObject() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Proxy({}, {}).p === "hit";
+  }
+}
+let w = proxyIdentHitsObject();
+
+function proxyIdentMissIsOuter() {
+  with ({}) {
+    let p = new Proxy({}, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let aa = proxyIdentMissIsOuter();
+
+function reflectIdentHitsObject() {
+  let obj = {
+    Reflect: {
+      getPrototypeOf: function (o) {
+        return "hit";
+      }
+    }
+  };
+  with (obj) {
+    return Reflect.getPrototypeOf({}) === "hit";
+  }
+}
+let ab = reflectIdentHitsObject();
+
+function reflectIdentMissIsOuter() {
+  with ({}) {
+    let proto = Reflect.getPrototypeOf({});
+    return typeof proto === "object" && proto !== null;
+  }
+}
+let ac = reflectIdentMissIsOuter();
+
+function getPrototypeOfIdentHitsObject() {
+  let obj = {
+    getPrototypeOf: function (o) {
+      return o === 1;
+    }
+  };
+  with (obj) {
+    return getPrototypeOf(1) === true && getPrototypeOf(0) === false;
+  }
+}
+let ad = getPrototypeOfIdentHitsObject();
+
+function getPrototypeOfIdentMissIsOuter() {
+  function getPrototypeOf(o) {
+    return o === 7;
+  }
+  with ({}) {
+    return getPrototypeOf(7) === true && getPrototypeOf(1) === false;
+  }
+}
+let ae = getPrototypeOfIdentMissIsOuter();
+
+function setPrototypeOfIdentHitsObject() {
+  let obj = {
+    setPrototypeOf: function (o, proto) {
+      return o === 1 && proto === null;
+    }
+  };
+  with (obj) {
+    return setPrototypeOf(1, null) === true && setPrototypeOf(0, null) === false;
+  }
+}
+let af = setPrototypeOfIdentHitsObject();
+
+function setPrototypeOfIdentMissIsOuter() {
+  function setPrototypeOf(o, proto) {
+    return o === 7;
+  }
+  with ({}) {
+    return setPrototypeOf(7, null) === true && setPrototypeOf(1, null) === false;
+  }
+}
+let ag = setPrototypeOfIdentMissIsOuter();
+
+function objectShadowsOuterGet() {
+  function getPrototypeOf(o) {
+    return false;
+  }
+  let obj = {
+    getPrototypeOf: function (o) {
+      return true;
+    }
+  };
+  with (obj) {
+    return getPrototypeOf(null) === true;
+  }
+}
+let ah = objectShadowsOuterGet();
+
+function callThisIsWithObject() {
+  let obj = {
+    getPrototypeOf: function (o) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return getPrototypeOf(null) === 3;
+  }
+}
+let aj = callThisIsWithObject();
+
+function withHandlerGetThisIsHandler() {
+  let handler = {
+    getPrototypeOf: function (t) {
+      return null;
+    }
+  };
+  let seen = null;
+  let orig = handler.getPrototypeOf;
+  handler.getPrototypeOf = function (t) {
+    seen = this;
+    return orig.call(this, t);
+  };
+  let ok;
+  with (handler) {
+    getPrototypeOf({});
+    ok = seen === handler;
+  }
+  return ok;
+}
+let ak = withHandlerGetThisIsHandler();
+
+function unscopablesUsesOuter() {
+  function getPrototypeOf(o) {
+    return true;
+  }
+  let obj = {
+    getPrototypeOf: function (o) {
+      return false;
+    }
+  };
+  obj[Symbol.unscopables] = { getPrototypeOf: true };
+  with (obj) {
+    return getPrototypeOf(null) === true;
+  }
+}
+let al = unscopablesUsesOuter();
+
+function unscopablesProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Proxy: true };
+  with (obj) {
+    let p = new Proxy({}, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let am = unscopablesProxyIdent();
+
+function unscopablesReflectIdent() {
+  let obj = {
+    Reflect: {
+      getPrototypeOf: function (o) {
+        return "no";
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Reflect: true };
+  with (obj) {
+    let proto = Reflect.getPrototypeOf({});
+    return typeof proto === "object" && proto !== null;
+  }
+}
+let an = unscopablesReflectIdent();
+
+function inheritedData() {
+  let proto = {
+    getPrototypeOf: function (o) {
+      return o === "ok";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return getPrototypeOf("ok") === true && getPrototypeOf("no") === false;
+  }
+}
+let ap = inheritedData();
+
+function inheritedFromProxy() {
+  let obj = Object.create(Proxy);
+  with (obj) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let aq = inheritedFromProxy();
+
+function inheritedFromReflect() {
+  let obj = Object.create(Reflect);
+  with (obj) {
+    let proto = getPrototypeOf({});
+    return typeof proto === "object" && proto !== null;
+  }
+}
+let ar = inheritedFromReflect();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get getPrototypeOf() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return getPrototypeOf(null) === true && seen === obj;
+  }
+}
+let at = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get getPrototypeOf() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    return getPrototypeOf(null) === true && seen === obj;
+  }
+}
+let au = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    getPrototypeOf: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return getPrototypeOf(o);
+    };
+  }
+  obj.getPrototypeOf = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let av = liveClose();
+
+function liveCloseProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (target, handler) {
+      return new Proxy(target, handler);
+    };
+  }
+  obj.Proxy = Proxy;
+  let p = run({}, {});
+  let other = {};
+  return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+}
+let aw = liveCloseProxyIdent();
+
+function liveCloseReflectIdent() {
+  let obj = {
+    Reflect: {
+      getPrototypeOf: function (o) {
+        return "old";
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return Reflect.getPrototypeOf(o);
+    };
+  }
+  obj.Reflect = Reflect;
+  let proto = run({});
+  return typeof proto === "object" && proto !== null;
+}
+let ax = liveCloseReflectIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702112_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ay = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702112_noglob.getPrototypeOf;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702112_noglob === "undefined"
+      );
+    }
+  }
+}
+let az = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    getPrototypeOf: function (o) {
+      return true;
+    }
+  };
+  let handler = {
+    getPrototypeOf: function (o) {
+      return false;
+    }
+  };
+  with (handler) {
+    with (inner) {
+      return getPrototypeOf(null) === true;
+    }
+  }
+}
+let ba = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    getPrototypeOf: function (o) {
+      return true;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return getPrototypeOf(null) === true;
+    }
+  }
+}
+let bb = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function getPrototypeOf(o) {
+    return true;
+  }
+  let inner = {
+    getPrototypeOf: function (o) {
+      return false;
+    }
+  };
+  inner[Symbol.unscopables] = { getPrototypeOf: true };
+  let outer = {
+    getPrototypeOf: function (o) {
+      return o === "fromOuter";
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return getPrototypeOf("fromOuter") === true;
+    }
+  }
+}
+let bc = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { getPrototypeOf: 1 };
+  with (obj) {
+    try {
+      getPrototypeOf(null);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bd = nonCallableTypeError();
+
+function typeofGetMethod() {
+  let ty;
+  let handler = {
+    getPrototypeOf: function (t) {
+      return null;
+    }
+  };
+  with (handler) {
+    ty = typeof getPrototypeOf;
+  }
+  return ty === "function";
+}
+let be = typeofGetMethod();
+
+function typeofReflectThroughWith() {
+  let obj = { Reflect: Reflect };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "object";
+}
+let bf = typeofReflectThroughWith();
+
+function typeofProxyThroughWith() {
+  let obj = { Proxy: Proxy };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "function";
+}
+let bg = typeofProxyThroughWith();
+
+function memberStillProxy() {
+  let obj = { x: 1 };
+  with (obj) {
+    let p = new Proxy({}, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let bh = memberStillProxy();
+
+function argsHitObject() {
+  let obj = {
+    target: {},
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let p = new Proxy(target, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let bi = argsHitObject();
+
+function argsMissIsOuter() {
+  let target = {};
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let p = new Proxy(target, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let bj = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get Reflect() {
+      ran = true;
+      return Reflect;
+    }
+  };
+  with (obj) {
+    try {
+      Reflect.getPrototypeOf(e1702112_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bk = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702112_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bl = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function getPrototypeOf(o) {
+    return false;
+  }
+  let obj = {
+    getPrototypeOf: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return getPrototypeOf(o);
+    };
+  }
+  obj.getPrototypeOf = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let bm = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get getPrototypeOf() {
+      cnt = cnt + 1;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    getPrototypeOf(null);
+  }
+  return cnt === 1;
+}
+let bn = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalProxy() {
+  let obj = {};
+  with (obj) {
+    let p = new Proxy({}, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let bp = emptyMissUsesGlobalProxy();
+
+function emptyMissUsesGlobalReflect() {
+  let obj = {};
+  with (obj) {
+    let proto = Reflect.getPrototypeOf({});
+    return typeof proto === "object" && proto !== null;
+  }
+}
+let bq = emptyMissUsesGlobalReflect();
+
+function getTypeofHit() {
+  let obj = { getPrototypeOf: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof getPrototypeOf;
+  }
+  return ty === "number";
+}
+let br = getTypeofHit();
+
+function proxyTypeofHit() {
+  let obj = { Proxy: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "number";
+}
+let bs = proxyTypeofHit();
+
+function reflectTypeofHit() {
+  let obj = { Reflect: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "number";
+}
+let bt = reflectTypeofHit();
+
+function unscopablesGetPrototypeOf() {
+  let obj = { getPrototypeOf: 1 };
+  obj[Symbol.unscopables] = { getPrototypeOf: true };
+  with (obj) {
+    return typeof getPrototypeOf === "undefined";
+  }
+}
+let bu = unscopablesGetPrototypeOf();
+
+function nestedGetInnerWins() {
+  with ({ getPrototypeOf: 1 }) {
+    with ({ getPrototypeOf: 2 }) {
+      return getPrototypeOf === 2;
+    }
+  }
+}
+let bv = nestedGetInnerWins();
+
+function nestedProxyInnerWins() {
+  with ({ Proxy: 1 }) {
+    with ({ Proxy: 2 }) {
+      return Proxy === 2;
+    }
+  }
+}
+let bw = nestedProxyInnerWins();
+
+function nestedReflectInnerWins() {
+  with ({ Reflect: 1 }) {
+    with ({ Reflect: 2 }) {
+      return Reflect === 2;
+    }
+  }
+}
+let bx = nestedReflectInnerWins();
+
+function identityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let by = identityProxy();
+
+function identityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let bz = identityReflect();
+
+function withProxyNameLengthTogether() {
+  with (Proxy) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let ca = withProxyNameLengthTogether();
+
+function trapThroughObj() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        getPrototypeOf: function (t) {
+          calls = calls + 1;
+          return null;
+        }
+      }
+    );
+    let p1 = Reflect.getPrototypeOf(p);
+    let p2 = Reflect.getPrototypeOf(p);
+    return p1 === null && p2 === null && calls === 2;
+  }
+}
+let cb = trapThroughObj();
+
+function trapHandlerIdentHitsObject() {
+  let obj = {
+    getPrototypeOf: function (t) {
+      return null;
+    }
+  };
+  with (obj) {
+    let p = new Proxy({}, { getPrototypeOf: getPrototypeOf });
+    return Reflect.getPrototypeOf(p) === null;
+  }
+}
+let cc = trapHandlerIdentHitsObject();
+
+function trapThisIsHandler() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let seen = null;
+  with (obj) {
+    let handler = {
+      getPrototypeOf: function (t) {
+        seen = this;
+        return null;
+      }
+    };
+    let p = new Proxy({}, handler);
+    let proto = Reflect.getPrototypeOf(p);
+    return seen === handler && proto === null;
+  }
+}
+let cd = trapThisIsHandler();
+
+function trapThrowTypeError() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let p = new Proxy(
+      {},
+      {
+        getPrototypeOf: function (t) {
+          throw new TypeError("getPrototypeOf-boom");
+        }
+      }
+    );
+    try {
+      Reflect.getPrototypeOf(p);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && err.message === "getPrototypeOf-boom";
+    }
+  }
+}
+let ce = trapThrowTypeError();
+
+function bracketMethodOnObject() {
+  let obj = {
+    getPrototypeOf: function (o) {
+      return o === "ok";
+    }
+  };
+  with (obj) {
+    return obj["getPrototypeOf"]("ok") === true;
+  }
+}
+let cf = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    getPrototypeOf: function (o) {
+      return o === "z";
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = "z";
+  with (obj) {
+    return getPrototypeOf(x) === true && obj.x === 9;
+  }
+}
+let cg = unscopablesSecondIdent();
+
+function targetIdentHitsObject() {
+  let obj = {
+    t: {},
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let p = new Proxy(t, {});
+    let other = {};
+    return Reflect.getPrototypeOf(p) === Reflect.getPrototypeOf(other);
+  }
+}
+let ch = targetIdentHitsObject();
+
+function withReflectGetArgIdent() {
+  let obj = { k: {} };
+  with (obj) {
+    with (Reflect) {
+      let proto = getPrototypeOf(k);
+      return typeof proto === "object" && proto !== null;
+    }
+  }
+}
+let ci = withReflectGetArgIdent();
+
+function nestedReflectInnerWinsGet() {
+  with ({
+    Reflect: {
+      getPrototypeOf: function (o) {
+        return "outer";
+      }
+    }
+  }) {
+    with ({
+      Reflect: {
+        getPrototypeOf: function (o) {
+          return "inner";
+        }
+      }
+    }) {
+      return Reflect.getPrototypeOf({}) === "inner";
+    }
+  }
+}
+let cj = nestedReflectInnerWinsGet();
