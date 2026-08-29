@@ -1,0 +1,945 @@
+// E17.02.100: with + Promise.prototype.finally (typeof p.finally,
+// fulfill + reject paths, value/reason pass-through) through object
+// environment (non-strict). Promise ident hits object (else outer);
+// with (Promise) method idents hit Promise (name / length /
+// prototype); instance finally via member / [] (keyword, not ident);
+// inherited HasBinding; accessor this is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function withFinallyTypeof() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return typeof Promise.resolve(1).finally === "function";
+  }
+}
+let a = withFinallyTypeof();
+
+function withPromiseName() {
+  with (Promise) {
+    return name === "Promise";
+  }
+}
+let b = withPromiseName();
+
+function withPromiseLength() {
+  with (Promise) {
+    return length === 1;
+  }
+}
+let c = withPromiseLength();
+
+function withPromisePrototype() {
+  with (Promise) {
+    return prototype === Promise.prototype;
+  }
+}
+let d = withPromisePrototype();
+
+function globalThisIdentity() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return (
+      Promise === globalThis.Promise &&
+      Promise.prototype.finally === globalThis.Promise.prototype.finally
+    );
+  }
+}
+let e = globalThisIdentity();
+
+function promiseIdentHitsObject() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return { v: v, finally: function () { return "hit"; } };
+      }
+    }
+  };
+  with (obj) {
+    return Promise.resolve(1).finally() === "hit";
+  }
+}
+let f = promiseIdentHitsObject();
+
+function promiseIdentMissIsOuter() {
+  with ({}) {
+    return typeof Promise.resolve(1).finally === "function";
+  }
+}
+let g = promiseIdentMissIsOuter();
+
+function promiseIdentShadowsOuter() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return { finally: function () { return 0; } };
+      }
+    }
+  };
+  with (obj) {
+    return Promise.resolve(1).finally() === 0;
+  }
+}
+let h = promiseIdentShadowsOuter();
+
+function memberFinallyOnObject() {
+  let obj = {
+    finally: function () {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj.finally() === 7;
+  }
+}
+let j = memberFinallyOnObject();
+
+function bracketFinallyOnObject() {
+  let obj = {
+    finally: function () {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj["finally"]() === 7;
+  }
+}
+let k = bracketFinallyOnObject();
+
+function memberFinallyThisIsInstance() {
+  let obj = {
+    finally: function () {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return obj.finally() === 3;
+  }
+}
+let l = memberFinallyThisIsInstance();
+
+function bracketFinallyThisIsInstance() {
+  let obj = {
+    finally: function () {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return obj["finally"]() === 3;
+  }
+}
+let m = bracketFinallyThisIsInstance();
+
+function inheritedDataFinally() {
+  let proto = {
+    finally: function () {
+      return 4;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return obj.finally() === 4;
+  }
+}
+let n = inheritedDataFinally();
+
+function inheritedFromPromise() {
+  let obj = Object.create(Promise);
+  with (obj) {
+    return (
+      name === "Promise" &&
+      length === 1 &&
+      prototype === Promise.prototype
+    );
+  }
+}
+let p = inheritedFromPromise();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get finally() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return obj.finally() === 1 && seen === obj;
+  }
+}
+let q = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get finally() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return obj.finally() === 1 && seen === obj;
+  }
+}
+let r = accessorThisIsWithObject();
+
+function callThisIsWithObject() {
+  let obj = {
+    fn: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return fn(42) === 3;
+  }
+}
+let s = callThisIsWithObject();
+
+function fnIdentHitsObject() {
+  let obj = {
+    fn: function (v) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return fn(42) === "hit";
+  }
+}
+let t = fnIdentHitsObject();
+
+function fnIdentMissIsOuter() {
+  function fn(v) {
+    return 8;
+  }
+  with ({}) {
+    return fn(42) === 8;
+  }
+}
+let u = fnIdentMissIsOuter();
+
+function objectShadowsOuterFn() {
+  function fn(v) {
+    return 8;
+  }
+  let obj = {
+    fn: function (v) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return fn(42) === 9;
+  }
+}
+let v = objectShadowsOuterFn();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get fn() {
+      n = n + 1;
+      return function (x) {
+        return x;
+      };
+    },
+    get k() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    fn(k);
+    return n === 2;
+  }
+}
+let w = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function fn(v) {
+    return 11;
+  }
+  let obj = {
+    fn: function (v) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { fn: true };
+  with (obj) {
+    return fn(42) === 11;
+  }
+}
+let aa = unscopablesUsesOuter();
+
+function unscopablesPromiseIdent() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return { finally: function () { return 0; } };
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Promise: true };
+  with (obj) {
+    return typeof Promise.resolve(1).finally === "function";
+  }
+}
+let ab = unscopablesPromiseIdent();
+
+function liveClose() {
+  let obj = {
+    fn: function (v) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return fn(v);
+    };
+  }
+  obj.fn = function (v) {
+    return 2;
+  };
+  return run(42) === 2;
+}
+let ac = liveClose();
+
+function liveClosePromiseIdent() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return { finally: function () { return 1; } };
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return Promise.resolve(v);
+    };
+  }
+  obj.Promise = Promise;
+  return typeof run(1).finally === "function";
+}
+let ad = liveClosePromiseIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702100_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ae = unresolvableCalleeThrows();
+
+function unresolvablePromiseThrows() {
+  with ({}) {
+    try {
+      e1702100_noglob.finally;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702100_noglob === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvablePromiseThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    fn: function (v) {
+      return 5;
+    }
+  };
+  with (Promise) {
+    with (inner) {
+      return fn(42) === 5;
+    }
+  }
+}
+let ag = nestedInnerWins();
+
+function nestedInnerMissOuterPromise() {
+  with ({
+    fn: function (v) {
+      return 5;
+    }
+  }) {
+    with (Promise) {
+      return name === "Promise" && prototype === Promise.prototype;
+    }
+  }
+}
+let ah = nestedInnerMissOuterPromise();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    fn: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return fn(42) === 6;
+    }
+  }
+}
+let ai = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function fn(v) {
+    return 11;
+  }
+  let inner = {
+    fn: function (v) {
+      return 0;
+    }
+  };
+  inner[Symbol.unscopables] = { fn: true };
+  let outer = {
+    fn: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return fn(42) === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = {
+    finally: 1
+  };
+  with (obj) {
+    try {
+      obj.finally();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofFnMethod() {
+  let t;
+  with (Promise) {
+    t = typeof name;
+  }
+  return t === "string";
+}
+let al = typeofFnMethod();
+
+function memberStillPromiseFinally() {
+  let obj = { x: 1 };
+  with (obj) {
+    return typeof Promise.resolve(1).finally === "function";
+  }
+}
+let am = memberStillPromiseFinally();
+
+function argsHitObject() {
+  let obj = {
+    fn: function (v) {
+      return v === 9;
+    },
+    k: 9
+  };
+  with (obj) {
+    return fn(k) === true;
+  }
+}
+let an = argsHitObject();
+
+function argsMissIsOuter() {
+  function fn(v) {
+    return v === 9;
+  }
+  let k = 9;
+  with ({}) {
+    return fn(k) === true;
+  }
+}
+let ap = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get fn() {
+      ran = true;
+      return function (v) {
+        return v;
+      };
+    }
+  };
+  with (obj) {
+    try {
+      fn(e1702100_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let aq = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702100_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ar = unresolvableCalleeSkipsArg();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get fn() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    fn(42);
+  }
+  return cnt === 1;
+}
+let at = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalPromise() {
+  let obj = {};
+  with (obj) {
+    return typeof Promise.resolve(1).finally === "function";
+  }
+}
+let au = emptyMissUsesGlobalPromise();
+
+function fnTypeofHit() {
+  let obj = { fn: 1 };
+  let t;
+  with (obj) {
+    t = typeof fn;
+  }
+  return t === "number";
+}
+let av = fnTypeofHit();
+
+function promiseTypeofHit() {
+  let obj = { Promise: 1 };
+  let t;
+  with (obj) {
+    t = typeof Promise;
+  }
+  return t === "number";
+}
+let aw = promiseTypeofHit();
+
+function liveCloseFn() {
+  let obj = { fn: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return fn;
+    };
+  }
+  obj.fn = function (v) {
+    return 2;
+  };
+  return typeof run() === "function";
+}
+let ax = liveCloseFn();
+
+function unscopablesFn() {
+  let obj = { fn: 1 };
+  obj[Symbol.unscopables] = { fn: true };
+  with (obj) {
+    return typeof fn === "undefined";
+  }
+}
+let ay = unscopablesFn();
+
+function nestedFnInnerWins() {
+  with ({ fn: 1 }) {
+    with ({ fn: 2 }) {
+      return fn === 2;
+    }
+  }
+}
+let az = nestedFnInnerWins();
+
+function nestedPromiseInnerWins() {
+  with ({ Promise: 1 }) {
+    with ({ Promise: 2 }) {
+      return Promise === 2;
+    }
+  }
+}
+let ba = nestedPromiseInnerWins();
+
+function getterRunsOnceFn() {
+  let cnt = 0;
+  let obj = {
+    get fn() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  let out;
+  with (obj) {
+    out = fn(42);
+  }
+  return out === 1 && cnt === 1;
+}
+let bb = getterRunsOnceFn();
+
+function identityFinally() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return Promise.prototype.finally === globalThis.Promise.prototype.finally;
+  }
+}
+let bc = identityFinally();
+
+function withPromiseResolveHasFinally() {
+  with (Promise) {
+    let pr = resolve(1);
+    return pr !== Promise && pr instanceof Promise && typeof pr.finally === "function";
+  }
+}
+let bd = withPromiseResolveHasFinally();
+
+function bracketFinallyOnPromise() {
+  let pr = Promise.resolve(1);
+  let obj = { p: pr };
+  with (obj) {
+    return typeof p["finally"] === "function";
+  }
+}
+let be = bracketFinallyOnPromise();
+
+function memberFinallyOnPromise() {
+  let pr = Promise.resolve(1);
+  let obj = { p: pr };
+  with (obj) {
+    return typeof p.finally === "function";
+  }
+}
+let bf = memberFinallyOnPromise();
+
+function finallyThisIsInstance() {
+  let pr = Promise.resolve(1);
+  let seen = null;
+  let orig = pr.finally;
+  pr.finally = function (onFinally) {
+    seen = this;
+    return orig.call(this, onFinally);
+  };
+  let obj = { p: pr };
+  with (obj) {
+    p.finally(function () {});
+  }
+  return seen === pr;
+}
+let bg = finallyThisIsInstance();
+
+function bracketFinallyThisIsPromise() {
+  let pr = Promise.resolve(1);
+  let seen = null;
+  let orig = pr.finally;
+  pr.finally = function (onFinally) {
+    seen = this;
+    return orig.call(this, onFinally);
+  };
+  let obj = { p: pr };
+  with (obj) {
+    p["finally"](function () {});
+  }
+  return seen === pr;
+}
+let bh = bracketFinallyThisIsPromise();
+
+function finallyOnPrototypeThroughMember() {
+  let pr = Promise.resolve(1);
+  with (Promise.prototype) {
+    return typeof pr.finally === "function";
+  }
+}
+let bi = finallyOnPrototypeThroughMember();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    fn: function (v, x) {
+      return x === 0;
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = 0;
+  with (obj) {
+    return fn(1, x) === true && obj.x === 9;
+  }
+}
+let bj = unscopablesSecondIdent();
+
+function withPromiseInstanceFinallyTypeof() {
+  let pr = Promise.resolve(1);
+  with (pr) {
+    return typeof pr.finally === "function";
+  }
+}
+let bk = withPromiseInstanceFinallyTypeof();
+
+function getterFinallyThisViaMember() {
+  let seen = null;
+  let obj = {
+    get finally() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return obj["finally"]() === 1 && seen === obj;
+  }
+}
+let bl = getterFinallyThisViaMember();
+
+function inheritedBracketFinally() {
+  let proto = {
+    finally: function () {
+      return 4;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return obj["finally"]() === 4;
+  }
+}
+let bm = inheritedBracketFinally();
+
+function liveCloseFinallyMember() {
+  let obj = {
+    finally: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return obj.finally();
+    };
+  }
+  obj.finally = function () {
+    return 2;
+  };
+  return run() === 2;
+}
+let bn = liveCloseFinallyMember();
+
+function nestedFinallyMemberInnerWins() {
+  let outer = {
+    p: { finally: function () { return 1; } }
+  };
+  let inner = {
+    p: { finally: function () { return 2; } }
+  };
+  with (outer) {
+    with (inner) {
+      return p.finally() === 2;
+    }
+  }
+}
+let bp = nestedFinallyMemberInnerWins();
+
+function unscopablesPUsesOuterFinally() {
+  let outer = {
+    p: { finally: function () { return 6; } }
+  };
+  let inner = {
+    p: { finally: function () { return 0; } }
+  };
+  inner[Symbol.unscopables] = { p: true };
+  with (outer) {
+    with (inner) {
+      return p.finally() === 6;
+    }
+  }
+}
+let bq = unscopablesPUsesOuterFinally();
+
+function withPromiseNameLengthPrototypeTogether() {
+  with (Promise) {
+    return name === "Promise" && length === 1 && prototype === Promise.prototype;
+  }
+}
+let br = withPromiseNameLengthPrototypeTogether();
+
+function emptyMissPrototypeFinally() {
+  with ({}) {
+    return typeof Promise.prototype.finally === "function";
+  }
+}
+let bs = emptyMissPrototypeFinally();
+
+function memberFinallyMissingIsUndefined() {
+  let obj = { p: {} };
+  with (obj) {
+    return p.finally === undefined;
+  }
+}
+let bt = memberFinallyMissingIsUndefined();
+
+function bracketFinallyMissingIsUndefined() {
+  let obj = { p: {} };
+  with (obj) {
+    return p["finally"] === undefined;
+  }
+}
+let bu = bracketFinallyMissingIsUndefined();
+
+let bv = false;
+let bw = false;
+let bx = false;
+let by = false;
+let bz = false;
+let ca = false;
+let cb = false;
+let cc = false;
+let cd = false;
+let ce = false;
+
+function fulfillFinallyRuns() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.resolve(42)
+      .finally(function () {
+        bv = true;
+      });
+  }
+}
+
+function fulfillValuePassThrough() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.resolve(42)
+      .finally(function () {})
+      .then(function (v) {
+        bw = v === 42;
+      });
+  }
+}
+
+function rejectFinallyRuns() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.reject(7)
+      .finally(function () {
+        bx = true;
+      })
+      .catch(function () {});
+  }
+}
+
+function rejectReasonPassThrough() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.reject(7)
+      .finally(function () {})
+      .catch(function (e) {
+        by = e === 7;
+      });
+  }
+}
+
+function finallyThroughMemberSettle() {
+  let pr = Promise.resolve(5);
+  let obj = { p: pr };
+  with (obj) {
+    p.finally(function () {
+      bz = true;
+    }).then(function (v) {
+      ca = v === 5;
+    });
+  }
+}
+
+function finallyThroughBracketSettle() {
+  let pr = Promise.reject(11);
+  let obj = { p: pr };
+  with (obj) {
+    p["finally"](function () {
+      cb = true;
+    }).catch(function (e) {
+      cc = e === 11;
+    });
+  }
+}
+
+function withPromiseResolveFinallyPassThrough() {
+  with (Promise) {
+    resolve(9)
+      .finally(function () {})
+      .then(function (v) {
+        cd = v === 9;
+      });
+  }
+}
+
+function liveCloseThenSettle() {
+  let obj = {
+    fn: function (v) {
+      return v;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return fn(v);
+    };
+  }
+  obj.fn = function (v) {
+    return Promise.resolve(v);
+  };
+  run(3)
+    .finally(function () {})
+    .then(function (x) {
+      ce = x === 3;
+    });
+}
+
+fulfillFinallyRuns();
+fulfillValuePassThrough();
+rejectFinallyRuns();
+rejectReasonPassThrough();
+finallyThroughMemberSettle();
+finallyThroughBracketSettle();
+withPromiseResolveFinallyPassThrough();
+liveCloseThenSettle();

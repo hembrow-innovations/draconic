@@ -1038,3 +1038,13 @@ fn with_promise_statics_fixture_present() {
 fn with_promise_statics_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_promise_statics");
 }
+
+#[test]
+fn with_promise_finally_fixture_present() {
+    assert_fixture_present("es/legacy/with_promise_finally");
+}
+
+#[test]
+fn with_promise_finally_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_promise_finally");
+}
