@@ -160,3 +160,5 @@ Same as **Out of Scope** above.
 > **2026-08-29:** [[issues-24-docs-learn-skeleton]] landed (two landings join at Dual worlds; P03 chapter pages with status tags). This parent stays open.
 >
 > **2026-08-29:** [[issues-25-docs-reference-skeleton]] landed (CLI, types, Dual-world rules, host I/O, packages stubs with status tags). This parent stays open.
+>
+> **2026-08-29:** [[issues-26-docs-pages-readme]] landed (GitHub Pages from CI, README link, **P03** done). This parent stays open for human review.

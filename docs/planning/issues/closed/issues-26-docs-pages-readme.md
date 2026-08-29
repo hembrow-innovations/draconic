@@ -1,12 +1,12 @@
 ---
 id: issues-26
 created_at: "2026-08-28"
-updated_at: "2026-08-28"
+updated_at: "2026-08-29"
 area: planning
 domain: language
 title: "Publish docs site and link README"
 description: "CI publishes generated HTML to GitHub Pages; README links the site; mark P03 done."
-status: open
+status: closed
 issue-type: feature-request
 severity: medium
 tags:
@@ -14,7 +14,7 @@ tags:
   - issue
   - enhancement
   - docs
-  - ready-for-agent
+  - closed
 ---
 
 # Publish docs site and link README
@@ -35,10 +35,10 @@ The site is public. CI runs the website pipeline and publishes HTML to GitHub Pa
 
 ## Acceptance criteria
 
-- [ ] CI generates the site with the Draconic generator and deploys HTML to GitHub Pages
-- [ ] Dist is not the authoring source of truth
-- [ ] README links the public site and still documents write-parse-build
-- [ ] Roadmap **P03** is `done` with tests pointing at the pipeline and the README link
+- [x] CI generates the site with the Draconic generator and deploys HTML to GitHub Pages
+- [x] Dist is not the authoring source of truth
+- [x] README links the public site and still documents write-parse-build
+- [x] Roadmap **P03** is `done` with tests pointing at the pipeline and the README link
 
 ## Agent Brief
 
@@ -60,3 +60,5 @@ Custom domain. Playground. Changing language semantics.
 ## Comments
 
 > Child of [[issues-19-language-docs-site]]. Last slice for **P03**.
+>
+> **2026-08-29:** Landed. CI workflow `.github/workflows/docs-pages.yml` runs `scripts/generate-website.sh` (Draconic generator → `dist/pages`) and deploys with `actions/deploy-pages`. README links https://hembrow-innovations.github.io/draconic/ and stays clone-build-run. Generated HTML stays gitignored. Roadmap **P03** is `done`. Pipeline tests: `tests/integration/tests/website_pipeline.rs`. Parent [[issues-19-language-docs-site]] stays open for human review.

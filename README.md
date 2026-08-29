@@ -8,6 +8,10 @@ This monorepo is the Draconic toolchain (Rust) plus the agent **Loop** that grow
 
 Bootstrap / Roadmap Loop spine is complete. Language completeness is ongoing — see [`ROADMAP.md`](./ROADMAP.md) for open items. The toolchain is usable today for **parse**, **build** (`js` | `native`), and **test**.
 
+## Learn and Reference
+
+[Learn](https://hembrow-innovations.github.io/draconic/) and [Reference](https://hembrow-innovations.github.io/draconic/reference.html) are the public language docs. This README stays clone-build-run.
+
 ## Install
 
 ```bash
@@ -99,6 +103,7 @@ cargo run -p draconic-cli -- version
 | `crates/draconic-cli` | `draconic` CLI |
 | `tests/conformance` | Conformance suite |
 | `examples/` | Example programs (`fizzbuzz`, `http-echo`, `todo`) |
+| `website/` | Public Learn + Reference sources (HTML generated in CI) |
 | `tests/test262` | Staged Test262 harness (optional suite via `scripts/fetch-test262.mjs`) |
 | `ROADMAP.md` | Feature checklist (Loop source of truth) |
 | `CONTEXT.md` | Domain glossary |

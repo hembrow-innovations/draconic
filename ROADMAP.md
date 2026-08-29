@@ -977,7 +977,7 @@ Native depth stays under **N**; host/net under **H**; packages under **K**.
 |----|--------|---------|------|-------|
 | P01 | done | js | Flagship example Program (fizzbuzz): in-repo `examples/fizzbuzz/`, builds via `draconic` js, clone→build→run | `examples/fizzbuzz` |
 | P02 | done | compiler | README status + onboarding path match reality (parse / build js\|native; no stale “bootstrap only”) | `README.md` |
-| P03 | todo | compiler | Language book / docs site skeleton: modules, dual-worlds, native types, host I/O, packages | `docs/` (or site), README links |
+| P03 | done | compiler | Language book / docs site skeleton: modules, dual-worlds, native types, host I/O, packages | `tests/integration/tests/website_pipeline.rs`, README |
 | P04 | todo | both | Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09) | `examples/` |
 | P05 | todo | compiler | Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**) | `crates/draconic-cli`, `examples/` |
 

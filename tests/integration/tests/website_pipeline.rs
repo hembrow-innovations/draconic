@@ -1,7 +1,8 @@
 //! Website pipeline seam (issues-21, issues-22, issues-23, issues-24,
-//! issues-25): compile the Draconic generator, run it on Learn and Reference
-//! pages, assert nav, status, and markdown subset; extract shipped `drac`
-//! fences and `draconic build` them. Learn and Reference skeletons are walkable.
+//! issues-25, issues-26): compile the Draconic generator, run it on Learn and
+//! Reference pages, assert nav, status, and markdown subset; extract shipped
+//! `drac` fences and `draconic build` them. Learn and Reference skeletons are
+//! walkable. README links the public site; CI deploys generated HTML.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -616,4 +617,124 @@ fn website_pipeline_reference_skeleton_is_walkable() {
         assert_reference_page_nav(&html);
         assert_visible_status(&html, href);
     }
+}
+
+const PUBLIC_SITE: &str = "https://hembrow-innovations.github.io/draconic";
+
+#[test]
+fn readme_links_public_docs_site_and_stays_onboarding() {
+    let readme = repo_root().join("README.md");
+    let text = fs::read_to_string(&readme).expect("read README");
+    assert!(
+        text.contains(PUBLIC_SITE),
+        "README should link the public Learn and Reference site ({PUBLIC_SITE}):\n{text}"
+    );
+    assert!(
+        text.contains("parse") && text.contains("hello.drac"),
+        "README should still document write-parse:\n{text}"
+    );
+    assert!(
+        text.contains("build --target js") && text.contains("build --target native"),
+        "README should still document write-parse-build:\n{text}"
+    );
+}
+
+#[test]
+fn generated_html_is_not_authoring_source() {
+    let root = repo_root();
+    let gitignore = fs::read_to_string(root.join(".gitignore")).expect("read .gitignore");
+    assert!(
+        gitignore.contains("/website/*.html") || gitignore.contains("website/*.html"),
+        "generated website HTML must be gitignored:\n{gitignore}"
+    );
+    assert!(
+        gitignore.contains("/dist"),
+        "dist must be gitignored so it is not the authoring source:\n{gitignore}"
+    );
+    let tracked = Command::new("git")
+        .args(["ls-files", "website"])
+        .current_dir(&root)
+        .output()
+        .expect("git ls-files website");
+    assert!(
+        tracked.status.success(),
+        "git ls-files website failed: {}",
+        String::from_utf8_lossy(&tracked.stderr)
+    );
+    let tracked = String::from_utf8_lossy(&tracked.stdout);
+    for line in tracked.lines() {
+        assert!(
+            !line.ends_with(".html"),
+            "website/ must not track generated HTML ({line}); markdown is the source of truth"
+        );
+    }
+}
+
+#[test]
+fn ci_workflow_generates_site_and_deploys_pages() {
+    let workflow = repo_root().join(".github/workflows/docs-pages.yml");
+    assert!(
+        workflow.is_file(),
+        "missing {} (issues-26 GitHub Pages workflow)",
+        workflow.display()
+    );
+    let text = fs::read_to_string(&workflow).expect("read workflow");
+    assert!(
+        text.contains("generate-website.sh") || text.contains("scripts/generate-website"),
+        "workflow should run the Draconic website generator script:\n{text}"
+    );
+    assert!(
+        text.contains("upload-pages-artifact"),
+        "workflow should upload generated HTML as a Pages artifact:\n{text}"
+    );
+    assert!(
+        text.contains("deploy-pages"),
+        "workflow should deploy HTML to GitHub Pages:\n{text}"
+    );
+    assert!(
+        text.contains("dist/pages") || text.contains("dist/pages/"),
+        "workflow should publish staged HTML from dist, not committed HTML:\n{text}"
+    );
+}
+
+#[test]
+fn generate_website_script_stages_html_to_dist() {
+    let root = repo_root();
+    let script = root.join("scripts/generate-website.sh");
+    assert!(
+        script.is_file(),
+        "missing {} (issues-26 generate + stage HTML)",
+        script.display()
+    );
+    let out = temp_dir().join("pages");
+    let output = Command::new("bash")
+        .arg(&script)
+        .arg("--bin")
+        .arg(draconic_bin())
+        .arg("--out")
+        .arg(&out)
+        .current_dir(&root)
+        .output()
+        .expect("run generate-website.sh");
+    assert!(
+        output.status.success(),
+        "generate-website.sh failed: status={:?} stdout={} stderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let index = fs::read_to_string(out.join("index.html")).expect("index.html");
+    assert!(
+        index.contains("<a href=\"learn.html\">Learn</a>"),
+        "staged index should be the generated site, got:\n{index}"
+    );
+    let learn = fs::read_to_string(out.join("learn.html")).expect("learn.html");
+    assert!(
+        learn.contains("<p class=\"status\">"),
+        "staged learn.html should include a status tag, got:\n{learn}"
+    );
+    assert!(
+        out.join(".nojekyll").is_file(),
+        "staged Pages dist should include .nojekyll"
+    );
 }
