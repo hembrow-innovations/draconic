@@ -1,0 +1,733 @@
+// E17.02.87: with + ToPrimitive (valueOf / toString hooks in + and ==)
+// through object environment (non-strict). Box/operand idents hit
+// object (else outer); both sides of +/== always evaluated (no
+// short-circuit); OrdinaryToPrimitive default hint number → valueOf
+// before toString; string + concatenates after ToPrimitive; valueOf
+// object → fall through toString; == coerces via ToPrimitive, === does
+// not; inherited HasBinding; accessor this is with object; valueOf this
+// is the box; unresolvable LHS or RHS → ReferenceError; live close;
+// nested with; unscopables skip.
+
+function makeNbox() {
+  return {
+    valueOf: function () {
+      return 10;
+    },
+    toString: function () {
+      return "str";
+    },
+  };
+}
+
+function makeSbox() {
+  return {
+    toString: function () {
+      return "7";
+    },
+  };
+}
+
+function makeFallback() {
+  return {
+    valueOf: function () {
+      return {};
+    },
+    toString: function () {
+      return "9";
+    },
+  };
+}
+
+function makeVonly() {
+  return {
+    valueOf: function () {
+      return 3;
+    },
+  };
+}
+
+function valueOfPreferredAddLeft() {
+  let obj = { box: makeNbox(), n: 5 };
+  with (obj) {
+    return (box + n) === 15;
+  }
+}
+let a = valueOfPreferredAddLeft();
+
+function valueOfPreferredAddRight() {
+  let obj = { box: makeNbox(), n: 5 };
+  with (obj) {
+    return (n + box) === 15;
+  }
+}
+let b = valueOfPreferredAddRight();
+
+function valueOfPreferredAddTwoBoxes() {
+  let obj = { x: makeNbox(), y: makeNbox() };
+  with (obj) {
+    return (x + y) === 20;
+  }
+}
+let c = valueOfPreferredAddTwoBoxes();
+
+function valueOfPreferredEqNum() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (box == 10) === true;
+  }
+}
+let d = valueOfPreferredEqNum();
+
+function valueOfPreferredNeNum() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (box == 11) === false;
+  }
+}
+let e = valueOfPreferredNeNum();
+
+function valueOfPreferredEqNumLeft() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (10 == box) === true;
+  }
+}
+let f = valueOfPreferredEqNumLeft();
+
+function addStrLeft() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return ("x" + box) === "x10";
+  }
+}
+let g = addStrLeft();
+
+function addStrRight() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (box + "x") === "10x";
+  }
+}
+let h = addStrRight();
+
+function toStringAddSbox() {
+  let obj = { box: makeSbox(), n: 1 };
+  with (obj) {
+    return (box + n) === "71";
+  }
+}
+let j = toStringAddSbox();
+
+function toStringEqSboxNum() {
+  let obj = { box: makeSbox() };
+  with (obj) {
+    return (box == 7) === true;
+  }
+}
+let k = toStringEqSboxNum();
+
+function toStringEqSboxStr() {
+  let obj = { box: makeSbox() };
+  with (obj) {
+    return (box == "7") === true;
+  }
+}
+let l = toStringEqSboxStr();
+
+function fallbackAdd() {
+  let obj = { box: makeFallback(), n: 1 };
+  with (obj) {
+    return (box + n) === "91";
+  }
+}
+let m = fallbackAdd();
+
+function fallbackEq() {
+  let obj = { box: makeFallback() };
+  with (obj) {
+    return (box == 9) === true;
+  }
+}
+let n = fallbackEq();
+
+function vonlyAdd() {
+  let obj = { box: makeVonly(), n: 4 };
+  with (obj) {
+    return (box + n) === 7;
+  }
+}
+let p = vonlyAdd();
+
+function vonlyEq() {
+  let obj = { box: makeVonly() };
+  with (obj) {
+    return (box == 3) === true;
+  }
+}
+let q = vonlyEq();
+
+function eqNboxTrue() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (box == true) === false;
+  }
+}
+let r = eqNboxTrue();
+
+function eqSboxTrue() {
+  let obj = { box: makeSbox() };
+  with (obj) {
+    return (box == true) === false;
+  }
+}
+let s = eqSboxTrue();
+
+function eqCoercesStrictDoesNot() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (box == 10) === true && (box === 10) === false;
+  }
+}
+let t = eqCoercesStrictDoesNot();
+
+function missIsOuterAdd() {
+  let box = makeNbox();
+  let n = 5;
+  with ({}) {
+    return (box + n) === 15;
+  }
+}
+let u = missIsOuterAdd();
+
+function missIsOuterEq() {
+  let box = makeNbox();
+  with ({}) {
+    return (box == 10) === true;
+  }
+}
+let v = missIsOuterEq();
+
+function objectShadowsOuter() {
+  let box = makeVonly();
+  let n = 1;
+  let obj = { box: makeNbox(), n: 5 };
+  with (obj) {
+    return (box + n) === 15;
+  }
+}
+let w = objectShadowsOuter();
+
+function bothSidesAlwaysEvaledAdd() {
+  let count = 0;
+  let obj = {
+    get x() {
+      count = count + 1;
+      return makeNbox();
+    },
+    get y() {
+      count = count + 1;
+      return 5;
+    },
+  };
+  with (obj) {
+    return (x + y) === 15 && count === 2;
+  }
+}
+let aa = bothSidesAlwaysEvaledAdd();
+
+function bothSidesAlwaysEvaledEq() {
+  let count = 0;
+  let obj = {
+    get x() {
+      count = count + 1;
+      return makeNbox();
+    },
+    get y() {
+      count = count + 1;
+      return 10;
+    },
+  };
+  with (obj) {
+    return (x == y) === true && count === 2;
+  }
+}
+let ab = bothSidesAlwaysEvaledEq();
+
+function unscopablesUsesOuter() {
+  let box = makeNbox();
+  let n = 5;
+  let obj = { box: makeVonly(), n: 99 };
+  obj[Symbol.unscopables] = { box: true, n: true };
+  with (obj) {
+    return (box + n) === 15;
+  }
+}
+let ac = unscopablesUsesOuter();
+
+function inheritedBoxOnProto() {
+  let proto = { box: makeNbox(), n: 5 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (box + n) === 15 && (box == 10) === true;
+  }
+}
+let ad = inheritedBoxOnProto();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let inner = makeNbox();
+  let proto = {
+    get box() {
+      seen = this;
+      return inner;
+    },
+    n: 5,
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (box + n) === 15 && seen === obj;
+  }
+}
+let ae = inheritedGetterThis();
+
+function liveCloseAdd() {
+  let obj = { box: makeNbox(), n: 5 };
+  let run;
+  with (obj) {
+    run = function () {
+      return box + n;
+    };
+  }
+  obj.n = 6;
+  return run() === 16;
+}
+let af = liveCloseAdd();
+
+function unresolvableLhsThrows() {
+  with ({ n: 5 }) {
+    try {
+      e170287_missing + n;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170287_missing === "undefined"
+      );
+    }
+  }
+}
+let ag = unresolvableLhsThrows();
+
+function unresolvableRhsThrowsAlways() {
+  let ran = false;
+  let obj = {
+    get box() {
+      ran = true;
+      return makeNbox();
+    },
+  };
+  with (obj) {
+    try {
+      box + e170287_missing_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ah = unresolvableRhsThrowsAlways();
+
+function unresolvableLhsSkipsRhs() {
+  let ran = false;
+  let obj = {
+    get n() {
+      ran = true;
+      return 5;
+    },
+  };
+  with (obj) {
+    try {
+      e170287_first + n;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ai = unresolvableLhsSkipsRhs();
+
+function nestedInnerWins() {
+  let inner = { box: makeNbox(), n: 5 };
+  let outer = { box: makeVonly(), n: 99 };
+  with (outer) {
+    with (inner) {
+      return (box + n) === 15;
+    }
+  }
+}
+let aj = nestedInnerWins();
+
+function nestedInnerMissUsesOuter() {
+  with ({ box: makeNbox(), n: 5 }) {
+    with ({}) {
+      return (box + n) === 15;
+    }
+  }
+}
+let ak = nestedInnerMissUsesOuter();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let inner = makeNbox();
+  let obj = {
+    get box() {
+      seen = this;
+      return inner;
+    },
+    n: 5,
+  };
+  with (obj) {
+    return (box + n) === 15 && seen === obj;
+  }
+}
+let al = accessorThisIsWithObject();
+
+function valueOfThisIsBox() {
+  let seen = null;
+  let box = {
+    valueOf: function () {
+      seen = this;
+      return 10;
+    },
+    toString: function () {
+      return "str";
+    },
+  };
+  let obj = { box: box, n: 5 };
+  with (obj) {
+    return (box + n) === 15 && seen === box;
+  }
+}
+let am = valueOfThisIsBox();
+
+function inheritedValueOfOnBox() {
+  let proto = {
+    valueOf: function () {
+      return 10;
+    },
+    toString: function () {
+      return "str";
+    },
+  };
+  let box = Object.create(proto);
+  let obj = { box: box, n: 5 };
+  with (obj) {
+    return (box + n) === 15;
+  }
+}
+let an = inheritedValueOfOnBox();
+
+function liveCloseEq() {
+  let obj = { box: makeNbox(), n: 10 };
+  let run;
+  with (obj) {
+    run = function () {
+      return box == n;
+    };
+  }
+  obj.n = 11;
+  return run() === false;
+}
+let ap = liveCloseEq();
+
+function nestedWithUnscopables() {
+  let inner = { box: makeVonly(), n: 99 };
+  inner[Symbol.unscopables] = { box: true, n: true };
+  with ({ box: makeNbox(), n: 5 }) {
+    with (inner) {
+      return (box + n) === 15;
+    }
+  }
+}
+let aq = nestedWithUnscopables();
+
+function emptyMissUsesOuter() {
+  let box = makeSbox();
+  let n = 1;
+  with ({}) {
+    return (box + n) === "71";
+  }
+}
+let ar = emptyMissUsesOuter();
+
+function boxHitsObjectNLiteral() {
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (box + 5) === 15 && (5 + box) === 15;
+  }
+}
+let at = boxHitsObjectNLiteral();
+
+function nHitsObjectBoxOuter() {
+  let box = makeNbox();
+  let obj = { n: 5 };
+  with (obj) {
+    return (box + n) === 15;
+  }
+}
+let au = nHitsObjectBoxOuter();
+
+function toStringThisIsBox() {
+  let seen = null;
+  let box = {
+    toString: function () {
+      seen = this;
+      return "7";
+    },
+  };
+  let obj = { box: box, n: 1 };
+  with (obj) {
+    return (box + n) === "71" && seen === box;
+  }
+}
+let av = toStringThisIsBox();
+
+function fallbackValueOfThenToString() {
+  let vo = 0;
+  let ts = 0;
+  let box = {
+    valueOf: function () {
+      vo = vo + 1;
+      return {};
+    },
+    toString: function () {
+      ts = ts + 1;
+      return "9";
+    },
+  };
+  let obj = { box: box, n: 1 };
+  with (obj) {
+    return (box + n) === "91" && vo === 1 && ts === 1;
+  }
+}
+let aw = fallbackValueOfThenToString();
+
+function unscopablesOneSide() {
+  let box = makeNbox();
+  let obj = { box: makeVonly(), n: 5 };
+  obj[Symbol.unscopables] = { box: true };
+  with (obj) {
+    return (box + n) === 15;
+  }
+}
+let ax = unscopablesOneSide();
+
+function liveCloseToStringConcat() {
+  let obj = { box: makeNbox(), s: "x" };
+  let run;
+  with (obj) {
+    run = function () {
+      return s + box;
+    };
+  }
+  obj.s = "z";
+  return run() === "z10";
+}
+let ay = liveCloseToStringConcat();
+
+function accessorThenValueOfThis() {
+  let getterThis = null;
+  let voThis = null;
+  let inner = {
+    valueOf: function () {
+      voThis = this;
+      return 10;
+    },
+  };
+  let obj = {
+    get box() {
+      getterThis = this;
+      return inner;
+    },
+    n: 5,
+  };
+  with (obj) {
+    return (box + n) === 15 && getterThis === obj && voThis === inner;
+  }
+}
+let az = accessorThenValueOfThis();
+
+function bothBoxesFromObjectEq() {
+  let obj = { x: makeNbox(), y: 10 };
+  with (obj) {
+    return (x == y) === true && (x === y) === false;
+  }
+}
+let ba = bothBoxesFromObjectEq();
+
+function unresolvableEqRhs() {
+  let ran = false;
+  let obj = {
+    get box() {
+      ran = true;
+      return makeNbox();
+    },
+  };
+  with (obj) {
+    try {
+      box == e170287_eq_rhs;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bb = unresolvableEqRhs();
+
+function nestedInnerWinsEq() {
+  let inner = { box: makeNbox() };
+  let outer = { box: makeVonly() };
+  with (outer) {
+    with (inner) {
+      return (box == 10) === true && (box == 3) === false;
+    }
+  }
+}
+let bc = nestedInnerWinsEq();
+
+function missIsOuterStrConcat() {
+  let box = makeNbox();
+  with ({}) {
+    return (box + "x") === "10x";
+  }
+}
+let bd = missIsOuterStrConcat();
+
+function objectShadowsOuterEq() {
+  let box = makeVonly();
+  let obj = { box: makeNbox() };
+  with (obj) {
+    return (box == 10) === true && (box == 3) === false;
+  }
+}
+let be = objectShadowsOuterEq();
+
+function inheritedToStringOnBox() {
+  let proto = {
+    toString: function () {
+      return "7";
+    },
+  };
+  let box = Object.create(proto);
+  let obj = { box: box, n: 1 };
+  with (obj) {
+    return (box + n) === "71" && (box == 7) === true;
+  }
+}
+let bf = inheritedToStringOnBox();
+
+function groupingVsMul() {
+  let obj = { box: makeNbox(), n: 2 };
+  with (obj) {
+    return (box + n) * 2 === 24 && box + n * 2 === 14;
+  }
+}
+let bg = groupingVsMul();
+
+function unscopablesEqUsesOuter() {
+  let box = makeNbox();
+  let obj = { box: makeVonly() };
+  obj[Symbol.unscopables] = { box: true };
+  with (obj) {
+    return (box == 10) === true;
+  }
+}
+let bh = unscopablesEqUsesOuter();
+
+function liveCloseFallback() {
+  let obj = { box: makeFallback(), n: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return box + n;
+    };
+  }
+  obj.n = 2;
+  return run() === "92";
+}
+let bi = liveCloseFallback();
+
+function nestedInnerMissEq() {
+  with ({ box: makeNbox() }) {
+    with ({}) {
+      return (box == 10) === true;
+    }
+  }
+}
+let bj = nestedInnerMissEq();
+
+function accessorThisEq() {
+  let seen = null;
+  let inner = makeNbox();
+  let obj = {
+    get box() {
+      seen = this;
+      return inner;
+    },
+  };
+  with (obj) {
+    return (box == 10) === true && seen === obj;
+  }
+}
+let bk = accessorThisEq();
+
+function unresolvableEqLhsSkipsRhs() {
+  let ran = false;
+  let obj = {
+    get n() {
+      ran = true;
+      return 10;
+    },
+  };
+  with (obj) {
+    try {
+      e170287_eq_lhs == n;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bl = unresolvableEqLhsSkipsRhs();
+
+function twoNboxConcatStr() {
+  let obj = { x: makeNbox(), y: makeNbox(), s: ":" };
+  with (obj) {
+    return (s + x + y) === ":1010";
+  }
+}
+let bm = twoNboxConcatStr();
+
+function vonlyMissIsOuter() {
+  let box = makeVonly();
+  with ({}) {
+    return (box + 4) === 7 && (box == 3) === true;
+  }
+}
+let bn = vonlyMissIsOuter();
+
+function inheritedGetterThisEq() {
+  let seen = null;
+  let inner = makeNbox();
+  let proto = {
+    get box() {
+      seen = this;
+      return inner;
+    },
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (box == 10) === true && seen === obj;
+  }
+}
+let bp = inheritedGetterThisEq();

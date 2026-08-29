@@ -908,3 +908,13 @@ fn with_abstract_eq_coercion_fixture_present() {
 fn with_abstract_eq_coercion_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_abstract_eq_coercion");
 }
+
+#[test]
+fn with_to_primitive_fixture_present() {
+    assert_fixture_present("es/legacy/with_to_primitive");
+}
+
+#[test]
+fn with_to_primitive_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_to_primitive");
+}
