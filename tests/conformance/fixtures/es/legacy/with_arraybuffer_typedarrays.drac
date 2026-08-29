@@ -1,0 +1,1214 @@
+// E17.02.97: with + global ArrayBuffer / DataView / TypedArrays
+// (typeof, globalThis identity, new ArrayBuffer(n) / .byteLength,
+// new Uint8Array / Int32Array / Float64Array, .length / index
+// read-write, new DataView(buf) / .getUint8 / .setUint8) through
+// object environment (non-strict). ArrayBuffer / DataView /
+// Uint8Array / Int32Array / Float64Array ident hits object (else
+// outer); with (ArrayBuffer) / with (DataView) / with (Uint8Array)
+// method idents hit those constructors (name / length / prototype);
+// instance byteLength / length / getUint8 / setUint8; inherited
+// HasBinding; accessor this is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function withArrayBufferByteLength() {
+  let buf = new ArrayBuffer(8);
+  with (buf) {
+    return byteLength === 8;
+  }
+}
+let a = withArrayBufferByteLength();
+
+function withUint8IndexReadWrite() {
+  let u8 = new Uint8Array(2);
+  with ({ u8: u8 }) {
+    u8[0] = 1;
+    u8[1] = 2;
+    return u8[0] === 1 && u8[1] === 2 && u8.length === 2;
+  }
+}
+let b = withUint8IndexReadWrite();
+
+function withArrayBufferNew() {
+  let obj = { ArrayBuffer: ArrayBuffer };
+  with (obj) {
+    let buf = new ArrayBuffer(8);
+    return buf.byteLength === 8 && buf instanceof ArrayBuffer;
+  }
+}
+let c = withArrayBufferNew();
+
+function withDataViewGetSetUint8() {
+  let buf = new ArrayBuffer(8);
+  let dv = new DataView(buf);
+  with (dv) {
+    setUint8(2, 3);
+    return getUint8(2) === 3 && getUint8(0) === 0;
+  }
+}
+let d = withDataViewGetSetUint8();
+
+function withArrayBufferTypeof() {
+  let obj = { ArrayBuffer: ArrayBuffer };
+  with (obj) {
+    return typeof ArrayBuffer === "function";
+  }
+}
+let e = withArrayBufferTypeof();
+
+function withByteLengthTypeof() {
+  let buf = new ArrayBuffer(8);
+  with (buf) {
+    return typeof byteLength === "number";
+  }
+}
+let f = withByteLengthTypeof();
+
+function withGetUint8Typeof() {
+  let dv = new DataView(new ArrayBuffer(8));
+  with (dv) {
+    return typeof getUint8 === "function";
+  }
+}
+let g = withGetUint8Typeof();
+
+function withArrayBufferBracketByteLength() {
+  let obj = { ArrayBuffer: ArrayBuffer };
+  with (obj) {
+    let buf = new ArrayBuffer(8);
+    return buf["byteLength"] === 8;
+  }
+}
+let h = withArrayBufferBracketByteLength();
+
+function arrayBufferIdentHitsObject() {
+  let obj = {
+    ArrayBuffer: function (n) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new ArrayBuffer(8).p === "hit";
+  }
+}
+let j = arrayBufferIdentHitsObject();
+
+function arrayBufferIdentMissIsOuter() {
+  with ({}) {
+    let buf = new ArrayBuffer(8);
+    return buf.byteLength === 8;
+  }
+}
+let k = arrayBufferIdentMissIsOuter();
+
+function arrayBufferIdentShadowsOuter() {
+  let obj = {
+    ArrayBuffer: function (n) {
+      this.p = 0;
+    }
+  };
+  with (obj) {
+    return new ArrayBuffer(8).p === 0;
+  }
+}
+let l = arrayBufferIdentShadowsOuter();
+
+function byteLengthIdentHitsObject() {
+  let obj = { byteLength: 7 };
+  with (obj) {
+    return byteLength === 7;
+  }
+}
+let m = byteLengthIdentHitsObject();
+
+function byteLengthIdentMissIsOuter() {
+  let byteLength = 8;
+  with ({}) {
+    return byteLength === 8;
+  }
+}
+let n = byteLengthIdentMissIsOuter();
+
+function objectShadowsOuterByteLength() {
+  let byteLength = 8;
+  let obj = { byteLength: 9 };
+  with (obj) {
+    return byteLength === 9;
+  }
+}
+let p = objectShadowsOuterByteLength();
+
+function callThisIsWithObject() {
+  let obj = {
+    setUint8: function (i, v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return setUint8(0, 1) === 3;
+  }
+}
+let q = callThisIsWithObject();
+
+function withDataViewCallThisIsDataView() {
+  let dv = new DataView(new ArrayBuffer(8));
+  let seen = null;
+  let orig = dv.setUint8;
+  dv.setUint8 = function (i, v) {
+    seen = this;
+    return orig.call(this, i, v);
+  };
+  let ok;
+  with (dv) {
+    ok = setUint8(0, 1) === undefined && seen === dv && getUint8(0) === 1;
+  }
+  return ok;
+}
+let r = withDataViewCallThisIsDataView();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get ArrayBuffer() {
+      n = n + 1;
+      return ArrayBuffer;
+    },
+    get k() {
+      n = n + 1;
+      return 8;
+    }
+  };
+  with (obj) {
+    let buf = new ArrayBuffer(k);
+    return buf.byteLength === 8 && n === 2;
+  }
+}
+let s = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function setUint8(i, v) {
+    return 11;
+  }
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = { setUint8: dv.setUint8.bind(dv) };
+  obj[Symbol.unscopables] = { setUint8: true };
+  with (obj) {
+    return setUint8(0, 1) === 11;
+  }
+}
+let t = unscopablesUsesOuter();
+
+function unscopablesArrayBufferIdent() {
+  let obj = {
+    ArrayBuffer: function (n) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { ArrayBuffer: true };
+  with (obj) {
+    let buf = new ArrayBuffer(8);
+    return buf.byteLength === 8;
+  }
+}
+let u = unscopablesArrayBufferIdent();
+
+function inheritedData() {
+  let dv = new DataView(new ArrayBuffer(8));
+  let proto = {
+    setUint8: dv.setUint8.bind(dv),
+    getUint8: dv.getUint8.bind(dv)
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    setUint8(0, 1);
+    return getUint8(0) === 1;
+  }
+}
+let v = inheritedData();
+
+function inheritedFromArrayBuffer() {
+  let obj = Object.create(ArrayBuffer);
+  with (obj) {
+    return name === "ArrayBuffer" && length === 1 && prototype === ArrayBuffer.prototype;
+  }
+}
+let w = inheritedFromArrayBuffer();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let dv = new DataView(new ArrayBuffer(8));
+  let proto = {
+    get setUint8() {
+      seen = this;
+      return dv.setUint8.bind(dv);
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return setUint8(0, 1) === undefined && seen === obj;
+  }
+}
+let aa = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = {
+    get setUint8() {
+      seen = this;
+      return dv.setUint8.bind(dv);
+    }
+  };
+  with (obj) {
+    return setUint8(0, 1) === undefined && seen === obj;
+  }
+}
+let ab = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    setUint8: function (i, v) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (i, v) {
+      return setUint8(i, v);
+    };
+  }
+  let dv = new DataView(new ArrayBuffer(8));
+  obj.setUint8 = dv.setUint8.bind(dv);
+  return run(0, 1) === undefined && dv.getUint8(0) === 1;
+}
+let ac = liveClose();
+
+function liveCloseArrayBufferIdent() {
+  let obj = {
+    ArrayBuffer: function (n) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (n) {
+      return new ArrayBuffer(n);
+    };
+  }
+  obj.ArrayBuffer = ArrayBuffer;
+  let buf = run(8);
+  return buf.byteLength === 8;
+}
+let ad = liveCloseArrayBufferIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170297_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ae = unresolvableCalleeThrows();
+
+function unresolvableArrayBufferThrows() {
+  with ({}) {
+    try {
+      e170297_noglob.byteLength;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170297_noglob === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableArrayBufferThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    setUint8: function (i, v) {
+      return 5;
+    }
+  };
+  let dv = new DataView(new ArrayBuffer(8));
+  with (dv) {
+    with (inner) {
+      return setUint8(0, 1) === 5;
+    }
+  }
+}
+let ag = nestedInnerWins();
+
+function nestedInnerMissOuterDataView() {
+  with ({ setUint8: function (i, v) { return 5; } }) {
+    let dv = new DataView(new ArrayBuffer(8));
+    with (dv) {
+      setUint8(0, 1);
+      return getUint8(0) === 1;
+    }
+  }
+}
+let ah = nestedInnerMissOuterDataView();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let dv = new DataView(new ArrayBuffer(8));
+  let outer = { setUint8: dv.setUint8.bind(dv) };
+  with (outer) {
+    with (inner) {
+      setUint8(0, 1);
+      return dv.getUint8(0) === 1;
+    }
+  }
+}
+let ai = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function setUint8(i, v) {
+    return 11;
+  }
+  let dv = new DataView(new ArrayBuffer(8));
+  let inner = { setUint8: dv.setUint8.bind(dv) };
+  inner[Symbol.unscopables] = { setUint8: true };
+  let outer = {
+    setUint8: function (i, v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return setUint8(0, 1) === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { setUint8: 1 };
+  with (obj) {
+    try {
+      setUint8(0, 1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofSetUint8Method() {
+  let t;
+  let dv = new DataView(new ArrayBuffer(8));
+  with (dv) {
+    t = typeof setUint8;
+  }
+  return t === "function";
+}
+let al = typeofSetUint8Method();
+
+function typeofArrayBufferThroughWith() {
+  let obj = { ArrayBuffer: ArrayBuffer };
+  let t;
+  with (obj) {
+    t = typeof ArrayBuffer;
+  }
+  return t === "function";
+}
+let am = typeofArrayBufferThroughWith();
+
+function typeofGetUint8() {
+  let t;
+  let dv = new DataView(new ArrayBuffer(8));
+  with (dv) {
+    t = typeof getUint8;
+  }
+  return t === "function";
+}
+let an = typeofGetUint8();
+
+function memberStillArrayBuffer() {
+  let obj = { x: 1 };
+  with (obj) {
+    let buf = new ArrayBuffer(8);
+    return buf.byteLength === 8;
+  }
+}
+let ap = memberStillArrayBuffer();
+
+function argsHitObject() {
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = {
+    i: 0,
+    v: 1,
+    setUint8: dv.setUint8.bind(dv)
+  };
+  with (obj) {
+    setUint8(i, v);
+    return dv.getUint8(0) === 1;
+  }
+}
+let aq = argsHitObject();
+
+function argsMissIsOuter() {
+  let i = 0;
+  let v = 1;
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = { setUint8: dv.setUint8.bind(dv) };
+  with (obj) {
+    setUint8(i, v);
+    return dv.getUint8(0) === 1;
+  }
+}
+let ar = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = {
+    get setUint8() {
+      ran = true;
+      return dv.setUint8.bind(dv);
+    }
+  };
+  with (obj) {
+    try {
+      setUint8(e170297_arg, 1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let at = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e170297_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let au = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function setUint8(i, v) {
+    return 1;
+  }
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = { setUint8: dv.setUint8.bind(dv) };
+  let run;
+  with (obj) {
+    run = function (i, v) {
+      return setUint8(i, v);
+    };
+  }
+  obj.setUint8 = function (i, v) {
+    return 2;
+  };
+  return run(0, 1) === 2;
+}
+let av = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = {
+    get setUint8() {
+      c = c + 1;
+      return dv.setUint8.bind(dv);
+    }
+  };
+  with (obj) {
+    setUint8(0, 1);
+  }
+  return dv.getUint8(0) === 1 && c === 1;
+}
+let aw = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalArrayBuffer() {
+  let obj = {};
+  let out;
+  with (obj) {
+    let buf = new ArrayBuffer(8);
+    out = buf.byteLength;
+  }
+  return out === 8;
+}
+let ax = emptyMissUsesGlobalArrayBuffer();
+
+function globalThisIdentity() {
+  let obj = { ArrayBuffer: ArrayBuffer };
+  with (obj) {
+    return ArrayBuffer === globalThis.ArrayBuffer;
+  }
+}
+let ay = globalThisIdentity();
+
+function getUint8IdentHitsObject() {
+  let obj = {
+    getUint8: function (i) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return getUint8(0) === "hit";
+  }
+}
+let az = getUint8IdentHitsObject();
+
+function bracketMethodOnObject() {
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = { setUint8: dv.setUint8.bind(dv) };
+  with (obj) {
+    obj["setUint8"](0, 1);
+    return dv.getUint8(0) === 1;
+  }
+}
+let ba = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let dv = new DataView(new ArrayBuffer(8));
+  let obj = { setUint8: dv.setUint8.bind(dv), i: 9 };
+  obj[Symbol.unscopables] = { i: true };
+  let i = 0;
+  with (obj) {
+    setUint8(i, 1);
+  }
+  return dv.getUint8(0) === 1 && obj.i === 9;
+}
+let bb = unscopablesSecondIdent();
+
+function arrayBufferTypeofHit() {
+  let obj = { ArrayBuffer: 1 };
+  let t;
+  with (obj) {
+    t = typeof ArrayBuffer;
+  }
+  return t === "number";
+}
+let bc = arrayBufferTypeofHit();
+
+function missUsesGlobalArrayBuffer() {
+  with ({}) {
+    return new ArrayBuffer(8).byteLength === 8;
+  }
+}
+let bd = missUsesGlobalArrayBuffer();
+
+function getUint8IdentMissIsOuter() {
+  with ({}) {
+    let dv = new DataView(new ArrayBuffer(8));
+    dv.setUint8(0, 1);
+    return dv.getUint8(0) === 1;
+  }
+}
+let be = getUint8IdentMissIsOuter();
+
+function liveCloseGetUint8() {
+  let obj = { getUint8: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return getUint8;
+    };
+  }
+  let dv = new DataView(new ArrayBuffer(8));
+  dv.setUint8(0, 1);
+  obj.getUint8 = dv.getUint8.bind(dv);
+  return run()(0) === 1;
+}
+let bf = liveCloseGetUint8();
+
+function unscopablesGetUint8() {
+  let obj = { getUint8: 1 };
+  obj[Symbol.unscopables] = { getUint8: true };
+  with (obj) {
+    return typeof getUint8 === "undefined";
+  }
+}
+let bg = unscopablesGetUint8();
+
+function nestedGetUint8InnerWins() {
+  with ({ getUint8: 1 }) {
+    with ({ getUint8: 2 }) {
+      return getUint8 === 2;
+    }
+  }
+}
+let bh = nestedGetUint8InnerWins();
+
+function getterRunsOnceGetUint8() {
+  let c = 0;
+  let dv = new DataView(new ArrayBuffer(8));
+  dv.setUint8(0, 1);
+  let obj = {
+    get getUint8() {
+      c = c + 1;
+      return dv.getUint8.bind(dv);
+    }
+  };
+  let out;
+  with (obj) {
+    out = getUint8(0);
+  }
+  return out === 1 && c === 1;
+}
+let bi = getterRunsOnceGetUint8();
+
+function identitySetUint8() {
+  let obj = { DataView: DataView };
+  with (obj) {
+    return DataView.prototype.setUint8 === globalThis.DataView.prototype.setUint8;
+  }
+}
+let bj = identitySetUint8();
+
+function identityGetUint8() {
+  let obj = { DataView: DataView };
+  with (obj) {
+    return DataView.prototype.getUint8 === globalThis.DataView.prototype.getUint8;
+  }
+}
+let bk = identityGetUint8();
+
+function nestedArrayBufferInnerWins() {
+  with ({ ArrayBuffer: 1 }) {
+    with ({ ArrayBuffer: 2 }) {
+      return ArrayBuffer === 2;
+    }
+  }
+}
+let bl = nestedArrayBufferInnerWins();
+
+function emptyMissUsesGlobalByteLength() {
+  with ({}) {
+    let buf = new ArrayBuffer(8);
+    return buf.byteLength === 8;
+  }
+}
+let bm = emptyMissUsesGlobalByteLength();
+
+function withArrayBufferName() {
+  with (ArrayBuffer) {
+    return name === "ArrayBuffer";
+  }
+}
+let bn = withArrayBufferName();
+
+function withArrayBufferLength() {
+  with (ArrayBuffer) {
+    return length === 1;
+  }
+}
+let bp = withArrayBufferLength();
+
+function withArrayBufferPrototype() {
+  with (ArrayBuffer) {
+    return prototype === ArrayBuffer.prototype;
+  }
+}
+let bq = withArrayBufferPrototype();
+
+function withArrayBufferNewThisIsInstance() {
+  let obj = { ArrayBuffer: ArrayBuffer };
+  with (obj) {
+    let buf = new ArrayBuffer(8);
+    return buf.byteLength === 8 && buf !== obj && buf instanceof ArrayBuffer;
+  }
+}
+let br = withArrayBufferNewThisIsInstance();
+
+function withDataViewNewThisIsInstance() {
+  let buf = new ArrayBuffer(8);
+  let obj = { DataView: DataView };
+  with (obj) {
+    let dv = new DataView(buf);
+    dv.setUint8(0, 1);
+    return dv.getUint8(0) === 1 && dv !== obj && dv instanceof DataView;
+  }
+}
+let bs = withDataViewNewThisIsInstance();
+
+function withDataViewTypeof() {
+  let obj = { DataView: DataView };
+  with (obj) {
+    return typeof DataView === "function";
+  }
+}
+let bt = withDataViewTypeof();
+
+function globalThisIdentityDataView() {
+  let obj = { DataView: DataView };
+  with (obj) {
+    return DataView === globalThis.DataView;
+  }
+}
+let bu = globalThisIdentityDataView();
+
+function withDataViewName() {
+  with (DataView) {
+    return name === "DataView";
+  }
+}
+let bv = withDataViewName();
+
+function withDataViewLength() {
+  with (DataView) {
+    return length === 1;
+  }
+}
+let bw = withDataViewLength();
+
+function withDataViewPrototype() {
+  with (DataView) {
+    return prototype === DataView.prototype;
+  }
+}
+let bx = withDataViewPrototype();
+
+function dataViewCtorIdentHitsObject() {
+  let obj = {
+    DataView: function (buf) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new DataView(new ArrayBuffer(8)).p === "hit";
+  }
+}
+let by = dataViewCtorIdentHitsObject();
+
+function dataViewCtorIdentMissIsOuter() {
+  with ({}) {
+    let buf = new ArrayBuffer(8);
+    let dv = new DataView(buf);
+    dv.setUint8(0, 1);
+    return dv.getUint8(0) === 1;
+  }
+}
+let bz = dataViewCtorIdentMissIsOuter();
+
+function setUint8IdentHitsObject() {
+  let obj = {
+    setUint8: function (i, v) {
+      return i === 0 && v === 1 ? 7 : 0;
+    }
+  };
+  with (obj) {
+    return setUint8(0, 1) === 7;
+  }
+}
+let ca = setUint8IdentHitsObject();
+
+function withDataViewSetThisIsDataView() {
+  let dv = new DataView(new ArrayBuffer(8));
+  let seen = null;
+  let orig = dv.setUint8;
+  dv.setUint8 = function (i, v) {
+    seen = this;
+    return orig.call(this, i, v);
+  };
+  let ok;
+  with (dv) {
+    setUint8(0, 1);
+    ok = seen === dv && getUint8(0) === 1;
+  }
+  return ok;
+}
+let cb = withDataViewSetThisIsDataView();
+
+function withArrayBufferByteLengthIdent() {
+  let buf = new ArrayBuffer(8);
+  with (buf) {
+    return byteLength === 8;
+  }
+}
+let cc = withArrayBufferByteLengthIdent();
+
+function withUint8ArrayLengthIdent() {
+  let u8 = new Uint8Array(4);
+  with (u8) {
+    return length === 4;
+  }
+}
+let cd = withUint8ArrayLengthIdent();
+
+function unscopablesDataViewCtor() {
+  let obj = {
+    DataView: function (buf) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { DataView: true };
+  with (obj) {
+    let dv = new DataView(new ArrayBuffer(8));
+    dv.setUint8(0, 1);
+    return dv.getUint8(0) === 1;
+  }
+}
+let ce = unscopablesDataViewCtor();
+
+function nestedDataViewInnerWins() {
+  with ({ DataView: 1 }) {
+    with ({ DataView: 2 }) {
+      return DataView === 2;
+    }
+  }
+}
+let cf = nestedDataViewInnerWins();
+
+function liveCloseDataViewCtor() {
+  let obj = {
+    DataView: function (buf) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (buf) {
+      return new DataView(buf);
+    };
+  }
+  obj.DataView = DataView;
+  let dv = run(new ArrayBuffer(8));
+  dv.setUint8(0, 1);
+  return dv.getUint8(0) === 1;
+}
+let cg = liveCloseDataViewCtor();
+
+function withUint8ArrayTypeof() {
+  let obj = { Uint8Array: Uint8Array };
+  with (obj) {
+    return typeof Uint8Array === "function";
+  }
+}
+let ch = withUint8ArrayTypeof();
+
+function globalThisIdentityUint8Array() {
+  let obj = { Uint8Array: Uint8Array };
+  with (obj) {
+    return Uint8Array === globalThis.Uint8Array;
+  }
+}
+let ci = globalThisIdentityUint8Array();
+
+function withUint8ArrayName() {
+  with (Uint8Array) {
+    return name === "Uint8Array";
+  }
+}
+let cj = withUint8ArrayName();
+
+function withUint8ArrayCtorLength() {
+  with (Uint8Array) {
+    return length === 3;
+  }
+}
+let ck = withUint8ArrayCtorLength();
+
+function withUint8ArrayPrototype() {
+  with (Uint8Array) {
+    return prototype === Uint8Array.prototype;
+  }
+}
+let cl = withUint8ArrayPrototype();
+
+function uint8ArrayCtorIdentHitsObject() {
+  let obj = {
+    Uint8Array: function (n) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Uint8Array(2).p === "hit";
+  }
+}
+let cm = uint8ArrayCtorIdentHitsObject();
+
+function uint8ArrayCtorIdentMissIsOuter() {
+  with ({}) {
+    let u8 = new Uint8Array(2);
+    u8[0] = 1;
+    return u8[0] === 1 && u8.length === 2;
+  }
+}
+let cn = uint8ArrayCtorIdentMissIsOuter();
+
+function withInt32ArrayIndex() {
+  let i32 = new Int32Array(2);
+  with ({ i32: i32 }) {
+    i32[0] = 42;
+    i32[1] = -7;
+    return i32[0] === 42 && i32[1] === -7 && i32.length === 2;
+  }
+}
+let cp = withInt32ArrayIndex();
+
+function withFloat64ArrayIndex() {
+  let f64 = new Float64Array([1.5, 2.25]);
+  with ({ f64: f64 }) {
+    return f64[0] === 1.5 && f64[1] === 2.25 && f64.length === 2;
+  }
+}
+let cq = withFloat64ArrayIndex();
+
+function identityByteLength() {
+  let obj = { ArrayBuffer: ArrayBuffer };
+  with (obj) {
+    return (
+      Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength").get ===
+      Object.getOwnPropertyDescriptor(globalThis.ArrayBuffer.prototype, "byteLength").get
+    );
+  }
+}
+let cr = identityByteLength();
+
+function withInt32ArrayTypeofAndIdentity() {
+  let obj = { Int32Array: Int32Array };
+  with (obj) {
+    return typeof Int32Array === "function" && Int32Array === globalThis.Int32Array;
+  }
+}
+let cs = withInt32ArrayTypeofAndIdentity();
+
+function withFloat64ArrayTypeofAndIdentity() {
+  let obj = { Float64Array: Float64Array };
+  with (obj) {
+    return typeof Float64Array === "function" && Float64Array === globalThis.Float64Array;
+  }
+}
+let ct = withFloat64ArrayTypeofAndIdentity();
+
+function withUint8ArrayBytesPerElement() {
+  with (Uint8Array) {
+    return BYTES_PER_ELEMENT === 1;
+  }
+}
+let cu = withUint8ArrayBytesPerElement();
+
+function withInt32ArrayBytesPerElement() {
+  with (Int32Array) {
+    return BYTES_PER_ELEMENT === 4;
+  }
+}
+let cv = withInt32ArrayBytesPerElement();
+
+function withFloat64ArrayBytesPerElement() {
+  with (Float64Array) {
+    return BYTES_PER_ELEMENT === 8;
+  }
+}
+let cw = withFloat64ArrayBytesPerElement();
+
+function withUint8ArrayNewThisIsInstance() {
+  let obj = { Uint8Array: Uint8Array };
+  with (obj) {
+    let u8 = new Uint8Array(2);
+    u8[0] = 1;
+    return u8[0] === 1 && u8 !== obj && u8 instanceof Uint8Array;
+  }
+}
+let cx = withUint8ArrayNewThisIsInstance();
+
+function withInt32ArrayNewThisIsInstance() {
+  let obj = { Int32Array: Int32Array };
+  with (obj) {
+    let i32 = new Int32Array(2);
+    i32[0] = 42;
+    return i32[0] === 42 && i32 !== obj && i32 instanceof Int32Array;
+  }
+}
+let cy = withInt32ArrayNewThisIsInstance();
+
+function withFloat64ArrayNewThisIsInstance() {
+  let obj = { Float64Array: Float64Array };
+  with (obj) {
+    let f64 = new Float64Array(2);
+    f64[0] = 1.5;
+    return f64[0] === 1.5 && f64 !== obj && f64 instanceof Float64Array;
+  }
+}
+let cz = withFloat64ArrayNewThisIsInstance();
+
+function unscopablesUint8ArrayCtor() {
+  let obj = {
+    Uint8Array: function (n) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Uint8Array: true };
+  with (obj) {
+    let u8 = new Uint8Array(2);
+    u8[0] = 1;
+    return u8[0] === 1;
+  }
+}
+let da = unscopablesUint8ArrayCtor();
+
+function nestedUint8ArrayInnerWins() {
+  with ({ Uint8Array: 1 }) {
+    with ({ Uint8Array: 2 }) {
+      return Uint8Array === 2;
+    }
+  }
+}
+let db = nestedUint8ArrayInnerWins();
+
+function liveCloseUint8ArrayCtor() {
+  let obj = {
+    Uint8Array: function (n) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (n) {
+      return new Uint8Array(n);
+    };
+  }
+  obj.Uint8Array = Uint8Array;
+  let u8 = run(2);
+  u8[0] = 1;
+  return u8[0] === 1 && u8.length === 2;
+}
+let dc = liveCloseUint8ArrayCtor();
+
+function withUint8FromBuffer() {
+  let buf = new ArrayBuffer(8);
+  with ({ buf: buf, Uint8Array: Uint8Array }) {
+    let u8 = new Uint8Array(buf);
+    u8[0] = 1;
+    u8[1] = 2;
+    return u8.length === 8 && u8[0] === 1 && u8[1] === 2 && buf.byteLength === 8;
+  }
+}
+let dd = withUint8FromBuffer();
+
+function withDataViewSharesBuffer() {
+  let buf = new ArrayBuffer(8);
+  let u8 = new Uint8Array(buf);
+  u8[0] = 1;
+  let dv = new DataView(buf);
+  with (dv) {
+    setUint8(2, 3);
+    return getUint8(0) === 1 && getUint8(2) === 3 && u8[2] === 3;
+  }
+}
+let de = withDataViewSharesBuffer();
+
+function lengthIdentHitsObject() {
+  let obj = { length: 7 };
+  with (obj) {
+    return length === 7;
+  }
+}
+let df = lengthIdentHitsObject();
+
+function unscopablesByteLength() {
+  let buf = new ArrayBuffer(8);
+  let obj = { byteLength: buf.byteLength };
+  obj[Symbol.unscopables] = { byteLength: true };
+  with (obj) {
+    return typeof byteLength === "undefined";
+  }
+}
+let dg = unscopablesByteLength();
+
+function nestedByteLengthInnerWins() {
+  with ({ byteLength: 1 }) {
+    with ({ byteLength: 2 }) {
+      return byteLength === 2;
+    }
+  }
+}
+let dh = nestedByteLengthInnerWins();
+
+function liveCloseByteLength() {
+  let obj = { byteLength: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return byteLength;
+    };
+  }
+  obj.byteLength = 8;
+  return run() === 8;
+}
+let di = liveCloseByteLength();
+
+function accessorByteLengthThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get byteLength() {
+      seen = this;
+      return 8;
+    }
+  };
+  with (obj) {
+    return byteLength === 8 && seen === obj;
+  }
+}
+let dj = accessorByteLengthThisIsWithObject();
+
+function withInt32ArrayName() {
+  with (Int32Array) {
+    return name === "Int32Array";
+  }
+}
+let dk = withInt32ArrayName();
+
+function withFloat64ArrayName() {
+  with (Float64Array) {
+    return name === "Float64Array";
+  }
+}
+let dl = withFloat64ArrayName();
+
+function int32ArrayCtorIdentHitsObject() {
+  let obj = {
+    Int32Array: function (n) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Int32Array(2).p === "hit";
+  }
+}
+let dm = int32ArrayCtorIdentHitsObject();
+
+function float64ArrayCtorIdentHitsObject() {
+  let obj = {
+    Float64Array: function (n) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Float64Array(2).p === "hit";
+  }
+}
+let dn = float64ArrayCtorIdentHitsObject();
+
+function unresolvableByteLengthThrows() {
+  with ({}) {
+    try {
+      e170297_blen;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let dp = unresolvableByteLengthThrows();
