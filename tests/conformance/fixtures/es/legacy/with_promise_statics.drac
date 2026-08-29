@@ -1,0 +1,966 @@
+// E17.02.99: with + Promise statics + catch (typeof Promise.resolve /
+// Promise.reject, Promise.resolve / Promise.reject, .catch; sync
+// settle values) through object environment (non-strict). Promise
+// ident hits object (else outer); with (Promise) method idents hit
+// Promise (resolve / reject / name / length / prototype); instance
+// catch via member / [] (keyword, not ident); inherited HasBinding;
+// accessor this is with object; unresolvable → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function withResolveTypeof() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return typeof Promise.resolve === "function";
+  }
+}
+let a = withResolveTypeof();
+
+function withRejectTypeof() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return typeof Promise.reject === "function";
+  }
+}
+let b = withRejectTypeof();
+
+function withPromiseResolveIdent() {
+  with (Promise) {
+    return typeof resolve === "function";
+  }
+}
+let c = withPromiseResolveIdent();
+
+function withPromiseRejectIdent() {
+  with (Promise) {
+    return typeof reject === "function";
+  }
+}
+let d = withPromiseRejectIdent();
+
+function withPromiseName() {
+  with (Promise) {
+    return name === "Promise";
+  }
+}
+let e = withPromiseName();
+
+function withPromiseLength() {
+  with (Promise) {
+    return length === 1;
+  }
+}
+let f = withPromiseLength();
+
+function withPromisePrototype() {
+  with (Promise) {
+    return prototype === Promise.prototype;
+  }
+}
+let g = withPromisePrototype();
+
+function globalThisIdentity() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return (
+      Promise === globalThis.Promise &&
+      Promise.resolve === globalThis.Promise.resolve &&
+      Promise.reject === globalThis.Promise.reject
+    );
+  }
+}
+let h = globalThisIdentity();
+
+function promiseIdentHitsObject() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return v === 1 ? "hit" : 0;
+      }
+    }
+  };
+  with (obj) {
+    return Promise.resolve(1) === "hit";
+  }
+}
+let j = promiseIdentHitsObject();
+
+function promiseIdentMissIsOuter() {
+  with ({}) {
+    return typeof Promise.resolve === "function";
+  }
+}
+let k = promiseIdentMissIsOuter();
+
+function promiseIdentShadowsOuter() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return 0;
+      }
+    }
+  };
+  with (obj) {
+    return Promise.resolve(1) === 0;
+  }
+}
+let l = promiseIdentShadowsOuter();
+
+function resolveIdentHitsObject() {
+  let obj = {
+    resolve: function (v) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return resolve(42) === "hit";
+  }
+}
+let m = resolveIdentHitsObject();
+
+function resolveIdentMissIsOuter() {
+  function resolve(v) {
+    return 8;
+  }
+  with ({}) {
+    return resolve(42) === 8;
+  }
+}
+let n = resolveIdentMissIsOuter();
+
+function objectShadowsOuterResolve() {
+  function resolve(v) {
+    return 8;
+  }
+  let obj = {
+    resolve: function (v) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return resolve(42) === 9;
+  }
+}
+let p = objectShadowsOuterResolve();
+
+function rejectIdentHitsObject() {
+  let obj = {
+    reject: function (v) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return reject(7) === "hit";
+  }
+}
+let q = rejectIdentHitsObject();
+
+function rejectIdentMissIsOuter() {
+  function reject(v) {
+    return 8;
+  }
+  with ({}) {
+    return reject(7) === 8;
+  }
+}
+let r = rejectIdentMissIsOuter();
+
+function objectShadowsOuterReject() {
+  function reject(v) {
+    return 8;
+  }
+  let obj = {
+    reject: function (v) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return reject(7) === 9;
+  }
+}
+let s = objectShadowsOuterReject();
+
+function callThisIsWithObject() {
+  let obj = {
+    resolve: function (v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return resolve(42) === 3;
+  }
+}
+let t = callThisIsWithObject();
+
+function withPromiseResolveThisIsPromise() {
+  let seen = null;
+  let orig = Promise.resolve;
+  Promise.resolve = function (v) {
+    seen = this;
+    return orig.call(this, v);
+  };
+  let ok;
+  with (Promise) {
+    resolve(1);
+    ok = seen === Promise;
+  }
+  Promise.resolve = orig;
+  return ok;
+}
+let u = withPromiseResolveThisIsPromise();
+
+function withPromiseRejectThisIsPromise() {
+  let seen = null;
+  let orig = Promise.reject;
+  Promise.reject = function (v) {
+    seen = this;
+    let p = orig.call(this, v);
+    p.catch(function () {});
+    return p;
+  };
+  let ok;
+  with (Promise) {
+    reject(1);
+    ok = seen === Promise;
+  }
+  Promise.reject = orig;
+  return ok;
+}
+let v = withPromiseRejectThisIsPromise();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get resolve() {
+      n = n + 1;
+      return function (x) {
+        return x;
+      };
+    },
+    get k() {
+      n = n + 1;
+      return 1;
+    }
+  };
+  with (obj) {
+    resolve(k);
+    return n === 2;
+  }
+}
+let w = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function resolve(v) {
+    return 11;
+  }
+  let obj = {
+    resolve: function (v) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { resolve: true };
+  with (obj) {
+    return resolve(42) === 11;
+  }
+}
+let aa = unscopablesUsesOuter();
+
+function unscopablesPromiseIdent() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return 0;
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Promise: true };
+  with (obj) {
+    return typeof Promise.resolve === "function";
+  }
+}
+let ab = unscopablesPromiseIdent();
+
+function unscopablesReject() {
+  function reject(v) {
+    return 11;
+  }
+  let obj = {
+    reject: function (v) {
+      return 0;
+    }
+  };
+  obj[Symbol.unscopables] = { reject: true };
+  with (obj) {
+    return reject(7) === 11;
+  }
+}
+let ac = unscopablesReject();
+
+function inheritedData() {
+  let proto = {
+    resolve: function (v) {
+      return 4;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return resolve(42) === 4;
+  }
+}
+let ad = inheritedData();
+
+function inheritedFromPromise() {
+  let obj = Object.create(Promise);
+  with (obj) {
+    return (
+      typeof resolve === "function" &&
+      typeof reject === "function" &&
+      name === "Promise" &&
+      length === 1 &&
+      prototype === Promise.prototype
+    );
+  }
+}
+let ae = inheritedFromPromise();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get resolve() {
+      seen = this;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return resolve(42) === 1 && seen === obj;
+  }
+}
+let af = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get resolve() {
+      seen = this;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    return resolve(42) === 1 && seen === obj;
+  }
+}
+let ag = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    resolve: function (v) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return resolve(v);
+    };
+  }
+  obj.resolve = function (v) {
+    return 2;
+  };
+  return run(42) === 2;
+}
+let ah = liveClose();
+
+function liveClosePromiseIdent() {
+  let obj = {
+    Promise: {
+      resolve: function (v) {
+        return 1;
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return Promise.resolve(v);
+    };
+  }
+  obj.Promise = Promise;
+  return typeof run(1).then === "function";
+}
+let ai = liveClosePromiseIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170299_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let aj = unresolvableCalleeThrows();
+
+function unresolvablePromiseThrows() {
+  with ({}) {
+    try {
+      e170299_noglob.resolve;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170299_noglob === "undefined"
+      );
+    }
+  }
+}
+let ak = unresolvablePromiseThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    resolve: function (v) {
+      return 5;
+    }
+  };
+  with (Promise) {
+    with (inner) {
+      return resolve(42) === 5;
+    }
+  }
+}
+let al = nestedInnerWins();
+
+function nestedInnerMissOuterPromise() {
+  with ({
+    resolve: function (v) {
+      return 5;
+    }
+  }) {
+    with (Promise) {
+      return typeof resolve === "function" && resolve === Promise.resolve;
+    }
+  }
+}
+let am = nestedInnerMissOuterPromise();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    resolve: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return resolve(42) === 6;
+    }
+  }
+}
+let an = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function resolve(v) {
+    return 11;
+  }
+  let inner = {
+    resolve: function (v) {
+      return 0;
+    }
+  };
+  inner[Symbol.unscopables] = { resolve: true };
+  let outer = {
+    resolve: function (v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return resolve(42) === 6;
+    }
+  }
+}
+let ap = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { resolve: 1 };
+  with (obj) {
+    try {
+      resolve(42);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let aq = nonCallableTypeError();
+
+function typeofResolveMethod() {
+  let t;
+  with (Promise) {
+    t = typeof resolve;
+  }
+  return t === "function";
+}
+let ar = typeofResolveMethod();
+
+function typeofRejectMethod() {
+  let t;
+  with (Promise) {
+    t = typeof reject;
+  }
+  return t === "function";
+}
+let at = typeofRejectMethod();
+
+function memberStillPromise() {
+  let obj = { x: 1 };
+  with (obj) {
+    return typeof Promise.resolve === "function";
+  }
+}
+let au = memberStillPromise();
+
+function argsHitObject() {
+  let obj = {
+    resolve: function (v) {
+      return v === 9;
+    },
+    k: 9
+  };
+  with (obj) {
+    return resolve(k) === true;
+  }
+}
+let av = argsHitObject();
+
+function argsMissIsOuter() {
+  function resolve(v) {
+    return v === 9;
+  }
+  let k = 9;
+  with ({}) {
+    return resolve(k) === true;
+  }
+}
+let aw = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get resolve() {
+      ran = true;
+      return function (v) {
+        return v;
+      };
+    }
+  };
+  with (obj) {
+    try {
+      resolve(e170299_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ax = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e170299_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ay = unresolvableCalleeSkipsArg();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get resolve() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  with (obj) {
+    resolve(42);
+  }
+  return cnt === 1;
+}
+let az = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalPromise() {
+  let obj = {};
+  with (obj) {
+    return typeof Promise.resolve === "function" && typeof Promise.reject === "function";
+  }
+}
+let ba = emptyMissUsesGlobalPromise();
+
+function resolveTypeofHit() {
+  let obj = { resolve: 1 };
+  let t;
+  with (obj) {
+    t = typeof resolve;
+  }
+  return t === "number";
+}
+let bb = resolveTypeofHit();
+
+function rejectTypeofHit() {
+  let obj = { reject: 1 };
+  let t;
+  with (obj) {
+    t = typeof reject;
+  }
+  return t === "number";
+}
+let bc = rejectTypeofHit();
+
+function promiseTypeofHit() {
+  let obj = { Promise: 1 };
+  let t;
+  with (obj) {
+    t = typeof Promise;
+  }
+  return t === "number";
+}
+let bd = promiseTypeofHit();
+
+function liveCloseResolve() {
+  let obj = { resolve: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return resolve;
+    };
+  }
+  obj.resolve = function (v) {
+    return 2;
+  };
+  return typeof run() === "function";
+}
+let be = liveCloseResolve();
+
+function unscopablesResolve() {
+  let obj = { resolve: 1 };
+  obj[Symbol.unscopables] = { resolve: true };
+  with (obj) {
+    return typeof resolve === "undefined";
+  }
+}
+let bf = unscopablesResolve();
+
+function nestedResolveInnerWins() {
+  with ({ resolve: 1 }) {
+    with ({ resolve: 2 }) {
+      return resolve === 2;
+    }
+  }
+}
+let bg = nestedResolveInnerWins();
+
+function nestedRejectInnerWins() {
+  with ({ reject: 1 }) {
+    with ({ reject: 2 }) {
+      return reject === 2;
+    }
+  }
+}
+let bh = nestedRejectInnerWins();
+
+function nestedPromiseInnerWins() {
+  with ({ Promise: 1 }) {
+    with ({ Promise: 2 }) {
+      return Promise === 2;
+    }
+  }
+}
+let bi = nestedPromiseInnerWins();
+
+function getterRunsOnceResolve() {
+  let cnt = 0;
+  let obj = {
+    get resolve() {
+      cnt = cnt + 1;
+      return function (v) {
+        return 1;
+      };
+    }
+  };
+  let out;
+  with (obj) {
+    out = resolve(42);
+  }
+  return out === 1 && cnt === 1;
+}
+let bj = getterRunsOnceResolve();
+
+function identityStatics() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    return (
+      Promise.resolve === globalThis.Promise.resolve &&
+      Promise.reject === globalThis.Promise.reject &&
+      Promise.prototype.catch === globalThis.Promise.prototype.catch
+    );
+  }
+}
+let bk = identityStatics();
+
+function withPromiseResolveReturnsPromise() {
+  with (Promise) {
+    let pr = resolve(1);
+    return pr !== Promise && pr instanceof Promise && typeof pr.then === "function";
+  }
+}
+let bl = withPromiseResolveReturnsPromise();
+
+function withPromiseRejectReturnsPromise() {
+  with (Promise) {
+    let pr = reject(1);
+    pr.catch(function () {});
+    return pr !== Promise && pr instanceof Promise && typeof pr.then === "function";
+  }
+}
+let bm = withPromiseRejectReturnsPromise();
+
+function bracketCatchOnObject() {
+  let obj = {
+    catch: function (onRejected) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj["catch"](function () {}) === 7;
+  }
+}
+let bn = bracketCatchOnObject();
+
+function memberCatchOnObject() {
+  let obj = {
+    catch: function (onRejected) {
+      return 7;
+    }
+  };
+  with (obj) {
+    return obj.catch(function () {}) === 7;
+  }
+}
+let bp = memberCatchOnObject();
+
+function catchThisIsInstance() {
+  let pr = Promise.resolve(1);
+  let seen = null;
+  let orig = pr.catch;
+  pr.catch = function (onRejected) {
+    seen = this;
+    return orig.call(this, onRejected);
+  };
+  let obj = { p: pr };
+  with (obj) {
+    p.catch(function () {});
+  }
+  return seen === pr;
+}
+let bq = catchThisIsInstance();
+
+function bracketCatchThisIsInstance() {
+  let pr = Promise.resolve(1);
+  let seen = null;
+  let orig = pr.catch;
+  pr.catch = function (onRejected) {
+    seen = this;
+    return orig.call(this, onRejected);
+  };
+  let obj = { p: pr };
+  with (obj) {
+    p["catch"](function () {});
+  }
+  return seen === pr;
+}
+let br = bracketCatchThisIsInstance();
+
+function catchOnPrototypeThroughMember() {
+  let pr = Promise.resolve(1);
+  with (Promise.prototype) {
+    return typeof pr.catch === "function";
+  }
+}
+let bs = catchOnPrototypeThroughMember();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    resolve: function (v, x) {
+      return x === 0;
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = 0;
+  with (obj) {
+    return resolve(1, x) === true && obj.x === 9;
+  }
+}
+let bt = unscopablesSecondIdent();
+
+function withPromisePrototypeCatchTypeof() {
+  let pr = Promise.resolve(1);
+  with (pr) {
+    return typeof pr.catch === "function";
+  }
+}
+let bu = withPromisePrototypeCatchTypeof();
+
+let bv = false;
+let bw = false;
+let bx = false;
+let by = false;
+let bz = false;
+let ca = false;
+let cb = false;
+let cc = false;
+let cd = false;
+let ce = false;
+
+function syncResolveOneHop() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.resolve(42).then(function (x) {
+      bv = x === 42;
+    });
+  }
+}
+
+function syncRejectOneHop() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.reject(7).then(
+      function () {
+        bw = false;
+      },
+      function (e) {
+        bw = e === 7;
+      }
+    );
+  }
+}
+
+function syncCatchOneHop() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.reject(9).catch(function (e) {
+      bx = e === 9;
+    });
+  }
+}
+
+function resolveIdentSettle() {
+  with (Promise) {
+    resolve(42).then(function (x) {
+      by = x === 42;
+    });
+  }
+}
+
+function rejectIdentSettle() {
+  with (Promise) {
+    reject(7).then(
+      function () {
+        bz = false;
+      },
+      function (e) {
+        bz = e === 7;
+      }
+    );
+  }
+}
+
+function catchThroughMemberSettle() {
+  let pr = Promise.reject(9);
+  let obj = { p: pr };
+  with (obj) {
+    p.catch(function (e) {
+      ca = e === 9;
+    });
+  }
+}
+
+function catchThroughBracketSettle() {
+  let pr = Promise.reject(11);
+  let obj = { p: pr };
+  with (obj) {
+    p["catch"](function (e) {
+      cb = e === 11;
+    });
+  }
+}
+
+function resolveThenCatchPassThrough() {
+  let obj = { Promise: Promise };
+  with (obj) {
+    Promise.resolve(5)
+      .catch(function () {
+        cc = false;
+      })
+      .then(function (v) {
+        cc = v === 5;
+      });
+  }
+}
+
+function typeofAndInstance() {
+  let obj = { Promise: Promise };
+  let pr;
+  with (obj) {
+    pr = Promise.resolve(1);
+  }
+  cd = typeof pr === "object" && pr instanceof Promise;
+}
+
+function liveCloseResolveAfterSettle() {
+  let obj = {
+    resolve: function (v) {
+      return v;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (v) {
+      return resolve(v);
+    };
+  }
+  obj.resolve = function (v) {
+    return Promise.resolve(v);
+  };
+  run(9).then(function (x) {
+    ce = x === 9;
+  });
+}
+
+syncResolveOneHop();
+syncRejectOneHop();
+syncCatchOneHop();
+resolveIdentSettle();
+rejectIdentSettle();
+catchThroughMemberSettle();
+catchThroughBracketSettle();
+resolveThenCatchPassThrough();
+typeofAndInstance();
+liveCloseResolveAfterSettle();
