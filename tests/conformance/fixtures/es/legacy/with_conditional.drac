@@ -1,0 +1,324 @@
+// E17.02.63: with + conditional (ternary) cond ? a : b through object
+// environment (non-strict). Condition/then/else idents hit object (else outer);
+// unused branch not evaluated (short-circuit); ToBoolean on condition;
+// right-associative; grouping/precedence vs ||; inherited HasBinding; accessor
+// this is the with object; unresolvable condition or taken branch →
+// ReferenceError; unresolvable unused branch skipped; live close; nested with;
+// unscopables skip.
+
+function thenHitsObject() {
+  let obj = { c: 1, t: 2, f: 3 };
+  with (obj) {
+    return (c ? t : f) === 2;
+  }
+}
+let a = thenHitsObject();
+
+function elseHitsObject() {
+  let obj = { c: 0, t: 2, f: 3 };
+  with (obj) {
+    return (c ? t : f) === 3;
+  }
+}
+let b = elseHitsObject();
+
+function missIsOuter() {
+  let c = 1;
+  let t = 8;
+  let f = 9;
+  with ({}) {
+    return (c ? t : f) === 8;
+  }
+}
+let d = missIsOuter();
+
+function objectShadowsOuter() {
+  let c = 0;
+  let t = 8;
+  let f = 9;
+  let obj = { c: 1, t: 4, f: 5 };
+  with (obj) {
+    return (c ? t : f) === 4;
+  }
+}
+let e = objectShadowsOuter();
+
+function truthySkipsElse() {
+  let n = 0;
+  let obj = {
+    c: 1,
+    t: 4,
+    get f() {
+      n = n + 1;
+      return 9;
+    }
+  };
+  with (obj) {
+    return (c ? t : f) === 4 && n === 0;
+  }
+}
+let g = truthySkipsElse();
+
+function falsySkipsThen() {
+  let n = 0;
+  let obj = {
+    c: 0,
+    get t() {
+      n = n + 1;
+      return 9;
+    },
+    f: 5
+  };
+  with (obj) {
+    return (c ? t : f) === 5 && n === 0;
+  }
+}
+let h = falsySkipsThen();
+
+function truthyEvalsThen() {
+  let n = 0;
+  let obj = {
+    c: 1,
+    get t() {
+      n = n + 1;
+      return 7;
+    },
+    f: 5
+  };
+  with (obj) {
+    return (c ? t : f) === 7 && n === 1;
+  }
+}
+let i = truthyEvalsThen();
+
+function falsyEvalsElse() {
+  let n = 0;
+  let obj = {
+    c: 0,
+    t: 4,
+    get f() {
+      n = n + 1;
+      return 6;
+    }
+  };
+  with (obj) {
+    return (c ? t : f) === 6 && n === 1;
+  }
+}
+let j = falsyEvalsElse();
+
+function zeroIsFalsy() {
+  let obj = { c: 0, t: 1, f: 2 };
+  with (obj) {
+    return (c ? t : f) === 2;
+  }
+}
+let k = zeroIsFalsy();
+
+function emptyStringIsFalsy() {
+  let obj = { c: "", t: 1, f: 2 };
+  with (obj) {
+    return (c ? t : f) === 2;
+  }
+}
+let l = emptyStringIsFalsy();
+
+function nullIsFalsy() {
+  let obj = { c: null, t: 1, f: 2 };
+  with (obj) {
+    return (c ? t : f) === 2;
+  }
+}
+let m = nullIsFalsy();
+
+function rightAssoc() {
+  let obj = { p: 0, q: 1, r: 1, s: 4, u: 5 };
+  with (obj) {
+    return (p ? q : r ? s : u) === 4;
+  }
+}
+let p = rightAssoc();
+
+function groupingOverridesAssoc() {
+  let obj = { p: 1, q: 0, r: 1, s: 4, u: 5 };
+  with (obj) {
+    return ((p ? q : r) ? s : u) === 5 && (p ? q : r ? s : u) === 0;
+  }
+}
+let q = groupingOverridesAssoc();
+
+function precedenceVsOr() {
+  let obj = { x: 0, y: 1, t: 8, f: 9 };
+  with (obj) {
+    return (x || y ? t : f) === 8;
+  }
+}
+let r = precedenceVsOr();
+
+function groupingOverridesOr() {
+  let obj = { x: 1, y: 0, t: 8, f: 9 };
+  with (obj) {
+    return (x || (y ? t : f)) === 1;
+  }
+}
+let s = groupingOverridesOr();
+
+function unscopablesUsesOuter() {
+  let c = 0;
+  let t = 8;
+  let f = 9;
+  let obj = { c: 1, t: 4, f: 5 };
+  obj[Symbol.unscopables] = { c: true, t: true, f: true };
+  with (obj) {
+    return (c ? t : f) === 9;
+  }
+}
+let u = unscopablesUsesOuter();
+
+function inheritedData() {
+  let proto = { c: 1, t: 4, f: 5 };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (c ? t : f) === 4;
+  }
+}
+let v = inheritedData();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    c: 1,
+    get t() {
+      seen = this;
+      return 4;
+    },
+    f: 5
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return (c ? t : f) === 4 && seen === obj;
+  }
+}
+let w = inheritedGetterThis();
+
+function liveClose() {
+  let obj = { c: 1, t: 4, f: 5 };
+  let run;
+  with (obj) {
+    run = function () {
+      return c ? t : f;
+    };
+  }
+  obj.t = 7;
+  return run() === 7;
+}
+let aa = liveClose();
+
+function unresolvableCondThrows() {
+  with ({}) {
+    try {
+      e170263_missing ? 1 : 2;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ab = unresolvableCondThrows();
+
+function unresolvableThenThrowsWhenTaken() {
+  let obj = { c: 1, f: 5 };
+  with (obj) {
+    try {
+      c ? e170263_missing_then : f;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ac = unresolvableThenThrowsWhenTaken();
+
+function unresolvableElseThrowsWhenTaken() {
+  let obj = { c: 0, t: 4 };
+  with (obj) {
+    try {
+      c ? t : e170263_missing_else;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ad = unresolvableElseThrowsWhenTaken();
+
+function unresolvableThenSkipped() {
+  let obj = { c: 0, f: 5 };
+  with (obj) {
+    return (c ? e170263_missing_skip_then : f) === 5;
+  }
+}
+let ae = unresolvableThenSkipped();
+
+function unresolvableElseSkipped() {
+  let obj = { c: 1, t: 4 };
+  with (obj) {
+    return (c ? t : e170263_missing_skip_else) === 4;
+  }
+}
+let af = unresolvableElseSkipped();
+
+function nestedInnerWins() {
+  let inner = { c: 1, t: 4, f: 5 };
+  let outer = { c: 0, t: 8, f: 9 };
+  with (outer) {
+    with (inner) {
+      return (c ? t : f) === 4;
+    }
+  }
+}
+let ag = nestedInnerWins();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    c: 1,
+    get t() {
+      seen = this;
+      return 4;
+    },
+    f: 5
+  };
+  with (obj) {
+    return (c ? t : f) === 4 && seen === obj;
+  }
+}
+let ah = accessorThisIsWithObject();
+
+function nestedInnerMissOuter() {
+  let t = 8;
+  let inner = { c: 1 };
+  let outer = { f: 9 };
+  with (outer) {
+    with (inner) {
+      return (c ? t : f) === 8;
+    }
+  }
+}
+let ai = nestedInnerMissOuter();
+
+function conditionAccessorThis() {
+  let seen = null;
+  let obj = {
+    get c() {
+      seen = this;
+      return 1;
+    },
+    t: 4,
+    f: 5
+  };
+  with (obj) {
+    return (c ? t : f) === 4 && seen === obj;
+  }
+}
+let aj = conditionAccessorThis();
