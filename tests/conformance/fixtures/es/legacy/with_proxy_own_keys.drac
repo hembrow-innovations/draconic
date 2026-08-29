@@ -1,0 +1,1054 @@
+// E17.02.111: with + Proxy ownKeys trap + Reflect.ownKeys (empty-handler
+// pass-through, trap intercept, plain object keys) through object
+// environment (non-strict). Proxy ident hits object (else outer);
+// with (Proxy) method idents hit Proxy (name / length); ownKeys ident
+// hits object (else outer); Reflect ident hits object (else outer);
+// with (Reflect) method idents hit Reflect (ownKeys / name); inherited
+// HasBinding; accessor this is with object; unresolvable → ReferenceError;
+// live close; nested with; unscopables skip.
+
+function plainObjectOwnKeys() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    let keys = Reflect.ownKeys({ a: 1, b: 2 });
+    return keys.length === 2 && keys[0] === "a" && keys[1] === "b";
+  }
+}
+let a = plainObjectOwnKeys();
+
+function emptyHandlerPassThrough() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let target = { x: 10, y: 20 };
+    let p = new Proxy(target, {});
+    let keys = Reflect.ownKeys(p);
+    return keys.length === 2 && keys[0] === "x" && keys[1] === "y";
+  }
+}
+let b = emptyHandlerPassThrough();
+
+function trapIntercepts() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      { m: 1, n: 2 },
+      {
+        ownKeys: function (t) {
+          calls = calls + 1;
+          return ["m", "extra"];
+        }
+      }
+    );
+    let keys = Reflect.ownKeys(p);
+    return (
+      calls === 1 &&
+      keys.length === 2 &&
+      keys[0] === "m" &&
+      keys[1] === "extra"
+    );
+  }
+}
+let c = trapIntercepts();
+
+function typeofReflectOwnKeys() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return typeof Reflect.ownKeys === "function";
+  }
+}
+let d = typeofReflectOwnKeys();
+
+function withReflectOwnKeys() {
+  with (Reflect) {
+    let keys = ownKeys({ a: 1, b: 2 });
+    return keys.length === 2 && keys[0] === "a" && keys[1] === "b";
+  }
+}
+let e = withReflectOwnKeys();
+
+function withReflectOwnKeysPassThrough() {
+  with (Reflect) {
+    let p = new Proxy({ x: 10, y: 20 }, {});
+    let keys = ownKeys(p);
+    return keys.length === 2 && keys[0] === "x" && keys[1] === "y";
+  }
+}
+let f = withReflectOwnKeysPassThrough();
+
+function withReflectOwnKeysTrap() {
+  let calls = 0;
+  with (Reflect) {
+    let p = new Proxy(
+      { m: 1, n: 2 },
+      {
+        ownKeys: function (t) {
+          calls = calls + 1;
+          return ["m", "extra"];
+        }
+      }
+    );
+    let keys = ownKeys(p);
+    return calls === 1 && keys[0] === "m" && keys[1] === "extra";
+  }
+}
+let g = withReflectOwnKeysTrap();
+
+function withReflectName() {
+  with (Reflect) {
+    return typeof ownKeys === "function" && typeof get === "function";
+  }
+}
+let h = withReflectName();
+
+function withProxyTypeof() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return typeof Proxy === "function";
+  }
+}
+let j = withProxyTypeof();
+
+function withProxyName() {
+  with (Proxy) {
+    return name === "Proxy";
+  }
+}
+let k = withProxyName();
+
+function withProxyLength() {
+  with (Proxy) {
+    return length === 2;
+  }
+}
+let l = withProxyLength();
+
+function withProxyPrototypeUndefined() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy.prototype === undefined;
+  }
+}
+let m = withProxyPrototypeUndefined();
+
+function globalThisIdentityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let n = globalThisIdentityProxy();
+
+function globalThisIdentityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let p = globalThisIdentityReflect();
+
+function proxyIdentHitsObject() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Proxy({}, {}).p === "hit";
+  }
+}
+let q = proxyIdentHitsObject();
+
+function proxyIdentMissIsOuter() {
+  with ({}) {
+    let target = { x: 1, y: 2 };
+    let pr = new Proxy(target, {});
+    let keys = Reflect.ownKeys(pr);
+    return keys.length === 2 && keys[0] === "x" && keys[1] === "y";
+  }
+}
+let r = proxyIdentMissIsOuter();
+
+function reflectIdentHitsObject() {
+  let obj = {
+    Reflect: {
+      ownKeys: function (o) {
+        return ["hit"];
+      }
+    }
+  };
+  with (obj) {
+    let keys = Reflect.ownKeys({});
+    return keys.length === 1 && keys[0] === "hit";
+  }
+}
+let s = reflectIdentHitsObject();
+
+function reflectIdentMissIsOuter() {
+  with ({}) {
+    let keys = Reflect.ownKeys({ a: 1, b: 2 });
+    return keys.length === 2 && keys[0] === "a" && keys[1] === "b";
+  }
+}
+let t = reflectIdentMissIsOuter();
+
+function ownKeysIdentHitsObject() {
+  let obj = {
+    ownKeys: function (o) {
+      return o === 1;
+    }
+  };
+  with (obj) {
+    return ownKeys(1) === true && ownKeys(0) === false;
+  }
+}
+let u = ownKeysIdentHitsObject();
+
+function ownKeysIdentMissIsOuter() {
+  function ownKeys(o) {
+    return o === 7;
+  }
+  with ({}) {
+    return ownKeys(7) === true && ownKeys(1) === false;
+  }
+}
+let v = ownKeysIdentMissIsOuter();
+
+function objectShadowsOuterOwnKeys() {
+  function ownKeys(o) {
+    return false;
+  }
+  let obj = {
+    ownKeys: function (o) {
+      return true;
+    }
+  };
+  with (obj) {
+    return ownKeys(null) === true;
+  }
+}
+let w = objectShadowsOuterOwnKeys();
+
+function callThisIsWithObject() {
+  let obj = {
+    ownKeys: function (o) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return ownKeys(null) === 3;
+  }
+}
+let aa = callThisIsWithObject();
+
+function withHandlerOwnKeysThisIsHandler() {
+  let handler = {
+    ownKeys: function (t) {
+      return ["k"];
+    }
+  };
+  let seen = null;
+  let orig = handler.ownKeys;
+  handler.ownKeys = function (t) {
+    seen = this;
+    return orig.call(this, t);
+  };
+  let ok;
+  with (handler) {
+    ownKeys({});
+    ok = seen === handler;
+  }
+  return ok;
+}
+let ab = withHandlerOwnKeysThisIsHandler();
+
+function unscopablesUsesOuter() {
+  function ownKeys(o) {
+    return true;
+  }
+  let obj = {
+    ownKeys: function (o) {
+      return false;
+    }
+  };
+  obj[Symbol.unscopables] = { ownKeys: true };
+  with (obj) {
+    return ownKeys(null) === true;
+  }
+}
+let ac = unscopablesUsesOuter();
+
+function unscopablesProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Proxy: true };
+  with (obj) {
+    let pr = new Proxy({ x: 1 }, {});
+    return Reflect.ownKeys(pr)[0] === "x";
+  }
+}
+let ad = unscopablesProxyIdent();
+
+function unscopablesReflectIdent() {
+  let obj = {
+    Reflect: {
+      ownKeys: function (o) {
+        return ["no"];
+      }
+    }
+  };
+  obj[Symbol.unscopables] = { Reflect: true };
+  with (obj) {
+    let keys = Reflect.ownKeys({ a: 1 });
+    return keys.length === 1 && keys[0] === "a";
+  }
+}
+let ae = unscopablesReflectIdent();
+
+function inheritedData() {
+  let proto = {
+    ownKeys: function (o) {
+      return o === "ok";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return ownKeys("ok") === true && ownKeys("no") === false;
+  }
+}
+let af = inheritedData();
+
+function inheritedFromProxy() {
+  let obj = Object.create(Proxy);
+  with (obj) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let ag = inheritedFromProxy();
+
+function inheritedFromReflect() {
+  let obj = Object.create(Reflect);
+  with (obj) {
+    let keys = ownKeys({ a: 1, b: 2 });
+    return keys.length === 2 && keys[0] === "a" && keys[1] === "b";
+  }
+}
+let ah = inheritedFromReflect();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get ownKeys() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return ownKeys(null) === true && seen === obj;
+  }
+}
+let aj = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get ownKeys() {
+      seen = this;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    return ownKeys(null) === true && seen === obj;
+  }
+}
+let ak = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    ownKeys: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return ownKeys(o);
+    };
+  }
+  obj.ownKeys = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let al = liveClose();
+
+function liveCloseProxyIdent() {
+  let obj = {
+    Proxy: function (target, handler) {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (target, handler) {
+      return new Proxy(target, handler);
+    };
+  }
+  obj.Proxy = Proxy;
+  let pr = run({ x: 1 }, {});
+  return Reflect.ownKeys(pr)[0] === "x";
+}
+let am = liveCloseProxyIdent();
+
+function liveCloseReflectIdent() {
+  let obj = {
+    Reflect: {
+      ownKeys: function (o) {
+        return ["old"];
+      }
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return Reflect.ownKeys(o);
+    };
+  }
+  obj.Reflect = Reflect;
+  let keys = run({ a: 1 });
+  return keys.length === 1 && keys[0] === "a";
+}
+let an = liveCloseReflectIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702111_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ap = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702111_noglob.ownKeys;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702111_noglob === "undefined"
+      );
+    }
+  }
+}
+let aq = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    ownKeys: function (o) {
+      return true;
+    }
+  };
+  let handler = {
+    ownKeys: function (o) {
+      return false;
+    }
+  };
+  with (handler) {
+    with (inner) {
+      return ownKeys(null) === true;
+    }
+  }
+}
+let ar = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = {
+    ownKeys: function (o) {
+      return true;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return ownKeys(null) === true;
+    }
+  }
+}
+let at = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function ownKeys(o) {
+    return true;
+  }
+  let inner = {
+    ownKeys: function (o) {
+      return false;
+    }
+  };
+  inner[Symbol.unscopables] = { ownKeys: true };
+  let outer = {
+    ownKeys: function (o) {
+      return o === "fromOuter";
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return ownKeys("fromOuter") === true;
+    }
+  }
+}
+let au = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { ownKeys: 1 };
+  with (obj) {
+    try {
+      ownKeys(null);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let av = nonCallableTypeError();
+
+function typeofOwnKeysMethod() {
+  let ty;
+  let handler = {
+    ownKeys: function (t) {
+      return ["k"];
+    }
+  };
+  with (handler) {
+    ty = typeof ownKeys;
+  }
+  return ty === "function";
+}
+let aw = typeofOwnKeysMethod();
+
+function typeofReflectThroughWith() {
+  let obj = { Reflect: Reflect };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "object";
+}
+let ax = typeofReflectThroughWith();
+
+function typeofProxyThroughWith() {
+  let obj = { Proxy: Proxy };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "function";
+}
+let ay = typeofProxyThroughWith();
+
+function memberStillProxy() {
+  let obj = { x: 1 };
+  with (obj) {
+    let pr = new Proxy({ k: 2 }, {});
+    return Reflect.ownKeys(pr)[0] === "k";
+  }
+}
+let az = memberStillProxy();
+
+function argsHitObject() {
+  let obj = {
+    target: { z: 9 },
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    let keys = Reflect.ownKeys(pr);
+    return keys.length === 1 && keys[0] === "z";
+  }
+}
+let ba = argsHitObject();
+
+function argsMissIsOuter() {
+  let target = { z: 9 };
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    let keys = Reflect.ownKeys(pr);
+    return keys.length === 1 && keys[0] === "z";
+  }
+}
+let bb = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get Reflect() {
+      ran = true;
+      return Reflect;
+    }
+  };
+  with (obj) {
+    try {
+      Reflect.ownKeys(e1702111_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bc = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return 0;
+    }
+  };
+  with (obj) {
+    try {
+      e1702111_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bd = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function ownKeys(o) {
+    return false;
+  }
+  let obj = {
+    ownKeys: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return ownKeys(o);
+    };
+  }
+  obj.ownKeys = function (o) {
+    return true;
+  };
+  return run(null) === true;
+}
+let be = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let cnt = 0;
+  let obj = {
+    get ownKeys() {
+      cnt = cnt + 1;
+      return function (o) {
+        return true;
+      };
+    }
+  };
+  with (obj) {
+    ownKeys(null);
+  }
+  return cnt === 1;
+}
+let bf = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalProxy() {
+  let obj = {};
+  with (obj) {
+    let pr = new Proxy({ a: 1 }, {});
+    return Reflect.ownKeys(pr)[0] === "a";
+  }
+}
+let bg = emptyMissUsesGlobalProxy();
+
+function emptyMissUsesGlobalReflect() {
+  let obj = {};
+  with (obj) {
+    let keys = Reflect.ownKeys({ a: 1, b: 2 });
+    return keys.length === 2 && keys[0] === "a";
+  }
+}
+let bh = emptyMissUsesGlobalReflect();
+
+function ownKeysTypeofHit() {
+  let obj = { ownKeys: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof ownKeys;
+  }
+  return ty === "number";
+}
+let bi = ownKeysTypeofHit();
+
+function proxyTypeofHit() {
+  let obj = { Proxy: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Proxy;
+  }
+  return ty === "number";
+}
+let bj = proxyTypeofHit();
+
+function reflectTypeofHit() {
+  let obj = { Reflect: 1 };
+  let ty;
+  with (obj) {
+    ty = typeof Reflect;
+  }
+  return ty === "number";
+}
+let bk = reflectTypeofHit();
+
+function unscopablesOwnKeys() {
+  let obj = { ownKeys: 1 };
+  obj[Symbol.unscopables] = { ownKeys: true };
+  with (obj) {
+    return typeof ownKeys === "undefined";
+  }
+}
+let bl = unscopablesOwnKeys();
+
+function nestedOwnKeysInnerWins() {
+  with ({ ownKeys: 1 }) {
+    with ({ ownKeys: 2 }) {
+      return ownKeys === 2;
+    }
+  }
+}
+let bm = nestedOwnKeysInnerWins();
+
+function nestedProxyInnerWins() {
+  with ({ Proxy: 1 }) {
+    with ({ Proxy: 2 }) {
+      return Proxy === 2;
+    }
+  }
+}
+let bn = nestedProxyInnerWins();
+
+function nestedReflectInnerWins() {
+  with ({ Reflect: 1 }) {
+    with ({ Reflect: 2 }) {
+      return Reflect === 2;
+    }
+  }
+}
+let bp = nestedReflectInnerWins();
+
+function identityProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    return Proxy === globalThis.Proxy;
+  }
+}
+let bq = identityProxy();
+
+function identityReflect() {
+  let obj = { Reflect: Reflect };
+  with (obj) {
+    return Reflect === globalThis.Reflect;
+  }
+}
+let br = identityReflect();
+
+function withProxyNameLengthTogether() {
+  with (Proxy) {
+    return name === "Proxy" && length === 2;
+  }
+}
+let bs = withProxyNameLengthTogether();
+
+function trapThroughObj() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      { m: 1, n: 2 },
+      {
+        ownKeys: function (t) {
+          calls = calls + 1;
+          return ["m", "extra"];
+        }
+      }
+    );
+    let k1 = Reflect.ownKeys(p);
+    let k2 = Reflect.ownKeys(p);
+    return (
+      k1[0] === "m" &&
+      k1[1] === "extra" &&
+      k2[0] === "m" &&
+      k2[1] === "extra" &&
+      calls === 2
+    );
+  }
+}
+let bt = trapThroughObj();
+
+function trapHandlerIdentHitsObject() {
+  let obj = {
+    ownKeys: function (t) {
+      return ["fromObj"];
+    }
+  };
+  with (obj) {
+    let p = new Proxy({ m: 1 }, { ownKeys: ownKeys });
+    let keys = Reflect.ownKeys(p);
+    return keys.length === 1 && keys[0] === "fromObj";
+  }
+}
+let bu = trapHandlerIdentHitsObject();
+
+function trapThisIsHandler() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let seen = null;
+  with (obj) {
+    let handler = {
+      ownKeys: function (t) {
+        seen = this;
+        return ["k"];
+      }
+    };
+    let p = new Proxy({ a: 1 }, handler);
+    let keys = Reflect.ownKeys(p);
+    return seen === handler && keys[0] === "k";
+  }
+}
+let bv = trapThisIsHandler();
+
+function trapThrowTypeError() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  with (obj) {
+    let p = new Proxy(
+      { a: 1 },
+      {
+        ownKeys: function (t) {
+          throw new TypeError("ownKeys-boom");
+        }
+      }
+    );
+    try {
+      Reflect.ownKeys(p);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && err.message === "ownKeys-boom";
+    }
+  }
+}
+let bw = trapThrowTypeError();
+
+function bracketMethodOnObject() {
+  let obj = {
+    ownKeys: function (o) {
+      return o === "ok";
+    }
+  };
+  with (obj) {
+    return obj["ownKeys"]("ok") === true;
+  }
+}
+let bx = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let obj = {
+    ownKeys: function (o) {
+      return o === "z";
+    },
+    x: 9
+  };
+  obj[Symbol.unscopables] = { x: true };
+  let x = "z";
+  with (obj) {
+    return ownKeys(x) === true && obj.x === 9;
+  }
+}
+let by = unscopablesSecondIdent();
+
+function targetIdentHitsObject() {
+  let obj = {
+    t: { q: 42 },
+    Proxy: Proxy,
+    Reflect: Reflect
+  };
+  with (obj) {
+    let p = new Proxy(t, {});
+    return Reflect.ownKeys(p)[0] === "q";
+  }
+}
+let bz = targetIdentHitsObject();
+
+function withReflectOwnKeysArgIdent() {
+  let obj = { k: { a: 1, b: 2 } };
+  with (obj) {
+    with (Reflect) {
+      let keys = ownKeys(k);
+      return keys.length === 2 && keys[0] === "a" && keys[1] === "b";
+    }
+  }
+}
+let ca = withReflectOwnKeysArgIdent();
+
+function nestedReflectInnerWinsOwnKeys() {
+  with ({
+    Reflect: {
+      ownKeys: function (o) {
+        return ["outer"];
+      }
+    }
+  }) {
+    with ({
+      Reflect: {
+        ownKeys: function (o) {
+          return ["inner"];
+        }
+      }
+    }) {
+      return Reflect.ownKeys({})[0] === "inner";
+    }
+  }
+}
+let cb = nestedReflectInnerWinsOwnKeys();
+
+function liveCloseOwnKeysAfterTrap() {
+  let obj = {
+    ownKeys: function (o) {
+      return false;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (o) {
+      return ownKeys(o);
+    };
+  }
+  obj.ownKeys = function (o) {
+    return o === "x";
+  };
+  return run("x") === true;
+}
+let cc = liveCloseOwnKeysAfterTrap();
+
+function unscopablesArgIdent() {
+  let obj = {
+    Proxy: Proxy,
+    Reflect: Reflect,
+    k: { no: 1 }
+  };
+  obj[Symbol.unscopables] = { k: true };
+  let k = { yes: 1 };
+  with (obj) {
+    let p = new Proxy(k, {});
+    return Reflect.ownKeys(p)[0] === "yes";
+  }
+}
+let cd = unscopablesArgIdent();
+
+function getterRunsOnceReflect() {
+  let cnt = 0;
+  let obj = {
+    get Reflect() {
+      cnt = cnt + 1;
+      return Reflect;
+    }
+  };
+  let keys;
+  with (obj) {
+    keys = Reflect.ownKeys({ a: 1 });
+  }
+  return keys[0] === "a" && cnt === 1;
+}
+let ce = getterRunsOnceReflect();
+
+function bothSidesAlwaysEvaled() {
+  let cnt = 0;
+  let obj = {
+    get Proxy() {
+      cnt = cnt + 1;
+      return Proxy;
+    },
+    get target() {
+      cnt = cnt + 1;
+      return { v: 9 };
+    }
+  };
+  with (obj) {
+    let pr = new Proxy(target, {});
+    let keys = Reflect.ownKeys(pr);
+    return keys[0] === "v" && cnt === 2;
+  }
+}
+let cf = bothSidesAlwaysEvaled();
+
+function inheritedFromReflectName() {
+  let obj = Object.create(Reflect);
+  with (obj) {
+    return typeof ownKeys === "function" && typeof get === "function";
+  }
+}
+let cg = inheritedFromReflectName();
+
+function withProxyNewStillProxy() {
+  let obj = { Proxy: Proxy };
+  with (obj) {
+    let pr = new Proxy({ n: 8 }, {});
+    return typeof pr === "object" && Reflect.ownKeys(pr)[0] === "n";
+  }
+}
+let ch = withProxyNewStillProxy();
+
+function ownKeysTrapTargetArg() {
+  let obj = { Proxy: Proxy, Reflect: Reflect };
+  let seen = null;
+  let target = { m: 1, n: 2 };
+  with (obj) {
+    let p = new Proxy(target, {
+      ownKeys: function (t) {
+        seen = t;
+        return ["m", "extra"];
+      }
+    });
+    Reflect.ownKeys(p);
+    return seen === target;
+  }
+}
+let ci = ownKeysTrapTargetArg();
+
+function objectKeysAlsoHitsTrap() {
+  let obj = { Proxy: Proxy };
+  let calls = 0;
+  with (obj) {
+    let p = new Proxy(
+      { m: 1 },
+      {
+        ownKeys: function (t) {
+          calls = calls + 1;
+          return ["m"];
+        },
+        getOwnPropertyDescriptor: function (t, k) {
+          return { value: 1, enumerable: true, configurable: true, writable: true };
+        }
+      }
+    );
+    let keys = Object.keys(p);
+    return calls === 1 && keys.length === 1 && keys[0] === "m";
+  }
+}
+let cj = objectKeysAlsoHitsTrap();
