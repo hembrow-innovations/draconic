@@ -1,0 +1,583 @@
+// E17.02.74: with + string literals (`"`/`'`) + concat `+` + `.length` +
+// index `ident[i]` (read; basic escapes `\n` `\r` `\t` `\\` `\'` `\"` `\0`)
+// through object environment (non-strict). Concat/base/index/length idents
+// hit object (else outer); missing index undefined; empty/`""`; nested concat;
+// inherited HasBinding; accessor get this is with object; unresolvable
+// concat/base/index → ReferenceError; live close; nested with; unscopables skip.
+
+function concatLhsHitsObject() {
+  let a = "out";
+  let obj = { a: "in" };
+  let out;
+  with (obj) {
+    out = a + "X";
+  }
+  return out === "inX" && a === "out";
+}
+let a = concatLhsHitsObject();
+
+function concatRhsHitsObject() {
+  let b = "out";
+  let obj = { b: "in" };
+  let out;
+  with (obj) {
+    out = "X" + b;
+  }
+  return out === "Xin" && b === "out";
+}
+let b = concatRhsHitsObject();
+
+function concatMissUsesOuter() {
+  let s = "hi";
+  let obj = {};
+  let out;
+  with (obj) {
+    out = s + "!";
+  }
+  return out === "hi!";
+}
+let c = concatMissUsesOuter();
+
+function concatBothHit() {
+  let obj = { x: "ab", y: "cd" };
+  let out;
+  with (obj) {
+    out = x + y;
+  }
+  return out === "abcd";
+}
+let d = concatBothHit();
+
+function concatMixed() {
+  let y = "Y";
+  let obj = { x: "X" };
+  let out;
+  with (obj) {
+    out = x + y;
+  }
+  return out === "XY" && y === "Y";
+}
+let e = concatMixed();
+
+function concatChain() {
+  let obj = { x: "a", y: "b" };
+  let out;
+  with (obj) {
+    out = x + y + "c";
+  }
+  return out === "abc";
+}
+let f = concatChain();
+
+function concatStringNumber() {
+  let obj = { s: "n", n: 1 };
+  let out;
+  with (obj) {
+    out = s + n;
+  }
+  return out === "n1";
+}
+let g = concatStringNumber();
+
+function concatNumberString() {
+  let obj = { n: 2, s: "n" };
+  let out;
+  with (obj) {
+    out = n + s;
+  }
+  return out === "2n";
+}
+let h = concatNumberString();
+
+function emptyConcat() {
+  let obj = { s: "", t: "x" };
+  let out0;
+  let out1;
+  with (obj) {
+    out0 = s + t;
+    out1 = t + s;
+  }
+  return out0 === "x" && out1 === "x";
+}
+let i = emptyConcat();
+
+function dquoteSquoteLiterals() {
+  let obj = { s: "ok" };
+  let out;
+  with (obj) {
+    out = "hello" + ' ' + s;
+  }
+  return out === "hello ok";
+}
+let j = dquoteSquoteLiterals();
+
+function nestedConcat() {
+  let obj = { x: "p", y: "q" };
+  let out;
+  with (obj) {
+    out = (x + y) + (x + "r");
+  }
+  return out === "pqpr";
+}
+let k = nestedConcat();
+
+function lengthHitsObject() {
+  let s = "a";
+  let env = { s: "abc" };
+  let out;
+  with (env) {
+    out = s.length;
+  }
+  return out === 3 && s.length === 1;
+}
+let l = lengthHitsObject();
+
+function lengthMissUsesOuter() {
+  let s = "xy";
+  let env = {};
+  let out;
+  with (env) {
+    out = s.length;
+  }
+  return out === 2;
+}
+let m = lengthMissUsesOuter();
+
+function emptyLength() {
+  let env = { s: "" };
+  let out;
+  with (env) {
+    out = s.length;
+  }
+  return out === 0;
+}
+let n = emptyLength();
+
+function indexBaseHitsObject() {
+  let s = "z";
+  let env = { s: "abc" };
+  let out;
+  with (env) {
+    out = s[0];
+  }
+  return out === "a" && s[0] === "z";
+}
+let p = indexBaseHitsObject();
+
+function indexBaseMissUsesOuter() {
+  let s = "hi";
+  let env = {};
+  let out;
+  with (env) {
+    out = s[1];
+  }
+  return out === "i";
+}
+let q = indexBaseMissUsesOuter();
+
+function indexIdentHitsObject() {
+  let i = 0;
+  let env = { s: "xyz", i: 2 };
+  let out;
+  with (env) {
+    out = s[i];
+  }
+  return out === "z" && i === 0;
+}
+let r = indexIdentHitsObject();
+
+function indexIdentMissUsesOuter() {
+  let i = 1;
+  let env = { s: "abc" };
+  let out;
+  with (env) {
+    out = s[i];
+  }
+  return out === "b";
+}
+let s = indexIdentMissUsesOuter();
+
+function missingIndexUndefined() {
+  let env = { s: "ab" };
+  let out;
+  with (env) {
+    out = s[9];
+  }
+  return out === undefined;
+}
+let t = missingIndexUndefined();
+
+function numericVsStringIndex() {
+  let env = { s: "ab" };
+  let out0;
+  let out1;
+  with (env) {
+    out0 = s["0"];
+    out1 = s[1];
+  }
+  return out0 === "a" && out1 === "b";
+}
+let u = numericVsStringIndex();
+
+function basicEscapes() {
+  let env = { s: "x" };
+  let n;
+  let tab;
+  let cr;
+  let bs;
+  let dq;
+  let sq;
+  let z;
+  with (env) {
+    n = s + "\n" + s;
+    tab = s + "\t" + s;
+    cr = s + "\r" + s;
+    bs = s + "\\" + s;
+    dq = s + "\"" + s;
+    sq = s + '\'' + s;
+    z = s + "\0" + s;
+  }
+  return (
+    n.length === 3 &&
+    n[1] === "\n" &&
+    tab[1] === "\t" &&
+    cr[1] === "\r" &&
+    bs[1] === "\\" &&
+    dq[1] === '"' &&
+    sq[1] === "'" &&
+    z[1] === "\0" &&
+    z.length === 3
+  );
+}
+let v = basicEscapes();
+
+function unscopablesConcatUsesOuter() {
+  let x = "out";
+  let obj = { x: "in" };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    out = x + "!";
+  }
+  return out === "out!" && obj.x === "in";
+}
+let w = unscopablesConcatUsesOuter();
+
+function unscopablesBaseUsesOuter() {
+  let s = "aa";
+  let env = { s: "bbb" };
+  env[Symbol.unscopables] = { s: true };
+  let outLen;
+  let outIdx;
+  with (env) {
+    outLen = s.length;
+    outIdx = s[0];
+  }
+  return outLen === 2 && outIdx === "a";
+}
+let aa = unscopablesBaseUsesOuter();
+
+function inheritedConcat() {
+  let proto = { x: "in" };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = x + "!";
+  }
+  return out === "in!";
+}
+let ab = inheritedConcat();
+
+function inheritedIndexBase() {
+  let proto = { s: "hi" };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    out = s[1];
+  }
+  return out === "i";
+}
+let ac = inheritedIndexBase();
+
+function accessorGetThisConcat() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return "in";
+    }
+  };
+  let out;
+  with (obj) {
+    out = x + "!";
+  }
+  return out === "in!" && seen === obj;
+}
+let ad = accessorGetThisConcat();
+
+function accessorGetThisIndex() {
+  let seen = null;
+  let env = {
+    get s() {
+      seen = this;
+      return "ab";
+    }
+  };
+  let out;
+  with (env) {
+    out = s[1];
+  }
+  return out === "b" && seen === env;
+}
+let ae = accessorGetThisIndex();
+
+function unresolvableConcatLhsThrows() {
+  with ({}) {
+    try {
+      e170274_lhs + "x";
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170274_lhs === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableConcatLhsThrows();
+
+function unresolvableConcatRhsThrows() {
+  with ({}) {
+    try {
+      "x" + e170274_rhs;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170274_rhs === "undefined"
+      );
+    }
+  }
+}
+let ag = unresolvableConcatRhsThrows();
+
+function unresolvableLengthBaseThrows() {
+  with ({}) {
+    try {
+      e170274_s.length;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170274_s === "undefined"
+      );
+    }
+  }
+}
+let ah = unresolvableLengthBaseThrows();
+
+function unresolvableIndexBaseThrows() {
+  with ({}) {
+    try {
+      e170274_arr[0];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170274_arr === "undefined"
+      );
+    }
+  }
+}
+let ai = unresolvableIndexBaseThrows();
+
+function unresolvableIndexThrows() {
+  let env = { s: "ab" };
+  with (env) {
+    try {
+      s[e170274_i];
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170274_i === "undefined"
+      );
+    }
+  }
+}
+let aj = unresolvableIndexThrows();
+
+function unresolvableLhsSkipsRhs() {
+  let ran = false;
+  let obj = {
+    get y() {
+      ran = true;
+      return "y";
+    }
+  };
+  with (obj) {
+    try {
+      e170274_first + y;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ak = unresolvableLhsSkipsRhs();
+
+function liveCloseConcat() {
+  let obj = { x: "a" };
+  let run;
+  with (obj) {
+    run = function () {
+      return x + "!";
+    };
+  }
+  obj.x = "b";
+  return run() === "b!";
+}
+let al = liveCloseConcat();
+
+function liveCloseIndex() {
+  let env = { s: "aa", i: 0 };
+  let run;
+  with (env) {
+    run = function () {
+      return s[i];
+    };
+  }
+  env.s = "xyz";
+  env.i = 2;
+  return run() === "z";
+}
+let am = liveCloseIndex();
+
+function nestedInnerWinsConcat() {
+  let inner = { x: "in" };
+  let outer = { x: "out" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = x + "!";
+    }
+  }
+  return out === "in!";
+}
+let an = nestedInnerWinsConcat();
+
+function nestedInnerMissOuterConcat() {
+  let inner = {};
+  let outer = { x: "out" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = x + "!";
+    }
+  }
+  return out === "out!";
+}
+let ap = nestedInnerMissOuterConcat();
+
+function nestedInnerWinsIndex() {
+  let inner = { s: "in" };
+  let outer = { s: "out" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = s[0];
+    }
+  }
+  return out === "i";
+}
+let aq = nestedInnerWinsIndex();
+
+function ownUndefinedHasBindingConcat() {
+  let x = "out";
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    out = x + "!";
+  }
+  return out === "undefined!" && x === "out";
+}
+let ar = ownUndefinedHasBindingConcat();
+
+function evalOrderConcatLeftToRight() {
+  let order = "";
+  let obj = {
+    get x() {
+      order = order + "X";
+      return "a";
+    },
+    get y() {
+      order = order + "Y";
+      return "b";
+    }
+  };
+  let out;
+  with (obj) {
+    out = x + y;
+  }
+  return out === "ab" && order === "XY";
+}
+let ax = evalOrderConcatLeftToRight();
+
+function evalOrderBaseThenIndex() {
+  let order = "";
+  let env = {
+    get s() {
+      order = order + "S";
+      return "ab";
+    },
+    get i() {
+      order = order + "I";
+      return 1;
+    }
+  };
+  let out;
+  with (env) {
+    out = s[i];
+  }
+  return out === "b" && order === "SI";
+}
+let at = evalOrderBaseThenIndex();
+
+function nullLengthTypeError() {
+  let env = { s: null };
+  with (env) {
+    try {
+      s.length;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let au = nullLengthTypeError();
+
+function undefinedIndexTypeError() {
+  let env = { s: undefined };
+  with (env) {
+    try {
+      s[0];
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let av = undefinedIndexTypeError();
+
+function liveCloseLength() {
+  let env = { s: "a" };
+  let run;
+  with (env) {
+    run = function () {
+      return s.length;
+    };
+  }
+  env.s = "abcd";
+  return run() === 4;
+}
+let aw = liveCloseLength();
