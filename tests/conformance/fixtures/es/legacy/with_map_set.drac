@@ -1,0 +1,939 @@
+// E17.02.95: with + global Map / Set (typeof, globalThis identity,
+// new Map / new Set, .set/.get/.has/.size and .add/.has/.size
+// basics) through object environment (non-strict). Map / Set ident
+// hits object (else outer); with (Map) / with (Set) method idents
+// hit Map / Set (name / length / prototype); instance set / get /
+// has / size / add; inherited HasBinding; accessor this is with
+// object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function withMapSetGet() {
+  let m = new Map();
+  with (m) {
+    set("a", 1);
+    return get("a") === 1;
+  }
+}
+let a = withMapSetGet();
+
+function withMapHasSize() {
+  let m = new Map();
+  with (m) {
+    set("a", 1);
+    return has("a") === true && has("b") === false && size === 1;
+  }
+}
+let b = withMapHasSize();
+
+function withMapNew() {
+  let obj = { Map: Map };
+  with (obj) {
+    let m = new Map();
+    m.set("a", 1);
+    return m.get("a") === 1 && m.has("a") === true && m.size === 1;
+  }
+}
+let c = withMapNew();
+
+function withSetAddHasSize() {
+  let s = new Set();
+  with (s) {
+    add("x");
+    return has("x") === true && has("y") === false && size === 1;
+  }
+}
+let d = withSetAddHasSize();
+
+function withMapTypeof() {
+  let obj = { Map: Map };
+  with (obj) {
+    return typeof Map === "function";
+  }
+}
+let e = withMapTypeof();
+
+function withMapSetTypeof() {
+  let m = new Map();
+  with (m) {
+    return typeof set === "function";
+  }
+}
+let f = withMapSetTypeof();
+
+function withMapGetTypeof() {
+  let m = new Map();
+  with (m) {
+    return typeof get === "function";
+  }
+}
+let g = withMapGetTypeof();
+
+function withMapBracketSet() {
+  let obj = { Map: Map };
+  with (obj) {
+    let m = new Map();
+    return m["set"]("a", 1) === m && m["get"]("a") === 1;
+  }
+}
+let h = withMapBracketSet();
+
+function mapIdentHitsObject() {
+  let obj = {
+    Map: function () {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Map().p === "hit";
+  }
+}
+let j = mapIdentHitsObject();
+
+function mapIdentMissIsOuter() {
+  with ({}) {
+    let m = new Map();
+    m.set("a", 1);
+    return m.get("a") === 1;
+  }
+}
+let k = mapIdentMissIsOuter();
+
+function mapIdentShadowsOuter() {
+  let obj = {
+    Map: function () {
+      this.p = 0;
+    }
+  };
+  with (obj) {
+    return new Map().p === 0;
+  }
+}
+let l = mapIdentShadowsOuter();
+
+function setIdentHitsObject() {
+  let obj = {
+    set: function (k, v) {
+      return k === "a" && v === 1 ? 7 : 0;
+    }
+  };
+  with (obj) {
+    return set("a", 1) === 7;
+  }
+}
+let m = setIdentHitsObject();
+
+function setIdentMissIsOuter() {
+  function set(k, v) {
+    return 8;
+  }
+  with ({}) {
+    return set("a", 1) === 8;
+  }
+}
+let n = setIdentMissIsOuter();
+
+function objectShadowsOuterSet() {
+  function set(k, v) {
+    return 8;
+  }
+  let obj = {
+    set: function (k, v) {
+      return 9;
+    }
+  };
+  with (obj) {
+    return set("a", 1) === 9;
+  }
+}
+let p = objectShadowsOuterSet();
+
+function callThisIsWithObject() {
+  let obj = {
+    set: function (k, v) {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return set("a", 1) === 3;
+  }
+}
+let q = callThisIsWithObject();
+
+function withMapCallThisIsMap() {
+  let map = new Map();
+  let seen = null;
+  let orig = map.set;
+  map.set = function (k, v) {
+    seen = this;
+    return orig.call(this, k, v);
+  };
+  let ok;
+  with (map) {
+    ok = set("a", 1) === map && seen === map && get("a") === 1;
+  }
+  return ok;
+}
+let r = withMapCallThisIsMap();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get Map() {
+      n = n + 1;
+      return Map;
+    },
+    get k() {
+      n = n + 1;
+      return "a";
+    }
+  };
+  with (obj) {
+    let mm = new Map();
+    mm.set(k, 1);
+    return mm.get("a") === 1 && n === 2;
+  }
+}
+let s = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function set(k, v) {
+    return 11;
+  }
+  let map = new Map();
+  let obj = { set: map.set.bind(map) };
+  obj[Symbol.unscopables] = { set: true };
+  with (obj) {
+    return set("a", 1) === 11;
+  }
+}
+let t = unscopablesUsesOuter();
+
+function unscopablesMapIdent() {
+  let obj = {
+    Map: function () {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Map: true };
+  with (obj) {
+    let mm = new Map();
+    mm.set("a", 1);
+    return mm.get("a") === 1;
+  }
+}
+let u = unscopablesMapIdent();
+
+function inheritedData() {
+  let map = new Map();
+  let proto = { set: map.set.bind(map), get: map.get.bind(map) };
+  let obj = Object.create(proto);
+  with (obj) {
+    set("a", 1);
+    return get("a") === 1;
+  }
+}
+let v = inheritedData();
+
+function inheritedFromMap() {
+  let obj = Object.create(Map);
+  with (obj) {
+    return name === "Map" && length === 0 && prototype === Map.prototype;
+  }
+}
+let w = inheritedFromMap();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let map = new Map();
+  let proto = {
+    get set() {
+      seen = this;
+      return map.set.bind(map);
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return set("a", 1) === map && seen === obj;
+  }
+}
+let aa = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let map = new Map();
+  let obj = {
+    get set() {
+      seen = this;
+      return map.set.bind(map);
+    }
+  };
+  with (obj) {
+    return set("a", 1) === map && seen === obj;
+  }
+}
+let ab = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    set: function (k, v) {
+      return 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (k, v) {
+      return set(k, v);
+    };
+  }
+  let map = new Map();
+  obj.set = map.set.bind(map);
+  return run("a", 1) === map && map.get("a") === 1;
+}
+let ac = liveClose();
+
+function liveCloseMapIdent() {
+  let obj = {
+    Map: function () {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return new Map();
+    };
+  }
+  obj.Map = Map;
+  let mm = run();
+  mm.set("a", 1);
+  return mm.get("a") === 1;
+}
+let ad = liveCloseMapIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170295_missing();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ae = unresolvableCalleeThrows();
+
+function unresolvableMapThrows() {
+  with ({}) {
+    try {
+      e170295_noglob.set("a", 1);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170295_noglob === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableMapThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    set: function (k, v) {
+      return 5;
+    }
+  };
+  let map = new Map();
+  with (map) {
+    with (inner) {
+      return set("a", 1) === 5;
+    }
+  }
+}
+let ag = nestedInnerWins();
+
+function nestedInnerMissOuterMap() {
+  with ({ set: function (k, v) { return 5; } }) {
+    let map = new Map();
+    with (map) {
+      return set("a", 1) === map && get("a") === 1;
+    }
+  }
+}
+let ah = nestedInnerMissOuterMap();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let map = new Map();
+  let outer = { set: map.set.bind(map) };
+  with (outer) {
+    with (inner) {
+      return set("a", 1) === map && map.get("a") === 1;
+    }
+  }
+}
+let ai = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function set(k, v) {
+    return 11;
+  }
+  let map = new Map();
+  let inner = { set: map.set.bind(map) };
+  inner[Symbol.unscopables] = { set: true };
+  let outer = {
+    set: function (k, v) {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return set("a", 1) === 6;
+    }
+  }
+}
+let aj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { set: 1 };
+  with (obj) {
+    try {
+      set("a", 1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = nonCallableTypeError();
+
+function typeofSetMethod() {
+  let t;
+  let map = new Map();
+  with (map) {
+    t = typeof set;
+  }
+  return t === "function";
+}
+let al = typeofSetMethod();
+
+function typeofMapThroughWith() {
+  let obj = { Map: Map };
+  let t;
+  with (obj) {
+    t = typeof Map;
+  }
+  return t === "function";
+}
+let am = typeofMapThroughWith();
+
+function typeofGet() {
+  let t;
+  let map = new Map();
+  with (map) {
+    t = typeof get;
+  }
+  return t === "function";
+}
+let an = typeofGet();
+
+function memberSetStillMap() {
+  let obj = { x: 1 };
+  with (obj) {
+    let mm = new Map();
+    mm.set("a", 1);
+    return mm.get("a") === 1;
+  }
+}
+let ap = memberSetStillMap();
+
+function argsHitObject() {
+  let map = new Map();
+  let obj = {
+    k: "a",
+    v: 1,
+    set: map.set.bind(map)
+  };
+  with (obj) {
+    return set(k, v) === map && map.get("a") === 1;
+  }
+}
+let aq = argsHitObject();
+
+function argsMissIsOuter() {
+  let k = "a";
+  let v = 1;
+  let map = new Map();
+  let obj = { set: map.set.bind(map) };
+  with (obj) {
+    return set(k, v) === map && map.get("a") === 1;
+  }
+}
+let ar = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let map = new Map();
+  let obj = {
+    get set() {
+      ran = true;
+      return map.set.bind(map);
+    }
+  };
+  with (obj) {
+    try {
+      set(e170295_arg, 1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let at = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get k() {
+      ran = true;
+      return "a";
+    }
+  };
+  with (obj) {
+    try {
+      e170295_first(k);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let au = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  function set(k, v) {
+    return 1;
+  }
+  let map = new Map();
+  let obj = { set: map.set.bind(map) };
+  let run;
+  with (obj) {
+    run = function (k, v) {
+      return set(k, v);
+    };
+  }
+  obj.set = function (k, v) {
+    return 2;
+  };
+  return run("a", 1) === 2;
+}
+let av = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let map = new Map();
+  let obj = {
+    get set() {
+      c = c + 1;
+      return map.set.bind(map);
+    }
+  };
+  let out;
+  with (obj) {
+    out = set("a", 1);
+  }
+  return out === map && map.get("a") === 1 && c === 1;
+}
+let aw = getterRunsOncePerCall();
+
+function emptyMissUsesGlobalMap() {
+  let obj = {};
+  let out;
+  with (obj) {
+    let mm = new Map();
+    mm.set("a", 1);
+    out = mm.get("b");
+  }
+  return out === undefined;
+}
+let ax = emptyMissUsesGlobalMap();
+
+function globalThisIdentity() {
+  let obj = { Map: Map };
+  with (obj) {
+    return Map === globalThis.Map;
+  }
+}
+let ay = globalThisIdentity();
+
+function getIdentHitsObject() {
+  let obj = {
+    get: function (k) {
+      return "hit";
+    }
+  };
+  with (obj) {
+    return get("a") === "hit";
+  }
+}
+let az = getIdentHitsObject();
+
+function bracketMethodOnObject() {
+  let map = new Map();
+  let obj = { set: map.set.bind(map) };
+  with (obj) {
+    return obj["set"]("a", 1) === map && map.get("a") === 1;
+  }
+}
+let ba = bracketMethodOnObject();
+
+function unscopablesSecondIdent() {
+  let k = "a";
+  let map = new Map();
+  let obj = { set: map.set.bind(map), k: "b" };
+  obj[Symbol.unscopables] = { k: true };
+  let out;
+  with (obj) {
+    out = set(k, 1);
+  }
+  return out === map && map.get("a") === 1 && obj.k === "b";
+}
+let bb = unscopablesSecondIdent();
+
+function mapTypeofHit() {
+  let obj = { Map: 1 };
+  let t;
+  with (obj) {
+    t = typeof Map;
+  }
+  return t === "number";
+}
+let bc = mapTypeofHit();
+
+function setMissUsesGlobalSet() {
+  with ({}) {
+    return (
+      typeof Map.prototype.set === "function" &&
+      new Map().set("a", 1).get("a") === 1
+    );
+  }
+}
+let bd = setMissUsesGlobalSet();
+
+function getIdentMissIsOuter() {
+  with ({}) {
+    let mm = new Map();
+    mm.set("a", 1);
+    return mm.get("a") === 1;
+  }
+}
+let be = getIdentMissIsOuter();
+
+function liveCloseGet() {
+  let obj = { get: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return get;
+    };
+  }
+  let map = new Map();
+  map.set("a", 1);
+  obj.get = map.get.bind(map);
+  return run()("a") === 1;
+}
+let bf = liveCloseGet();
+
+function unscopablesGet() {
+  let obj = { get: 1 };
+  obj[Symbol.unscopables] = { get: true };
+  with (obj) {
+    return typeof get === "undefined";
+  }
+}
+let bg = unscopablesGet();
+
+function nestedGetInnerWins() {
+  with ({ get: 1 }) {
+    with ({ get: 2 }) {
+      return get === 2;
+    }
+  }
+}
+let bh = nestedGetInnerWins();
+
+function getterRunsOnceGet() {
+  let c = 0;
+  let map = new Map();
+  map.set("a", 1);
+  let obj = {
+    get get() {
+      c = c + 1;
+      return map.get.bind(map);
+    }
+  };
+  let out;
+  with (obj) {
+    out = get("a");
+  }
+  return out === 1 && c === 1;
+}
+let bi = getterRunsOnceGet();
+
+function identitySet() {
+  let obj = { Map: Map };
+  with (obj) {
+    return Map.prototype.set === globalThis.Map.prototype.set;
+  }
+}
+let bj = identitySet();
+
+function identityGet() {
+  let obj = { Map: Map };
+  with (obj) {
+    return Map.prototype.get === globalThis.Map.prototype.get;
+  }
+}
+let bk = identityGet();
+
+function nestedMapInnerWins() {
+  with ({ Map: 1 }) {
+    with ({ Map: 2 }) {
+      return Map === 2;
+    }
+  }
+}
+let bl = nestedMapInnerWins();
+
+function emptyMissUsesGlobalSetMethod() {
+  with ({}) {
+    let mm = new Map();
+    return mm.set("a", 1).get("a") === 1;
+  }
+}
+let bm = emptyMissUsesGlobalSetMethod();
+
+function withMapName() {
+  with (Map) {
+    return name === "Map";
+  }
+}
+let bn = withMapName();
+
+function withMapLength() {
+  with (Map) {
+    return length === 0;
+  }
+}
+let bp = withMapLength();
+
+function withMapPrototype() {
+  with (Map) {
+    return prototype === Map.prototype;
+  }
+}
+let bq = withMapPrototype();
+
+function withMapNewThisIsInstance() {
+  let obj = { Map: Map };
+  with (obj) {
+    let mm = new Map();
+    mm.set("a", 1);
+    return mm.get("a") === 1 && mm !== obj && mm instanceof Map;
+  }
+}
+let br = withMapNewThisIsInstance();
+
+function withSetNewThisIsInstance() {
+  let obj = { Set: Set };
+  with (obj) {
+    let ss = new Set();
+    ss.add("x");
+    return ss.has("x") === true && ss !== obj && ss instanceof Set;
+  }
+}
+let bs = withSetNewThisIsInstance();
+
+function withSetTypeof() {
+  let obj = { Set: Set };
+  with (obj) {
+    return typeof Set === "function";
+  }
+}
+let bt = withSetTypeof();
+
+function globalThisIdentitySet() {
+  let obj = { Set: Set };
+  with (obj) {
+    return Set === globalThis.Set;
+  }
+}
+let bu = globalThisIdentitySet();
+
+function withSetName() {
+  with (Set) {
+    return name === "Set";
+  }
+}
+let bv = withSetName();
+
+function withSetLength() {
+  with (Set) {
+    return length === 0;
+  }
+}
+let bw = withSetLength();
+
+function withSetPrototype() {
+  with (Set) {
+    return prototype === Set.prototype;
+  }
+}
+let bx = withSetPrototype();
+
+function setCtorIdentHitsObject() {
+  let obj = {
+    Set: function () {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new Set().p === "hit";
+  }
+}
+let by = setCtorIdentHitsObject();
+
+function setCtorIdentMissIsOuter() {
+  with ({}) {
+    let ss = new Set();
+    ss.add("x");
+    return ss.has("x") === true && ss.size === 1;
+  }
+}
+let bz = setCtorIdentMissIsOuter();
+
+function addIdentHitsObject() {
+  let obj = {
+    add: function (v) {
+      return v === "x" ? 7 : 0;
+    }
+  };
+  with (obj) {
+    return add("x") === 7;
+  }
+}
+let ca = addIdentHitsObject();
+
+function withSetAddThisIsSet() {
+  let setObj = new Set();
+  let seen = null;
+  let orig = setObj.add;
+  setObj.add = function (v) {
+    seen = this;
+    return orig.call(this, v);
+  };
+  let ok;
+  with (setObj) {
+    ok = add("x") === setObj && seen === setObj && has("x") === true;
+  }
+  return ok;
+}
+let cb = withSetAddThisIsSet();
+
+function withMapSizeIdent() {
+  let map = new Map();
+  map.set("a", 1);
+  map.set(2, "two");
+  with (map) {
+    return size === 2 && get("a") === 1 && get(2) === "two";
+  }
+}
+let cc = withMapSizeIdent();
+
+function withSetSizeIdent() {
+  let setObj = new Set();
+  setObj.add("x");
+  setObj.add("x");
+  setObj.add(3);
+  with (setObj) {
+    return size === 2 && has("x") === true && has(3) === true && has("y") === false;
+  }
+}
+let cd = withSetSizeIdent();
+
+function unscopablesSetCtor() {
+  let obj = {
+    Set: function () {
+      this.p = 0;
+    }
+  };
+  obj[Symbol.unscopables] = { Set: true };
+  with (obj) {
+    let ss = new Set();
+    ss.add("x");
+    return ss.has("x") === true;
+  }
+}
+let ce = unscopablesSetCtor();
+
+function nestedSetInnerWins() {
+  with ({ Set: 1 }) {
+    with ({ Set: 2 }) {
+      return Set === 2;
+    }
+  }
+}
+let cf = nestedSetInnerWins();
+
+function liveCloseSetCtor() {
+  let obj = {
+    Set: function () {
+      this.p = 1;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return new Set();
+    };
+  }
+  obj.Set = Set;
+  let ss = run();
+  ss.add("x");
+  return ss.has("x") === true;
+}
+let cg = liveCloseSetCtor();
+
+function withMapHasIdent() {
+  let map = new Map();
+  with (map) {
+    set("a", 1);
+    return has("a") === true && has("b") === false;
+  }
+}
+let ch = withMapHasIdent();
+
+function withSetHasIdent() {
+  let setObj = new Set();
+  with (setObj) {
+    add("x");
+    return has("x") === true && has("y") === false;
+  }
+}
+let ci = withSetHasIdent();
+
+function mapSetReturnsMap() {
+  let map = new Map();
+  with (map) {
+    return set("a", 1) === map && set(2, "two") === map && size === 2;
+  }
+}
+let cj = mapSetReturnsMap();
+
+function setAddReturnsSet() {
+  let setObj = new Set();
+  with (setObj) {
+    return add("x") === setObj && add(3) === setObj && size === 2;
+  }
+}
+let ck = setAddReturnsSet();
