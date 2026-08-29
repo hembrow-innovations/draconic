@@ -1,16 +1,31 @@
 # Draconic
 
-Draconic is a programming language: a **full ECMAScript superset** with TypeScript-inspired static types and **native systems types**, compiling to **JavaScript** and to **native binaries** (LLVM).
+**JavaScript you already know. Native types when you need them. One language, two backends.**
 
-This monorepo is the Draconic toolchain (Rust) plus the agent **Loop** that grows the language to completion.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Docs](https://img.shields.io/badge/docs-Learn%20%26%20Reference-0A7EA4)](https://hembrow-innovations.github.io/draconic/)
+[![GitHub](https://img.shields.io/badge/github-hembrow--innovations%2Fdraconic-181717?logo=github)](https://github.com/hembrow-innovations/draconic)
 
-## Status
+Draconic is a **full ECMAScript superset** with TypeScript-inspired static types and unboxed **native systems types**. Compile the same Program to **JavaScript** or to a **native binary** via LLVM.
 
-Bootstrap / Roadmap Loop spine is complete. Language completeness is ongoing — see [`ROADMAP.md`](./ROADMAP.md) for open items. The toolchain is usable today for **parse**, **build** (`js` | `native`), and **test**.
+> **Status.** Early (v0.1). The toolchain can parse, typecheck, build (`js` | `native`), and test today. Language completeness is still growing — see [ROADMAP.md](./ROADMAP.md).
 
-## Learn and Reference
+## Why Draconic
 
-[Learn](https://hembrow-innovations.github.io/draconic/) and [Reference](https://hembrow-innovations.github.io/draconic/reference.html) are the public language docs. This README stays clone-build-run.
+Write Programs that look like JavaScript. Add `i32`, `i64`, and fixed structs when you want values off the GC heap. JS values and native types coexist in one Program at explicit boundaries — **Dual worlds** — instead of a typed-JS-only story or a separate FFI language.
+
+- **From JavaScript / TypeScript** — a familiar surface; the JS backend emits JavaScript, not TypeScript
+- **From systems** — LLVM + a tracing GC Runtime so ECMAScript semantics still hold next to native types
+
+## Features
+
+- Full ECMAScript superset (not a subset or a new syntax)
+- TypeScript-inspired Checker (familiar surface; not tsc-compatible)
+- Native types (`i32`, `i64`, fixed structs) outside the GC heap
+- Two backends: JavaScript emit, and LLVM native binaries
+- Host I/O on native: process, stdio, sockets, then thin HTTP/1.1
+- Git-backed packages (Go-style module paths; no central registry required)
+- ESM modules, `draconic fmt`, `check`, `run`, `repl`, and `test`
 
 ## Install
 
@@ -18,139 +33,121 @@ Bootstrap / Roadmap Loop spine is complete. Language completeness is ongoing —
 curl -fsSL https://raw.githubusercontent.com/hembrow-innovations/draconic/main/scripts/install.sh | sh
 ```
 
-Places `draconic` in `~/.draconic/bin`. Add that directory to `PATH` if needed, then smoke:
+Places `draconic` in `~/.draconic/bin`. Add that directory to `PATH` if needed:
 
 ```bash
 draconic -V
-draconic parse hello.drac
 ```
 
-## Build
-
-```bash
-cargo build -p draconic-cli
-cargo test --workspace
-```
+Native builds need an LLVM toolchain on the machine.
 
 ## Quick start
 
-Write a program (`hello.drac`):
+Save this as `hello.drac`:
 
 ```js
 let console = globalThis.console;
-console.log("hello");
+console.log("hello from Draconic");
 ```
 
-Parse (AST dump):
+Parse, build to JavaScript, or run it:
 
 ```bash
-cargo run -p draconic-cli -- parse hello.drac
-```
-
-Build to JavaScript:
-
-```bash
-cargo run -p draconic-cli -- build --target js hello.drac -o hello.js
+draconic parse hello.drac
+draconic build --target js hello.drac -o hello.js
 node hello.js
+
+draconic run hello.drac
 ```
 
-Native binary (needs LLVM toolchain):
+Native binary:
 
 ```bash
-cargo run -p draconic-cli -- build --target native hello.drac -o hello
+draconic build --target native hello.drac -o hello
 ./hello
 ```
 
-Examples: [`examples/fizzbuzz/`](./examples/fizzbuzz/) (CLI FizzBuzz) · [`examples/http-echo/`](./examples/http-echo/) (native HTTP/1.1) · [`examples/todo/`](./examples/todo/) (browser todo).
+A native HTTP/1.1 echo server (no C host) is a few lines:
+
+```js
+let s = tcpListen(8080);
+stdoutWrite("listening on 8080\n");
+while (true) {
+  let a = tcpAccept(s);
+  let raw = tcpRead(a, 65536);
+  let req = httpParseRequest(raw);
+  let resp = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", req.path);
+  tcpWrite(a, resp);
+  closeTcp(a);
+}
+```
+
+## Examples
+
+| Example | What it shows |
+|---------|----------------|
+| [`examples/fizzbuzz/`](./examples/fizzbuzz/) | Control flow and strings, compiled to JS |
+| [`examples/http-echo/`](./examples/http-echo/) | Native HTTP/1.1 listen and accept |
+| [`examples/todo/`](./examples/todo/) | Browser todo via `globalThis` (DOM, `localStorage`) |
+| [`examples/pkg-lib/`](./examples/pkg-lib/) · [`pkg-consumer/`](./examples/pkg-consumer/) | Git packages (`draconic.toml`, `get` / `mod tidy`) |
+
+## Documentation
+
+- **[Learn](https://hembrow-innovations.github.io/draconic/)** — from JavaScript or from systems, then Dual worlds, modules, native types, host I/O, packages
+- **[Reference](https://hembrow-innovations.github.io/draconic/reference.html)** — CLI, types, Dual-world rules, host I/O, packages
+- **[Install](https://hembrow-innovations.github.io/draconic/install.html)** — public install path
+
+Sources for those pages live in [`website/`](./website/).
 
 ## CLI
 
 ```text
-draconic parse <file>                          Parse a Program and print the AST dump
+draconic parse <file>                 Parse and print the AST
+draconic check [--watch] <file>       Typecheck (no emit)
+draconic fmt [--check] <file>         Format in place
 draconic build --target js|native <file> [-o <out>]
-                                               Compile a Program to JS or a native binary
-draconic test <path>                           Run conformance fixtures (dir or .drac file)
-draconic version                               Print version
-draconic help                                  Show this help
+draconic run [--target js|native] <file> [args...]
+draconic repl [--target js|embed]
+draconic test <path>                  Conformance fixtures
+draconic get <module_path>@<ver>      Add a git package
+draconic mod tidy                     Align lockfile and fetch
+draconic bindgen <header>             extern "C" from a C header
+draconic version | help
 ```
 
-Via cargo:
+Shebang: `#!/usr/bin/env draconic`
+
+## Build from source
+
+Requires a Rust toolchain (`cargo`). LLVM is required for `--target native`.
 
 ```bash
-cargo run -p draconic-cli -- help
-cargo run -p draconic-cli -- parse path/to/file.drac
-cargo run -p draconic-cli -- build --target js path/to/file.drac -o out.js
-cargo run -p draconic-cli -- build --target native path/to/file.drac -o out
+git clone https://github.com/hembrow-innovations/draconic.git
+cd draconic
+cargo build -p draconic-cli --release
+cargo test --workspace
+```
+
+During development:
+
+```bash
+cargo run -p draconic-cli -- run hello.drac
+cargo run -p draconic-cli -- build --target js hello.drac -o hello.js
 cargo run -p draconic-cli -- test tests/conformance/fixtures
-cargo run -p draconic-cli -- version
 ```
 
-## Layout
+The workspace is a Rust monorepo: lexer → parser → check → IR → JS / LLVM backends, plus Runtime, Embed, packages, and the `draconic` CLI under `crates/`.
 
-| Path | Role |
-|------|------|
-| `crates/draconic-lexer` | Lexer |
-| `crates/draconic-parser` | Parser (source → AST) |
-| `crates/draconic-linker` | ESM module linker |
-| `crates/draconic-frontend` | Frontend (parse/link → check → IR) |
-| `crates/draconic-ast` | AST + dump |
-| `crates/draconic-check` | Binder + Checker |
-| `crates/draconic-ir` | Shared IR |
-| `crates/draconic-backend-js` | JS backend |
-| `crates/draconic-backend-llvm` | LLVM backend |
-| `crates/draconic-runtime` | Native Runtime (GC, async) |
-| `crates/draconic-embed` | Embed (eval-at-runtime) |
-| `crates/draconic-cli` | `draconic` CLI |
-| `tests/conformance` | Conformance suite |
-| `examples/` | Example programs (`fizzbuzz`, `http-echo`, `todo`) |
-| `website/` | Public Learn + Reference sources (HTML generated in CI) |
-| `tests/test262` | Staged Test262 harness (optional suite via `scripts/fetch-test262.mjs`) |
-| `ROADMAP.md` | Feature checklist (Loop source of truth) |
-| `CONTEXT.md` | Domain glossary |
-| `docs/adr/` | Architecture decisions |
-| `.agents/skills/draconic-loop/` | Mega-loop skill |
+## Contributing
 
-## Agent loop
-
-Invoke the **draconic-loop** skill to claim the next Roadmap item and implement it test-first (one item per session by default).
-
-Or run N iterations unattended (same pattern as life-engine):
+Draconic is built in the open. Completeness is the [Roadmap](./ROADMAP.md): a feature is done only when its tests are green on every applicable target.
 
 ```bash
-# OpenCode TUI — /loop (default 100×) or /loop 20
-# (see .opencode/command/loop.md)
-
-# OpenCode CLI — default prompt = one draconic-loop each iteration
-node .loop/opencode-loop.mjs 10
-
-# Optional sleep between loops (seconds)
-SLEEP=30 node .loop/opencode-loop.mjs 10
-
-# Stall watchdog: kill a hung iteration after N seconds with no stdout (default 600)
-STALL_SEC=900 STALL_ACTION=continue node .loop/opencode-loop.mjs 100
-
-# Custom prompt / model flags after --
-node .loop/opencode-loop.mjs 5 "run the draconic-loop skill once" -- -m xai/grok-4.5
-
-# Claude Code
-node .loop/claude-loop.mjs 10
-
-# One swarm wave (N fresh sessions; default serial on main worktree)
-node .loop/opencode-swarm.mjs wave=10
-# Parallel: one git worktree per slot under .loop/worktrees/; always removed after
-node .loop/opencode-swarm.mjs parallel wave=10
-
-# Until ROADMAP todo=0 (outer loop holds no LLM context)
-node .loop/opencode-orchestrate.mjs wave=10
-node .loop/opencode-orchestrate.mjs parallel wave=10 MAX_WAVES=50
-
-# TUI: /swarm  |  /orchestrate
-# Status / worktree hygiene:
-node .loop/roadmap-status.mjs
-node .loop/worktree.mjs list      # should show no [swarm] entries when idle
-node .loop/worktree.mjs cleanup   # force-remove any dangling swarm worktrees
+cargo test --workspace
 ```
+
+Start from a `todo` row, add or extend tests first, then implement. Domain terms are in [CONTEXT.md](./CONTEXT.md); locked decisions are in [docs/adr/](./docs/adr/). Pull requests are welcome.
 
 ## License
 
-MIT
+[MIT](https://opensource.org/licenses/MIT)
