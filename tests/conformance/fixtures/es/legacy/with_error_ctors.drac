@@ -1,0 +1,1005 @@
+// E17.02.89: with + Error constructors (Error / TypeError / RangeError /
+// ReferenceError / SyntaxError / URIError / EvalError / AggregateError:
+// typeof, globalThis identity, new …(msg), .name / .message) through
+// object environment (non-strict). Constructor idents hit object (else
+// outer); with (Error) / with (TypeError) name / length / prototype
+// idents hit those constructors; inherited HasBinding; accessor this
+// is with object; unresolvable → ReferenceError; live close; nested
+// with; unscopables skip.
+
+function withErrorTypeof() {
+  let obj = { Error: Error };
+  with (obj) {
+    return typeof Error === "function";
+  }
+}
+let a = withErrorTypeof();
+
+function withTypeErrorTypeof() {
+  let obj = { TypeError: TypeError };
+  with (obj) {
+    return typeof TypeError === "function";
+  }
+}
+let b = withTypeErrorTypeof();
+
+function withRangeErrorTypeof() {
+  let obj = { RangeError: RangeError };
+  with (obj) {
+    return typeof RangeError === "function";
+  }
+}
+let c = withRangeErrorTypeof();
+
+function withReferenceErrorTypeof() {
+  let obj = { ReferenceError: ReferenceError };
+  with (obj) {
+    return typeof ReferenceError === "function";
+  }
+}
+let d = withReferenceErrorTypeof();
+
+function withSyntaxErrorTypeof() {
+  let obj = { SyntaxError: SyntaxError };
+  with (obj) {
+    return typeof SyntaxError === "function";
+  }
+}
+let e = withSyntaxErrorTypeof();
+
+function withURIErrorTypeof() {
+  let obj = { URIError: URIError };
+  with (obj) {
+    return typeof URIError === "function";
+  }
+}
+let f = withURIErrorTypeof();
+
+function withEvalErrorTypeof() {
+  let obj = { EvalError: EvalError };
+  with (obj) {
+    return typeof EvalError === "function";
+  }
+}
+let g = withEvalErrorTypeof();
+
+function withAggregateErrorTypeof() {
+  let obj = { AggregateError: AggregateError };
+  with (obj) {
+    return typeof AggregateError === "function";
+  }
+}
+let h = withAggregateErrorTypeof();
+
+function withErrorMiss() {
+  with ({}) {
+    return typeof Error === "function";
+  }
+}
+let j = withErrorMiss();
+
+function withErrorIdentity() {
+  let obj = { Error: Error };
+  with (obj) {
+    return Error === globalThis.Error;
+  }
+}
+let k = withErrorIdentity();
+
+function withTypeErrorIdentity() {
+  let obj = { TypeError: TypeError };
+  with (obj) {
+    return TypeError === globalThis.TypeError;
+  }
+}
+let l = withTypeErrorIdentity();
+
+function withErrorNew() {
+  let obj = { Error: Error };
+  with (obj) {
+    let err = new Error("msg");
+    return err.name === "Error" && err.message === "msg";
+  }
+}
+let m = withErrorNew();
+
+function withTypeErrorNew() {
+  let obj = { TypeError: TypeError };
+  with (obj) {
+    let err = new TypeError("t");
+    return err.name === "TypeError" && err.message === "t";
+  }
+}
+let n = withTypeErrorNew();
+
+function withRangeErrorNew() {
+  let obj = { RangeError: RangeError };
+  with (obj) {
+    let err = new RangeError("r");
+    return err.name === "RangeError" && err.message === "r";
+  }
+}
+let p = withRangeErrorNew();
+
+function withReferenceErrorNew() {
+  let obj = { ReferenceError: ReferenceError };
+  with (obj) {
+    let err = new ReferenceError("rf");
+    return err.name === "ReferenceError" && err.message === "rf";
+  }
+}
+let q = withReferenceErrorNew();
+
+function withSyntaxErrorNew() {
+  let obj = { SyntaxError: SyntaxError };
+  with (obj) {
+    let err = new SyntaxError("s");
+    return err.name === "SyntaxError" && err.message === "s";
+  }
+}
+let r = withSyntaxErrorNew();
+
+function withURIErrorNew() {
+  let obj = { URIError: URIError };
+  with (obj) {
+    let err = new URIError("u");
+    return err.name === "URIError" && err.message === "u";
+  }
+}
+let s = withURIErrorNew();
+
+function withEvalErrorNew() {
+  let obj = { EvalError: EvalError };
+  with (obj) {
+    let err = new EvalError("e");
+    return err.name === "EvalError" && err.message === "e";
+  }
+}
+let t = withEvalErrorNew();
+
+function withAggregateErrorNew() {
+  let obj = { AggregateError: AggregateError };
+  with (obj) {
+    let err = new AggregateError([1, 2], "a");
+    return err.name === "AggregateError" && err.message === "a" && err.errors.length === 2;
+  }
+}
+let u = withAggregateErrorNew();
+
+function withThrowTypeError() {
+  let obj = { TypeError: TypeError };
+  with (obj) {
+    try {
+      throw new TypeError("boom");
+    } catch (err) {
+      return err.name === "TypeError" && err.message === "boom";
+    }
+  }
+}
+let v = withThrowTypeError();
+
+function withErrorName() {
+  with (Error) {
+    return name === "Error";
+  }
+}
+let w = withErrorName();
+
+function withTypeErrorName() {
+  with (TypeError) {
+    return name === "TypeError";
+  }
+}
+let aa = withTypeErrorName();
+
+function withErrorLength() {
+  with (Error) {
+    return length === 1;
+  }
+}
+let ab = withErrorLength();
+
+function withErrorPrototype() {
+  with (Error) {
+    return prototype === Error.prototype;
+  }
+}
+let ac = withErrorPrototype();
+
+function withTypeErrorPrototype() {
+  with (TypeError) {
+    return prototype === TypeError.prototype;
+  }
+}
+let ad = withTypeErrorPrototype();
+
+function withErrorBracketName() {
+  let obj = { Error: Error };
+  with (obj) {
+    return Error["name"] === "Error";
+  }
+}
+let ae = withErrorBracketName();
+
+function withTypeErrorBracketName() {
+  let obj = { TypeError: TypeError };
+  with (obj) {
+    return TypeError["name"] === "TypeError";
+  }
+}
+let af = withTypeErrorBracketName();
+
+function errorIdentHitsObject() {
+  let obj = {
+    Error: function (msg) {
+      this.name = "Hit";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new Error("x");
+    return err.name === "Hit" && err.message === "x";
+  }
+}
+let ag = errorIdentHitsObject();
+
+function errorIdentMissIsOuter() {
+  with ({}) {
+    let err = new Error("msg");
+    return err.name === "Error" && err.message === "msg";
+  }
+}
+let ah = errorIdentMissIsOuter();
+
+function errorIdentShadowsOuter() {
+  let obj = {
+    Error: function (msg) {
+      this.name = "Shadow";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new Error("y");
+    return err.name === "Shadow" && err.message === "y";
+  }
+}
+let ai = errorIdentShadowsOuter();
+
+function typeErrorIdentHitsObject() {
+  let obj = {
+    TypeError: function (msg) {
+      this.name = "HitTE";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new TypeError("z");
+    return err.name === "HitTE" && err.message === "z";
+  }
+}
+let aj = typeErrorIdentHitsObject();
+
+function nameIdentHitsObject() {
+  let obj = { name: "own" };
+  with (obj) {
+    return name === "own";
+  }
+}
+let ak = nameIdentHitsObject();
+
+function nameIdentMissIsOuter() {
+  function name() {
+    return 8;
+  }
+  with ({}) {
+    return name() === 8;
+  }
+}
+let al = nameIdentMissIsOuter();
+
+function errorShadowsOuterName() {
+  function name() {
+    return 8;
+  }
+  with (Error) {
+    return name === "Error";
+  }
+}
+let am = errorShadowsOuterName();
+
+function callThisIsWithObject() {
+  let obj = {
+    name: function () {
+      return this === obj ? 3 : 0;
+    }
+  };
+  with (obj) {
+    return name() === 3;
+  }
+}
+let an = callThisIsWithObject();
+
+function withErrorCallThisIsError() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(Error, "name");
+  Object.defineProperty(Error, "name", {
+    get: function () {
+      seen = this;
+      return "Error";
+    },
+    configurable: true
+  });
+  let ok;
+  with (Error) {
+    ok = name === "Error" && seen === Error;
+  }
+  Object.defineProperty(Error, "name", orig);
+  return ok;
+}
+let ap = withErrorCallThisIsError();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let obj = {
+    get Error() {
+      n = n + 1;
+      return Error;
+    },
+    get x() {
+      n = n + 1;
+      return "msg";
+    }
+  };
+  with (obj) {
+    let err = new Error(x);
+    return err.message === "msg" && n === 2;
+  }
+}
+let aq = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function name() {
+    return 11;
+  }
+  let obj = { name: "Error" };
+  obj[Symbol.unscopables] = { name: true };
+  with (obj) {
+    return name() === 11;
+  }
+}
+let ar = unscopablesUsesOuter();
+
+function unscopablesErrorIdent() {
+  let obj = {
+    Error: function (msg) {
+      this.name = "Skip";
+      this.message = msg;
+    }
+  };
+  obj[Symbol.unscopables] = { Error: true };
+  with (obj) {
+    let err = new Error("m");
+    return err.name === "Error" && err.message === "m";
+  }
+}
+let at = unscopablesErrorIdent();
+
+function inheritedData() {
+  let proto = { Error: Error, name: "fromProto" };
+  let obj = Object.create(proto);
+  with (obj) {
+    let err = new Error("i");
+    return err.name === "Error" && name === "fromProto";
+  }
+}
+let au = inheritedData();
+
+function inheritedFromError() {
+  let obj = Object.create(Error);
+  with (obj) {
+    return name === "Error" && length === 1 && prototype === Error.prototype;
+  }
+}
+let av = inheritedFromError();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get name() {
+      seen = this;
+      return "g";
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    return name === "g" && seen === obj;
+  }
+}
+let aw = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get name() {
+      seen = this;
+      return "g";
+    }
+  };
+  with (obj) {
+    return name === "g" && seen === obj;
+  }
+}
+let ax = accessorThisIsWithObject();
+
+function liveClose() {
+  let obj = {
+    Error: function (msg) {
+      this.name = "Live1";
+      this.message = msg;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (msg) {
+      return new Error(msg);
+    };
+  }
+  obj.Error = Error;
+  let err = run("live");
+  return err.name === "Error" && err.message === "live";
+}
+let ay = liveClose();
+
+function liveCloseErrorIdent() {
+  let obj = {
+    Error: {
+      name: "Live"
+    }
+  };
+  let run;
+  with (obj) {
+    run = function () {
+      return Error.name;
+    };
+  }
+  obj.Error = Error;
+  return run() === "Error";
+}
+let az = liveCloseErrorIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e170289_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ba = unresolvableCalleeThrows();
+
+function unresolvableErrorThrows() {
+  with ({}) {
+    try {
+      e170289_noglob.name;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170289_noglob === "undefined"
+      );
+    }
+  }
+}
+let bb = unresolvableErrorThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    Error: function (msg) {
+      this.name = "Inner";
+      this.message = msg;
+    }
+  };
+  with ({ Error: Error }) {
+    with (inner) {
+      let err = new Error("n");
+      return err.name === "Inner";
+    }
+  }
+}
+let bc = nestedInnerWins();
+
+function nestedInnerMissOuterError() {
+  with ({
+    Error: function (msg) {
+      this.name = "Outer";
+      this.message = msg;
+    }
+  }) {
+    with ({}) {
+      let err = new Error("n");
+      return err.name === "Outer";
+    }
+  }
+}
+let bd = nestedInnerMissOuterError();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { Error: Error };
+  with (outer) {
+    with (inner) {
+      let err = new Error("n");
+      return err.name === "Error";
+    }
+  }
+}
+let be = nestedInnerMissOuter();
+
+function nestedWithUnscopables() {
+  function name() {
+    return 11;
+  }
+  let inner = { name: "Inner" };
+  inner[Symbol.unscopables] = { name: true };
+  let outer = { name: "Outer" };
+  with (outer) {
+    with (inner) {
+      return name === "Outer";
+    }
+  }
+}
+let bf = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let obj = { Error: 1 };
+  with (obj) {
+    try {
+      new Error("x");
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bg = nonCallableTypeError();
+
+function typeofErrorThroughWith() {
+  let t;
+  let obj = { Error: Error };
+  with (obj) {
+    t = typeof Error;
+  }
+  return t === "function";
+}
+let bh = typeofErrorThroughWith();
+
+function typeofNameThroughWith() {
+  let t;
+  with (Error) {
+    t = typeof name;
+  }
+  return t === "string";
+}
+let bi = typeofNameThroughWith();
+
+function memberErrorStillGlobal() {
+  let obj = { x: 1 };
+  with (obj) {
+    let err = new Error("m");
+    return err.name === "Error";
+  }
+}
+let bj = memberErrorStillGlobal();
+
+function argsHitObject() {
+  let obj = {
+    x: "fromObj",
+    Error: Error
+  };
+  with (obj) {
+    let err = new Error(x);
+    return err.message === "fromObj";
+  }
+}
+let bk = argsHitObject();
+
+function argsMissIsOuter() {
+  let x = "fromOuter";
+  let obj = { Error: Error };
+  with (obj) {
+    let err = new Error(x);
+    return err.message === "fromOuter";
+  }
+}
+let bl = argsMissIsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let obj = {
+    get Error() {
+      ran = true;
+      return Error;
+    }
+  };
+  with (obj) {
+    try {
+      new Error(e170289_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bm = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return "x";
+    }
+  };
+  with (obj) {
+    try {
+      new e170289_first(x);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bn = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let obj = {
+    Error: function (msg) {
+      this.name = "A";
+      this.message = msg;
+    }
+  };
+  let run;
+  with (obj) {
+    run = function (msg) {
+      return new Error(msg);
+    };
+  }
+  obj.Error = function (msg) {
+    this.name = "B";
+    this.message = msg;
+  };
+  return run("m").name === "B";
+}
+let bp = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerNew() {
+  let c = 0;
+  let obj = {
+    get Error() {
+      c = c + 1;
+      return Error;
+    }
+  };
+  let err;
+  with (obj) {
+    err = new Error("once");
+  }
+  return err.name === "Error" && err.message === "once" && c === 1;
+}
+let bq = getterRunsOncePerNew();
+
+function emptyMissUsesGlobalError() {
+  let obj = {};
+  let out;
+  with (obj) {
+    out = typeof Error === "function";
+  }
+  return out === true;
+}
+let br = emptyMissUsesGlobalError();
+
+function bracketNameOnError() {
+  let obj = { Error: Error };
+  with (obj) {
+    return obj["Error"].name === "Error";
+  }
+}
+let bs = bracketNameOnError();
+
+function unscopablesSecondIdent() {
+  let x = "outer";
+  let obj = { Error: Error, x: "inner" };
+  obj[Symbol.unscopables] = { x: true };
+  let err;
+  with (obj) {
+    err = new Error(x);
+  }
+  return err.message === "outer";
+}
+let bt = unscopablesSecondIdent();
+
+function errorTypeofHit() {
+  let obj = { Error: 1 };
+  let t;
+  with (obj) {
+    t = typeof Error;
+  }
+  return t === "number";
+}
+let bu = errorTypeofHit();
+
+function typeErrorTypeofHit() {
+  let obj = { TypeError: "te" };
+  let t;
+  with (obj) {
+    t = typeof TypeError;
+  }
+  return t === "string";
+}
+let bv = typeErrorTypeofHit();
+
+function newThisIsInstance() {
+  let obj = {
+    Error: function (msg) {
+      this.ok = this !== obj;
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new Error("inst");
+    return err.ok === true && err.message === "inst";
+  }
+}
+let bw = newThisIsInstance();
+
+function aggregateErrorIdentHitsObject() {
+  let obj = {
+    AggregateError: function (errors, msg) {
+      this.name = "HitAgg";
+      this.message = msg;
+      this.errors = errors;
+    }
+  };
+  with (obj) {
+    let err = new AggregateError([1], "a");
+    return err.name === "HitAgg" && err.message === "a" && err.errors.length === 1;
+  }
+}
+let bx = aggregateErrorIdentHitsObject();
+
+function liveCloseTypeError() {
+  let obj = { TypeError: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return TypeError;
+    };
+  }
+  obj.TypeError = TypeError;
+  return run() === TypeError;
+}
+let by = liveCloseTypeError();
+
+function unscopablesTypeError() {
+  let obj = { TypeError: 1 };
+  obj[Symbol.unscopables] = { TypeError: true };
+  with (obj) {
+    return typeof TypeError === "function";
+  }
+}
+let bz = unscopablesTypeError();
+
+function nestedErrorInnerWins() {
+  with ({ Error: 1 }) {
+    with ({ Error: 2 }) {
+      return Error === 2;
+    }
+  }
+}
+let ca = nestedErrorInnerWins();
+
+function withErrorPrototypeIsError() {
+  with (Error) {
+    let err = new prototype.constructor("p");
+    return err instanceof Error && err.message === "p";
+  }
+}
+let cb = withErrorPrototypeIsError();
+
+function instanceofThroughWith() {
+  let obj = { TypeError: TypeError, Error: Error };
+  with (obj) {
+    let err = new TypeError("i");
+    return err instanceof TypeError && err instanceof Error;
+  }
+}
+let cc = instanceofThroughWith();
+
+function catchInstanceofTypeError() {
+  let obj = { TypeError: TypeError };
+  with (obj) {
+    try {
+      throw new TypeError("c");
+    } catch (err) {
+      return err instanceof TypeError && err.message === "c";
+    }
+  }
+}
+let cd = catchInstanceofTypeError();
+
+function rangeErrorIdentHitsObject() {
+  let obj = {
+    RangeError: function (msg) {
+      this.name = "HitRE";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new RangeError("r");
+    return err.name === "HitRE";
+  }
+}
+let ce = rangeErrorIdentHitsObject();
+
+function syntaxErrorIdentHitsObject() {
+  let obj = {
+    SyntaxError: function (msg) {
+      this.name = "HitSE";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new SyntaxError("s");
+    return err.name === "HitSE";
+  }
+}
+let cf = syntaxErrorIdentHitsObject();
+
+function uriErrorIdentHitsObject() {
+  let obj = {
+    URIError: function (msg) {
+      this.name = "HitUE";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new URIError("u");
+    return err.name === "HitUE";
+  }
+}
+let cg = uriErrorIdentHitsObject();
+
+function evalErrorIdentHitsObject() {
+  let obj = {
+    EvalError: function (msg) {
+      this.name = "HitEE";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new EvalError("e");
+    return err.name === "HitEE";
+  }
+}
+let ch = evalErrorIdentHitsObject();
+
+function referenceErrorIdentHitsObject() {
+  let obj = {
+    ReferenceError: function (msg) {
+      this.name = "HitRF";
+      this.message = msg;
+    }
+  };
+  with (obj) {
+    let err = new ReferenceError("rf");
+    return err.name === "HitRF";
+  }
+}
+let ci = referenceErrorIdentHitsObject();
+
+function withRangeErrorName() {
+  with (RangeError) {
+    return name === "RangeError";
+  }
+}
+let cj = withRangeErrorName();
+
+function withReferenceErrorName() {
+  with (ReferenceError) {
+    return name === "ReferenceError";
+  }
+}
+let ck = withReferenceErrorName();
+
+function withSyntaxErrorName() {
+  with (SyntaxError) {
+    return name === "SyntaxError";
+  }
+}
+let cl = withSyntaxErrorName();
+
+function withURIErrorName() {
+  with (URIError) {
+    return name === "URIError";
+  }
+}
+let cm = withURIErrorName();
+
+function withEvalErrorName() {
+  with (EvalError) {
+    return name === "EvalError";
+  }
+}
+let cn = withEvalErrorName();
+
+function withAggregateErrorName() {
+  with (AggregateError) {
+    return name === "AggregateError";
+  }
+}
+let cp = withAggregateErrorName();
+
+function nestedNameInnerWins() {
+  with (Error) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let cq = nestedNameInnerWins();
+
+function nestedNameMissOuterError() {
+  with (Error) {
+    with ({}) {
+      return name === "Error";
+    }
+  }
+}
+let cr = nestedNameMissOuterError();
+
+function liveCloseName() {
+  let obj = { name: "A" };
+  let run;
+  with (obj) {
+    run = function () {
+      return name;
+    };
+  }
+  obj.name = "B";
+  return run() === "B";
+}
+let cs = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (Error) {
+    let obj = { name: "skip" };
+    obj[Symbol.unscopables] = { name: true };
+    with (obj) {
+      return name === "Error";
+    }
+  }
+}
+let ct = unscopablesNameUsesOuter();
+
+function throwErrorThroughWith() {
+  let obj = { Error: Error };
+  with (obj) {
+    try {
+      throw new Error("threw");
+    } catch (err) {
+      return err instanceof Error && err.message === "threw";
+    }
+  }
+}
+let cu = throwErrorThroughWith();
+
+function aggregateErrorsHitObject() {
+  let obj = { errors: [1, 2, 3], AggregateError: AggregateError };
+  with (obj) {
+    let err = new AggregateError(errors, "a");
+    return err.errors.length === 3 && err.message === "a";
+  }
+}
+let cv = aggregateErrorsHitObject();

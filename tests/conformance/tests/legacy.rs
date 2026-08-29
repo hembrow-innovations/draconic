@@ -928,3 +928,13 @@ fn with_global_basics_fixture_present() {
 fn with_global_basics_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_global_basics");
 }
+
+#[test]
+fn with_error_ctors_fixture_present() {
+    assert_fixture_present("es/legacy/with_error_ctors");
+}
+
+#[test]
+fn with_error_ctors_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_error_ctors");
+}
