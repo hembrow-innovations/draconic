@@ -828,3 +828,13 @@ fn with_number_literals_fixture_present() {
 fn with_number_literals_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_number_literals");
 }
+
+#[test]
+fn with_bigint_literals_fixture_present() {
+    assert_fixture_present("es/legacy/with_bigint_literals");
+}
+
+#[test]
+fn with_bigint_literals_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_bigint_literals");
+}

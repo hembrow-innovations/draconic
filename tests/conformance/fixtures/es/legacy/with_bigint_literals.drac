@@ -1,0 +1,640 @@
+// E17.02.79: with + BigInt integer literals (1n, 0xffn, 0b…n, 0o…n, _
+// separators) + same-type + - * / % and unary - through object environment
+// (non-strict). Ident compared/combined with those literals hits object
+// (else outer); empty/0n; nested; inherited HasBinding; accessor get this
+// is with object; unresolvable ident → ReferenceError; live close; nested
+// with; unscopables skip.
+
+function decimalHitsObject() {
+  let n = 0n;
+  let obj = { n: 1n };
+  let out;
+  with (obj) {
+    out = n === 1n;
+  }
+  return out === true && n === 0n;
+}
+let a = decimalHitsObject();
+
+function twoHitsObject() {
+  let n = 0n;
+  let obj = { n: 2n };
+  let out;
+  with (obj) {
+    out = n === 2n;
+  }
+  return out === true && n === 0n;
+}
+let b = twoHitsObject();
+
+function hexLowerHitsObject() {
+  let n = 0n;
+  let obj = { n: 255n };
+  let out;
+  with (obj) {
+    out = n === 0xffn;
+  }
+  return out === true && n === 0n;
+}
+let c = hexLowerHitsObject();
+
+function hexUpperHitsObject() {
+  let n = 0n;
+  let obj = { n: 255n };
+  let out;
+  with (obj) {
+    out = n === 0xFFn;
+  }
+  return out === true && n === 0n;
+}
+let d = hexUpperHitsObject();
+
+function binLowerHitsObject() {
+  let n = 0n;
+  let obj = { n: 10n };
+  let out;
+  with (obj) {
+    out = n === 0b1010n;
+  }
+  return out === true && n === 0n;
+}
+let e = binLowerHitsObject();
+
+function binUpperHitsObject() {
+  let n = 0n;
+  let obj = { n: 10n };
+  let out;
+  with (obj) {
+    out = n === 0B1010n;
+  }
+  return out === true && n === 0n;
+}
+let f = binUpperHitsObject();
+
+function octLowerHitsObject() {
+  let n = 0n;
+  let obj = { n: 15n };
+  let out;
+  with (obj) {
+    out = n === 0o17n;
+  }
+  return out === true && n === 0n;
+}
+let g = octLowerHitsObject();
+
+function octUpperHitsObject() {
+  let n = 0n;
+  let obj = { n: 15n };
+  let out;
+  with (obj) {
+    out = n === 0O17n;
+  }
+  return out === true && n === 0n;
+}
+let h = octUpperHitsObject();
+
+function sepDecimalHitsObject() {
+  let n = 0n;
+  let obj = { n: 1000n };
+  let out;
+  with (obj) {
+    out = n === 1_000n;
+  }
+  return out === true && n === 0n;
+}
+let i = sepDecimalHitsObject();
+
+function sepHexHitsObject() {
+  let n = 0n;
+  let obj = { n: 65535n };
+  let out;
+  with (obj) {
+    out = n === 0xFF_FFn;
+  }
+  return out === true && n === 0n;
+}
+let j = sepHexHitsObject();
+
+function sepBinHitsObject() {
+  let n = 0n;
+  let obj = { n: 161n };
+  let out;
+  with (obj) {
+    out = n === 0b1010_0001n;
+  }
+  return out === true && n === 0n;
+}
+let k = sepBinHitsObject();
+
+function sepOctHitsObject() {
+  let n = 0n;
+  let obj = { n: 15n };
+  let out;
+  with (obj) {
+    out = n === 0o1_7n;
+  }
+  return out === true && n === 0n;
+}
+let l = sepOctHitsObject();
+
+function zeroHitsObject() {
+  let n = 1n;
+  let obj = { n: 0n };
+  let out;
+  with (obj) {
+    out = n === 0n;
+  }
+  return out === true && n === 1n;
+}
+let m = zeroHitsObject();
+
+function unaryMinusHitsObject() {
+  let n = 0n;
+  let obj = { n: 1n };
+  let out;
+  with (obj) {
+    out = -n === -1n;
+  }
+  return out === true && n === 0n;
+}
+let p = unaryMinusHitsObject();
+
+function addHitsObject() {
+  let n = 0n;
+  let obj = { n: 1n };
+  let out;
+  with (obj) {
+    out = n + 2n;
+  }
+  return out === 3n && n === 0n;
+}
+let q = addHitsObject();
+
+function subHitsObject() {
+  let n = 0n;
+  let obj = { n: 5n };
+  let out;
+  with (obj) {
+    out = n - 3n;
+  }
+  return out === 2n && n === 0n;
+}
+let r = subHitsObject();
+
+function mulHitsObject() {
+  let n = 0n;
+  let obj = { n: 4n };
+  let out;
+  with (obj) {
+    out = n * 5n;
+  }
+  return out === 20n && n === 0n;
+}
+let s = mulHitsObject();
+
+function divHitsObject() {
+  let n = 0n;
+  let obj = { n: 10n };
+  let out;
+  with (obj) {
+    out = n / 3n;
+  }
+  return out === 3n && n === 0n;
+}
+let t = divHitsObject();
+
+function remHitsObject() {
+  let n = 0n;
+  let obj = { n: 10n };
+  let out;
+  with (obj) {
+    out = n % 3n;
+  }
+  return out === 1n && n === 0n;
+}
+let u = remHitsObject();
+
+function mixFormsHitsObject() {
+  let n = 0n;
+  let obj = { n: 10n };
+  let out;
+  with (obj) {
+    out = 0x10n + 0b10n + 0o10n + n;
+  }
+  return out === 36n && n === 0n;
+}
+let v = mixFormsHitsObject();
+
+function missUsesOuter() {
+  let n = 42n;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = n === 0x2an;
+  }
+  return out === true;
+}
+let w = missUsesOuter();
+
+function mixedObjectOuter() {
+  let m = 0b10n;
+  let obj = { n: 0xffn };
+  let out;
+  with (obj) {
+    out = n + m;
+  }
+  return out === 257n && m === 2n;
+}
+let aa = mixedObjectOuter();
+
+function typeofBigInt() {
+  let obj = { n: 0x10n };
+  let t;
+  with (obj) {
+    t = typeof n;
+  }
+  return t === "bigint";
+}
+let ab = typeofBigInt();
+
+function eqAcrossForms() {
+  let obj = { n: 255n };
+  let hex;
+  let bin;
+  let oct;
+  with (obj) {
+    hex = n === 0xffn;
+    bin = n === 0b11111111n;
+    oct = n === 0o377n;
+  }
+  return hex === true && bin === true && oct === true;
+}
+let ac = eqAcrossForms();
+
+function emptyZeroMiss() {
+  let n = 0n;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = n === 0n;
+  }
+  return out === true;
+}
+let ad = emptyZeroMiss();
+
+function unscopablesSkip() {
+  let n = 1n;
+  let obj = { n: 99n };
+  obj[Symbol.unscopables] = { n: true };
+  let out;
+  with (obj) {
+    out = n === 0x1n;
+  }
+  return out === true && obj.n === 99n;
+}
+let ae = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = { n: 0xffn };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = n === 255n;
+  }
+  return out === true;
+}
+let af = inheritedHasBinding();
+
+function accessorGetThis() {
+  let seen = null;
+  let obj = {
+    get n() {
+      seen = this;
+      return 0o17n;
+    }
+  };
+  let out;
+  with (obj) {
+    out = n === 15n;
+  }
+  return out === true && seen === obj;
+}
+let ag = accessorGetThis();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      e170279_missing === 0xffn;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170279_missing === "undefined"
+      );
+    }
+  }
+}
+let ah = unresolvableThrows();
+
+function unresolvableSkipsLater() {
+  let ran = false;
+  let obj = {
+    get n() {
+      ran = true;
+      return 1n;
+    }
+  };
+  with (obj) {
+    try {
+      e170279_first + n;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ai = unresolvableSkipsLater();
+
+function liveClose() {
+  let obj = { n: 1n };
+  let run;
+  with (obj) {
+    run = function () {
+      return n === 0xffn;
+    };
+  }
+  obj.n = 255n;
+  return run() === true;
+}
+let aj = liveClose();
+
+function nestedInnerWins() {
+  let inner = { n: 0b1010n };
+  let outer = { n: 0xffn };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = n === 10n;
+    }
+  }
+  return out === true;
+}
+let ak = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { n: 0x10n };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = n === 16n;
+    }
+  }
+  return out === true;
+}
+let al = nestedInnerMissOuter();
+
+function ownUndefinedHasBinding() {
+  let n = 42n;
+  let obj = { n: undefined };
+  let out;
+  with (obj) {
+    out = n === undefined;
+  }
+  return out === true && n === 42n;
+}
+let am = ownUndefinedHasBinding();
+
+function getterRunsOncePerUse() {
+  let c = 0;
+  let obj = {
+    get n() {
+      c = c + 1;
+      return 0x10n;
+    }
+  };
+  let out;
+  with (obj) {
+    out = n + n;
+  }
+  return out === 32n && c === 2;
+}
+let an = getterRunsOncePerUse();
+
+function nestedWithUnscopables() {
+  let n = 1n;
+  let inner = { n: 99n };
+  inner[Symbol.unscopables] = { n: true };
+  let outer = { n: 0xfen };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = n === 254n;
+    }
+  }
+  return out === true;
+}
+let ap = nestedWithUnscopables();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    try {
+      e170279_noglob + 0x1n;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e170279_noglob === "undefined"
+      );
+    }
+  }
+}
+let aq = unresolvableNotImplicitGlobal();
+
+function unresolvableSecondAfterFirst() {
+  let ran = false;
+  let obj = {
+    get n() {
+      ran = true;
+      return 1n;
+    }
+  };
+  with (obj) {
+    try {
+      n + e170279_second;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let ar = unresolvableSecondAfterFirst();
+
+function liveCloseAfterMutateOuter() {
+  let n = 1n;
+  let obj = { n: 2n };
+  let run;
+  with (obj) {
+    run = function () {
+      return n === 0b1010n;
+    };
+  }
+  obj.n = 10n;
+  n = 99n;
+  return run() === true && n === 99n;
+}
+let at = liveCloseAfterMutateOuter();
+
+function valueOfHook() {
+  let seen = null;
+  let obj = {
+    n: {
+      valueOf: function () {
+        seen = this;
+        return 0xffn;
+      }
+    }
+  };
+  let out;
+  with (obj) {
+    out = n + 0n;
+  }
+  return out === 255n && seen === obj.n;
+}
+let au = valueOfHook();
+
+function inheritedAccessorThis() {
+  let proto = {
+    get n() {
+      return this === obj ? 0o17n : 0n;
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = n === 15n;
+  }
+  return out === true;
+}
+let av = inheritedAccessorThis();
+
+function unscopablesSecondIdent() {
+  let m = 1n;
+  let obj = { n: 0x10n, m: 99n };
+  obj[Symbol.unscopables] = { m: true };
+  let out;
+  with (obj) {
+    out = n + m;
+  }
+  return out === 17n && obj.m === 99n;
+}
+let aw = unscopablesSecondIdent();
+
+function nestedLiteralAdd() {
+  let obj = { n: 1n, m: 2n };
+  let out;
+  with (obj) {
+    out = n + 0x10n + m + 0b10n;
+  }
+  return out === 21n;
+}
+let ax = nestedLiteralAdd();
+
+function groupingLiteral() {
+  let obj = { n: 2n };
+  let out;
+  with (obj) {
+    out = (0x10n + n) * 0b10n;
+  }
+  return out === 36n;
+}
+let ay = groupingLiteral();
+
+function hexAddOuter() {
+  let m = 0x10n;
+  let obj = { n: 0b10n };
+  let out;
+  with (obj) {
+    out = n + m;
+  }
+  return out === 18n && m === 16n;
+}
+let az = hexAddOuter();
+
+function typeofMixResult() {
+  let obj = { n: 1n };
+  let t;
+  with (obj) {
+    t = typeof (n + 0xffn);
+  }
+  return t === "bigint";
+}
+let ba = typeofMixResult();
+
+function mixTypeErrorBigintPlusNumber() {
+  let obj = { n: 1n };
+  with (obj) {
+    try {
+      n + 1;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bb = mixTypeErrorBigintPlusNumber();
+
+function mixTypeErrorNumberPlusBigint() {
+  let obj = { n: 1 };
+  with (obj) {
+    try {
+      n + 1n;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bc = mixTypeErrorNumberPlusBigint();
+
+function unaryMinusLiteralOuter() {
+  let n = 5n;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = -n === -5n;
+  }
+  return out === true && n === 5n;
+}
+let bd = unaryMinusLiteralOuter();
+
+function largeSepHitsObject() {
+  let n = 0n;
+  let obj = { n: 1000000n };
+  let out;
+  with (obj) {
+    out = n === 1_000_000n;
+  }
+  return out === true && n === 0n;
+}
+let be = largeSepHitsObject();
+
+function chainedSameType() {
+  let obj = { n: 10n, m: 3n };
+  let out;
+  with (obj) {
+    out = (n + m) * 2n - 1n;
+  }
+  return out === 25n;
+}
+let bf = chainedSameType();
+
+function negZeroIsZero() {
+  let obj = { n: 0n };
+  let out;
+  with (obj) {
+    out = -n === 0n;
+  }
+  return out === true;
+}
+let bg = negZeroIsZero();
