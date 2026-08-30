@@ -1598,3 +1598,13 @@ fn with_class_elements_residual_fixture_present() {
 fn with_class_elements_residual_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_class_elements_residual");
 }
+
+#[test]
+fn with_async_methods_fixture_present() {
+    assert_fixture_present("es/legacy/with_async_methods");
+}
+
+#[test]
+fn with_async_methods_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_async_methods");
+}

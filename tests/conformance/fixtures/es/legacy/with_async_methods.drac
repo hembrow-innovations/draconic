@@ -1,0 +1,1003 @@
+// E17.02.156: with + Async methods (E18.34: object `{ async m(){…} }` /
+// class `async m()` / `static async m()`; await in body; returns Promise)
+// through object environment (non-strict). Body/await idents hit object
+// (else outer); params are local (do not write object); default-param
+// idents hit object (else outer); this in instance method is the instance,
+// in static is the constructor, not with object; class body is strict
+// (with in method → SyntaxError); resume after await still sees with
+// (live); inherited HasBinding; accessor get this is with object;
+// unresolvable → ReferenceError; live close; nested with; unscopables skip.
+
+function objectAsyncMethodHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    let o = {
+      async m() {
+        return x;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 7;
+    });
+  }
+}
+let a = false;
+objectAsyncMethodHitsObject().then(function (v) {
+  a = v;
+});
+
+function objectAsyncMethodMissUsesOuter() {
+  let x = 4;
+  with ({}) {
+    let o = {
+      async m() {
+        return x;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 4;
+    });
+  }
+}
+let b = false;
+objectAsyncMethodMissUsesOuter().then(function (v) {
+  b = v;
+});
+
+function objectAsyncMethodLiveClose() {
+  let obj = { x: 1 };
+  let o;
+  with (obj) {
+    o = {
+      async m() {
+        return x;
+      }
+    };
+  }
+  obj.x = 9;
+  return o.m().then(function (v) {
+    return v === 9;
+  });
+}
+let c = false;
+objectAsyncMethodLiveClose().then(function (v) {
+  c = v;
+});
+
+function objectAsyncMethodResumeAfterAwaitLive() {
+  let obj = { x: 1 };
+  let p;
+  with (obj) {
+    let o = {
+      async m() {
+        let first = x;
+        await Promise.resolve(0);
+        return first === 1 && x === 5;
+      }
+    };
+    p = o.m();
+  }
+  obj.x = 5;
+  return p;
+}
+let d = false;
+objectAsyncMethodResumeAfterAwaitLive().then(function (v) {
+  d = v;
+});
+
+function objectAsyncMethodThisIsReceiver() {
+  let obj = { x: 99, tag: 3 };
+  with (obj) {
+    let o = {
+      tag: 10,
+      async m() {
+        return this.tag;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 10;
+    });
+  }
+}
+let e = false;
+objectAsyncMethodThisIsReceiver().then(function (v) {
+  e = v;
+});
+
+function objectAsyncMethodReturnsPromise() {
+  let obj = { x: 2 };
+  with (obj) {
+    let o = {
+      async m() {
+        return x;
+      }
+    };
+    let p = o.m();
+    return (
+      typeof p.then === "function" &&
+      p.then(function (v) {
+        return v === 2;
+      })
+    );
+  }
+}
+let f = false;
+objectAsyncMethodReturnsPromise().then(function (v) {
+  f = v;
+});
+
+function classAsyncMethodHitsObject() {
+  let obj = { x: 8 };
+  with (obj) {
+    class C {
+      async m() {
+        return x;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 8;
+    });
+  }
+}
+let g = false;
+classAsyncMethodHitsObject().then(function (v) {
+  g = v;
+});
+
+function classAsyncMethodMissUsesOuter() {
+  let x = 6;
+  with ({}) {
+    class C {
+      async m() {
+        return x;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 6;
+    });
+  }
+}
+let h = false;
+classAsyncMethodMissUsesOuter().then(function (v) {
+  h = v;
+});
+
+function classAsyncMethodLiveClose() {
+  let obj = { x: 1 };
+  let inst;
+  with (obj) {
+    class C {
+      async m() {
+        return x;
+      }
+    }
+    inst = new C();
+  }
+  obj.x = 11;
+  return inst.m().then(function (v) {
+    return v === 11;
+  });
+}
+let j = false;
+classAsyncMethodLiveClose().then(function (v) {
+  j = v;
+});
+
+function classInstanceThisIsInstanceNotWithObject() {
+  let obj = { x: 99, n: 3 };
+  with (obj) {
+    class C {
+      constructor(n) {
+        this.n = n;
+      }
+      async m() {
+        return this.n === 11 && x === 99;
+      }
+    }
+    let inst = new C(11);
+    return inst.m().then(function (v) {
+      return v === true && inst.n === 11 && obj.n === 3;
+    });
+  }
+}
+let k = false;
+classInstanceThisIsInstanceNotWithObject().then(function (v) {
+  k = v;
+});
+
+function staticAsyncMethodHitsObject() {
+  let obj = { x: 5 };
+  with (obj) {
+    class C {
+      static async s() {
+        return x * 2;
+      }
+    }
+    return C.s().then(function (v) {
+      return v === 10;
+    });
+  }
+}
+let l = false;
+staticAsyncMethodHitsObject().then(function (v) {
+  l = v;
+});
+
+function staticThisIsConstructorNotWithObject() {
+  let obj = { x: 5 };
+  with (obj) {
+    class C {
+      static n = 0;
+      static async s() {
+        this.n = this.n + 13;
+        return this === C && x === 5;
+      }
+    }
+    return C.s().then(function (v) {
+      return v === true && C.n === 13 && obj.n === undefined;
+    });
+  }
+}
+let m = false;
+staticThisIsConstructorNotWithObject().then(function (v) {
+  m = v;
+});
+
+function throwRejects() {
+  let obj = { x: 9 };
+  with (obj) {
+    class Boom {
+      async fail() {
+        throw x;
+      }
+    }
+    return new Boom().fail().then(
+      function () {
+        return false;
+      },
+      function (e) {
+        return e === 9;
+      }
+    );
+  }
+}
+let n = false;
+throwRejects().then(function (v) {
+  n = v;
+});
+
+function paramsAreLocalDoNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    let o = {
+      async m(x) {
+        x = 4;
+        return x;
+      }
+    };
+    return o.m(2).then(function (v) {
+      return v === 4 && obj.x === 1;
+    });
+  }
+}
+let p = false;
+paramsAreLocalDoNotWriteObject().then(function (v) {
+  p = v;
+});
+
+function defaultParamHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    let o = {
+      async m(p = x) {
+        return p;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 7;
+    });
+  }
+}
+let q = false;
+defaultParamHitsObject().then(function (v) {
+  q = v;
+});
+
+function defaultParamMissUsesOuter() {
+  let x = 3;
+  with ({}) {
+    class C {
+      async m(p = x) {
+        return p;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 3;
+    });
+  }
+}
+let r = false;
+defaultParamMissUsesOuter().then(function (v) {
+  r = v;
+});
+
+function defaultSkippedWhenPresent() {
+  let calls = 0;
+  let obj = {
+    get x() {
+      calls = calls + 1;
+      return 7;
+    }
+  };
+  with (obj) {
+    let o = {
+      async m(p = x) {
+        return p;
+      }
+    };
+    return o.m(2).then(function (v) {
+      return v === 2 && calls === 0;
+    });
+  }
+}
+let s = false;
+defaultSkippedWhenPresent().then(function (v) {
+  s = v;
+});
+
+function withInClassMethodSyntaxError() {
+  try {
+    eval("class C { async m() { with ({}) { } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let t = withInClassMethodSyntaxError();
+
+function withInStaticAsyncMethodSyntaxError() {
+  try {
+    eval("class C { static async s() { with ({}) { } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let u = withInStaticAsyncMethodSyntaxError();
+
+function inheritedHasBinding() {
+  let proto = { x: 7 };
+  let env = Object.create(proto);
+  with (env) {
+    let o = {
+      async m() {
+        return x;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 7;
+    });
+  }
+}
+let vv = false;
+inheritedHasBinding().then(function (v) {
+  vv = v;
+});
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get x() {
+      seen = this;
+      return 7;
+    }
+  };
+  with (env) {
+    class C {
+      async m() {
+        return x;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 7 && seen === env;
+    });
+  }
+}
+let w = false;
+accessorGetThisIsWithObject().then(function (v) {
+  w = v;
+});
+
+function unresolvableBodyThrows() {
+  with ({}) {
+    let o = {
+      async m() {
+        return missing;
+      }
+    };
+    return o.m().then(
+      function () {
+        return false;
+      },
+      function (err) {
+        return err instanceof ReferenceError;
+      }
+    );
+  }
+}
+let aa = false;
+unresolvableBodyThrows().then(function (v) {
+  aa = v;
+});
+
+function nestedWithInnerWins() {
+  let inner = { x: 7 };
+  let outer = { x: 1 };
+  with (outer) {
+    with (inner) {
+      let o = {
+        async m() {
+          return x;
+        }
+      };
+      return o.m().then(function (v) {
+        return v === 7;
+      });
+    }
+  }
+}
+let ab = false;
+nestedWithInnerWins().then(function (v) {
+  ab = v;
+});
+
+function unscopablesSkip() {
+  let x = 1;
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: true };
+  with (env) {
+    let o = {
+      async m() {
+        return x;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 1;
+    });
+  }
+}
+let ac = false;
+unscopablesSkip().then(function (v) {
+  ac = v;
+});
+
+function nestedWithUnscopables() {
+  let inner = { x: 3 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 7 };
+  with (outer) {
+    with (inner) {
+      class C {
+        async m() {
+          return x;
+        }
+      }
+      return new C().m().then(function (v) {
+        return v === 7 && inner.x === 3;
+      });
+    }
+  }
+}
+let ad = false;
+nestedWithUnscopables().then(function (v) {
+  ad = v;
+});
+
+function computedAsyncMethodNameHitsObject() {
+  let obj = { key: "m", x: 8 };
+  with (obj) {
+    let o = {
+      async [key]() {
+        return x;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 8;
+    });
+  }
+}
+let ae = false;
+computedAsyncMethodNameHitsObject().then(function (v) {
+  ae = v;
+});
+
+function computedNameMissUsesOuter() {
+  let key = "run";
+  let x = 4;
+  with ({}) {
+    class C {
+      async [key]() {
+        return x;
+      }
+    }
+    return new C().run().then(function (v) {
+      return v === 4;
+    });
+  }
+}
+let af = false;
+computedNameMissUsesOuter().then(function (v) {
+  af = v;
+});
+
+function objectMethodAssignHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    let o = {
+      async m() {
+        x = 2;
+        return x;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 2 && obj.x === 2;
+    });
+  }
+}
+let ag = false;
+objectMethodAssignHitsObject().then(function (v) {
+  ag = v;
+});
+
+function assignMissIsOuter() {
+  let x = 1;
+  let obj = {};
+  with (obj) {
+    class C {
+      async m() {
+        x = 3;
+        return x;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 3 && x === 3 && obj.x === undefined;
+    });
+  }
+}
+let ah = false;
+assignMissIsOuter().then(function (v) {
+  ah = v;
+});
+
+function awaitThenableOnObject() {
+  let obj = { x: Promise.resolve(3) };
+  with (obj) {
+    let o = {
+      async m() {
+        return (await x) === 3;
+      }
+    };
+    return o.m();
+  }
+}
+let aj = false;
+awaitThenableOnObject().then(function (v) {
+  aj = v;
+});
+
+function unresolvableDefaultParamThrows() {
+  with ({}) {
+    let o = {
+      async m(p = missing) {
+        return p;
+      }
+    };
+    try {
+      return o.m().then(
+        function () {
+          return false;
+        },
+        function (err) {
+          return err instanceof ReferenceError;
+        }
+      );
+    } catch (err) {
+      return Promise.resolve(err instanceof ReferenceError);
+    }
+  }
+}
+let ak = false;
+unresolvableDefaultParamThrows().then(function (v) {
+  ak = v;
+});
+
+function paramsShadowObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      async m(x) {
+        return x;
+      }
+    }
+    return new C().m(4).then(function (v) {
+      return v === 4 && obj.x === 1;
+    });
+  }
+}
+let al = false;
+paramsShadowObject().then(function (v) {
+  al = v;
+});
+
+function withInsideObjectAsyncMethod() {
+  let obj = { x: 9 };
+  let o = {
+    async m() {
+      with (obj) {
+        return x;
+      }
+    }
+  };
+  return o.m().then(function (v) {
+    return v === 9;
+  });
+}
+let am = false;
+withInsideObjectAsyncMethod().then(function (v) {
+  am = v;
+});
+
+function classExpressionAsyncMethod() {
+  let obj = { x: 6 };
+  with (obj) {
+    let C = class {
+      async m() {
+        return x;
+      }
+    };
+    return new C().m().then(function (v) {
+      return v === 6;
+    });
+  }
+}
+let an = false;
+classExpressionAsyncMethod().then(function (v) {
+  an = v;
+});
+
+function staticAsyncMissUsesOuter() {
+  let x = 12;
+  with ({}) {
+    class C {
+      static async s() {
+        return x;
+      }
+    }
+    return C.s().then(function (v) {
+      return v === 12;
+    });
+  }
+}
+let ap = false;
+staticAsyncMissUsesOuter().then(function (v) {
+  ap = v;
+});
+
+function typeofAsyncMethodIsFunction() {
+  let obj = { x: 1 };
+  with (obj) {
+    let o = {
+      async m() {
+        return x;
+      }
+    };
+    return typeof o.m === "function";
+  }
+}
+let aq = typeofAsyncMethodIsFunction();
+
+function classAsyncAssignHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      async m() {
+        x = 8;
+        return x;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 8 && obj.x === 8;
+    });
+  }
+}
+let ar = false;
+classAsyncAssignHitsObject().then(function (v) {
+  ar = v;
+});
+
+function liveCloseStatic() {
+  let obj = { x: 1 };
+  let C;
+  with (obj) {
+    C = class {
+      static async s() {
+        return x;
+      }
+    };
+  }
+  obj.x = 14;
+  return C.s().then(function (v) {
+    return v === 14;
+  });
+}
+let at = false;
+liveCloseStatic().then(function (v) {
+  at = v;
+});
+
+function accessorThisOnDefaultParam() {
+  let seen = null;
+  let env = {
+    get x() {
+      seen = this;
+      return 5;
+    }
+  };
+  with (env) {
+    let o = {
+      async m(p = x) {
+        return p;
+      }
+    };
+    return o.m().then(function (v) {
+      return v === 5 && seen === env;
+    });
+  }
+}
+let au = false;
+accessorThisOnDefaultParam().then(function (v) {
+  au = v;
+});
+
+function unresolvableComputedKeyThrows() {
+  with ({}) {
+    try {
+      let o = {
+        async [e1702156_key]() {
+          return 1;
+        }
+      };
+      return o;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702156_key === "undefined"
+      );
+    }
+  }
+}
+let av = unresolvableComputedKeyThrows();
+
+function inheritedDefaultParam() {
+  let proto = { x: 9 };
+  let env = Object.create(proto);
+  with (env) {
+    class C {
+      async m(p = x) {
+        return p;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 9;
+    });
+  }
+}
+let aw = false;
+inheritedDefaultParam().then(function (v) {
+  aw = v;
+});
+
+function objectAsyncMethodUnscopables() {
+  let x = 2;
+  let env = { x: 8 };
+  env[Symbol.unscopables] = { x: true };
+  with (env) {
+    class C {
+      async m() {
+        return x;
+      }
+    }
+    return new C().m().then(function (v) {
+      return v === 2;
+    });
+  }
+}
+let ax = false;
+objectAsyncMethodUnscopables().then(function (v) {
+  ax = v;
+});
+
+function nestedInnerMissOuter() {
+  let outer = { x: 7 };
+  with (outer) {
+    with ({}) {
+      let o = {
+        async m() {
+          return x;
+        }
+      };
+      return o.m().then(function (v) {
+        return v === 7;
+      });
+    }
+  }
+}
+let ay = false;
+nestedInnerMissOuter().then(function (v) {
+  ay = v;
+});
+
+function emptyAsyncMethodUndefined() {
+  with ({ x: 1 }) {
+    let o = {
+      async m() {}
+    };
+    return o.m().then(function (v) {
+      return v === undefined;
+    });
+  }
+}
+let az = false;
+emptyAsyncMethodUndefined().then(function (v) {
+  az = v;
+});
+
+function namedClassExpressionAsync() {
+  let obj = { x: 15 };
+  with (obj) {
+    let C = class Name {
+      async m() {
+        return x;
+      }
+    };
+    return new C().m().then(function (v) {
+      return v === 15;
+    });
+  }
+}
+let ba = false;
+namedClassExpressionAsync().then(function (v) {
+  ba = v;
+});
+
+function objectAsyncThrowRejects() {
+  let obj = { x: 4 };
+  with (obj) {
+    let o = {
+      async m() {
+        throw x;
+      }
+    };
+    return o.m().then(
+      function () {
+        return false;
+      },
+      function (e) {
+        return e === 4;
+      }
+    );
+  }
+}
+let bb = false;
+objectAsyncThrowRejects().then(function (v) {
+  bb = v;
+});
+
+function staticAsyncThrowRejects() {
+  let obj = { x: 6 };
+  with (obj) {
+    class C {
+      static async s() {
+        throw x;
+      }
+    }
+    return C.s().then(
+      function () {
+        return false;
+      },
+      function (e) {
+        return e === 6;
+      }
+    );
+  }
+}
+let bc = false;
+staticAsyncThrowRejects().then(function (v) {
+  bc = v;
+});
+
+function resumeAfterAwaitStaticLive() {
+  let obj = { x: 1 };
+  let p;
+  with (obj) {
+    class C {
+      static async s() {
+        let first = x;
+        await Promise.resolve(0);
+        return first === 1 && x === 5;
+      }
+    }
+    p = C.s();
+  }
+  obj.x = 5;
+  return p;
+}
+let bd = false;
+resumeAfterAwaitStaticLive().then(function (v) {
+  bd = v;
+});
+
+function classAsyncResumeAfterAwaitLive() {
+  let obj = { x: 1 };
+  let p;
+  with (obj) {
+    class C {
+      async m() {
+        let first = x;
+        await Promise.resolve(0);
+        return first === 1 && x === 9;
+      }
+    }
+    p = new C().m();
+  }
+  obj.x = 9;
+  return p;
+}
+let be = false;
+classAsyncResumeAfterAwaitLive().then(function (v) {
+  be = v;
+});
+
+function awaitMissUsesOuter() {
+  let x = Promise.resolve(11);
+  with ({}) {
+    let o = {
+      async m() {
+        return (await x) === 11;
+      }
+    };
+    return o.m();
+  }
+}
+let bf = false;
+awaitMissUsesOuter().then(function (v) {
+  bf = v;
+});
+
+function classComputedAsyncHitsObject() {
+  let obj = { key: "go", x: 13 };
+  with (obj) {
+    class C {
+      async [key]() {
+        return x;
+      }
+    }
+    return new C().go().then(function (v) {
+      return v === 13;
+    });
+  }
+}
+let bg = false;
+classComputedAsyncHitsObject().then(function (v) {
+  bg = v;
+});
+
+function withInClassAsyncMethodStillSyntaxError() {
+  try {
+    eval("with ({}) { class C { async m() { with ({}) {} } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let bh = withInClassAsyncMethodStillSyntaxError();
