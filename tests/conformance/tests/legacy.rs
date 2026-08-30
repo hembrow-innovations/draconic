@@ -1618,3 +1618,13 @@ fn with_class_expr_fixture_present() {
 fn with_class_expr_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_class_expr");
 }
+
+#[test]
+fn with_export_class_fixture_present() {
+    assert_fixture_present("es/legacy/with_export_class");
+}
+
+#[test]
+fn with_export_class_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_export_class");
+}
