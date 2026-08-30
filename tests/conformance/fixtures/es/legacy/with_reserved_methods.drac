@@ -1,0 +1,1112 @@
+// E17.02.153: with + reserved-word method names (E19.47: object/class
+// `return()`/`throw()`/`await` method shorthand; generator
+// `*return()`/`*throw()`/`*await()`; async `async return()` etc.; async
+// generator `yield*` return/throw path) through object environment
+// (non-strict). Method-body idents hit object (else outer); params are local
+// (do not write object); default-param idents hit object (else outer);
+// return/throw in method syntax are not IdentifierReference (those props do
+// not shadow the method); await as IdentifierReference still hits object;
+// method this is the receiver (instance/class), not with object; class body
+// is strict (with in method → SyntaxError); inherited HasBinding; accessor
+// get this is with object; unresolvable → ReferenceError; live close; nested
+// with; unscopables skip.
+
+function returnBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 7 };
+  let o;
+  with (obj) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 7 && x === 0;
+}
+let a = returnBodyHitsObject();
+
+function throwBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 8 };
+  let o;
+  with (obj) {
+    o = {
+      throw() {
+        return x;
+      }
+    };
+  }
+  return o.throw() === 8 && x === 0;
+}
+let b = throwBodyHitsObject();
+
+function awaitBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 9 };
+  let o;
+  with (obj) {
+    o = {
+      await() {
+        return x;
+      }
+    };
+  }
+  return o.await() === 9 && x === 0;
+}
+let c = awaitBodyHitsObject();
+
+function returnBodyMissUsesOuter() {
+  let x = 4;
+  let o;
+  with ({}) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 4;
+}
+let d = returnBodyMissUsesOuter();
+
+function throwBodyMissUsesOuter() {
+  let x = 5;
+  let o;
+  with ({}) {
+    o = {
+      throw() {
+        return x;
+      }
+    };
+  }
+  return o.throw() === 5;
+}
+let e = throwBodyMissUsesOuter();
+
+function awaitBodyMissUsesOuter() {
+  let x = 6;
+  let o;
+  with ({}) {
+    o = {
+      await() {
+        return x;
+      }
+    };
+  }
+  return o.await() === 6;
+}
+let f = awaitBodyMissUsesOuter();
+
+function returnThisIsReceiver() {
+  let obj = { x: 1 };
+  let o;
+  with (obj) {
+    o = {
+      x: 12,
+      return() {
+        return this.x;
+      }
+    };
+  }
+  return o.return() === 12;
+}
+let g = returnThisIsReceiver();
+
+function throwThisIsReceiver() {
+  let obj = { x: 1 };
+  let o;
+  with (obj) {
+    o = {
+      x: 13,
+      throw() {
+        return this.x;
+      }
+    };
+  }
+  return o.throw() === 13;
+}
+let h = throwThisIsReceiver();
+
+function awaitThisIsReceiver() {
+  let obj = { x: 1 };
+  let o;
+  with (obj) {
+    o = {
+      x: 14,
+      await() {
+        return this.x;
+      }
+    };
+  }
+  return o.await() === 14;
+}
+let j = awaitThisIsReceiver();
+
+function bracketCallReturn() {
+  let obj = { x: 15 };
+  let o;
+  with (obj) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o["return"]() === 15;
+}
+let k = bracketCallReturn();
+
+function bracketCallThrow() {
+  let obj = { x: 16 };
+  let o;
+  with (obj) {
+    o = {
+      throw() {
+        return x;
+      }
+    };
+  }
+  return o["throw"]() === 16;
+}
+let l = bracketCallThrow();
+
+function liveClose() {
+  let obj = { x: 7 };
+  let run;
+  with (obj) {
+    let o = {
+      return() {
+        return x;
+      }
+    };
+    run = function () {
+      return o.return();
+    };
+  }
+  obj.x = 1;
+  return run() === 1;
+}
+let m = liveClose();
+
+function inheritedHasBinding() {
+  let proto = { x: 17 };
+  let env = Object.create(proto);
+  let o;
+  with (env) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 17;
+}
+let n = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get x() {
+      seen = this;
+      return 18;
+    }
+  };
+  let o;
+  with (env) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 18 && seen === env;
+}
+let p = accessorGetThisIsWithObject();
+
+function unresolvableBodyThrows() {
+  let o;
+  with ({}) {
+    o = {
+      return() {
+        return e1702153_missing;
+      }
+    };
+  }
+  try {
+    o.return();
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError;
+  }
+}
+let q = unresolvableBodyThrows();
+
+function nestedWithInnerWins() {
+  let inner = { x: 7 };
+  let outer = { x: 1 };
+  let o;
+  with (outer) {
+    with (inner) {
+      o = {
+        return() {
+          return x;
+        }
+      };
+    }
+  }
+  return o.return() === 7;
+}
+let r = nestedWithInnerWins();
+
+function unscopablesSkip() {
+  let x = 1;
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: true };
+  let o;
+  with (env) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 1;
+}
+let s = unscopablesSkip();
+
+function nestedWithUnscopables() {
+  let inner = { x: 3 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 7 };
+  let o;
+  with (outer) {
+    with (inner) {
+      o = {
+        return() {
+          return x;
+        }
+      };
+    }
+  }
+  return o.return() === 7 && inner.x === 3;
+}
+let t = nestedWithUnscopables();
+
+function paramsAreLocalDoNotWriteObject() {
+  let obj = { x: 1, v: 9 };
+  with (obj) {
+    let o = {
+      return(v) {
+        return v;
+      }
+    };
+    return o.return(5) === 5 && obj.v === 9 && obj.x === 1;
+  }
+}
+let u = paramsAreLocalDoNotWriteObject();
+
+function defaultParamHitsObject() {
+  let x = 0;
+  let obj = { x: 19 };
+  let o;
+  with (obj) {
+    o = {
+      return(n = x) {
+        return n;
+      }
+    };
+  }
+  return o.return() === 19 && o.return(3) === 3 && x === 0;
+}
+let vv = defaultParamHitsObject();
+
+function defaultParamMissUsesOuter() {
+  let x = 20;
+  let o;
+  with ({}) {
+    o = {
+      throw(n = x) {
+        return n;
+      }
+    };
+  }
+  return o.throw() === 20;
+}
+let w = defaultParamMissUsesOuter();
+
+function paramsShadowObject() {
+  let obj = { x: 99 };
+  with (obj) {
+    let o = {
+      await(x) {
+        return x;
+      }
+    };
+    return o.await(3) === 3 && obj.x === 99;
+  }
+}
+let aa = paramsShadowObject();
+
+function returnPropDoesNotShadowMethod() {
+  let obj = { return: 99, x: 21 };
+  let o;
+  with (obj) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 21 && obj.return === 99;
+}
+let ab = returnPropDoesNotShadowMethod();
+
+function throwPropDoesNotShadowMethod() {
+  let obj = { throw: 99, x: 22 };
+  let o;
+  with (obj) {
+    o = {
+      throw() {
+        return x;
+      }
+    };
+  }
+  return o.throw() === 22 && obj.throw === 99;
+}
+let ac = throwPropDoesNotShadowMethod();
+
+function awaitIdentCallHitsObject() {
+  let obj = {
+    await() {
+      return 23;
+    }
+  };
+  with (obj) {
+    return await() === 23;
+  }
+}
+let ad = awaitIdentCallHitsObject();
+
+function awaitIdentMissUsesOuter() {
+  function await() {
+    return 24;
+  }
+  with ({}) {
+    return await() === 24;
+  }
+}
+let ae = awaitIdentMissUsesOuter();
+
+function awaitIdentHitsObjectNotMethod() {
+  let obj = { await: 25 };
+  with (obj) {
+    return await === 25;
+  }
+}
+let af = awaitIdentHitsObjectNotMethod();
+
+function typeofAwaitHitsObject() {
+  let obj = {
+    await() {
+      return 1;
+    }
+  };
+  with (obj) {
+    return typeof await === "function";
+  }
+}
+let ag = typeofAwaitHitsObject();
+
+function ifForSwitchMethodNames() {
+  let obj = { x: 26 };
+  let o;
+  with (obj) {
+    o = {
+      if() {
+        return x;
+      },
+      for() {
+        return x + 1;
+      },
+      switch() {
+        return x + 2;
+      }
+    };
+  }
+  return o.if() === 26 && o.for() === 27 && o.switch() === 28;
+}
+let ah = ifForSwitchMethodNames();
+
+function generatorReturnMethod() {
+  let obj = { x: 29 };
+  let o;
+  with (obj) {
+    o = {
+      *return() {
+        yield x;
+        return x + 1;
+      }
+    };
+  }
+  let it = o.return();
+  let first = it.next();
+  let second = it.next();
+  return first.value === 29 && first.done === false && second.value === 30 && second.done === true;
+}
+let aj = generatorReturnMethod();
+
+function generatorThrowMethod() {
+  let obj = { x: 31 };
+  let o;
+  with (obj) {
+    o = {
+      *throw() {
+        yield x;
+      }
+    };
+  }
+  return o.throw().next().value === 31;
+}
+let ak = generatorThrowMethod();
+
+function generatorAwaitMethod() {
+  let obj = { x: 32 };
+  let o;
+  with (obj) {
+    o = {
+      *await() {
+        yield x;
+      }
+    };
+  }
+  return o.await().next().value === 32;
+}
+let al = generatorAwaitMethod();
+
+function generatorThisIsReceiver() {
+  let obj = { x: 1 };
+  let o;
+  with (obj) {
+    o = {
+      x: 33,
+      *return() {
+        yield this.x;
+      }
+    };
+  }
+  return o.return().next().value === 33;
+}
+let am = generatorThisIsReceiver();
+
+function yieldStarReturnHitsObject() {
+  let seen = 0;
+  let inner = {
+    [Symbol.iterator]() {
+      return {
+        next() {
+          return { value: 1, done: false };
+        },
+        return(v) {
+          seen = seen + 1;
+          return { value: v, done: true };
+        }
+      };
+    }
+  };
+  let obj = { inner: inner };
+  with (obj) {
+    function* g() {
+      yield* inner;
+    }
+    let it = g();
+    it.next();
+    let step = it.return(9);
+    return step.value === 9 && step.done === true && seen === 1;
+  }
+}
+let an = yieldStarReturnHitsObject();
+
+function yieldStarThrowHitsObject() {
+  let seen = null;
+  let inner = {
+    [Symbol.iterator]() {
+      return {
+        next() {
+          return { value: 1, done: false };
+        },
+        throw(e) {
+          seen = e;
+          return { value: "threw", done: true };
+        }
+      };
+    }
+  };
+  let obj = { inner: inner };
+  with (obj) {
+    function* g() {
+      return yield* inner;
+    }
+    let it = g();
+    it.next();
+    let step = it.throw("boom");
+    return step.value === "threw" && step.done === true && seen === "boom";
+  }
+}
+let ap = yieldStarThrowHitsObject();
+
+function classReturnBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 34 };
+  let out;
+  with (obj) {
+    class C {
+      return() {
+        return x;
+      }
+    }
+    out = new C().return();
+  }
+  return out === 34 && x === 0;
+}
+let aq = classReturnBodyHitsObject();
+
+function classThrowBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 35 };
+  let out;
+  with (obj) {
+    class C {
+      throw() {
+        return x;
+      }
+    }
+    out = new C().throw();
+  }
+  return out === 35 && x === 0;
+}
+let ar = classThrowBodyHitsObject();
+
+function classAwaitBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 36 };
+  let out;
+  with (obj) {
+    class C {
+      await() {
+        return x;
+      }
+    }
+    out = new C().await();
+  }
+  return out === 36 && x === 0;
+}
+let at = classAwaitBodyHitsObject();
+
+function classReturnThisIsInstance() {
+  let obj = { x: 99 };
+  let seen = null;
+  let inst;
+  with (obj) {
+    class C {
+      constructor() {
+        this.n = 37;
+      }
+      return() {
+        seen = this;
+        return this.n;
+      }
+    }
+    inst = new C();
+    inst.return();
+  }
+  return seen === inst && inst.n === 37 && obj.x === 99;
+}
+let au = classReturnThisIsInstance();
+
+function staticThrowThisIsClass() {
+  let obj = { x: 99 };
+  let seen = null;
+  let Ctor;
+  with (obj) {
+    class C {
+      static throw() {
+        seen = this;
+        return 38;
+      }
+    }
+    Ctor = C;
+    C.throw();
+  }
+  return seen === Ctor && obj.x === 99;
+}
+let av = staticThrowThisIsClass();
+
+function withInClassReturnSyntaxError() {
+  try {
+    eval("class C { return() { with ({}) { return 1; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let aw = withInClassReturnSyntaxError();
+
+function withInClassThrowSyntaxError() {
+  try {
+    eval("class C { throw() { with ({}) {} } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ax = withInClassThrowSyntaxError();
+
+function withInClassAwaitSyntaxError() {
+  try {
+    eval("class C { await() { with ({}) { return 1; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ay = withInClassAwaitSyntaxError();
+
+function classReturnMissUsesOuter() {
+  let x = 39;
+  let out;
+  with ({}) {
+    class C {
+      return() {
+        return x;
+      }
+    }
+    out = new C().return();
+  }
+  return out === 39;
+}
+let az = classReturnMissUsesOuter();
+
+function classDefaultParamHitsObject() {
+  let x = 0;
+  let obj = { x: 40 };
+  let out;
+  with (obj) {
+    class C {
+      return(n = x) {
+        return n;
+      }
+    }
+    out = new C().return();
+  }
+  return out === 40 && x === 0;
+}
+let ba = classDefaultParamHitsObject();
+
+function getterReturnHitsObject() {
+  let x = 0;
+  let obj = { x: 41 };
+  let o;
+  with (obj) {
+    o = {
+      get return() {
+        return x;
+      }
+    };
+  }
+  return o.return === 41 && x === 0;
+}
+let bb = getterReturnHitsObject();
+
+function setterThrowHitsObject() {
+  let x = 0;
+  let obj = { x: 1 };
+  with (obj) {
+    let o = {
+      set throw(v) {
+        x = v;
+      }
+    };
+    o.throw = 42;
+  }
+  return obj.x === 42 && x === 0;
+}
+let bc = setterThrowHitsObject();
+
+function computedReturnNameHitsObject() {
+  let k = "outer";
+  let obj = { k: "return", x: 43 };
+  let o;
+  with (obj) {
+    o = {
+      [k]() {
+        return x;
+      }
+    };
+  }
+  return typeof o.return === "function" && o.return() === 43 && o.outer === undefined;
+}
+let bd = computedReturnNameHitsObject();
+
+function nestedWithOuterAfterInner() {
+  let inner = { x: 1 };
+  let outer = { x: 44 };
+  let o;
+  with (outer) {
+    with (inner) {
+      x;
+    }
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 44;
+}
+let be = nestedWithOuterAfterInner();
+
+function getterRunsOnce() {
+  let count = 0;
+  let env = {
+    get x() {
+      count = count + 1;
+      return 45;
+    }
+  };
+  let o;
+  with (env) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 45 && count === 1;
+}
+let bf = getterRunsOnce();
+
+function ownShadowsProto() {
+  let proto = { x: 1 };
+  let env = Object.create(proto);
+  env.x = 46;
+  let o;
+  with (env) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 46;
+}
+let bg = ownShadowsProto();
+
+function unscopablesFalseyDoesNotBlock() {
+  let env = { x: 47 };
+  env[Symbol.unscopables] = { x: false };
+  let o;
+  with (env) {
+    o = {
+      return() {
+        return x;
+      }
+    };
+  }
+  return o.return() === 47;
+}
+let bh = unscopablesFalseyDoesNotBlock();
+
+function classGeneratorReturn() {
+  let obj = { x: 48 };
+  let out;
+  with (obj) {
+    class C {
+      *return() {
+        yield x;
+      }
+    }
+    out = new C().return().next().value;
+  }
+  return out === 48;
+}
+let bj = classGeneratorReturn();
+
+function staticAwaitHitsObject() {
+  let x = 0;
+  let obj = { x: 49 };
+  let out;
+  with (obj) {
+    class C {
+      static await() {
+        return x;
+      }
+    }
+    out = C.await();
+  }
+  return out === 49 && x === 0;
+}
+let bk = staticAwaitHitsObject();
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 50;
+    }
+  };
+  let env = Object.create(proto);
+  let o;
+  with (env) {
+    o = {
+      throw() {
+        return x;
+      }
+    };
+  }
+  return o.throw() === 50 && seen === env;
+}
+let bl = inheritedAccessorGetThis();
+
+function defaultParamSkippedWhenPresent() {
+  let n = 0;
+  let env = {
+    get x() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  let o;
+  with (env) {
+    o = {
+      return(p = x) {
+        return p;
+      }
+    };
+  }
+  return o.return(3) === 3 && n === 0;
+}
+let bm = defaultParamSkippedWhenPresent();
+
+function deleteAwaitThenUnresolvable() {
+  let env = { await: 7 };
+  with (env) {
+    delete await;
+    try {
+      await;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let bn = deleteAwaitThenUnresolvable();
+
+function voidAwaitHitsObject() {
+  let n = 0;
+  let env = {
+    get await() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    return void await === undefined && n === 1;
+  }
+}
+let bp = voidAwaitHitsObject();
+
+function withInsideFunction() {
+  let obj = { x: 51 };
+  function run() {
+    with (obj) {
+      let o = {
+        return() {
+          return x;
+        }
+      };
+      return o.return();
+    }
+  }
+  return run() === 51;
+}
+let bq = withInsideFunction();
+
+function methodInClosure() {
+  let obj = { x: 52 };
+  with (obj) {
+    function run() {
+      let o = {
+        throw() {
+          return x;
+        }
+      };
+      return o.throw();
+    }
+    return run() === 52;
+  }
+}
+let br = methodInClosure();
+
+function methodInArrow() {
+  let obj = { x: 53 };
+  with (obj) {
+    let run = () => {
+      let o = {
+        await() {
+          return x;
+        }
+      };
+      return o.await();
+    };
+    return run() === 53;
+  }
+}
+let bs = methodInArrow();
+
+function classParamsAreLocal() {
+  let obj = { v: 9 };
+  with (obj) {
+    class C {
+      return(v) {
+        return v;
+      }
+    }
+    return new C().return(5) === 5 && obj.v === 9;
+  }
+}
+let bt = classParamsAreLocal();
+
+function asyncReturnBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 54 };
+  let p;
+  with (obj) {
+    let o = {
+      async return() {
+        return x;
+      }
+    };
+    p = o.return();
+  }
+  return p.then(function (v) {
+    return v === 54 && x === 0;
+  });
+}
+let bu = false;
+asyncReturnBodyHitsObject().then(function (v) {
+  bu = v;
+});
+
+function asyncThrowBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 55 };
+  let p;
+  with (obj) {
+    let o = {
+      async throw() {
+        return x;
+      }
+    };
+    p = o.throw();
+  }
+  return p.then(function (v) {
+    return v === 55 && x === 0;
+  });
+}
+let bv = false;
+asyncThrowBodyHitsObject().then(function (v) {
+  bv = v;
+});
+
+function asyncAwaitBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 56 };
+  let p;
+  with (obj) {
+    let o = {
+      async await() {
+        return x;
+      }
+    };
+    p = o.await();
+  }
+  return p.then(function (v) {
+    return v === 56 && x === 0;
+  });
+}
+let bw = false;
+asyncAwaitBodyHitsObject().then(function (v) {
+  bw = v;
+});
+
+function asyncGeneratorYieldStarReturn() {
+  let seen = 0;
+  let inner = {
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          return Promise.resolve({ value: 1, done: false });
+        },
+        return(v) {
+          seen = seen + 1;
+          return Promise.resolve({ value: v, done: true });
+        }
+      };
+    }
+  };
+  let obj = { inner: inner };
+  let p;
+  with (obj) {
+    async function* g() {
+      yield* inner;
+    }
+    let it = g();
+    p = it.next().then(function () {
+      return it.return(9);
+    });
+  }
+  return p.then(function (step) {
+    return step.value === 9 && step.done === true && seen === 1;
+  });
+}
+let bx = false;
+asyncGeneratorYieldStarReturn().then(function (v) {
+  bx = v;
+});
+
+function asyncGeneratorYieldStarThrow() {
+  let seen = null;
+  let inner = {
+    [Symbol.asyncIterator]() {
+      return {
+        next() {
+          return Promise.resolve({ value: 1, done: false });
+        },
+        throw(e) {
+          seen = e;
+          return Promise.resolve({ value: "threw", done: true });
+        }
+      };
+    }
+  };
+  let obj = { inner: inner };
+  let p;
+  with (obj) {
+    async function* g() {
+      return yield* inner;
+    }
+    let it = g();
+    p = it.next().then(function () {
+      return it.throw("boom");
+    });
+  }
+  return p.then(function (step) {
+    return step.value === "threw" && step.done === true && seen === "boom";
+  });
+}
+let by = false;
+asyncGeneratorYieldStarThrow().then(function (v) {
+  by = v;
+});
