@@ -1,0 +1,703 @@
+// E17.02.124: with + legacy octal numeric literals (Annex B.1.1: `0[0-7]+`
+// MV octal; NonOctalDecimal `0\d*[89]\d*` MV decimal; no fraction/exp/bigint
+// on pure legacy octal) through object environment (non-strict). Ident
+// compared/combined with those literals hits object (else outer); empty/0;
+// nested; inherited HasBinding; accessor get this is with object;
+// unresolvable ident → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function octalTenHitsObject() {
+  let n = 0;
+  let obj = { n: 8 };
+  let out;
+  with (obj) {
+    out = n === 010;
+  }
+  return out === true && n === 0;
+}
+let a = octalTenHitsObject();
+
+function octalSeventySevenHitsObject() {
+  let n = 0;
+  let obj = { n: 63 };
+  let out;
+  with (obj) {
+    out = n === 077;
+  }
+  return out === true && n === 0;
+}
+let b = octalSeventySevenHitsObject();
+
+function octalZeroHitsObject() {
+  let n = 1;
+  let obj = { n: 0 };
+  let out;
+  with (obj) {
+    out = n === 00;
+  }
+  return out === true && n === 1;
+}
+let c = octalZeroHitsObject();
+
+function octalLeadingZerosHitsObject() {
+  let n = 0;
+  let obj = { n: 8 };
+  let out;
+  with (obj) {
+    out = n === 0010;
+  }
+  return out === true && n === 0;
+}
+let d = octalLeadingZerosHitsObject();
+
+function nonOctalEightHitsObject() {
+  let n = 0;
+  let obj = { n: 8 };
+  let out;
+  with (obj) {
+    out = n === 08;
+  }
+  return out === true && n === 0;
+}
+let e = nonOctalEightHitsObject();
+
+function nonOctalNineHitsObject() {
+  let n = 0;
+  let obj = { n: 9 };
+  let out;
+  with (obj) {
+    out = n === 09;
+  }
+  return out === true && n === 0;
+}
+let f = nonOctalNineHitsObject();
+
+function nonOctalEightyNineHitsObject() {
+  let n = 0;
+  let obj = { n: 89 };
+  let out;
+  with (obj) {
+    out = n === 089;
+  }
+  return out === true && n === 0;
+}
+let g = nonOctalEightyNineHitsObject();
+
+function nonOctalLeadingZerosHitsObject() {
+  let n = 0;
+  let obj = { n: 8 };
+  let out;
+  with (obj) {
+    out = n === 0008;
+  }
+  return out === true && n === 0;
+}
+let h = nonOctalLeadingZerosHitsObject();
+
+function nonOctalFracHitsObject() {
+  let n = 0;
+  let obj = { n: 8.5 };
+  let out;
+  with (obj) {
+    out = n === 08.5;
+  }
+  return out === true && n === 0;
+}
+let i = nonOctalFracHitsObject();
+
+function nonOctalExpHitsObject() {
+  let n = 0;
+  let obj = { n: 800 };
+  let out;
+  with (obj) {
+    out = n === 08e2;
+  }
+  return out === true && n === 0;
+}
+let j = nonOctalExpHitsObject();
+
+function octalOneTwoThreeHitsObject() {
+  let n = 0;
+  let obj = { n: 83 };
+  let out;
+  with (obj) {
+    out = n === 0123;
+  }
+  return out === true && n === 0;
+}
+let k = octalOneTwoThreeHitsObject();
+
+function mixFormsHitsObject() {
+  let n = 0;
+  let obj = { n: 10 };
+  let out;
+  with (obj) {
+    out = 010 + 08 + n;
+  }
+  return out === 26 && n === 0;
+}
+let l = mixFormsHitsObject();
+
+function missUsesOuter() {
+  let n = 8;
+  let obj = {};
+  let out;
+  with (obj) {
+    out = n === 010;
+  }
+  return out === true;
+}
+let m = missUsesOuter();
+
+function mixedObjectOuter() {
+  let m = 08;
+  let obj = { n: 010 };
+  let out;
+  with (obj) {
+    out = n + m;
+  }
+  return out === 16 && m === 8;
+}
+let p = mixedObjectOuter();
+
+function typeofNumber() {
+  let obj = { n: 010 };
+  let t;
+  with (obj) {
+    t = typeof n;
+  }
+  return t === "number";
+}
+let q = typeofNumber();
+
+function eqAcrossForms() {
+  let obj = { n: 8 };
+  let legacy;
+  let modern;
+  let nonOctal;
+  with (obj) {
+    legacy = n === 010;
+    modern = n === 0o10;
+    nonOctal = n === 08;
+  }
+  return legacy === true && modern === true && nonOctal === true;
+}
+let r = eqAcrossForms();
+
+function octalIndexHitsObject() {
+  let k = {};
+  let obj = { k: { 8: "hit" } };
+  let out;
+  with (obj) {
+    out = k[010];
+  }
+  return out === "hit" && k[010] === undefined;
+}
+let s = octalIndexHitsObject();
+
+function nonOctalIndexHitsObject() {
+  let k = {};
+  let obj = { k: { 8: "eight" } };
+  let out;
+  with (obj) {
+    out = k[08];
+  }
+  return out === "eight";
+}
+let t = nonOctalIndexHitsObject();
+
+function octalAddIdent() {
+  let n = 0;
+  let obj = { n: 50 };
+  let out;
+  with (obj) {
+    out = n + 010;
+  }
+  return out === 58 && n === 0;
+}
+let u = octalAddIdent();
+
+function nonOctalFracAddIdent() {
+  let n = 0;
+  let obj = { n: 1.5 };
+  let out;
+  with (obj) {
+    out = n + 08.5;
+  }
+  return out === 10 && n === 0;
+}
+let v = nonOctalFracAddIdent();
+
+function nonOctalExpAddIdent() {
+  let n = 0;
+  let obj = { n: 200 };
+  let out;
+  with (obj) {
+    out = n + 08e2;
+  }
+  return out === 1000 && n === 0;
+}
+let w = nonOctalExpAddIdent();
+
+function unscopablesSkip() {
+  let n = 1;
+  let obj = { n: 99 };
+  obj[Symbol.unscopables] = { n: true };
+  let out;
+  with (obj) {
+    out = n === 01;
+  }
+  return out === true && obj.n === 99;
+}
+let aa = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = { n: 077 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = n === 63;
+  }
+  return out === true;
+}
+let ab = inheritedHasBinding();
+
+function accessorGetThis() {
+  let seen = null;
+  let obj = {
+    get n() {
+      seen = this;
+      return 010;
+    }
+  };
+  let out;
+  with (obj) {
+    out = n === 8;
+  }
+  return out === true && seen === obj;
+}
+let ac = accessorGetThis();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      e1702124_missing === 010;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702124_missing === "undefined"
+      );
+    }
+  }
+}
+let ad = unresolvableThrows();
+
+function unresolvableSkipsLater() {
+  let ran = false;
+  let obj = {
+    get n() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      e1702124_first + n;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let ae = unresolvableSkipsLater();
+
+function liveClose() {
+  let obj = { n: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return n === 010;
+    };
+  }
+  obj.n = 8;
+  return run() === true;
+}
+let af = liveClose();
+
+function nestedInnerWins() {
+  let inner = { n: 010 };
+  let outer = { n: 077 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = n === 8;
+    }
+  }
+  return out === true;
+}
+let ag = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { n: 010 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = n === 8;
+    }
+  }
+  return out === true;
+}
+let ah = nestedInnerMissOuter();
+
+function ownUndefinedHasBinding() {
+  let n = 42;
+  let obj = { n: undefined };
+  let out;
+  with (obj) {
+    out = n === undefined;
+  }
+  return out === true && n === 42;
+}
+let aj = ownUndefinedHasBinding();
+
+function getterRunsOncePerUse() {
+  let c = 0;
+  let obj = {
+    get n() {
+      c = c + 1;
+      return 010;
+    }
+  };
+  let out;
+  with (obj) {
+    out = n + n;
+  }
+  return out === 16 && c === 2;
+}
+let ak = getterRunsOncePerUse();
+
+function nestedWithUnscopables() {
+  let n = 1;
+  let inner = { n: 99 };
+  inner[Symbol.unscopables] = { n: true };
+  let outer = { n: 076 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = n === 62;
+    }
+  }
+  return out === true;
+}
+let al = nestedWithUnscopables();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    try {
+      e1702124_noglob + 01;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702124_noglob === "undefined"
+      );
+    }
+  }
+}
+let am = unresolvableNotImplicitGlobal();
+
+function unresolvableSecondAfterFirst() {
+  let ran = false;
+  let obj = {
+    get n() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      n + e1702124_second;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let an = unresolvableSecondAfterFirst();
+
+function liveCloseAfterMutateOuter() {
+  let n = 1;
+  let obj = { n: 2 };
+  let run;
+  with (obj) {
+    run = function () {
+      return n === 012;
+    };
+  }
+  obj.n = 10;
+  n = 99;
+  return run() === true && n === 99;
+}
+let ap = liveCloseAfterMutateOuter();
+
+function valueOfHook() {
+  let seen = null;
+  let obj = {
+    n: {
+      valueOf: function () {
+        seen = this;
+        return 077;
+      }
+    }
+  };
+  let out;
+  with (obj) {
+    out = n + 0;
+  }
+  return out === 63 && seen === obj.n;
+}
+let aq = valueOfHook();
+
+function inheritedAccessorThis() {
+  let proto = {
+    get n() {
+      return this === obj ? 010 : 0;
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = n === 8;
+  }
+  return out === true;
+}
+let ar = inheritedAccessorThis();
+
+function unscopablesSecondIdent() {
+  let m = 1;
+  let obj = { n: 010, m: 99 };
+  obj[Symbol.unscopables] = { m: true };
+  let out;
+  with (obj) {
+    out = n + m;
+  }
+  return out === 9 && obj.m === 99;
+}
+let at = unscopablesSecondIdent();
+
+function nestedLiteralAdd() {
+  let obj = { n: 1, m: 2 };
+  let out;
+  with (obj) {
+    out = n + 010 + m + 08;
+  }
+  return out === 19;
+}
+let au = nestedLiteralAdd();
+
+function unaryMinusVsLiteral() {
+  let n = 0;
+  let obj = { n: 8 };
+  let out;
+  with (obj) {
+    out = -n === -010;
+  }
+  return out === true && n === 0;
+}
+let av = unaryMinusVsLiteral();
+
+function groupingLiteral() {
+  let obj = { n: 2 };
+  let out;
+  with (obj) {
+    out = (010 + n) * 02;
+  }
+  return out === 20;
+}
+let aw = groupingLiteral();
+
+function hexVsLegacyOctal() {
+  let n = 0;
+  let obj = { n: 16 };
+  let hex;
+  let oct;
+  with (obj) {
+    hex = n === 0x10;
+    oct = n === 010;
+  }
+  return hex === true && oct === false && n === 0;
+}
+let ax = hexVsLegacyOctal();
+
+function assignOctalThroughWith() {
+  let obj = { n: 0 };
+  with (obj) {
+    n = 077;
+  }
+  return obj.n === 63;
+}
+let ay = assignOctalThroughWith();
+
+function assignMissFallsThrough() {
+  let n = 0;
+  with ({}) {
+    n = 010;
+  }
+  return n === 8;
+}
+let az = assignMissFallsThrough();
+
+function compareOctalMissOuter() {
+  let n = 8;
+  with ({}) {
+    return 010 === n;
+  }
+}
+let ba = compareOctalMissOuter();
+
+function getterThisOnNonOctal() {
+  let seen = null;
+  let obj = {
+    get n() {
+      seen = this;
+      return 08;
+    }
+  };
+  let out;
+  with (obj) {
+    out = n === 8;
+  }
+  return out === true && seen === obj;
+}
+let bb = getterThisOnNonOctal();
+
+function liveCloseOctalProp() {
+  let obj = { n: 010 };
+  let run;
+  with (obj) {
+    run = function () {
+      return n + 01;
+    };
+  }
+  obj.n = 077;
+  return run() === 64;
+}
+let bc = liveCloseOctalProp();
+
+function nestedBothOctal() {
+  let inner = { n: 010 };
+  let outer = { n: 020 };
+  let innerOut;
+  let outerOut;
+  with (outer) {
+    with (inner) {
+      innerOut = n + 01;
+    }
+    outerOut = n + 01;
+  }
+  return innerOut === 9 && outerOut === 17;
+}
+let bd = nestedBothOctal();
+
+function unresolvableAfterOctalFirst() {
+  let ran = false;
+  let obj = {
+    get n() {
+      ran = true;
+      return 010;
+    }
+  };
+  with (obj) {
+    try {
+      n + e1702124_after;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let be = unresolvableAfterOctalFirst();
+
+function inheritedAccessorOctal() {
+  let seen = null;
+  let proto = {
+    get n() {
+      seen = this;
+      return 010;
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = n === 8;
+  }
+  return out === true && seen === obj;
+}
+let bf = inheritedAccessorOctal();
+
+function identMissWithNonOctal() {
+  let n = 9;
+  with ({}) {
+    return 09 + n === 18;
+  }
+}
+let bg = identMissWithNonOctal();
+
+function nestedUnscopablesOctal() {
+  let n = 1;
+  let inner = { n: 99 };
+  inner[Symbol.unscopables] = { n: true };
+  let outer = { n: 010 };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = n === 8;
+    }
+  }
+  return out === true;
+}
+let bh = nestedUnscopablesOctal();
+
+function emptyZeroPlusOctal() {
+  let obj = { n: 010 };
+  let out;
+  with (obj) {
+    out = 0 + n + 00;
+  }
+  return out === 8;
+}
+let bi = emptyZeroPlusOctal();
+
+function seventySevenVsDecimal() {
+  let obj = { n: 77 };
+  let out;
+  with (obj) {
+    out = n === 077;
+  }
+  return out === false;
+}
+let bj = seventySevenVsDecimal();
+
+function nonOctalExpUpper() {
+  let n = 0;
+  let obj = { n: 800 };
+  let out;
+  with (obj) {
+    out = n === 08E2;
+  }
+  return out === true && n === 0;
+}
+let bk = nonOctalExpUpper();
+
+function shadowsOuter() {
+  let n = 1;
+  let obj = { n: 077 };
+  let out;
+  with (obj) {
+    out = n === 63;
+  }
+  return out === true && n === 1;
+}
+let bl = shadowsOuter();
