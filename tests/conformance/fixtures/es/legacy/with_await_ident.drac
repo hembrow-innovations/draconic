@@ -1,0 +1,561 @@
+// E17.02.154: with + await as IdentifierReference (E19.52: await is
+// IdentifierReference/BindingIdentifier in non-module [~Await], not
+// keyword) through object environment (non-strict). await ident hits object
+// (else outer); async body still AwaitExpression (await prop does not
+// shadow); class static block [+Await] (await prop does not shadow);
+// "use strict" script still allows await ident; dstr/arrow/param defaults
+// await ident hits object; assignment/update target; inherited HasBinding;
+// accessor get this is with object; unresolvable → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function hitsObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    return await === 7;
+  }
+}
+let a = hitsObject();
+
+function missUsesOuter() {
+  let await = 3;
+  with ({}) {
+    return await === 3;
+  }
+}
+let b = missUsesOuter();
+
+function objectShadowsOuter() {
+  let await = 3;
+  let obj = { await: 7 };
+  with (obj) {
+    return await === 7;
+  }
+}
+let c = objectShadowsOuter();
+
+function liveClose() {
+  let obj = { await: 7 };
+  let run;
+  with (obj) {
+    run = function () {
+      return await;
+    };
+  }
+  obj.await = 1;
+  return run() === 1;
+}
+let d = liveClose();
+
+function inheritedHasBinding() {
+  let proto = { await: 7 };
+  let env = Object.create(proto);
+  with (env) {
+    return await === 7;
+  }
+}
+let e = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get await() {
+      seen = this;
+      return 7;
+    }
+  };
+  with (env) {
+    return await === 7 && seen === env;
+  }
+}
+let f = accessorGetThisIsWithObject();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      await;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let g = unresolvableThrows();
+
+function nestedWithInnerWins() {
+  let inner = { await: 7 };
+  let outer = { await: 1 };
+  with (outer) {
+    with (inner) {
+      return await === 7;
+    }
+  }
+}
+let h = nestedWithInnerWins();
+
+function unscopablesSkip() {
+  let await = 1;
+  let env = { await: 7 };
+  env[Symbol.unscopables] = { await: true };
+  with (env) {
+    return await === 1;
+  }
+}
+let j = unscopablesSkip();
+
+function nestedWithUnscopables() {
+  let inner = { await: 3 };
+  inner[Symbol.unscopables] = { await: true };
+  let outer = { await: 7 };
+  with (outer) {
+    with (inner) {
+      return await === 7 && inner.await === 3;
+    }
+  }
+}
+let k = nestedWithUnscopables();
+
+function deleteIdentThenUnresolvable() {
+  let env = { await: 7 };
+  with (env) {
+    delete await;
+    try {
+      await;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let l = deleteIdentThenUnresolvable();
+
+function getterRunsOnce() {
+  let n = 0;
+  let env = {
+    get await() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    return await === 7 && n === 1;
+  }
+}
+let m = getterRunsOnce();
+
+function nestedWithOuterAfterInner() {
+  let inner = { await: 1 };
+  let outer = { await: 7 };
+  with (outer) {
+    with (inner) {
+      await;
+    }
+    return await === 7;
+  }
+}
+let n = nestedWithOuterAfterInner();
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get await() {
+      seen = this;
+      return 7;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return await === 7 && seen === env;
+  }
+}
+let p = inheritedAccessorGetThis();
+
+function awaitInClosure() {
+  let obj = { await: 7 };
+  with (obj) {
+    function run() {
+      return await;
+    }
+    return run() === 7;
+  }
+}
+let q = awaitInClosure();
+
+function awaitInArrow() {
+  let obj = { await: 7 };
+  with (obj) {
+    let run = () => await;
+    return run() === 7;
+  }
+}
+let r = awaitInArrow();
+
+function withInsideFunction() {
+  let obj = { await: 7 };
+  function run() {
+    with (obj) {
+      return await;
+    }
+  }
+  return run() === 7;
+}
+let s = withInsideFunction();
+
+function ownShadowsProto() {
+  let proto = { await: 1 };
+  let env = Object.create(proto);
+  env.await = 7;
+  with (env) {
+    return await === 7;
+  }
+}
+let t = ownShadowsProto();
+
+function unscopablesFalseyDoesNotBlock() {
+  let env = { await: 7 };
+  env[Symbol.unscopables] = { await: false };
+  with (env) {
+    return await === 7;
+  }
+}
+let u = unscopablesFalseyDoesNotBlock();
+
+function letAwaitDoesNotWriteObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    let await = 1;
+    return await === 1 && obj.await === 7;
+  }
+}
+let vv = letAwaitDoesNotWriteObject();
+
+function assignAwaitHitsObject() {
+  let obj = { await: 1 };
+  with (obj) {
+    await = 7;
+    return await === 7 && obj.await === 7;
+  }
+}
+let w = assignAwaitHitsObject();
+
+function typeofAwaitHitsObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    return typeof await === "number";
+  }
+}
+let aa = typeofAwaitHitsObject();
+
+function typeofUnresolvableAwaitIsUndefined() {
+  with ({}) {
+    return typeof await === "undefined";
+  }
+}
+let ab = typeofUnresolvableAwaitIsUndefined();
+
+function deleteAwaitOwn() {
+  let obj = { await: 7 };
+  with (obj) {
+    let ok = delete await;
+    return ok === true && obj.await === undefined;
+  }
+}
+let ac = deleteAwaitOwn();
+
+function voidAwaitHitsObject() {
+  let n = 0;
+  let env = {
+    get await() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    return void await === undefined && n === 1;
+  }
+}
+let ad = voidAwaitHitsObject();
+
+function dstrDefaultAwaitHitsObject() {
+  let x;
+  let obj = { await: 7 };
+  with (obj) {
+    [x = await] = [];
+    return x === 7;
+  }
+}
+let ae = dstrDefaultAwaitHitsObject();
+
+function dstrDefaultAwaitSkippedWhenPresent() {
+  let x;
+  let n = 0;
+  let env = {
+    get await() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    [x = await] = [3];
+    return x === 3 && n === 0;
+  }
+}
+let af = dstrDefaultAwaitSkippedWhenPresent();
+
+function objectShorthandAwaitHitsObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    let o = { await };
+    return o.await === 7;
+  }
+}
+let ag = objectShorthandAwaitHitsObject();
+
+function arrowParamDefaultAwaitHitsObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    let f = (x = await) => x;
+    return f() === 7 && f(3) === 3;
+  }
+}
+let ah = arrowParamDefaultAwaitHitsObject();
+
+function paramDefaultAwaitHitsObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    function f(x = await) {
+      return x;
+    }
+    return f() === 7 && f(3) === 3;
+  }
+}
+let aj = paramDefaultAwaitHitsObject();
+
+function asyncBodyStillAwaitExpr() {
+  let obj = { await: 7, x: 3 };
+  with (obj) {
+    async function f() {
+      return (await x) === 3 && obj.await === 7;
+    }
+    return f();
+  }
+}
+let ak = false;
+asyncBodyStillAwaitExpr().then(function (v) {
+  ak = v;
+});
+
+function asyncBareAwaitSyntaxError() {
+  try {
+    eval("async function f() { await }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let al = asyncBareAwaitSyntaxError();
+
+function classStaticBlockAwaitReserved() {
+  try {
+    eval("class C { static { let await = 1; } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let am = classStaticBlockAwaitReserved();
+
+function classBodyStrictWithAwaitSyntaxError() {
+  try {
+    eval("class C { m() { with ({ await: 1 }) { await } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let an = classBodyStrictWithAwaitSyntaxError();
+
+function strictScriptAwaitIdentOk() {
+  try {
+    return eval("'use strict'; var await = 7; await") === 7;
+  } catch (err) {
+    return false;
+  }
+}
+let ap = strictScriptAwaitIdentOk();
+
+function evalAwaitHitsObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    return eval("await") === 7;
+  }
+}
+let aq = evalAwaitHitsObject();
+
+function awaitConcatIdent() {
+  let obj = { await: "a", x: "b" };
+  with (obj) {
+    return await + x === "ab";
+  }
+}
+let ar = awaitConcatIdent();
+
+function compoundAssignAwaitHitsObject() {
+  let obj = { await: 2 };
+  with (obj) {
+    await += 5;
+    return await === 7 && obj.await === 7;
+  }
+}
+let at = compoundAssignAwaitHitsObject();
+
+function updateAwaitHitsObject() {
+  let obj = { await: 6 };
+  with (obj) {
+    await++;
+    return await === 7 && obj.await === 7;
+  }
+}
+let au = updateAwaitHitsObject();
+
+function awaitAsLabel() {
+  let obj = { await: 7 };
+  with (obj) {
+    await: {
+      return await === 7;
+    }
+  }
+}
+let av = awaitAsLabel();
+
+function functionParamNamedAwait() {
+  function take(await) {
+    return await;
+  }
+  let obj = { await: 7 };
+  with (obj) {
+    return take(await) === 7;
+  }
+}
+let aw = functionParamNamedAwait();
+
+function catchParamNamedAwaitShadows() {
+  let obj = { await: 7 };
+  with (obj) {
+    try {
+      throw 3;
+    } catch (await) {
+      return await === 3 && obj.await === 7;
+    }
+  }
+}
+let ax = catchParamNamedAwaitShadows();
+
+function objectAssignPatternAwaitHitsObject() {
+  let obj = { await: 1 };
+  with (obj) {
+    ({ await } = { await: 7 });
+    return await === 7 && obj.await === 7;
+  }
+}
+let ay = objectAssignPatternAwaitHitsObject();
+
+function templateInterpAwaitHitsObject() {
+  let obj = { await: 7 };
+  with (obj) {
+    return `n${await}` === "n7";
+  }
+}
+let az = templateInterpAwaitHitsObject();
+
+function computedKeyAwaitHitsObject() {
+  let obj = { await: "k" };
+  with (obj) {
+    let o = { [await]: 7 };
+    return o.k === 7;
+  }
+}
+let ba = computedKeyAwaitHitsObject();
+
+function liveCloseTwoIndependent() {
+  let env = { await: 7 };
+  let run;
+  with (env) {
+    run = function () {
+      return await;
+    };
+  }
+  let a1 = run();
+  env.await = 1;
+  let a2 = run();
+  return a1 === 7 && a2 === 1;
+}
+let bb = liveCloseTwoIndependent();
+
+function awaitInNestedFunction() {
+  let obj = { await: 7 };
+  with (obj) {
+    function outer() {
+      function inner() {
+        return await;
+      }
+      return inner();
+    }
+    return outer() === 7;
+  }
+}
+let bc = awaitInNestedFunction();
+
+function withAwaitThenOuterStillOuter() {
+  let await = 1;
+  let obj = { await: 7 };
+  with (obj) {
+    await;
+  }
+  return await === 1;
+}
+let bd = withAwaitThenOuterStillOuter();
+
+function unresolvableAssignIsImplicitGlobal() {
+  with ({}) {
+    await = 7;
+    let ok = globalThis.await === 7;
+    delete globalThis.await;
+    return ok;
+  }
+}
+let be = unresolvableAssignIsImplicitGlobal();
+
+function parenAssignTargetHitsObject() {
+  let obj = { await: 1 };
+  with (obj) {
+    (await) = 7;
+    return await === 7 && obj.await === 7;
+  }
+}
+let bf = parenAssignTargetHitsObject();
+
+function objectMethodAwaitBindingLocal() {
+  let obj = { await: 7 };
+  let o;
+  with (obj) {
+    o = {
+      m() {
+        let await = 1;
+        return await;
+      }
+    };
+  }
+  return o.m() === 1 && obj.await === 7;
+}
+let bg = objectMethodAwaitBindingLocal();
+
+function functionNamedAwait() {
+  let obj = { await: 7 };
+  with (obj) {
+    function await(x) {
+      return x;
+    }
+    return await(3) === 3 && obj.await === 7;
+  }
+}
+let bh = functionNamedAwait();

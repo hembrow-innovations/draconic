@@ -1578,3 +1578,13 @@ fn with_reserved_methods_fixture_present() {
 fn with_reserved_methods_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_reserved_methods");
 }
+
+#[test]
+fn with_await_ident_fixture_present() {
+    assert_fixture_present("es/legacy/with_await_ident");
+}
+
+#[test]
+fn with_await_ident_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_await_ident");
+}
