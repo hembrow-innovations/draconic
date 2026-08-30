@@ -1,0 +1,694 @@
+// E17.02.148: with + Dynamic import() (E19.27: `import(specifier)` /
+// `import(specifier, options)`) through object environment (non-strict).
+// Specifier/options idents hit object (else outer); import is not
+// IdentifierReference (import prop does not shadow); result is a Promise
+// (does not write object); inherited HasBinding; accessor get this is with
+// object; unresolvable specifier or options → ReferenceError; live close;
+// nested with; unscopables skip.
+
+let D1 = "data:text/javascript,export default 1";
+let D3 = "data:text/javascript,export default 3";
+let D7 = "data:text/javascript,export default 7";
+let DN = "data:text/javascript,export let n = 5; export default 4";
+
+function specifierHitsObject() {
+  let outer = D1;
+  let obj = { spec: D7 };
+  with (obj) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7 && outer === D1;
+    });
+  }
+}
+let a = false;
+specifierHitsObject().then(function (v) {
+  a = v;
+});
+
+function specifierMissUsesOuter() {
+  let spec = D7;
+  with ({}) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let b = false;
+specifierMissUsesOuter().then(function (v) {
+  b = v;
+});
+
+function liveClose() {
+  let obj = { spec: D7 };
+  let run;
+  with (obj) {
+    run = function () {
+      return import(spec);
+    };
+  }
+  obj.spec = D1;
+  return run().then(function (ns) {
+    return ns.default === 1;
+  });
+}
+let c = false;
+liveClose().then(function (v) {
+  c = v;
+});
+
+function stringLiteralInsideWith() {
+  with ({ spec: D1 }) {
+    return import("data:text/javascript,export default 5").then(function (ns) {
+      return ns.default === 5;
+    });
+  }
+}
+let d = false;
+stringLiteralInsideWith().then(function (v) {
+  d = v;
+});
+
+function resultIsPromiseDoesNotWriteObject() {
+  let obj = { spec: D7 };
+  let p;
+  with (obj) {
+    p = import(spec);
+  }
+  return (
+    typeof p.then === "function" &&
+    obj.spec === D7 &&
+    obj.default === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "default") === false
+  );
+}
+let e = resultIsPromiseDoesNotWriteObject();
+
+function importPropDoesNotShadow() {
+  let spec = D1;
+  with ({ import: 99, spec: D7 }) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let f = false;
+importPropDoesNotShadow().then(function (v) {
+  f = v;
+});
+
+function typeofImportSyntaxError() {
+  try {
+    eval("with ({ import: 1 }) { typeof import }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let g = typeofImportSyntaxError();
+
+function optionsHitsObject() {
+  let opts = { unused: 1 };
+  let obj = { spec: D7, opts: {} };
+  with (obj) {
+    return import(spec, opts).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let h = false;
+optionsHitsObject().then(function (v) {
+  h = v;
+});
+
+function optionsMissUsesOuter() {
+  let spec = D7;
+  let opts = {};
+  with ({ spec: spec }) {
+    return import(spec, opts).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let j = false;
+optionsMissUsesOuter().then(function (v) {
+  j = v;
+});
+
+function unresolvableSpecifierThrowsSync() {
+  with ({}) {
+    try {
+      import(e1702148_miss);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702148_miss === "undefined"
+      );
+    }
+  }
+}
+let k = unresolvableSpecifierThrowsSync();
+
+function unresolvableOptionsThrowsSync() {
+  with ({ spec: D7 }) {
+    try {
+      import(spec, e1702148_opts);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702148_opts === "undefined"
+      );
+    }
+  }
+}
+let l = unresolvableOptionsThrowsSync();
+
+function namedExportNamespace() {
+  let obj = { spec: DN };
+  with (obj) {
+    return import(spec).then(function (ns) {
+      return ns.default === 4 && ns.n === 5;
+    });
+  }
+}
+let m = false;
+namedExportNamespace().then(function (v) {
+  m = v;
+});
+
+function inheritedHasBinding() {
+  let proto = { spec: D7 };
+  let env = Object.create(proto);
+  with (env) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let n = false;
+inheritedHasBinding().then(function (v) {
+  n = v;
+});
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  with (env) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7 && seen === env;
+    });
+  }
+}
+let p = false;
+accessorGetThisIsWithObject().then(function (v) {
+  p = v;
+});
+
+function nestedWithInnerWins() {
+  let inner = { spec: D7 };
+  let outer = { spec: D1 };
+  with (outer) {
+    with (inner) {
+      return import(spec).then(function (ns) {
+        return ns.default === 7;
+      });
+    }
+  }
+}
+let q = false;
+nestedWithInnerWins().then(function (v) {
+  q = v;
+});
+
+function unscopablesSkip() {
+  let spec = D1;
+  let env = { spec: D7 };
+  env[Symbol.unscopables] = { spec: true };
+  with (env) {
+    return import(spec).then(function (ns) {
+      return ns.default === 1;
+    });
+  }
+}
+let r = false;
+unscopablesSkip().then(function (v) {
+  r = v;
+});
+
+function nestedWithUnscopables() {
+  let inner = { spec: D3 };
+  inner[Symbol.unscopables] = { spec: true };
+  let outer = { spec: D7 };
+  with (outer) {
+    with (inner) {
+      return import(spec).then(function (ns) {
+        return ns.default === 7 && inner.spec === D3;
+      });
+    }
+  }
+}
+let s = false;
+nestedWithUnscopables().then(function (v) {
+  s = v;
+});
+
+function deleteIdentThenUnresolvable() {
+  let env = { spec: D7 };
+  with (env) {
+    delete spec;
+    try {
+      import(spec);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let t = deleteIdentThenUnresolvable();
+
+function getterRunsOnce() {
+  let n = 0;
+  let env = {
+    get spec() {
+      n = n + 1;
+      return D7;
+    }
+  };
+  with (env) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7 && n === 1;
+    });
+  }
+}
+let u = false;
+getterRunsOnce().then(function (v) {
+  u = v;
+});
+
+function liveCloseTwoImportsIndependent() {
+  let env = { spec: D7 };
+  let run;
+  with (env) {
+    run = function () {
+      return import(spec);
+    };
+  }
+  return run().then(function (a1) {
+    env.spec = D1;
+    return run().then(function (a2) {
+      return a1.default === 7 && a2.default === 1;
+    });
+  });
+}
+let vv = false;
+liveCloseTwoImportsIndependent().then(function (v) {
+  vv = v;
+});
+
+function nestedWithOuterAfterInner() {
+  let inner = { spec: D1 };
+  let outer = { spec: D7 };
+  with (outer) {
+    with (inner) {
+      import(spec);
+    }
+    return import(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let w = false;
+nestedWithOuterAfterInner().then(function (v) {
+  w = v;
+});
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7 && seen === env;
+    });
+  }
+}
+let aa = false;
+inheritedAccessorGetThis().then(function (v) {
+  aa = v;
+});
+
+function importInClosure() {
+  let obj = { spec: D7 };
+  with (obj) {
+    function run() {
+      return import(spec);
+    }
+    return run().then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let ab = false;
+importInClosure().then(function (v) {
+  ab = v;
+});
+
+function importInArrow() {
+  let obj = { spec: D7 };
+  with (obj) {
+    let run = () => import(spec);
+    return run().then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let ac = false;
+importInArrow().then(function (v) {
+  ac = v;
+});
+
+function importInAsyncFunction() {
+  let obj = { spec: D7 };
+  with (obj) {
+    async function run() {
+      let ns = await import(spec);
+      return ns.default === 7;
+    }
+    return run();
+  }
+}
+let ad = false;
+importInAsyncFunction().then(function (v) {
+  ad = v;
+});
+
+function mixedHitSpecifierMissOptions() {
+  let opts = {};
+  let obj = { spec: D7 };
+  with (obj) {
+    return import(spec, opts).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let ae = false;
+mixedHitSpecifierMissOptions().then(function (v) {
+  ae = v;
+});
+
+function mixedMissSpecifierHitOptions() {
+  let spec = D7;
+  let obj = { opts: {} };
+  with (obj) {
+    return import(spec, opts).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let af = false;
+mixedMissSpecifierHitOptions().then(function (v) {
+  af = v;
+});
+
+function emptyOptionsObject() {
+  with ({ spec: D7, opts: {} }) {
+    return import(spec, opts).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let ag = false;
+emptyOptionsObject().then(function (v) {
+  ag = v;
+});
+
+function specifierConcatIdent() {
+  let obj = { prefix: "data:text/javascript,export default ", n: 9 };
+  with (obj) {
+    return import(prefix + n).then(function (ns) {
+      return ns.default === 9;
+    });
+  }
+}
+let ah = false;
+specifierConcatIdent().then(function (v) {
+  ah = v;
+});
+
+function withInsideFunctionImport() {
+  let obj = { spec: D7 };
+  function run() {
+    with (obj) {
+      return import(spec);
+    }
+  }
+  return run().then(function (ns) {
+    return ns.default === 7;
+  });
+}
+let aj = false;
+withInsideFunctionImport().then(function (v) {
+  aj = v;
+});
+
+function ownShadowsProto() {
+  let proto = { spec: D1 };
+  let env = Object.create(proto);
+  env.spec = D7;
+  with (env) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let ak = false;
+ownShadowsProto().then(function (v) {
+  ak = v;
+});
+
+function unscopablesFalseyDoesNotBlock() {
+  let env = { spec: D7 };
+  env[Symbol.unscopables] = { spec: false };
+  with (env) {
+    return import(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let al = false;
+unscopablesFalseyDoesNotBlock().then(function (v) {
+  al = v;
+});
+
+function importDoesNotCreateObjectProp() {
+  let env = { spec: D7 };
+  with (env) {
+    return import(spec).then(function (ns) {
+      return (
+        ns.default === 7 &&
+        env.n === undefined &&
+        Object.prototype.hasOwnProperty.call(env, "n") === false
+      );
+    });
+  }
+}
+let am = false;
+importDoesNotCreateObjectProp().then(function (v) {
+  am = v;
+});
+
+function evalImportHitsObject() {
+  let obj = { spec: D7 };
+  with (obj) {
+    return eval("import(spec)").then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let an = false;
+evalImportHitsObject().then(function (v) {
+  an = v;
+});
+
+function optionsGetterThisIsWithObject() {
+  let seen = null;
+  let env = {
+    spec: D7,
+    get opts() {
+      seen = this;
+      return {};
+    }
+  };
+  with (env) {
+    return import(spec, opts).then(function (ns) {
+      return ns.default === 7 && seen === env;
+    });
+  }
+}
+let ap = false;
+optionsGetterThisIsWithObject().then(function (v) {
+  ap = v;
+});
+
+function unresolvableSpecifierSkipsOptions() {
+  let n = 0;
+  let env = {
+    get opts() {
+      n = n + 1;
+      return {};
+    }
+  };
+  with (env) {
+    try {
+      import(e1702148_skip, opts);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && n === 0;
+    }
+  }
+}
+let aq = unresolvableSpecifierSkipsOptions();
+
+function assignSpecifierHitsObject() {
+  let obj = { spec: D1 };
+  with (obj) {
+    spec = D7;
+    return import(spec).then(function (ns) {
+      return ns.default === 7 && obj.spec === D7;
+    });
+  }
+}
+let ar = false;
+assignSpecifierHitsObject().then(function (v) {
+  ar = v;
+});
+
+function importInNestedFunction() {
+  let obj = { spec: D7 };
+  with (obj) {
+    function outer() {
+      function inner() {
+        return import(spec);
+      }
+      return inner();
+    }
+    return outer().then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let at = false;
+importInNestedFunction().then(function (v) {
+  at = v;
+});
+
+function namespaceToStringTag() {
+  let obj = { spec: D7 };
+  with (obj) {
+    return import(spec).then(function (ns) {
+      return ns[Symbol.toStringTag] === "Module";
+    });
+  }
+}
+let au = false;
+namespaceToStringTag().then(function (v) {
+  au = v;
+});
+
+function twoImportsSameSpecShareNs() {
+  let obj = { spec: D7 };
+  with (obj) {
+    return import(spec).then(function (ns1) {
+      return import(spec).then(function (ns2) {
+        return ns1 === ns2 && ns1.default === 7;
+      });
+    });
+  }
+}
+let av = false;
+twoImportsSameSpecShareNs().then(function (v) {
+  av = v;
+});
+
+function specifierFromAccessorThenLive() {
+  let n = 0;
+  let env = {
+    get spec() {
+      n = n + 1;
+      if (n === 1) {
+        return D7;
+      }
+      return D1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return import(spec);
+    };
+  }
+  return run().then(function (a1) {
+    return run().then(function (a2) {
+      return a1.default === 7 && a2.default === 1 && n === 2;
+    });
+  });
+}
+let aw = false;
+specifierFromAccessorThenLive().then(function (v) {
+  aw = v;
+});
+
+function withImportThenOuterStillOuter() {
+  let spec = D1;
+  let obj = { spec: D7 };
+  with (obj) {
+    import(spec);
+  }
+  return import(spec).then(function (ns) {
+    return ns.default === 1;
+  });
+}
+let ax = false;
+withImportThenOuterStillOuter().then(function (v) {
+  ax = v;
+});
+
+function letBindingDoesNotWriteObject() {
+  let obj = { spec: D7 };
+  with (obj) {
+    let spec = D1;
+    return import(spec).then(function (ns) {
+      return ns.default === 1 && obj.spec === D7;
+    });
+  }
+}
+let ay = false;
+letBindingDoesNotWriteObject().then(function (v) {
+  ay = v;
+});
+
+function callImportAsValue() {
+  let obj = { spec: D3 };
+  let p;
+  with (obj) {
+    p = import(spec);
+  }
+  return p.then(function (ns) {
+    return ns.default === 3 && typeof p.then === "function";
+  });
+}
+let az = false;
+callImportAsValue().then(function (v) {
+  az = v;
+});

@@ -1518,3 +1518,13 @@ fn with_async_generators_fixture_present() {
 fn with_async_generators_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_async_generators");
 }
+
+#[test]
+fn with_dynamic_import_fixture_present() {
+    assert_fixture_present("es/legacy/with_dynamic_import");
+}
+
+#[test]
+fn with_dynamic_import_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_dynamic_import");
+}
