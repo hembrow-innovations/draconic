@@ -1,0 +1,779 @@
+// E17.02.130: with + RegExp constructor Annex B statics (B.2.5:
+// $1–$9, input/$_, lastMatch/$&, lastParen/$+, leftContext/$`,
+// rightContext/$' after match/exec) through object environment
+// (non-strict).
+// RegExp ident hits object (else outer); with (RegExp) method/static
+// idents hit RegExp (input/lastMatch/lastParen/leftContext/rightContext/
+// $1/$_/name/length/prototype); instance exec/test via member/[];
+// $&/$+/$`/$' via member/[] (not ident); inherited HasBinding;
+// accessor this is with object; unresolvable → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function seedAbcd() {
+  return new RegExp("a(b)(c)d").exec("xyabcdz");
+}
+
+function withInputAfterExec() {
+  seedAbcd();
+  with (RegExp) {
+    return input === "xyabcdz";
+  }
+}
+let a = withInputAfterExec();
+
+function withInputAliasIdent() {
+  seedAbcd();
+  with (RegExp) {
+    return $_ === "xyabcdz" && $_ === input;
+  }
+}
+let b = withInputAliasIdent();
+
+function withDollarCaptures() {
+  seedAbcd();
+  with (RegExp) {
+    return $1 === "b" && $2 === "c" && $3 === "";
+  }
+}
+let c = withDollarCaptures();
+
+function withLastMatch() {
+  seedAbcd();
+  with (RegExp) {
+    return lastMatch === "abcd";
+  }
+}
+let d = withLastMatch();
+
+function withLastParen() {
+  seedAbcd();
+  with (RegExp) {
+    return lastParen === "c";
+  }
+}
+let e = withLastParen();
+
+function withLeftContext() {
+  seedAbcd();
+  with (RegExp) {
+    return leftContext === "xy";
+  }
+}
+let f = withLeftContext();
+
+function withRightContext() {
+  seedAbcd();
+  with (RegExp) {
+    return rightContext === "z";
+  }
+}
+let g = withRightContext();
+
+function withLastMatchAliasMember() {
+  seedAbcd();
+  with (RegExp) {
+    return lastMatch === RegExp["$&"] && RegExp["$&"] === "abcd";
+  }
+}
+let h = withLastMatchAliasMember();
+
+function withLastParenAliasMember() {
+  seedAbcd();
+  with (RegExp) {
+    return lastParen === RegExp["$+"] && RegExp["$+"] === "c";
+  }
+}
+let j = withLastParenAliasMember();
+
+function withLeftContextAliasMember() {
+  seedAbcd();
+  with (RegExp) {
+    return leftContext === RegExp["$`"] && RegExp["$`"] === "xy";
+  }
+}
+let k = withLeftContextAliasMember();
+
+function withRightContextAliasMember() {
+  seedAbcd();
+  with (RegExp) {
+    return rightContext === RegExp["$'"] && RegExp["$'"] === "z";
+  }
+}
+let l = withRightContextAliasMember();
+
+function failedTestDoesNotUpdate() {
+  seedAbcd();
+  let t1;
+  let afterFailInp;
+  let afterFailD1;
+  with (RegExp) {
+    t1 = new RegExp("a(b)(c)d").test("nope");
+    afterFailInp = input;
+    afterFailD1 = $1;
+  }
+  return t1 === false && afterFailInp === "xyabcdz" && afterFailD1 === "b";
+}
+let m = failedTestDoesNotUpdate();
+
+function secondExecUpdates() {
+  seedAbcd();
+  new RegExp("(x+)(y+)").exec("xxyy");
+  with (RegExp) {
+    return $1 === "xx" && $2 === "yy" && lastMatch === "xxyy";
+  }
+}
+let n = secondExecUpdates();
+
+function withNameLengthPrototype() {
+  with (RegExp) {
+    return name === "RegExp" && length === 2 && prototype === RegExp.prototype;
+  }
+}
+let p = withNameLengthPrototype();
+
+function regexpIdentHitsObject() {
+  let obj = {
+    RegExp: function (p) {
+      this.p = "hit";
+    }
+  };
+  with (obj) {
+    return new RegExp("a").p === "hit";
+  }
+}
+let q = regexpIdentHitsObject();
+
+function regexpIdentMissUsesOuter() {
+  seedAbcd();
+  with ({}) {
+    return RegExp.input === "xyabcdz" && new RegExp("a").test("a") === true;
+  }
+}
+let r = regexpIdentMissUsesOuter();
+
+function regexpIdentShadowsOuter() {
+  let obj = {
+    RegExp: function (p) {
+      this.p = 0;
+    }
+  };
+  with (obj) {
+    return new RegExp("a").p === 0;
+  }
+}
+let s = regexpIdentShadowsOuter();
+
+function inputIdentHitsObject() {
+  let obj = { input: "fromObj" };
+  with (obj) {
+    return input === "fromObj";
+  }
+}
+let t = inputIdentHitsObject();
+
+function inputIdentMissUsesOuter() {
+  seedAbcd();
+  with ({}) {
+    return RegExp.input === "xyabcdz";
+  }
+}
+let u = inputIdentMissUsesOuter();
+
+function dollar1IdentHitsObject() {
+  let obj = { $1: "own" };
+  with (obj) {
+    return $1 === "own";
+  }
+}
+let v = dollar1IdentHitsObject();
+
+function dollar1IdentMissUsesRegExp() {
+  seedAbcd();
+  with ({}) {
+    return RegExp.$1 === "b";
+  }
+}
+let w = dollar1IdentMissUsesRegExp();
+
+function underscoreAliasHitsObject() {
+  let obj = { $_: "aliasOwn" };
+  with (obj) {
+    return $_ === "aliasOwn";
+  }
+}
+let aa = underscoreAliasHitsObject();
+
+function lastMatchIdentHitsObject() {
+  let obj = { lastMatch: "lmOwn" };
+  with (obj) {
+    return lastMatch === "lmOwn";
+  }
+}
+let ab = lastMatchIdentHitsObject();
+
+function lastParenIdentHitsObject() {
+  let obj = { lastParen: "lpOwn" };
+  with (obj) {
+    return lastParen === "lpOwn";
+  }
+}
+let ac = lastParenIdentHitsObject();
+
+function leftContextIdentHitsObject() {
+  let obj = { leftContext: "lcOwn" };
+  with (obj) {
+    return leftContext === "lcOwn";
+  }
+}
+let ad = leftContextIdentHitsObject();
+
+function rightContextIdentHitsObject() {
+  let obj = { rightContext: "rcOwn" };
+  with (obj) {
+    return rightContext === "rcOwn";
+  }
+}
+let ae = rightContextIdentHitsObject();
+
+function execIdentOnInstance() {
+  let re = new RegExp("a(b)(c)d");
+  with (re) {
+    let m = exec("xyabcdz");
+    return m[0] === "abcd" && m[1] === "b" && m[2] === "c";
+  }
+}
+let af = execIdentOnInstance();
+
+function testIdentOnInstance() {
+  let re = new RegExp("a(b)(c)d");
+  with (re) {
+    return test("xyabcdz") === true && test("nope") === false;
+  }
+}
+let ag = testIdentOnInstance();
+
+function execViaBracket() {
+  let env = { re: new RegExp("a(b)(c)d") };
+  with (env) {
+    let m = re["exec"]("xyabcdz");
+    return m[0] === "abcd" && m[1] === "b";
+  }
+}
+let ah = execViaBracket();
+
+function staticsViaMemberOnIdent() {
+  seedAbcd();
+  let env = { RegExp: RegExp };
+  with (env) {
+    return (
+      RegExp.input === "xyabcdz" &&
+      RegExp.$1 === "b" &&
+      RegExp.lastMatch === "abcd" &&
+      RegExp["$&"] === "abcd"
+    );
+  }
+}
+let aj = staticsViaMemberOnIdent();
+
+function dollar9EmptyWhenFewerCaptures() {
+  seedAbcd();
+  with (RegExp) {
+    return $9 === "";
+  }
+}
+let ak = dollar9EmptyWhenFewerCaptures();
+
+function inheritedHasBinding() {
+  seedAbcd();
+  let proto = { input: "fromProto" };
+  let env = Object.create(proto);
+  with (env) {
+    return input === "fromProto";
+  }
+}
+let al = inheritedHasBinding();
+
+function inheritedFromRegExp() {
+  seedAbcd();
+  let env = Object.create(RegExp);
+  with (env) {
+    return input === "xyabcdz" && $1 === "b";
+  }
+}
+let am = inheritedFromRegExp();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get input() {
+      seen = this;
+      return "acc";
+    }
+  };
+  with (env) {
+    return input === "acc" && seen === env;
+  }
+}
+let an = accessorThisIsWithObject();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get $1() {
+      seen = this;
+      return "g";
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return $1 === "g" && seen === env;
+  }
+}
+let ap = inheritedGetterThis();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      e1702130_noglob;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702130_noglob === "undefined"
+      );
+    }
+  }
+}
+let aq = unresolvableThrows();
+
+function unresolvableStaticThrows() {
+  with ({}) {
+    try {
+      lastMatch;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ar = unresolvableStaticThrows();
+
+function liveClose() {
+  let env = { input: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return input;
+    };
+  }
+  env.input = "B";
+  return run() === "B";
+}
+let at = liveClose();
+
+function liveCloseAfterExec() {
+  let env = { RegExp: RegExp };
+  let run;
+  with (env) {
+    run = function () {
+      return RegExp.$1;
+    };
+  }
+  new RegExp("(zz)").exec("zz");
+  return run() === "zz";
+}
+let au = liveCloseAfterExec();
+
+function nestedInnerWins() {
+  seedAbcd();
+  with (RegExp) {
+    with ({ input: "inner" }) {
+      return input === "inner";
+    }
+  }
+}
+let av = nestedInnerWins();
+
+function nestedInnerMissUsesOuter() {
+  seedAbcd();
+  with (RegExp) {
+    with ({}) {
+      return input === "xyabcdz" && $1 === "b";
+    }
+  }
+}
+let aw = nestedInnerMissUsesOuter();
+
+function nestedInnerWinsDollar() {
+  seedAbcd();
+  with (RegExp) {
+    with ({ $1: "inner1" }) {
+      return $1 === "inner1" && $2 === "c";
+    }
+  }
+}
+let ax = nestedInnerWinsDollar();
+
+function unscopablesUsesOuter() {
+  seedAbcd();
+  let env = { input: "skip" };
+  env[Symbol.unscopables] = { input: true };
+  with (RegExp) {
+    with (env) {
+      return input === "xyabcdz";
+    }
+  }
+}
+let ay = unscopablesUsesOuter();
+
+function unscopablesFalseyStillObject() {
+  seedAbcd();
+  let env = { input: "keep" };
+  env[Symbol.unscopables] = { input: false };
+  with (env) {
+    return input === "keep";
+  }
+}
+let az = unscopablesFalseyStillObject();
+
+function unscopablesDollar1() {
+  seedAbcd();
+  let env = { $1: "skip" };
+  env[Symbol.unscopables] = { $1: true };
+  with (RegExp) {
+    with (env) {
+      return $1 === "b";
+    }
+  }
+}
+let ba = unscopablesDollar1();
+
+function callThisIsWithObject() {
+  let env = {
+    lastMatch: function () {
+      return this === env ? 3 : 0;
+    }
+  };
+  with (env) {
+    return lastMatch() === 3;
+  }
+}
+let bb = callThisIsWithObject();
+
+function execArgHitsObject() {
+  let env = { s: "xyabcdz", re: new RegExp("a(b)(c)d") };
+  with (env) {
+    return re.exec(s)[0] === "abcd";
+  }
+}
+let bc = execArgHitsObject();
+
+function execArgMissUsesOuter() {
+  let s = "xyabcdz";
+  let env = { re: new RegExp("a(b)(c)d") };
+  with (env) {
+    return re.exec(s)[1] === "b";
+  }
+}
+let bd = execArgMissUsesOuter();
+
+function memberLastMatchStillCtor() {
+  seedAbcd();
+  with ({ x: 1 }) {
+    return RegExp.lastMatch === "abcd" && RegExp["$&"] === "abcd";
+  }
+}
+let be = memberLastMatchStillCtor();
+
+function bracketKeyIdent() {
+  seedAbcd();
+  let env = { k: "input", RegExp: RegExp };
+  with (env) {
+    return RegExp[k] === "xyabcdz";
+  }
+}
+let bf = bracketKeyIdent();
+
+function ownUndefinedHasBinding() {
+  let env = { input: undefined };
+  with (env) {
+    return input === undefined;
+  }
+}
+let bg = ownUndefinedHasBinding();
+
+function nestedNameInnerWins() {
+  with (RegExp) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let bh = nestedNameInnerWins();
+
+function nestedNameMissOuter() {
+  with (RegExp) {
+    with ({}) {
+      return name === "RegExp";
+    }
+  }
+}
+let bi = nestedNameMissOuter();
+
+function liveCloseDollar1() {
+  let env = { $1: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return $1;
+    };
+  }
+  env.$1 = "B";
+  return run() === "B";
+}
+let bj = liveCloseDollar1();
+
+function unscopablesLastMatch() {
+  seedAbcd();
+  let env = { lastMatch: "skip" };
+  env[Symbol.unscopables] = { lastMatch: true };
+  with (RegExp) {
+    with (env) {
+      return lastMatch === "abcd";
+    }
+  }
+}
+let bk = unscopablesLastMatch();
+
+function accessorThisOnInputGet() {
+  let seen = null;
+  let env = {
+    get lastParen() {
+      seen = this;
+      return "lp";
+    }
+  };
+  with (env) {
+    return lastParen === "lp" && seen === env;
+  }
+}
+let bl = accessorThisOnInputGet();
+
+function withRegexpAllStaticsTogether() {
+  seedAbcd();
+  with (RegExp) {
+    return (
+      input === "xyabcdz" &&
+      $_ === "xyabcdz" &&
+      $1 === "b" &&
+      $2 === "c" &&
+      $3 === "" &&
+      lastMatch === "abcd" &&
+      lastParen === "c" &&
+      leftContext === "xy" &&
+      rightContext === "z" &&
+      RegExp["$&"] === "abcd" &&
+      RegExp["$+"] === "c" &&
+      RegExp["$`"] === "xy" &&
+      RegExp["$'"] === "z"
+    );
+  }
+}
+let bm = withRegexpAllStaticsTogether();
+
+function emptyMissExecStillWorks() {
+  with ({}) {
+    let m = new RegExp("a(b)(c)d").exec("xyabcdz");
+    return m[0] === "abcd" && RegExp.$1 === "b" && RegExp.input === "xyabcdz";
+  }
+}
+let bn = emptyMissExecStillWorks();
+
+function getterRunsOnce() {
+  let c = 0;
+  let env = {
+    get input() {
+      c = c + 1;
+      return "once";
+    }
+  };
+  let out;
+  with (env) {
+    out = input;
+  }
+  return out === "once" && c === 1;
+}
+let bp = getterRunsOnce();
+
+function inheritedAssignCreatesOwn() {
+  let proto = { input: "proto" };
+  let env = Object.create(proto);
+  with (env) {
+    input = "own";
+  }
+  return env.input === "own" && proto.input === "proto";
+}
+let bq = inheritedAssignCreatesOwn();
+
+function dollar2HitsObjectShadows() {
+  seedAbcd();
+  let env = { $2: "own2" };
+  with (RegExp) {
+    with (env) {
+      return $2 === "own2" && $1 === "b";
+    }
+  }
+}
+let br = dollar2HitsObjectShadows();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let env = {
+    get exec() {
+      ran = true;
+      return function (s) {
+        return s;
+      };
+    }
+  };
+  with (env) {
+    try {
+      exec(e1702130_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bs = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let env = {
+    get s() {
+      ran = true;
+      return "xyabcdz";
+    }
+  };
+  with (env) {
+    try {
+      e1702130_first(s);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bt = unresolvableCalleeSkipsArg();
+
+function nestedUnscopablesInput() {
+  seedAbcd();
+  with (RegExp) {
+    let inner = { input: "skip" };
+    inner[Symbol.unscopables] = { input: true };
+    with (inner) {
+      return input === "xyabcdz" && lastMatch === "abcd";
+    }
+  }
+}
+let bu = nestedUnscopablesInput();
+
+function withRegexpPrototypeStillInstance() {
+  seedAbcd();
+  with (RegExp) {
+    let re = new RegExp("z");
+    return prototype.test === re.test && typeof prototype.exec === "function";
+  }
+}
+let bv = withRegexpPrototypeStillInstance();
+
+function testThenReadStatics() {
+  new RegExp("a(b)(c)d").test("xyabcdz");
+  with (RegExp) {
+    return input === "xyabcdz" && $1 === "b" && lastMatch === "abcd";
+  }
+}
+let bw = testThenReadStatics();
+
+function dollarUnderscoreMissUsesRegExp() {
+  seedAbcd();
+  with ({}) {
+    return RegExp.$_ === "xyabcdz";
+  }
+}
+let bx = dollarUnderscoreMissUsesRegExp();
+
+function liveCloseInputOnRegExp() {
+  let env = { input: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return input;
+    };
+  }
+  env.input = RegExp.input;
+  return run() === RegExp.input;
+}
+let by = liveCloseInputOnRegExp();
+
+function nestedInnerMissOuterLastParen() {
+  seedAbcd();
+  with (RegExp) {
+    with ({}) {
+      return lastParen === "c" && leftContext === "xy" && rightContext === "z";
+    }
+  }
+}
+let bz = nestedInnerMissOuterLastParen();
+
+function unscopablesSecondIdent() {
+  seedAbcd();
+  let env = { $1: "skip", $2: "keep2" };
+  env[Symbol.unscopables] = { $1: true };
+  with (RegExp) {
+    with (env) {
+      return $1 === "b" && $2 === "keep2";
+    }
+  }
+}
+let ca = unscopablesSecondIdent();
+
+function memberExecThisIsRegexp() {
+  let re = new RegExp("a(b)(c)d");
+  let env = { re: re };
+  with (env) {
+    return re.exec("xyabcdz")[0] === "abcd" && this !== re;
+  }
+}
+let cb = memberExecThisIsRegexp();
+
+function identExecThisIsWithObject() {
+  let seen = null;
+  let env = {
+    exec: function (s) {
+      seen = this;
+      return s === "xyabcdz";
+    }
+  };
+  with (env) {
+    return exec("xyabcdz") === true && seen === env;
+  }
+}
+let cc = identExecThisIsWithObject();
+
+function withRegExpDollarMembersTogether() {
+  seedAbcd();
+  let env = { RegExp: RegExp };
+  with (env) {
+    return (
+      RegExp["$1"] === "b" &&
+      RegExp["$2"] === "c" &&
+      RegExp["$_"] === "xyabcdz" &&
+      RegExp["$&"] === "abcd" &&
+      RegExp["$+"] === "c" &&
+      RegExp["$`"] === "xy" &&
+      RegExp["$'"] === "z"
+    );
+  }
+}
+let cd = withRegExpDollarMembersTogether();
