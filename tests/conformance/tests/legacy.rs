@@ -1448,3 +1448,13 @@ fn with_private_fields_fixture_present() {
 fn with_private_fields_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_private_fields");
 }
+
+#[test]
+fn with_static_private_fields_fixture_present() {
+    assert_fixture_present("es/legacy/with_static_private_fields");
+}
+
+#[test]
+fn with_static_private_fields_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_static_private_fields");
+}
