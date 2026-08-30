@@ -1,0 +1,946 @@
+// E17.02.160: with + export { x } from (E18.30: named re-export;
+// `export { x }` / `export { x as y }` / `export { default as d } from`;
+// consumer import { x } / import { y } / import { d }) through object
+// environment (non-strict). Specifier ident hits object (else outer);
+// export/as/from/default in export syntax are not IdentifierReference
+// (export/default props do not shadow; as/from/value/bump/d as
+// IdentifierReference still hit object); result is a Promise (does not
+// write object); imported named bindings do not see importer with;
+// export in with → SyntaxError; inherited HasBinding; accessor get this
+// is with object; unresolvable specifier → ReferenceError; live close;
+// nested with; unscopables skip.
+
+let L1 =
+  "data:text/javascript,export let value=1;export function inc(x){return x+1;}export const label=\"ok\";export default 11;";
+let L7 =
+  "data:text/javascript,export let value=7;export function inc(x){return x+1;}export const label=\"ok\";export default 77;";
+let L3 =
+  "data:text/javascript,export let value=3;export function inc(x){return x+1;}export const label=\"ok\";export default 33;";
+let LMISS = "data:text/javascript,export function readX(){return x;}";
+
+function makeBarrel(libUrl, extra) {
+  return (
+    "data:text/javascript,export { value, inc as bump, default as d } from " +
+    JSON.stringify(libUrl) +
+    ";export let extra=" +
+    extra +
+    ";"
+  );
+}
+
+function makeValueOnly(libUrl) {
+  return (
+    "data:text/javascript,export { value } from " + JSON.stringify(libUrl)
+  );
+}
+
+function makeRenameOnly(libUrl) {
+  return (
+    "data:text/javascript,export { inc as bump } from " + JSON.stringify(libUrl)
+  );
+}
+
+function makeDefaultAs(libUrl) {
+  return (
+    "data:text/javascript,export { default as d } from " +
+    JSON.stringify(libUrl)
+  );
+}
+
+let B1 = makeBarrel(L1, 1);
+let B7 = makeBarrel(L7, 7);
+let B3 = makeBarrel(L3, 3);
+let BMISS = "data:text/javascript,export { readX } from " + JSON.stringify(LMISS);
+
+function specifierHitsObject() {
+  let outer = B1;
+  let obj = { spec: B7 };
+  with (obj) {
+    return import(spec).then(function (m) {
+      return m.value === 7 && m.extra === 7 && outer === B1;
+    });
+  }
+}
+let a = false;
+specifierHitsObject().then(function (v) {
+  a = v;
+});
+
+function specifierMissUsesOuter() {
+  let spec = B7;
+  with ({}) {
+    return import(spec).then(function (m) {
+      return m.value === 7;
+    });
+  }
+}
+let b = false;
+specifierMissUsesOuter().then(function (v) {
+  b = v;
+});
+
+function liveClose() {
+  let obj = { spec: B7 };
+  let run;
+  with (obj) {
+    run = function () {
+      return import(spec);
+    };
+  }
+  obj.spec = B1;
+  return run().then(function (m) {
+    return m.value === 1;
+  });
+}
+let c = false;
+liveClose().then(function (v) {
+  c = v;
+});
+
+function stringLiteralInsideWith() {
+  with ({ spec: B1 }) {
+    return import(makeBarrel(L7, 9)).then(function (m) {
+      return m.value === 7 && m.extra === 9;
+    });
+  }
+}
+let d = false;
+stringLiteralInsideWith().then(function (v) {
+  d = v;
+});
+
+function resultIsPromiseDoesNotWriteObject() {
+  let obj = { spec: B7 };
+  let p;
+  with (obj) {
+    p = import(spec);
+  }
+  return (
+    typeof p.then === "function" &&
+    obj.spec === B7 &&
+    obj.value === undefined &&
+    obj.bump === undefined &&
+    obj.d === undefined &&
+    obj.extra === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "value") === false
+  );
+}
+let e = resultIsPromiseDoesNotWriteObject();
+
+function exportPropDoesNotShadow() {
+  let spec = B1;
+  with ({ export: 99, spec: B7 }) {
+    return import(spec).then(function (m) {
+      return m.value === 7;
+    });
+  }
+}
+let f = false;
+exportPropDoesNotShadow().then(function (v) {
+  f = v;
+});
+
+function typeofExportSyntaxError() {
+  try {
+    eval("with ({ export: 1 }) { typeof export }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let g = typeofExportSyntaxError();
+
+function asIdentHitsObject() {
+  let spec = B7;
+  with ({ as: 99, spec: spec }) {
+    return import(spec).then(function (m) {
+      return as === 99 && m.value === 7;
+    });
+  }
+}
+let h = false;
+asIdentHitsObject().then(function (v) {
+  h = v;
+});
+
+function fromIdentHitsObject() {
+  let spec = B7;
+  with ({ from: 88, spec: spec }) {
+    return import(spec).then(function (m) {
+      return from === 88 && m.value === 7;
+    });
+  }
+}
+let j = false;
+fromIdentHitsObject().then(function (v) {
+  j = v;
+});
+
+function valueIdentHitsObject() {
+  let spec = B7;
+  with ({ value: 77, spec: spec }) {
+    return import(spec).then(function (m) {
+      return value === 77 && m.value === 7 && m.value !== value;
+    });
+  }
+}
+let k = false;
+valueIdentHitsObject().then(function (v) {
+  k = v;
+});
+
+function namedReexportShape() {
+  let obj = { spec: B7 };
+  with (obj) {
+    return import(spec).then(function (m) {
+      return (
+        m.value === 7 &&
+        m.bump(1) === 2 &&
+        m.d === 77 &&
+        m.extra === 7 &&
+        m.inc === undefined &&
+        m.label === undefined &&
+        m.default === undefined &&
+        m.ns === undefined
+      );
+    });
+  }
+}
+let l = false;
+namedReexportShape().then(function (v) {
+  l = v;
+});
+
+function unresolvableSpecifierThrowsSync() {
+  with ({}) {
+    try {
+      import(e1702160_miss);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702160_miss === "undefined"
+      );
+    }
+  }
+}
+let m = unresolvableSpecifierThrowsSync();
+
+function inheritedHasBinding() {
+  let proto = { spec: B7 };
+  let env = Object.create(proto);
+  with (env) {
+    return import(spec).then(function (mod) {
+      return mod.value === 7;
+    });
+  }
+}
+let n = false;
+inheritedHasBinding().then(function (v) {
+  n = v;
+});
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get spec() {
+      seen = this;
+      return B7;
+    }
+  };
+  with (env) {
+    return import(spec).then(function (mod) {
+      return mod.value === 7 && seen === env;
+    });
+  }
+}
+let p = false;
+accessorGetThisIsWithObject().then(function (v) {
+  p = v;
+});
+
+function nestedWithInnerWins() {
+  let inner = { spec: B7 };
+  let outer = { spec: B1 };
+  with (outer) {
+    with (inner) {
+      return import(spec).then(function (mod) {
+        return mod.value === 7;
+      });
+    }
+  }
+}
+let q = false;
+nestedWithInnerWins().then(function (v) {
+  q = v;
+});
+
+function unscopablesSkip() {
+  let spec = B1;
+  let env = { spec: B7 };
+  env[Symbol.unscopables] = { spec: true };
+  with (env) {
+    return import(spec).then(function (mod) {
+      return mod.value === 1;
+    });
+  }
+}
+let r = false;
+unscopablesSkip().then(function (v) {
+  r = v;
+});
+
+function nestedWithUnscopables() {
+  let inner = { spec: B3 };
+  inner[Symbol.unscopables] = { spec: true };
+  let outer = { spec: B7 };
+  with (outer) {
+    with (inner) {
+      return import(spec).then(function (mod) {
+        return mod.value === 7 && inner.spec === B3;
+      });
+    }
+  }
+}
+let s = false;
+nestedWithUnscopables().then(function (v) {
+  s = v;
+});
+
+function deleteIdentThenUnresolvable() {
+  let env = { spec: B7 };
+  with (env) {
+    delete spec;
+    try {
+      import(spec);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let t = deleteIdentThenUnresolvable();
+
+function getterRunsOnce() {
+  let n = 0;
+  let env = {
+    get spec() {
+      n = n + 1;
+      return B7;
+    }
+  };
+  with (env) {
+    return import(spec).then(function (mod) {
+      return mod.value === 7 && n === 1;
+    });
+  }
+}
+let u = false;
+getterRunsOnce().then(function (v) {
+  u = v;
+});
+
+function liveCloseTwoIndependent() {
+  let env = { spec: B7 };
+  let run;
+  with (env) {
+    run = function () {
+      return import(spec);
+    };
+  }
+  return run().then(function (a1) {
+    env.spec = B1;
+    return run().then(function (a2) {
+      return a1.value === 7 && a2.value === 1;
+    });
+  });
+}
+let vv = false;
+liveCloseTwoIndependent().then(function (v) {
+  vv = v;
+});
+
+function nestedWithOuterAfterInner() {
+  let inner = { spec: B1 };
+  let outer = { spec: B7 };
+  with (outer) {
+    with (inner) {
+      import(spec);
+    }
+    return import(spec).then(function (mod) {
+      return mod.value === 7;
+    });
+  }
+}
+let w = false;
+nestedWithOuterAfterInner().then(function (v) {
+  w = v;
+});
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get spec() {
+      seen = this;
+      return B7;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return import(spec).then(function (mod) {
+      return mod.value === 7 && seen === env;
+    });
+  }
+}
+let aa = false;
+inheritedAccessorGetThis().then(function (v) {
+  aa = v;
+});
+
+function importInClosure() {
+  let obj = { spec: B7 };
+  with (obj) {
+    function run() {
+      return import(spec);
+    }
+    return run().then(function (mod) {
+      return mod.value === 7;
+    });
+  }
+}
+let ab = false;
+importInClosure().then(function (v) {
+  ab = v;
+});
+
+function importInArrow() {
+  let obj = { spec: B7 };
+  with (obj) {
+    let run = () => import(spec);
+    return run().then(function (mod) {
+      return mod.value === 7;
+    });
+  }
+}
+let ac = false;
+importInArrow().then(function (v) {
+  ac = v;
+});
+
+function importInAsyncFunction() {
+  let obj = { spec: B7 };
+  with (obj) {
+    async function run() {
+      let mod = await import(spec);
+      return mod.value === 7;
+    }
+    return run();
+  }
+}
+let ad = false;
+importInAsyncFunction().then(function (v) {
+  ad = v;
+});
+
+function importedBindingsDoNotSeeWith() {
+  let obj = { spec: BMISS, x: 99 };
+  with (obj) {
+    return import(spec).then(function (mod) {
+      try {
+        mod.readX();
+        return false;
+      } catch (err) {
+        return err instanceof ReferenceError && x === 99;
+      }
+    });
+  }
+}
+let ae = false;
+importedBindingsDoNotSeeWith().then(function (v) {
+  ae = v;
+});
+
+function extraOnBarrelNotInc() {
+  let obj = { spec: B7 };
+  with (obj) {
+    return import(spec).then(function (mod) {
+      return (
+        mod.extra === 7 &&
+        mod.inc === undefined &&
+        Object.prototype.hasOwnProperty.call(mod, "extra") === true &&
+        Object.prototype.hasOwnProperty.call(mod, "bump") === true
+      );
+    });
+  }
+}
+let af = false;
+extraOnBarrelNotInc().then(function (v) {
+  af = v;
+});
+
+function bumpAndDOnBarrel() {
+  let obj = { spec: B7 };
+  with (obj) {
+    return import(spec).then(function (m) {
+      return (
+        typeof m.bump === "function" &&
+        m.d === 77 &&
+        typeof m === "object" &&
+        m !== null
+      );
+    });
+  }
+}
+let ag = false;
+bumpAndDOnBarrel().then(function (v) {
+  ag = v;
+});
+
+function withInsideFunction() {
+  let obj = { spec: B7 };
+  function run() {
+    with (obj) {
+      return import(spec);
+    }
+  }
+  return run().then(function (mod) {
+    return mod.value === 7;
+  });
+}
+let ah = false;
+withInsideFunction().then(function (v) {
+  ah = v;
+});
+
+function ownShadowsProto() {
+  let proto = { spec: B1 };
+  let env = Object.create(proto);
+  env.spec = B7;
+  with (env) {
+    return import(spec).then(function (mod) {
+      return mod.value === 7;
+    });
+  }
+}
+let aj = false;
+ownShadowsProto().then(function (v) {
+  aj = v;
+});
+
+function unscopablesFalseyDoesNotBlock() {
+  let env = { spec: B7 };
+  env[Symbol.unscopables] = { spec: false };
+  with (env) {
+    return import(spec).then(function (mod) {
+      return mod.value === 7;
+    });
+  }
+}
+let ak = false;
+unscopablesFalseyDoesNotBlock().then(function (v) {
+  ak = v;
+});
+
+function twoImportsSameSpecShareNs() {
+  let obj = { spec: B7 };
+  with (obj) {
+    return import(spec).then(function (m1) {
+      return import(spec).then(function (m2) {
+        return m1 === m2 && m1.value === 7 && m1.bump === m2.bump;
+      });
+    });
+  }
+}
+let al = false;
+twoImportsSameSpecShareNs().then(function (v) {
+  al = v;
+});
+
+function withThenOuterStillOuter() {
+  let spec = B1;
+  let obj = { spec: B7 };
+  with (obj) {
+    import(spec);
+  }
+  return import(spec).then(function (mod) {
+    return mod.value === 1;
+  });
+}
+let am = false;
+withThenOuterStillOuter().then(function (v) {
+  am = v;
+});
+
+function callAsValue() {
+  let obj = { spec: B3 };
+  let p;
+  with (obj) {
+    p = import(spec);
+  }
+  return p.then(function (mod) {
+    return mod.value === 3 && typeof p.then === "function";
+  });
+}
+let an = false;
+callAsValue().then(function (v) {
+  an = v;
+});
+
+function exportNamedFromInWithSyntaxError() {
+  try {
+    eval("with ({}) { export { x } from './x' }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ap = exportNamedFromInWithSyntaxError();
+
+function exportRenameInWithSyntaxError() {
+  try {
+    eval("with ({}) { export { x as y } from './x' }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let aq = exportRenameInWithSyntaxError();
+
+function exportDefaultAsInWithSyntaxError() {
+  try {
+    eval("with ({}) { export { default as d } from './x' }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ar = exportDefaultAsInWithSyntaxError();
+
+function letBindingDoesNotWriteObject() {
+  let obj = { spec: B7 };
+  with (obj) {
+    let spec = B1;
+    return import(spec).then(function (mod) {
+      return mod.value === 1 && obj.spec === B7;
+    });
+  }
+}
+let at = false;
+letBindingDoesNotWriteObject().then(function (v) {
+  at = v;
+});
+
+function assignSpecifierHitsObject() {
+  let obj = { spec: B1 };
+  with (obj) {
+    spec = B7;
+    return import(spec).then(function (mod) {
+      return mod.value === 7 && obj.spec === B7;
+    });
+  }
+}
+let au = false;
+assignSpecifierHitsObject().then(function (v) {
+  au = v;
+});
+
+function specifierConcatIdent() {
+  let obj = {
+    prefix: "data:text/javascript,export { value, inc as bump, default as d } from ",
+    lib: L3,
+    suffix: ";export let extra=0;"
+  };
+  with (obj) {
+    return import(prefix + JSON.stringify(lib) + suffix).then(function (mod) {
+      return mod.value === 3;
+    });
+  }
+}
+let av = false;
+specifierConcatIdent().then(function (v) {
+  av = v;
+});
+
+function emptyWithUsesOuter() {
+  let spec = B7;
+  with ({}) {
+    return import(spec).then(function (mod) {
+      return mod.value === 7;
+    });
+  }
+}
+let aw = false;
+emptyWithUsesOuter().then(function (v) {
+  aw = v;
+});
+
+function mixedHitAndMiss() {
+  let y = B7;
+  let obj = { spec: B1 };
+  with (obj) {
+    return import(spec).then(function (m1) {
+      return import(y).then(function (m2) {
+        return m1.value === 1 && m2.value === 7;
+      });
+    });
+  }
+}
+let ax = false;
+mixedHitAndMiss().then(function (v) {
+  ax = v;
+});
+
+function defaultLivesAsDNotDefault() {
+  let obj = { spec: B7 };
+  with (obj) {
+    return import(spec).then(function (mod) {
+      return (
+        mod.d === 77 &&
+        mod.default === undefined &&
+        Object.prototype.hasOwnProperty.call(mod, "d") === true
+      );
+    });
+  }
+}
+let ay = false;
+defaultLivesAsDNotDefault().then(function (v) {
+  ay = v;
+});
+
+function liveCloseValue() {
+  let obj = { spec: B1 };
+  let run;
+  with (obj) {
+    run = function () {
+      return import(spec);
+    };
+  }
+  return run().then(function (first) {
+    obj.spec = B7;
+    return run().then(function (second) {
+      return first.value === 1 && second.value === 7;
+    });
+  });
+}
+let az = false;
+liveCloseValue().then(function (v) {
+  az = v;
+});
+
+function nestedWithMissFallsThrough() {
+  let spec = B7;
+  with ({ other: 1 }) {
+    with ({}) {
+      return import(spec).then(function (mod) {
+        return mod.value === 7;
+      });
+    }
+  }
+}
+let ba = false;
+nestedWithMissFallsThrough().then(function (v) {
+  ba = v;
+});
+
+function importThenUsesBump() {
+  let obj = { spec: B7, n: 41 };
+  with (obj) {
+    return import(spec).then(function (mod) {
+      return mod.bump(n) === 42 && obj.n === 41;
+    });
+  }
+}
+let bb = false;
+importThenUsesBump().then(function (v) {
+  bb = v;
+});
+
+function labelNotReexported() {
+  let obj = { spec: B1, label: "outer" };
+  with (obj) {
+    return import(spec).then(function (mod) {
+      return mod.label === undefined && label === "outer";
+    });
+  }
+}
+let bc = false;
+labelNotReexported().then(function (v) {
+  bc = v;
+});
+
+function unscopablesSkipAsFromValue() {
+  let as = 1;
+  let from = 2;
+  let value = 3;
+  let env = { as: 9, from: 8, value: 7, spec: B7 };
+  env[Symbol.unscopables] = { as: true, from: true, value: true };
+  with (env) {
+    return import(spec).then(function (mod) {
+      return as === 1 && from === 2 && value === 3 && mod.value === 7;
+    });
+  }
+}
+let bd = false;
+unscopablesSkipAsFromValue().then(function (v) {
+  bd = v;
+});
+
+function getterAsThisIsWithObject() {
+  let seen = null;
+  let env = {
+    spec: B7,
+    get as() {
+      seen = this;
+      return 5;
+    }
+  };
+  with (env) {
+    return import(spec).then(function (mod) {
+      return as === 5 && seen === env && mod.value === 7;
+    });
+  }
+}
+let be = false;
+getterAsThisIsWithObject().then(function (v) {
+  be = v;
+});
+
+function valueOnlyForm() {
+  let spec = makeValueOnly(L7);
+  with ({ spec: spec }) {
+    return import(spec).then(function (mod) {
+      return (
+        mod.value === 7 &&
+        mod.bump === undefined &&
+        mod.d === undefined &&
+        Object.prototype.hasOwnProperty.call(mod, "value") === true
+      );
+    });
+  }
+}
+let bf = false;
+valueOnlyForm().then(function (v) {
+  bf = v;
+});
+
+function renameOnlyForm() {
+  let spec = makeRenameOnly(L7);
+  with ({ spec: spec }) {
+    return import(spec).then(function (mod) {
+      return (
+        typeof mod.bump === "function" &&
+        mod.bump(1) === 2 &&
+        mod.inc === undefined &&
+        mod.value === undefined
+      );
+    });
+  }
+}
+let bg = false;
+renameOnlyForm().then(function (v) {
+  bg = v;
+});
+
+function defaultAsForm() {
+  let spec = makeDefaultAs(L7);
+  with ({ spec: spec }) {
+    return import(spec).then(function (mod) {
+      return (
+        mod.d === 77 &&
+        mod.default === undefined &&
+        mod.value === undefined
+      );
+    });
+  }
+}
+let bh = false;
+defaultAsForm().then(function (v) {
+  bh = v;
+});
+
+function typeofAsFromValueBumpD() {
+  with ({ as: 1, from: 2, value: 3, bump: 4, d: 5 }) {
+    return (
+      typeof as === "number" &&
+      typeof from === "number" &&
+      typeof value === "number" &&
+      typeof bump === "number" &&
+      typeof d === "number"
+    );
+  }
+}
+let bj = typeofAsFromValueBumpD();
+
+function exportAsFromDoNotWriteObject() {
+  let obj = { spec: B7 };
+  let p;
+  with (obj) {
+    p = import(spec);
+  }
+  return (
+    obj.as === undefined &&
+    obj.from === undefined &&
+    obj.default === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "as") === false &&
+    Object.prototype.hasOwnProperty.call(obj, "from") === false &&
+    typeof p.then === "function"
+  );
+}
+let bk = exportAsFromDoNotWriteObject();
+
+function twoBarrelsDistinct() {
+  let obj = { spec: B7, other: B1 };
+  with (obj) {
+    return import(spec).then(function (m7) {
+      return import(other).then(function (m1) {
+        return (
+          m7.value === 7 &&
+          m1.value === 1 &&
+          m7 !== m1 &&
+          m7.d === 77 &&
+          m1.d === 11
+        );
+      });
+    });
+  }
+}
+let bl = false;
+twoBarrelsDistinct().then(function (v) {
+  bl = v;
+});
+
+function typeofDefaultSyntaxError() {
+  try {
+    eval("with ({ default: 1 }) { typeof default }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let bm = typeofDefaultSyntaxError();
+
+function bumpIdentHitsObject() {
+  let spec = B7;
+  with ({ bump: 66, spec: spec }) {
+    return import(spec).then(function (mod) {
+      return bump === 66 && typeof mod.bump === "function" && mod.bump !== bump;
+    });
+  }
+}
+let bn = false;
+bumpIdentHitsObject().then(function (v) {
+  bn = v;
+});
+
+function dIdentHitsObject() {
+  let spec = B7;
+  with ({ d: 55, spec: spec }) {
+    return import(spec).then(function (mod) {
+      return d === 55 && mod.d === 77 && mod.d !== d;
+    });
+  }
+}
+let bp = false;
+dIdentHitsObject().then(function (v) {
+  bp = v;
+});
