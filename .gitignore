@@ -1,3 +1,6 @@
+.heio/
+.pi/git/
+
 /target
 **/*.rs.bk
 .DS_Store

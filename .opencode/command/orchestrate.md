@@ -32,7 +32,7 @@ Examples:
 
 ### Stall watch
 
-The swarm children already kill hung `opencode run` processes. You still must:
+The swarm children already kill hung `pi --print` processes. You still must:
 
 - Confirm the parent `opencode-orchestrate.mjs` is alive and printing wave headers.
 - If the parent goes silent longer than `STALL_SEC` (~15m default) with todos remaining, inspect / restart remaining work / kill and report.

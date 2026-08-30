@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// One swarm wave: up to N fresh opencode sessions, each one draconic-loop.
+// One swarm wave: up to N fresh pi sessions, each one draconic-loop.
 // Usage:
 //   node .loop/opencode-swarm.mjs
 //   node .loop/opencode-swarm.mjs wave=10
 //   node .loop/opencode-swarm.mjs parallel wave=10
-//   node .loop/opencode-swarm.mjs wave=10 -- -m xai/grok-4.5
+//   node .loop/opencode-swarm.mjs wave=10 -- --provider xai --model grok-4.6
 //
 // serial (default): N sequential sessions on the main worktree
 // parallel: N concurrent sessions, each in its own git worktree under
@@ -17,7 +17,7 @@
 import { readRoadmapStatus } from "./roadmap-status.mjs";
 import {
 	DEFAULT_LOOP_PROMPT,
-	runOpencodeOnce,
+	runPiOnce,
 	sleep,
 	stallConfig,
 } from "./run-opencode.mjs";
@@ -77,7 +77,7 @@ function parseArgs(argv) {
 
 	if (!Number.isInteger(wave) || wave < 1) {
 		console.error(
-			"Usage: node .loop/opencode-swarm.mjs [parallel|serial] [wave=N] [-- opencode flags]",
+			"Usage: node .loop/opencode-swarm.mjs [parallel|serial] [wave=N] [-- pi flags]",
 		);
 		process.exit(1);
 	}
@@ -147,11 +147,12 @@ async function oneSlotSerial(i) {
 	if (snap.counts.todo === 0) {
 		return { code: 0, reason: "empty", skipped: true };
 	}
-	const { code, reason } = await runOpencodeOnce({
+	const { code, reason } = await runPiOnce({
 		label: `swarm ${i}/${wave} (serial)`,
 		promptArgs,
 		extraFlags,
 		cwd: root,
+		name: `draconic-swarm-${waveId}-${i}`,
 	});
 	return { code, reason, skipped: false };
 }
@@ -176,11 +177,12 @@ async function oneSlotParallel(i) {
 			`You are running inside git worktree ${wt.path} on branch ${wt.branch}. Stay in this directory. Commit on this branch only. Do not create other worktrees.`,
 		];
 
-		const { code, reason } = await runOpencodeOnce({
+		const { code, reason } = await runPiOnce({
 			label: `swarm ${i}/${wave} (parallel ${wt.name})`,
 			promptArgs: wtPrompt,
 			extraFlags,
 			cwd: wt.path,
+			name: `draconic-swarm-${wt.name}`,
 		});
 
 		// Integrate commits into main before deleting the worktree

@@ -11,4 +11,5 @@ Tracker root: **`docs/planning/`** (not GitHub Issues, not `.scratch/`).
 - Check ids: `node scripts/planning-check-ids.mjs`
 
 Language completeness remains `ROADMAP.md` + **draconic-loop** — separate from
-this vault tracker.
+this vault tracker. Agent operating notes live under gitignored `.heio/`
+(**heio-stack**); do not treat that tree as a second copy of this vault.

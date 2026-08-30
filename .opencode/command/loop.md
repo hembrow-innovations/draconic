@@ -36,5 +36,5 @@ Examples the user might mean:
 
 ## Do not
 
-- Do not run the draconic-loop skill yourself in this session — the child `opencode run` processes do that.
+- Do not run the draconic-loop skill yourself in this session — the child `pi --print` processes do that.
 - Do not start a second full 100× driver on top of one already running unless the first is dead.

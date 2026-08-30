@@ -15,7 +15,8 @@ tags: [guide, planning]
 There is **no GitHub Issues**. Issues, plans, tasks and PRDs live as markdown under
 `docs/planning/` — the project's second brain and single source of truth for
 non-Roadmap work. (Language completeness still uses [[ROADMAP]] + the test suite
-and the **draconic-loop** skill.)
+and the **draconic-loop** skill. Agent operating notes live under gitignored
+`.heio/` via **heio-stack**; that tree is not a second copy of this vault.)
 
 Drive notes with plain file edits (or `notesmd-cli` if installed). Prefer
 `[[wikilinks]]` between notes.

@@ -45,7 +45,7 @@ node .loop/opencode-swarm.mjs wave=10
 
 ## Do not
 
-- Do not run the draconic-loop skill in this session — child `opencode run` processes do that.
+- Do not run the draconic-loop skill in this session — child `pi --print` processes do that.
 - Do not start a second swarm while one is still running.
 - Do not loop waves here — that is `/orchestrate`.
 - Do not leave `.loop/worktrees/*` around — cleanup is mandatory.

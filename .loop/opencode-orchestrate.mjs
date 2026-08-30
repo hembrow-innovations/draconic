@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Outer orchestrator: loop swarm waves until ROADMAP has no todo rows.
-// Does not hold LLM context — each unit of work is a child opencode process
+// Does not hold LLM context — each unit of work is a child pi process
 // inside swarm. This process only counts roadmap rows and spawns swarms.
 //
 // Usage:
 //   node .loop/opencode-orchestrate.mjs
 //   node .loop/opencode-orchestrate.mjs parallel wave=10
-//   node .loop/opencode-orchestrate.mjs wave=5 -- -m xai/grok-4.5
+//   node .loop/opencode-orchestrate.mjs wave=5 -- --provider xai --model grok-4.6
 //
 // Env:
 //   WAVE=10              default wave size

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Shared helper: spawn one `opencode run` with JSON stream + stall watchdog.
+// Shared helper: spawn one `pi --print` with JSON stream + stall watchdog.
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
@@ -21,12 +21,22 @@ export function stallConfig() {
 	};
 }
 
+function childEnv() {
+	const env = { ...process.env };
+	// Nested pi must not inherit this session's identity.
+	delete env.PI_SESSION_ID;
+	delete env.PI_SESSION_FILE;
+	delete env.PI_CODING_AGENT;
+	delete env.AI_AGENT;
+	return env;
+}
+
 /**
- * @param {{ label: string, promptArgs: string[], extraFlags?: string[], quiet?: boolean, cwd?: string }} opts
+ * @param {{ label: string, promptArgs: string[], extraFlags?: string[], quiet?: boolean, cwd?: string, name?: string }} opts
  * @returns {Promise<{ code: number, reason: string }>}
  */
-export function runOpencodeOnce(opts) {
-	const { label, promptArgs, extraFlags = [], quiet = false, cwd } = opts;
+export function runPiOnce(opts) {
+	const { label, promptArgs, extraFlags = [], quiet = false, cwd, name } = opts;
 	const { stallSec, stallMs } = stallConfig();
 
 	return new Promise((resolve) => {
@@ -34,11 +44,15 @@ export function runOpencodeOnce(opts) {
 			process.stdout.write(`\n===== ${label} =====\n`);
 			if (cwd) process.stdout.write(`[cwd] ${cwd}\n`);
 		}
-		const child = spawn(
-			"opencode",
-			["run", "--auto", "--format", "json", ...promptArgs, ...extraFlags],
-			{ stdio: ["inherit", "pipe", "inherit"], cwd: cwd || process.cwd() },
-		);
+		const args = ["--print", "--mode", "json", "--approve"];
+		if (name) args.push("--name", name);
+		args.push(...extraFlags, "--", ...promptArgs);
+
+		const child = spawn("pi", args, {
+			stdio: ["inherit", "pipe", "inherit"],
+			cwd: cwd || process.cwd(),
+			env: childEnv(),
+		});
 
 		let lastActivity = Date.now();
 		let stalled = false;
@@ -100,5 +114,8 @@ export function runOpencodeOnce(opts) {
 		});
 	});
 }
+
+/** @deprecated use runPiOnce */
+export const runOpencodeOnce = runPiOnce;
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
