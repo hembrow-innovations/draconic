@@ -1,0 +1,676 @@
+// E17.02.132: with + Regular expression literals (E18.18: `/pattern/` /
+// `/pattern/flags`; typeof "object"; .source/.flags/.test/.exec parity
+// with `new RegExp`) through object environment (non-strict).
+// Ident compared/combined with those literals hits object (else outer);
+// with (/pat/) method idents hit test/exec/source/flags; inherited
+// HasBinding; accessor get/set this is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function withLiteralTest() {
+  with (/a+b/) {
+    return test("xaabx") === true;
+  }
+}
+let a = withLiteralTest();
+
+function withLiteralTestFail() {
+  with (/a+b/) {
+    return test("xyz") === false;
+  }
+}
+let b = withLiteralTestFail();
+
+function withLiteralFlags() {
+  with (/foo/i) {
+    return flags === "i" && test("FOO") === true;
+  }
+}
+let c = withLiteralFlags();
+
+function withLiteralExec() {
+  with (/foo/i) {
+    return exec("xFOOy")[0] === "FOO";
+  }
+}
+let d = withLiteralExec();
+
+function withLiteralSource() {
+  with (/a+b/) {
+    return source === "a+b" && flags === "";
+  }
+}
+let e = withLiteralSource();
+
+function withEscapedSlash() {
+  with (/a\/b/) {
+    return source === "a\\/b" && test("a/b") === true;
+  }
+}
+let f = withEscapedSlash();
+
+function withCharClassSlash() {
+  with (/[a/]/) {
+    return source === "[a/]" && test("a") === true && test("/") === true;
+  }
+}
+let g = withCharClassSlash();
+
+function withEqualsLiteral() {
+  with (/=/) {
+    return test("=") === true;
+  }
+}
+let h = withEqualsLiteral();
+
+function typeofLiteralInsideWith() {
+  let obj = { x: 1 };
+  let t;
+  with (obj) {
+    t = typeof /x/;
+  }
+  return t === "object";
+}
+let j = typeofLiteralInsideWith();
+
+function parityWithCtor() {
+  let obj = { x: 1 };
+  let same;
+  with (obj) {
+    same = /a+b/.source === new RegExp("a+b").source;
+  }
+  return same === true;
+}
+let k = parityWithCtor();
+
+function testArgHitsObject() {
+  let s = "outer";
+  let obj = { s: "xaabx" };
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true && s === "outer";
+}
+let l = testArgHitsObject();
+
+function testArgMissUsesOuter() {
+  let s = "xaabx";
+  with ({}) {
+    return /a+b/.test(s) === true;
+  }
+}
+let m = testArgMissUsesOuter();
+
+function assignLiteralHitsObject() {
+  let obj = { r: null };
+  with (obj) {
+    r = /a+b/;
+  }
+  return obj.r.source === "a+b" && obj.r.test("xaabx") === true;
+}
+let n = assignLiteralHitsObject();
+
+function assignLiteralMissFallsThrough() {
+  let r = null;
+  with ({}) {
+    r = /foo/i;
+  }
+  return r.source === "foo" && r.flags === "i";
+}
+let p = assignLiteralMissFallsThrough();
+
+function identRegexpHitsObject() {
+  let r = /xyz/;
+  let obj = { r: /a+b/ };
+  let out;
+  with (obj) {
+    out = r.test("xaabx");
+  }
+  return out === true && r.test("xyz") === true;
+}
+let q = identRegexpHitsObject();
+
+function identRegexpMissUsesOuter() {
+  let r = /a+b/;
+  with ({}) {
+    return r.test("xaabx") === true;
+  }
+}
+let s = identRegexpMissUsesOuter();
+
+function typeofIdentRegexp() {
+  let obj = { r: /x/ };
+  let t;
+  with (obj) {
+    t = typeof r;
+  }
+  return t === "object";
+}
+let t = typeofIdentRegexp();
+
+function sourceCompareHitsObject() {
+  let src = "nope";
+  let obj = { src: "a+b" };
+  let out;
+  with (obj) {
+    out = /a+b/.source === src;
+  }
+  return out === true && src === "nope";
+}
+let u = sourceCompareHitsObject();
+
+function flagsCompareHitsObject() {
+  let fl = "";
+  let obj = { fl: "i" };
+  let out;
+  with (obj) {
+    out = /foo/i.flags === fl;
+  }
+  return out === true && fl === "";
+}
+let v = flagsCompareHitsObject();
+
+function bracketTestArgHitsObject() {
+  let s = "outer";
+  let obj = { s: "xaabx" };
+  let out;
+  with (obj) {
+    out = /a+b/["test"](s);
+  }
+  return out === true && s === "outer";
+}
+let w = bracketTestArgHitsObject();
+
+function computedKeyHitsObject() {
+  let key = "no";
+  let obj = { key: "test" };
+  let out;
+  with (obj) {
+    out = /a+b/[key]("xaabx");
+  }
+  return out === true && key === "no";
+}
+let aa = computedKeyHitsObject();
+
+function execArgHitsObject() {
+  let s = "outer";
+  let obj = { s: "xFOOy" };
+  let out;
+  with (obj) {
+    out = /foo/i.exec(s)[0];
+  }
+  return out === "FOO" && s === "outer";
+}
+let ab = execArgHitsObject();
+
+function sourcePlusIdentHitsObject() {
+  let tail = "x";
+  let obj = { tail: "b" };
+  let out;
+  with (obj) {
+    out = /a+/.source + tail;
+  }
+  return out === "a+b" && tail === "x";
+}
+let ac = sourcePlusIdentHitsObject();
+
+function withLiteralTypeofTest() {
+  with (/a+b/) {
+    return typeof test === "function";
+  }
+}
+let ad = withLiteralTypeofTest();
+
+function withLiteralTypeofExec() {
+  with (/foo/i) {
+    return typeof exec === "function";
+  }
+}
+let ae = withLiteralTypeofExec();
+
+function withLiteralCallThisIsRe() {
+  let re = /a+b/;
+  let seen = null;
+  let orig = re.test;
+  re.test = function (s) {
+    seen = this;
+    return orig.call(this, s);
+  };
+  let ok;
+  with (re) {
+    ok = test("xaabx") === true && seen === re;
+  }
+  return ok;
+}
+let af = withLiteralCallThisIsRe();
+
+function unscopablesSkip() {
+  let s = "xaabx";
+  let obj = { s: "xyz" };
+  obj[Symbol.unscopables] = { s: true };
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true && obj.s === "xyz";
+}
+let ag = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = { s: "xaabx" };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true;
+}
+let ah = inheritedHasBinding();
+
+function accessorGetThis() {
+  let seen = null;
+  let obj = {
+    get s() {
+      seen = this;
+      return "xaabx";
+    }
+  };
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true && seen === obj;
+}
+let aj = accessorGetThis();
+
+function accessorSetThis() {
+  let seen = null;
+  let obj = {
+    set r(v) {
+      seen = this;
+      this._r = v;
+    },
+    get r() {
+      return this._r;
+    }
+  };
+  with (obj) {
+    r = /a+b/;
+  }
+  return seen === obj && obj.r.source === "a+b";
+}
+let ak = accessorSetThis();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      /a+b/.test(e1702132_missing);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702132_missing === "undefined"
+      );
+    }
+  }
+}
+let al = unresolvableThrows();
+
+function unresolvableSkipsLater() {
+  let ran = false;
+  let obj = {
+    get s() {
+      ran = true;
+      return "xaabx";
+    }
+  };
+  with (obj) {
+    try {
+      /a+b/.test(s) && e1702132_second;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let am = unresolvableSkipsLater();
+
+function liveClose() {
+  let obj = { s: "xyz" };
+  let run;
+  with (obj) {
+    run = function () {
+      return /a+b/.test(s);
+    };
+  }
+  obj.s = "xaabx";
+  return run() === true;
+}
+let an = liveClose();
+
+function nestedInnerWins() {
+  let inner = { s: "xaabx" };
+  let outer = { s: "xyz" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = /a+b/.test(s);
+    }
+  }
+  return out === true;
+}
+let ap = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { s: "xaabx" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = /a+b/.test(s);
+    }
+  }
+  return out === true;
+}
+let aq = nestedInnerMissOuter();
+
+function ownUndefinedHasBinding() {
+  let s = "xaabx";
+  let obj = { s: undefined };
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === false && s === "xaabx";
+}
+let ar = ownUndefinedHasBinding();
+
+function getterRunsOncePerUse() {
+  let c = 0;
+  let obj = {
+    get s() {
+      c = c + 1;
+      return "xaabx";
+    }
+  };
+  let out;
+  with (obj) {
+    out = /a+b/.test(s) && /a+b/.test(s);
+  }
+  return out === true && c === 2;
+}
+let at = getterRunsOncePerUse();
+
+function nestedWithUnscopables() {
+  let s = "nope";
+  let inner = { s: "xyz" };
+  inner[Symbol.unscopables] = { s: true };
+  let outer = { s: "xaabx" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = /a+b/.test(s);
+    }
+  }
+  return out === true && s === "nope";
+}
+let au = nestedWithUnscopables();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    try {
+      /a+b/.test(e1702132_noglob);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702132_noglob === "undefined"
+      );
+    }
+  }
+}
+let av = unresolvableNotImplicitGlobal();
+
+function liveCloseAfterMutateOuter() {
+  let s = "outer";
+  let obj = { s: "xyz" };
+  let run;
+  with (obj) {
+    run = function () {
+      return /foo/i.test(s);
+    };
+  }
+  obj.s = "FOO";
+  s = "nope";
+  return run() === true && s === "nope";
+}
+let aw = liveCloseAfterMutateOuter();
+
+function inheritedAccessorThis() {
+  let proto = {
+    get s() {
+      return this === obj ? "xaabx" : "xyz";
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true;
+}
+let ax = inheritedAccessorThis();
+
+function unscopablesSecondIdent() {
+  let t2 = "b";
+  let obj = { s: "a+", t2: "nope" };
+  obj[Symbol.unscopables] = { t2: true };
+  let out;
+  with (obj) {
+    out = s + t2;
+  }
+  return out === "a+b" && obj.t2 === "nope";
+}
+let ay = unscopablesSecondIdent();
+
+function withLiteralEmptyMissTestUnresolvable() {
+  function test(x) {
+    return x === "outer";
+  }
+  with ({}) {
+    return test("outer") === true;
+  }
+}
+let az = withLiteralEmptyMissTestUnresolvable();
+
+function objectShadowsOuterTest() {
+  function test(x) {
+    return false;
+  }
+  let obj = {
+    test: function (x) {
+      return /a+b/.test(x);
+    }
+  };
+  with (obj) {
+    return test("xaabx") === true;
+  }
+}
+let ba = objectShadowsOuterTest();
+
+function callThisIsWithObject() {
+  let obj = {
+    test: function (x) {
+      return this === obj && /a+b/.test(x);
+    }
+  };
+  with (obj) {
+    return test("xaabx") === true;
+  }
+}
+let bb = callThisIsWithObject();
+
+function mixedObjectOuter() {
+  let fl = "i";
+  let obj = { s: "FOO" };
+  let out;
+  with (obj) {
+    out = /foo/i.test(s) && /foo/i.flags === fl;
+  }
+  return out === true && fl === "i";
+}
+let bc = mixedObjectOuter();
+
+function flagsMissUsesOuter() {
+  let flags = "outer";
+  with ({}) {
+    return flags === "outer";
+  }
+}
+let bd = flagsMissUsesOuter();
+
+function withLiteralFlagsShadowsOuter() {
+  let flags = "outer";
+  with (/foo/i) {
+    return flags === "i";
+  }
+}
+let be = withLiteralFlagsShadowsOuter();
+
+function deleteIdentThenOuter() {
+  let s = "xaabx";
+  let obj = { s: "xyz" };
+  let out;
+  with (obj) {
+    delete s;
+    out = /a+b/.test(s);
+  }
+  return (
+    out === true &&
+    obj.s === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "s") === false
+  );
+}
+let bf = deleteIdentThenOuter();
+
+function unresolvableAfterLiteralFirst() {
+  let ran = false;
+  let obj = {
+    get s() {
+      ran = true;
+      return "xaabx";
+    }
+  };
+  with (obj) {
+    try {
+      /a+b/.test(s);
+      e1702132_after;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bg = unresolvableAfterLiteralFirst();
+
+function nestedBothLiterals() {
+  let inner = { s: "xaabx" };
+  let outer = { s: "FOO" };
+  let innerOut;
+  let outerOut;
+  with (outer) {
+    with (inner) {
+      innerOut = /a+b/.test(s);
+    }
+    outerOut = /foo/i.test(s);
+  }
+  return innerOut === true && outerOut === true;
+}
+let bh = nestedBothLiterals();
+
+function nestedUnscopablesLiteral() {
+  let s = "xaabx";
+  let inner = { s: "xyz" };
+  inner[Symbol.unscopables] = { s: true };
+  let outer = { s: "FOO" };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = /foo/i.test(s);
+    }
+  }
+  return out === true && s === "xaabx";
+}
+let bi = nestedUnscopablesLiteral();
+
+function inheritedAccessorLiteralThis() {
+  let seen = null;
+  let proto = {
+    get s() {
+      seen = this;
+      return "xaabx";
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true && seen === obj;
+}
+let bj = inheritedAccessorLiteralThis();
+
+function unscopablesFalseyStillObject() {
+  let s = "outer";
+  let obj = { s: "xaabx" };
+  obj[Symbol.unscopables] = { s: false };
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true && s === "outer";
+}
+let bk = unscopablesFalseyStillObject();
+
+function unscopablesNonObjectDoesNotBlock() {
+  let s = "outer";
+  let obj = { s: "xaabx" };
+  obj[Symbol.unscopables] = 1;
+  let out;
+  with (obj) {
+    out = /a+b/.test(s);
+  }
+  return out === true && s === "outer";
+}
+let bl = unscopablesNonObjectDoesNotBlock();
+
+function liveCloseAssignLiteral() {
+  let obj = { r: /xyz/ };
+  let run;
+  with (obj) {
+    run = function () {
+      return r.test("xaabx");
+    };
+  }
+  obj.r = /a+b/;
+  return run() === true;
+}
+let bm = liveCloseAssignLiteral();
+
+function withLiteralSourceParityCtor() {
+  with (/a+b/) {
+    return source === new RegExp("a+b").source && typeof /a+b/ === "object";
+  }
+}
+let bn = withLiteralSourceParityCtor();
+
+function shadowsOuterRegexp() {
+  let r = /xyz/;
+  let obj = { r: /foo/i };
+  let out;
+  with (obj) {
+    out = r.test("FOO") === true && r.flags === "i";
+  }
+  return out === true && r.test("xyz") === true;
+}
+let bp = shadowsOuterRegexp();

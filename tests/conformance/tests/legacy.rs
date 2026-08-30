@@ -1358,3 +1358,13 @@ fn with_var_catch_fixture_present() {
 fn with_var_catch_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_var_catch");
 }
+
+#[test]
+fn with_regexp_literal_fixture_present() {
+    assert_fixture_present("es/legacy/with_regexp_literal");
+}
+
+#[test]
+fn with_regexp_literal_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_regexp_literal");
+}
