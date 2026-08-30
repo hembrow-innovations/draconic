@@ -1348,3 +1348,13 @@ fn with_regexp_statics_fixture_present() {
 fn with_regexp_statics_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_regexp_statics");
 }
+
+#[test]
+fn with_var_catch_fixture_present() {
+    assert_fixture_present("es/legacy/with_var_catch");
+}
+
+#[test]
+fn with_var_catch_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_var_catch");
+}

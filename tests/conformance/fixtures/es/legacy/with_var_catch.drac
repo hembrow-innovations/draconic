@@ -1,0 +1,800 @@
+// E17.02.131: with + VariableStatements in Catch (Annex B.3.4:
+// `catch (e) { var e … }` allowed; var hoists to VariableEnvironment;
+// initializer assigns catch binding) through object environment
+// (non-strict).
+// Catch param is catch-local (does not write object; shadows); var of
+// catch name assigns catch binding when catch is inner (VE stays
+// uninitialized); with inside catch: HasBinding assign hits object
+// (else catch/VE); initializer RHS idents hit object (else catch/outer);
+// binding is enclosing VE (not the object) when miss; skipped catch
+// still hoists; let in catch does not write object; inherited
+// HasBinding; accessor get/set this is with object; unresolvable init
+// → ReferenceError; live close; nested with; unscopables skip.
+
+function catchSameNameAssignsCatchNotObject() {
+  let obj = { e: 0 };
+  let inside;
+  with (obj) {
+    try {
+      throw 5;
+    } catch (e) {
+      var e = 9;
+      inside = e;
+    }
+  }
+  return inside === 9 && obj.e === 0 && e === undefined;
+}
+let a = catchSameNameAssignsCatchNotObject();
+
+function catchSameNameVeUninitialized() {
+  let obj = { e: 1 };
+  with (obj) {
+    try {
+      throw "thrown";
+    } catch (e) {
+      var e = "init";
+    }
+  }
+  return typeof e === "undefined" && e === undefined && obj.e === 1;
+}
+let b = catchSameNameVeUninitialized();
+
+function varNoInitCatchKeepsThrown() {
+  let obj = { e: 0 };
+  let inside;
+  with (obj) {
+    try {
+      throw 1;
+    } catch (e) {
+      var e;
+      inside = e;
+    }
+  }
+  return inside === 1 && obj.e === 0 && e === undefined;
+}
+let c = varNoInitCatchKeepsThrown();
+
+function withInsideCatchSameNameHitsObject() {
+  let obj = { e: 0 };
+  let catchAfter;
+  try {
+    throw 5;
+  } catch (e) {
+    with (obj) {
+      var e = 9;
+    }
+    catchAfter = e;
+  }
+  return obj.e === 9 && catchAfter === 5 && e === undefined;
+}
+let d = withInsideCatchSameNameHitsObject();
+
+function withInsideCatchSameNameMissAssignsCatch() {
+  let obj = {};
+  let catchAfter;
+  try {
+    throw 5;
+  } catch (e) {
+    with (obj) {
+      var e = 9;
+    }
+    catchAfter = e;
+  }
+  return (
+    catchAfter === 9 &&
+    e === undefined &&
+    obj.e === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "e") === false
+  );
+}
+let e = withInsideCatchSameNameMissAssignsCatch();
+
+function varOtherNameMissUsesVe() {
+  let obj = {};
+  with (obj) {
+    try {
+      throw 5;
+    } catch (err) {
+      var x = err;
+    }
+  }
+  return (
+    x === 5 &&
+    obj.x === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let f = varOtherNameMissUsesVe();
+
+function varOtherNameHitsObject() {
+  let obj = { x: 0 };
+  with (obj) {
+    try {
+      throw 5;
+    } catch (err) {
+      var x = err;
+    }
+  }
+  return obj.x === 5 && x === undefined;
+}
+let g = varOtherNameHitsObject();
+
+function rhsHitsObject() {
+  let obj = { y: 7 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = y;
+    }
+  }
+  return x === 7;
+}
+let h = rhsHitsObject();
+
+function rhsMissUsesCatch() {
+  with ({}) {
+    try {
+      throw 5;
+    } catch (e) {
+      var x = e;
+    }
+  }
+  return x === 5;
+}
+let i = rhsMissUsesCatch();
+
+function rhsMissUsesOuter() {
+  let y = 4;
+  with ({}) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = y;
+    }
+  }
+  return x === 4;
+}
+let j = rhsMissUsesOuter();
+
+function skippedCatchStillHoists() {
+  with ({}) {
+    try {
+    } catch (err) {
+      var k = 9;
+    }
+  }
+  return k === undefined;
+}
+let k = skippedCatchStillHoists();
+
+function skippedCatchDoesNotAssign() {
+  let obj = { x: 1 };
+  with (obj) {
+    try {
+    } catch (err) {
+      var x = 9;
+    }
+  }
+  return obj.x === 1 && x === undefined;
+}
+let l = skippedCatchDoesNotAssign();
+
+function catchParamDoesNotWriteObject() {
+  let obj = { e: 1 };
+  with (obj) {
+    try {
+      throw 2;
+    } catch (e) {
+      e = 9;
+      var e;
+    }
+  }
+  return obj.e === 1;
+}
+let m = catchParamDoesNotWriteObject();
+
+function catchParamShadowsObjectForRead() {
+  let obj = { e: 1 };
+  let inside;
+  with (obj) {
+    try {
+      throw 5;
+    } catch (e) {
+      inside = e;
+      var e;
+    }
+  }
+  return inside === 5 && obj.e === 1 && e === undefined;
+}
+let p = catchParamShadowsObjectForRead();
+
+function accessorSetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    set x(v) {
+      seen = this;
+      this._x = v;
+    },
+    get x() {
+      return this._x;
+    }
+  };
+  with (obj) {
+    try {
+      throw 7;
+    } catch (err) {
+      var x = err;
+    }
+  }
+  return seen === obj && obj._x === 7 && x === undefined;
+}
+let q = accessorSetThisIsWithObject();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get y() {
+      seen = this;
+      return 5;
+    }
+  };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = y;
+    }
+  }
+  return x === 5 && seen === obj;
+}
+let r = accessorGetThisIsWithObject();
+
+function inheritedHasBindingAssign() {
+  let proto = { x: 0 };
+  let obj = Object.create(proto);
+  with (obj) {
+    try {
+      throw 5;
+    } catch (err) {
+      var x = err;
+    }
+  }
+  return obj.x === 5 && proto.x === 0 && x === undefined;
+}
+let s = inheritedHasBindingAssign();
+
+function nestedInnerWins() {
+  let inner = { y: 1 };
+  let outer = { y: 0 };
+  with (outer) {
+    with (inner) {
+      try {
+        throw 0;
+      } catch (err) {
+        var x = y;
+      }
+    }
+  }
+  return x === 1;
+}
+let t = nestedInnerWins();
+
+function nestedInnerMissUsesOuterWith() {
+  let inner = {};
+  let outer = { y: 3 };
+  with (outer) {
+    with (inner) {
+      try {
+        throw 0;
+      } catch (err) {
+        var x = y;
+      }
+    }
+  }
+  return x === 3;
+}
+let u = nestedInnerMissUsesOuterWith();
+
+function unscopablesAssignGoesToCatch() {
+  let obj = { e: 0 };
+  obj[Symbol.unscopables] = { e: true };
+  let inside;
+  try {
+    throw 5;
+  } catch (e) {
+    with (obj) {
+      var e = 9;
+    }
+    inside = e;
+  }
+  return inside === 9 && obj.e === 0 && e === undefined;
+}
+let v = unscopablesAssignGoesToCatch();
+
+function unscopablesRhsUsesOuter() {
+  let y = 1;
+  let obj = { y: 99 };
+  obj[Symbol.unscopables] = { y: true };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = y;
+    }
+  }
+  return x === 1 && obj.y === 99;
+}
+let w = unscopablesRhsUsesOuter();
+
+function multipleDeclarators() {
+  with ({}) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = 1, y = 2;
+    }
+  }
+  return x === 1 && y === 2;
+}
+let ab = multipleDeclarators();
+
+function multipleSecondHitsObject() {
+  let obj = { y: 0 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = 1, y = 2;
+    }
+  }
+  return x === 1 && obj.y === 2 && y === undefined;
+}
+let ac = multipleSecondHitsObject();
+
+function optionalCatchVarMissVe() {
+  with ({}) {
+    try {
+      throw 0;
+    } catch {
+      var x = 3;
+    }
+  }
+  return x === 3;
+}
+let ad = optionalCatchVarMissVe();
+
+function optionalCatchVarHitsObject() {
+  let obj = { x: 0 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch {
+      var x = 3;
+    }
+  }
+  return obj.x === 3 && x === undefined;
+}
+let ae = optionalCatchVarHitsObject();
+
+function varEEqualsEPlusOneCatchInner() {
+  let inside;
+  with ({}) {
+    try {
+      throw 5;
+    } catch (e) {
+      var e = e + 1;
+      inside = e;
+    }
+  }
+  return inside === 6 && e === undefined;
+}
+let af = varEEqualsEPlusOneCatchInner();
+
+function withInsideCatchVarEEqualsEPlusOneHitsObject() {
+  let obj = { e: 10 };
+  let catchAfter;
+  try {
+    throw 5;
+  } catch (e) {
+    with (obj) {
+      var e = e + 1;
+    }
+    catchAfter = e;
+  }
+  return obj.e === 11 && catchAfter === 5 && e === undefined;
+}
+let ag = withInsideCatchVarEEqualsEPlusOneHitsObject();
+
+function unresolvableInitThrows() {
+  try {
+    with ({}) {
+      try {
+        throw 0;
+      } catch (err) {
+        var x = e1702131_missing;
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      x === undefined &&
+      typeof globalThis.e1702131_missing === "undefined"
+    );
+  }
+}
+let ah = unresolvableInitThrows();
+
+function ownUndefinedHasBinding() {
+  let y = 42;
+  let obj = { y: undefined };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = y;
+    }
+  }
+  return x === undefined && y === 42;
+}
+let aj = ownUndefinedHasBinding();
+
+function liveClose() {
+  let obj = { z: 1 };
+  let run;
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      run = function () {
+        return z;
+      };
+      var x = 1;
+    }
+  }
+  obj.z = 9;
+  return run() === 9 && x === 1;
+}
+let ak = liveClose();
+
+function unscopablesFalseyStillObject() {
+  let y = 0;
+  let obj = { y: 1 };
+  obj[Symbol.unscopables] = { y: false };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = y;
+    }
+  }
+  return x === 1 && y === 0;
+}
+let al = unscopablesFalseyStillObject();
+
+function inheritedAccessorSetThis() {
+  let proto = {
+    set x(v) {
+      this._x = v;
+    },
+    get x() {
+      return this._x;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    try {
+      throw 8;
+    } catch (err) {
+      var x = err;
+    }
+  }
+  return obj._x === 8 && proto._x === undefined && x === undefined;
+}
+let am = inheritedAccessorSetThis();
+
+function catchDestructureVarSameNameSyntaxError() {
+  try {
+    eval("function f() { try { throw 1; } catch ({e}) { var e = 2; } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let an = catchDestructureVarSameNameSyntaxError();
+
+function letInCatchDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      let x = 9;
+    }
+  }
+  return obj.x === 1;
+}
+let ap = letInCatchDoesNotWriteObject();
+
+function nestedWithUnscopables() {
+  let y = 1;
+  let inner = { y: 99 };
+  inner[Symbol.unscopables] = { y: true };
+  let outer = { y: 7 };
+  with (outer) {
+    with (inner) {
+      try {
+        throw 0;
+      } catch (err) {
+        var x = y;
+      }
+    }
+  }
+  return x === 7;
+}
+let aq = nestedWithUnscopables();
+
+function finallySeesWithNotCatchVar() {
+  let obj = { z: 1 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (e) {
+      var e = 9;
+    } finally {
+      z = 4;
+    }
+  }
+  return obj.z === 4 && e === undefined;
+}
+let ar = finallySeesWithNotCatchVar();
+
+function functionInnerVarDoesNotLeak() {
+  let seen;
+  function outer() {
+    with ({}) {
+      try {
+        throw 0;
+      } catch (err) {
+        (function () {
+          var e1702131_q = 3;
+          seen = e1702131_q;
+        })();
+      }
+    }
+    return typeof e1702131_q === "undefined" && seen === 3;
+  }
+  return outer();
+}
+let at = functionInnerVarDoesNotLeak();
+
+function withInsideCatchRhsHitsObject() {
+  let obj = { y: 4 };
+  let catchAfter;
+  try {
+    throw 5;
+  } catch (e) {
+    with (obj) {
+      var x = y;
+    }
+    catchAfter = e;
+  }
+  return x === 4 && catchAfter === 5;
+}
+let au = withInsideCatchRhsHitsObject();
+
+function catchOutsideWithVarDoesNotSeeObject() {
+  let obj = { y: 1 };
+  try {
+    with (obj) {
+      throw y;
+    }
+  } catch (err) {
+    var x = err;
+    let missed = false;
+    try {
+      y;
+    } catch (inner) {
+      missed = inner instanceof ReferenceError;
+    }
+    return x === 1 && missed === true;
+  }
+}
+let av = catchOutsideWithVarDoesNotSeeObject();
+
+function initFunctionLiveClose() {
+  let obj = { z: 1 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var f = function () {
+        return z;
+      };
+    }
+  }
+  obj.z = 9;
+  return f() === 9;
+}
+let aw = initFunctionLiveClose();
+
+function initFunctionHitsObjectLive() {
+  let obj = { f: 0, z: 1 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var f = function () {
+        return z;
+      };
+    }
+  }
+  obj.z = 9;
+  return typeof obj.f === "function" && obj.f() === 9 && f === undefined;
+}
+let ax = initFunctionHitsObjectLive();
+
+function getterRunsOnce() {
+  let c = 0;
+  let obj = {
+    get y() {
+      c = c + 1;
+      return 3;
+    }
+  };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = y;
+    }
+  }
+  return x === 3 && c === 1;
+}
+let ay = getterRunsOnce();
+
+function redeclareVarInCatch() {
+  with ({}) {
+    var x = 1;
+    try {
+      throw 0;
+    } catch (err) {
+      var x = 2;
+    }
+  }
+  return x === 2;
+}
+let az = redeclareVarInCatch();
+
+function typeofBeforeHoist() {
+  let before = typeof x;
+  with ({}) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = 3;
+    }
+  }
+  return before === "undefined" && x === 3;
+}
+let ba = typeofBeforeHoist();
+
+function noTdzReadBefore() {
+  let before = x;
+  with ({}) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = 4;
+    }
+  }
+  return before === undefined && x === 4;
+}
+let bb = noTdzReadBefore();
+
+function unresolvableNotImplicitGlobal() {
+  try {
+    with ({}) {
+      try {
+        throw 0;
+      } catch (err) {
+        var x = e1702131_noglob;
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      x === undefined &&
+      typeof globalThis.e1702131_noglob === "undefined"
+    );
+  }
+}
+let bc = unresolvableNotImplicitGlobal();
+
+function nestedInnerAssignSameName() {
+  let inner = { e: 0 };
+  let outer = { e: 1 };
+  let catchAfter;
+  try {
+    throw 5;
+  } catch (e) {
+    with (outer) {
+      with (inner) {
+        var e = 9;
+      }
+    }
+    catchAfter = e;
+  }
+  return inner.e === 9 && outer.e === 1 && catchAfter === 5 && e === undefined;
+}
+let bd = nestedInnerAssignSameName();
+
+function varNoInitThenAssignHitsObject() {
+  let obj = { x: 0 };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x;
+      x = 5;
+    }
+  }
+  return obj.x === 5 && x === undefined;
+}
+let be = varNoInitThenAssignHitsObject();
+
+function skippedIfCatchHoists() {
+  if (false) {
+    with ({}) {
+      try {
+        throw 0;
+      } catch (err) {
+        var f = 9;
+      }
+    }
+  }
+  return f === undefined;
+}
+let bf = skippedIfCatchHoists();
+
+function catchVarSameNameIsAllowed() {
+  try {
+    let r = eval(
+      "(function () { try { throw 1; } catch (e) { var e = 2; return e; } })()"
+    );
+    return r === 2;
+  } catch (err) {
+    return false;
+  }
+}
+let bg = catchVarSameNameIsAllowed();
+
+function blockNestedStillFunctionScoped() {
+  with ({}) {
+    try {
+      throw 0;
+    } catch (err) {
+      {
+        var d = 4;
+      }
+    }
+  }
+  return d === 4;
+}
+let bh = blockNestedStillFunctionScoped();
+
+function unscopablesVarAssignGoesToVe() {
+  let obj = { x: 0 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    try {
+      throw 0;
+    } catch (err) {
+      var x = 7;
+    }
+  }
+  return x === 7 && obj.x === 0;
+}
+let bi = unscopablesVarAssignGoesToVe();
