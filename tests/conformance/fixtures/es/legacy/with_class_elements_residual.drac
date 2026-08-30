@@ -1,0 +1,926 @@
+// E17.02.155: with + Class elements residual II (E19.53: private optional
+// chaining `obj?.#f` / `obj?.#m()` / `o?.c.#f`; inner-arrow private access;
+// `static constructor` ordinary methods; computed-name ToPrimitive TypeError)
+// through object environment (non-strict).
+// Base/key/body idents hit object (else outer); `#f` is not IdentifierReference
+// (`f`/`#f` props do not shadow); params are local (do not write object);
+// default-param idents hit object (else outer); this in instance method is the
+// instance, in static is the constructor, not with object; class body is
+// strict (with in method → SyntaxError); inherited HasBinding; accessor get
+// this is with object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function optionalPrivateGetHitsObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return inst?.#f;
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.grab() === 7;
+  }
+}
+let a = optionalPrivateGetHitsObject();
+
+function optionalPrivateNullShortCircuit() {
+  let bag = { inst: null };
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return inst?.#f;
+      }
+    }
+    return new C().grab() === undefined;
+  }
+}
+let b = optionalPrivateNullShortCircuit();
+
+function optionalPrivateUndefShortCircuit() {
+  let bag = { inst: undefined };
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return inst?.#f;
+      }
+    }
+    return new C().grab() === undefined;
+  }
+}
+let c = optionalPrivateUndefShortCircuit();
+
+function optionalPrivateWrongBrandTypeError() {
+  let bag = { inst: {} };
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return inst?.#f;
+      }
+    }
+    try {
+      new C().grab();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let d = optionalPrivateWrongBrandTypeError();
+
+function optionalPrivateMissUsesOuter() {
+  let box = {};
+  let out;
+  with ({}) {
+    class C {
+      #f = 7;
+      grab() {
+        return box?.#f;
+      }
+    }
+    let inst = new C();
+    box = inst;
+    out = inst.grab();
+  }
+  return out === 7;
+}
+let e = optionalPrivateMissUsesOuter();
+
+function optionalChainThenPrivateShortCircuit() {
+  let bag = { o: null };
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return o?.c.#f;
+      }
+    }
+    return new C().grab() === undefined;
+  }
+}
+let f = optionalChainThenPrivateShortCircuit();
+
+function optionalChainThenPrivateHits() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return o?.c.#f;
+      }
+    }
+    let inst = new C();
+    bag.o = { c: inst };
+    return inst.grab() === 7;
+  }
+}
+let g = optionalChainThenPrivateHits();
+
+function optionalChainThenPrivateSkipsBrand() {
+  let n = 0;
+  let bag = {
+    get o() {
+      n = n + 1;
+      return null;
+    }
+  };
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return o?.c.#f;
+      }
+    }
+    let r = new C().grab();
+    return r === undefined && n === 1;
+  }
+}
+let h = optionalChainThenPrivateSkipsBrand();
+
+function optionalPrivateCallHitsObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #m() {
+        return 7;
+      }
+      grab() {
+        return inst?.#m();
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.grab() === 7;
+  }
+}
+let j = optionalPrivateCallHitsObject();
+
+function optionalPrivateCallNullShortCircuit() {
+  let bag = { inst: null };
+  with (bag) {
+    class C {
+      #m() {
+        return 7;
+      }
+      grab() {
+        return inst?.#m();
+      }
+    }
+    return new C().grab() === undefined;
+  }
+}
+let k = optionalPrivateCallNullShortCircuit();
+
+function thisOptionalPrivateOnInstance() {
+  let obj = { x: 3 };
+  let out;
+  with (obj) {
+    class C {
+      #f = 4;
+      grab() {
+        return this?.#f + x;
+      }
+    }
+    out = new C().grab();
+  }
+  return out === 7;
+}
+let l = thisOptionalPrivateOnInstance();
+
+function innerArrowPrivateRead() {
+  let obj = { x: 3 };
+  let out;
+  with (obj) {
+    class C {
+      #f = 4;
+      m() {
+        let run = () => this.#f + x;
+        return run();
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let m = innerArrowPrivateRead();
+
+function innerArrowPrivateWrite() {
+  let obj = { x: 2 };
+  let out;
+  with (obj) {
+    class C {
+      #f = 0;
+      m() {
+        let run = (n) => {
+          this.#f = n + x;
+          return this.#f;
+        };
+        return run(5);
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let n = innerArrowPrivateWrite();
+
+function innerArrowPrivateCall() {
+  let obj = { x: 3 };
+  let out;
+  with (obj) {
+    class C {
+      #m() {
+        return 4;
+      }
+      run() {
+        let go = () => this.#m() + x;
+        return go();
+      }
+    }
+    out = new C().run();
+  }
+  return out === 7;
+}
+let p = innerArrowPrivateCall();
+
+function innerArrowMissUsesOuter() {
+  let x = 3;
+  let out;
+  with ({}) {
+    class C {
+      #f = 4;
+      m() {
+        let run = () => this.#f + x;
+        return run();
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let q = innerArrowMissUsesOuter();
+
+function privateNameNotShadowedByWithProp() {
+  let bag = { f: 99 };
+  bag["#f"] = 99;
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return this?.#f;
+      }
+    }
+    return new C().grab() === 7 && bag.f === 99;
+  }
+}
+let r = privateNameNotShadowedByWithProp();
+
+function staticConstructorIsOrdinaryMethod() {
+  let obj = { x: 7 };
+  let out;
+  let ok;
+  with (obj) {
+    class C {
+      static constructor() {
+        return x;
+      }
+    }
+    out = C.constructor();
+    ok = new C() instanceof C;
+  }
+  return out === 7 && ok === true;
+}
+let s = staticConstructorIsOrdinaryMethod();
+
+function staticConstructorDoesNotReplaceInstanceCtor() {
+  with ({}) {
+    class C {
+      static constructor() {
+        return 1;
+      }
+      n() {
+        return 2;
+      }
+    }
+    return new C().n() === 2 && C.constructor() === 1;
+  }
+}
+let t = staticConstructorDoesNotReplaceInstanceCtor();
+
+function staticConstructorThisIsConstructor() {
+  let obj = { x: 7 };
+  let seen = null;
+  let out;
+  with (obj) {
+    class C {
+      static constructor() {
+        seen = this;
+        return x;
+      }
+    }
+    out = C.constructor();
+  }
+  return out === 7 && seen !== obj && typeof seen === "function";
+}
+let u = staticConstructorThisIsConstructor();
+
+function staticGeneratorConstructorHitsObject() {
+  let obj = { x: 7 };
+  let out;
+  let ok;
+  with (obj) {
+    class C {
+      static *constructor() {
+        yield x;
+      }
+    }
+    out = C.constructor().next().value;
+    ok = new C() instanceof C;
+  }
+  return out === 7 && ok === true;
+}
+let vv = staticGeneratorConstructorHitsObject();
+
+function staticAsyncConstructorHitsObject() {
+  let obj = { x: 7 };
+  let p;
+  with (obj) {
+    class C {
+      static async constructor() {
+        return x;
+      }
+    }
+    p = C.constructor();
+  }
+  return typeof p.then === "function";
+}
+let w = staticAsyncConstructorHitsObject();
+
+function computedNameIdentHitsObject() {
+  let obj = { key: "m", x: 7 };
+  let out;
+  with (obj) {
+    class C {
+      [key]() {
+        return x;
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let aa = computedNameIdentHitsObject();
+
+function computedNameIdentMissUsesOuter() {
+  let key = "m";
+  let x = 7;
+  let out;
+  with ({}) {
+    class C {
+      [key]() {
+        return x;
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let ab = computedNameIdentMissUsesOuter();
+
+function computedNameToPrimitiveTypeError() {
+  let bad = {
+    toString() {
+      return {};
+    },
+    valueOf() {
+      return {};
+    }
+  };
+  with ({}) {
+    try {
+      class C {
+        [bad]() {}
+      }
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ac = computedNameToPrimitiveTypeError();
+
+function computedNameToPrimitiveHitsObject() {
+  let obj = { x: "m" };
+  let out;
+  with (obj) {
+    let key = {
+      toString() {
+        return x;
+      }
+    };
+    class C {
+      [key]() {
+        return 7;
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let ad = computedNameToPrimitiveHitsObject();
+
+function computedNameToPrimitiveThisIsKey() {
+  let seen = null;
+  let key = {
+    toString() {
+      seen = this;
+      return "m";
+    }
+  };
+  let out;
+  with ({ x: 1 }) {
+    class C {
+      [key]() {
+        return 7;
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7 && seen === key;
+}
+let ae = computedNameToPrimitiveThisIsKey();
+
+function unresolvableComputedKeyThrows() {
+  with ({}) {
+    try {
+      class C {
+        [e1702155_key]() {}
+      }
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702155_key === "undefined"
+      );
+    }
+  }
+}
+let af = unresolvableComputedKeyThrows();
+
+function inheritedHasBindingComputedKey() {
+  let proto = { key: "m", x: 7 };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    class C {
+      [key]() {
+        return x;
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let ag = inheritedHasBindingComputedKey();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get x() {
+      seen = this;
+      return 7;
+    }
+  };
+  let out;
+  with (env) {
+    class C {
+      #f = x;
+      grab() {
+        return this?.#f;
+      }
+    }
+    out = new C().grab();
+  }
+  return out === 7 && seen === env;
+}
+let ah = accessorGetThisIsWithObject();
+
+function unresolvableOptionalBaseThrows() {
+  with ({}) {
+    class C {
+      #f = 1;
+      grab() {
+        return missing?.#f;
+      }
+    }
+    try {
+      new C().grab();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let aj = unresolvableOptionalBaseThrows();
+
+function liveCloseInnerArrow() {
+  let obj = { x: 7 };
+  let run;
+  with (obj) {
+    class C {
+      #f = 1;
+      m() {
+        return () => this.#f + x;
+      }
+    }
+    run = new C().m();
+  }
+  obj.x = 2;
+  return run() === 3;
+}
+let ak = liveCloseInnerArrow();
+
+function nestedWithInnerWins() {
+  let inner = { x: 7 };
+  let outer = { x: 1 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        #f = x;
+        grab() {
+          return this?.#f;
+        }
+      }
+      out = new C().grab();
+    }
+  }
+  return out === 7;
+}
+let al = nestedWithInnerWins();
+
+function unscopablesSkip() {
+  let x = 1;
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: true };
+  let out;
+  with (env) {
+    class C {
+      #f = x;
+      grab() {
+        return this?.#f;
+      }
+    }
+    out = new C().grab();
+  }
+  return out === 1;
+}
+let am = unscopablesSkip();
+
+function nestedWithUnscopables() {
+  let inner = { x: 3 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 7 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        #f = x;
+        grab() {
+          return this?.#f;
+        }
+      }
+      out = new C().grab();
+    }
+  }
+  return out === 7 && inner.x === 3;
+}
+let an = nestedWithUnscopables();
+
+function classBodyStrictWithInMethodSyntaxError() {
+  try {
+    eval("class C { m() { with ({ x: 1 }) { x } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ap = classBodyStrictWithInMethodSyntaxError();
+
+function paramsAreLocalDoNotWriteObject() {
+  let obj = { x: 1, v: 9 };
+  with (obj) {
+    class C {
+      #m(v) {
+        return v;
+      }
+      run(v) {
+        return this?.#m(v);
+      }
+    }
+    let inst = new C();
+    return inst.run(5) === 5 && obj.v === 9 && obj.x === 1;
+  }
+}
+let aq = paramsAreLocalDoNotWriteObject();
+
+function defaultParamHitsObject() {
+  let x = 0;
+  let obj = { x: 8 };
+  let out;
+  with (obj) {
+    class C {
+      #m(n = x) {
+        return n;
+      }
+      run() {
+        return this?.#m();
+      }
+    }
+    out = new C().run();
+  }
+  return out === 8 && x === 0;
+}
+let ar = defaultParamHitsObject();
+
+function instanceThisIsInstanceNotWithObject() {
+  let obj = { x: 99 };
+  let seen = null;
+  with (obj) {
+    class C {
+      #f = 7;
+      m() {
+        seen = this;
+        return this?.#f;
+      }
+    }
+    let inst = new C();
+    return inst.m() === 7 && seen === inst && seen !== obj;
+  }
+}
+let at = instanceThisIsInstanceNotWithObject();
+
+function staticThisIsConstructorNotWithObject() {
+  let obj = { x: 99 };
+  let seen = null;
+  with (obj) {
+    class C {
+      static #f = 7;
+      static grab() {
+        seen = this;
+        return this?.#f;
+      }
+    }
+    return C.grab() === 7 && seen === C && seen !== obj;
+  }
+}
+let au = staticThisIsConstructorNotWithObject();
+
+function ownShadowsProtoComputedKey() {
+  let proto = { key: "n", x: 1 };
+  let env = Object.create(proto);
+  env.key = "m";
+  env.x = 7;
+  let out;
+  with (env) {
+    class C {
+      [key]() {
+        return x;
+      }
+    }
+    out = new C().m();
+  }
+  return out === 7;
+}
+let av = ownShadowsProtoComputedKey();
+
+function unscopablesFalseyDoesNotBlock() {
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: false };
+  let out;
+  with (env) {
+    class C {
+      #f = x;
+      grab() {
+        return this?.#f;
+      }
+    }
+    out = new C().grab();
+  }
+  return out === 7;
+}
+let aw = unscopablesFalseyDoesNotBlock();
+
+function getterRunsOnceOnOptionalPrivate() {
+  let n = 0;
+  let bag = {
+    get inst() {
+      n = n + 1;
+      return this._inst;
+    }
+  };
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return inst?.#f;
+      }
+    }
+    bag._inst = new C();
+    let r = bag._inst.grab();
+    return r === 7 && n === 1;
+  }
+}
+let ax = getterRunsOnceOnOptionalPrivate();
+
+function nestedWithOuterAfterInner() {
+  let inner = { x: 1 };
+  let outer = { x: 7 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class Inner {
+        #f = x;
+        grab() {
+          return this?.#f;
+        }
+      }
+      new Inner().grab();
+    }
+    class Outer {
+      #f = x;
+      grab() {
+        return this?.#f;
+      }
+    }
+    out = new Outer().grab();
+  }
+  return out === 7;
+}
+let ay = nestedWithOuterAfterInner();
+
+function evalPrivateOptionalHitsObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #f = 7;
+      grab() {
+        return eval("inst?.#f");
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.grab() === 7;
+  }
+}
+let az = evalPrivateOptionalHitsObject();
+
+function staticGetConstructorHitsObject() {
+  let obj = { x: 7 };
+  let out;
+  with (obj) {
+    class C {
+      static get constructor() {
+        return x;
+      }
+    }
+    out = C.constructor;
+  }
+  return out === 7;
+}
+let ba = staticGetConstructorHitsObject();
+
+function computedStaticNameHitsObject() {
+  let obj = { key: "st", x: 7 };
+  let out;
+  with (obj) {
+    class C {
+      static [key]() {
+        return x;
+      }
+    }
+    out = C.st();
+  }
+  return out === 7;
+}
+let bb = computedStaticNameHitsObject();
+
+function optionalPrivateZeroNotShortCircuit() {
+  with ({}) {
+    class C {
+      #f = 7;
+      grab(o) {
+        return o?.#f;
+      }
+    }
+    try {
+      new C().grab(0);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bc = optionalPrivateZeroNotShortCircuit();
+
+function innerArrowLiveAfterWithClose() {
+  let obj = { x: 7 };
+  let grab;
+  with (obj) {
+    class C {
+      #f = 1;
+      m() {
+        grab = () => this.#f + x;
+      }
+    }
+    new C().m();
+  }
+  obj.x = 6;
+  return grab() === 7;
+}
+let bd = innerArrowLiveAfterWithClose();
+
+function unresolvableFieldInitThrows() {
+  with ({}) {
+    try {
+      class C {
+        #f = e1702155_init;
+      }
+      new C();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702155_init === "undefined"
+      );
+    }
+  }
+}
+let be = unresolvableFieldInitThrows();
+
+function optionalPrivateCallArgsHitObject() {
+  let bag = { n: 3 };
+  with (bag) {
+    class C {
+      #m(v) {
+        return v;
+      }
+      grab() {
+        return inst?.#m(n);
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.grab() === 3;
+  }
+}
+let bf = optionalPrivateCallArgsHitObject();
+
+function optionalPrivateCallNullSkipsArgs() {
+  let hits = 0;
+  let bag = {
+    inst: null,
+    get n() {
+      hits = hits + 1;
+      return 3;
+    }
+  };
+  let r;
+  with (bag) {
+    class C {
+      #m(v) {
+        return v;
+      }
+      grab() {
+        return inst?.#m(n);
+      }
+    }
+    r = new C().grab();
+  }
+  return r === undefined && hits === 0;
+}
+let bg = optionalPrivateCallNullSkipsArgs();
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 7;
+    }
+  };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    class C {
+      #f = x;
+      grab() {
+        return this?.#f;
+      }
+    }
+    out = new C().grab();
+  }
+  return out === 7 && seen === env;
+}
+let bh = inheritedAccessorGetThis();
