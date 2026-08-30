@@ -300,7 +300,7 @@ impl Parser {
             TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
             // BindingIdentifier may be yield/await/let/static/const tokens in some contexts.
             TokenKind::Yield | TokenKind::Await | TokenKind::Let | TokenKind::Static
-            | TokenKind::Const => true,
+            | TokenKind::Const | TokenKind::As | TokenKind::From => true,
             _ => false,
         }
     }
@@ -322,7 +322,9 @@ impl Parser {
                 | TokenKind::Await
                 | TokenKind::Let
                 | TokenKind::Static
-                | TokenKind::Const,
+                | TokenKind::Const
+                | TokenKind::As
+                | TokenKind::From,
             ) => true,
             _ => false,
         }
@@ -4581,7 +4583,8 @@ impl Parser {
                 // (E19.39 assignment dstr / object shorthand).
                 let is_keyword_key = !matches!(key_tok.kind, TokenKind::Ident(_))
                     && !(matches!(key_tok.kind, TokenKind::Yield) && self.yield_is_ident())
-                    && !(matches!(key_tok.kind, TokenKind::Await) && self.await_is_ident());
+                    && !(matches!(key_tok.kind, TokenKind::Await) && self.await_is_ident())
+                    && !matches!(key_tok.kind, TokenKind::As | TokenKind::From);
                 if matches!(&key_tok.kind, TokenKind::Ident(n) if self.is_invalid_ident_name(n))
                     && (self.check(&TokenKind::Comma)
                         || self.check(&TokenKind::RBrace)
@@ -5007,6 +5010,21 @@ impl Parser {
                 "'static' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
+            // Contextual keywords: always IdentifierReference (E17.02.159).
+            TokenKind::As => {
+                self.bump();
+                Ok(Expr::Ident(Ident {
+                    name: "as".into(),
+                    span: tok.span,
+                }))
+            }
+            TokenKind::From => {
+                self.bump();
+                Ok(Expr::Ident(Ident {
+                    name: "from".into(),
+                    span: tok.span,
+                }))
+            }
             TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
                 format!("'{name}' is a reserved word and cannot be used as an identifier"),
                 tok.span,
@@ -5211,6 +5229,7 @@ impl Parser {
             TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
             TokenKind::Yield if self.yield_is_ident() => true,
             TokenKind::Await if self.await_is_ident() => true,
+            TokenKind::As | TokenKind::From => true,
             // E17.02.08: strict FutureReservedWord tokens as BindingIdentifier in non-strict.
             TokenKind::Let | TokenKind::Static if !self.in_strict => true,
             _ => false,
@@ -5253,6 +5272,10 @@ impl Parser {
                 "'static' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
+            TokenKind::As | TokenKind::From => {
+                self.bump();
+                Ok(tok)
+            }
             TokenKind::Ident(name) if self.is_invalid_ident_name(name) => Err(Diagnostic::new(
                 format!("'{name}' is a reserved word and cannot be used as an identifier"),
                 tok.span,
@@ -9499,6 +9522,29 @@ Program
         assert!(
             parse_and_dump("async () => class { x = await 1 };").is_err(),
             "class field await-expr must fail ([~Await])"
+        );
+    }
+
+    #[test]
+    fn parse_as_from_as_identifier() {
+        let dump = parse_and_dump("var as = 1; var from = 2; as + from;").unwrap();
+        assert!(
+            dump.contains("Ident as") && dump.contains("Ident from"),
+            "as/from as binding/ident, got:\n{dump}"
+        );
+        let lex = parse_and_dump("let as = 1; const from = 2; ({ as, from });").unwrap();
+        assert!(
+            lex.contains("Ident as") && lex.contains("Ident from"),
+            "lexical as/from + shorthand, got:\n{lex}"
+        );
+        assert!(
+            parse_and_dump("\"use strict\"; var as = 1; var from = 2;").is_ok(),
+            "strict as/from Identifier still valid"
+        );
+        assert!(
+            parse_and_dump("export * as ns from './m';").is_ok()
+                || parse_module("export * as ns from './m';").is_ok(),
+            "export * as ns from still parses"
         );
     }
 
