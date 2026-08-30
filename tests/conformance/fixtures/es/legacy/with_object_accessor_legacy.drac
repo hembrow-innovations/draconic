@@ -1,0 +1,1267 @@
+// E17.02.121: with + Object.prototype accessor legacy (B.2.2:
+// __defineGetter__ / __defineSetter__ / __lookupGetter__ / __lookupSetter__)
+// through object environment (non-strict).
+// Object/method/arg idents hit object (else outer); with (Object.prototype)
+// method idents hit those methods; with (Object.prototype.__defineGetter__)
+// name/length idents hit that function; inherited HasBinding; accessor this
+// is with object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function memberDefineGetterHitsObject() {
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 42;
+    });
+    return o.x === 42;
+  }
+}
+let a = memberDefineGetterHitsObject();
+
+function memberDefineSetterHitsObject() {
+  let n = 0;
+  let env = { o: {} };
+  with (env) {
+    o.__defineSetter__("y", function (v) {
+      n = v;
+    });
+    o.y = 7;
+    return n === 7;
+  }
+}
+let b = memberDefineSetterHitsObject();
+
+function memberLookupGetterHitsObject() {
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 42;
+    });
+    let g = o.__lookupGetter__("x");
+    return typeof g === "function" && g.call(o) === 42;
+  }
+}
+let c = memberLookupGetterHitsObject();
+
+function memberLookupSetterHitsObject() {
+  let n = 0;
+  let env = { o: {} };
+  with (env) {
+    o.__defineSetter__("y", function (v) {
+      n = v;
+    });
+    let s = o.__lookupSetter__("y");
+    s.call(o, 9);
+    return typeof s === "function" && n === 9;
+  }
+}
+let d = memberLookupSetterHitsObject();
+
+function memberDefineGetterMissUsesOuter() {
+  let o = {};
+  with ({}) {
+    o.__defineGetter__("x", function () {
+      return 3;
+    });
+    return o.x === 3;
+  }
+}
+let e = memberDefineGetterMissUsesOuter();
+
+function memberDefineSetterMissUsesOuter() {
+  let n = 0;
+  let o = {};
+  with ({}) {
+    o.__defineSetter__("y", function (v) {
+      n = v;
+    });
+    o.y = 4;
+    return n === 4;
+  }
+}
+let f = memberDefineSetterMissUsesOuter();
+
+function memberLookupMissUsesOuter() {
+  let o = {};
+  o.__defineGetter__("x", function () {
+    return 5;
+  });
+  with ({}) {
+    return typeof o.__lookupGetter__("x") === "function" && o.x === 5;
+  }
+}
+let g = memberLookupMissUsesOuter();
+
+function memberLookupDataIsUndefined() {
+  let env = { o: { z: 1 } };
+  with (env) {
+    return (
+      typeof o.__lookupGetter__("z") === "undefined" &&
+      typeof o.__lookupSetter__("z") === "undefined"
+    );
+  }
+}
+let h = memberLookupDataIsUndefined();
+
+function memberLookupMissingIsUndefined() {
+  let env = { o: {} };
+  with (env) {
+    return (
+      typeof o.__lookupGetter__("missing") === "undefined" &&
+      typeof o.__lookupSetter__("missing") === "undefined"
+    );
+  }
+}
+let j = memberLookupMissingIsUndefined();
+
+function memberTypeofFour() {
+  let env = { o: {} };
+  with (env) {
+    return (
+      typeof o.__defineGetter__ === "function" &&
+      typeof o.__defineSetter__ === "function" &&
+      typeof o.__lookupGetter__ === "function" &&
+      typeof o.__lookupSetter__ === "function"
+    );
+  }
+}
+let k = memberTypeofFour();
+
+function identDefineGetterOnObject() {
+  let o = {};
+  with (o) {
+    __defineGetter__("x", function () {
+      return 42;
+    });
+    return x === 42;
+  }
+}
+let l = identDefineGetterOnObject();
+
+function identDefineSetterOnObject() {
+  let n = 0;
+  let o = {};
+  with (o) {
+    __defineSetter__("y", function (v) {
+      n = v;
+    });
+    y = 7;
+    return n === 7;
+  }
+}
+let m = identDefineSetterOnObject();
+
+function identLookupGetterOnObject() {
+  let o = {};
+  with (o) {
+    __defineGetter__("x", function () {
+      return 11;
+    });
+    let g = __lookupGetter__("x");
+    return typeof g === "function" && g.call(o) === 11 && x === 11;
+  }
+}
+let n = identLookupGetterOnObject();
+
+function identLookupSetterOnObject() {
+  let held = 0;
+  let o = {};
+  with (o) {
+    __defineSetter__("y", function (v) {
+      held = v;
+    });
+    let s = __lookupSetter__("y");
+    s.call(o, 8);
+    return typeof s === "function" && held === 8;
+  }
+}
+let p = identLookupSetterOnObject();
+
+function identHitsObjectOwnDefineGetter() {
+  let env = {
+    __defineGetter__: function () {
+      return "hit";
+    }
+  };
+  with (env) {
+    return __defineGetter__() === "hit";
+  }
+}
+let q = identHitsObjectOwnDefineGetter();
+
+function identHitsObjectOwnDefineSetter() {
+  let env = {
+    __defineSetter__: function () {
+      return "hit";
+    }
+  };
+  with (env) {
+    return __defineSetter__() === "hit";
+  }
+}
+let r = identHitsObjectOwnDefineSetter();
+
+function identHitsObjectOwnLookupGetter() {
+  let env = {
+    __lookupGetter__: function () {
+      return "hit";
+    }
+  };
+  with (env) {
+    return __lookupGetter__() === "hit";
+  }
+}
+let s = identHitsObjectOwnLookupGetter();
+
+function identHitsObjectOwnLookupSetter() {
+  let env = {
+    __lookupSetter__: function () {
+      return "hit";
+    }
+  };
+  with (env) {
+    return __lookupSetter__() === "hit";
+  }
+}
+let t = identHitsObjectOwnLookupSetter();
+
+function identShadowsOuterDefineGetter() {
+  function __defineGetter__() {
+    return 8;
+  }
+  let env = {
+    __defineGetter__: function () {
+      return 9;
+    }
+  };
+  with (env) {
+    return __defineGetter__() === 9;
+  }
+}
+let u = identShadowsOuterDefineGetter();
+
+function identMissNullProtoUsesOuter() {
+  function __defineGetter__() {
+    return 8;
+  }
+  with (Object.create(null)) {
+    return __defineGetter__() === 8;
+  }
+}
+let v = identMissNullProtoUsesOuter();
+
+function identMissNullProtoUsesOuterSetter() {
+  function __defineSetter__() {
+    return 8;
+  }
+  with (Object.create(null)) {
+    return __defineSetter__() === 8;
+  }
+}
+let w = identMissNullProtoUsesOuterSetter();
+
+function withObjectProtoTypeofDefineGetter() {
+  with (Object.prototype) {
+    return typeof __defineGetter__ === "function";
+  }
+}
+let aa = withObjectProtoTypeofDefineGetter();
+
+function withObjectProtoTypeofDefineSetter() {
+  with (Object.prototype) {
+    return typeof __defineSetter__ === "function";
+  }
+}
+let ab = withObjectProtoTypeofDefineSetter();
+
+function withObjectProtoTypeofLookupGetter() {
+  with (Object.prototype) {
+    return typeof __lookupGetter__ === "function";
+  }
+}
+let ac = withObjectProtoTypeofLookupGetter();
+
+function withObjectProtoTypeofLookupSetter() {
+  with (Object.prototype) {
+    return typeof __lookupSetter__ === "function";
+  }
+}
+let ad = withObjectProtoTypeofLookupSetter();
+
+function withDefineGetterName() {
+  with (Object.prototype.__defineGetter__) {
+    return name === "__defineGetter__";
+  }
+}
+let ae = withDefineGetterName();
+
+function withDefineSetterName() {
+  with (Object.prototype.__defineSetter__) {
+    return name === "__defineSetter__";
+  }
+}
+let af = withDefineSetterName();
+
+function withLookupGetterName() {
+  with (Object.prototype.__lookupGetter__) {
+    return name === "__lookupGetter__";
+  }
+}
+let ag = withLookupGetterName();
+
+function withLookupSetterName() {
+  with (Object.prototype.__lookupSetter__) {
+    return name === "__lookupSetter__";
+  }
+}
+let ah = withLookupSetterName();
+
+function withDefineGetterLength() {
+  with (Object.prototype.__defineGetter__) {
+    return length === 2;
+  }
+}
+let aj = withDefineGetterLength();
+
+function withDefineSetterLength() {
+  with (Object.prototype.__defineSetter__) {
+    return length === 2;
+  }
+}
+let ak = withDefineSetterLength();
+
+function withLookupGetterLength() {
+  with (Object.prototype.__lookupGetter__) {
+    return length === 1;
+  }
+}
+let al = withLookupGetterLength();
+
+function withLookupSetterLength() {
+  with (Object.prototype.__lookupSetter__) {
+    return length === 1;
+  }
+}
+let am = withLookupSetterLength();
+
+function withObjectProtoCallDefineGetter() {
+  let o = {};
+  with (Object.prototype) {
+    __defineGetter__.call(o, "x", function () {
+      return 6;
+    });
+  }
+  return o.x === 6;
+}
+let an = withObjectProtoCallDefineGetter();
+
+function withObjectProtoCallDefineSetter() {
+  let n = 0;
+  let o = {};
+  with (Object.prototype) {
+    __defineSetter__.call(o, "y", function (v) {
+      n = v;
+    });
+  }
+  o.y = 5;
+  return n === 5;
+}
+let ap = withObjectProtoCallDefineSetter();
+
+function callThisIsWithObject() {
+  let env = {
+    __defineGetter__: function () {
+      return this === env ? 3 : 0;
+    }
+  };
+  with (env) {
+    return __defineGetter__() === 3;
+  }
+}
+let aq = callThisIsWithObject();
+
+function withDefineGetterCallThisIsFn() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(
+    Object.prototype.__defineGetter__,
+    "name"
+  );
+  Object.defineProperty(Object.prototype.__defineGetter__, "name", {
+    get: function () {
+      seen = this;
+      return "__defineGetter__";
+    },
+    configurable: true
+  });
+  let ok;
+  with (Object.prototype.__defineGetter__) {
+    ok = name === "__defineGetter__" && seen === Object.prototype.__defineGetter__;
+  }
+  Object.defineProperty(Object.prototype.__defineGetter__, "name", orig);
+  return ok;
+}
+let ar = withDefineGetterCallThisIsFn();
+
+function withDefineSetterCallThisIsFn() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(
+    Object.prototype.__defineSetter__,
+    "name"
+  );
+  Object.defineProperty(Object.prototype.__defineSetter__, "name", {
+    get: function () {
+      seen = this;
+      return "__defineSetter__";
+    },
+    configurable: true
+  });
+  let ok;
+  with (Object.prototype.__defineSetter__) {
+    ok = name === "__defineSetter__" && seen === Object.prototype.__defineSetter__;
+  }
+  Object.defineProperty(Object.prototype.__defineSetter__, "name", orig);
+  return ok;
+}
+let at = withDefineSetterCallThisIsFn();
+
+function unscopablesUsesOuter() {
+  function __defineGetter__() {
+    return 11;
+  }
+  let env = { __defineGetter__: Object.prototype.__defineGetter__ };
+  env[Symbol.unscopables] = { __defineGetter__: true };
+  with (env) {
+    return __defineGetter__() === 11;
+  }
+}
+let au = unscopablesUsesOuter();
+
+function unscopablesDefineSetterIdent() {
+  function __defineSetter__() {
+    return 11;
+  }
+  let env = {
+    __defineSetter__: function () {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { __defineSetter__: true };
+  with (env) {
+    return __defineSetter__() === 11;
+  }
+}
+let av = unscopablesDefineSetterIdent();
+
+function unscopablesLookupGetterIdent() {
+  function __lookupGetter__() {
+    return 11;
+  }
+  let env = {
+    __lookupGetter__: function () {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { __lookupGetter__: true };
+  with (env) {
+    return __lookupGetter__() === 11;
+  }
+}
+let aw = unscopablesLookupGetterIdent();
+
+function unscopablesLookupSetterIdent() {
+  function __lookupSetter__() {
+    return 11;
+  }
+  let env = {
+    __lookupSetter__: function () {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { __lookupSetter__: true };
+  with (env) {
+    return __lookupSetter__() === 11;
+  }
+}
+let ax = unscopablesLookupSetterIdent();
+
+function inheritedData() {
+  let proto = {
+    __defineGetter__: function () {
+      return "fromProto";
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return __defineGetter__() === "fromProto";
+  }
+}
+let ay = inheritedData();
+
+function inheritedFromObjectProto() {
+  let env = Object.create(Object.prototype);
+  with (env) {
+    return (
+      typeof __defineGetter__ === "function" &&
+      typeof __defineSetter__ === "function" &&
+      typeof __lookupGetter__ === "function" &&
+      typeof __lookupSetter__ === "function"
+    );
+  }
+}
+let az = inheritedFromObjectProto();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get __defineGetter__() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return __defineGetter__() === 1 && seen === env;
+  }
+}
+let ba = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get __lookupGetter__() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  with (env) {
+    return __lookupGetter__() === 1 && seen === env;
+  }
+}
+let bb = accessorThisIsWithObject();
+
+function liveClose() {
+  let env = {
+    __defineGetter__: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return __defineGetter__;
+    };
+  }
+  env.__defineGetter__ = Object.prototype.__defineGetter__;
+  return run() === Object.prototype.__defineGetter__;
+}
+let bc = liveClose();
+
+function liveCloseObjectIdent() {
+  let env = { o: {} };
+  let run;
+  with (env) {
+    run = function () {
+      o.__defineGetter__("x", function () {
+        return 2;
+      });
+      return o.x;
+    };
+  }
+  env.o = {};
+  return run() === 2;
+}
+let bd = liveCloseObjectIdent();
+
+function unresolvableCalleeThrows() {
+  with (Object.create(null)) {
+    try {
+      e1702121_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let be = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with (Object.create(null)) {
+    try {
+      e1702121_noglob.__defineGetter__;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702121_noglob === "undefined"
+      );
+    }
+  }
+}
+let bf = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    __defineGetter__: function () {
+      return 5;
+    }
+  };
+  with ({ __defineGetter__: Object.prototype.__defineGetter__ }) {
+    with (inner) {
+      return __defineGetter__() === 5;
+    }
+  }
+}
+let bg = nestedInnerWins();
+
+function nestedInnerMissOuterDefineGetter() {
+  with ({
+    __defineGetter__: function () {
+      return 5;
+    }
+  }) {
+    with (Object.create(null)) {
+      return __defineGetter__() === 5;
+    }
+  }
+}
+let bh = nestedInnerMissOuterDefineGetter();
+
+function nestedInnerMissOuterObject() {
+  let inner = Object.create(null);
+  let outer = { o: {} };
+  with (outer) {
+    with (inner) {
+      o.__defineGetter__("x", function () {
+        return 9;
+      });
+      return o.x === 9;
+    }
+  }
+}
+let bi = nestedInnerMissOuterObject();
+
+function nestedWithUnscopables() {
+  function __defineGetter__() {
+    return 11;
+  }
+  let inner = { __defineGetter__: Object.prototype.__defineGetter__ };
+  inner[Symbol.unscopables] = { __defineGetter__: true };
+  let outer = {
+    __defineGetter__: function () {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return __defineGetter__() === 6;
+    }
+  }
+}
+let bj = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let env = { __defineGetter__: 1 };
+  with (env) {
+    try {
+      __defineGetter__();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bk = nonCallableTypeError();
+
+function memberStillProto() {
+  let env = { x: 1 };
+  let o = {};
+  with (env) {
+    o.__defineGetter__("p", function () {
+      return 4;
+    });
+    return o.p === 4 && o.__lookupGetter__("p").call(o) === 4;
+  }
+}
+let bl = memberStillProto();
+
+function protoCallThroughWith() {
+  let env = { Object: Object };
+  let o = {};
+  with (env) {
+    Object.prototype.__defineGetter__.call(o, "p", function () {
+      return "ok";
+    });
+    return (
+      o.p === "ok" &&
+      Object.prototype.__lookupGetter__.call(o, "p").call(o) === "ok"
+    );
+  }
+}
+let bm = protoCallThroughWith();
+
+function objectIdentHitsObjectShadowsOuter() {
+  let o = { skip: 1 };
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 2;
+    });
+    return o.x === 2 && typeof o.skip === "undefined";
+  }
+}
+let bn = objectIdentHitsObjectShadowsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let env = {
+    get __defineGetter__() {
+      ran = true;
+      return Object.prototype.__defineGetter__;
+    }
+  };
+  with (env) {
+    try {
+      __defineGetter__(e1702121_arg, function () {
+        return 1;
+      });
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bp = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let env = {
+    get start() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (env) {
+    try {
+      e1702121_first(start);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bq = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let env = {
+    __defineSetter__: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return __defineSetter__();
+    };
+  }
+  env.__defineSetter__ = function () {
+    return 2;
+  };
+  return run() === 2;
+}
+let br = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let held = {};
+  let env = {
+    get o() {
+      c = c + 1;
+      return held;
+    }
+  };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 1;
+    });
+  }
+  return held.x === 1 && c === 1;
+}
+let bs = getterRunsOncePerCall();
+
+function emptyMissUsesProtoMethods() {
+  let o = {};
+  with ({}) {
+    o.__defineGetter__("x", function () {
+      return 1;
+    });
+    o.__defineSetter__("y", function () {});
+    return (
+      o.x === 1 &&
+      typeof o.__lookupGetter__("x") === "function" &&
+      typeof o.__lookupSetter__("y") === "function"
+    );
+  }
+}
+let bt = emptyMissUsesProtoMethods();
+
+function bracketDefineGetterOnObject() {
+  let env = { o: {} };
+  with (env) {
+    o["__defineGetter__"]("x", function () {
+      return 3;
+    });
+    return o.x === 3;
+  }
+}
+let bu = bracketDefineGetterOnObject();
+
+function bracketLookupGetterOnObject() {
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 3;
+    });
+    return o["__lookupGetter__"]("x").call(o) === 3;
+  }
+}
+let bv = bracketLookupGetterOnObject();
+
+function unscopablesSecondIdent() {
+  let o = {};
+  let env = { o: { skip: 1 }, t: {} };
+  env[Symbol.unscopables] = { o: true };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 8;
+    });
+    t.__defineGetter__("x", function () {
+      return 9;
+    });
+    return o.x === 8 && t.x === 9 && typeof o.skip === "undefined";
+  }
+}
+let bw = unscopablesSecondIdent();
+
+function defineGetterTypeofHit() {
+  let env = { __defineGetter__: 1 };
+  let t;
+  with (env) {
+    t = typeof __defineGetter__;
+  }
+  return t === "number";
+}
+let bx = defineGetterTypeofHit();
+
+function lookupSetterTypeofHit() {
+  let env = { __lookupSetter__: "n" };
+  let t;
+  with (env) {
+    t = typeof __lookupSetter__;
+  }
+  return t === "string";
+}
+let by = lookupSetterTypeofHit();
+
+function liveCloseLookupGetter() {
+  let env = { __lookupGetter__: 1 };
+  let run;
+  with (env) {
+    run = function () {
+      return __lookupGetter__;
+    };
+  }
+  env.__lookupGetter__ = Object.prototype.__lookupGetter__;
+  return run() === Object.prototype.__lookupGetter__;
+}
+let bz = liveCloseLookupGetter();
+
+function nestedDefineGetterInnerWins() {
+  with ({ __defineGetter__: 1 }) {
+    with ({ __defineGetter__: 2 }) {
+      return __defineGetter__ === 2;
+    }
+  }
+}
+let ca = nestedDefineGetterInnerWins();
+
+function nestedNameInnerWins() {
+  with (Object.prototype.__defineGetter__) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let cb = nestedNameInnerWins();
+
+function nestedNameMissOuterDefineGetter() {
+  with (Object.prototype.__defineGetter__) {
+    with (Object.create(null)) {
+      return name === "__defineGetter__";
+    }
+  }
+}
+let cc = nestedNameMissOuterDefineGetter();
+
+function nestedNameMissOuterLookupSetter() {
+  with (Object.prototype.__lookupSetter__) {
+    with (Object.create(null)) {
+      return name === "__lookupSetter__";
+    }
+  }
+}
+let cd = nestedNameMissOuterLookupSetter();
+
+function liveCloseName() {
+  let env = { name: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return name;
+    };
+  }
+  env.name = "B";
+  return run() === "B";
+}
+let ce = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (Object.prototype.__defineGetter__) {
+    let env = { name: "skip" };
+    env[Symbol.unscopables] = { name: true };
+    with (env) {
+      return name === "__defineGetter__";
+    }
+  }
+}
+let cf = unscopablesNameUsesOuter();
+
+function emptyMissMethodsStillWork() {
+  let o = {};
+  with ({}) {
+    return (
+      typeof o.__defineGetter__ === "function" &&
+      typeof o.__defineSetter__ === "function"
+    );
+  }
+}
+let cg = emptyMissMethodsStillWork();
+
+function inheritedMethodsFromObjectProto() {
+  let env = Object.create(Object.prototype);
+  with (env) {
+    __defineGetter__("x", function () {
+      return 1;
+    });
+    return x === 1 && __lookupGetter__("x").call(env) === 1;
+  }
+}
+let ch = inheritedMethodsFromObjectProto();
+
+function getterRunsOnceLookup() {
+  let c = 0;
+  let held = {};
+  held.__defineGetter__("x", function () {
+    return 7;
+  });
+  let env = {
+    get o() {
+      c = c + 1;
+      return held;
+    }
+  };
+  let out;
+  with (env) {
+    out = o.__lookupGetter__("x").call(held);
+  }
+  return out === 7 && c === 1;
+}
+let cj = getterRunsOnceLookup();
+
+function defineGetterAndSetterTogether() {
+  let n = 0;
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return n;
+    });
+    o.__defineSetter__("x", function (v) {
+      n = v;
+    });
+    o.x = 4;
+    return o.x === 4 && n === 4;
+  }
+}
+let ck = defineGetterAndSetterTogether();
+
+function withObjectProtoNameLengthTogether() {
+  with (Object.prototype.__defineGetter__) {
+    return name === "__defineGetter__" && length === 2;
+  }
+}
+let cl = withObjectProtoNameLengthTogether();
+
+function withLookupGetterNameLength() {
+  with (Object.prototype.__lookupGetter__) {
+    return name === "__lookupGetter__" && length === 1;
+  }
+}
+let cm = withLookupGetterNameLength();
+
+function identDefineGetterThenLookup() {
+  let o = {};
+  with (o) {
+    __defineGetter__("x", function () {
+      return 2;
+    });
+    return __lookupGetter__("x") === Object.getOwnPropertyDescriptor(o, "x").get;
+  }
+}
+let cn = identDefineGetterThenLookup();
+
+function identDefineSetterThenLookup() {
+  let o = {};
+  with (o) {
+    __defineSetter__("y", function () {});
+    return __lookupSetter__("y") === Object.getOwnPropertyDescriptor(o, "y").set;
+  }
+}
+let cp = identDefineSetterThenLookup();
+
+function accessorThisOnObjectGet() {
+  let seen = null;
+  let held = {};
+  let env = {
+    get o() {
+      seen = this;
+      return held;
+    }
+  };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 1;
+    });
+    return seen === env && held.x === 1;
+  }
+}
+let cq = accessorThisOnObjectGet();
+
+function nestedUnscopablesName() {
+  with (Object.prototype.__defineSetter__) {
+    let inner = { name: "skip" };
+    inner[Symbol.unscopables] = { name: true };
+    with (inner) {
+      return name === "__defineSetter__" && length === 2;
+    }
+  }
+}
+let cr = nestedUnscopablesName();
+
+function typeofFourOnEmpty() {
+  with ({}) {
+    return (
+      typeof __defineGetter__ === "function" &&
+      typeof __defineSetter__ === "function" &&
+      typeof __lookupGetter__ === "function" &&
+      typeof __lookupSetter__ === "function"
+    );
+  }
+}
+let cs = typeofFourOnEmpty();
+
+function identThisNotWithWhenMember() {
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__("x", function () {
+      return 1;
+    });
+    return this !== env && o.x === 1;
+  }
+}
+let ct = identThisNotWithWhenMember();
+
+function identOnEmptyDefinesOwn() {
+  let o = {};
+  with (o) {
+    __defineGetter__("x", function () {
+      return "";
+    });
+    __defineSetter__("y", function () {});
+    return (
+      o.x === "" &&
+      typeof __lookupGetter__("x") === "function" &&
+      typeof __lookupSetter__("y") === "function"
+    );
+  }
+}
+let cu = identOnEmptyDefinesOwn();
+
+function protoAllFourThroughWith() {
+  with (Object.prototype) {
+    return (
+      typeof __defineGetter__ === "function" &&
+      typeof __defineSetter__ === "function" &&
+      typeof __lookupGetter__ === "function" &&
+      typeof __lookupSetter__ === "function" &&
+      __defineGetter__ === Object.prototype.__defineGetter__ &&
+      __defineSetter__ === Object.prototype.__defineSetter__ &&
+      __lookupGetter__ === Object.prototype.__lookupGetter__ &&
+      __lookupSetter__ === Object.prototype.__lookupSetter__
+    );
+  }
+}
+let cv = protoAllFourThroughWith();
+
+function nestedDefineSetterInnerWins() {
+  with ({ __defineSetter__: 1 }) {
+    with ({ __defineSetter__: 2 }) {
+      return __defineSetter__ === 2;
+    }
+  }
+}
+let cw = nestedDefineSetterInnerWins();
+
+function unscopablesDefineSetterUsesOuter() {
+  function __defineSetter__() {
+    return 11;
+  }
+  let env = { __defineSetter__: Object.prototype.__defineSetter__ };
+  env[Symbol.unscopables] = { __defineSetter__: true };
+  with (env) {
+    return __defineSetter__() === 11;
+  }
+}
+let cx = unscopablesDefineSetterUsesOuter();
+
+function liveCloseDefineSetterCall() {
+  let env = { o: {} };
+  let run;
+  with (env) {
+    run = function () {
+      let n = 0;
+      o.__defineSetter__("y", function (v) {
+        n = v;
+      });
+      o.y = 3;
+      return n;
+    };
+  }
+  env.o = {};
+  return run() === 3;
+}
+let cy = liveCloseDefineSetterCall();
+
+function bracketKeyIdent() {
+  let env = { o: {}, k: "__defineGetter__" };
+  with (env) {
+    o[k]("x", function () {
+      return 5;
+    });
+    return o.x === 5;
+  }
+}
+let cz = bracketKeyIdent();
+
+function inheritedDefineSetterData() {
+  let proto = {
+    __defineSetter__: function () {
+      return "fromProto";
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return __defineSetter__() === "fromProto";
+  }
+}
+let da = inheritedDefineSetterData();
+
+function nestedInnerMissOuterDefineSetter() {
+  with ({
+    __defineSetter__: function () {
+      return 5;
+    }
+  }) {
+    with (Object.create(null)) {
+      return __defineSetter__() === 5;
+    }
+  }
+}
+let db = nestedInnerMissOuterDefineSetter();
+
+function withProtoCallBothLookups() {
+  let o = {};
+  with (Object.prototype) {
+    __defineGetter__.call(o, "x", function () {
+      return 1;
+    });
+    __defineSetter__.call(o, "y", function () {});
+    return (
+      __lookupGetter__.call(o, "x").call(o) === 1 &&
+      typeof __lookupSetter__.call(o, "y") === "function"
+    );
+  }
+}
+let dc = withProtoCallBothLookups();
+
+function lookupGetterIdentity() {
+  function getX() {
+    return 42;
+  }
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__("x", getX);
+    return o.__lookupGetter__("x") === getX;
+  }
+}
+let dd = lookupGetterIdentity();
+
+function lookupSetterIdentity() {
+  function setY(v) {}
+  let env = { o: {} };
+  with (env) {
+    o.__defineSetter__("y", setY);
+    return o.__lookupSetter__("y") === setY;
+  }
+}
+let de = lookupSetterIdentity();
+
+function viaCallThroughWith() {
+  let env = { o: {} };
+  with (env) {
+    Object.prototype.__defineGetter__.call(o, "p", function () {
+      return "ok";
+    });
+    let viaG = Object.prototype.__lookupGetter__.call(o, "p");
+    return o.p === "ok" && viaG.call(o) === "ok";
+  }
+}
+let df = viaCallThroughWith();
+
+function nonFunctionGetterTypeError() {
+  let env = { o: {} };
+  with (env) {
+    try {
+      o.__defineGetter__("x", 1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let dg = nonFunctionGetterTypeError();
+
+function nonFunctionSetterTypeError() {
+  let env = { o: {} };
+  with (env) {
+    try {
+      o.__defineSetter__("y", 1);
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let dh = nonFunctionSetterTypeError();
