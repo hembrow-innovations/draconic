@@ -1,0 +1,848 @@
+// E17.02.134: with + Destructuring defaults (E18.20: `let [a = expr] = arr` /
+// `let {a = expr} = obj` / `{a: b = expr}` / assignment patterns with defaults)
+// through object environment (non-strict).
+// RHS ident hits object (else outer); default expr idents hit object (else
+// outer); default used on missing/undefined (not null/0/""); skipped when
+// present (default not evaluated); let/const bindings are block-local (do not
+// write object); assignment LHS idents hit object (else outer); array holes
+// trigger default; nested defaults; inherited HasBinding; accessor get/set
+// this is with object; unresolvable default or RHS → ReferenceError; live
+// close; nested with; unscopables skip.
+
+function letArrayDefaultMissingHitsObject() {
+  let arr = [1];
+  let obj = { arr: [], def: 20 };
+  let out;
+  with (obj) {
+    let [a = def] = arr;
+    out = a;
+  }
+  return out === 20 && arr[0] === 1;
+}
+let a = letArrayDefaultMissingHitsObject();
+
+function letArrayDefaultPresentSkips() {
+  let arr = [1];
+  let obj = { arr: [9], def: 20 };
+  let out;
+  with (obj) {
+    let [x = def] = arr;
+    out = x;
+  }
+  return out === 9 && arr[0] === 1;
+}
+let b = letArrayDefaultPresentSkips();
+
+function letArrayDefaultUndefinedUsesDefault() {
+  let obj = { arr: [undefined], def: 4 };
+  let out;
+  with (obj) {
+    let [x = def] = arr;
+    out = x;
+  }
+  return out === 4;
+}
+let c = letArrayDefaultUndefinedUsesDefault();
+
+function letArrayHoleUsesDefault() {
+  let obj = { arr: [, 2], def: 11 };
+  let outA;
+  let outB;
+  with (obj) {
+    let [x = def, y = def] = arr;
+    outA = x;
+    outB = y;
+  }
+  return outA === 11 && outB === 2;
+}
+let d = letArrayHoleUsesDefault();
+
+function letObjectDefaultMissingHitsObject() {
+  let src = { x: 1 };
+  let obj = { src: {}, def: 200 };
+  let outX;
+  let outY;
+  with (obj) {
+    let { x = def, y = def } = src;
+    outX = x;
+    outY = y;
+  }
+  return outX === 200 && outY === 200 && src.x === 1;
+}
+let e = letObjectDefaultMissingHitsObject();
+
+function letObjectDefaultPresentKeepsValue() {
+  let src = { x: 1 };
+  let obj = { src: { x: 5 }, def: 200 };
+  let outX;
+  let outY;
+  with (obj) {
+    let { x = def, y = def } = src;
+    outX = x;
+    outY = y;
+  }
+  return outX === 5 && outY === 200 && src.x === 1;
+}
+let f = letObjectDefaultPresentKeepsValue();
+
+function letRenameDefaultHitsObject() {
+  let obj = { src: { x: 5 }, def: 8 };
+  let outP;
+  let outQ;
+  with (obj) {
+    let { x: p = def, z: q = def } = src;
+    outP = p;
+    outQ = q;
+  }
+  return outP === 5 && outQ === 8;
+}
+let g = letRenameDefaultHitsObject();
+
+function letBindingsDoNotWriteObject() {
+  let obj = { src: {}, def: 3 };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return (
+    out === 3 &&
+    obj.x === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let h = letBindingsDoNotWriteObject();
+
+function defaultMissUsesOuter() {
+  let def = 7;
+  let obj = { src: {} };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 7;
+}
+let j = defaultMissUsesOuter();
+
+function rhsMissUsesOuter() {
+  let src = {};
+  let obj = { def: 9 };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 9 && src.x === undefined;
+}
+let k = rhsMissUsesOuter();
+
+function nullDoesNotTriggerDefault() {
+  let obj = { src: { x: null }, def: 1 };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === null;
+}
+let l = nullDoesNotTriggerDefault();
+
+function zeroDoesNotTriggerDefault() {
+  let obj = { src: { x: 0 }, def: 1 };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 0;
+}
+let m = zeroDoesNotTriggerDefault();
+
+function emptyStringDoesNotTriggerDefault() {
+  let obj = { src: { x: "" }, def: "d" };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === "";
+}
+let n = emptyStringDoesNotTriggerDefault();
+
+function falseDoesNotTriggerDefault() {
+  let obj = { src: { x: false }, def: true };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === false;
+}
+let p = falseDoesNotTriggerDefault();
+
+function defaultSkippedNotEvaluated() {
+  let c = 0;
+  let obj = {
+    src: { x: 4 },
+    get def() {
+      c = c + 1;
+      return 99;
+    }
+  };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 4 && c === 0;
+}
+let q = defaultSkippedNotEvaluated();
+
+function defaultTakenEvaluated() {
+  let c = 0;
+  let obj = {
+    src: {},
+    get def() {
+      c = c + 1;
+      return 99;
+    }
+  };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 99 && c === 1;
+}
+let s = defaultTakenEvaluated();
+
+function assignArrayDefaultHitsObject() {
+  let obj = { arr: [undefined, 2], def: 11, u: 0, v: 0 };
+  with (obj) {
+    [u = def, v = def] = arr;
+  }
+  return obj.u === 11 && obj.v === 2;
+}
+let t = assignArrayDefaultHitsObject();
+
+function assignObjectDefaultHitsObject() {
+  let obj = { src: { m: 1 }, def: 40, m: 0, n2: 0 };
+  with (obj) {
+    ({ m = def, n2 = def } = src);
+  }
+  return obj.m === 1 && obj.n2 === 40;
+}
+let u = assignObjectDefaultHitsObject();
+
+function assignLhsMissUsesOuter() {
+  let m = 0;
+  let n2 = 0;
+  let obj = { src: { m: 1 }, def: 40 };
+  with (obj) {
+    ({ m = def, n2 = def } = src);
+  }
+  return (
+    m === 1 &&
+    n2 === 40 &&
+    Object.prototype.hasOwnProperty.call(obj, "m") === false
+  );
+}
+let v = assignLhsMissUsesOuter();
+
+function constArrayDefault() {
+  let obj = { arr: [], def: 50 };
+  let km;
+  with (obj) {
+    const [k = def] = arr;
+    km = k;
+  }
+  return km === 50;
+}
+let w = constArrayDefault();
+
+function nestedDefaultInnerMissing() {
+  let obj = { nested: {}, defInner: 9, defOuter: { inner: undefined } };
+  let out;
+  with (obj) {
+    let { outer: { inner: n = defInner } = defOuter } = nested;
+    out = n;
+  }
+  return out === 9;
+}
+let aa = nestedDefaultInnerMissing();
+
+function nestedDefaultOuterMissingUsesDefaultObject() {
+  let obj = {
+    nested: {},
+    defInner: 1,
+    defOuter: { inner: 9 }
+  };
+  let out;
+  with (obj) {
+    let { outer: { inner: n = defInner } = defOuter } = nested;
+    out = n;
+  }
+  return out === 9;
+}
+let ab = nestedDefaultOuterMissingUsesDefaultObject();
+
+function inheritedHasBindingDefault() {
+  let proto = { def: 4 };
+  let obj = Object.create(proto);
+  obj.src = {};
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 4;
+}
+let ac = inheritedHasBindingDefault();
+
+function inheritedHasBindingRhs() {
+  let proto = { src: {}, def: 6 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 6;
+}
+let ad = inheritedHasBindingRhs();
+
+function accessorGetThisDefault() {
+  let seen = null;
+  let obj = {
+    src: {},
+    get def() {
+      seen = this;
+      return 5;
+    }
+  };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 5 && seen === obj;
+}
+let ae = accessorGetThisDefault();
+
+function accessorGetThisRhs() {
+  let seen = null;
+  let obj = {
+    def: 8,
+    get src() {
+      seen = this;
+      return {};
+    }
+  };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 8 && seen === obj;
+}
+let af = accessorGetThisRhs();
+
+function accessorSetThisAssignLhs() {
+  let seen = null;
+  let obj = {
+    src: {},
+    def: 8,
+    set x(v) {
+      seen = this;
+      this._x = v;
+    },
+    get x() {
+      return this._x;
+    }
+  };
+  with (obj) {
+    ({ x = def } = src);
+  }
+  return seen === obj && obj._x === 8;
+}
+let ag = accessorSetThisAssignLhs();
+
+function unresolvableDefaultThrows() {
+  let obj = { src: {} };
+  try {
+    with (obj) {
+      let { x = e1702134_missing } = src;
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702134_missing === "undefined"
+    );
+  }
+}
+let ah = unresolvableDefaultThrows();
+
+function unresolvableRhsThrows() {
+  let obj = { def: 1 };
+  try {
+    with (obj) {
+      let { x = def } = e1702134_rhs;
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702134_rhs === "undefined"
+    );
+  }
+}
+let aj = unresolvableRhsThrows();
+
+function unresolvableDefaultSkippedWhenPresent() {
+  let obj = { src: { x: 3 } };
+  let out;
+  with (obj) {
+    let { x = e1702134_skip } = src;
+    out = x;
+  }
+  return out === 3 && typeof globalThis.e1702134_skip === "undefined";
+}
+let ak = unresolvableDefaultSkippedWhenPresent();
+
+function liveClose() {
+  let obj = { src: {}, def: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      let { x = def } = src;
+      return x;
+    };
+  }
+  obj.def = 9;
+  return run() === 9;
+}
+let al = liveClose();
+
+function liveCloseAfterMutateSrc() {
+  let obj = { src: { x: 1 }, def: 9 };
+  let run;
+  with (obj) {
+    run = function () {
+      let { x = def } = src;
+      return x;
+    };
+  }
+  obj.src = {};
+  return run() === 9;
+}
+let am = liveCloseAfterMutateSrc();
+
+function nestedInnerWinsDefault() {
+  let inner = { src: {}, def: 3 };
+  let outer = { src: {}, def: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      let { x = def } = src;
+      out = x;
+    }
+  }
+  return out === 3;
+}
+let an = nestedInnerWinsDefault();
+
+function nestedInnerMissOuterDefault() {
+  let inner = { src: {} };
+  let outer = { src: {}, def: 5 };
+  let out;
+  with (outer) {
+    with (inner) {
+      let { x = def } = src;
+      out = x;
+    }
+  }
+  return out === 5;
+}
+let ap = nestedInnerMissOuterDefault();
+
+function unscopablesSkipDefault() {
+  let def = 3;
+  let obj = { src: {}, def: 99 };
+  obj[Symbol.unscopables] = { def: true };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 3 && obj.def === 99;
+}
+let aq = unscopablesSkipDefault();
+
+function unscopablesSkipRhs() {
+  let src = {};
+  let obj = { src: { x: 99 }, def: 4 };
+  obj[Symbol.unscopables] = { src: true };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 4 && obj.src.x === 99;
+}
+let ar = unscopablesSkipRhs();
+
+function unscopablesFalseyStillObject() {
+  let def = 1;
+  let obj = { src: {}, def: 6 };
+  obj[Symbol.unscopables] = { def: false };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 6 && def === 1;
+}
+let at = unscopablesFalseyStillObject();
+
+function unscopablesNonObjectDoesNotBlock() {
+  let def = 1;
+  let obj = { src: {}, def: 6 };
+  obj[Symbol.unscopables] = 1;
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 6 && def === 1;
+}
+let au = unscopablesNonObjectDoesNotBlock();
+
+function inheritedAccessorThisDefault() {
+  let seen = null;
+  let proto = {
+    get def() {
+      seen = this;
+      return 2;
+    }
+  };
+  let obj = Object.create(proto);
+  obj.src = {};
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 2 && seen === obj;
+}
+let av = inheritedAccessorThisDefault();
+
+function nestedWithUnscopables() {
+  let def = 1;
+  let inner = { src: {}, def: 99 };
+  inner[Symbol.unscopables] = { def: true };
+  let outer = { src: {}, def: 4 };
+  let out;
+  with (outer) {
+    with (inner) {
+      let { x = def } = src;
+      out = x;
+    }
+  }
+  return out === 4 && def === 1;
+}
+let aw = nestedWithUnscopables();
+
+function unresolvableNotImplicitGlobal() {
+  let obj = { src: {} };
+  with (obj) {
+    try {
+      let { x = e1702134_noglob } = src;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702134_noglob === "undefined"
+      );
+    }
+  }
+}
+let ax = unresolvableNotImplicitGlobal();
+
+function mixedObjectOuter() {
+  let y = 2;
+  let obj = { src: {}, def: 1 };
+  let sum;
+  with (obj) {
+    let { x = def } = src;
+    sum = x + y;
+  }
+  return sum === 3 && y === 2;
+}
+let ay = mixedObjectOuter();
+
+function deleteIdentThenOuterDefault() {
+  let def = 3;
+  let obj = { src: {}, def: 99 };
+  let out;
+  with (obj) {
+    delete def;
+    let { x = def } = src;
+    out = x;
+  }
+  return (
+    out === 3 &&
+    obj.def === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "def") === false
+  );
+}
+let az = deleteIdentThenOuterDefault();
+
+function assignInheritedCreatesOwn() {
+  let proto = { x: 1 };
+  let obj = Object.create(proto);
+  obj.src = {};
+  obj.def = 7;
+  with (obj) {
+    ({ x = def } = src);
+  }
+  return (
+    obj.x === 7 &&
+    proto.x === 1 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === true
+  );
+}
+let ba = assignInheritedCreatesOwn();
+
+function constReassignTypeError() {
+  let obj = { src: {}, def: 1 };
+  try {
+    with (obj) {
+      const { k = def } = src;
+      k = 2;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof TypeError;
+  }
+}
+let bb = constReassignTypeError();
+
+function bothSidesAlwaysNeedRhs() {
+  let c = 0;
+  let obj = {
+    get src() {
+      c = c + 1;
+      return { x: 1 };
+    },
+    def: 9
+  };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 1 && c === 1;
+}
+let bc = bothSidesAlwaysNeedRhs();
+
+function arrayDefaultSecondMissing() {
+  let obj = { arr: [1], def: 20 };
+  let outA;
+  let outB;
+  with (obj) {
+    let [x = def, y = def] = arr;
+    outA = x;
+    outB = y;
+  }
+  return outA === 1 && outB === 20;
+}
+let bd = arrayDefaultSecondMissing();
+
+function assignDefaultRhsFromObject() {
+  let obj = { y: 3, x: 0 };
+  with (obj) {
+    ({ x = y } = {});
+  }
+  return obj.x === 3 && obj.y === 3;
+}
+let be = assignDefaultRhsFromObject();
+
+function defaultExprHitsObjectNotOuter() {
+  let def = 1;
+  let obj = { src: {}, def: 8 };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 8 && def === 1;
+}
+let bf = defaultExprHitsObjectNotOuter();
+
+function liveCloseAssignDefault() {
+  let obj = { src: {}, def: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      let x;
+      ({ x = def } = src);
+      return x;
+    };
+  }
+  obj.def = 9;
+  return run() === 9;
+}
+let bg = liveCloseAssignDefault();
+
+function shadowsOuterDef() {
+  let def = 0;
+  let obj = { src: {}, def: 5 };
+  let out;
+  with (obj) {
+    let { x = def } = src;
+    out = x;
+  }
+  return out === 5 && def === 0;
+}
+let bh = shadowsOuterDef();
+
+function ownUndefinedHasBindingRhs() {
+  let src = { x: 42 };
+  let obj = { src: undefined, def: 1 };
+  try {
+    with (obj) {
+      let { x = def } = src;
+      return x === 1;
+    }
+  } catch (err) {
+    return err instanceof TypeError && src.x === 42;
+  }
+}
+let bi = ownUndefinedHasBindingRhs();
+
+function getterRunsOncePerDefaultUse() {
+  let c = 0;
+  let obj = {
+    src: {},
+    get def() {
+      c = c + 1;
+      return 3;
+    }
+  };
+  let out;
+  with (obj) {
+    let { x = def, y = def } = src;
+    out = x + y;
+  }
+  return out === 6 && c === 2;
+}
+let bj = getterRunsOncePerDefaultUse();
+
+function nestedBothDefaults() {
+  let inner = { src: {}, def: 1 };
+  let outer = { src: {}, def: 10 };
+  let innerOut;
+  let outerOut;
+  with (outer) {
+    with (inner) {
+      let { x = def } = src;
+      innerOut = x;
+    }
+    let { y = def } = src;
+    outerOut = y;
+  }
+  return innerOut === 1 && outerOut === 10;
+}
+let bk = nestedBothDefaults();
+
+function assignArrayLhsHitsObject() {
+  let obj = { x: 0, arr: [], def: 11 };
+  with (obj) {
+    [x = def] = arr;
+  }
+  return obj.x === 11;
+}
+let bl = assignArrayLhsHitsObject();
+
+function unscopablesAssignLhsGoesOuter() {
+  let x = 1;
+  let obj = { x: 0, src: {}, def: 7 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    ({ x = def } = src);
+  }
+  return x === 7 && obj.x === 0;
+}
+let bm = unscopablesAssignLhsGoesOuter();
+
+function skippedIfLetNotVisible() {
+  if (false) {
+    with ({ src: {}, def: 1 }) {
+      let { skippedBind = def } = src;
+    }
+  }
+  return typeof skippedBind === "undefined";
+}
+let bn = skippedIfLetNotVisible();
+
+function arrayRestWithDefault() {
+  let obj = { arr: [undefined, 2, 3], def: 1 };
+  let outX;
+  let rest0;
+  with (obj) {
+    let [x = def, ...rest] = arr;
+    outX = x;
+    rest0 = rest[0];
+  }
+  return outX === 1 && rest0 === 2;
+}
+let bp = arrayRestWithDefault();
+
+function objectRestWithDefault() {
+  let obj = { src: { b: 2, c: 3 }, def: 1 };
+  let outA;
+  let restB;
+  with (obj) {
+    let { a = def, ...rest } = src;
+    outA = a;
+    restB = rest.b;
+  }
+  return outA === 1 && restB === 2;
+}
+let bq = objectRestWithDefault();
+
+function tdzSameNameDefaultThrows() {
+  let obj = { src: {}, def: 1 };
+  try {
+    with (obj) {
+      let { def = def } = src;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError;
+  }
+}
+let br = tdzSameNameDefaultThrows();
+
+function defaultThenReadSrcStillObject() {
+  let outerSrc = { a: 0 };
+  let obj = { src: {}, def: 1 };
+  let still;
+  with (obj) {
+    let { a = def } = src;
+    still = src;
+  }
+  return still === obj.src && outerSrc.a === 0;
+}
+let bs = defaultThenReadSrcStillObject();
+
+function assignNestedDefault() {
+  let obj = { x: 0, src: {}, def: 11, defOuter: { inner: undefined } };
+  with (obj) {
+    ({ outer: { inner: x = def } = defOuter } = src);
+  }
+  return obj.x === 11;
+}
+let bt = assignNestedDefault();

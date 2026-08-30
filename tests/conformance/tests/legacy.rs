@@ -1378,3 +1378,13 @@ fn with_object_destructure_fixture_present() {
 fn with_object_destructure_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_object_destructure");
 }
+
+#[test]
+fn with_destructure_defaults_fixture_present() {
+    assert_fixture_present("es/legacy/with_destructure_defaults");
+}
+
+#[test]
+fn with_destructure_defaults_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_destructure_defaults");
+}
