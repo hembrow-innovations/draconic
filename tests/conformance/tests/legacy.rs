@@ -1268,3 +1268,13 @@ fn with_html_comments_fixture_present() {
 fn with_html_comments_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_html_comments");
 }
+
+#[test]
+fn with_legacy_octal_string_fixture_present() {
+    assert_fixture_present("es/legacy/with_legacy_octal_string");
+}
+
+#[test]
+fn with_legacy_octal_string_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_legacy_octal_string");
+}
