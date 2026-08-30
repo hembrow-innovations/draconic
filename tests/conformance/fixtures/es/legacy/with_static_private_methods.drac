@@ -1,0 +1,1024 @@
+// E17.02.143: with + Static private methods (E18.38: `class C { static #m(…){…} }` /
+// call `C.#m(…)` / `this.#m(…)` in static (not on instances; not public) through
+// object environment (non-strict).
+// Method-body idents hit object (else outer); params are local (do not write
+// object); default-param idents hit object (else outer); this in static
+// private method is the constructor, not with object; class body is strict
+// (with in method → SyntaxError); inherited HasBinding; accessor get this is
+// with object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function methodBodyHitsObject() {
+  let x = 0;
+  let obj = { x: 7 };
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 7 && x === 0;
+}
+let a = methodBodyHitsObject();
+
+function methodBodyMissUsesOuter() {
+  let x = 4;
+  let out;
+  with ({}) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 4;
+}
+let b = methodBodyMissUsesOuter();
+
+function paramsAreLocalDoNotWriteObject() {
+  let obj = { x: 1, v: 9 };
+  with (obj) {
+    class C {
+      static #m(v) {
+        return v;
+      }
+      static run(v) {
+        return C.#m(v);
+      }
+    }
+    return (
+      C.run(5) === 5 &&
+      obj.v === 9 &&
+      obj.x === 1 &&
+      C.v === undefined
+    );
+  }
+}
+let c = paramsAreLocalDoNotWriteObject();
+
+function defaultParamHitsObject() {
+  let x = 0;
+  let obj = { x: 8 };
+  let out;
+  with (obj) {
+    class C {
+      static #m(n = x) {
+        return n;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 8 && x === 0;
+}
+let d = defaultParamHitsObject();
+
+function defaultParamMissUsesOuter() {
+  let x = 6;
+  let out;
+  with ({}) {
+    class C {
+      static #m(n = x) {
+        return n;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 6;
+}
+let e = defaultParamMissUsesOuter();
+
+function paramsShadowObject() {
+  let obj = { x: 99 };
+  with (obj) {
+    class C {
+      static #m(x) {
+        return x;
+      }
+      static run(x) {
+        return C.#m(x);
+      }
+    }
+    return C.run(3) === 3 && obj.x === 99;
+  }
+}
+let f = paramsShadowObject();
+
+function thisInStaticPrivateMethodIsConstructor() {
+  let obj = { x: 99 };
+  let seen = null;
+  let Ctor;
+  with (obj) {
+    class C {
+      static #m() {
+        seen = this;
+        return x;
+      }
+      static run() {
+        return this.#m();
+      }
+    }
+    Ctor = C;
+    C.run();
+  }
+  return seen === Ctor && Ctor.run() === 99 && obj.x === 99;
+}
+let g = thisInStaticPrivateMethodIsConstructor();
+
+function notOnInstancesNotPublic() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      static #m() {
+        return 2;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    let inst = new C();
+    return (
+      C.run() === 2 &&
+      C.m === undefined &&
+      inst.m === undefined &&
+      C.prototype.m === undefined &&
+      obj.m === undefined &&
+      Object.prototype.hasOwnProperty.call(C, "m") === false &&
+      Object.prototype.hasOwnProperty.call(inst, "m") === false &&
+      Object.prototype.hasOwnProperty.call(C.prototype, "m") === false &&
+      Object.prototype.hasOwnProperty.call(obj, "m") === false &&
+      obj.x === 1
+    );
+  }
+}
+let h = notOnInstancesNotPublic();
+
+function unresolvableMethodBodyThrows() {
+  with ({}) {
+    class C {
+      static #m() {
+        return e1702143_miss;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    try {
+      C.run();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702143_miss === "undefined"
+      );
+    }
+  }
+}
+let j = unresolvableMethodBodyThrows();
+
+function liveClose() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    Ctor = class {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return this.#m();
+      }
+    };
+  }
+  obj.x = 9;
+  return Ctor.run() === 9;
+}
+let k = liveClose();
+
+function nestedWithInnerWins() {
+  let inner = { x: 3 };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static #m() {
+          return x;
+        }
+        static run() {
+          return C.#m();
+        }
+      }
+      out = C.run();
+    }
+  }
+  return out === 3;
+}
+let l = nestedWithInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: 5 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static #m() {
+          return x;
+        }
+        static run() {
+          return C.#m();
+        }
+      }
+      out = C.run();
+    }
+  }
+  return out === 5;
+}
+let m = nestedInnerMissOuter();
+
+function unscopablesSkip() {
+  let x = 2;
+  let obj = { x: 99 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 2 && obj.x === 99;
+}
+let n = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = { x: 4 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 4;
+}
+let p = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 3;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 3 && seen === obj;
+}
+let q = accessorGetThisIsWithObject();
+
+function withInClassMethodSyntaxError() {
+  try {
+    eval(
+      "class C { static #m() { return 1; } static run() { with ({}) { return C.#m(); } } }"
+    );
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let r = withInClassMethodSyntaxError();
+
+function withInStaticPrivateMethodSyntaxError() {
+  try {
+    eval(
+      "class C { static #m() { with ({}) { return 1; } } static run() { return C.#m(); } }"
+    );
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let s = withInStaticPrivateMethodSyntaxError();
+
+function classExpressionStaticPrivateMethods() {
+  let x = 0;
+  let obj = { x: 6 };
+  let out;
+  with (obj) {
+    let H = class {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return this.#m();
+      }
+    };
+    out = H.run();
+  }
+  return out === 6 && x === 0;
+}
+let t = classExpressionStaticPrivateMethods();
+
+function nestedClassStaticPrivateMethods() {
+  let obj = { x: 2 };
+  let out;
+  with (obj) {
+    class Outer {
+      inner() {
+        class Inner {
+          static #m() {
+            return x;
+          }
+          static run() {
+            return Inner.#m();
+          }
+        }
+        return Inner.run();
+      }
+    }
+    out = new Outer().inner();
+  }
+  return out === 2;
+}
+let u = nestedClassStaticPrivateMethods();
+
+function derivedParentAndChild() {
+  let x = 0;
+  let obj = { x: 10 };
+  let extra;
+  let total;
+  let base;
+  with (obj) {
+    class Parent {
+      static #base() {
+        return x;
+      }
+      static base() {
+        return Parent.#base();
+      }
+    }
+    class Child extends Parent {
+      static #extra() {
+        return 1;
+      }
+      static total() {
+        return Parent.base() + Child.#extra();
+      }
+      static extra() {
+        return Child.#extra();
+      }
+    }
+    base = Parent.base();
+    extra = Child.extra();
+    total = Child.total();
+  }
+  return base === 10 && extra === 1 && total === 11 && x === 0;
+}
+let v = derivedParentAndChild();
+
+function privateMethodName() {
+  let obj = { x: 1 };
+  let nm;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static nameOf() {
+        return C.#m.name;
+      }
+    }
+    nm = C.nameOf();
+  }
+  return nm === "#m" || nm === "m";
+}
+let w = privateMethodName();
+
+function methodArgHitsObject() {
+  let obj = { x: 3 };
+  let out;
+  with (obj) {
+    class C {
+      static #m(n) {
+        return n + 1;
+      }
+      static run() {
+        return C.#m(x);
+      }
+    }
+    out = C.run();
+  }
+  return out === 4;
+}
+let aa = methodArgHitsObject();
+
+function defaultUsedOnUndefinedNotNull() {
+  let obj = { x: 5 };
+  with (obj) {
+    class C {
+      static #m(n = x) {
+        return n;
+      }
+      static missing() {
+        return C.#m();
+      }
+      static undef() {
+        return C.#m(undefined);
+      }
+      static nul() {
+        return C.#m(null);
+      }
+      static zero() {
+        return C.#m(0);
+      }
+    }
+    return (
+      C.missing() === 5 &&
+      C.undef() === 5 &&
+      C.nul() === null &&
+      C.zero() === 0
+    );
+  }
+}
+let ab = defaultUsedOnUndefinedNotNull();
+
+function defaultSkippedWhenPresent() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return 9;
+    }
+  };
+  with (obj) {
+    class C {
+      static #m(n = x) {
+        return n;
+      }
+      static run(n) {
+        return C.#m(n);
+      }
+    }
+    let out = C.run(4);
+    return out === 4 && ran === false;
+  }
+}
+let ac = defaultSkippedWhenPresent();
+
+function ownUndefinedHasBinding() {
+  let x = 42;
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === undefined && x === 42;
+}
+let ad = ownUndefinedHasBinding();
+
+function deleteIdentThenUnresolvable() {
+  let obj = { x: 3 };
+  with (obj) {
+    delete x;
+    class C {
+      static #m() {
+        return e1702143_afterdel;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    try {
+      C.run();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702143_afterdel === "undefined"
+      );
+    }
+  }
+}
+let ae = deleteIdentThenUnresolvable();
+
+function nestedWithUnscopables() {
+  let x = 3;
+  let inner = { x: 1 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static #m() {
+          return x;
+        }
+        static run() {
+          return C.#m();
+        }
+      }
+      out = C.run();
+    }
+  }
+  return out === 10;
+}
+let af = nestedWithUnscopables();
+
+function inheritedAccessorGetThisIsWithObject() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 5;
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 5 && seen === obj;
+}
+let ag = inheritedAccessorGetThisIsWithObject();
+
+function identCalleeInMethodBody() {
+  let obj = {
+    fn: function () {
+      return 4;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return fn();
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 4;
+}
+let ah = identCalleeInMethodBody();
+
+function getterRunsEachCall() {
+  let count = 0;
+  let obj = {
+    get x() {
+      count = count + 1;
+      return 3;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m() + C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 6 && count === 2;
+}
+let aj = getterRunsEachCall();
+
+function namedClassExpression() {
+  let obj = { x: 8 };
+  let out;
+  with (obj) {
+    let H = class Name {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return Name.#m();
+      }
+    };
+    out = H.run();
+  }
+  return out === 8;
+}
+let ak = namedClassExpression();
+
+function wrongReceiverTypeError() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return this.#m();
+      }
+    }
+    let g = C.run;
+    try {
+      g();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && C.run() === 1;
+    }
+  }
+}
+let al = wrongReceiverTypeError();
+
+function privateAccessOutsideClassSyntaxError() {
+  try {
+    eval("class C { static #m() { return 1; } } C.#m()");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let am = privateAccessOutsideClassSyntaxError();
+
+function extendsIdentHitsObject() {
+  function Inner() {}
+  Inner.n = function () {
+    return 7;
+  };
+  let obj = { Base: Inner, x: 2 };
+  let instOk;
+  let field;
+  with (obj) {
+    class C extends Base {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    instOk = C.prototype instanceof Inner;
+    field = C.run();
+  }
+  return instOk === true && field === 2;
+}
+let an = extendsIdentHitsObject();
+
+function twoStaticPrivateMethodsIndependent() {
+  let obj = { x: 3, y: 4 };
+  with (obj) {
+    class C {
+      static #a() {
+        return x;
+      }
+      static #b() {
+        return y;
+      }
+      static both() {
+        return C.#a() + C.#b();
+      }
+    }
+    return C.both() === 7;
+  }
+}
+let ap = twoStaticPrivateMethodsIndependent();
+
+function nestedStaticPrivateCalls() {
+  let obj = { x: 3 };
+  with (obj) {
+    class C {
+      static #inner(n) {
+        return n + x;
+      }
+      static #outer(n) {
+        return C.#inner(n) + C.#inner(n);
+      }
+      static run(n) {
+        return C.#outer(n);
+      }
+    }
+    return C.run(1) === 8;
+  }
+}
+let aq = nestedStaticPrivateCalls();
+
+function nestedWithOuterAfterInner() {
+  let inner = { x: 1 };
+  let outer = { x: 41 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class InnerC {
+        static #m() {
+          return x;
+        }
+        static run() {
+          return InnerC.#m();
+        }
+      }
+      InnerC.run();
+    }
+    class OuterC {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return OuterC.#m();
+      }
+    }
+    out = OuterC.run();
+  }
+  return out === 41;
+}
+let ar = nestedWithOuterAfterInner();
+
+function privateStringKeyNoCollision() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    C["#m"] = 99;
+    return C.run() === 1 && C["#m"] === 99;
+  }
+}
+let at = privateStringKeyNoCollision();
+
+function parentPrivateNotOnChildPublic() {
+  let obj = { x: 100 };
+  with (obj) {
+    class Parent {
+      static #base() {
+        return x;
+      }
+      static base() {
+        return Parent.#base();
+      }
+    }
+    class Child extends Parent {
+      static #extra() {
+        return 1;
+      }
+      static extra() {
+        return Child.#extra();
+      }
+    }
+    return (
+      Parent.base() === 100 &&
+      Child.extra() === 1 &&
+      Child.base === Parent.base &&
+      Object.prototype.hasOwnProperty.call(Child, "base") === false
+    );
+  }
+}
+let au = parentPrivateNotOnChildPublic();
+
+function mixedHitAndMiss() {
+  let y = 12;
+  let obj = { x: 11 };
+  let outX;
+  let outY;
+  with (obj) {
+    class C {
+      static #a() {
+        return x;
+      }
+      static #b() {
+        return y;
+      }
+      static getA() {
+        return C.#a();
+      }
+      static getB() {
+        return C.#b();
+      }
+    }
+    outX = C.getA();
+    outY = C.getB();
+  }
+  return outX === 11 && outY === 12;
+}
+let av = mixedHitAndMiss();
+
+function emptyWithObjectUsesOuter() {
+  let x = 5;
+  let out;
+  with ({ z: 1 }) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 5;
+}
+let aw = emptyWithObjectUsesOuter();
+
+function instanceMethodCallsStaticPrivate() {
+  let obj = { y: 5 };
+  with (obj) {
+    class C {
+      static #m() {
+        return y;
+      }
+      run() {
+        return C.#m();
+      }
+    }
+    return new C().run() === 5;
+  }
+}
+let ax = instanceMethodCallsStaticPrivate();
+
+function childCannotCallParentStaticPrivate() {
+  let obj = { x: 1 };
+  with (obj) {
+    class Parent {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return Parent.#m();
+      }
+    }
+    try {
+      eval(
+        "class Parent { static #m() { return 1; } } class Child extends Parent { static steal() { return Child.#m(); } }"
+      );
+      return false;
+    } catch (err) {
+      return err instanceof SyntaxError && Parent.run() === 1;
+    }
+  }
+}
+let ay = childCannotCallParentStaticPrivate();
+
+function liveCloseTwoCallsIndependent() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    Ctor = class {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return this.#m();
+      }
+    };
+  }
+  let first = Ctor.run();
+  obj.x = 9;
+  let second = Ctor.run();
+  return first === 1 && second === 9;
+}
+let az = liveCloseTwoCallsIndependent();
+
+function unresolvableDefaultThrows() {
+  with ({}) {
+    class C {
+      static #m(n = e1702143_def) {
+        return n;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    try {
+      C.run();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702143_def === "undefined"
+      );
+    }
+  }
+}
+let ba = unresolvableDefaultThrows();
+
+function getterOnCallThisIsWithObjectOnce() {
+  let n = 0;
+  let seen = null;
+  let obj = {
+    get x() {
+      n = n + 1;
+      seen = this;
+      return 43;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static #m() {
+        return x;
+      }
+      static run() {
+        return C.#m();
+      }
+    }
+    out = C.run();
+  }
+  return out === 43 && n === 1 && seen === obj;
+}
+let bb = getterOnCallThisIsWithObjectOnce();
+
+function methodWritesLocalNotObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      static #n = 0;
+      static #inc() {
+        this.#n = this.#n + 1;
+        return this.#n;
+      }
+      static twice() {
+        C.#inc();
+        return C.#inc();
+      }
+      static get() {
+        return C.#n;
+      }
+    }
+    let twice = C.twice();
+    return twice === 2 && C.get() === 2 && obj.n === undefined && obj.x === 1;
+  }
+}
+let bc = methodWritesLocalNotObject();
+
+function publicStaticReadsPrivateAndWithIdent() {
+  let obj = { x: 3 };
+  let out;
+  with (obj) {
+    class C {
+      static #n() {
+        return 2;
+      }
+      static sum() {
+        return C.#n() + x;
+      }
+    }
+    out = C.sum();
+  }
+  return out === 5;
+}
+let bd = publicStaticReadsPrivateAndWithIdent();

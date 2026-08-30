@@ -1468,3 +1468,13 @@ fn with_private_methods_fixture_present() {
 fn with_private_methods_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_private_methods");
 }
+
+#[test]
+fn with_static_private_methods_fixture_present() {
+    assert_fixture_present("es/legacy/with_static_private_methods");
+}
+
+#[test]
+fn with_static_private_methods_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_static_private_methods");
+}
