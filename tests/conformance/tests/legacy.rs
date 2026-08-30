@@ -1258,3 +1258,13 @@ fn with_object_accessor_legacy_fixture_present() {
 fn with_object_accessor_legacy_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_object_accessor_legacy");
 }
+
+#[test]
+fn with_html_comments_fixture_present() {
+    assert_fixture_present("es/legacy/with_html_comments");
+}
+
+#[test]
+fn with_html_comments_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_html_comments");
+}
