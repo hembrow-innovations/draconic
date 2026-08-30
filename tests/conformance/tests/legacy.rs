@@ -1508,3 +1508,13 @@ fn with_static_blocks_fixture_present() {
 fn with_static_blocks_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_static_blocks");
 }
+
+#[test]
+fn with_async_generators_fixture_present() {
+    assert_fixture_present("es/legacy/with_async_generators");
+}
+
+#[test]
+fn with_async_generators_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_async_generators");
+}

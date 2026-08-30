@@ -1,0 +1,1014 @@
+// E17.02.147: with + Async generators (E18.43: `async function* g(){ yield
+// expr; }` / `async function* (params){…}` / `{ async *m(){…} }` / class
+// `async *m()`; call returns async iterator; `.next()` → Promise of
+// `{value,done}`; `for await` over async gen) through object environment
+// (non-strict).
+// Yield/await/body idents hit object (else outer); params are local (do not
+// write object); default-param idents hit object (else outer); this in
+// instance method is the instance, in static is the constructor, not with
+// object; class body is strict (with in method → SyntaxError); resume after
+// yield/await still sees with (live); inherited HasBinding; accessor get this
+// is with object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function yieldHitsObject() {
+  let x = 0;
+  let obj = { x: 7 };
+  let p;
+  with (obj) {
+    async function* g() {
+      yield x;
+    }
+    p = g().next();
+  }
+  return p.then(function (r) {
+    return r.value === 7 && r.done === false && x === 0;
+  });
+}
+let a = false;
+yieldHitsObject().then(function (v) {
+  a = v;
+});
+
+function yieldMissUsesOuter() {
+  let x = 4;
+  with ({}) {
+    async function* g() {
+      yield x;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 4;
+      });
+  }
+}
+let b = false;
+yieldMissUsesOuter().then(function (v) {
+  b = v;
+});
+
+function liveClose() {
+  let obj = { x: 1 };
+  let g;
+  with (obj) {
+    g = async function* () {
+      yield x;
+    };
+  }
+  obj.x = 9;
+  return g()
+    .next()
+    .then(function (r) {
+      return r.value === 9;
+    });
+}
+let c = false;
+liveClose().then(function (v) {
+  c = v;
+});
+
+function resumeAfterYieldLive() {
+  let obj = { x: 1 };
+  let it;
+  with (obj) {
+    async function* g() {
+      yield x;
+      yield x;
+    }
+    it = g();
+  }
+  return it.next().then(function (r1) {
+    obj.x = 5;
+    return it.next().then(function (r2) {
+      return r1.value === 1 && r2.value === 5;
+    });
+  });
+}
+let d = false;
+resumeAfterYieldLive().then(function (v) {
+  d = v;
+});
+
+function resumeAfterAwaitLive() {
+  let obj = { x: 1 };
+  let p;
+  with (obj) {
+    async function* g() {
+      let first = x;
+      await Promise.resolve(0);
+      yield first === 1 && x === 5;
+    }
+    p = g().next();
+  }
+  obj.x = 5;
+  return p.then(function (r) {
+    return r.value === true;
+  });
+}
+let e = false;
+resumeAfterAwaitLive().then(function (v) {
+  e = v;
+});
+
+function paramsShadowObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function* g(x) {
+      yield x;
+    }
+    return g(4)
+      .next()
+      .then(function (r) {
+        return r.value === 4 && obj.x === 1;
+      });
+  }
+}
+let f = false;
+paramsShadowObject().then(function (v) {
+  f = v;
+});
+
+function defaultParamHitsObject() {
+  let x = 0;
+  let obj = { x: 8 };
+  let p;
+  with (obj) {
+    async function* g(n = x) {
+      yield n;
+    }
+    p = g().next();
+  }
+  return p.then(function (r) {
+    return r.value === 8 && x === 0;
+  });
+}
+let g = false;
+defaultParamHitsObject().then(function (v) {
+  g = v;
+});
+
+function paramsAreLocalDoNotWriteObject() {
+  let obj = { x: 1, v: 9 };
+  with (obj) {
+    async function* gen(v) {
+      yield v;
+    }
+    return gen(5)
+      .next()
+      .then(function (r) {
+        return r.value === 5 && obj.v === 9 && obj.x === 1;
+      });
+  }
+}
+let h = false;
+paramsAreLocalDoNotWriteObject().then(function (v) {
+  h = v;
+});
+
+function assignHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function* gen() {
+      x = 2;
+      yield x;
+    }
+    return gen()
+      .next()
+      .then(function (r) {
+        return r.value === 2 && obj.x === 2;
+      });
+  }
+}
+let j = false;
+assignHitsObject().then(function (v) {
+  j = v;
+});
+
+function assignMissIsOuter() {
+  let x = 1;
+  let obj = {};
+  with (obj) {
+    async function* gen() {
+      x = 3;
+      yield x;
+    }
+    return gen()
+      .next()
+      .then(function (r) {
+        return r.value === 3 && x === 3 && obj.x === undefined;
+      });
+  }
+}
+let k = false;
+assignMissIsOuter().then(function (v) {
+  k = v;
+});
+
+function yieldStarHitsObject() {
+  let obj = { xs: [3, 4] };
+  with (obj) {
+    async function* gen() {
+      yield* xs;
+    }
+    let it = gen();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return r1.value === 3 && r2.value === 4;
+      });
+    });
+  }
+}
+let l = false;
+yieldStarHitsObject().then(function (v) {
+  l = v;
+});
+
+function yieldStarMissIsOuter() {
+  let xs = [8, 9];
+  with ({}) {
+    async function* gen() {
+      yield* xs;
+    }
+    let it = gen();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return r1.value === 8 && r2.value === 9;
+      });
+    });
+  }
+}
+let m = false;
+yieldStarMissIsOuter().then(function (v) {
+  m = v;
+});
+
+function asyncGenExpr() {
+  let obj = { x: 6 };
+  with (obj) {
+    let h = async function* () {
+      yield x;
+    };
+    return h()
+      .next()
+      .then(function (r) {
+        return r.value === 6;
+      });
+  }
+}
+let n = false;
+asyncGenExpr().then(function (v) {
+  n = v;
+});
+
+function namedAsyncGenExpr() {
+  let obj = { x: 11 };
+  with (obj) {
+    let h = async function* named() {
+      yield x;
+    };
+    return h()
+      .next()
+      .then(function (r) {
+        return r.value === 11;
+      });
+  }
+}
+let p = false;
+namedAsyncGenExpr().then(function (v) {
+  p = v;
+});
+
+function objectMethod() {
+  let obj = { x: 7 };
+  with (obj) {
+    let o = {
+      async *m() {
+        yield x;
+      }
+    };
+    return o
+      .m()
+      .next()
+      .then(function (r) {
+        return r.value === 7;
+      });
+  }
+}
+let q = false;
+objectMethod().then(function (v) {
+  q = v;
+});
+
+function classInstanceThisIsInstanceNotWithObject() {
+  let obj = { x: 99, n: 3 };
+  with (obj) {
+    class C {
+      constructor(n) {
+        this.n = n;
+      }
+      async *gen() {
+        yield this.n;
+        yield x;
+      }
+    }
+    let inst = new C(11);
+    let it = inst.gen();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return (
+          r1.value === 11 &&
+          r2.value === 99 &&
+          inst.n === 11 &&
+          obj.n === 3
+        );
+      });
+    });
+  }
+}
+let r = false;
+classInstanceThisIsInstanceNotWithObject().then(function (v) {
+  r = v;
+});
+
+function staticThisIsConstructorNotWithObject() {
+  let obj = { x: 5 };
+  with (obj) {
+    class C {
+      static n = 0;
+      static async *sgen() {
+        this.n = this.n + 13;
+        yield this === C;
+        yield x;
+      }
+    }
+    let it = C.sgen();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return (
+          r1.value === true &&
+          r2.value === 5 &&
+          C.n === 13 &&
+          obj.n === undefined
+        );
+      });
+    });
+  }
+}
+let s = false;
+staticThisIsConstructorNotWithObject().then(function (v) {
+  s = v;
+});
+
+function withInClassMethodSyntaxError() {
+  try {
+    eval("class C { async *m() { with ({}) { } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let t = withInClassMethodSyntaxError();
+
+function withInsideAsyncGenerator() {
+  let obj = { x: 8 };
+  async function* gen() {
+    with (obj) {
+      yield x;
+    }
+  }
+  return gen()
+    .next()
+    .then(function (r) {
+      return r.value === 8;
+    });
+}
+let u = false;
+withInsideAsyncGenerator().then(function (v) {
+  u = v;
+});
+
+function nestedAsyncGen() {
+  let obj = { x: 2 };
+  with (obj) {
+    async function* outer() {
+      async function* inner() {
+        yield x;
+      }
+      yield* inner();
+    }
+    return outer()
+      .next()
+      .then(function (r) {
+        return r.value === 2;
+      });
+  }
+}
+let vv = false;
+nestedAsyncGen().then(function (ok) {
+  vv = ok;
+});
+
+function asyncGenNotHoistedAnnexB() {
+  with ({}) {
+    async function* agen() {
+      yield 1;
+    }
+  }
+  return typeof agen === "undefined";
+}
+let w = asyncGenNotHoistedAnnexB();
+
+function forAwaitOverAsyncGen() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function* nums() {
+      yield x;
+      yield x + 1;
+      yield x + 2;
+    }
+    return (async function () {
+      let s = 0;
+      for await (let v of nums()) {
+        s = s + v;
+      }
+      return s === 6;
+    })();
+  }
+}
+let aa = false;
+forAwaitOverAsyncGen().then(function (v) {
+  aa = v;
+});
+
+function nextPromiseValueDone() {
+  with ({}) {
+    async function* g() {
+      yield 10;
+      return 30;
+    }
+    let it = g();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return (
+          r1.value === 10 &&
+          r1.done === false &&
+          r2.value === 30 &&
+          r2.done === true
+        );
+      });
+    });
+  }
+}
+let ab = false;
+nextPromiseValueDone().then(function (v) {
+  ab = v;
+});
+
+function awaitInYield() {
+  let obj = { x: Promise.resolve(5) };
+  with (obj) {
+    async function* g() {
+      yield (await x) + 1;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 6;
+      });
+  }
+}
+let ac = false;
+awaitInYield().then(function (v) {
+  ac = v;
+});
+
+function yieldResumeArg() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function* gen() {
+      let y = yield x;
+      yield y;
+    }
+    let it = gen();
+    return it.next().then(function () {
+      return it.next(9).then(function (r) {
+        return r.value === 9;
+      });
+    });
+  }
+}
+let ad = false;
+yieldResumeArg().then(function (v) {
+  ad = v;
+});
+
+function unresolvableThrows() {
+  with ({}) {
+    async function* g() {
+      yield e1702147_miss;
+    }
+    return g()
+      .next()
+      .then(function () {
+        return false;
+      })
+      .catch(function (err) {
+        return (
+          err instanceof ReferenceError &&
+          typeof globalThis.e1702147_miss === "undefined"
+        );
+      });
+  }
+}
+let ae = false;
+unresolvableThrows().then(function (v) {
+  ae = v;
+});
+
+function nestedWithInnerWins() {
+  let inner = { x: 3 };
+  let outer = { x: 10 };
+  with (outer) {
+    with (inner) {
+      async function* g() {
+        yield x;
+      }
+      return g()
+        .next()
+        .then(function (r) {
+          return r.value === 3;
+        });
+    }
+  }
+}
+let af = false;
+nestedWithInnerWins().then(function (v) {
+  af = v;
+});
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: 5 };
+  with (outer) {
+    with (inner) {
+      async function* g() {
+        yield x;
+      }
+      return g()
+        .next()
+        .then(function (r) {
+          return r.value === 5;
+        });
+    }
+  }
+}
+let ag = false;
+nestedInnerMissOuter().then(function (v) {
+  ag = v;
+});
+
+function unscopablesSkip() {
+  let x = 2;
+  let obj = { x: 99 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    async function* g() {
+      yield x;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 2 && obj.x === 99;
+      });
+  }
+}
+let ah = false;
+unscopablesSkip().then(function (v) {
+  ah = v;
+});
+
+function inheritedHasBinding() {
+  let proto = { x: 4 };
+  let obj = Object.create(proto);
+  with (obj) {
+    async function* g() {
+      yield x;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 4;
+      });
+  }
+}
+let aj = false;
+inheritedHasBinding().then(function (v) {
+  aj = v;
+});
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 3;
+    }
+  };
+  with (obj) {
+    async function* g() {
+      yield x;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 3 && seen === obj;
+      });
+  }
+}
+let ak = false;
+accessorGetThisIsWithObject().then(function (v) {
+  ak = v;
+});
+
+function ownUndefinedHasBinding() {
+  let x = 42;
+  let obj = { x: undefined };
+  let p;
+  with (obj) {
+    async function* g() {
+      yield x;
+    }
+    p = g().next();
+  }
+  return p.then(function (r) {
+    return r.value === undefined && x === 42;
+  });
+}
+let al = false;
+ownUndefinedHasBinding().then(function (v) {
+  al = v;
+});
+
+function mixedHitAndMiss() {
+  let y = 12;
+  let obj = { x: 11 };
+  with (obj) {
+    async function* g() {
+      yield x;
+      yield y;
+    }
+    let it = g();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return r1.value === 11 && r2.value === 12;
+      });
+    });
+  }
+}
+let am = false;
+mixedHitAndMiss().then(function (v) {
+  am = v;
+});
+
+function getterRunsOncePerRead() {
+  let count = 0;
+  let obj = {
+    get x() {
+      count = count + 1;
+      return 3;
+    }
+  };
+  with (obj) {
+    async function* g() {
+      yield x;
+      yield x;
+    }
+    let it = g();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return r1.value === 3 && r2.value === 3 && count === 2;
+      });
+    });
+  }
+}
+let an = false;
+getterRunsOncePerRead().then(function (v) {
+  an = v;
+});
+
+function unresolvableDoesNotCreateGlobal() {
+  with ({}) {
+    async function* g() {
+      yield e1702147_noglobal;
+    }
+    return g()
+      .next()
+      .then(function () {
+        return false;
+      })
+      .catch(function (err) {
+        return (
+          err instanceof ReferenceError &&
+          Object.prototype.hasOwnProperty.call(globalThis, "e1702147_noglobal") ===
+            false
+        );
+      });
+  }
+}
+let ap = false;
+unresolvableDoesNotCreateGlobal().then(function (v) {
+  ap = v;
+});
+
+function defaultParamMissUsesOuter() {
+  let x = 6;
+  with ({}) {
+    async function* g(n = x) {
+      yield n;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 6;
+      });
+  }
+}
+let aq = false;
+defaultParamMissUsesOuter().then(function (v) {
+  aq = v;
+});
+
+function iifeAsyncGen() {
+  let obj = { x: 15 };
+  with (obj) {
+    return (async function* () {
+      yield x;
+    })()
+      .next()
+      .then(function (r) {
+        return r.value === 15;
+      });
+  }
+}
+let ar = false;
+iifeAsyncGen().then(function (v) {
+  ar = v;
+});
+
+function classExpressionMethod() {
+  let obj = { x: 8 };
+  with (obj) {
+    let H = class {
+      async *gen() {
+        yield x;
+      }
+    };
+    return new H()
+      .gen()
+      .next()
+      .then(function (r) {
+        return r.value === 8;
+      });
+  }
+}
+let at = false;
+classExpressionMethod().then(function (v) {
+  at = v;
+});
+
+function nestedWithUnscopables() {
+  let x = 3;
+  let inner = { x: 1 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 10 };
+  with (outer) {
+    with (inner) {
+      async function* g() {
+        yield x;
+      }
+      return g()
+        .next()
+        .then(function (r) {
+          return r.value === 10;
+        });
+    }
+  }
+}
+let au = false;
+nestedWithUnscopables().then(function (v) {
+  au = v;
+});
+
+function inheritedAccessorGetThisIsWithObject() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 5;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    async function* g() {
+      yield x;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 5 && seen === obj;
+      });
+  }
+}
+let av = false;
+inheritedAccessorGetThisIsWithObject().then(function (v) {
+  av = v;
+});
+
+function identCalleeHitsObject() {
+  let obj = {
+    fn: function () {
+      return 4;
+    }
+  };
+  with (obj) {
+    async function* g() {
+      yield fn();
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 4;
+      });
+  }
+}
+let aw = false;
+identCalleeHitsObject().then(function (v) {
+  aw = v;
+});
+
+function awaitThenableOnObject() {
+  let obj = { x: Promise.resolve(3) };
+  with (obj) {
+    async function* g() {
+      yield (await x) === 3;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === true;
+      });
+  }
+}
+let ax = false;
+awaitThenableOnObject().then(function (v) {
+  ax = v;
+});
+
+function yieldStarAsyncGenHitsObject() {
+  let obj = { n: 2 };
+  with (obj) {
+    async function* inner() {
+      yield n;
+      yield n + 1;
+    }
+    async function* outer() {
+      yield* inner();
+    }
+    let it = outer();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return r1.value === 2 && r2.value === 3;
+      });
+    });
+  }
+}
+let ay = false;
+yieldStarAsyncGenHitsObject().then(function (v) {
+  ay = v;
+});
+
+function functionInGenClosesOverObject() {
+  let obj = { x: 1 };
+  let run;
+  with (obj) {
+    async function* g() {
+      function inner() {
+        return x;
+      }
+      yield inner;
+    }
+    run = g()
+      .next()
+      .then(function (r) {
+        obj.x = 6;
+        return r.value() === 6;
+      });
+  }
+  return run;
+}
+let az = false;
+functionInGenClosesOverObject().then(function (v) {
+  az = v;
+});
+
+function letInBodyDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    async function* g() {
+      let y = 42;
+      yield y;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 42 && obj.y === undefined;
+      });
+  }
+}
+let ba = false;
+letInBodyDoesNotWriteObject().then(function (v) {
+  ba = v;
+});
+
+function unresolvableAssignThrows() {
+  with ({}) {
+    async function* g() {
+      e1702147_asg = 1;
+      yield 0;
+    }
+    return g()
+      .next()
+      .then(function () {
+        let ok =
+          globalThis.e1702147_asg === 1 &&
+          Object.prototype.hasOwnProperty.call(globalThis, "e1702147_asg");
+        delete globalThis.e1702147_asg;
+        return ok;
+      });
+  }
+}
+let bb = false;
+unresolvableAssignThrows().then(function (v) {
+  bb = v;
+});
+
+function compoundAssignHitsObject() {
+  let obj = { x: 2 };
+  with (obj) {
+    async function* g() {
+      x += 5;
+      yield x;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 7 && obj.x === 7;
+      });
+  }
+}
+let bc = false;
+compoundAssignHitsObject().then(function (v) {
+  bc = v;
+});
+
+function emptyWithObjectUsesOuter() {
+  let x = 5;
+  with ({ z: 1 }) {
+    async function* g() {
+      yield x;
+    }
+    return g()
+      .next()
+      .then(function (r) {
+        return r.value === 5;
+      });
+  }
+}
+let bd = false;
+emptyWithObjectUsesOuter().then(function (v) {
+  bd = v;
+});
+
+function objectMethodThisIsReceiver() {
+  let obj = { x: 9 };
+  with (obj) {
+    let o = {
+      n: 4,
+      async *m() {
+        yield this.n;
+        yield x;
+      }
+    };
+    let it = o.m();
+    return it.next().then(function (r1) {
+      return it.next().then(function (r2) {
+        return r1.value === 4 && r2.value === 9 && obj.n === undefined;
+      });
+    });
+  }
+}
+let be = false;
+objectMethodThisIsReceiver().then(function (v) {
+  be = v;
+});
