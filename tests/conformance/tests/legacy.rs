@@ -1398,3 +1398,13 @@ fn with_accessors_fixture_present() {
 fn with_accessors_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_accessors");
 }
+
+#[test]
+fn with_param_destructure_fixture_present() {
+    assert_fixture_present("es/legacy/with_param_destructure");
+}
+
+#[test]
+fn with_param_destructure_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_param_destructure");
+}
