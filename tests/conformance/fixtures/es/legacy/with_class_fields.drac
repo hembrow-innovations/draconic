@@ -1,0 +1,900 @@
+// E17.02.137: with + Class public fields (E18.26: `class C { x = expr;
+// static y = expr; }` simple ident; instance after super; optional init →
+// undefined) through object environment (non-strict).
+// Instance/static field init idents hit object (else outer); bare field
+// undefined; fields are own instance/class props (do not write object); this
+// in instance field init is the instance, in static is the constructor, not
+// with object; class body is strict (with in method → SyntaxError); inherited
+// HasBinding; accessor get this is with object; unresolvable init →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function instanceFieldInitHitsObject() {
+  let x = 0;
+  let obj = { x: 7 };
+  let out;
+  with (obj) {
+    class C {
+      v = x;
+    }
+    out = new C().v;
+  }
+  return out === 7 && x === 0;
+}
+let a = instanceFieldInitHitsObject();
+
+function instanceFieldInitMissUsesOuter() {
+  let x = 4;
+  let out;
+  with ({}) {
+    class C {
+      v = x;
+    }
+    out = new C().v;
+  }
+  return out === 4;
+}
+let b = instanceFieldInitMissUsesOuter();
+
+function staticFieldInitHitsObject() {
+  let x = 0;
+  let obj = { x: 9 };
+  let out;
+  with (obj) {
+    class C {
+      static v = x;
+    }
+    out = C.v;
+  }
+  return out === 9 && x === 0;
+}
+let c = staticFieldInitHitsObject();
+
+function staticFieldInitMissUsesOuter() {
+  let x = 5;
+  let out;
+  with ({}) {
+    class C {
+      static v = x;
+    }
+    out = C.v;
+  }
+  return out === 5;
+}
+let d = staticFieldInitMissUsesOuter();
+
+function bareInstanceFieldUndefined() {
+  let out;
+  let ty;
+  with ({ x: 1 }) {
+    class C {
+      z;
+    }
+    let inst = new C();
+    out = inst.z;
+    ty = typeof inst.z;
+  }
+  return out === undefined && ty === "undefined";
+}
+let e = bareInstanceFieldUndefined();
+
+function bareStaticFieldUndefined() {
+  let ty;
+  with ({ x: 1 }) {
+    class C {
+      static empty;
+    }
+    ty = typeof C.empty;
+  }
+  return ty === "undefined";
+}
+let f = bareStaticFieldUndefined();
+
+function fieldsDoNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      y = 2;
+      static z = 3;
+    }
+    let inst = new C();
+    return (
+      inst.y === 2 &&
+      C.z === 3 &&
+      obj.y === undefined &&
+      obj.z === undefined &&
+      Object.prototype.hasOwnProperty.call(obj, "y") === false &&
+      Object.prototype.hasOwnProperty.call(obj, "z") === false
+    );
+  }
+}
+let g = fieldsDoNotWriteObject();
+
+function instanceThisIsInstanceNotWithObject() {
+  let obj = { x: 99 };
+  let seen = null;
+  let inst;
+  with (obj) {
+    class C {
+      n = 8;
+      v = (seen = this, this.n);
+    }
+    inst = new C();
+  }
+  return inst.v === 8 && seen === inst && obj.x === 99;
+}
+let h = instanceThisIsInstanceNotWithObject();
+
+function staticThisIsConstructorNotWithObject() {
+  let obj = { x: 99 };
+  let seen = null;
+  let Ctor;
+  with (obj) {
+    class C {
+      static n = 4;
+      static v = (seen = this, this.n);
+    }
+    Ctor = C;
+  }
+  return Ctor.v === 4 && seen === Ctor && obj.x === 99;
+}
+let j = staticThisIsConstructorNotWithObject();
+
+function derivedInstanceAfterSuper() {
+  let x = 0;
+  let obj = { x: 10 };
+  let base;
+  let extra;
+  let total;
+  with (obj) {
+    class Parent {
+      base = x;
+    }
+    class Child extends Parent {
+      extra = 1;
+      constructor() {
+        super();
+      }
+      sum() {
+        return this.base + this.extra;
+      }
+    }
+    let ch = new Child();
+    base = ch.base;
+    extra = ch.extra;
+    total = ch.sum();
+  }
+  return base === 10 && extra === 1 && total === 11 && x === 0;
+}
+let k = derivedInstanceAfterSuper();
+
+function derivedCtorBodySeesFieldsAfterSuper() {
+  let obj = { x: 6 };
+  let out;
+  with (obj) {
+    class Parent {}
+    class Child extends Parent {
+      v = x;
+      constructor() {
+        super();
+        this.w = this.v;
+      }
+    }
+    out = new Child().w;
+  }
+  return out === 6;
+}
+let l = derivedCtorBodySeesFieldsAfterSuper();
+
+function unresolvableInstanceInitThrows() {
+  with ({}) {
+    class C {
+      v = e1702137_inst;
+    }
+    try {
+      new C();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702137_inst === "undefined"
+      );
+    }
+  }
+}
+let m = unresolvableInstanceInitThrows();
+
+function unresolvableStaticInitThrows() {
+  try {
+    with ({}) {
+      class C {
+        static v = e1702137_stat;
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702137_stat === "undefined"
+    );
+  }
+}
+let n = unresolvableStaticInitThrows();
+
+function liveCloseInstance() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    Ctor = class {
+      v = x;
+    };
+  }
+  obj.x = 9;
+  return new Ctor().v === 9;
+}
+let p = liveCloseInstance();
+
+function staticInitCapturedAtClassEval() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    Ctor = class {
+      static v = x;
+    };
+  }
+  obj.x = 9;
+  return Ctor.v === 1;
+}
+let q = staticInitCapturedAtClassEval();
+
+function liveCloseStaticFunction() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    Ctor = class {
+      static run = function () {
+        return x;
+      };
+    };
+  }
+  obj.x = 9;
+  return Ctor.run() === 9;
+}
+let r = liveCloseStaticFunction();
+
+function nestedWithInnerWinsInstance() {
+  let inner = { x: 3 };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        v = x;
+      }
+      out = new C().v;
+    }
+  }
+  return out === 3;
+}
+let s = nestedWithInnerWinsInstance();
+
+function nestedWithInnerWinsStatic() {
+  let inner = { x: 2 };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static v = x;
+      }
+      out = C.v;
+    }
+  }
+  return out === 2;
+}
+let t = nestedWithInnerWinsStatic();
+
+function nestedInnerMissOuterInstance() {
+  let inner = {};
+  let outer = { x: 5 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        v = x;
+      }
+      out = new C().v;
+    }
+  }
+  return out === 5;
+}
+let u = nestedInnerMissOuterInstance();
+
+function unscopablesSkipInstance() {
+  let x = 2;
+  let obj = { x: 99 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    class C {
+      v = x;
+    }
+    out = new C().v;
+  }
+  return out === 2 && obj.x === 99;
+}
+let v = unscopablesSkipInstance();
+
+function unscopablesSkipStatic() {
+  let x = 4;
+  let obj = { x: 99 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    class C {
+      static v = x;
+    }
+    out = C.v;
+  }
+  return out === 4 && obj.x === 99;
+}
+let w = unscopablesSkipStatic();
+
+function inheritedHasBindingInstance() {
+  let proto = { x: 4 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    class C {
+      v = x;
+    }
+    out = new C().v;
+  }
+  return out === 4;
+}
+let aa = inheritedHasBindingInstance();
+
+function inheritedHasBindingStatic() {
+  let proto = { x: 8 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    class C {
+      static v = x;
+    }
+    out = C.v;
+  }
+  return out === 8;
+}
+let ab = inheritedHasBindingStatic();
+
+function accessorGetThisIsWithObjectInstance() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 3;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      v = x;
+    }
+    out = new C().v;
+  }
+  return out === 3 && seen === obj;
+}
+let ac = accessorGetThisIsWithObjectInstance();
+
+function accessorGetThisIsWithObjectStatic() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 6;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static v = x;
+    }
+    out = C.v;
+  }
+  return out === 6 && seen === obj;
+}
+let ad = accessorGetThisIsWithObjectStatic();
+
+function withInClassMethodSyntaxError() {
+  try {
+    eval("class C { v = 1; m() { with ({}) { return this.v; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ae = withInClassMethodSyntaxError();
+
+function classExpressionFields() {
+  let x = 0;
+  let obj = { x: 6 };
+  let out;
+  let st;
+  with (obj) {
+    let H = class {
+      v = x;
+      static s = x;
+    };
+    out = new H().v;
+    st = H.s;
+  }
+  return out === 6 && st === 6 && x === 0;
+}
+let af = classExpressionFields();
+
+function nestedClassFields() {
+  let obj = { x: 2 };
+  let out;
+  with (obj) {
+    class Outer {
+      inner() {
+        class Inner {
+          v = x;
+        }
+        return new Inner().v;
+      }
+    }
+    out = new Outer().inner();
+  }
+  return out === 2;
+}
+let ag = nestedClassFields();
+
+function computedFieldNameHitsObject() {
+  let k = "no";
+  let obj = { k: "z" };
+  let out;
+  with (obj) {
+    class C {
+      [k] = 7;
+    }
+    out = new C().z;
+  }
+  return out === 7 && k === "no";
+}
+let ah = computedFieldNameHitsObject();
+
+function computedStaticFieldNameHitsObject() {
+  let k = "no";
+  let obj = { k: "tag" };
+  let out;
+  with (obj) {
+    class C {
+      static [k] = 11;
+    }
+    out = C.tag;
+  }
+  return out === 11 && k === "no";
+}
+let aj = computedStaticFieldNameHitsObject();
+
+function multipleInstanceFieldsEvalOrder() {
+  let log = [];
+  let obj = {
+    a: 1,
+    b: 2,
+    get first() {
+      log.push("first");
+      return 10;
+    },
+    get second() {
+      log.push("second");
+      return 20;
+    }
+  };
+  let p0;
+  let p1;
+  with (obj) {
+    class C {
+      x = first;
+      y = second;
+    }
+    let inst = new C();
+    p0 = inst.x;
+    p1 = inst.y;
+  }
+  return p0 === 10 && p1 === 20 && log[0] === "first" && log[1] === "second";
+}
+let ak = multipleInstanceFieldsEvalOrder();
+
+function staticThenInstanceEvalOrder() {
+  let log = [];
+  let obj = {
+    get s() {
+      log.push("s");
+      return 1;
+    },
+    get i() {
+      log.push("i");
+      return 2;
+    }
+  };
+  let st;
+  let iv;
+  with (obj) {
+    class C {
+      static sv = s;
+      iv = i;
+    }
+    st = C.sv;
+    iv = new C().iv;
+  }
+  return st === 1 && iv === 2 && log[0] === "s" && log[1] === "i";
+}
+let al = staticThenInstanceEvalOrder();
+
+function namedEvaluationInstanceFunction() {
+  let obj = { x: 1 };
+  let nm;
+  with (obj) {
+    class C {
+      inst = function () {
+        return x;
+      };
+    }
+    nm = new C().inst.name;
+  }
+  return nm === "inst";
+}
+let am = namedEvaluationInstanceFunction();
+
+function namedEvaluationStaticFunction() {
+  let obj = { x: 1 };
+  let nm;
+  with (obj) {
+    class C {
+      static field = function () {
+        return x;
+      };
+    }
+    nm = C.field.name;
+  }
+  return nm === "field";
+}
+let an = namedEvaluationStaticFunction();
+
+function fieldInitExprArithmetic() {
+  let obj = { n: 2 };
+  let out;
+  with (obj) {
+    class C {
+      v = 1 + n * 3;
+    }
+    out = new C().v;
+  }
+  return out === 7;
+}
+let ap = fieldInitExprArithmetic();
+
+function methodReadsField() {
+  let obj = { x: 3 };
+  let out;
+  with (obj) {
+    class C {
+      n = x;
+      sum() {
+        return this.n + x;
+      }
+    }
+    out = new C().sum();
+  }
+  return out === 6;
+}
+let aq = methodReadsField();
+
+function assignFieldAfterConstruct() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      n = x;
+    }
+    let inst = new C();
+    inst.n = 5;
+    return inst.n === 5 && obj.n === undefined && obj.x === 1;
+  }
+}
+let ar = assignFieldAfterConstruct();
+
+function ownUndefinedHasBinding() {
+  let x = 42;
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    class C {
+      v = x;
+    }
+    out = new C().v;
+  }
+  return out === undefined && x === 42;
+}
+let at = ownUndefinedHasBinding();
+
+function deleteIdentThenUnresolvable() {
+  let obj = { x: 3 };
+  with (obj) {
+    delete x;
+    class C {
+      v = e1702137_afterdel;
+    }
+    try {
+      new C();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702137_afterdel === "undefined"
+      );
+    }
+  }
+}
+let au = deleteIdentThenUnresolvable();
+
+function nestedWithUnscopables() {
+  let x = 3;
+  let inner = { x: 1 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        v = x;
+      }
+      out = new C().v;
+    }
+  }
+  return out === 10;
+}
+let av = nestedWithUnscopables();
+
+function inheritedAccessorGetThisIsWithObject() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 5;
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    class C {
+      v = x;
+    }
+    out = new C().v;
+  }
+  return out === 5 && seen === obj;
+}
+let aw = inheritedAccessorGetThisIsWithObject();
+
+function liveCloseMethodAfterMutate() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    class C {
+      n = 2;
+      m() {
+        return this.n + x;
+      }
+    }
+    Ctor = C;
+  }
+  obj.x = 8;
+  return new Ctor().m() === 10;
+}
+let ax = liveCloseMethodAfterMutate();
+
+function staticFieldRefersToThisPrevious() {
+  let obj = { x: "test" };
+  let out;
+  with (obj) {
+    class C {
+      static f = x;
+      static g = this.f + "262";
+    }
+    out = C.g;
+  }
+  return out === "test262";
+}
+let ay = staticFieldRefersToThisPrevious();
+
+function instanceFieldUsesThisOtherField() {
+  let obj = { x: 1 };
+  let out;
+  with (obj) {
+    class C {
+      n = x;
+      m = this.n + 2;
+    }
+    out = new C().m;
+  }
+  return out === 3;
+}
+let az = instanceFieldUsesThisOtherField();
+
+function fieldNamedSameAsWithProp() {
+  let obj = { x: 99 };
+  let instX;
+  with (obj) {
+    class C {
+      x = 1;
+    }
+    instX = new C().x;
+  }
+  return instX === 1 && obj.x === 99;
+}
+let ba = fieldNamedSameAsWithProp();
+
+function identCalleeInFieldInit() {
+  let obj = {
+    fn: function () {
+      return 4;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      v = fn();
+    }
+    out = new C().v;
+  }
+  return out === 4;
+}
+let bb = identCalleeInFieldInit();
+
+function classNameInStaticField() {
+  let obj = {};
+  let nm;
+  with (obj) {
+    class Named {
+      static f = this.name;
+    }
+    nm = Named.f;
+  }
+  return nm === "Named";
+}
+let bc = classNameInStaticField();
+
+function extendsIdentHitsObject() {
+  function Inner() {}
+  Inner.prototype.n = function () {
+    return 7;
+  };
+  let obj = { Base: Inner, x: 2 };
+  let instOk;
+  let field;
+  with (obj) {
+    class C extends Base {
+      v = x;
+    }
+    let inst = new C();
+    instOk = inst instanceof Inner;
+    field = inst.v;
+  }
+  return instOk === true && field === 2;
+}
+let bd = extendsIdentHitsObject();
+
+function getterRunsOncePerFieldInit() {
+  let count = 0;
+  let obj = {
+    get x() {
+      count = count + 1;
+      return 3;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      a = x;
+      b = x;
+    }
+    let inst = new C();
+    out = inst.a + inst.b;
+  }
+  return out === 6 && count === 2;
+}
+let be = getterRunsOncePerFieldInit();
+
+function unresolvableComputedKeyThrows() {
+  try {
+    with ({}) {
+      class C {
+        [e1702137_key] = 1;
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702137_key === "undefined"
+    );
+  }
+}
+let bf = unresolvableComputedKeyThrows();
+
+function nestedWithUnscopablesStatic() {
+  let x = 3;
+  let inner = { x: 1 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static v = x;
+      }
+      out = C.v;
+    }
+  }
+  return out === 10;
+}
+let bg = nestedWithUnscopablesStatic();
+
+function liveCloseTwoInstancesIndependent() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    Ctor = class {
+      v = x;
+    };
+  }
+  let first = new Ctor().v;
+  obj.x = 9;
+  let second = new Ctor().v;
+  return first === 1 && second === 9;
+}
+let bh = liveCloseTwoInstancesIndependent();
+
+function staticDoesNotInstallOnInstance() {
+  let obj = { x: 3 };
+  with (obj) {
+    class C {
+      static s = x;
+      n = x;
+    }
+    let inst = new C();
+    return (
+      C.s === 3 &&
+      inst.n === 3 &&
+      inst.s === undefined &&
+      Object.prototype.hasOwnProperty.call(inst, "s") === false
+    );
+  }
+}
+let bi = staticDoesNotInstallOnInstance();
+
+function instanceDoesNotInstallOnCtor() {
+  let obj = { x: 3 };
+  with (obj) {
+    class C {
+      n = x;
+    }
+    let inst = new C();
+    return inst.n === 3 && C.n === undefined;
+  }
+}
+let bj = instanceDoesNotInstallOnCtor();
+
+function namedClassExpressionFields() {
+  let obj = { x: 8 };
+  let out;
+  with (obj) {
+    let H = class Name {
+      v = x;
+    };
+    out = new H().v;
+  }
+  return out === 8;
+}
+let bk = namedClassExpressionFields();
