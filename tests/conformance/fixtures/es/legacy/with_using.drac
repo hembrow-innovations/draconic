@@ -1,0 +1,607 @@
+// E17.02.152: with + using / await using (E19.44: `using x = expr` /
+// `await using x = expr` / `for (using x of …)`) through object environment
+// (non-strict). Init/iterable idents hit object (else outer); using/await in
+// declaration syntax are not IdentifierReference (those props do not shadow
+// the declaration); bindings are block-local (do not write object); using as
+// IdentifierReference still hits object; dispose runs at block end; disposer
+// this is the resource; inherited HasBinding; accessor get this is with
+// object; unresolvable init → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function res(fn) {
+  return {
+    [Symbol.dispose]: fn
+  };
+}
+
+function usingLocalDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    using x = null;
+  }
+  return obj.x === 1;
+}
+let a = usingLocalDoesNotWriteObject();
+
+function initHitsObject() {
+  let obj = { r: null };
+  with (obj) {
+    using x = r;
+    return x === null && obj.r === null;
+  }
+}
+let b = initHitsObject();
+
+function initMissUsesOuter() {
+  let r = null;
+  with ({}) {
+    using x = r;
+    return x === null;
+  }
+}
+let c = initMissUsesOuter();
+
+function liveClose() {
+  let obj = { r: 7 };
+  let run;
+  with (obj) {
+    run = function () {
+      return r;
+    };
+  }
+  obj.r = 1;
+  return run() === 1;
+}
+let d = liveClose();
+
+function inheritedHasBinding() {
+  let proto = { r: null };
+  let env = Object.create(proto);
+  with (env) {
+    using x = r;
+    return x === null;
+  }
+}
+let e = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get r() {
+      seen = this;
+      return null;
+    }
+  };
+  with (env) {
+    using x = r;
+    return x === null && seen === env;
+  }
+}
+let f = accessorGetThisIsWithObject();
+
+function unresolvableInitThrows() {
+  with ({}) {
+    try {
+      using x = missing;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let g = unresolvableInitThrows();
+
+function nestedWithInnerWins() {
+  let inner = { r: 7 };
+  let outer = { r: 1 };
+  with (outer) {
+    with (inner) {
+      return r === 7;
+    }
+  }
+}
+let h = nestedWithInnerWins();
+
+function unscopablesSkip() {
+  let using = 1;
+  let env = { using: 7 };
+  env[Symbol.unscopables] = { using: true };
+  with (env) {
+    return using === 1;
+  }
+}
+let j = unscopablesSkip();
+
+function nestedWithUnscopables() {
+  let inner = { r: 3 };
+  inner[Symbol.unscopables] = { r: true };
+  let outer = { r: 7 };
+  with (outer) {
+    with (inner) {
+      return r === 7 && inner.r === 3;
+    }
+  }
+}
+let k = nestedWithUnscopables();
+
+function usingIdentHitsObject() {
+  let obj = { using: 7 };
+  with (obj) {
+    return using === 7;
+  }
+}
+let l = usingIdentHitsObject();
+
+function usingIdentMissUsesOuter() {
+  let using = 3;
+  with ({}) {
+    return using === 3;
+  }
+}
+let m = usingIdentMissUsesOuter();
+
+function usingPropDoesNotShadowDecl() {
+  let obj = { using: 99 };
+  with (obj) {
+    using x = null;
+    return obj.using === 99;
+  }
+}
+let n = usingPropDoesNotShadowDecl();
+
+function disposeRunsAtBlockEnd() {
+  let count = 0;
+  let r = res(function () {
+    count = count + 1;
+  });
+  with ({}) {
+    using x = r;
+    if (count !== 0) {
+      return false;
+    }
+  }
+  return count === 1;
+}
+let p = disposeRunsAtBlockEnd();
+
+function disposerThisIsResource() {
+  let seen = null;
+  let r = {
+    [Symbol.dispose]() {
+      seen = this;
+    }
+  };
+  with ({}) {
+    using x = r;
+  }
+  return seen === r;
+}
+let q = disposerThisIsResource();
+
+function tdzVsObject() {
+  let obj = { x: 2 };
+  try {
+    with (obj) {
+      x;
+      using x = null;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError && obj.x === 2;
+  }
+}
+let r = tdzVsObject();
+
+function usingReassignTypeError() {
+  let obj = { x: 1 };
+  try {
+    with (obj) {
+      using x = null;
+      x = 3;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof TypeError && obj.x === 1;
+  }
+}
+let s = usingReassignTypeError();
+
+function skippedIfDoesNotDispose() {
+  let count = 0;
+  let resource = res(function () {
+    count = count + 1;
+  });
+  with ({}) {
+    if (false) {
+      using x = resource;
+    }
+  }
+  return count === 0;
+}
+let t = skippedIfDoesNotDispose();
+
+function usingStatementPositionSyntaxError() {
+  try {
+    eval("with ({}) if (true) using x = null;");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let u = usingStatementPositionSyntaxError();
+
+function usingIdentAssignHitsObject() {
+  let obj = { using: 1 };
+  with (obj) {
+    using = 7;
+    return using === 7 && obj.using === 7;
+  }
+}
+let vv = usingIdentAssignHitsObject();
+
+function typeofUsingHitsObject() {
+  let obj = { using: 7 };
+  with (obj) {
+    return typeof using === "number";
+  }
+}
+let w = typeofUsingHitsObject();
+
+function deleteUsingOwn() {
+  let obj = { using: 7 };
+  with (obj) {
+    let ok = delete using;
+    return ok === true && obj.using === undefined;
+  }
+}
+let aa = deleteUsingOwn();
+
+function voidUsingHitsObject() {
+  let count = 0;
+  let env = {
+    get using() {
+      count = count + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    return void using === undefined && count === 1;
+  }
+}
+let ab = voidUsingHitsObject();
+
+function dstrDefaultUsingHitsObject() {
+  let x;
+  let obj = { using: 7 };
+  with (obj) {
+    [x = using] = [];
+    return x === 7;
+  }
+}
+let ac = dstrDefaultUsingHitsObject();
+
+function objectShorthandUsingHitsObject() {
+  let obj = { using: 7 };
+  with (obj) {
+    let o = { using };
+    return o.using === 7;
+  }
+}
+let ad = objectShorthandUsingHitsObject();
+
+function arrowParamDefaultUsingHitsObject() {
+  let obj = { using: 7 };
+  with (obj) {
+    let fn = (x = using) => x;
+    return fn() === 7 && fn(3) === 3;
+  }
+}
+let ae = arrowParamDefaultUsingHitsObject();
+
+function awaitUsingInitHitsObject() {
+  let obj = { r: null };
+  with (obj) {
+    async function f() {
+      await using x = r;
+      return x === null && obj.r === null;
+    }
+    return f();
+  }
+}
+let af = false;
+awaitUsingInitHitsObject().then(function (v) {
+  af = v;
+});
+
+function awaitUsingDispose() {
+  let count = 0;
+  let resource = res(function () {
+    count = count + 1;
+  });
+  async function f() {
+    with ({}) {
+      await using x = resource;
+    }
+    return count === 1;
+  }
+  return f();
+}
+let ag = false;
+awaitUsingDispose().then(function (v) {
+  ag = v;
+});
+
+function awaitUsingPropDoesNotShadow() {
+  let obj = { await: 99, using: 98 };
+  async function f() {
+    with (obj) {
+      await using x = null;
+      return obj.await === 99 && obj.using === 98;
+    }
+  }
+  return f();
+}
+let ah = false;
+awaitUsingPropDoesNotShadow().then(function (v) {
+  ah = v;
+});
+
+function forUsingOfIterableHitsObject() {
+  let obj = { xs: [null, null] };
+  let n = 0;
+  with (obj) {
+    for (using x of xs) {
+      n = n + 1;
+    }
+  }
+  return n === 2 && obj.xs.length === 2;
+}
+let aj = forUsingOfIterableHitsObject();
+
+function forUsingBindingLocal() {
+  let obj = { xs: [null], x: 1 };
+  with (obj) {
+    for (using x of xs) {
+    }
+  }
+  return obj.x === 1;
+}
+let ak = forUsingBindingLocal();
+
+function forUsingDisposeEach() {
+  let count = 0;
+  let xs = [
+    res(function () {
+      count = count + 1;
+    }),
+    res(function () {
+      count = count + 1;
+    })
+  ];
+  let obj = { xs: xs };
+  with (obj) {
+    for (using x of xs) {
+    }
+  }
+  return count === 2;
+}
+let al = forUsingDisposeEach();
+
+function classBodyStrictWithSyntaxError() {
+  try {
+    eval("class C { m() { with ({}) { using x = null; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let am = classBodyStrictWithSyntaxError();
+
+function evalUsingIdentHitsObject() {
+  let obj = { using: 7 };
+  with (obj) {
+    return eval("using") === 7;
+  }
+}
+let an = evalUsingIdentHitsObject();
+
+function usingConcatIdent() {
+  let obj = { using: "a", x: "b" };
+  with (obj) {
+    return using + x === "ab";
+  }
+}
+let ap = usingConcatIdent();
+
+function compoundAssignUsingIdent() {
+  let obj = { using: 2 };
+  with (obj) {
+    using += 5;
+    return using === 7 && obj.using === 7;
+  }
+}
+let aq = compoundAssignUsingIdent();
+
+function updateUsingIdent() {
+  let obj = { using: 6 };
+  with (obj) {
+    using++;
+    return using === 7 && obj.using === 7;
+  }
+}
+let ar = updateUsingIdent();
+
+function catchParamNamedUsingShadows() {
+  let obj = { using: 7 };
+  with (obj) {
+    try {
+      throw 3;
+    } catch (using) {
+      return using === 3 && obj.using === 7;
+    }
+  }
+}
+let at = catchParamNamedUsingShadows();
+
+function functionParamNamedUsing() {
+  function take(using) {
+    return using;
+  }
+  let obj = { using: 7 };
+  with (obj) {
+    return take(using) === 7;
+  }
+}
+let au = functionParamNamedUsing();
+
+function objectAssignPatternUsingHitsObject() {
+  let obj = { using: 1 };
+  with (obj) {
+    ({ using } = { using: 7 });
+    return using === 7 && obj.using === 7;
+  }
+}
+let av = objectAssignPatternUsingHitsObject();
+
+function templateInterpUsingIdent() {
+  let obj = { using: 7 };
+  with (obj) {
+    return `n${using}` === "n7";
+  }
+}
+let aw = templateInterpUsingIdent();
+
+function computedKeyUsingHitsObject() {
+  let obj = { using: "k" };
+  with (obj) {
+    let o = { [using]: 7 };
+    return o.k === 7;
+  }
+}
+let ax = computedKeyUsingHitsObject();
+
+function unresolvableUsingIdentAssignIsImplicitGlobal() {
+  with ({}) {
+    using = 7;
+    let ok = globalThis.using === 7;
+    delete globalThis.using;
+    return ok;
+  }
+}
+let ay = unresolvableUsingIdentAssignIsImplicitGlobal();
+
+function usingThenOuterStillOuter() {
+  let using = 1;
+  let obj = { using: 7 };
+  with (obj) {
+    using;
+  }
+  return using === 1;
+}
+let az = usingThenOuterStillOuter();
+
+function nullUsingIsNoOp() {
+  with ({}) {
+    using x = null;
+    using y = undefined;
+  }
+  return true;
+}
+let ba = nullUsingIsNoOp();
+
+function disposeOnReturn() {
+  let count = 0;
+  let resource = res(function () {
+    count = count + 1;
+  });
+  function inner() {
+    with ({}) {
+      using x = resource;
+      return 7;
+    }
+  }
+  return inner() === 7 && count === 1;
+}
+let bb = disposeOnReturn();
+
+function disposeOnThrow() {
+  let count = 0;
+  let resource = res(function () {
+    count = count + 1;
+  });
+  try {
+    with ({}) {
+      using x = resource;
+      throw 1;
+    }
+  } catch (err) {
+    return err === 1 && count === 1;
+  }
+}
+let bc = disposeOnThrow();
+
+function multiUsingReverseDisposeOrder() {
+  let order = "";
+  let first = res(function () {
+    order = order + "a";
+  });
+  let second = res(function () {
+    order = order + "b";
+  });
+  with ({}) {
+    using x = first, y = second;
+  }
+  return order === "ba";
+}
+let bd = multiUsingReverseDisposeOrder();
+
+function nestedWithOuterAfterInner() {
+  let inner = { using: 1 };
+  let outer = { using: 7 };
+  with (outer) {
+    with (inner) {
+      using;
+    }
+    return using === 7;
+  }
+}
+let be = nestedWithOuterAfterInner();
+
+function getterRunsOnceOnInit() {
+  let count = 0;
+  let env = {
+    get r() {
+      count = count + 1;
+      return null;
+    }
+  };
+  with (env) {
+    using x = r;
+    return x === null && count === 1;
+  }
+}
+let bf = getterRunsOnceOnInit();
+
+function usingInitIsUsingIdent() {
+  let obj = { using: null };
+  with (obj) {
+    using x = using;
+    return x === null && obj.using === null;
+  }
+}
+let bg = usingInitIsUsingIdent();
+
+function liveCloseTwoIndependent() {
+  let env = { r: 7 };
+  let run;
+  with (env) {
+    run = function () {
+      return r;
+    };
+  }
+  let a1 = run();
+  env.r = 1;
+  let a2 = run();
+  return a1 === 7 && a2 === 1;
+}
+let bh = liveCloseTwoIndependent();
