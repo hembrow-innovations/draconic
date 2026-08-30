@@ -1688,3 +1688,13 @@ fn with_namespace_import_fixture_present() {
 fn with_namespace_import_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_namespace_import");
 }
+
+#[test]
+fn with_cyclic_modules_fixture_present() {
+    assert_fixture_present("es/legacy/with_cyclic_modules");
+}
+
+#[test]
+fn with_cyclic_modules_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_cyclic_modules");
+}
