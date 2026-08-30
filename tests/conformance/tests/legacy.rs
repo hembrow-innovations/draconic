@@ -1668,3 +1668,13 @@ fn with_export_default_fixture_present() {
 fn with_export_default_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_export_default");
 }
+
+#[test]
+fn with_named_export_import_fixture_present() {
+    assert_fixture_present("es/legacy/with_named_export_import");
+}
+
+#[test]
+fn with_named_export_import_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_named_export_import");
+}
