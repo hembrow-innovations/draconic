@@ -1308,3 +1308,13 @@ fn with_if_function_fixture_present() {
 fn with_if_function_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_if_function");
 }
+
+#[test]
+fn with_block_function_fixture_present() {
+    assert_fixture_present("es/legacy/with_block_function");
+}
+
+#[test]
+fn with_block_function_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_block_function");
+}

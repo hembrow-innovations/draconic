@@ -1,0 +1,638 @@
+// E17.02.127: with + block-level function declarations (Annex B.3.3:
+// `{ function f(){…} }`, non-strict) through object environment.
+// Body idents hit object (else outer); name bound in enclosing
+// statement list (not the object); assigned when block runs; skipped
+// block not assigned; sequential blocks last wins; block-local inside
+// block; function closes over object env (live); nested block; let in
+// function does not write object; inherited HasBinding; accessor this
+// is with object; unresolvable → ReferenceError; live close; nested
+// with; unscopables skip.
+
+function bodyIdentHitsObject() {
+  let obj = { x: 5 };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 5;
+}
+let a = bodyIdentHitsObject();
+
+function bodyIdentMissUsesOuter() {
+  let x = 5;
+  with ({}) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 5;
+}
+let b = bodyIdentMissUsesOuter();
+
+function bodyIdentShadowsOuter() {
+  let x = 0;
+  let obj = { x: 5 };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 5 && x === 0;
+}
+let c = bodyIdentShadowsOuter();
+
+function nameHoistedEnclosingNotObject() {
+  let obj = {};
+  with (obj) {
+    {
+      function f() {
+        return 1;
+      }
+    }
+  }
+  return (
+    typeof f === "function" &&
+    f() === 1 &&
+    Object.prototype.hasOwnProperty.call(obj, "f") === false &&
+    obj.f === undefined
+  );
+}
+let d = nameHoistedEnclosingNotObject();
+
+function typeofBeforeBlock() {
+  let before = typeof f;
+  with ({}) {
+    {
+      function f() {
+        return 7;
+      }
+    }
+  }
+  return before === "undefined" && typeof f === "function" && f() === 7;
+}
+let e = typeofBeforeBlock();
+
+function skippedBlockNotAssigned() {
+  if (false) {
+    with ({}) {
+      {
+        function k() {
+          return 1;
+        }
+      }
+    }
+  }
+  return typeof k === "undefined";
+}
+let f = skippedBlockNotAssigned();
+
+function sequentialBlocksLastWins() {
+  with ({}) {
+    {
+      function m() {
+        return 1;
+      }
+    }
+    {
+      function m() {
+        return 2;
+      }
+    }
+  }
+  return m() === 2;
+}
+let g = sequentialBlocksLastWins();
+
+function blockLocalInsideBlock() {
+  let obj = { f: 99 };
+  let inside;
+  with (obj) {
+    {
+      function f() {
+        return 1;
+      }
+      inside = typeof f === "function" && f() === 1;
+    }
+  }
+  return inside === true && f() === 1 && obj.f === 99;
+}
+let h = blockLocalInsideBlock();
+
+function liveClose() {
+  let obj = { x: 1 };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  obj.x = 9;
+  return f() === 9;
+}
+let i = liveClose();
+
+function callInsideWithAfterBlock() {
+  let obj = { x: 4 };
+  let out;
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+    out = f();
+  }
+  return out === 4;
+}
+let j = callInsideWithAfterBlock();
+
+function callInsideBlock() {
+  let obj = { x: 4 };
+  let out;
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+      out = f();
+    }
+  }
+  return out === 4;
+}
+let k = callInsideBlock();
+
+function paramsShadowObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    {
+      function f(x) {
+        return x;
+      }
+    }
+  }
+  return f(4) === 4 && f() === undefined;
+}
+let l = paramsShadowObject();
+
+function letInFunctionDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    {
+      function f() {
+        let x = 5;
+        x = 6;
+        return x;
+      }
+    }
+  }
+  return f() === 6 && obj.x === 1;
+}
+let m = letInFunctionDoesNotWriteObject();
+
+function unresolvableThrows() {
+  with ({}) {
+    {
+      function f() {
+        return e1702127_missing;
+      }
+    }
+  }
+  try {
+    f();
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702127_missing === "undefined"
+    );
+  }
+}
+let p = unresolvableThrows();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 1;
+    }
+  };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 1 && seen === obj;
+}
+let q = accessorThisIsWithObject();
+
+function unscopablesUsesOuter() {
+  let x = 1;
+  let obj = { x: 99 };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 1 && obj.x === 99;
+}
+let r = unscopablesUsesOuter();
+
+function inheritedHasBinding() {
+  let proto = { x: 8 };
+  let obj = Object.create(proto);
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 8;
+}
+let s = inheritedHasBinding();
+
+function nestedInnerWins() {
+  let inner = { x: 1 };
+  let outer = { x: 0 };
+  with (outer) {
+    with (inner) {
+      {
+        function f() {
+          return x;
+        }
+      }
+    }
+  }
+  return f() === 1;
+}
+let t = nestedInnerWins();
+
+function nestedInnerMissUsesOuter() {
+  let inner = {};
+  let outer = { x: 3 };
+  with (outer) {
+    with (inner) {
+      {
+        function f() {
+          return x;
+        }
+      }
+    }
+  }
+  return f() === 3;
+}
+let u = nestedInnerMissUsesOuter();
+
+function bareCallThisIsGlobal() {
+  let obj = { x: 1 };
+  with (obj) {
+    {
+      function f() {
+        return this === globalThis;
+      }
+    }
+  }
+  return f() === true;
+}
+let v = bareCallThisIsGlobal();
+
+function multipleBlockFunctions() {
+  let obj = { x: 1, y: 2 };
+  with (obj) {
+    {
+      function fa() {
+        return x;
+      }
+    }
+    {
+      function fb() {
+        return y;
+      }
+    }
+  }
+  return fa() === 1 && fb() === 2;
+}
+let w = multipleBlockFunctions();
+
+function letNotOverwrittenByBlockFnInWith() {
+  let y = 1;
+  with ({}) {
+    {
+      function y() {
+        return 2;
+      }
+    }
+  }
+  return y === 1;
+}
+let ab = letNotOverwrittenByBlockFnInWith();
+
+function constNotOverwrittenByBlockFnInWith() {
+  const y = 1;
+  with ({}) {
+    {
+      function y() {
+        return 2;
+      }
+    }
+  }
+  return y === 1;
+}
+let ac = constNotOverwrittenByBlockFnInWith();
+
+function nestedWithBlockFn() {
+  let inner = { x: 2 };
+  let outer = { x: 1 };
+  with (outer) {
+    with (inner) {
+      {
+        function n() {
+          return x;
+        }
+      }
+    }
+  }
+  inner.x = 8;
+  return n() === 8;
+}
+let ad = nestedWithBlockFn();
+
+function liveCloseAfterMutateOuter() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  obj.x = 10;
+  x = 99;
+  return f() === 10 && x === 99;
+}
+let ae = liveCloseAfterMutateOuter();
+
+function ownUndefinedHasBinding() {
+  let x = 42;
+  let obj = { x: undefined };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === undefined && x === 42;
+}
+let af = ownUndefinedHasBinding();
+
+function getterRunsOncePerUse() {
+  let c = 0;
+  let obj = {
+    get x() {
+      c = c + 1;
+      return 3;
+    }
+  };
+  with (obj) {
+    {
+      function f() {
+        return x + x;
+      }
+    }
+  }
+  return f() === 6 && c === 2;
+}
+let ag = getterRunsOncePerUse();
+
+function nestedWithUnscopables() {
+  let x = 1;
+  let inner = { x: 99 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 7 };
+  with (outer) {
+    with (inner) {
+      {
+        function f() {
+          return x;
+        }
+      }
+    }
+  }
+  return f() === 7;
+}
+let ah = nestedWithUnscopables();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    {
+      function f() {
+        return e1702127_noglob;
+      }
+    }
+  }
+  try {
+    f();
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702127_noglob === "undefined"
+    );
+  }
+}
+let aj = unresolvableNotImplicitGlobal();
+
+function inheritedAccessorThis() {
+  let proto = {
+    get x() {
+      return this === obj ? 8 : 0;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 8;
+}
+let ak = inheritedAccessorThis();
+
+function unscopablesFalseyStillObject() {
+  let x = 0;
+  let obj = { x: 1 };
+  obj[Symbol.unscopables] = { x: false };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 1 && obj.x === 1;
+}
+let al = unscopablesFalseyStillObject();
+
+function functionNameSameAsObjectProp() {
+  let obj = { f: 99, x: 2 };
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+    }
+  }
+  return f() === 2 && obj.f === 99;
+}
+let am = functionNameSameAsObjectProp();
+
+function defaultParamHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    {
+      function f(p) {
+        if (p === undefined) {
+          p = x;
+        }
+        return p;
+      }
+    }
+  }
+  return f() === 7 && f(1) === 1;
+}
+let an = defaultParamHitsObject();
+
+function assignedWhenBlockRuns() {
+  if (true) {
+    with ({}) {
+      {
+        function f() {
+          return 5;
+        }
+      }
+    }
+  }
+  return typeof f === "function" && f() === 5;
+}
+let ap = assignedWhenBlockRuns();
+
+function skippedOuterIfNotAssigned() {
+  if (false) {
+    with ({}) {
+      {
+        function k() {
+          return 1;
+        }
+      }
+    }
+  }
+  return typeof k === "undefined";
+}
+let aq = skippedOuterIfNotAssigned();
+
+function missAssignFromBodyFallsThrough() {
+  let z = 0;
+  with ({}) {
+    {
+      function f() {
+        z = 8;
+      }
+    }
+  }
+  f();
+  return z === 8;
+}
+let ar = missAssignFromBodyFallsThrough();
+
+function assignHitsObjectFromBody() {
+  let obj = { z: 0 };
+  with (obj) {
+    {
+      function f() {
+        z = 9;
+      }
+    }
+  }
+  f();
+  return obj.z === 9;
+}
+let at = assignHitsObjectFromBody();
+
+function strictBodyThisUndefined() {
+  let obj = { x: 1 };
+  with (obj) {
+    {
+      function f() {
+        "use strict";
+        return this === undefined;
+      }
+    }
+  }
+  return f() === true;
+}
+let au = strictBodyThisUndefined();
+
+function nestedFnHasOwnArguments() {
+  let obj = { arguments: 99 };
+  with (obj) {
+    {
+      function f() {
+        function inner() {
+          return arguments[0];
+        }
+        return inner(3);
+      }
+    }
+  }
+  return f() === 3;
+}
+let av = nestedFnHasOwnArguments();
+
+function nestedBlocksInnerWins() {
+  let obj = { x: 3 };
+  with (obj) {
+    {
+      {
+        function f() {
+          return x;
+        }
+      }
+    }
+  }
+  return f() === 3;
+}
+let aw = nestedBlocksInnerWins();
+
+function blockThenOuterCallLive() {
+  let obj = { x: 1 };
+  let fn;
+  with (obj) {
+    {
+      function f() {
+        return x;
+      }
+      fn = f;
+    }
+    obj.x = 4;
+  }
+  return fn() === 4;
+}
+let ax = blockThenOuterCallLive();
