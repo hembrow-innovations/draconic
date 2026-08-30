@@ -1,0 +1,891 @@
+// E17.02.146: with + Class static initialization blocks (E18.41: `static { … }`
+// runs at class eval; access private statics; multiple blocks in order)
+// through object environment (non-strict).
+// Static-block body idents hit object (else outer); let/const in block are
+// block-local (do not write object); this in static block is the constructor,
+// not with object; class body is strict (with in static block → SyntaxError);
+// inherited HasBinding; accessor get this is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function bodyHitsObject() {
+  let x = 0;
+  let obj = { x: 7 };
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 7 && x === 0;
+}
+let a = bodyHitsObject();
+
+function bodyMissUsesOuter() {
+  let x = 4;
+  let out;
+  with ({}) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 4;
+}
+let b = bodyMissUsesOuter();
+
+function thisIsConstructorNotWithObject() {
+  let obj = { x: 99 };
+  let seen = null;
+  let Ctor;
+  with (obj) {
+    class C {
+      static n = 0;
+      static {
+        seen = this;
+        this.n = this.n + 5;
+      }
+    }
+    Ctor = C;
+  }
+  return Ctor.n === 5 && seen === Ctor && obj.x === 99 && obj.n === undefined;
+}
+let c = thisIsConstructorNotWithObject();
+
+function letInBlockDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      static out;
+      static {
+        let y = 42;
+        C.out = y;
+      }
+    }
+    return C.out === 42 && obj.y === undefined && C.y === undefined;
+  }
+}
+let d = letInBlockDoesNotWriteObject();
+
+function constInBlockDoesNotWriteObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      static out;
+      static {
+        const y = 8;
+        C.out = y;
+      }
+    }
+    return C.out === 8 && obj.y === undefined;
+  }
+}
+let e = constInBlockDoesNotWriteObject();
+
+function multipleBlocksInOrder() {
+  let obj = { mark: "X" };
+  with (obj) {
+    class C {
+      static log = "";
+      static {
+        C.log = C.log + "A" + mark;
+      }
+      static mid = 1;
+      static {
+        C.log = C.log + "B";
+      }
+      static {
+        C.log = C.log + "C";
+      }
+    }
+    return C.log === "AXBC" && C.mid === 1;
+  }
+}
+let f = multipleBlocksInOrder();
+
+function accessPrivateStatics() {
+  let obj = { n: 3 };
+  with (obj) {
+    class C {
+      static #secret = n;
+      static exposed;
+      static {
+        C.exposed = C.#secret * 2;
+      }
+      static {
+        this.exposed = this.exposed + this.#secret;
+      }
+      static read() {
+        return C.#secret;
+      }
+    }
+    return C.exposed === 9 && C.read() === 3 && C.secret === undefined;
+  }
+}
+let g = accessPrivateStatics();
+
+function withInStaticBlockSyntaxError() {
+  try {
+    eval("class C { static { with ({}) { } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let h = withInStaticBlockSyntaxError();
+
+function unresolvableThrows() {
+  try {
+    with ({}) {
+      class C {
+        static {
+          C.v = e1702146_miss;
+        }
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702146_miss === "undefined"
+    );
+  }
+}
+let j = unresolvableThrows();
+
+function liveClose() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    class C {
+      static fn;
+      static {
+        C.fn = function () {
+          return x;
+        };
+      }
+    }
+    Ctor = C;
+  }
+  obj.x = 9;
+  return Ctor.fn() === 9;
+}
+let k = liveClose();
+
+function nestedWithInnerWins() {
+  let inner = { x: 3 };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static v;
+        static {
+          C.v = x;
+        }
+      }
+      out = C.v;
+    }
+  }
+  return out === 3;
+}
+let l = nestedWithInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { x: 5 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static v;
+        static {
+          C.v = x;
+        }
+      }
+      out = C.v;
+    }
+  }
+  return out === 5;
+}
+let m = nestedInnerMissOuter();
+
+function unscopablesSkip() {
+  let x = 2;
+  let obj = { x: 99 };
+  obj[Symbol.unscopables] = { x: true };
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 2 && obj.x === 99;
+}
+let n = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = { x: 4 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 4;
+}
+let p = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 3;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 3 && seen === obj;
+}
+let q = accessorGetThisIsWithObject();
+
+function classExpressionStaticBlock() {
+  let x = 0;
+  let obj = { x: 6 };
+  let out;
+  with (obj) {
+    let H = class {
+      static v;
+      static {
+        this.v = x;
+      }
+    };
+    out = H.v;
+  }
+  return out === 6 && x === 0;
+}
+let r = classExpressionStaticBlock();
+
+function nestedClassStaticBlock() {
+  let obj = { x: 2 };
+  let out;
+  with (obj) {
+    class Outer {
+      inner() {
+        class Inner {
+          static v;
+          static {
+            Inner.v = x;
+          }
+        }
+        return Inner.v;
+      }
+    }
+    out = new Outer().inner();
+  }
+  return out === 2;
+}
+let s = nestedClassStaticBlock();
+
+function namedClassExpression() {
+  let obj = { x: 8 };
+  let out;
+  with (obj) {
+    let H = class Name {
+      static v;
+      static {
+        Name.v = x;
+      }
+    };
+    out = H.v;
+  }
+  return out === 8;
+}
+let t = namedClassExpression();
+
+function derivedParentAndChild() {
+  let obj = { x: 10 };
+  with (obj) {
+    class Parent {
+      static base;
+      static {
+        Parent.base = x;
+      }
+    }
+    class Child extends Parent {
+      static extra = 1;
+      static total;
+      static {
+        Child.total = Parent.base + Child.extra;
+      }
+    }
+    return Parent.base === 10 && Child.total === 11 && Child.extra === 1;
+  }
+}
+let u = derivedParentAndChild();
+
+function extendsIdentHitsObject() {
+  function Inner() {}
+  Inner.n = 7;
+  let obj = { Base: Inner, x: 2 };
+  with (obj) {
+    class C extends Base {
+      static v;
+      static {
+        C.v = x + Base.n;
+      }
+    }
+    return C.prototype instanceof Inner && C.v === 9;
+  }
+}
+let v = extendsIdentHitsObject();
+
+function assignHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      static {
+        x = 9;
+      }
+    }
+    return obj.x === 9 && C.x === undefined;
+  }
+}
+let w = assignHitsObject();
+
+function unresolvableAssignThrows() {
+  try {
+    with ({}) {
+      class C {
+        static {
+          e1702146_asg = 1;
+        }
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      Object.prototype.hasOwnProperty.call(globalThis, "e1702146_asg") === false
+    );
+  }
+}
+let aa = unresolvableAssignThrows();
+
+function ownUndefinedHasBinding() {
+  let x = 42;
+  let obj = { x: undefined };
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === undefined && x === 42;
+}
+let ab = ownUndefinedHasBinding();
+
+function mixedHitAndMiss() {
+  let y = 12;
+  let obj = { x: 11 };
+  let outX;
+  let outY;
+  with (obj) {
+    class C {
+      static a;
+      static b;
+      static {
+        C.a = x;
+        C.b = y;
+      }
+    }
+    outX = C.a;
+    outY = C.b;
+  }
+  return outX === 11 && outY === 12;
+}
+let ac = mixedHitAndMiss();
+
+function emptyWithObjectUsesOuter() {
+  let x = 5;
+  let out;
+  with ({ z: 1 }) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 5;
+}
+let ad = emptyWithObjectUsesOuter();
+
+function getterRunsOncePerRead() {
+  let count = 0;
+  let obj = {
+    get x() {
+      count = count + 1;
+      return 3;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static a;
+      static b;
+      static {
+        C.a = x;
+        C.b = x;
+      }
+    }
+    out = C.a + C.b;
+  }
+  return out === 6 && count === 2;
+}
+let ae = getterRunsOncePerRead();
+
+function fieldThenBlockOrder() {
+  let obj = { add: 10 };
+  with (obj) {
+    class C {
+      static x = 1;
+      static {
+        C.x = C.x + add;
+      }
+      static y = 2;
+    }
+    return C.x === 11 && C.y === 2;
+  }
+}
+let af = fieldThenBlockOrder();
+
+function blockThenFieldSeesPrior() {
+  let obj = { seed: "A" };
+  with (obj) {
+    class C {
+      static log = "";
+      static {
+        C.log = C.log + seed;
+      }
+      static mid = C.log + "B";
+      static {
+        C.log = C.log + "C";
+      }
+    }
+    return C.log === "AC" && C.mid === "AB";
+  }
+}
+let ag = blockThenFieldSeesPrior();
+
+function thisHashPrivateInBlock() {
+  let obj = { n: 3 };
+  with (obj) {
+    class C {
+      static #s = n;
+      static exposed;
+      static {
+        this.exposed = this.#s * 2;
+      }
+    }
+    return C.exposed === 6;
+  }
+}
+let ah = thisHashPrivateInBlock();
+
+function nestedWithUnscopables() {
+  let x = 3;
+  let inner = { x: 1 };
+  inner[Symbol.unscopables] = { x: true };
+  let outer = { x: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        static v;
+        static {
+          C.v = x;
+        }
+      }
+      out = C.v;
+    }
+  }
+  return out === 10;
+}
+let aj = nestedWithUnscopables();
+
+function inheritedAccessorGetThisIsWithObject() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 5;
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 5 && seen === obj;
+}
+let ak = inheritedAccessorGetThisIsWithObject();
+
+function identCalleeInBlock() {
+  let obj = {
+    fn: function () {
+      return 4;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = fn();
+      }
+    }
+    out = C.v;
+  }
+  return out === 4;
+}
+let al = identCalleeInBlock();
+
+function unresolvableDoesNotCreateGlobal() {
+  try {
+    with ({}) {
+      class C {
+        static {
+          e1702146_noglobal;
+        }
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      Object.prototype.hasOwnProperty.call(globalThis, "e1702146_noglobal") ===
+        false
+    );
+  }
+}
+let am = unresolvableDoesNotCreateGlobal();
+
+function liveCloseAfterMutate() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    class C {
+      static m;
+      static {
+        C.m = function () {
+          return x + 1;
+        };
+      }
+    }
+    Ctor = C;
+  }
+  obj.x = 8;
+  return Ctor.m() === 9;
+}
+let an = liveCloseAfterMutate();
+
+function blockLocalShadowsObject() {
+  let obj = { x: 99 };
+  with (obj) {
+    class C {
+      static v;
+      static {
+        let x = 2;
+        C.v = x;
+      }
+    }
+    return C.v === 2 && obj.x === 99;
+  }
+}
+let ap = blockLocalShadowsObject();
+
+function capturedAtClassEval() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    Ctor = class {
+      static v;
+      static {
+        this.v = x;
+      }
+    };
+  }
+  obj.x = 9;
+  return Ctor.v === 1;
+}
+let aq = capturedAtClassEval();
+
+function nestedWithOuterAfterInner() {
+  let inner = { x: 1 };
+  let outer = { x: 41 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class InnerC {
+        static v;
+        static {
+          InnerC.v = x;
+        }
+      }
+      InnerC.v;
+    }
+    class OuterC {
+      static v;
+      static {
+        OuterC.v = x;
+      }
+    }
+    out = OuterC.v;
+  }
+  return out === 41;
+}
+let ar = nestedWithOuterAfterInner();
+
+function withInStaticMethodStillSyntaxError() {
+  try {
+    eval("class C { static m() { with ({}) { } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let at = withInStaticMethodStillSyntaxError();
+
+function arithmeticInBlock() {
+  let obj = { n: 2 };
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = 1 + n * 3;
+      }
+    }
+    out = C.v;
+  }
+  return out === 7;
+}
+let au = arithmeticInBlock();
+
+function twoBlocksIndependent() {
+  let obj = { a: 3, b: 4 };
+  with (obj) {
+    class C {
+      static x;
+      static y;
+      static {
+        C.x = a;
+      }
+      static {
+        C.y = b;
+      }
+    }
+    return C.x === 3 && C.y === 4;
+  }
+}
+let av = twoBlocksIndependent();
+
+function publicThisWriteInBlock() {
+  let obj = { seed: 7 };
+  with (obj) {
+    class C {
+      static n = 0;
+      static {
+        this.n = seed;
+      }
+    }
+    return C.n === 7 && obj.n === undefined;
+  }
+}
+let aw = publicThisWriteInBlock();
+
+function getterOnReadThisIsWithObjectOnce() {
+  let n = 0;
+  let seen = null;
+  let obj = {
+    get x() {
+      n = n + 1;
+      seen = this;
+      return 43;
+    }
+  };
+  let out;
+  with (obj) {
+    class C {
+      static v;
+      static {
+        C.v = x;
+      }
+    }
+    out = C.v;
+  }
+  return out === 43 && n === 1 && seen === obj;
+}
+let ax = getterOnReadThisIsWithObjectOnce();
+
+function classNameInStaticBlock() {
+  let obj = {};
+  let nm;
+  with (obj) {
+    class Named {
+      static f;
+      static {
+        this.f = this.name;
+      }
+    }
+    nm = Named.f;
+  }
+  return nm === "Named";
+}
+let ay = classNameInStaticBlock();
+
+function unresolvableSkipsLaterBlock() {
+  let ran = false;
+  let obj = {
+    get later() {
+      ran = true;
+      return 1;
+    }
+  };
+  try {
+    with (obj) {
+      class C {
+        static {
+          e1702146_skip;
+        }
+        static {
+          later;
+        }
+      }
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError && ran === false;
+  }
+}
+let az = unresolvableSkipsLaterBlock();
+
+function deleteIdentThenUnresolvable() {
+  let obj = { x: 3 };
+  try {
+    with (obj) {
+      delete x;
+      class C {
+        static {
+          e1702146_afterdel;
+        }
+      }
+    }
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702146_afterdel === "undefined"
+    );
+  }
+}
+let ba = deleteIdentThenUnresolvable();
+
+function superInStaticBlock() {
+  let obj = { n: 100 };
+  with (obj) {
+    class Parent {
+      static base = n;
+    }
+    class Child extends Parent {
+      static total;
+      static {
+        Child.total = super.base + 1;
+      }
+    }
+    return Child.total === 101;
+  }
+}
+let bb = superInStaticBlock();
+
+function functionInBlockClosesOverObject() {
+  let obj = { x: 1 };
+  let Ctor;
+  with (obj) {
+    class C {
+      static run;
+      static {
+        function inner() {
+          return x;
+        }
+        C.run = inner;
+      }
+    }
+    Ctor = C;
+  }
+  obj.x = 6;
+  return Ctor.run() === 6;
+}
+let bc = functionInBlockClosesOverObject();
+
+function blockDoesNotWriteObjectForClassName() {
+  let obj = { C: 1 };
+  with (obj) {
+    class D {
+      static {
+        D.ok = 1;
+      }
+    }
+    return D.ok === 1 && obj.D === undefined && obj.C === 1;
+  }
+}
+let bd = blockDoesNotWriteObjectForClassName();
+
+function identAssignCompoundHitsObject() {
+  let obj = { x: 2 };
+  with (obj) {
+    class C {
+      static {
+        x += 5;
+      }
+    }
+    return obj.x === 7;
+  }
+}
+let be = identAssignCompoundHitsObject();

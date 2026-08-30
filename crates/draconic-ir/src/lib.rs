@@ -3726,7 +3726,10 @@ fn lower_class_local(
             StaticInit::Block(body) => {
                 // Method-form on home with correct super base so `super.x` works (E19.72).
                 // `({ __proto__: Parent, __sb() { … } }).__sb.call(Class)`
+                let prev_object_super = ctx.object_super;
+                ctx.object_super = true;
                 let block_body = with_use_strict(&[], lower_fn_body(checked, ctx, body, None));
+                ctx.object_super = prev_object_super;
                 let method_fn = Expr::Function {
                     name: None,
                     params: Vec::new(),

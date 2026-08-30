@@ -1498,3 +1498,13 @@ fn with_private_in_fixture_present() {
 fn with_private_in_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_private_in");
 }
+
+#[test]
+fn with_static_blocks_fixture_present() {
+    assert_fixture_present("es/legacy/with_static_blocks");
+}
+
+#[test]
+fn with_static_blocks_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_static_blocks");
+}
