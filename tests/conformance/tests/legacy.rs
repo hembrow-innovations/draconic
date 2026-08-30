@@ -1648,3 +1648,13 @@ fn with_export_named_from_fixture_present() {
 fn with_export_named_from_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_export_named_from");
 }
+
+#[test]
+fn with_export_star_from_fixture_present() {
+    assert_fixture_present("es/legacy/with_export_star_from");
+}
+
+#[test]
+fn with_export_star_from_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_export_star_from");
+}
