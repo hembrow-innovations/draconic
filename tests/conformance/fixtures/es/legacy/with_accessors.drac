@@ -1,0 +1,973 @@
+// E17.02.135: with + Accessor properties (E18.22: object/class `get name(){}` /
+// `set name(v){}`; incl. `static get`/`set`; read/write via property access)
+// through object environment (non-strict).
+// Object/class/name/value idents hit object (else outer); getter/setter body
+// idents hit object; computed `get`/`set [expr]()` key ident hits object;
+// `this` in getter/setter is the receiver (instance/class), not with object;
+// class body is strict (`with` in accessor → SyntaxError); inherited
+// HasBinding; accessor get/set `this` is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function objectGetBodyHitsObject() {
+  let y = 0;
+  let obj = { y: 7 };
+  let out;
+  with (obj) {
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    out = o.x;
+  }
+  return out === 7 && y === 0;
+}
+let a = objectGetBodyHitsObject();
+
+function objectSetBodyHitsObject() {
+  let y = 0;
+  let obj = { y: 1 };
+  with (obj) {
+    let o = {
+      set x(v) {
+        y = v;
+      }
+    };
+    o.x = 9;
+  }
+  return obj.y === 9 && y === 0;
+}
+let b = objectSetBodyHitsObject();
+
+function objectGetMissUsesOuter() {
+  let y = 4;
+  let out;
+  with ({}) {
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    out = o.x;
+  }
+  return out === 4;
+}
+let c = objectGetMissUsesOuter();
+
+function objectSetMissUsesOuter() {
+  let y = 1;
+  with ({}) {
+    let o = {
+      set x(v) {
+        y = v;
+      }
+    };
+    o.x = 8;
+  }
+  return y === 8;
+}
+let d = objectSetMissUsesOuter();
+
+function computedGetKeyHitsObject() {
+  let k = "no";
+  let obj = { k: "z" };
+  let out;
+  with (obj) {
+    let o = {
+      get [k]() {
+        return 7;
+      }
+    };
+    out = o.z;
+  }
+  return out === 7 && k === "no";
+}
+let e = computedGetKeyHitsObject();
+
+function computedSetKeyHitsObject() {
+  let k = "no";
+  let stored = 0;
+  let obj = { k: "z" };
+  with (obj) {
+    let o = {
+      set [k](v) {
+        stored = v;
+      }
+    };
+    o.z = 3;
+  }
+  return stored === 3 && k === "no";
+}
+let f = computedSetKeyHitsObject();
+
+function identBaseHitsObjectForAccessorRead() {
+  let box = {
+    get n() {
+      return 11;
+    }
+  };
+  let obj = { box: box };
+  let out;
+  with (obj) {
+    out = box.n;
+  }
+  return out === 11;
+}
+let g = identBaseHitsObjectForAccessorRead();
+
+function identBaseHitsObjectForAccessorWrite() {
+  let box = {
+    _n: 0,
+    set n(v) {
+      this._n = v;
+    },
+    get n() {
+      return this._n;
+    }
+  };
+  let obj = { box: box };
+  with (obj) {
+    box.n = 6;
+  }
+  return box.n === 6;
+}
+let h = identBaseHitsObjectForAccessorWrite();
+
+function classGetBodyHitsObject() {
+  let y = 0;
+  let obj = { y: 5 };
+  let out;
+  with (obj) {
+    class C {
+      get n() {
+        return y;
+      }
+    }
+    out = new C().n;
+  }
+  return out === 5 && y === 0;
+}
+let j = classGetBodyHitsObject();
+
+function classSetBodyHitsObject() {
+  let y = 0;
+  let obj = { y: 1 };
+  with (obj) {
+    class C {
+      set n(v) {
+        y = v;
+      }
+    }
+    new C().n = 12;
+  }
+  return obj.y === 12 && y === 0;
+}
+let k = classSetBodyHitsObject();
+
+function staticGetBodyHitsObject() {
+  let y = 0;
+  let obj = { y: "C" };
+  let out;
+  with (obj) {
+    class C {
+      static get tag() {
+        return y;
+      }
+    }
+    out = C.tag;
+  }
+  return out === "C" && y === 0;
+}
+let l = staticGetBodyHitsObject();
+
+function staticSetBodyHitsObject() {
+  let y = 0;
+  let obj = { y: 1 };
+  with (obj) {
+    class C {
+      static set tag(v) {
+        y = v;
+      }
+    }
+    C.tag = "D";
+  }
+  return obj.y === "D" && y === 0;
+}
+let m = staticSetBodyHitsObject();
+
+function objectGetterThisIsReceiver() {
+  let obj = { y: 99 };
+  let seen = null;
+  let out;
+  with (obj) {
+    let o = {
+      _n: 3,
+      get n() {
+        seen = this;
+        return this._n;
+      }
+    };
+    out = o.n;
+  }
+  return out === 3 && seen !== obj && seen._n === 3;
+}
+let n = objectGetterThisIsReceiver();
+
+function classGetterThisIsInstance() {
+  let obj = { y: 99 };
+  let seen = null;
+  let inst;
+  with (obj) {
+    class C {
+      constructor() {
+        this._n = 8;
+      }
+      get n() {
+        seen = this;
+        return this._n;
+      }
+    }
+    inst = new C();
+    inst.n;
+  }
+  return seen === inst && inst._n === 8 && obj.y === 99;
+}
+let p = classGetterThisIsInstance();
+
+function staticGetterThisIsClass() {
+  let obj = { y: 99 };
+  let seen = null;
+  let Ctor;
+  with (obj) {
+    class C {
+      static get tag() {
+        seen = this;
+        return "ok";
+      }
+    }
+    Ctor = C;
+    C.tag;
+  }
+  return seen === Ctor && obj.y === 99;
+}
+let q = staticGetterThisIsClass();
+
+function withInAccessorSyntaxError() {
+  try {
+    eval("class C { get n() { with ({}) { return 1; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let r = withInAccessorSyntaxError();
+
+function withInSetterSyntaxError() {
+  try {
+    eval("class C { set n(v) { with ({}) {} } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let s = withInSetterSyntaxError();
+
+function unresolvableGetterBody() {
+  with ({}) {
+    let o = {
+      get x() {
+        return e1702135_missing;
+      }
+    };
+    try {
+      o.x;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702135_missing === "undefined"
+      );
+    }
+  }
+}
+let t = unresolvableGetterBody();
+
+function liveCloseGetter() {
+  let obj = { y: 1 };
+  let run;
+  with (obj) {
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    run = function () {
+      return o.x;
+    };
+  }
+  obj.y = 9;
+  return run() === 9;
+}
+let u = liveCloseGetter();
+
+function liveCloseSetter() {
+  let obj = { y: 1 };
+  let run;
+  with (obj) {
+    let o = {
+      set x(v) {
+        y = v;
+      }
+    };
+    run = function () {
+      o.x = 4;
+    };
+  }
+  run();
+  return obj.y === 4;
+}
+let v = liveCloseSetter();
+
+function nestedInnerWins() {
+  let inner = { y: 3 };
+  let outer = { y: 10 };
+  let out;
+  with (outer) {
+    with (inner) {
+      let o = {
+        get x() {
+          return y;
+        }
+      };
+      out = o.x;
+    }
+  }
+  return out === 3;
+}
+let w = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { y: 5 };
+  let out;
+  with (outer) {
+    with (inner) {
+      let o = {
+        get x() {
+          return y;
+        }
+      };
+      out = o.x;
+    }
+  }
+  return out === 5;
+}
+let aa = nestedInnerMissOuter();
+
+function unscopablesSkip() {
+  let y = 2;
+  let obj = { y: 99 };
+  obj[Symbol.unscopables] = { y: true };
+  let out;
+  with (obj) {
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    out = o.x;
+  }
+  return out === 2 && obj.y === 99;
+}
+let ab = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = { y: 4 };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    out = o.x;
+  }
+  return out === 4;
+}
+let ac = inheritedHasBinding();
+
+function withObjectOwnGetterThis() {
+  let seen = null;
+  let obj = {
+    get x() {
+      seen = this;
+      return 5;
+    }
+  };
+  let out;
+  with (obj) {
+    out = x;
+  }
+  return out === 5 && seen === obj;
+}
+let ad = withObjectOwnGetterThis();
+
+function withObjectOwnSetterThis() {
+  let seen = null;
+  let obj = {
+    set x(v) {
+      seen = this;
+      this._x = v;
+    },
+    get x() {
+      return this._x;
+    }
+  };
+  with (obj) {
+    x = 8;
+  }
+  return seen === obj && obj._x === 8;
+}
+let ae = withObjectOwnSetterThis();
+
+function getterOnlyAssignSilent() {
+  let ran = false;
+  let obj = {
+    get x() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    x = 2;
+  }
+  return ran === false && obj.x === 1;
+}
+let af = getterOnlyAssignSilent();
+
+function setterParamShadows() {
+  let obj = { v: 1 };
+  let out;
+  with (obj) {
+    let o = {
+      set x(v) {
+        out = v;
+      }
+    };
+    o.x = 9;
+  }
+  return out === 9 && obj.v === 1;
+}
+let ag = setterParamShadows();
+
+function classExprGetSet() {
+  let y = 0;
+  let obj = { y: 6 };
+  let H;
+  with (obj) {
+    H = class {
+      get n() {
+        return y;
+      }
+      set n(v) {
+        y = v;
+      }
+    };
+  }
+  let inst = new H();
+  let first = inst.n;
+  inst.n = 2;
+  return first === 6 && obj.y === 2 && y === 0;
+}
+let ah = classExprGetSet();
+
+function unresolvableComputedKey() {
+  with ({}) {
+    try {
+      ({
+        get [e1702135_ck]() {
+          return 1;
+        }
+      });
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702135_ck === "undefined"
+      );
+    }
+  }
+}
+let aj = unresolvableComputedKey();
+
+function inheritedAccessorThisOnWithObject() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 2;
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    out = x;
+  }
+  return out === 2 && seen === obj;
+}
+let ak = inheritedAccessorThisOnWithObject();
+
+function unscopablesFalseyStillObject() {
+  let y = 0;
+  let obj = { y: 6 };
+  obj[Symbol.unscopables] = { y: false };
+  let out;
+  with (obj) {
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    out = o.x;
+  }
+  return out === 6 && y === 0;
+}
+let al = unscopablesFalseyStillObject();
+
+function nestedWithUnscopables() {
+  let y = 1;
+  let inner = { y: 99 };
+  inner[Symbol.unscopables] = { y: true };
+  let outer = { y: 4 };
+  let out;
+  with (outer) {
+    with (inner) {
+      let o = {
+        get x() {
+          return y;
+        }
+      };
+      out = o.x;
+    }
+  }
+  return out === 4 && y === 1;
+}
+let am = nestedWithUnscopables();
+
+function getterRunsOnEachRead() {
+  let c = 0;
+  let obj = { y: 3 };
+  let out;
+  with (obj) {
+    let o = {
+      get x() {
+        c = c + 1;
+        return y;
+      }
+    };
+    out = o.x + o.x;
+  }
+  return out === 6 && c === 2;
+}
+let an = getterRunsOnEachRead();
+
+function defineAccessorsInsideWith() {
+  let _priv = 0;
+  let obj = { seed: 10 };
+  let a0;
+  let a1;
+  let a2;
+  with (obj) {
+    let o = {
+      get x() {
+        return _priv;
+      },
+      set x(v) {
+        _priv = v;
+      },
+      get y() {
+        return this.x + 1;
+      }
+    };
+    a0 = o.x;
+    o.x = seed;
+    a1 = o.x;
+    a2 = o.y;
+  }
+  return a0 === 0 && a1 === 10 && a2 === 11 && _priv === 10;
+}
+let ap = defineAccessorsInsideWith();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    let o = {
+      get x() {
+        return e1702135_noglob;
+      }
+    };
+    try {
+      o.x;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702135_noglob === "undefined"
+      );
+    }
+  }
+}
+let aq = unresolvableNotImplicitGlobal();
+
+function deleteIdentThenOuter() {
+  let y = 3;
+  let obj = { y: 99 };
+  let out;
+  with (obj) {
+    delete y;
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    out = o.x;
+  }
+  return (
+    out === 3 &&
+    obj.y === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "y") === false
+  );
+}
+let ar = deleteIdentThenOuter();
+
+function mixedObjectOuter() {
+  let z = 2;
+  let obj = { y: 1 };
+  let sum;
+  with (obj) {
+    let o = {
+      get x() {
+        return y + z;
+      }
+    };
+    sum = o.x;
+  }
+  return sum === 3 && z === 2;
+}
+let at = mixedObjectOuter();
+
+function ownUndefinedHasBinding() {
+  let y = 42;
+  let obj = { y: undefined };
+  let out;
+  with (obj) {
+    let o = {
+      get x() {
+        return y;
+      }
+    };
+    out = o.x;
+  }
+  return out === undefined && y === 42;
+}
+let au = ownUndefinedHasBinding();
+
+function classNameIdentHitsObject() {
+  function Box() {}
+  Box.prototype._n = 1;
+  Object.defineProperty(Box.prototype, "n", {
+    get: function () {
+      return this._n;
+    },
+    set: function (v) {
+      this._n = v;
+    }
+  });
+  let obj = { C: Box };
+  let f;
+  let g2;
+  with (obj) {
+    let inst = new C();
+    f = inst.n;
+    inst.n = 9;
+    g2 = inst.n;
+  }
+  return f === 1 && g2 === 9;
+}
+let av = classNameIdentHitsObject();
+
+function staticGetSetViaIdentClass() {
+  let obj = {
+    C: class {
+      static get tag() {
+        return "C";
+      }
+      static set tag(v) {
+        this._tag = v;
+      }
+    }
+  };
+  let h2;
+  let i2;
+  with (obj) {
+    h2 = C.tag;
+    C.tag = "D";
+    i2 = C._tag;
+  }
+  return h2 === "C" && i2 === "D";
+}
+let aw = staticGetSetViaIdentClass();
+
+function computedKeyMissUsesOuter() {
+  let k = "z";
+  let out;
+  with ({}) {
+    let o = {
+      get [k]() {
+        return 7;
+      }
+    };
+    out = o.z;
+  }
+  return out === 7 && k === "z";
+}
+let ax = computedKeyMissUsesOuter();
+
+function setterAssignHitsWithObject() {
+  let obj = {
+    _n: 0,
+    set n(v) {
+      this._n = v;
+    },
+    get n() {
+      return this._n;
+    }
+  };
+  with (obj) {
+    n = 6;
+  }
+  return obj.n === 6;
+}
+let ay = setterAssignHitsWithObject();
+
+function getterReadHitsWithObject() {
+  let obj = {
+    get n() {
+      return 11;
+    }
+  };
+  let out;
+  with (obj) {
+    out = n;
+  }
+  return out === 11;
+}
+let az = getterReadHitsWithObject();
+
+function classSetterThisIsInstance() {
+  let obj = { y: 99 };
+  let seen = null;
+  let inst;
+  with (obj) {
+    class C {
+      constructor() {
+        this._n = 0;
+      }
+      set n(v) {
+        seen = this;
+        this._n = v;
+      }
+    }
+    inst = new C();
+    inst.n = 4;
+  }
+  return seen === inst && inst._n === 4 && obj.y === 99;
+}
+let ba = classSetterThisIsInstance();
+
+function unscopablesAssignLhsGoesOuter() {
+  let x = 1;
+  let obj = {
+    get x() {
+      return 0;
+    },
+    set x(v) {}
+  };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    x = 7;
+  }
+  return x === 7 && obj.x === 0;
+}
+let bb = unscopablesAssignLhsGoesOuter();
+
+function liveCloseAfterMutateOuter() {
+  let y = 0;
+  let obj = { y: 1 };
+  let run;
+  with (obj) {
+    run = function () {
+      let o = {
+        get x() {
+          return y;
+        }
+      };
+      return o.x;
+    };
+  }
+  obj.y = 8;
+  y = 99;
+  return run() === 8 && y === 99;
+}
+let bc = liveCloseAfterMutateOuter();
+
+function nestedBothAccessors() {
+  let inner = { y: 1 };
+  let outer = { y: 20 };
+  let innerOut;
+  let outerOut;
+  with (outer) {
+    with (inner) {
+      let o = {
+        get x() {
+          return y;
+        }
+      };
+      innerOut = o.x;
+    }
+    let o2 = {
+      get x() {
+        return y;
+      }
+    };
+    outerOut = o2.x;
+  }
+  return innerOut === 1 && outerOut === 20;
+}
+let bd = nestedBothAccessors();
+
+function getterThenSetterRoundTrip() {
+  let obj = { seed: 10 };
+  let a0;
+  let a1;
+  with (obj) {
+    let _priv = 0;
+    let o = {
+      get x() {
+        return _priv;
+      },
+      set x(v) {
+        _priv = v;
+      }
+    };
+    a0 = o.x;
+    o.x = seed;
+    a1 = o.x;
+  }
+  return a0 === 0 && a1 === 10;
+}
+let be = getterThenSetterRoundTrip();
+
+function unresolvableAfterGetSkipped() {
+  let ran = false;
+  let obj = {
+    get y() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (obj) {
+    try {
+      y;
+      e1702135_after;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bf = unresolvableAfterGetSkipped();
+
+function classStaticSetThisIsClass() {
+  let obj = { y: 99 };
+  let seen = null;
+  let Ctor;
+  with (obj) {
+    class C {
+      static set tag(v) {
+        seen = this;
+        this._tag = v;
+      }
+    }
+    Ctor = C;
+    C.tag = "D";
+  }
+  return seen === Ctor && Ctor._tag === "D" && obj.y === 99;
+}
+let bg = classStaticSetThisIsClass();
+
+function computedSetKeyMissUsesOuter() {
+  let k = "z";
+  let stored = 0;
+  with ({}) {
+    let o = {
+      set [k](v) {
+        stored = v;
+      }
+    };
+    o.z = 3;
+  }
+  return stored === 3 && k === "z";
+}
+let bh = computedSetKeyMissUsesOuter();
+
+function unscopablesSecondIdent() {
+  let k = "z";
+  let obj = { k: "nope" };
+  obj[Symbol.unscopables] = { k: true };
+  let out;
+  with (obj) {
+    let o = {
+      get [k]() {
+        return 7;
+      }
+    };
+    out = o.z;
+  }
+  return out === 7 && obj.k === "nope";
+}
+let bi = unscopablesSecondIdent();
+
+function inheritedSetterThisOnWithObject() {
+  let seen = null;
+  let proto = {
+    set x(v) {
+      seen = this;
+      this._x = v;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    x = 8;
+  }
+  return seen === obj && obj._x === 8;
+}
+let bj = inheritedSetterThisOnWithObject();
+
+function objectSetterThisIsReceiver() {
+  let obj = { y: 99 };
+  let seen = null;
+  let oRef;
+  with (obj) {
+    let o = {
+      set n(v) {
+        seen = this;
+        this._n = v;
+      }
+    };
+    oRef = o;
+    o.n = 3;
+  }
+  return seen === oRef && oRef._n === 3 && obj.y === 99;
+}
+let bk = objectSetterThisIsReceiver();
