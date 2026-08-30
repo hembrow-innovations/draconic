@@ -1,0 +1,785 @@
+// E17.02.149: with + import.defer / import.source (E19.33:
+// `import.defer(specifier)` / `import.source(specifier)`) through object
+// environment (non-strict). Specifier ident hits object (else outer);
+// import/defer/source are not IdentifierReference (those props do not
+// shadow); result is a Promise (does not write object); no options
+// argument; inherited HasBinding; accessor get this is with object;
+// unresolvable specifier → ReferenceError; live close; nested with;
+// unscopables skip.
+
+let D1 = "data:text/javascript,export default 1";
+let D3 = "data:text/javascript,export default 3";
+let D7 = "data:text/javascript,export default 7";
+let DN = "data:text/javascript,export let n = 5; export default 4";
+
+function swallow(p) {
+  p.then(function () {}, function () {});
+  return p;
+}
+
+function deferSpecifierHitsObject() {
+  let outer = D1;
+  let obj = { spec: D7 };
+  with (obj) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7 && outer === D1;
+    });
+  }
+}
+let a = false;
+deferSpecifierHitsObject().then(function (v) {
+  a = v;
+});
+
+function deferSpecifierMissUsesOuter() {
+  let spec = D7;
+  with ({}) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let b = false;
+deferSpecifierMissUsesOuter().then(function (v) {
+  b = v;
+});
+
+function deferLiveClose() {
+  let obj = { spec: D7 };
+  let run;
+  with (obj) {
+    run = function () {
+      return import.defer(spec);
+    };
+  }
+  obj.spec = D1;
+  return run().then(function (ns) {
+    return ns.default === 1;
+  });
+}
+let c = false;
+deferLiveClose().then(function (v) {
+  c = v;
+});
+
+function deferStringLiteralInsideWith() {
+  with ({ spec: D1 }) {
+    return import.defer("data:text/javascript,export default 5").then(function (ns) {
+      return ns.default === 5;
+    });
+  }
+}
+let d = false;
+deferStringLiteralInsideWith().then(function (v) {
+  d = v;
+});
+
+function deferResultIsPromiseDoesNotWriteObject() {
+  let obj = { spec: D7 };
+  let p;
+  with (obj) {
+    p = import.defer(spec);
+  }
+  return (
+    typeof p.then === "function" &&
+    obj.spec === D7 &&
+    obj.default === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "default") === false
+  );
+}
+let e = deferResultIsPromiseDoesNotWriteObject();
+
+function importPropDoesNotShadowDefer() {
+  let spec = D1;
+  with ({ import: 99, spec: D7 }) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let f = false;
+importPropDoesNotShadowDefer().then(function (v) {
+  f = v;
+});
+
+function deferPropDoesNotShadow() {
+  with ({ defer: 99, spec: D7 }) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7 && defer === 99;
+    });
+  }
+}
+let g = false;
+deferPropDoesNotShadow().then(function (v) {
+  g = v;
+});
+
+function typeofImportDeferSyntaxError() {
+  try {
+    eval("with ({ defer: 1 }) { typeof import.defer }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let h = typeofImportDeferSyntaxError();
+
+function deferUnresolvableSpecifierThrowsSync() {
+  with ({}) {
+    try {
+      import.defer(e1702149_miss);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702149_miss === "undefined"
+      );
+    }
+  }
+}
+let j = deferUnresolvableSpecifierThrowsSync();
+
+function deferNamedExportNamespace() {
+  let obj = { spec: DN };
+  with (obj) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 4 && ns.n === 5;
+    });
+  }
+}
+let k = false;
+deferNamedExportNamespace().then(function (v) {
+  k = v;
+});
+
+function deferInheritedHasBinding() {
+  let proto = { spec: D7 };
+  let env = Object.create(proto);
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let l = false;
+deferInheritedHasBinding().then(function (v) {
+  l = v;
+});
+
+function deferAccessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7 && seen === env;
+    });
+  }
+}
+let m = false;
+deferAccessorGetThisIsWithObject().then(function (v) {
+  m = v;
+});
+
+function deferNestedWithInnerWins() {
+  let inner = { spec: D7 };
+  let outer = { spec: D1 };
+  with (outer) {
+    with (inner) {
+      return import.defer(spec).then(function (ns) {
+        return ns.default === 7;
+      });
+    }
+  }
+}
+let n = false;
+deferNestedWithInnerWins().then(function (v) {
+  n = v;
+});
+
+function deferUnscopablesSkip() {
+  let spec = D1;
+  let env = { spec: D7 };
+  env[Symbol.unscopables] = { spec: true };
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 1;
+    });
+  }
+}
+let p = false;
+deferUnscopablesSkip().then(function (v) {
+  p = v;
+});
+
+function deferNestedWithUnscopables() {
+  let inner = { spec: D3 };
+  inner[Symbol.unscopables] = { spec: true };
+  let outer = { spec: D7 };
+  with (outer) {
+    with (inner) {
+      return import.defer(spec).then(function (ns) {
+        return ns.default === 7 && inner.spec === D3;
+      });
+    }
+  }
+}
+let q = false;
+deferNestedWithUnscopables().then(function (v) {
+  q = v;
+});
+
+function deferDeleteIdentThenUnresolvable() {
+  let env = { spec: D7 };
+  with (env) {
+    delete spec;
+    try {
+      import.defer(spec);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let r = deferDeleteIdentThenUnresolvable();
+
+function deferGetterRunsOnce() {
+  let n = 0;
+  let env = {
+    get spec() {
+      n = n + 1;
+      return D7;
+    }
+  };
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7 && n === 1;
+    });
+  }
+}
+let s = false;
+deferGetterRunsOnce().then(function (v) {
+  s = v;
+});
+
+function deferLiveCloseTwoIndependent() {
+  let env = { spec: D7 };
+  let run;
+  with (env) {
+    run = function () {
+      return import.defer(spec);
+    };
+  }
+  return run().then(function (a1) {
+    env.spec = D1;
+    return run().then(function (a2) {
+      return a1.default === 7 && a2.default === 1;
+    });
+  });
+}
+let t = false;
+deferLiveCloseTwoIndependent().then(function (v) {
+  t = v;
+});
+
+function deferNestedWithOuterAfterInner() {
+  let inner = { spec: D1 };
+  let outer = { spec: D7 };
+  with (outer) {
+    with (inner) {
+      import.defer(spec);
+    }
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let u = false;
+deferNestedWithOuterAfterInner().then(function (v) {
+  u = v;
+});
+
+function deferInheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7 && seen === env;
+    });
+  }
+}
+let vv = false;
+deferInheritedAccessorGetThis().then(function (v) {
+  vv = v;
+});
+
+function deferInClosure() {
+  let obj = { spec: D7 };
+  with (obj) {
+    function run() {
+      return import.defer(spec);
+    }
+    return run().then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let w = false;
+deferInClosure().then(function (v) {
+  w = v;
+});
+
+function deferInArrow() {
+  let obj = { spec: D7 };
+  with (obj) {
+    let run = () => import.defer(spec);
+    return run().then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let aa = false;
+deferInArrow().then(function (v) {
+  aa = v;
+});
+
+function deferInAsyncFunction() {
+  let obj = { spec: D7 };
+  with (obj) {
+    async function run() {
+      let ns = await import.defer(spec);
+      return ns.default === 7;
+    }
+    return run();
+  }
+}
+let ab = false;
+deferInAsyncFunction().then(function (v) {
+  ab = v;
+});
+
+function deferSpecifierConcatIdent() {
+  let obj = { prefix: "data:text/javascript,export default ", n: 9 };
+  with (obj) {
+    return import.defer(prefix + n).then(function (ns) {
+      return ns.default === 9;
+    });
+  }
+}
+let ac = false;
+deferSpecifierConcatIdent().then(function (v) {
+  ac = v;
+});
+
+function withInsideFunctionDefer() {
+  let obj = { spec: D7 };
+  function run() {
+    with (obj) {
+      return import.defer(spec);
+    }
+  }
+  return run().then(function (ns) {
+    return ns.default === 7;
+  });
+}
+let ad = false;
+withInsideFunctionDefer().then(function (v) {
+  ad = v;
+});
+
+function deferOwnShadowsProto() {
+  let proto = { spec: D1 };
+  let env = Object.create(proto);
+  env.spec = D7;
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let ae = false;
+deferOwnShadowsProto().then(function (v) {
+  ae = v;
+});
+
+function deferUnscopablesFalseyDoesNotBlock() {
+  let env = { spec: D7 };
+  env[Symbol.unscopables] = { spec: false };
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let af = false;
+deferUnscopablesFalseyDoesNotBlock().then(function (v) {
+  af = v;
+});
+
+function deferDoesNotCreateObjectProp() {
+  let env = { spec: D7 };
+  with (env) {
+    return import.defer(spec).then(function (ns) {
+      return (
+        ns.default === 7 &&
+        env.n === undefined &&
+        Object.prototype.hasOwnProperty.call(env, "n") === false
+      );
+    });
+  }
+}
+let ag = false;
+deferDoesNotCreateObjectProp().then(function (v) {
+  ag = v;
+});
+
+function deferAssignSpecifierHitsObject() {
+  let obj = { spec: D1 };
+  with (obj) {
+    spec = D7;
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 7 && obj.spec === D7;
+    });
+  }
+}
+let ah = false;
+deferAssignSpecifierHitsObject().then(function (v) {
+  ah = v;
+});
+
+function deferInNestedFunction() {
+  let obj = { spec: D7 };
+  with (obj) {
+    function outer() {
+      function inner() {
+        return import.defer(spec);
+      }
+      return inner();
+    }
+    return outer().then(function (ns) {
+      return ns.default === 7;
+    });
+  }
+}
+let aj = false;
+deferInNestedFunction().then(function (v) {
+  aj = v;
+});
+
+function deferNamespaceToStringTag() {
+  let obj = { spec: D7 };
+  with (obj) {
+    return import.defer(spec).then(function (ns) {
+      return ns[Symbol.toStringTag] === "Module";
+    });
+  }
+}
+let ak = false;
+deferNamespaceToStringTag().then(function (v) {
+  ak = v;
+});
+
+function deferTwoImportsSameSpecShareNs() {
+  let obj = { spec: D7 };
+  with (obj) {
+    return import.defer(spec).then(function (ns1) {
+      return import.defer(spec).then(function (ns2) {
+        return ns1 === ns2 && ns1.default === 7;
+      });
+    });
+  }
+}
+let al = false;
+deferTwoImportsSameSpecShareNs().then(function (v) {
+  al = v;
+});
+
+function deferSpecifierFromAccessorThenLive() {
+  let n = 0;
+  let env = {
+    get spec() {
+      n = n + 1;
+      if (n === 1) {
+        return D7;
+      }
+      return D1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return import.defer(spec);
+    };
+  }
+  return run().then(function (a1) {
+    return run().then(function (a2) {
+      return a1.default === 7 && a2.default === 1 && n === 2;
+    });
+  });
+}
+let am = false;
+deferSpecifierFromAccessorThenLive().then(function (v) {
+  am = v;
+});
+
+function withDeferThenOuterStillOuter() {
+  let spec = D1;
+  let obj = { spec: D7 };
+  with (obj) {
+    import.defer(spec);
+  }
+  return import.defer(spec).then(function (ns) {
+    return ns.default === 1;
+  });
+}
+let an = false;
+withDeferThenOuterStillOuter().then(function (v) {
+  an = v;
+});
+
+function deferLetBindingDoesNotWriteObject() {
+  let obj = { spec: D7 };
+  with (obj) {
+    let spec = D1;
+    return import.defer(spec).then(function (ns) {
+      return ns.default === 1 && obj.spec === D7;
+    });
+  }
+}
+let ap = false;
+deferLetBindingDoesNotWriteObject().then(function (v) {
+  ap = v;
+});
+
+function deferCallAsValue() {
+  let obj = { spec: D3 };
+  let p;
+  with (obj) {
+    p = import.defer(spec);
+  }
+  return p.then(function (ns) {
+    return ns.default === 3 && typeof p.then === "function";
+  });
+}
+let aq = false;
+deferCallAsValue().then(function (v) {
+  aq = v;
+});
+
+function sourceSpecifierHitsObject() {
+  let seen = null;
+  let env = {
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  with (env) {
+    let p = swallow(import.source(spec));
+    return typeof p.then === "function" && seen === env;
+  }
+}
+let ar = sourceSpecifierHitsObject();
+
+function sourceMissUsesOuter() {
+  let n = 0;
+  let spec = {
+    toString: function () {
+      n = n + 1;
+      return D7;
+    }
+  };
+  with ({}) {
+    let p = swallow(import.source(spec));
+    return n === 1 && typeof p.then === "function";
+  }
+}
+let at = sourceMissUsesOuter();
+
+function sourceUnresolvableSpecifierThrowsSync() {
+  with ({}) {
+    try {
+      import.source(e1702149_src);
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702149_src === "undefined"
+      );
+    }
+  }
+}
+let au = sourceUnresolvableSpecifierThrowsSync();
+
+function sourcePropDoesNotShadow() {
+  let seen = null;
+  let env = {
+    source: 99,
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  with (env) {
+    let p = swallow(import.source(spec));
+    return typeof p.then === "function" && source === 99 && seen === env;
+  }
+}
+let av = sourcePropDoesNotShadow();
+
+function typeofImportSourceSyntaxError() {
+  try {
+    eval("with ({ source: 1 }) { typeof import.source }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let aw = typeofImportSourceSyntaxError();
+
+function sourceResultIsPromiseDoesNotWriteObject() {
+  let obj = { spec: D7 };
+  let p;
+  with (obj) {
+    p = swallow(import.source(spec));
+  }
+  return (
+    typeof p.then === "function" &&
+    obj.spec === D7 &&
+    obj.default === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "default") === false
+  );
+}
+let ax = sourceResultIsPromiseDoesNotWriteObject();
+
+function sourceInheritedHasBinding() {
+  let seen = null;
+  let proto = {
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    let p = swallow(import.source(spec));
+    return typeof p.then === "function" && seen === env;
+  }
+}
+let ay = sourceInheritedHasBinding();
+
+function sourceUnscopablesSkip() {
+  let n = 0;
+  let spec = {
+    toString: function () {
+      n = n + 1;
+      return D1;
+    }
+  };
+  let env = { spec: D7 };
+  env[Symbol.unscopables] = { spec: true };
+  with (env) {
+    let p = swallow(import.source(spec));
+    return n === 1 && typeof p.then === "function";
+  }
+}
+let az = sourceUnscopablesSkip();
+
+function sourceNestedWithInnerWins() {
+  let innerN = 0;
+  let outerN = 0;
+  let inner = {
+    get spec() {
+      innerN = innerN + 1;
+      return D7;
+    }
+  };
+  let outer = {
+    get spec() {
+      outerN = outerN + 1;
+      return D1;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      let p = swallow(import.source(spec));
+      return typeof p.then === "function" && innerN === 1 && outerN === 0;
+    }
+  }
+}
+let ba = sourceNestedWithInnerWins();
+
+function sourceLiveClose() {
+  let n = 0;
+  let env = {
+    get spec() {
+      n = n + 1;
+      return D7;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return swallow(import.source(spec));
+    };
+  }
+  let p1 = run();
+  let p2 = run();
+  return typeof p1.then === "function" && typeof p2.then === "function" && n === 2;
+}
+let bb = sourceLiveClose();
+
+function sourceDeleteIdentThenUnresolvable() {
+  let env = { spec: D7 };
+  with (env) {
+    delete spec;
+    try {
+      import.source(spec);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let bc = sourceDeleteIdentThenUnresolvable();
+
+function deferAndSourceSameWith() {
+  let obj = { spec: D7 };
+  with (obj) {
+    let d = import.defer(spec);
+    let s = swallow(import.source(spec));
+    return d.then(function (ns) {
+      return ns.default === 7 && typeof s.then === "function";
+    });
+  }
+}
+let bd = false;
+deferAndSourceSameWith().then(function (v) {
+  bd = v;
+});
+
+function importPropDoesNotShadowSource() {
+  let seen = null;
+  let env = {
+    import: 99,
+    get spec() {
+      seen = this;
+      return D7;
+    }
+  };
+  with (env) {
+    let p = swallow(import.source(spec));
+    return typeof p.then === "function" && seen === env;
+  }
+}
+let be = importPropDoesNotShadowSource();
