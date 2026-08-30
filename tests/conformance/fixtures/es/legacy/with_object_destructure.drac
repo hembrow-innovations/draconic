@@ -1,0 +1,808 @@
+// E17.02.133: with + Object destructuring (E18.19: `let {a, b} = obj` /
+// `let {a, ...rest} = obj` / assignment `{a, b} = obj`; rename, nested;
+// defaults deferred) through object environment (non-strict).
+// RHS ident hits object (else outer); let/const bindings are block-local
+// (do not write object); assignment LHS idents hit object (else outer);
+// computed/numeric/keyword keys; inherited HasBinding; accessor get/set
+// this is with object; unresolvable → ReferenceError; live close; nested
+// with; unscopables skip.
+
+function letShorthandHitsRhsObject() {
+  let src = { x: 0, y: 0 };
+  let obj = { src: { x: 1, y: 2 } };
+  let sx;
+  let sy;
+  with (obj) {
+    let { x, y } = src;
+    sx = x;
+    sy = y;
+  }
+  return sx === 1 && sy === 2 && src.x === 0;
+}
+let a = letShorthandHitsRhsObject();
+
+function letShorthandMissUsesOuter() {
+  let src = { x: 3, y: 4 };
+  let sx;
+  let sy;
+  with ({}) {
+    let { x, y } = src;
+    sx = x;
+    sy = y;
+  }
+  return sx === 3 && sy === 4;
+}
+let b = letShorthandMissUsesOuter();
+
+function letBindingsDoNotWriteObject() {
+  let obj = { src: { x: 9, y: 8 } };
+  let sx;
+  with (obj) {
+    let { x, y } = src;
+    sx = x;
+  }
+  return (
+    sx === 9 &&
+    obj.x === undefined &&
+    obj.y === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === false &&
+    Object.prototype.hasOwnProperty.call(obj, "y") === false
+  );
+}
+let c = letBindingsDoNotWriteObject();
+
+function letRestHitsRhsObject() {
+  let src = { a: 1, b: 2, c: 3 };
+  let obj = { src: { a: 10, b: 20, c: 30, d: 40 } };
+  let ra;
+  let restA;
+  let restC;
+  let restD;
+  with (obj) {
+    let { a, ...rest } = src;
+    ra = a;
+    restA = rest.a;
+    restC = rest.c;
+    restD = rest.d;
+  }
+  return (
+    ra === 10 &&
+    restA === undefined &&
+    restC === 30 &&
+    restD === 40 &&
+    src.a === 1
+  );
+}
+let d = letRestHitsRhsObject();
+
+function letRenameHitsRhsObject() {
+  let src = { a: 0 };
+  let obj = { src: { a: 7 } };
+  let out;
+  with (obj) {
+    let { a: x } = src;
+    out = x;
+  }
+  return out === 7 && src.a === 0;
+}
+let e = letRenameHitsRhsObject();
+
+function letNestedHitsRhsObject() {
+  let nested = { outer: { inner: 0 }, z: 0 };
+  let obj = { nested: { outer: { inner: 10 }, z: 20 } };
+  let n;
+  let z;
+  with (obj) {
+    let { outer: { inner: n2 }, z: z2 } = nested;
+    n = n2;
+    z = z2;
+  }
+  return n === 10 && z === 20 && nested.z === 0;
+}
+let f = letNestedHitsRhsObject();
+
+function constShorthandHitsRhsObject() {
+  let obj = { src: { k: 5, m: 6 } };
+  let km;
+  with (obj) {
+    const { k, m } = src;
+    km = k + m;
+  }
+  return km === 11;
+}
+let g = constShorthandHitsRhsObject();
+
+function assignRhsHitsObject() {
+  let src = { u: 0, v: 0 };
+  let obj = { src: { u: 7, v: 8 } };
+  let u;
+  let v;
+  with (obj) {
+    ({ u, v } = src);
+  }
+  return u === 7 && v === 8 && src.u === 0;
+}
+let h = assignRhsHitsObject();
+
+function assignLhsHitsObject() {
+  let obj = { u: 0, v: 0, src: { u: 7, v: 8 } };
+  with (obj) {
+    ({ u, v } = src);
+  }
+  return obj.u === 7 && obj.v === 8;
+}
+let j = assignLhsHitsObject();
+
+function assignLhsMissUsesOuter() {
+  let u = 1;
+  let v = 2;
+  let obj = { src: { u: 9, v: 10 } };
+  with (obj) {
+    ({ u, v } = src);
+  }
+  return (
+    u === 9 &&
+    v === 10 &&
+    Object.prototype.hasOwnProperty.call(obj, "u") === false
+  );
+}
+let k = assignLhsMissUsesOuter();
+
+function restExcludesExtracted() {
+  let obj = { src: { a: 1, b: 2, c: 3, d: 4 } };
+  let restA;
+  let restB;
+  let restC;
+  let restD;
+  with (obj) {
+    let { a, b, ...rest } = src;
+    restA = rest.a;
+    restB = rest.b;
+    restC = rest.c;
+    restD = rest.d;
+  }
+  return (
+    restA === undefined &&
+    restB === undefined &&
+    restC === 3 &&
+    restD === 4
+  );
+}
+let l = restExcludesExtracted();
+
+function numericKeysHitsRhs() {
+  let arrSrc = [0, 0, 0];
+  let obj = { arrSrc: [7, 8, 9] };
+  let nv;
+  let nw;
+  let nlen;
+  with (obj) {
+    let { 0: v0, 1: v1, length: len } = arrSrc;
+    nv = v0;
+    nw = v1;
+    nlen = len;
+  }
+  return nv === 7 && nw === 8 && nlen === 3 && arrSrc[0] === 0;
+}
+let m = numericKeysHitsRhs();
+
+function computedKeyIdentHitsObject() {
+  let ck = "no";
+  let obj = { ck: "a", src: { a: 11, b: 22 } };
+  let cv;
+  with (obj) {
+    let { [ck]: v } = src;
+    cv = v;
+  }
+  return cv === 11 && ck === "no";
+}
+let n = computedKeyIdentHitsObject();
+
+function keywordPropRename() {
+  let obj = { src: { return: 9, default: 8 } };
+  let kwRet;
+  let kwDef;
+  with (obj) {
+    let { return: r, default: d } = src;
+    kwRet = r;
+    kwDef = d;
+  }
+  return kwRet === 9 && kwDef === 8;
+}
+let p = keywordPropRename();
+
+function letShadowsObjectProp() {
+  let obj = { x: 99, src: { x: 1 } };
+  let inside;
+  let after;
+  with (obj) {
+    let { x } = src;
+    inside = x;
+  }
+  after = obj.x;
+  return inside === 1 && after === 99;
+}
+let q = letShadowsObjectProp();
+
+function tdzSameNameThrows() {
+  let obj = { src: { src: 1 } };
+  try {
+    with (obj) {
+      let { src } = src;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError;
+  }
+}
+let s = tdzSameNameThrows();
+
+function emptyRest() {
+  let obj = { src: { a: 1 } };
+  let keys;
+  with (obj) {
+    let { a, ...rest } = src;
+    keys = Object.keys(rest).length;
+  }
+  return keys === 0;
+}
+let t = emptyRest();
+
+function unscopablesSkipRhs() {
+  let src = { x: 3 };
+  let obj = { src: { x: 99 } };
+  obj[Symbol.unscopables] = { src: true };
+  let out;
+  with (obj) {
+    let { x } = src;
+    out = x;
+  }
+  return out === 3 && obj.src.x === 99;
+}
+let u = unscopablesSkipRhs();
+
+function inheritedHasBindingRhs() {
+  let proto = { src: { x: 4 } };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    let { x } = src;
+    out = x;
+  }
+  return out === 4;
+}
+let v = inheritedHasBindingRhs();
+
+function accessorGetThisRhs() {
+  let seen = null;
+  let obj = {
+    get src() {
+      seen = this;
+      return { x: 5 };
+    }
+  };
+  let out;
+  with (obj) {
+    let { x } = src;
+    out = x;
+  }
+  return out === 5 && seen === obj;
+}
+let w = accessorGetThisRhs();
+
+function accessorSetThisAssignLhs() {
+  let seen = null;
+  let obj = {
+    src: { x: 8 },
+    set x(v) {
+      seen = this;
+      this._x = v;
+    },
+    get x() {
+      return this._x;
+    }
+  };
+  with (obj) {
+    ({ x } = src);
+  }
+  return seen === obj && obj._x === 8;
+}
+let aa = accessorSetThisAssignLhs();
+
+function unresolvableRhsThrows() {
+  with ({}) {
+    try {
+      let { x } = e1702133_missing;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702133_missing === "undefined"
+      );
+    }
+  }
+}
+let ab = unresolvableRhsThrows();
+
+function liveClose() {
+  let obj = { src: { x: 1 } };
+  let run;
+  with (obj) {
+    run = function () {
+      let { x } = src;
+      return x;
+    };
+  }
+  obj.src = { x: 9 };
+  return run() === 9;
+}
+let ac = liveClose();
+
+function nestedInnerWins() {
+  let inner = { src: { x: 3 } };
+  let outer = { src: { x: 10 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      let { x } = src;
+      out = x;
+    }
+  }
+  return out === 3;
+}
+let ad = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { src: { x: 5 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      let { x } = src;
+      out = x;
+    }
+  }
+  return out === 5;
+}
+let ae = nestedInnerMissOuter();
+
+function ownUndefinedHasBinding() {
+  let src = { x: 42 };
+  let obj = { src: undefined };
+  try {
+    with (obj) {
+      let { x } = src;
+      return x === 1;
+    }
+  } catch (err) {
+    return err instanceof TypeError && src.x === 42;
+  }
+}
+let af = ownUndefinedHasBinding();
+
+function unscopablesFalseyStillObject() {
+  let src = { x: 0 };
+  let obj = { src: { x: 6 } };
+  obj[Symbol.unscopables] = { src: false };
+  let out;
+  with (obj) {
+    let { x } = src;
+    out = x;
+  }
+  return out === 6 && src.x === 0;
+}
+let ag = unscopablesFalseyStillObject();
+
+function unscopablesNonObjectDoesNotBlock() {
+  let src = { x: 0 };
+  let obj = { src: { x: 6 } };
+  obj[Symbol.unscopables] = 1;
+  let out;
+  with (obj) {
+    let { x } = src;
+    out = x;
+  }
+  return out === 6 && src.x === 0;
+}
+let ah = unscopablesNonObjectDoesNotBlock();
+
+function getterRunsOncePerUse() {
+  let c = 0;
+  let obj = {
+    get src() {
+      c = c + 1;
+      return { x: 3 };
+    }
+  };
+  let out;
+  with (obj) {
+    let { x: x1 } = src;
+    let { x: x2 } = src;
+    out = x1 + x2;
+  }
+  return out === 6 && c === 2;
+}
+let aj = getterRunsOncePerUse();
+
+function inheritedAccessorThis() {
+  let seen = null;
+  let proto = {
+    get src() {
+      seen = this;
+      return { x: 2 };
+    }
+  };
+  let obj = Object.create(proto);
+  let out;
+  with (obj) {
+    let { x } = src;
+    out = x;
+  }
+  return out === 2 && seen === obj;
+}
+let ak = inheritedAccessorThis();
+
+function nestedWithUnscopables() {
+  let src = { x: 1 };
+  let inner = { src: { x: 99 } };
+  inner[Symbol.unscopables] = { src: true };
+  let outer = { src: { x: 4 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      let { x } = src;
+      out = x;
+    }
+  }
+  return out === 4 && src.x === 1;
+}
+let al = nestedWithUnscopables();
+
+function unresolvableNotImplicitGlobal() {
+  with ({}) {
+    try {
+      let { x } = e1702133_noglob;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702133_noglob === "undefined"
+      );
+    }
+  }
+}
+let am = unresolvableNotImplicitGlobal();
+
+function liveCloseAfterMutateOuter() {
+  let src = { x: 0 };
+  let obj = { src: { x: 1 } };
+  let run;
+  with (obj) {
+    run = function () {
+      let { x } = src;
+      return x;
+    };
+  }
+  obj.src = { x: 8 };
+  src = { x: 99 };
+  return run() === 8 && src.x === 99;
+}
+let an = liveCloseAfterMutateOuter();
+
+function mixedObjectOuter() {
+  let y = 2;
+  let obj = { src: { x: 1 } };
+  let sum;
+  with (obj) {
+    let { x } = src;
+    sum = x + y;
+  }
+  return sum === 3 && y === 2;
+}
+let ap = mixedObjectOuter();
+
+function deleteIdentThenOuter() {
+  let src = { x: 3 };
+  let obj = { src: { x: 99 } };
+  let out;
+  with (obj) {
+    delete src;
+    let { x } = src;
+    out = x;
+  }
+  return (
+    out === 3 &&
+    obj.src === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "src") === false
+  );
+}
+let aq = deleteIdentThenOuter();
+
+function assignInheritedCreatesOwn() {
+  let proto = { x: 1 };
+  let obj = Object.create(proto);
+  obj.src = { x: 7 };
+  with (obj) {
+    ({ x } = src);
+  }
+  return (
+    obj.x === 7 &&
+    proto.x === 1 &&
+    Object.prototype.hasOwnProperty.call(obj, "x") === true
+  );
+}
+let ar = assignInheritedCreatesOwn();
+
+function constReassignTypeError() {
+  let obj = { src: { k: 1 } };
+  try {
+    with (obj) {
+      const { k } = src;
+      k = 2;
+    }
+    return false;
+  } catch (err) {
+    return err instanceof TypeError;
+  }
+}
+let at = constReassignTypeError();
+
+function nestedBothDestructure() {
+  let inner = { src: { x: 1, y: 2 } };
+  let outer = { src: { x: 10, y: 20 } };
+  let innerOut;
+  let outerOut;
+  with (outer) {
+    with (inner) {
+      let { x } = src;
+      innerOut = x;
+    }
+    let { y } = src;
+    outerOut = y;
+  }
+  return innerOut === 1 && outerOut === 20;
+}
+let au = nestedBothDestructure();
+
+function computedKeyMissUsesOuter() {
+  let ck = "a";
+  let obj = { src: { a: 11 } };
+  let cv;
+  with (obj) {
+    let { [ck]: v } = src;
+    cv = v;
+  }
+  return cv === 11 && ck === "a";
+}
+let av = computedKeyMissUsesOuter();
+
+function assignRestHitsObject() {
+  let obj = { rest: 0, src: { q: 100, r: 200, t: 300 } };
+  with (obj) {
+    let q;
+    ({ q, ...rest } = src);
+  }
+  return (
+    obj.rest.r === 200 &&
+    obj.rest.t === 300 &&
+    obj.rest.q === undefined &&
+    Object.prototype.hasOwnProperty.call(obj, "q") === false
+  );
+}
+let aw = assignRestHitsObject();
+
+function stringKeyHitsRhs() {
+  let obj = { src: { "0": 99 } };
+  let strKey;
+  with (obj) {
+    let { "0": v } = src;
+    strKey = v;
+  }
+  return strKey === 99;
+}
+let ax = stringKeyHitsRhs();
+
+function hexNumericKeyHitsRhs() {
+  let obj = { src: { 16: 16 } };
+  let hexKey;
+  with (obj) {
+    let { 0x10: v } = src;
+    hexKey = v;
+  }
+  return hexKey === 16;
+}
+let ay = hexNumericKeyHitsRhs();
+
+function skippedIfLetNotVisible() {
+  if (false) {
+    with ({ src: { skippedBind: 1 } }) {
+      let { skippedBind } = src;
+    }
+  }
+  return typeof skippedBind === "undefined";
+}
+let az = skippedIfLetNotVisible();
+
+function assignComputedKeyHitsObject() {
+  let ck = "no";
+  let obj = { ck: "a", src: { a: 44 } };
+  let cAsg;
+  with (obj) {
+    ({ [ck]: cAsg } = src);
+  }
+  return cAsg === 44 && ck === "no";
+}
+let ba = assignComputedKeyHitsObject();
+
+function assignMemberTarget() {
+  let obj = { src: { xy: 4 } };
+  let oMem = {};
+  with (obj) {
+    ({ xy: oMem.y } = src);
+  }
+  return oMem.y === 4;
+}
+let bb = assignMemberTarget();
+
+function assignNumericKey() {
+  let asgV;
+  let obj = { src: [42] };
+  with (obj) {
+    ({ 0: asgV } = src);
+  }
+  return asgV === 42;
+}
+let bc = assignNumericKey();
+
+function unscopablesAssignLhsGoesOuter() {
+  let x = 1;
+  let obj = { x: 0, src: { x: 7 } };
+  obj[Symbol.unscopables] = { x: true };
+  with (obj) {
+    ({ x } = src);
+  }
+  return x === 7 && obj.x === 0;
+}
+let bd = unscopablesAssignLhsGoesOuter();
+
+function nestedUnscopablesInnerMissOuter() {
+  let src = { x: 1 };
+  let inner = { src: { x: 99 } };
+  inner[Symbol.unscopables] = { src: true };
+  let outer = { src: { x: 4 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      let { x } = src;
+      out = x;
+    }
+  }
+  return out === 4 && src.x === 1;
+}
+let be = nestedUnscopablesInnerMissOuter();
+
+function restThenReadSrcStillObject() {
+  let outerSrc = { a: 0 };
+  let obj = { src: { a: 1, b: 2 } };
+  let still;
+  with (obj) {
+    let { a, ...rest } = src;
+    still = src.b;
+  }
+  return still === 2 && outerSrc.a === 0;
+}
+let bf = restThenReadSrcStillObject();
+
+function unresolvableAfterLetSkipped() {
+  let ran = false;
+  let obj = {
+    get src() {
+      ran = true;
+      return { x: 1 };
+    }
+  };
+  with (obj) {
+    try {
+      let { x } = src;
+      e1702133_after;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bg = unresolvableAfterLetSkipped();
+
+function nestedPatternFromObjectSrc() {
+  let obj = { src: { outer: { inner: 10 }, z: 20 } };
+  let p;
+  with (obj) {
+    let { outer: { inner: n }, z } = src;
+    p = n + z;
+  }
+  return p === 30;
+}
+let bh = nestedPatternFromObjectSrc();
+
+function assignRenameHitsObject() {
+  let obj = { x: 0, src: { a: 7 } };
+  with (obj) {
+    ({ a: x } = src);
+  }
+  return obj.x === 7;
+}
+let bi = assignRenameHitsObject();
+
+function letFromEmptyObjectMissingUndefined() {
+  let obj = { src: {} };
+  let out;
+  with (obj) {
+    let { a } = src;
+    out = a;
+  }
+  return out === undefined;
+}
+let bj = letFromEmptyObjectMissingUndefined();
+
+function computedKeyInParamLikeObject() {
+  let ck2 = "no";
+  let obj = { ck2: "x", src: { x: 33 } };
+  let cParam;
+  with (obj) {
+    function takeComputed({ [ck2]: p }) {
+      return p;
+    }
+    cParam = takeComputed(src);
+  }
+  return cParam === 33 && ck2 === "no";
+}
+let bk = computedKeyInParamLikeObject();
+
+function unscopablesSecondIdent() {
+  let ck = "a";
+  let obj = { src: { a: 11 }, ck: "nope" };
+  obj[Symbol.unscopables] = { ck: true };
+  let cv;
+  with (obj) {
+    let { [ck]: v } = src;
+    cv = v;
+  }
+  return cv === 11 && obj.ck === "nope";
+}
+let bl = unscopablesSecondIdent();
+
+function liveCloseAssignRhs() {
+  let obj = { src: { u: 1 } };
+  let run;
+  with (obj) {
+    run = function () {
+      let u;
+      ({ u } = src);
+      return u;
+    };
+  }
+  obj.src = { u: 9 };
+  return run() === 9;
+}
+let bm = liveCloseAssignRhs();
+
+function shadowsOuterSrc() {
+  let src = { x: 0 };
+  let obj = { src: { x: 5 } };
+  let out;
+  with (obj) {
+    let { x } = src;
+    out = x;
+  }
+  return out === 5 && src.x === 0;
+}
+let bn = shadowsOuterSrc();
+
+function assignNestedHitsObject() {
+  let obj = { x: 0, src: { outer: { inner: 11 } } };
+  with (obj) {
+    ({ outer: { inner: x } } = src);
+  }
+  return obj.x === 11;
+}
+let bp = assignNestedHitsObject();
