@@ -1,0 +1,815 @@
+// E17.02.138: with + new.target (E18.27: meta-property in function/
+// constructor; undefined in non-new call; subclass points at active
+// construct) through object environment (non-strict).
+// Ctor ident hits object (else outer); new.target is not
+// IdentifierReference (target prop does not shadow); target ident still
+// hits object; class body is strict (with in ctor/method → SyntaxError);
+// inherited HasBinding; accessor get this is with object; unresolvable
+// ctor → ReferenceError; live close; nested with; unscopables skip.
+
+function ctorHitsObjectNewTarget() {
+  function Outer() {
+    this.n = 0;
+  }
+  let seen = null;
+  let obj = {
+    C: function () {
+      seen = new.target;
+      this.n = 1;
+    }
+  };
+  with (obj) {
+    let inst = new C();
+    return inst.n === 1 && seen === obj.C && seen !== Outer;
+  }
+}
+let a = ctorHitsObjectNewTarget();
+
+function ctorMissUsesOuter() {
+  function C() {
+    this.ok = new.target === C;
+  }
+  with ({}) {
+    return new C().ok === true;
+  }
+}
+let b = ctorMissUsesOuter();
+
+function nonNewCallUndefined() {
+  function f() {
+    with ({ target: 7 }) {
+      return new.target;
+    }
+  }
+  return f() === undefined;
+}
+let c = nonNewCallUndefined();
+
+function nonNewCallTypeofUndefined() {
+  function f() {
+    with ({ target: 7 }) {
+      return typeof new.target;
+    }
+  }
+  return f() === "undefined";
+}
+let d = nonNewCallTypeofUndefined();
+
+function targetPropDoesNotShadowMeta() {
+  function Ctor() {
+    with ({ target: 99 }) {
+      this.meta = new.target === Ctor;
+      this.ident = target === 99;
+    }
+  }
+  let inst = new Ctor();
+  return inst.meta === true && inst.ident === true;
+}
+let e = targetPropDoesNotShadowMeta();
+
+function targetIdentHitsObject() {
+  let obj = { target: 4 };
+  function f() {
+    with (obj) {
+      return target;
+    }
+  }
+  return f() === 4;
+}
+let f = targetIdentHitsObject();
+
+function targetIdentMissUsesOuter() {
+  let target = 8;
+  function f() {
+    with ({}) {
+      return target;
+    }
+  }
+  return f() === 8;
+}
+let g = targetIdentMissUsesOuter();
+
+function classCtorNewTargetIsClass() {
+  let seen = null;
+  let obj = { x: 1 };
+  with (obj) {
+    class C {
+      constructor() {
+        seen = new.target;
+      }
+    }
+    new C();
+    return seen === C;
+  }
+}
+let h = classCtorNewTargetIsClass();
+
+function subclassActiveConstructInDerived() {
+  let obj = { x: 1 };
+  with (obj) {
+    class Base {}
+    class Sub extends Base {
+      constructor() {
+        super();
+        this.ok = new.target === Sub;
+      }
+    }
+    return new Sub().ok === true;
+  }
+}
+let j = subclassActiveConstructInDerived();
+
+function subclassActiveConstructInBase() {
+  let obj = { x: 1 };
+  with (obj) {
+    class Base {
+      constructor() {
+        this.nt = new.target;
+      }
+    }
+    class Sub extends Base {}
+    let inst = new Sub();
+    return inst.nt === Sub && inst.nt !== Base;
+  }
+}
+let k = subclassActiveConstructInBase();
+
+function arrowInheritsEnclosing() {
+  function Ctor() {
+    let get = () => new.target;
+    with ({ target: 1 }) {
+      this.fromArrow = get() === Ctor;
+      this.fromWith = (() => new.target)() === Ctor;
+    }
+  }
+  return new Ctor().fromArrow === true && new Ctor().fromWith === true;
+}
+let l = arrowInheritsEnclosing();
+
+function nestedFunctionCallUndefined() {
+  function Outer() {
+    function inner() {
+      with ({ target: 1 }) {
+        return new.target;
+      }
+    }
+    this.v = inner();
+  }
+  return new Outer().v === undefined;
+}
+let m = nestedFunctionCallUndefined();
+
+function nestedFunctionNewIsInner() {
+  function Outer() {
+    function inner() {
+      with ({ target: 1 }) {
+        this.nt = new.target;
+      }
+    }
+    this.v = new inner().nt;
+    this.same = this.v === inner;
+  }
+  let o = new Outer();
+  return o.same === true;
+}
+let n = nestedFunctionNewIsInner();
+
+function returnNewTargetFromCtor() {
+  function Ctor() {
+    with ({ target: 1 }) {
+      return new.target;
+    }
+  }
+  return new Ctor() === Ctor && Ctor() === undefined;
+}
+let p = returnNewTargetFromCtor();
+
+function newTargetEqualsCtorIdentHitsObject() {
+  function make() {
+    this.ok = false;
+  }
+  let obj = { C: make };
+  function Wrapper() {
+    with (obj) {
+      this.ok = new.target === C;
+    }
+  }
+  obj.W = Wrapper;
+  with (obj) {
+    return new W().ok === false && new make().ok === false;
+  }
+}
+let q = newTargetEqualsCtorIdentHitsObject();
+
+function withNewTargetAsObject() {
+  function Ctor() {
+    Ctor.mark = 3;
+    with (new.target) {
+      this.v = mark;
+    }
+  }
+  let inst = new Ctor();
+  return inst.v === 3;
+}
+let r = withNewTargetAsObject();
+
+function unresolvableCtorThrows() {
+  with ({}) {
+    try {
+      new e1702138_missing();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702138_missing === "undefined"
+      );
+    }
+  }
+}
+let s = unresolvableCtorThrows();
+
+function liveCloseCtorIdent() {
+  function first() {
+    this.n = 1;
+    this.nt = new.target === first;
+  }
+  function second() {
+    this.n = 8;
+    this.nt = new.target === second;
+  }
+  let obj = { C: first };
+  let run;
+  with (obj) {
+    run = function () {
+      return new C();
+    };
+  }
+  obj.C = second;
+  let inst = run();
+  return inst.n === 8 && inst.nt === true;
+}
+let t = liveCloseCtorIdent();
+
+function nestedWithInnerWinsCtor() {
+  function InnerC() {
+    this.n = 1;
+    this.ok = new.target === InnerC;
+  }
+  function OuterC() {
+    this.n = 2;
+    this.ok = new.target === OuterC;
+  }
+  let inner = { C: InnerC };
+  let outer = { C: OuterC };
+  with (outer) {
+    with (inner) {
+      let inst = new C();
+      return inst.n === 1 && inst.ok === true;
+    }
+  }
+}
+let u = nestedWithInnerWinsCtor();
+
+function nestedInnerMissOuterCtor() {
+  function OuterC() {
+    this.ok = new.target === OuterC;
+  }
+  let inner = {};
+  let outer = { C: OuterC };
+  with (outer) {
+    with (inner) {
+      return new C().ok === true;
+    }
+  }
+}
+let v = nestedInnerMissOuterCtor();
+
+function unscopablesSkipCtor() {
+  function C() {
+    this.n = 2;
+    this.ok = new.target === C;
+  }
+  function Hidden() {
+    this.n = 99;
+  }
+  let obj = { C: Hidden };
+  obj[Symbol.unscopables] = { C: true };
+  with (obj) {
+    let inst = new C();
+    return inst.n === 2 && inst.ok === true && obj.C === Hidden;
+  }
+}
+let w = unscopablesSkipCtor();
+
+function inheritedHasBindingCtor() {
+  function ProtoC() {
+    this.ok = new.target === ProtoC;
+  }
+  let proto = { C: ProtoC };
+  let obj = Object.create(proto);
+  with (obj) {
+    return new C().ok === true;
+  }
+}
+let aa = inheritedHasBindingCtor();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  function Made() {
+    this.ok = new.target === Made;
+  }
+  let obj = {
+    get C() {
+      seen = this;
+      return Made;
+    }
+  };
+  with (obj) {
+    let inst = new C();
+    return inst.ok === true && seen === obj;
+  }
+}
+let ab = accessorGetThisIsWithObject();
+
+function withInClassConstructorSyntaxError() {
+  try {
+    eval("class C { constructor() { with ({}) { return new.target; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ac = withInClassConstructorSyntaxError();
+
+function withInClassMethodSyntaxError() {
+  try {
+    eval("class C { m() { with ({}) { return new.target; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ad = withInClassMethodSyntaxError();
+
+function functionExpressionCtor() {
+  let seen = null;
+  let obj = {};
+  with (obj) {
+    let C = function () {
+      seen = new.target;
+    };
+    new C();
+    return seen === C;
+  }
+}
+let ae = functionExpressionCtor();
+
+function namedFunctionExpression() {
+  let seen = null;
+  let obj = { target: 1 };
+  with (obj) {
+    let C = function Name() {
+      seen = new.target;
+      this.ident = target;
+    };
+    let inst = new C();
+    return seen === C && inst.ident === 1;
+  }
+}
+let af = namedFunctionExpression();
+
+function reflectConstructNewTarget() {
+  function Ctor() {
+    with ({ target: 1 }) {
+      this.nt = new.target;
+    }
+  }
+  let inst = Reflect.construct(Ctor, []);
+  return inst.nt === Ctor;
+}
+let ag = reflectConstructNewTarget();
+
+function reflectConstructCustomNewTarget() {
+  function Ctor() {
+    with ({ target: 1 }) {
+      this.nt = new.target;
+    }
+  }
+  function Other() {}
+  let inst = Reflect.construct(Ctor, [], Other);
+  return inst.nt === Other;
+}
+let ah = reflectConstructCustomNewTarget();
+
+function memberNewStillThatCtor() {
+  function InnerC() {
+    with ({ target: 1 }) {
+      this.ok = new.target === InnerC;
+    }
+  }
+  let inner = { C: InnerC };
+  let obj = { inner: inner };
+  with (obj) {
+    return new inner.C().ok === true;
+  }
+}
+let aj = memberNewStillThatCtor();
+
+function ownUndefinedHasBinding() {
+  function Outer() {
+    this.n = 4;
+  }
+  let obj = { C: undefined };
+  with (obj) {
+    try {
+      new C();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let ak = ownUndefinedHasBinding();
+
+function deleteIdentThenUnresolvable() {
+  function Hidden() {
+    this.n = 1;
+  }
+  let obj = { C: Hidden };
+  with (obj) {
+    delete C;
+    try {
+      new C();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let al = deleteIdentThenUnresolvable();
+
+function getterRunsOncePerNew() {
+  let n = 0;
+  function Made() {
+    this.ok = new.target === Made && n === 1;
+  }
+  let obj = {
+    get C() {
+      n = n + 1;
+      return Made;
+    }
+  };
+  with (obj) {
+    return new C().ok === true && n === 1;
+  }
+}
+let am = getterRunsOncePerNew();
+
+function newTargetNotWrittenToObject() {
+  function Ctor() {
+    with ({ target: 1 }) {
+      this.ok = new.target === Ctor;
+    }
+  }
+  let obj = { target: 1 };
+  with (obj) {
+    new Ctor();
+    return (
+      obj.new === undefined &&
+      Object.prototype.hasOwnProperty.call(obj, "target") === true &&
+      obj.target === 1
+    );
+  }
+}
+let an = newTargetNotWrittenToObject();
+
+function liveCloseBodySeesMutatedIdent() {
+  function Ctor() {
+    with (obj) {
+      this.v = x;
+      this.nt = new.target === Ctor;
+    }
+  }
+  let obj = { x: 1 };
+  let inst1 = new Ctor();
+  obj.x = 9;
+  let inst2 = new Ctor();
+  return inst1.v === 1 && inst2.v === 9 && inst1.nt === true && inst2.nt === true;
+}
+let ap = liveCloseBodySeesMutatedIdent();
+
+function nestedWithUnscopables() {
+  function OuterC() {
+    this.n = 10;
+    this.ok = new.target === OuterC;
+  }
+  function Hidden() {
+    this.n = 1;
+  }
+  let inner = { C: Hidden };
+  inner[Symbol.unscopables] = { C: true };
+  let outer = { C: OuterC };
+  with (outer) {
+    with (inner) {
+      let inst = new C();
+      return inst.n === 10 && inst.ok === true;
+    }
+  }
+}
+let aq = nestedWithUnscopables();
+
+function classExpression() {
+  let seen = null;
+  let obj = { x: 1 };
+  with (obj) {
+    let H = class {
+      constructor() {
+        seen = new.target;
+      }
+    };
+    new H();
+    return seen === H;
+  }
+}
+let ar = classExpression();
+
+function nestedClass() {
+  let obj = { x: 1 };
+  with (obj) {
+    class Outer {
+      inner() {
+        class Inner {
+          constructor() {
+            this.ok = new.target === Inner;
+          }
+        }
+        return new Inner().ok;
+      }
+    }
+    return new Outer().inner() === true;
+  }
+}
+let nestedCls = nestedClass();
+
+function extendsIdentHitsObject() {
+  function Parent() {
+    this.from = new.target;
+  }
+  let obj = { Base: Parent };
+  with (obj) {
+    class Sub extends Base {
+      constructor() {
+        super();
+        this.sub = new.target === Sub;
+      }
+    }
+    let inst = new Sub();
+    return inst.sub === true && inst.from === Sub;
+  }
+}
+let at = extendsIdentHitsObject();
+
+function typeofNewTargetInCtor() {
+  function Ctor() {
+    with ({ target: 1 }) {
+      this.ty = typeof new.target;
+    }
+  }
+  return new Ctor().ty === "function";
+}
+let au = typeofNewTargetInCtor();
+
+function callAndNewSameFunction() {
+  function Ctor() {
+    with ({ target: 1 }) {
+      return new.target;
+    }
+  }
+  let obj = { C: Ctor };
+  with (obj) {
+    return C() === undefined && new C() === Ctor;
+  }
+}
+let av = callAndNewSameFunction();
+
+function objectMethodNewTargetUndefined() {
+  let obj = {
+    target: 5,
+    m: function () {
+      with (this) {
+        return new.target === undefined && target === 5;
+      }
+    }
+  };
+  return obj.m() === true;
+}
+let aw = objectMethodNewTargetUndefined();
+
+function assignNewTargetSyntaxError() {
+  try {
+    eval("function f() { with ({}) { new.target = 1; } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ax = assignNewTargetSyntaxError();
+
+function nestedWithOuterAfterInner() {
+  function InnerC() {
+    this.n = 1;
+  }
+  function OuterC() {
+    this.n = 2;
+    this.ok = new.target === OuterC;
+  }
+  let inner = { C: InnerC };
+  let outer = { C: OuterC };
+  with (outer) {
+    with (inner) {
+      new C();
+    }
+    let inst = new C();
+    return inst.n === 2 && inst.ok === true;
+  }
+}
+let ay = nestedWithOuterAfterInner();
+
+function newTargetInWithInsideCtor() {
+  function Ctor() {
+    let obj = { target: 7, x: 3 };
+    with (obj) {
+      this.meta = new.target === Ctor;
+      this.x = x;
+    }
+  }
+  let inst = new Ctor();
+  return inst.meta === true && inst.x === 3;
+}
+let az = newTargetInWithInsideCtor();
+
+function functionDeclInsideWith() {
+  let obj = { target: 1 };
+  let seen = null;
+  with (obj) {
+    function C() {
+      seen = new.target;
+    }
+    new C();
+    return seen === C;
+  }
+}
+let ba = functionDeclInsideWith();
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  function Made() {
+    this.ok = new.target === Made;
+  }
+  let proto = {
+    get C() {
+      seen = this;
+      return Made;
+    }
+  };
+  let obj = Object.create(proto);
+  with (obj) {
+    let inst = new C();
+    return inst.ok === true && seen === obj;
+  }
+}
+let bb = inheritedAccessorGetThis();
+
+function liveCloseTwoNewsIndependent() {
+  function first() {
+    this.n = 1;
+    this.nt = new.target === first;
+  }
+  function second() {
+    this.n = 9;
+    this.nt = new.target === second;
+  }
+  let obj = { C: first };
+  let run;
+  with (obj) {
+    run = function () {
+      return new C();
+    };
+  }
+  let a1 = run();
+  obj.C = second;
+  let a2 = run();
+  return a1.n === 1 && a1.nt === true && a2.n === 9 && a2.nt === true;
+}
+let bc = liveCloseTwoNewsIndependent();
+
+function arrowNonNewUndefined() {
+  function f() {
+    let get = () => new.target;
+    with ({ target: 1 }) {
+      return get();
+    }
+  }
+  return f() === undefined;
+}
+let bd = arrowNonNewUndefined();
+
+function subclassArrowInheritsSub() {
+  let obj = { x: 1 };
+  with (obj) {
+    class Base {
+      constructor() {
+        this.fromArrow = (() => new.target)();
+      }
+    }
+    class Sub extends Base {}
+    let inst = new Sub();
+    return inst.fromArrow === Sub;
+  }
+}
+let be = subclassArrowInheritsSub();
+
+function unscopablesSkipTargetIdent() {
+  let target = 2;
+  let obj = { target: 99 };
+  obj[Symbol.unscopables] = { target: true };
+  function f() {
+    with (obj) {
+      return target === 2 && new.target === undefined;
+    }
+  }
+  return f() === true && obj.target === 99;
+}
+let bf = unscopablesSkipTargetIdent();
+
+function nestedWithInnerWinsTargetIdent() {
+  function Ctor() {
+    with ({ target: 10 }) {
+      with ({ target: 3 }) {
+        this.ident = target;
+        this.meta = new.target === Ctor;
+      }
+    }
+  }
+  let inst = new Ctor();
+  return inst.ident === 3 && inst.meta === true;
+}
+let bg = nestedWithInnerWinsTargetIdent();
+
+function ctorArgIdentHitsObject() {
+  function C(v) {
+    with ({ target: 1 }) {
+      this.v = v;
+      this.nt = new.target === C;
+    }
+  }
+  let obj = { x: 7, C: C };
+  with (obj) {
+    let inst = new C(x);
+    return inst.v === 7 && inst.nt === true && x === 7;
+  }
+}
+let bh = ctorArgIdentHitsObject();
+
+function newTargetSameAsThisConstructor() {
+  function Ctor() {
+    with ({ target: 1 }) {
+      this.ok = new.target === this.constructor;
+    }
+  }
+  return new Ctor().ok === true;
+}
+let bi = newTargetSameAsThisConstructor();
+
+function unresolvableTargetIdentThrows() {
+  function Ctor() {
+    with ({}) {
+      return e1702138_targetident;
+    }
+  }
+  try {
+    new Ctor();
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.e1702138_targetident === "undefined"
+    );
+  }
+}
+let bj = unresolvableTargetIdentThrows();
+
+function namedClassExpressionNewTarget() {
+  let seen = null;
+  let obj = { x: 1 };
+  with (obj) {
+    let H = class Name {
+      constructor() {
+        seen = new.target;
+      }
+    };
+    new H();
+    return seen === H;
+  }
+}
+let bk = namedClassExpressionNewTarget();
