@@ -1328,3 +1328,13 @@ fn with_var_decl_fixture_present() {
 fn with_var_decl_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_var_decl");
 }
+
+#[test]
+fn with_var_for_fixture_present() {
+    assert_fixture_present("es/legacy/with_var_for");
+}
+
+#[test]
+fn with_var_for_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_var_for");
+}

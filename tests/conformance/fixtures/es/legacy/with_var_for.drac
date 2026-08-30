@@ -1,0 +1,623 @@
+// E17.02.129: with + var in for heads (`for (var i=…;…;…)`,
+// `for (var k in/of …)`, Annex B.3.5 `for (var k = init in obj)`)
+// through object environment.
+// Iterable/right ident hits object (else outer); initializer RHS
+// idents hit object (else outer); binding is enclosing VE (not the
+// object) when miss; HasBinding assign (init + each iteration) hits
+// object (VE stays uninitialized); skipped loop still hoists;
+// let/const in head does not write object; inherited HasBinding;
+// accessor get/set this is with object; unresolvable → ReferenceError;
+// nested with; unscopables skip.
+
+function classicInitHitsObject() {
+  let obj = { i: 99 };
+  with (obj) {
+    for (var i = 0; false; ) {}
+  }
+  return obj.i === 0 && i === undefined;
+}
+let a = classicInitHitsObject();
+
+function classicInitMissUsesVe() {
+  let obj = {};
+  with (obj) {
+    for (var i = 0; i < 1; i = i + 1) {}
+  }
+  return (
+    i === 1 && Object.prototype.hasOwnProperty.call(obj, "i") === false
+  );
+}
+let b = classicInitMissUsesVe();
+
+function classicInitRhsHitsObject() {
+  let obj = { y: 5 };
+  with (obj) {
+    for (var i = y; false; ) {}
+  }
+  return i === 5;
+}
+let c = classicInitRhsHitsObject();
+
+function classicInitRhsMissUsesOuter() {
+  let y = 5;
+  with ({}) {
+    for (var i = y; false; ) {}
+  }
+  return i === 5;
+}
+let d = classicInitRhsMissUsesOuter();
+
+function classicTestUpdateHitsObject() {
+  let obj = { i: 99 };
+  let n = 0;
+  with (obj) {
+    for (var i = 0; i < 3; i = i + 1) {
+      n = n + 1;
+    }
+  }
+  return n === 3 && obj.i === 3 && i === undefined;
+}
+let e = classicTestUpdateHitsObject();
+
+function classicTestUpdateMissUsesVe() {
+  let obj = {};
+  let n = 0;
+  with (obj) {
+    for (var i = 0; i < 2; i = i + 1) {
+      n = n + 1;
+    }
+  }
+  return (
+    n === 2 &&
+    i === 2 &&
+    Object.prototype.hasOwnProperty.call(obj, "i") === false
+  );
+}
+let f = classicTestUpdateMissUsesVe();
+
+function classicTypeofBeforeHoist() {
+  let before = typeof i;
+  with ({}) {
+    for (var i = 3; false; ) {}
+  }
+  return before === "undefined" && i === 3;
+}
+let g = classicTypeofBeforeHoist();
+
+function classicSkippedStillHoists() {
+  if (false) {
+    with ({}) {
+      for (var i = 9; false; ) {}
+    }
+  }
+  return i === undefined;
+}
+let h = classicSkippedStillHoists();
+
+function classicRedeclareHitsObjectKeepsVe() {
+  var i = 1;
+  let obj = { i: 0 };
+  with (obj) {
+    for (var i = 3; false; ) {}
+  }
+  return obj.i === 3 && i === 1;
+}
+let i = classicRedeclareHitsObjectKeepsVe();
+
+function classicRedeclareMissUpdatesVe() {
+  var i = 1;
+  with ({}) {
+    for (var i = 3; false; ) {}
+  }
+  return i === 3;
+}
+let j = classicRedeclareMissUpdatesVe();
+
+function forInHitsObject() {
+  let obj = { k: 0 };
+  with (obj) {
+    for (var k in { alpha: 1 }) {}
+  }
+  return obj.k === "alpha" && k === undefined;
+}
+let k = forInHitsObject();
+
+function forInMissUsesVe() {
+  let obj = {};
+  with (obj) {
+    for (var k in { beta: 1 }) {}
+  }
+  return (
+    k === "beta" && Object.prototype.hasOwnProperty.call(obj, "k") === false
+  );
+}
+let l = forInMissUsesVe();
+
+function forInHoists() {
+  let before = typeof k;
+  with ({}) {
+    for (var k in { a: 1 }) {}
+  }
+  return before === "undefined" && k === "a";
+}
+let m = forInHoists();
+
+function forInSkippedStillHoists() {
+  if (false) {
+    with ({}) {
+      for (var k in { a: 1 }) {}
+    }
+  }
+  return k === undefined;
+}
+let p = forInSkippedStillHoists();
+
+function forInRightHitsObject() {
+  let w = { src: { zed: 1 } };
+  with (w) {
+    for (var k in src) {}
+  }
+  return k === "zed";
+}
+let q = forInRightHitsObject();
+
+function forInRightMissUsesOuter() {
+  let src = { zed: 1 };
+  with ({}) {
+    for (var k in src) {}
+  }
+  return k === "zed";
+}
+let r = forInRightMissUsesOuter();
+
+function forInEmptyMissVeUndefined() {
+  let obj = {};
+  with (obj) {
+    for (var k in {}) {}
+  }
+  return (
+    k === undefined && Object.prototype.hasOwnProperty.call(obj, "k") === false
+  );
+}
+let s = forInEmptyMissVeUndefined();
+
+function forInEmptyHitsLeavesObject() {
+  let obj = { k: "keep" };
+  with (obj) {
+    for (var k in {}) {}
+  }
+  return obj.k === "keep" && k === undefined;
+}
+let t = forInEmptyHitsLeavesObject();
+
+function forInBodyHitsObject() {
+  let obj = { k: 0, z: 0 };
+  with (obj) {
+    for (var k in { a: 1 }) {
+      z = 9;
+    }
+  }
+  return obj.z === 9 && obj.k === "a" && k === undefined;
+}
+let u = forInBodyHitsObject();
+
+function forInBreak() {
+  let obj = { k: 0, z: 0 };
+  let src = { a: 1, b: 2 };
+  with (obj) {
+    for (var k in src) {
+      z = 5;
+      break;
+      z = 99;
+    }
+  }
+  return obj.z === 5 && (obj.k === "a" || obj.k === "b") && k === undefined;
+}
+let v = forInBreak();
+
+function forInInheritedHasBinding() {
+  let proto = { k: 0 };
+  let obj = Object.create(proto);
+  with (obj) {
+    for (var k in { a: 1 }) {}
+  }
+  return obj.k === "a" && proto.k === 0 && k === undefined;
+}
+let w = forInInheritedHasBinding();
+
+function forInUnscopablesUsesOuter() {
+  var k = "outer";
+  let obj = { k: 0 };
+  obj[Symbol.unscopables] = { k: true };
+  with (obj) {
+    for (var k in { a: 1 }) {}
+  }
+  return k === "a" && obj.k === 0;
+}
+let x = forInUnscopablesUsesOuter();
+
+function forInNestedInnerWins() {
+  let inner = { k: 0 };
+  let outer = { k: 9 };
+  with (outer) {
+    with (inner) {
+      for (var k in { a: 1 }) {}
+    }
+  }
+  return inner.k === "a" && outer.k === 9 && k === undefined;
+}
+let y = forInNestedInnerWins();
+
+function forInUnresolvableRightThrows() {
+  with ({}) {
+    try {
+      for (var k in e1702129_missing) {
+        return false;
+      }
+    } catch (err) {
+      return err instanceof ReferenceError && k === undefined;
+    }
+  }
+}
+let z = forInUnresolvableRightThrows();
+
+function forInAccessorSetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    set k(v) {
+      seen = this;
+      this._k = v;
+    },
+    get k() {
+      return this._k;
+    }
+  };
+  with (obj) {
+    for (var k in { a: 1 }) {}
+  }
+  return seen === obj && obj._k === "a" && k === undefined;
+}
+let aa = forInAccessorSetThisIsWithObject();
+
+function forInLiveCloseRight() {
+  let obj = { src: { a: 1 } };
+  let run;
+  with (obj) {
+    run = function () {
+      let last;
+      for (var k in src) {
+        last = k;
+      }
+      return last;
+    };
+  }
+  obj.src = { b: 1 };
+  return run() === "b";
+}
+let ab = forInLiveCloseRight();
+
+function forOfHitsObject() {
+  let obj = { v: 0 };
+  with (obj) {
+    for (var v of [7, 8]) {}
+  }
+  return obj.v === 8 && v === undefined;
+}
+let ac = forOfHitsObject();
+
+function forOfMissUsesVe() {
+  let obj = {};
+  with (obj) {
+    for (var v of [3, 4]) {}
+  }
+  return (
+    v === 4 && Object.prototype.hasOwnProperty.call(obj, "v") === false
+  );
+}
+let ad = forOfMissUsesVe();
+
+function forOfRightHitsObject() {
+  let w = { arr: [1, 2] };
+  with (w) {
+    for (var v of arr) {}
+  }
+  return v === 2;
+}
+let ae = forOfRightHitsObject();
+
+function forOfEmptyMissVeUndefined() {
+  let obj = {};
+  with (obj) {
+    for (var v of []) {}
+  }
+  return (
+    v === undefined && Object.prototype.hasOwnProperty.call(obj, "v") === false
+  );
+}
+let af = forOfEmptyMissVeUndefined();
+
+function forOfBreak() {
+  let obj = { v: 0, z: 0 };
+  with (obj) {
+    for (var v of [7, 8]) {
+      z = 5;
+      break;
+      z = 99;
+    }
+  }
+  return obj.z === 5 && obj.v === 7 && v === undefined;
+}
+let ag = forOfBreak();
+
+function forOfUnresolvableRightThrows() {
+  with ({}) {
+    try {
+      for (var v of e1702129_of_missing) {
+        return false;
+      }
+    } catch (err) {
+      return err instanceof ReferenceError && v === undefined;
+    }
+  }
+}
+let ah = forOfUnresolvableRightThrows();
+
+function forOfNestedInnerWins() {
+  let inner = { v: 0 };
+  let outer = { v: 9 };
+  with (outer) {
+    with (inner) {
+      for (var v of [3]) {}
+    }
+  }
+  return inner.v === 3 && outer.v === 9 && v === undefined;
+}
+let aj = forOfNestedInnerWins();
+
+function forOfUnscopablesUsesOuter() {
+  var v = 0;
+  let obj = { v: 9 };
+  obj[Symbol.unscopables] = { v: true };
+  with (obj) {
+    for (var v of [4]) {}
+  }
+  return v === 4 && obj.v === 9;
+}
+let ak = forOfUnscopablesUsesOuter();
+
+function annexBInitHitsThenKeys() {
+  let obj = { k: "before" };
+  with (obj) {
+    for (var k = "init" in { a: 1 }) {}
+  }
+  return obj.k === "a" && k === undefined;
+}
+let al = annexBInitHitsThenKeys();
+
+function annexBInitMissThenKeysOnVe() {
+  let obj = {};
+  with (obj) {
+    for (var k = "init" in { a: 1 }) {}
+  }
+  return (
+    k === "a" && Object.prototype.hasOwnProperty.call(obj, "k") === false
+  );
+}
+let am = annexBInitMissThenKeysOnVe();
+
+function annexBEmptyKeepsInitOnObject() {
+  let obj = { k: "before" };
+  with (obj) {
+    for (var k = "init" in {}) {}
+  }
+  return obj.k === "init" && k === undefined;
+}
+let an = annexBEmptyKeepsInitOnObject();
+
+function annexBEmptyKeepsInitOnVe() {
+  let obj = {};
+  with (obj) {
+    for (var k = "init" in {}) {}
+  }
+  return (
+    k === "init" && Object.prototype.hasOwnProperty.call(obj, "k") === false
+  );
+}
+let ap = annexBEmptyKeepsInitOnVe();
+
+function annexBInitRhsHitsObject() {
+  let w = { y: "seed" };
+  with (w) {
+    for (var k = y in {}) {}
+  }
+  return k === "seed";
+}
+let aq = annexBInitRhsHitsObject();
+
+function annexBInitRhsMissUsesOuter() {
+  let y = "seed";
+  with ({}) {
+    for (var k = y in {}) {}
+  }
+  return k === "seed";
+}
+let ar = annexBInitRhsMissUsesOuter();
+
+function annexBUnresolvableInitThrows() {
+  try {
+    with ({}) {
+      for (var k = e1702129_init_missing in {}) {}
+    }
+    return false;
+  } catch (err) {
+    return err instanceof ReferenceError && k === undefined;
+  }
+}
+let at = annexBUnresolvableInitThrows();
+
+function annexBUnresolvableRightThrows() {
+  with ({}) {
+    try {
+      for (var k = "init" in e1702129_in_missing) {
+        return false;
+      }
+    } catch (err) {
+      return err instanceof ReferenceError && k === "init";
+    }
+  }
+}
+let au = annexBUnresolvableRightThrows();
+
+function annexBUnscopablesInitGoesToVe() {
+  let obj = { k: "keep" };
+  obj[Symbol.unscopables] = { k: true };
+  with (obj) {
+    for (var k = "init" in {}) {}
+  }
+  return k === "init" && obj.k === "keep";
+}
+let av = annexBUnscopablesInitGoesToVe();
+
+function annexBInheritedHasBinding() {
+  let proto = { k: "proto" };
+  let obj = Object.create(proto);
+  with (obj) {
+    for (var k = "init" in {}) {}
+  }
+  return obj.k === "init" && proto.k === "proto" && k === undefined;
+}
+let aw = annexBInheritedHasBinding();
+
+function annexBAccessorSetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    set k(v) {
+      seen = this;
+      this._k = v;
+    },
+    get k() {
+      return this._k;
+    }
+  };
+  with (obj) {
+    for (var k = "init" in {}) {}
+  }
+  return seen === obj && obj._k === "init" && k === undefined;
+}
+let ax = annexBAccessorSetThisIsWithObject();
+
+function annexBNestedInnerWins() {
+  let inner = { k: 0 };
+  let outer = { k: 9 };
+  with (outer) {
+    with (inner) {
+      for (var k = "init" in {}) {}
+    }
+  }
+  return inner.k === "init" && outer.k === 9 && k === undefined;
+}
+let ay = annexBNestedInnerWins();
+
+function annexBInitRhsShadowsOuter() {
+  let y = "outer";
+  let w = { y: "obj" };
+  with (w) {
+    for (var k = y in {}) {}
+  }
+  return k === "obj" && y === "outer";
+}
+let az = annexBInitRhsShadowsOuter();
+
+function letForInDoesNotWriteObject() {
+  let obj = { k: 0 };
+  let n = 0;
+  with (obj) {
+    for (let k in { a: 1, b: 2 }) {
+      n = n + 1;
+    }
+  }
+  return obj.k === 0 && n === 2;
+}
+let ba = letForInDoesNotWriteObject();
+
+function letClassicDoesNotWriteObject() {
+  let obj = { i: 9 };
+  with (obj) {
+    for (let i = 0; i < 1; i = i + 1) {}
+  }
+  return obj.i === 9;
+}
+let bb = letClassicDoesNotWriteObject();
+
+function forInUnscopablesFalseyStillObject() {
+  var k = "outer";
+  let obj = { k: 0 };
+  obj[Symbol.unscopables] = { k: false };
+  with (obj) {
+    for (var k in { a: 1 }) {}
+  }
+  return obj.k === "a" && k === "outer";
+}
+let bc = forInUnscopablesFalseyStillObject();
+
+function forInNestedInnerMissUsesOuter() {
+  let inner = {};
+  let outer = { k: 0 };
+  with (outer) {
+    with (inner) {
+      for (var k in { a: 1 }) {}
+    }
+  }
+  return outer.k === "a" && k === undefined;
+}
+let bd = forInNestedInnerMissUsesOuter();
+
+function forInOwnUndefinedHasBinding() {
+  let obj = { k: undefined };
+  with (obj) {
+    for (var k in { a: 1 }) {}
+  }
+  return obj.k === "a" && k === undefined;
+}
+let be = forInOwnUndefinedHasBinding();
+
+function classicInitFunctionLiveClose() {
+  let obj = { z: 1 };
+  with (obj) {
+    for (var f = function () {
+      return z;
+    }; false; ) {}
+  }
+  obj.z = 9;
+  return f() === 9;
+}
+let bf = classicInitFunctionLiveClose();
+
+function forOfAccessorSetThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    set v(val) {
+      seen = this;
+      this._v = val;
+    },
+    get v() {
+      return this._v;
+    }
+  };
+  with (obj) {
+    for (var v of [7]) {}
+  }
+  return seen === obj && obj._v === 7 && v === undefined;
+}
+let bg = forOfAccessorSetThisIsWithObject();
+
+function forInRightUnscopablesUsesOuter() {
+  let src = { a: 1 };
+  let w = { src: { b: 1 } };
+  w[Symbol.unscopables] = { src: true };
+  with (w) {
+    for (var k in src) {}
+  }
+  return k === "a";
+}
+let bh = forInRightUnscopablesUsesOuter();
