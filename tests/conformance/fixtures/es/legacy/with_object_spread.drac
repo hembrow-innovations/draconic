@@ -1,0 +1,524 @@
+// E17.02.139: with + Object spread (E18.28: `{...a}` / `{...a, b}` /
+// `{a, ...b, c}` copy enumerable own string keys; later props overwrite)
+// through object environment (non-strict).
+// Spread/prop idents hit object (else outer); null/undefined spread is no-op;
+// result is a new object (does not write object); inherited HasBinding;
+// accessor get this is with object; unresolvable → ReferenceError; live close;
+// nested with; unscopables skip.
+
+function spreadHitsObject() {
+  let src = { x: 1 };
+  let env = { src: { x: 2, y: 3 } };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return (
+    out.x === 2 &&
+    out.y === 3 &&
+    src.x === 1 &&
+    src.y === undefined
+  );
+}
+let a = spreadHitsObject();
+
+function spreadMissUsesOuter() {
+  let src = { x: 4, y: 5 };
+  let env = {};
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return out.x === 4 && out.y === 5;
+}
+let b = spreadMissUsesOuter();
+
+function spreadThenOwnProp() {
+  let env = { src: { x: 6 }, z: 7 };
+  let out;
+  with (env) {
+    out = { ...src, z: z };
+  }
+  return out.x === 6 && out.z === 7;
+}
+let c = spreadThenOwnProp();
+
+function ownThenSpreadThenOwn() {
+  let y = 10;
+  let env = { w: 0, src: { x: 8, y: 1 }, z: 4 };
+  let out;
+  with (env) {
+    out = { w: w, ...src, y: y, z: z };
+  }
+  return out.w === 0 && out.x === 8 && out.y === 10 && out.z === 4;
+}
+let d = ownThenSpreadThenOwn();
+
+function mixedHitAndMiss() {
+  let y = 12;
+  let env = { src: { x: 11 } };
+  let out;
+  with (env) {
+    out = { ...src, y: y };
+  }
+  return out.x === 11 && out.y === 12;
+}
+let e = mixedHitAndMiss();
+
+function emptySpread() {
+  let env = { empty: {} };
+  let out;
+  with (env) {
+    out = { ...empty };
+  }
+  return Object.keys(out).length === 0 && out.x === undefined;
+}
+let f = emptySpread();
+
+function emptySpreadWithProps() {
+  let env = { empty: {}, x: 13 };
+  let out;
+  with (env) {
+    out = { ...empty, x: x, ...empty };
+  }
+  return out.x === 13 && Object.keys(out).length === 1;
+}
+let g = emptySpreadWithProps();
+
+function nullAndUndefinedSpreadNoop() {
+  let env = { n: null, u: undefined, p: 7 };
+  let out;
+  with (env) {
+    out = { ...n, ...u, p: p };
+  }
+  return out.p === 7 && Object.keys(out).length === 1;
+}
+let h = nullAndUndefinedSpreadNoop();
+
+function multipleSpreads() {
+  let env = { a: { x: 14 }, b: { y: 15, z: 16 }, q: 17 };
+  let out;
+  with (env) {
+    out = { ...a, ...b, q: q };
+  }
+  return out.x === 14 && out.y === 15 && out.z === 16 && out.q === 17;
+}
+let j = multipleSpreads();
+
+function laterSpreadOverwrites() {
+  let env = { a: { x: 1, y: 2 }, b: { y: 9, z: 3 } };
+  let out;
+  with (env) {
+    out = { ...a, ...b };
+  }
+  return out.x === 1 && out.y === 9 && out.z === 3;
+}
+let k = laterSpreadOverwrites();
+
+function copyIsIndependent() {
+  let env = { src: { x: 21 } };
+  let out;
+  with (env) {
+    out = { ...src };
+    out.x = 99;
+  }
+  return env.src.x === 21 && out.x === 99;
+}
+let l = copyIsIndependent();
+
+function resultDoesNotWriteObject() {
+  let env = { src: { x: 1 } };
+  with (env) {
+    let out = { ...src, y: 2 };
+    return (
+      out.x === 1 &&
+      out.y === 2 &&
+      env.y === undefined &&
+      Object.prototype.hasOwnProperty.call(env, "y") === false &&
+      env.src.y === undefined
+    );
+  }
+}
+let m = resultDoesNotWriteObject();
+
+function unscopablesSpreadUsesOuter() {
+  let src = { x: 22 };
+  let env = { src: { x: 0 } };
+  env[Symbol.unscopables] = { src: true };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return out.x === 22 && env.src.x === 0;
+}
+let n = unscopablesSpreadUsesOuter();
+
+function unscopablesPropUsesOuter() {
+  let z = 24;
+  let env = { src: { x: 23 }, z: 0 };
+  env[Symbol.unscopables] = { z: true };
+  let out;
+  with (env) {
+    out = { ...src, z: z };
+  }
+  return out.x === 23 && out.z === 24 && env.z === 0;
+}
+let p = unscopablesPropUsesOuter();
+
+function inheritedHasBinding() {
+  let proto = { src: { x: 25 } };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return out.x === 25;
+}
+let q = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get src() {
+      seen = this;
+      return { x: 26 };
+    }
+  };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return out.x === 26 && seen === env;
+}
+let r = accessorGetThisIsWithObject();
+
+function unresolvableSpreadThrows() {
+  with ({}) {
+    try {
+      ({ ...e1702139_src });
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702139_src === "undefined"
+      );
+    }
+  }
+}
+let s = unresolvableSpreadThrows();
+
+function unresolvablePropThrows() {
+  let env = { src: { x: 1 } };
+  with (env) {
+    try {
+      ({ ...src, z: e1702139_el });
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let t = unresolvablePropThrows();
+
+function unresolvableSpreadSkipsLater() {
+  let ran = false;
+  let env = {
+    get z() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (env) {
+    try {
+      ({ ...e1702139_skip, z: z });
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let u = unresolvableSpreadSkipsLater();
+
+function liveClose() {
+  let env = { src: { x: 28 } };
+  let run;
+  with (env) {
+    run = function () {
+      return { ...src };
+    };
+  }
+  env.src = { x: 29, y: 30 };
+  let out = run();
+  return out.x === 29 && out.y === 30;
+}
+let v = liveClose();
+
+function nestedInnerWins() {
+  let inner = { src: { x: 31 } };
+  let outer = { src: { x: 0 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = { ...src };
+    }
+  }
+  return out.x === 31 && outer.src.x === 0;
+}
+let w = nestedInnerWins();
+
+function nestedInnerMissOuter() {
+  let inner = {};
+  let outer = { src: { x: 32 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = { ...src };
+    }
+  }
+  return out.x === 32;
+}
+let aa = nestedInnerMissOuter();
+
+function evalOrderSpreadsThenProp() {
+  let order = "";
+  let env = {
+    get a() {
+      order = order + "A";
+      return { x: 1 };
+    },
+    get b() {
+      order = order + "B";
+      return { y: 2 };
+    },
+    get z() {
+      order = order + "Z";
+      return 3;
+    }
+  };
+  let out;
+  with (env) {
+    out = { ...a, ...b, z: z };
+  }
+  return out.x === 1 && out.y === 2 && out.z === 3 && order === "ABZ";
+}
+let ab = evalOrderSpreadsThenProp();
+
+function nonEnumerableSkipped() {
+  let src = {};
+  Object.defineProperty(src, "hidden", {
+    value: 99,
+    enumerable: false,
+    writable: true,
+    configurable: true
+  });
+  src.vis = 33;
+  let env = { src: src };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return (
+    out.vis === 33 &&
+    out.hidden === undefined &&
+    Object.prototype.hasOwnProperty.call(out, "hidden") === false
+  );
+}
+let ac = nonEnumerableSkipped();
+
+function inheritedSourceKeysNotCopied() {
+  let proto = { x: 1 };
+  let src = Object.create(proto);
+  src.y = 34;
+  let env = { src: src };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return (
+    out.y === 34 &&
+    out.x === undefined &&
+    Object.prototype.hasOwnProperty.call(out, "x") === false
+  );
+}
+let ad = inheritedSourceKeysNotCopied();
+
+function shorthandWithSpread() {
+  let env = { x: 35, src: { y: 36 } };
+  let out;
+  with (env) {
+    out = { x, ...src };
+  }
+  return out.x === 35 && out.y === 36;
+}
+let ae = shorthandWithSpread();
+
+function computedKeyHitsObject() {
+  let env = { k: "q", v: 8, src: { q: 1, r: 2 } };
+  let out;
+  with (env) {
+    out = { [k]: v, ...src, r: 3 };
+  }
+  return out.q === 1 && out.r === 3;
+}
+let af = computedKeyHitsObject();
+
+function computedKeyAfterSpreadOverwrites() {
+  let env = { k: "x", v: 9, src: { x: 1 } };
+  let out;
+  with (env) {
+    out = { ...src, [k]: v };
+  }
+  return out.x === 9;
+}
+let ag = computedKeyAfterSpreadOverwrites();
+
+function nestedWithUnscopables() {
+  let inner = { src: { x: 1 } };
+  inner[Symbol.unscopables] = { src: true };
+  let outer = { src: { x: 37 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      out = { ...src };
+    }
+  }
+  return out.x === 37 && inner.src.x === 1;
+}
+let ah = nestedWithUnscopables();
+
+function getterOnSourceThisIsSource() {
+  let seen = null;
+  let src = {
+    get x() {
+      seen = this;
+      return 38;
+    }
+  };
+  let env = { src: src };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return out.x === 38 && seen === src;
+}
+let aj = getterOnSourceThisIsSource();
+
+function ownUndefinedSpreadNoop() {
+  let env = { src: undefined, p: 39 };
+  let out;
+  with (env) {
+    out = { ...src, p: p };
+  }
+  return out.p === 39 && Object.keys(out).length === 1;
+}
+let ak = ownUndefinedSpreadNoop();
+
+function stringPrimitiveSpread() {
+  let env = { s: "ab" };
+  let out;
+  with (env) {
+    out = { ...s };
+  }
+  return out[0] === "a" && out[1] === "b";
+}
+let al = stringPrimitiveSpread();
+
+function numberPrimitiveSpreadEmpty() {
+  let env = { n: 1, p: 40 };
+  let out;
+  with (env) {
+    out = { ...n, p: p };
+  }
+  return out.p === 40 && Object.keys(out).length === 1;
+}
+let am = numberPrimitiveSpreadEmpty();
+
+function nestedWithOuterAfterInner() {
+  let inner = { src: { x: 1 } };
+  let outer = { src: { x: 41 } };
+  let out;
+  with (outer) {
+    with (inner) {
+      ({ ...src });
+    }
+    out = { ...src };
+  }
+  return out.x === 41;
+}
+let an = nestedWithOuterAfterInner();
+
+function liveCloseTwoSpreadsIndependent() {
+  let env = { src: { x: 1 } };
+  let run;
+  with (env) {
+    run = function () {
+      return { ...src };
+    };
+  }
+  let a1 = run();
+  env.src = { x: 9 };
+  let a2 = run();
+  return a1.x === 1 && a2.x === 9;
+}
+let ap = liveCloseTwoSpreadsIndependent();
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get src() {
+      seen = this;
+      return { x: 42 };
+    }
+  };
+  let env = Object.create(proto);
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return out.x === 42 && seen === env;
+}
+let aq = inheritedAccessorGetThis();
+
+function deleteIdentThenUnresolvable() {
+  let env = { src: { x: 1 } };
+  with (env) {
+    delete src;
+    try {
+      ({ ...src });
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ar = deleteIdentThenUnresolvable();
+
+function getterRunsOncePerSpread() {
+  let n = 0;
+  let env = {
+    get src() {
+      n = n + 1;
+      return { x: 43 };
+    }
+  };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return out.x === 43 && n === 1;
+}
+let as_ = getterRunsOncePerSpread();
+
+function spreadDoesNotCopyWithObject() {
+  let env = { x: 1, src: { y: 2 } };
+  let out;
+  with (env) {
+    out = { ...src };
+  }
+  return (
+    out.y === 2 &&
+    out.x === undefined &&
+    Object.prototype.hasOwnProperty.call(out, "x") === false
+  );
+}
+let at = spreadDoesNotCopyWithObject();
