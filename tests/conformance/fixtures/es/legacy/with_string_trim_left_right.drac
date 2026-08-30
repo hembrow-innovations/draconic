@@ -1,0 +1,1012 @@
+// E17.02.120: with + String.prototype.trimLeft / trimRight (Annex B.2.3:
+// typeof, aliases of trimStart/trimEnd, call behavior, identity) through
+// object environment (non-strict).
+// String/method/arg idents hit object (else outer); with (String.prototype)
+// method idents hit those methods (trimLeft/trimRight); with
+// (String.prototype.trimLeft) name/length idents hit that function;
+// inherited HasBinding; accessor this is with object; unresolvable →
+// ReferenceError; live close; nested with; unscopables skip.
+
+function memberTrimLeftHitsObject() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimLeft() === "hi  ";
+  }
+}
+let a = memberTrimLeftHitsObject();
+
+function memberTrimRightHitsObject() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimRight() === "  hi";
+  }
+}
+let b = memberTrimRightHitsObject();
+
+function memberTrimLeftMissUsesOuter() {
+  let s = "  hi  ";
+  with ({}) {
+    return s.trimLeft() === "hi  ";
+  }
+}
+let c = memberTrimLeftMissUsesOuter();
+
+function memberTrimRightMissUsesOuter() {
+  let s = "  hi  ";
+  with ({}) {
+    return s.trimRight() === "  hi";
+  }
+}
+let d = memberTrimRightMissUsesOuter();
+
+function memberTrimLeftWs() {
+  let env = { s: "\t\nx\t\n" };
+  with (env) {
+    return s.trimLeft() === "x\t\n";
+  }
+}
+let e = memberTrimLeftWs();
+
+function memberTrimRightWs() {
+  let env = { s: "\t\nx\t\n" };
+  with (env) {
+    return s.trimRight() === "\t\nx";
+  }
+}
+let f = memberTrimRightWs();
+
+function memberTrimLeftEmpty() {
+  let env = { s: "" };
+  with (env) {
+    return s.trimLeft() === "";
+  }
+}
+let g = memberTrimLeftEmpty();
+
+function memberTrimRightEmpty() {
+  let env = { s: "" };
+  with (env) {
+    return s.trimRight() === "";
+  }
+}
+let h = memberTrimRightEmpty();
+
+function memberTrimLeftNoSpace() {
+  let env = { s: "nospace" };
+  with (env) {
+    return s.trimLeft() === "nospace";
+  }
+}
+let j = memberTrimLeftNoSpace();
+
+function memberTrimRightNoSpace() {
+  let env = { s: "nospace" };
+  with (env) {
+    return s.trimRight() === "nospace";
+  }
+}
+let k = memberTrimRightNoSpace();
+
+function memberTrimLeftAlias() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimLeft === s.trimStart && s.trimLeft() === s.trimStart();
+  }
+}
+let l = memberTrimLeftAlias();
+
+function memberTrimRightAlias() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimRight === s.trimEnd && s.trimRight() === s.trimEnd();
+  }
+}
+let m = memberTrimRightAlias();
+
+function typeofTrimLeftThroughWith() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return typeof s.trimLeft === "function";
+  }
+}
+let n = typeofTrimLeftThroughWith();
+
+function typeofTrimRightThroughWith() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return typeof s.trimRight === "function";
+  }
+}
+let p = typeofTrimRightThroughWith();
+
+function identTrimLeftOnStringWrapper() {
+  with ("  hi  ") {
+    return trimLeft() === "hi  ";
+  }
+}
+let q = identTrimLeftOnStringWrapper();
+
+function identTrimRightOnStringWrapper() {
+  with ("  hi  ") {
+    return trimRight() === "  hi";
+  }
+}
+let r = identTrimRightOnStringWrapper();
+
+function identTrimLeftMissUsesOuter() {
+  function trimLeft() {
+    return 8;
+  }
+  with ({}) {
+    return trimLeft() === 8;
+  }
+}
+let s = identTrimLeftMissUsesOuter();
+
+function identTrimRightMissUsesOuter() {
+  function trimRight() {
+    return 8;
+  }
+  with ({}) {
+    return trimRight() === 8;
+  }
+}
+let t = identTrimRightMissUsesOuter();
+
+function identTrimLeftHitsObject() {
+  let env = {
+    trimLeft: function () {
+      return "hit";
+    }
+  };
+  with (env) {
+    return trimLeft() === "hit";
+  }
+}
+let u = identTrimLeftHitsObject();
+
+function identTrimRightHitsObject() {
+  let env = {
+    trimRight: function () {
+      return "hit";
+    }
+  };
+  with (env) {
+    return trimRight() === "hit";
+  }
+}
+let v = identTrimRightHitsObject();
+
+function identTrimLeftShadowsOuter() {
+  function trimLeft() {
+    return 8;
+  }
+  let env = {
+    trimLeft: function () {
+      return 9;
+    }
+  };
+  with (env) {
+    return trimLeft() === 9;
+  }
+}
+let w = identTrimLeftShadowsOuter();
+
+function identTrimRightShadowsOuter() {
+  function trimRight() {
+    return 8;
+  }
+  let env = {
+    trimRight: function () {
+      return 9;
+    }
+  };
+  with (env) {
+    return trimRight() === 9;
+  }
+}
+let aa = identTrimRightShadowsOuter();
+
+function withStringProtoTrimLeftTypeof() {
+  with (String.prototype) {
+    return typeof trimLeft === "function";
+  }
+}
+let ab = withStringProtoTrimLeftTypeof();
+
+function withStringProtoTrimRightTypeof() {
+  with (String.prototype) {
+    return typeof trimRight === "function";
+  }
+}
+let ac = withStringProtoTrimRightTypeof();
+
+function withStringProtoTrimLeftName() {
+  with (String.prototype.trimLeft) {
+    return name === "trimStart";
+  }
+}
+let ad = withStringProtoTrimLeftName();
+
+function withStringProtoTrimRightName() {
+  with (String.prototype.trimRight) {
+    return name === "trimEnd";
+  }
+}
+let ae = withStringProtoTrimRightName();
+
+function withStringProtoTrimLeftLength() {
+  with (String.prototype.trimLeft) {
+    return length === 0;
+  }
+}
+let af = withStringProtoTrimLeftLength();
+
+function withStringProtoTrimRightLength() {
+  with (String.prototype.trimRight) {
+    return length === 0;
+  }
+}
+let ag = withStringProtoTrimRightLength();
+
+function withStringProtoTrimLeftCall() {
+  with (String.prototype) {
+    return trimLeft.call("  z") === "z";
+  }
+}
+let ah = withStringProtoTrimLeftCall();
+
+function withStringProtoTrimRightCall() {
+  with (String.prototype) {
+    return trimRight.call("z  ") === "z";
+  }
+}
+let aj = withStringProtoTrimRightCall();
+
+function withStringProtoAliasIdentity() {
+  with (String.prototype) {
+    return trimLeft === trimStart && trimRight === trimEnd;
+  }
+}
+let ak = withStringProtoAliasIdentity();
+
+function callThisIsWithObject() {
+  let env = {
+    trimLeft: function () {
+      return this === env ? 3 : 0;
+    }
+  };
+  with (env) {
+    return trimLeft() === 3;
+  }
+}
+let al = callThisIsWithObject();
+
+function withTrimLeftCallThisIsFn() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(String.prototype.trimLeft, "name");
+  Object.defineProperty(String.prototype.trimLeft, "name", {
+    get: function () {
+      seen = this;
+      return "trimLeft";
+    },
+    configurable: true
+  });
+  let ok;
+  with (String.prototype.trimLeft) {
+    ok = name === "trimLeft" && seen === String.prototype.trimLeft;
+  }
+  Object.defineProperty(String.prototype.trimLeft, "name", orig);
+  return ok;
+}
+let am = withTrimLeftCallThisIsFn();
+
+function withTrimRightCallThisIsFn() {
+  let seen = null;
+  let orig = Object.getOwnPropertyDescriptor(String.prototype.trimRight, "name");
+  Object.defineProperty(String.prototype.trimRight, "name", {
+    get: function () {
+      seen = this;
+      return "trimRight";
+    },
+    configurable: true
+  });
+  let ok;
+  with (String.prototype.trimRight) {
+    ok = name === "trimRight" && seen === String.prototype.trimRight;
+  }
+  Object.defineProperty(String.prototype.trimRight, "name", orig);
+  return ok;
+}
+let an = withTrimRightCallThisIsFn();
+
+function bothSidesAlwaysEvaled() {
+  let n = 0;
+  let env = {
+    get s() {
+      n = n + 1;
+      return "  hi  ";
+    }
+  };
+  with (env) {
+    return s.trimLeft() === "hi  " && n === 1;
+  }
+}
+let ap = bothSidesAlwaysEvaled();
+
+function unscopablesUsesOuter() {
+  function trimLeft() {
+    return 11;
+  }
+  let env = { trimLeft: String.prototype.trimLeft };
+  env[Symbol.unscopables] = { trimLeft: true };
+  with (env) {
+    return trimLeft() === 11;
+  }
+}
+let aq = unscopablesUsesOuter();
+
+function unscopablesTrimLeftIdent() {
+  let env = {
+    trimLeft: function () {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { trimLeft: true };
+  with (env) {
+    return typeof trimLeft === "undefined";
+  }
+}
+let ar = unscopablesTrimLeftIdent();
+
+function unscopablesTrimRightIdent() {
+  let env = {
+    trimRight: function () {
+      return 0;
+    }
+  };
+  env[Symbol.unscopables] = { trimRight: true };
+  with (env) {
+    return typeof trimRight === "undefined";
+  }
+}
+let at = unscopablesTrimRightIdent();
+
+function inheritedData() {
+  let proto = { s: "  hi  ", name: "fromProto" };
+  let env = Object.create(proto);
+  with (env) {
+    return s.trimLeft() === "hi  " && name === "fromProto";
+  }
+}
+let au = inheritedData();
+
+function inheritedFromStringProto() {
+  let env = Object.create(String.prototype);
+  with (env) {
+    return typeof trimLeft === "function" && typeof trimRight === "function";
+  }
+}
+let av = inheritedFromStringProto();
+
+function inheritedGetterThis() {
+  let seen = null;
+  let proto = {
+    get trimLeft() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return trimLeft() === 1 && seen === env;
+  }
+}
+let aw = inheritedGetterThis();
+
+function accessorThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get trimLeft() {
+      seen = this;
+      return function () {
+        return 1;
+      };
+    }
+  };
+  with (env) {
+    return trimLeft() === 1 && seen === env;
+  }
+}
+let ax = accessorThisIsWithObject();
+
+function liveClose() {
+  let env = {
+    trimLeft: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return trimLeft;
+    };
+  }
+  env.trimLeft = String.prototype.trimLeft;
+  return run() === String.prototype.trimLeft;
+}
+let ay = liveClose();
+
+function liveCloseStringIdent() {
+  let env = { s: "  hi  " };
+  let run;
+  with (env) {
+    run = function () {
+      return s.trimLeft();
+    };
+  }
+  env.s = "  yo  ";
+  return run() === "yo  ";
+}
+let az = liveCloseStringIdent();
+
+function unresolvableCalleeThrows() {
+  with ({}) {
+    try {
+      e1702120_missing(1);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ba = unresolvableCalleeThrows();
+
+function unresolvableIdentThrows() {
+  with ({}) {
+    try {
+      e1702120_noglob.trimLeft;
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702120_noglob === "undefined"
+      );
+    }
+  }
+}
+let bb = unresolvableIdentThrows();
+
+function nestedInnerWins() {
+  let inner = {
+    trimLeft: function () {
+      return 5;
+    }
+  };
+  with ({ trimLeft: String.prototype.trimLeft }) {
+    with (inner) {
+      return trimLeft() === 5;
+    }
+  }
+}
+let bc = nestedInnerWins();
+
+function nestedInnerMissOuterTrimLeft() {
+  with ({
+    trimLeft: function () {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return trimLeft() === 5;
+    }
+  }
+}
+let bd = nestedInnerMissOuterTrimLeft();
+
+function nestedInnerMissOuterString() {
+  let inner = {};
+  let outer = { s: "  hi  " };
+  with (outer) {
+    with (inner) {
+      return s.trimLeft() === "hi  " && s.trimRight() === "  hi";
+    }
+  }
+}
+let be = nestedInnerMissOuterString();
+
+function nestedWithUnscopables() {
+  function trimLeft() {
+    return 11;
+  }
+  let inner = { trimLeft: String.prototype.trimLeft };
+  inner[Symbol.unscopables] = { trimLeft: true };
+  let outer = {
+    trimLeft: function () {
+      return 6;
+    }
+  };
+  with (outer) {
+    with (inner) {
+      return trimLeft() === 6;
+    }
+  }
+}
+let bf = nestedWithUnscopables();
+
+function nonCallableTypeError() {
+  let env = { trimLeft: 1 };
+  with (env) {
+    try {
+      trimLeft();
+      return false;
+    } catch (err) {
+      return err instanceof TypeError;
+    }
+  }
+}
+let bg = nonCallableTypeError();
+
+function memberTrimStillProto() {
+  let env = { x: 1 };
+  with (env) {
+    return "  hi  ".trimLeft() === "hi  " && "  hi  ".trimRight() === "  hi";
+  }
+}
+let bh = memberTrimStillProto();
+
+function protoCallThroughWith() {
+  let env = { String: String };
+  with (env) {
+    return (
+      String.prototype.trimLeft.call("  z") === "z" &&
+      String.prototype.trimRight.call("z  ") === "z"
+    );
+  }
+}
+let bi = protoCallThroughWith();
+
+function stringIdentHitsObjectShadowsOuter() {
+  let s = "  outer  ";
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimLeft() === "hi  ";
+  }
+}
+let bj = stringIdentHitsObjectShadowsOuter();
+
+function unresolvableArgAfterCallee() {
+  let ran = false;
+  let env = {
+    get trimLeft() {
+      ran = true;
+      return String.prototype.trimLeft;
+    }
+  };
+  with (env) {
+    try {
+      trimLeft(e1702120_arg);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === true;
+    }
+  }
+}
+let bk = unresolvableArgAfterCallee();
+
+function unresolvableCalleeSkipsArg() {
+  let ran = false;
+  let env = {
+    get start() {
+      ran = true;
+      return 1;
+    }
+  };
+  with (env) {
+    try {
+      e1702120_first(start);
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError && ran === false;
+    }
+  }
+}
+let bl = unresolvableCalleeSkipsArg();
+
+function liveCloseAfterMutateOuter() {
+  let env = {
+    trimLeft: function () {
+      return 1;
+    }
+  };
+  let run;
+  with (env) {
+    run = function () {
+      return trimLeft();
+    };
+  }
+  env.trimLeft = function () {
+    return 2;
+  };
+  return run() === 2;
+}
+let bm = liveCloseAfterMutateOuter();
+
+function getterRunsOncePerCall() {
+  let c = 0;
+  let env = {
+    get s() {
+      c = c + 1;
+      return "  hi  ";
+    }
+  };
+  let out;
+  with (env) {
+    out = s.trimLeft();
+  }
+  return out === "hi  " && c === 1;
+}
+let bn = getterRunsOncePerCall();
+
+function emptyMissUsesProtoTrim() {
+  with ({}) {
+    return "  hi  ".trimLeft() === "hi  " && "  hi  ".trimRight() === "  hi";
+  }
+}
+let bp = emptyMissUsesProtoTrim();
+
+function bracketTrimLeftOnString() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return s["trimLeft"]() === "hi  ";
+  }
+}
+let bq = bracketTrimLeftOnString();
+
+function bracketTrimRightOnString() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return s["trimRight"]() === "  hi";
+  }
+}
+let br = bracketTrimRightOnString();
+
+function unscopablesSecondIdent() {
+  let s = "  hi  ";
+  let env = { s: "nope", t: "  yo  " };
+  env[Symbol.unscopables] = { s: true };
+  with (env) {
+    return s.trimLeft() === "hi  " && t.trimRight() === "  yo";
+  }
+}
+let bs = unscopablesSecondIdent();
+
+function trimLeftTypeofHit() {
+  let env = { trimLeft: 1 };
+  let t;
+  with (env) {
+    t = typeof trimLeft;
+  }
+  return t === "number";
+}
+let bt = trimLeftTypeofHit();
+
+function trimRightTypeofHit() {
+  let env = { trimRight: "n" };
+  let t;
+  with (env) {
+    t = typeof trimRight;
+  }
+  return t === "string";
+}
+let bu = trimRightTypeofHit();
+
+function liveCloseTrimRight() {
+  let env = { trimRight: 1 };
+  let run;
+  with (env) {
+    run = function () {
+      return trimRight;
+    };
+  }
+  env.trimRight = String.prototype.trimRight;
+  return run() === String.prototype.trimRight;
+}
+let bv = liveCloseTrimRight();
+
+function nestedTrimLeftInnerWins() {
+  with ({ trimLeft: 1 }) {
+    with ({ trimLeft: 2 }) {
+      return trimLeft === 2;
+    }
+  }
+}
+let bw = nestedTrimLeftInnerWins();
+
+function nestedNameInnerWins() {
+  with (String.prototype.trimLeft) {
+    with ({ name: "inner" }) {
+      return name === "inner";
+    }
+  }
+}
+let bx = nestedNameInnerWins();
+
+function nestedNameMissOuterTrimLeft() {
+  with (String.prototype.trimLeft) {
+    with ({}) {
+      return name === "trimStart";
+    }
+  }
+}
+let by = nestedNameMissOuterTrimLeft();
+
+function nestedNameMissOuterTrimRight() {
+  with (String.prototype.trimRight) {
+    with ({}) {
+      return name === "trimEnd";
+    }
+  }
+}
+let bz = nestedNameMissOuterTrimRight();
+
+function liveCloseName() {
+  let env = { name: "A" };
+  let run;
+  with (env) {
+    run = function () {
+      return name;
+    };
+  }
+  env.name = "B";
+  return run() === "B";
+}
+let ca = liveCloseName();
+
+function unscopablesNameUsesOuter() {
+  with (String.prototype.trimLeft) {
+    let env = { name: "skip" };
+    env[Symbol.unscopables] = { name: true };
+    with (env) {
+      return name === "trimStart";
+    }
+  }
+}
+let cb = unscopablesNameUsesOuter();
+
+function emptyMissTrimStillWorks() {
+  with ({}) {
+    return "".trimLeft === "".trimStart && "".trimRight === "".trimEnd;
+  }
+}
+let cc = emptyMissTrimStillWorks();
+
+function inheritedTrimFromStringProto() {
+  let env = Object.create(String.prototype);
+  with (env) {
+    return typeof trimLeft === "function" && typeof trimRight === "function";
+  }
+}
+let cd = inheritedTrimFromStringProto();
+
+function getterRunsOnceTrimRight() {
+  let c = 0;
+  let env = {
+    get s() {
+      c = c + 1;
+      return "  hi  ";
+    }
+  };
+  let out;
+  with (env) {
+    out = s.trimRight();
+  }
+  return out === "  hi" && c === 1;
+}
+let ce = getterRunsOnceTrimRight();
+
+function trimLeftAndRightTogether() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimLeft() === "hi  " && s.trimRight() === "  hi";
+  }
+}
+let cf = trimLeftAndRightTogether();
+
+function withStringProtoNameLengthTogether() {
+  with (String.prototype.trimLeft) {
+    return name === "trimStart" && length === 0;
+  }
+}
+let cg = withStringProtoNameLengthTogether();
+
+function withStringProtoTrimRightNameLength() {
+  with (String.prototype.trimRight) {
+    return name === "trimEnd" && length === 0;
+  }
+}
+let ch = withStringProtoTrimRightNameLength();
+
+function identTrimLeftOnStringWrapperWs() {
+  with ("\t\nx\t\n") {
+    return trimLeft() === "x\t\n";
+  }
+}
+let cj = identTrimLeftOnStringWrapperWs();
+
+function identTrimRightOnStringWrapperWs() {
+  with ("\t\nx\t\n") {
+    return trimRight() === "\t\nx";
+  }
+}
+let ck = identTrimRightOnStringWrapperWs();
+
+function memberTrimLeftMissUsesOuterFull() {
+  let s = "  hi  ";
+  with ({}) {
+    return s.trimLeft() === "hi  " && s.trimStart() === "hi  ";
+  }
+}
+let cl = memberTrimLeftMissUsesOuterFull();
+
+function memberTrimRightMissUsesOuterFull() {
+  let s = "  hi  ";
+  with ({}) {
+    return s.trimRight() === "  hi" && s.trimEnd() === "  hi";
+  }
+}
+let cm = memberTrimRightMissUsesOuterFull();
+
+function liveCloseAfterTrimMutate() {
+  let env = { s: "  hi  " };
+  let run;
+  with (env) {
+    run = function () {
+      return s.trimLeft();
+    };
+  }
+  env.s = "\t\nx";
+  return run() === "x";
+}
+let cn = liveCloseAfterTrimMutate();
+
+function accessorThisOnTrimGet() {
+  let seen = null;
+  let held = "  hi  ";
+  let env = {
+    get s() {
+      seen = this;
+      return held;
+    }
+  };
+  with (env) {
+    let out = s.trimLeft();
+    return seen === env && out === "hi  ";
+  }
+}
+let cp = accessorThisOnTrimGet();
+
+function nestedUnscopablesName() {
+  with (String.prototype.trimRight) {
+    let inner = { name: "skip" };
+    inner[Symbol.unscopables] = { name: true };
+    with (inner) {
+      return name === "trimEnd" && length === 0;
+    }
+  }
+}
+let cq = nestedUnscopablesName();
+
+function typeofTrimIsFunctionOnWrapper() {
+  with ("  hi  ") {
+    return typeof trimLeft === "function" && typeof trimRight === "function";
+  }
+}
+let cr = typeofTrimIsFunctionOnWrapper();
+
+function trimThisNotWithWhenMember() {
+  let env = { s: "  hi  " };
+  with (env) {
+    return this !== env && s.trimLeft() === "hi  ";
+  }
+}
+let cs = trimThisNotWithWhenMember();
+
+function identTrimLeftEmpty() {
+  with ("") {
+    return trimLeft() === "" && trimRight() === "";
+  }
+}
+let ct = identTrimLeftEmpty();
+
+function identTrimLeftNoSpace() {
+  with ("nospace") {
+    return trimLeft() === "nospace" && trimRight() === "nospace";
+  }
+}
+let cu = identTrimLeftNoSpace();
+
+function protoTrimStartEndThroughWith() {
+  with (String.prototype) {
+    return (
+      typeof trimStart === "function" &&
+      typeof trimEnd === "function" &&
+      trimLeft === trimStart &&
+      trimRight === trimEnd
+    );
+  }
+}
+let cv = protoTrimStartEndThroughWith();
+
+function nestedTrimRightInnerWins() {
+  with ({ trimRight: 1 }) {
+    with ({ trimRight: 2 }) {
+      return trimRight === 2;
+    }
+  }
+}
+let cw = nestedTrimRightInnerWins();
+
+function unscopablesTrimRightUsesOuter() {
+  function trimRight() {
+    return 11;
+  }
+  let env = { trimRight: String.prototype.trimRight };
+  env[Symbol.unscopables] = { trimRight: true };
+  with (env) {
+    return trimRight() === 11;
+  }
+}
+let cx = unscopablesTrimRightUsesOuter();
+
+function liveCloseTrimLeftCall() {
+  let env = { s: "  a  " };
+  let run;
+  with (env) {
+    run = function () {
+      return s.trimRight();
+    };
+  }
+  env.s = "  b  ";
+  return run() === "  b";
+}
+let cy = liveCloseTrimLeftCall();
+
+function bracketKeyIdent() {
+  let env = { s: "  hi  ", k: "trimLeft" };
+  with (env) {
+    return s[k]() === "hi  ";
+  }
+}
+let cz = bracketKeyIdent();
+
+function inheritedTrimRightData() {
+  let proto = { s: "  hi  " };
+  let env = Object.create(proto);
+  with (env) {
+    return s.trimRight() === "  hi";
+  }
+}
+let da = inheritedTrimRightData();
+
+function nestedInnerMissOuterTrimRight() {
+  with ({
+    trimRight: function () {
+      return 5;
+    }
+  }) {
+    with ({}) {
+      return trimRight() === 5;
+    }
+  }
+}
+let db = nestedInnerMissOuterTrimRight();
+
+function withProtoCallBoth() {
+  with (String.prototype) {
+    return trimLeft.call("  z") === "z" && trimRight.call("z  ") === "z";
+  }
+}
+let dc = withProtoCallBoth();

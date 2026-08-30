@@ -1238,3 +1238,13 @@ fn with_regexp_compile_fixture_present() {
 fn with_regexp_compile_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_regexp_compile");
 }
+
+#[test]
+fn with_string_trim_left_right_fixture_present() {
+    assert_fixture_present("es/legacy/with_string_trim_left_right");
+}
+
+#[test]
+fn with_string_trim_left_right_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_string_trim_left_right");
+}
