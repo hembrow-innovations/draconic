@@ -5771,7 +5771,7 @@ fn lower_expr_hint(
             let brand = resolve_private_brand(ctx, &name.name);
             let obj = lower_expr(checked, ctx, object, super_class);
             let _ = span;
-            private_in_check(brand, obj)
+            iife_bind_arg(ctx, obj, |o| private_in_check(brand, o))
         }
         AstExpr::Conditional {
             test,

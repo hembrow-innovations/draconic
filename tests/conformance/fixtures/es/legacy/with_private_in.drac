@@ -1,0 +1,1052 @@
+// E17.02.145: with + Private brand check (E18.40: `#x in obj`; true iff obj
+// has the private field/method/accessor; false for null/undefined/unrelated)
+// through object environment (non-strict).
+// RHS ident hits object (else outer); `#x` is not IdentifierReference
+// (`x`/`#x` props do not shadow); method/field-init/static body idents hit
+// object (else outer); params are local (do not write object); default-param
+// idents hit object (else outer); this in instance method is the instance, in
+// static is the constructor, not with object; class body is strict (with in
+// method → SyntaxError); inherited HasBinding; accessor get this is with
+// object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function rhsHitsObjectInstanceTrue() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in inst;
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.has() === true;
+  }
+}
+let a = rhsHitsObjectInstanceTrue();
+
+function rhsHitsObjectUnrelatedFalse() {
+  let bag = { inst: {} };
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in inst;
+      }
+    }
+    return new C().has() === false;
+  }
+}
+let b = rhsHitsObjectUnrelatedFalse();
+
+function rhsMissUsesOuter() {
+  let box = {};
+  let out;
+  with ({}) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    box = new C();
+    out = box.has();
+  }
+  return out === true;
+}
+let c = rhsMissUsesOuter();
+
+function privateNameNotShadowedByWithProp() {
+  let bag = { x: 99 };
+  bag["#x"] = 99;
+  with (bag) {
+    class C {
+      #x = 1;
+      hasSelf() {
+        return #x in this;
+      }
+      hasXIdent() {
+        return #x in x;
+      }
+    }
+    let inst = new C();
+    return inst.hasSelf() === true && inst.hasXIdent() === false && bag.x === 99;
+  }
+}
+let d = privateNameNotShadowedByWithProp();
+
+function stringHashKeyNoCollision() {
+  with ({}) {
+    class C {
+      #x = 1;
+      has(obj) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    inst["#x"] = 1;
+    let other = { "#x": 1 };
+    return inst.has(inst) === true && inst.has(other) === false;
+  }
+}
+let e = stringHashKeyNoCollision();
+
+function nonObjectRhsFalse() {
+  with ({}) {
+    class C {
+      #x = 1;
+      has(obj) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    return (
+      inst.has(null) === false &&
+      inst.has(undefined) === false &&
+      inst.has(1) === false &&
+      inst.has("x") === false &&
+      inst.has(true) === false
+    );
+  }
+}
+let f = nonObjectRhsFalse();
+
+function paramsAreLocalDoNotWriteObject() {
+  let bag = { obj: {} };
+  with (bag) {
+    class C {
+      #x = 1;
+      has(obj) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    return (
+      inst.has(inst) === true &&
+      inst.has(bag.obj) === false &&
+      bag.obj !== inst &&
+      inst.obj === undefined
+    );
+  }
+}
+let g = paramsAreLocalDoNotWriteObject();
+
+function defaultParamHitsObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #x = 1;
+      has(obj = box) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    bag.box = inst;
+    return inst.has() === true && inst.has({}) === false;
+  }
+}
+let h = defaultParamHitsObject();
+
+function defaultParamMissUsesOuter() {
+  let box = {};
+  let outMissing;
+  let outPresent;
+  with ({}) {
+    class C {
+      #x = 1;
+      has(obj = box) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    box = inst;
+    outMissing = inst.has();
+    outPresent = inst.has({});
+  }
+  return outMissing === true && outPresent === false;
+}
+let j = defaultParamMissUsesOuter();
+
+function paramsShadowObject() {
+  let bag = { obj: {} };
+  with (bag) {
+    class C {
+      #x = 1;
+      has(obj) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    return inst.has(inst) === true && inst.has(bag.obj) === false;
+  }
+}
+let k = paramsShadowObject();
+
+function thisIsInstanceNotWithObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #p = 1;
+      hasThis() {
+        return #p in this;
+      }
+      hasBag() {
+        return #p in bag;
+      }
+    }
+    let inst = new C();
+    return inst.hasThis() === true && inst.hasBag() === false;
+  }
+}
+let l = thisIsInstanceNotWithObject();
+
+function unresolvableRhsThrows() {
+  with ({}) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in e1702145_miss;
+      }
+    }
+    try {
+      new C().has();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702145_miss === "undefined"
+      );
+    }
+  }
+}
+let m = unresolvableRhsThrows();
+
+function liveClose() {
+  let bag = { box: {} };
+  let Ctor;
+  with (bag) {
+    Ctor = class {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    };
+  }
+  let inst = new Ctor();
+  bag.box = inst;
+  return inst.has() === true;
+}
+let n = liveClose();
+
+function nestedWithInnerWins() {
+  let inner = {};
+  let outer = { box: {} };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        #x = 1;
+        has() {
+          return #x in box;
+        }
+      }
+      inner.box = new C();
+      out = inner.box.has();
+    }
+  }
+  return out === true;
+}
+let p = nestedWithInnerWins();
+
+function nestedInnerMissOuter() {
+  let outer = {};
+  let inner = {};
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        #x = 1;
+        has() {
+          return #x in box;
+        }
+      }
+      let inst = new C();
+      outer.box = inst;
+      out = inst.has();
+    }
+  }
+  return out === true;
+}
+let q = nestedInnerMissOuter();
+
+function unscopablesSkip() {
+  let box = {};
+  let bag = {};
+  bag.box = { not: 1 };
+  bag[Symbol.unscopables] = { box: true };
+  let out;
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    box = new C();
+    out = box.has();
+  }
+  return out === true && bag.box.not === 1;
+}
+let r = unscopablesSkip();
+
+function inheritedHasBinding() {
+  let proto = {};
+  let bag = Object.create(proto);
+  let out;
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    let inst = new C();
+    proto.box = inst;
+    out = inst.has();
+  }
+  return out === true;
+}
+let s = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let instRef;
+  let bag = {
+    get box() {
+      seen = this;
+      return instRef;
+    }
+  };
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    instRef = new C();
+    let out = instRef.has();
+    return out === true && seen === bag;
+  }
+}
+let t = accessorGetThisIsWithObject();
+
+function withInClassMethodSyntaxError() {
+  try {
+    eval("class C { #x = 1; has(o) { with ({}) { return #x in o; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let u = withInClassMethodSyntaxError();
+
+function withInPrivateMethodSyntaxError() {
+  try {
+    eval("class C { #x = 1; #has(o) { with ({}) { return #x in o; } } run(o) { return this.#has(o); } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let v = withInPrivateMethodSyntaxError();
+
+function classExpressionPrivateIn() {
+  let bag = {};
+  with (bag) {
+    let H = class {
+      #x = 1;
+      has() {
+        return #x in inst;
+      }
+    };
+    bag.inst = new H();
+    return bag.inst.has() === true;
+  }
+}
+let w = classExpressionPrivateIn();
+
+function nestedClassPrivateIn() {
+  let bag = {};
+  with (bag) {
+    class Outer {
+      inner() {
+        class Inner {
+          #x = 1;
+          has() {
+            return #x in inst;
+          }
+        }
+        bag.inst = new Inner();
+        return bag.inst.has();
+      }
+    }
+    return new Outer().inner() === true;
+  }
+}
+let aa = nestedClassPrivateIn();
+
+function derivedParentAndChild() {
+  with ({}) {
+    class Parent {
+      #base = 1;
+      hasBase(obj) {
+        return #base in obj;
+      }
+    }
+    class Child extends Parent {
+      #extra = 2;
+      hasExtra(obj) {
+        return #extra in obj;
+      }
+    }
+    let ch = new Child();
+    let par = new Parent();
+    return (
+      par.hasBase(ch) === true &&
+      ch.hasExtra(ch) === true &&
+      ch.hasExtra(par) === false &&
+      par.hasBase(par) === true &&
+      ch.hasBase(ch) === true
+    );
+  }
+}
+let ab = derivedParentAndChild();
+
+function methodAndAccessorBrands() {
+  with ({}) {
+    class C {
+      #m() {
+        return 1;
+      }
+      get #v() {
+        return 2;
+      }
+      hasM(obj) {
+        return #m in obj;
+      }
+      hasV(obj) {
+        return #v in obj;
+      }
+    }
+    let inst = new C();
+    return (
+      inst.hasM(inst) === true &&
+      inst.hasV(inst) === true &&
+      inst.hasM({}) === false &&
+      inst.hasV({}) === false
+    );
+  }
+}
+let ac = methodAndAccessorBrands();
+
+function staticBrandOnConstructorNotInstance() {
+  with ({}) {
+    class C {
+      static #s = 10;
+      static has(obj) {
+        return #s in obj;
+      }
+    }
+    return C.has(C) === true && C.has(new C()) === false && C.has({}) === false;
+  }
+}
+let ad = staticBrandOnConstructorNotInstance();
+
+function staticRhsHitsObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      static #s = 10;
+      static has() {
+        return #s in target;
+      }
+    }
+    bag.target = C;
+    return C.has() === true;
+  }
+}
+let ae = staticRhsHitsObject();
+
+function thisInStaticIsConstructor() {
+  let bag = {};
+  with (bag) {
+    class C {
+      static #s = 1;
+      static hasThis() {
+        return #s in this;
+      }
+    }
+    return C.hasThis() === true;
+  }
+}
+let af = thisInStaticIsConstructor();
+
+function fieldInitThisHasBrand() {
+  with ({}) {
+    class C {
+      #p = 1;
+      flag = #p in this;
+    }
+    return new C().flag === true;
+  }
+}
+let ag = fieldInitThisHasBrand();
+
+function fieldInitRhsHitsObject() {
+  let bag = { box: {} };
+  with (bag) {
+    class C {
+      #p = 1;
+      flag = #p in box;
+    }
+    return new C().flag === false;
+  }
+}
+let ah = fieldInitRhsHitsObject();
+
+function fieldInitRhsMissUsesOuter() {
+  let box = {};
+  with ({}) {
+    class C {
+      #p = 1;
+      flag = #p in box;
+    }
+    return new C().flag === false;
+  }
+}
+let aj = fieldInitRhsMissUsesOuter();
+
+function defaultUsedOnUndefinedNotNull() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #x = 1;
+      has(obj = box) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    bag.box = inst;
+    return (
+      inst.has() === true &&
+      inst.has(undefined) === true &&
+      inst.has(null) === false &&
+      inst.has(0) === false
+    );
+  }
+}
+let ak = defaultUsedOnUndefinedNotNull();
+
+function defaultSkippedWhenPresent() {
+  let ran = false;
+  let bag = {
+    get box() {
+      ran = true;
+      return {};
+    }
+  };
+  with (bag) {
+    class C {
+      #x = 1;
+      has(obj = box) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    let out = inst.has(inst);
+    return out === true && ran === false;
+  }
+}
+let al = defaultSkippedWhenPresent();
+
+function ownUndefinedHasBinding() {
+  let box = {};
+  let bag = { box: undefined };
+  let out;
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    try {
+      out = new C().has();
+    } catch (err) {
+      return false;
+    }
+  }
+  return out === false && box !== undefined;
+}
+let am = ownUndefinedHasBinding();
+
+function nestedWithUnscopables() {
+  let box = {};
+  let inner = {};
+  inner.box = { not: 1 };
+  inner[Symbol.unscopables] = { box: true };
+  let outer = { other: 1 };
+  let out;
+  with (outer) {
+    with (inner) {
+      class C {
+        #x = 1;
+        has() {
+          return #x in box;
+        }
+      }
+      box = new C();
+      out = box.has();
+    }
+  }
+  return out === true && inner.box.not === 1;
+}
+let an = nestedWithUnscopables();
+
+function inheritedAccessorGetThisIsWithObject() {
+  let seen = null;
+  let instRef;
+  let proto = {
+    get box() {
+      seen = this;
+      return instRef;
+    }
+  };
+  let bag = Object.create(proto);
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    instRef = new C();
+    let out = instRef.has();
+    return out === true && seen === bag;
+  }
+}
+let ap = inheritedAccessorGetThisIsWithObject();
+
+function namedClassExpression() {
+  let bag = {};
+  with (bag) {
+    let H = class Name {
+      #x = 1;
+      has() {
+        return #x in inst;
+      }
+    };
+    bag.inst = new H();
+    return bag.inst.has() === true;
+  }
+}
+let aq = namedClassExpression();
+
+function stolenMethodInThisIsFalse() {
+  with ({}) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in this;
+      }
+    }
+    let inst = new C();
+    let g = inst.has;
+    return g() === false && inst.has() === true;
+  }
+}
+let ar = stolenMethodInThisIsFalse();
+
+function privateInOutsideClassSyntaxError() {
+  try {
+    eval("class C { #x = 1; } #x in new C()");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let at = privateInOutsideClassSyntaxError();
+
+function extendsIdentHitsObject() {
+  function Inner() {}
+  let bag = { Base: Inner };
+  with (bag) {
+    class C extends Base {
+      #x = 1;
+      has(obj) {
+        return #x in obj;
+      }
+    }
+    let inst = new C();
+    return inst instanceof Inner && inst.has(inst) === true && inst.has({}) === false;
+  }
+}
+let au = extendsIdentHitsObject();
+
+function twoPrivateBrandsIndependent() {
+  with ({}) {
+    class C {
+      #a = 1;
+      #b = 2;
+      hasA(obj) {
+        return #a in obj;
+      }
+      hasB(obj) {
+        return #b in obj;
+      }
+    }
+    let inst = new C();
+    return inst.hasA(inst) === true && inst.hasB(inst) === true && inst.hasA({}) === false;
+  }
+}
+let av = twoPrivateBrandsIndependent();
+
+function nestedWithOuterAfterInner() {
+  let inner = { box: {} };
+  let outer = {};
+  let out;
+  with (outer) {
+    with (inner) {
+      class InnerC {
+        #x = 1;
+        has() {
+          return #x in box;
+        }
+      }
+      new InnerC().has();
+    }
+    class OuterC {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    let inst = new OuterC();
+    outer.box = inst;
+    out = inst.has();
+  }
+  return out === true;
+}
+let aw = nestedWithOuterAfterInner();
+
+function mixedHitAndMiss() {
+  let miss = {};
+  let bag = {};
+  with (bag) {
+    class C {
+      #x = 1;
+      hasHit() {
+        return #x in inst;
+      }
+      hasMiss() {
+        return #x in miss;
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.hasHit() === true && bag.inst.hasMiss() === false;
+  }
+}
+let ax = mixedHitAndMiss();
+
+function emptyWithObjectUsesOuter() {
+  let box = {};
+  let out;
+  with ({ z: 1 }) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    box = new C();
+    out = box.has();
+  }
+  return out === true;
+}
+let ay = emptyWithObjectUsesOuter();
+
+function ctorPrivateInThis() {
+  with ({}) {
+    class C {
+      #x = 1;
+      constructor() {
+        this.ok = #x in this;
+      }
+    }
+    return new C().ok === true;
+  }
+}
+let az = ctorPrivateInThis();
+
+function childCannotCheckParentPrivateName() {
+  with ({}) {
+    class Parent {
+      #v = 1;
+      has(obj) {
+        return #v in obj;
+      }
+    }
+    try {
+      eval(
+        "class Parent { #v = 1; } class Child extends Parent { steal(o) { return #v in o; } }"
+      );
+      return false;
+    } catch (err) {
+      return err instanceof SyntaxError && new Parent().has(new Parent()) === true;
+    }
+  }
+}
+let ba = childCannotCheckParentPrivateName();
+
+function liveCloseTwoInstancesIndependent() {
+  let bag = { box: {} };
+  let Ctor;
+  with (bag) {
+    Ctor = class {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    };
+  }
+  let first = new Ctor();
+  let firstHas = first.has();
+  bag.box = first;
+  let second = new Ctor();
+  return firstHas === false && first.has() === true && second.has() === true;
+}
+let bb = liveCloseTwoInstancesIndependent();
+
+function unresolvableDefaultThrows() {
+  with ({}) {
+    class C {
+      #x = 1;
+      has(obj = e1702145_def) {
+        return #x in obj;
+      }
+    }
+    try {
+      new C().has();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702145_def === "undefined"
+      );
+    }
+  }
+}
+let bc = unresolvableDefaultThrows();
+
+function getterOnCallThisIsWithObjectOnce() {
+  let n = 0;
+  let seen = null;
+  let instRef;
+  let bag = {
+    get box() {
+      n = n + 1;
+      seen = this;
+      return instRef;
+    }
+  };
+  with (bag) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    instRef = new C();
+    let out = instRef.has();
+    return out === true && n === 1 && seen === bag;
+  }
+}
+let bd = getterOnCallThisIsWithObjectOnce();
+
+function publicMethodReadsPrivateInAndWithIdent() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #x = 1;
+      sum() {
+        return (#x in this ? 1 : 0) + (#x in inst ? 1 : 0);
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.sum() === 2;
+  }
+}
+let be = publicMethodReadsPrivateInAndWithIdent();
+
+function privateMethodBodyRhsHitsObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      #x = 1;
+      #check() {
+        return #x in inst;
+      }
+      run() {
+        return this.#check();
+      }
+    }
+    bag.inst = new C();
+    return bag.inst.run() === true;
+  }
+}
+let bf = privateMethodBodyRhsHitsObject();
+
+function staticPrivateMethodRhsHitsObject() {
+  let bag = {};
+  with (bag) {
+    class C {
+      static #s = 1;
+      static #check() {
+        return #s in target;
+      }
+      static run() {
+        return C.#check();
+      }
+    }
+    bag.target = C;
+    return C.run() === true && C.run === C.run;
+  }
+}
+let bg = staticPrivateMethodRhsHitsObject();
+
+function staticNotOnInstancesNotPublic() {
+  let bag = { x: 1 };
+  with (bag) {
+    class C {
+      static #s = 2;
+      static has(obj) {
+        return #s in obj;
+      }
+    }
+    let inst = new C();
+    return (
+      C.has(C) === true &&
+      C.has(inst) === false &&
+      C.s === undefined &&
+      inst.s === undefined &&
+      Object.prototype.hasOwnProperty.call(C, "s") === false &&
+      Object.prototype.hasOwnProperty.call(inst, "s") === false &&
+      bag.s === undefined &&
+      bag.x === 1
+    );
+  }
+}
+let bh = staticNotOnInstancesNotPublic();
+
+function identCalleeInHasBody() {
+  let bag = {
+    fn: function () {
+      return true;
+    }
+  };
+  with (bag) {
+    class C {
+      #x = 1;
+      has(obj) {
+        return fn() && #x in obj;
+      }
+    }
+    let inst = new C();
+    return inst.has(inst) === true && inst.has({}) === false;
+  }
+}
+let bj = identCalleeInHasBody();
+
+function getterRunsEachRhsEval() {
+  let count = 0;
+  let instRef;
+  let bag = {
+    get box() {
+      count = count + 1;
+      return instRef;
+    }
+  };
+  with (bag) {
+    class C {
+      #x = 1;
+      both() {
+        return (#x in box) && (#x in box);
+      }
+    }
+    instRef = new C();
+    let out = instRef.both();
+    return out === true && count === 2;
+  }
+}
+let bk = getterRunsEachRhsEval();
+
+function withInStaticMethodSyntaxError() {
+  try {
+    eval("class C { static #s = 1; static has(o) { with ({}) { return #s in o; } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let bl = withInStaticMethodSyntaxError();
+
+function nestedWithInnerUnrelatedOuterTrue() {
+  let inner = { box: {} };
+  let outer = {};
+  let innerOut;
+  let outerOut;
+  with (outer) {
+    class OuterC {
+      #x = 1;
+      has() {
+        return #x in box;
+      }
+    }
+    let oInst = new OuterC();
+    outer.box = oInst;
+    with (inner) {
+      class InnerC {
+        #x = 1;
+        has() {
+          return #x in box;
+        }
+      }
+      innerOut = new InnerC().has();
+    }
+    outerOut = oInst.has();
+  }
+  return innerOut === false && outerOut === true;
+}
+let bm = nestedWithInnerUnrelatedOuterTrue();
+
+function unresolvableRhsDoesNotCreateGlobal() {
+  with ({}) {
+    class C {
+      #x = 1;
+      has() {
+        return #x in e1702145_noglobal;
+      }
+    }
+    try {
+      new C().has();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        Object.prototype.hasOwnProperty.call(globalThis, "e1702145_noglobal") === false
+      );
+    }
+  }
+}
+let bn = unresolvableRhsDoesNotCreateGlobal();
