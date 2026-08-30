@@ -1538,3 +1538,13 @@ fn with_import_defer_source_fixture_present() {
 fn with_import_defer_source_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_import_defer_source");
 }
+
+#[test]
+fn with_yield_ident_fixture_present() {
+    assert_fixture_present("es/legacy/with_yield_ident");
+}
+
+#[test]
+fn with_yield_ident_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_yield_ident");
+}

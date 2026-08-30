@@ -1,0 +1,563 @@
+// E17.02.150: with + yield as IdentifierReference (E19.37: yield is
+// IdentifierReference/BindingIdentifier in non-strict non-generator, not
+// keyword) through object environment (non-strict). yield ident hits object
+// (else outer); generator body still YieldExpression (yield prop does not
+// shadow); "use strict" yield → SyntaxError; dstr/arrow/param defaults yield
+// ident hits object; inherited HasBinding; accessor get this is with object;
+// unresolvable → ReferenceError; live close; nested with; unscopables skip.
+
+function hitsObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    return yield === 7;
+  }
+}
+let a = hitsObject();
+
+function missUsesOuter() {
+  let yield = 3;
+  with ({}) {
+    return yield === 3;
+  }
+}
+let b = missUsesOuter();
+
+function objectShadowsOuter() {
+  let yield = 3;
+  let obj = { yield: 7 };
+  with (obj) {
+    return yield === 7;
+  }
+}
+let c = objectShadowsOuter();
+
+function liveClose() {
+  let obj = { yield: 7 };
+  let run;
+  with (obj) {
+    run = function () {
+      return yield;
+    };
+  }
+  obj.yield = 1;
+  return run() === 1;
+}
+let d = liveClose();
+
+function inheritedHasBinding() {
+  let proto = { yield: 7 };
+  let env = Object.create(proto);
+  with (env) {
+    return yield === 7;
+  }
+}
+let e = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get yield() {
+      seen = this;
+      return 7;
+    }
+  };
+  with (env) {
+    return yield === 7 && seen === env;
+  }
+}
+let f = accessorGetThisIsWithObject();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      yield;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let g = unresolvableThrows();
+
+function nestedWithInnerWins() {
+  let inner = { yield: 7 };
+  let outer = { yield: 1 };
+  with (outer) {
+    with (inner) {
+      return yield === 7;
+    }
+  }
+}
+let h = nestedWithInnerWins();
+
+function unscopablesSkip() {
+  let yield = 1;
+  let env = { yield: 7 };
+  env[Symbol.unscopables] = { yield: true };
+  with (env) {
+    return yield === 1;
+  }
+}
+let j = unscopablesSkip();
+
+function nestedWithUnscopables() {
+  let inner = { yield: 3 };
+  inner[Symbol.unscopables] = { yield: true };
+  let outer = { yield: 7 };
+  with (outer) {
+    with (inner) {
+      return yield === 7 && inner.yield === 3;
+    }
+  }
+}
+let k = nestedWithUnscopables();
+
+function deleteIdentThenUnresolvable() {
+  let env = { yield: 7 };
+  with (env) {
+    delete yield;
+    try {
+      yield;
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let l = deleteIdentThenUnresolvable();
+
+function getterRunsOnce() {
+  let n = 0;
+  let env = {
+    get yield() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    return yield === 7 && n === 1;
+  }
+}
+let m = getterRunsOnce();
+
+function nestedWithOuterAfterInner() {
+  let inner = { yield: 1 };
+  let outer = { yield: 7 };
+  with (outer) {
+    with (inner) {
+      yield;
+    }
+    return yield === 7;
+  }
+}
+let n = nestedWithOuterAfterInner();
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get yield() {
+      seen = this;
+      return 7;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return yield === 7 && seen === env;
+  }
+}
+let p = inheritedAccessorGetThis();
+
+function yieldInClosure() {
+  let obj = { yield: 7 };
+  with (obj) {
+    function run() {
+      return yield;
+    }
+    return run() === 7;
+  }
+}
+let q = yieldInClosure();
+
+function yieldInArrow() {
+  let obj = { yield: 7 };
+  with (obj) {
+    let run = () => yield;
+    return run() === 7;
+  }
+}
+let r = yieldInArrow();
+
+function withInsideFunction() {
+  let obj = { yield: 7 };
+  function run() {
+    with (obj) {
+      return yield;
+    }
+  }
+  return run() === 7;
+}
+let s = withInsideFunction();
+
+function ownShadowsProto() {
+  let proto = { yield: 1 };
+  let env = Object.create(proto);
+  env.yield = 7;
+  with (env) {
+    return yield === 7;
+  }
+}
+let t = ownShadowsProto();
+
+function unscopablesFalseyDoesNotBlock() {
+  let env = { yield: 7 };
+  env[Symbol.unscopables] = { yield: false };
+  with (env) {
+    return yield === 7;
+  }
+}
+let u = unscopablesFalseyDoesNotBlock();
+
+function letYieldDoesNotWriteObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    let yield = 1;
+    return yield === 1 && obj.yield === 7;
+  }
+}
+let vv = letYieldDoesNotWriteObject();
+
+function assignYieldHitsObject() {
+  let obj = { yield: 1 };
+  with (obj) {
+    yield = 7;
+    return yield === 7 && obj.yield === 7;
+  }
+}
+let w = assignYieldHitsObject();
+
+function typeofYieldHitsObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    return typeof yield === "number";
+  }
+}
+let aa = typeofYieldHitsObject();
+
+function typeofUnresolvableYieldIsUndefined() {
+  with ({}) {
+    return typeof yield === "undefined";
+  }
+}
+let ab = typeofUnresolvableYieldIsUndefined();
+
+function deleteYieldOwn() {
+  let obj = { yield: 7 };
+  with (obj) {
+    let ok = delete yield;
+    return ok === true && obj.yield === undefined;
+  }
+}
+let ac = deleteYieldOwn();
+
+function voidYieldHitsObject() {
+  let n = 0;
+  let env = {
+    get yield() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    return void yield === undefined && n === 1;
+  }
+}
+let ad = voidYieldHitsObject();
+
+function dstrDefaultYieldHitsObject() {
+  let x;
+  let obj = { yield: 7 };
+  with (obj) {
+    [x = yield] = [];
+    return x === 7;
+  }
+}
+let ae = dstrDefaultYieldHitsObject();
+
+function dstrDefaultYieldSkippedWhenPresent() {
+  let x;
+  let n = 0;
+  let env = {
+    get yield() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    [x = yield] = [3];
+    return x === 3 && n === 0;
+  }
+}
+let af = dstrDefaultYieldSkippedWhenPresent();
+
+function objectShorthandYieldHitsObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    let o = { yield };
+    return o.yield === 7;
+  }
+}
+let ag = objectShorthandYieldHitsObject();
+
+function arrowParamDefaultYieldHitsObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    let f = (x = yield) => x;
+    return f() === 7 && f(3) === 3;
+  }
+}
+let ah = arrowParamDefaultYieldHitsObject();
+
+function paramDefaultYieldHitsObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    function f(x = yield) {
+      return x;
+    }
+    return f() === 7 && f(3) === 3;
+  }
+}
+let aj = paramDefaultYieldHitsObject();
+
+function generatorBodyStillYieldExpr() {
+  let obj = { yield: 7 };
+  with (obj) {
+    function* g() {
+      yield 3;
+    }
+    let it = g();
+    let step = it.next();
+    return step.value === 3 && step.done === false && obj.yield === 7;
+  }
+}
+let ak = generatorBodyStillYieldExpr();
+
+function generatorBareYieldNotObjectProp() {
+  let obj = { yield: 7 };
+  with (obj) {
+    function* g() {
+      yield;
+    }
+    let step = g().next();
+    return step.value === undefined && obj.yield === 7;
+  }
+}
+let al = generatorBareYieldNotObjectProp();
+
+function generatorYieldStarNotIdent() {
+  let obj = { yield: 7 };
+  with (obj) {
+    function* g() {
+      yield* [3, 4];
+    }
+    let it = g();
+    return it.next().value === 3 && it.next().value === 4 && obj.yield === 7;
+  }
+}
+let am = generatorYieldStarNotIdent();
+
+function generatorInsideWithReadsOtherIdent() {
+  let obj = { yield: 7, x: 5 };
+  with (obj) {
+    function* g() {
+      yield x;
+    }
+    return g().next().value === 5;
+  }
+}
+let an = generatorInsideWithReadsOtherIdent();
+
+function asyncFunctionYieldIsIdent() {
+  let obj = { yield: 7 };
+  with (obj) {
+    async function f() {
+      return yield;
+    }
+    return f();
+  }
+}
+let ap = false;
+asyncFunctionYieldIsIdent().then(function (v) {
+  ap = v === 7;
+});
+
+function strictYieldBindingSyntaxError() {
+  try {
+    eval("'use strict'; with ({ yield: 1 }) { yield }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let aq = strictYieldBindingSyntaxError();
+
+function strictYieldIdentSyntaxError() {
+  try {
+    eval("'use strict'; var yield = 1;");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let ar = strictYieldIdentSyntaxError();
+
+function classBodyStrictWithYieldSyntaxError() {
+  try {
+    eval("class C { m() { with ({ yield: 1 }) { yield } } }");
+    return false;
+  } catch (err) {
+    return err instanceof SyntaxError;
+  }
+}
+let at = classBodyStrictWithYieldSyntaxError();
+
+function evalYieldHitsObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    return eval("yield") === 7;
+  }
+}
+let au = evalYieldHitsObject();
+
+function yieldConcatIdent() {
+  let obj = { yield: "a", x: "b" };
+  with (obj) {
+    return yield + x === "ab";
+  }
+}
+let av = yieldConcatIdent();
+
+function compoundAssignYieldHitsObject() {
+  let obj = { yield: 2 };
+  with (obj) {
+    yield += 5;
+    return yield === 7 && obj.yield === 7;
+  }
+}
+let aw = compoundAssignYieldHitsObject();
+
+function updateYieldHitsObject() {
+  let obj = { yield: 6 };
+  with (obj) {
+    yield++;
+    return yield === 7 && obj.yield === 7;
+  }
+}
+let ax = updateYieldHitsObject();
+
+function yieldAsLabel() {
+  let obj = { yield: 7 };
+  with (obj) {
+    yield: {
+      return yield === 7;
+    }
+  }
+}
+let ay = yieldAsLabel();
+
+function functionParamNamedYield() {
+  function take(yield) {
+    return yield;
+  }
+  let obj = { yield: 7 };
+  with (obj) {
+    return take(yield) === 7;
+  }
+}
+let az = functionParamNamedYield();
+
+function catchParamNamedYieldShadows() {
+  let obj = { yield: 7 };
+  with (obj) {
+    try {
+      throw 3;
+    } catch (yield) {
+      return yield === 3 && obj.yield === 7;
+    }
+  }
+}
+let ba = catchParamNamedYieldShadows();
+
+function objectAssignPatternYieldHitsObject() {
+  let obj = { yield: 1 };
+  with (obj) {
+    ({ yield } = { yield: 7 });
+    return yield === 7 && obj.yield === 7;
+  }
+}
+let bb = objectAssignPatternYieldHitsObject();
+
+function templateInterpYieldHitsObject() {
+  let obj = { yield: 7 };
+  with (obj) {
+    return `n${yield}` === "n7";
+  }
+}
+let bc = templateInterpYieldHitsObject();
+
+function computedKeyYieldHitsObject() {
+  let obj = { yield: "k" };
+  with (obj) {
+    let o = { [yield]: 7 };
+    return o.k === 7;
+  }
+}
+let bd = computedKeyYieldHitsObject();
+
+function liveCloseTwoIndependent() {
+  let env = { yield: 7 };
+  let run;
+  with (env) {
+    run = function () {
+      return yield;
+    };
+  }
+  let a1 = run();
+  env.yield = 1;
+  let a2 = run();
+  return a1 === 7 && a2 === 1;
+}
+let be = liveCloseTwoIndependent();
+
+function yieldInNestedFunction() {
+  let obj = { yield: 7 };
+  with (obj) {
+    function outer() {
+      function inner() {
+        return yield;
+      }
+      return inner();
+    }
+    return outer() === 7;
+  }
+}
+let bf = yieldInNestedFunction();
+
+function withYieldThenOuterStillOuter() {
+  let yield = 1;
+  let obj = { yield: 7 };
+  with (obj) {
+    yield;
+  }
+  return yield === 1;
+}
+let bg = withYieldThenOuterStillOuter();
+
+function unresolvableAssignIsImplicitGlobal() {
+  with ({}) {
+    yield = 7;
+    let ok = globalThis.yield === 7;
+    delete globalThis.yield;
+    return ok;
+  }
+}
+let bh = unresolvableAssignIsImplicitGlobal();
