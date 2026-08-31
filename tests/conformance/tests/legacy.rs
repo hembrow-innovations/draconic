@@ -1698,3 +1698,13 @@ fn with_cyclic_modules_fixture_present() {
 fn with_cyclic_modules_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_cyclic_modules");
 }
+
+#[test]
+fn with_tla_export_forms_fixture_present() {
+    assert_fixture_present("es/legacy/with_tla_export_forms");
+}
+
+#[test]
+fn with_tla_export_forms_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_tla_export_forms");
+}

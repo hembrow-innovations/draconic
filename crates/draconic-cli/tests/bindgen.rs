@@ -82,13 +82,7 @@ fn bindgen_dash_o_writes_named_module() {
     let header = dir.join("api.h");
     let dest = dir.join("externs.drac");
     fs::write(&header, HEADER_SRC).unwrap();
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("bindgen")
-            .arg(&header)
-            .arg("-o")
-            .arg(&dest),
-    );
+    let (code, stdout, stderr) = run(draconic().arg("bindgen").arg(&header).arg("-o").arg(&dest));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     assert!(!dir.join("api.drac").exists());
     let got = fs::read_to_string(&dest).expect("wrote -o path");

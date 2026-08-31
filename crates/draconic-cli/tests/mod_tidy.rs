@@ -114,15 +114,13 @@ fn mod_tidy_writes_lock_from_manifest() {
     .unwrap();
     let cache = root.join("cache");
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("mod")
-            .arg("tidy")
-            .arg("--dir")
-            .arg(&ws)
-            .arg("--cache-dir")
-            .arg(&cache),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("mod")
+        .arg("tidy")
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(&cache));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     assert!(
         stdout.contains("fetched") || stdout.contains("mod tidy"),
@@ -144,34 +142,41 @@ fn mod_tidy_prunes_unused() {
     fs::create_dir_all(&ws).unwrap();
     let cache = root.join("cache");
 
-    fs::write(ws.join("draconic.toml"), "module = \"github.com/acme/app\"\n").unwrap();
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("get")
-            .arg("github.com/org/lib@1.2.3")
-            .arg("--url")
-            .arg(upstream.to_str().unwrap())
-            .arg("--dir")
-            .arg(&ws)
-            .arg("--cache-dir")
-            .arg(&cache),
-    );
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/acme/app\"\n",
+    )
+    .unwrap();
+    let (code, stdout, stderr) = run(draconic()
+        .arg("get")
+        .arg("github.com/org/lib@1.2.3")
+        .arg("--url")
+        .arg(upstream.to_str().unwrap())
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(&cache));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
 
     // Drop dep from manifest.
-    fs::write(ws.join("draconic.toml"), "module = \"github.com/acme/app\"\n").unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/acme/app\"\n",
+    )
+    .unwrap();
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("mod")
-            .arg("tidy")
-            .arg("--dir")
-            .arg(&ws)
-            .arg("--cache-dir")
-            .arg(&cache),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("mod")
+        .arg("tidy")
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(&cache));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
-    assert!(stdout.contains("pruned 1") || stdout.contains("pruned"), "{stdout}");
+    assert!(
+        stdout.contains("pruned 1") || stdout.contains("pruned"),
+        "{stdout}"
+    );
 
     let lock = fs::read_to_string(ws.join("draconic.lock")).unwrap();
     assert!(
@@ -201,15 +206,13 @@ fn mod_tidy_accepts_optional_toolchain_pin() {
     )
     .unwrap();
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("mod")
-            .arg("tidy")
-            .arg("--dir")
-            .arg(&ws)
-            .arg("--cache-dir")
-            .arg(root.join("cache")),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("mod")
+        .arg("tidy")
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(root.join("cache")));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     let mf = fs::read_to_string(ws.join("draconic.toml")).unwrap();
     assert!(
@@ -234,15 +237,13 @@ fn mod_tidy_accepts_required_toolchain_pin() {
     )
     .unwrap();
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("mod")
-            .arg("tidy")
-            .arg("--dir")
-            .arg(&ws)
-            .arg("--cache-dir")
-            .arg(root.join("cache")),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("mod")
+        .arg("tidy")
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(root.join("cache")));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     let mf = fs::read_to_string(ws.join("draconic.toml")).unwrap();
     assert!(

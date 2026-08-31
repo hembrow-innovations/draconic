@@ -183,15 +183,13 @@ fn required_pin_mismatch_build_exits_nonzero() {
     let src = write_program(&dir, "ok.drac", "let x = 1 + 2;\n");
     let out = dir.join("out.js");
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("build")
-            .arg("--target")
-            .arg("js")
-            .arg(&src)
-            .arg("-o")
-            .arg(&out),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
     assert_eq!(code, 1, "stdout={stdout}\nstderr={stderr}");
     assert!(stderr.contains("9.9.9"), "stderr={stderr}");
     assert!(!out.exists(), "mismatch must not emit");

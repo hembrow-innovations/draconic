@@ -49,10 +49,7 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 fn help_lists_run() {
     let (code, stdout, stderr) = run(draconic().arg("help"));
     assert_eq!(code, 0, "stderr={stderr}");
-    assert!(
-        stdout.contains("run"),
-        "help should list run:\n{stdout}"
-    );
+    assert!(stdout.contains("run"), "help should list run:\n{stdout}");
 }
 
 #[test]
@@ -74,13 +71,7 @@ fn run_target_js_executes_console_log() {
         "let console = globalThis.console;\nconsole.log(\"hello-run-js\");\n",
     );
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("run")
-            .arg("--target")
-            .arg("js")
-            .arg(&src),
-    );
+    let (code, stdout, stderr) = run(draconic().arg("run").arg("--target").arg("js").arg(&src));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     assert!(
         stdout.contains("hello-run-js"),
@@ -110,13 +101,11 @@ fn run_target_native_executes_scalar() {
     let dir = temp_dir();
     let src = write_program(&dir, "n.drac", "let x: i32 = 7;\n");
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("run")
-            .arg("--target")
-            .arg("native")
-            .arg(&src),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("run")
+        .arg("--target")
+        .arg("native")
+        .arg(&src));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     assert_eq!(stdout, "7\n", "stdout={stdout:?}\nstderr={stderr}");
 }
@@ -144,14 +133,12 @@ console.log(a);
 "#,
     );
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("run")
-            .arg("--target")
-            .arg("js")
-            .arg(&src)
-            .arg("from-cli"),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("run")
+        .arg("--target")
+        .arg("js")
+        .arg(&src)
+        .arg("from-cli"));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     assert!(
         stdout.contains("from-cli"),

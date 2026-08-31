@@ -86,10 +86,19 @@ function greet(name) {
 
     let (code, stdout, stderr) = run(draconic().arg("doc").arg(&src));
     assert_eq!(code, 0, "stderr={stderr}");
-    assert!(stdout.contains("# lib.drac") || stdout.contains("# lib"), "{stdout}");
-    assert!(stdout.contains("## `add`") || stdout.contains("## add"), "{stdout}");
+    assert!(
+        stdout.contains("# lib.drac") || stdout.contains("# lib"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("## `add`") || stdout.contains("## add"),
+        "{stdout}"
+    );
     assert!(stdout.contains("Add two numbers."), "{stdout}");
-    assert!(stdout.contains("## `greet`") || stdout.contains("## greet"), "{stdout}");
+    assert!(
+        stdout.contains("## `greet`") || stdout.contains("## greet"),
+        "{stdout}"
+    );
     assert!(stdout.contains("No star prefix on this line"), "{stdout}");
 }
 
@@ -135,24 +144,28 @@ function danger() {}
     );
     let out = dir.join("out.html");
 
-    let (code, _stdout, stderr) = run(
-        draconic()
-            .arg("doc")
-            .arg("--format")
-            .arg("html")
-            .arg("-o")
-            .arg(&out)
-            .arg(&src),
-    );
+    let (code, _stdout, stderr) = run(draconic()
+        .arg("doc")
+        .arg("--format")
+        .arg("html")
+        .arg("-o")
+        .arg(&out)
+        .arg(&src));
     assert_eq!(code, 0, "stderr={stderr}");
     let html = fs::read_to_string(&out).unwrap();
-    assert!(html.contains("<!DOCTYPE html>") || html.contains("<html"), "{html}");
+    assert!(
+        html.contains("<!DOCTYPE html>") || html.contains("<html"),
+        "{html}"
+    );
     assert!(html.contains("danger"), "{html}");
     assert!(
         html.contains("&lt;script&gt;") || html.contains("&#"),
         "must escape HTML specials:\n{html}"
     );
-    assert!(!html.contains("<script>"), "raw script tag must not appear:\n{html}");
+    assert!(
+        !html.contains("<script>"),
+        "raw script tag must not appear:\n{html}"
+    );
 }
 
 #[test]

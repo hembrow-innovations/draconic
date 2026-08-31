@@ -21,9 +21,7 @@ fn run_repl(stdin_text: &str, extra_args: &[&str]) -> (i32, String, String) {
         .expect("spawn draconic repl");
     {
         let mut stdin = child.stdin.take().expect("stdin");
-        stdin
-            .write_all(stdin_text.as_bytes())
-            .expect("write stdin");
+        stdin.write_all(stdin_text.as_bytes()).expect("write stdin");
     }
     let output = child.wait_with_output().expect("wait repl");
     let code = output.status.code().unwrap_or(1);
@@ -42,10 +40,7 @@ fn help_lists_repl() {
         .expect("help");
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("repl"),
-        "help should list repl:\n{stdout}"
-    );
+    assert!(stdout.contains("repl"), "help should list repl:\n{stdout}");
 }
 
 #[test]

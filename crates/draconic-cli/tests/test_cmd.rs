@@ -531,20 +531,12 @@ fn test_aggregate_exit_is_one_when_any_fixture_fails() {
     write_failing_js_fixture(&dir, "z_fail", "alpha");
     write_failing_js_fixture(&dir, "a_fail", "zeta");
 
-    let (code, stdout, stderr) = run(draconic()
-        .arg("test")
-        .arg("--jobs")
-        .arg("2")
-        .arg(&dir));
+    let (code, stdout, stderr) = run(draconic().arg("test").arg("--jobs").arg("2").arg(&dir));
     assert_eq!(
         code, 1,
         "expected aggregate exit 1\nstdout={stdout}\nstderr={stderr}"
     );
-    let (code2, stdout2, stderr2) = run(draconic()
-        .arg("test")
-        .arg("--jobs")
-        .arg("2")
-        .arg(&dir));
+    let (code2, stdout2, stderr2) = run(draconic().arg("test").arg("--jobs").arg("2").arg(&dir));
     assert_eq!(
         code2, 1,
         "exit must be stable across runs\nstdout={stdout2}\nstderr={stderr2}"
@@ -559,22 +551,14 @@ fn test_failure_summary_order_is_fixture_id() {
     write_failing_js_fixture(&dir, "a_fail", "zeta");
     write_js_fixture(&dir, "ok_mid", "let n = 0;\n");
 
-    let (code, stdout, stderr) = run(draconic()
-        .arg("test")
-        .arg("--jobs")
-        .arg("2")
-        .arg(&dir));
+    let (code, stdout, stderr) = run(draconic().arg("test").arg("--jobs").arg("2").arg(&dir));
     assert_eq!(code, 1, "stdout={stdout}\nstderr={stderr}");
     assert_eq!(
         fail_ids(&stdout),
         ["alpha", "zeta"],
         "FAIL summary must be fixture-id order, not path order:\n{stdout}"
     );
-    let (code2, stdout2, stderr2) = run(draconic()
-        .arg("test")
-        .arg("--jobs")
-        .arg("2")
-        .arg(&dir));
+    let (code2, stdout2, stderr2) = run(draconic().arg("test").arg("--jobs").arg("2").arg(&dir));
     assert_eq!(code2, 1, "stdout={stdout2}\nstderr={stderr2}");
     assert_eq!(
         fail_ids(&stdout2),

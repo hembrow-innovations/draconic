@@ -92,20 +92,22 @@ fn get_fetches_and_writes_manifest_lock() {
     let upstream = tagged_upstream(&root);
     let ws = root.join("app");
     fs::create_dir_all(&ws).unwrap();
-    fs::write(ws.join("draconic.toml"), "module = \"github.com/acme/app\"\n").unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/acme/app\"\n",
+    )
+    .unwrap();
     let cache = root.join("cache");
 
-    let (code, stdout, stderr) = run(
-        draconic()
-            .arg("get")
-            .arg("github.com/org/lib@^1.0.0")
-            .arg("--url")
-            .arg(upstream.to_str().unwrap())
-            .arg("--dir")
-            .arg(&ws)
-            .arg("--cache-dir")
-            .arg(&cache),
-    );
+    let (code, stdout, stderr) = run(draconic()
+        .arg("get")
+        .arg("github.com/org/lib@^1.0.0")
+        .arg("--url")
+        .arg(upstream.to_str().unwrap())
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(&cache));
     assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
     assert!(
         stdout.contains("github.com/org/lib") && stdout.contains("1.2.3"),
@@ -119,7 +121,10 @@ fn get_fetches_and_writes_manifest_lock() {
 
     let lock = fs::read_to_string(ws.join("draconic.lock")).unwrap();
     assert!(lock.contains("github.com/org/lib"), "{lock}");
-    assert!(lock.contains("version = \"1.2.3\"") || lock.contains("1.2.3"), "{lock}");
+    assert!(
+        lock.contains("version = \"1.2.3\"") || lock.contains("1.2.3"),
+        "{lock}"
+    );
     assert!(lock.contains("commit_oid"), "{lock}");
     assert!(lock.contains("content_hash"), "{lock}");
 
@@ -137,15 +142,13 @@ fn get_fetches_and_writes_manifest_lock() {
 #[test]
 fn get_missing_manifest_fails() {
     let root = temp_dir();
-    let (code, _stdout, stderr) = run(
-        draconic()
-            .arg("get")
-            .arg("github.com/org/lib@1.0.0")
-            .arg("--dir")
-            .arg(&root)
-            .arg("--cache-dir")
-            .arg(root.join("cache")),
-    );
+    let (code, _stdout, stderr) = run(draconic()
+        .arg("get")
+        .arg("github.com/org/lib@1.0.0")
+        .arg("--dir")
+        .arg(&root)
+        .arg("--cache-dir")
+        .arg(root.join("cache")));
     assert_ne!(code, 0);
     assert!(
         stderr.contains("missing") || stderr.contains("draconic.toml"),

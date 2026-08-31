@@ -179,11 +179,7 @@ fn build_native_default_output_next_to_source() {
 fn build_rejects_missing_target() {
     let dir = temp_dir();
     let src = write_program(&dir, "p.drac", "let x = 1;");
-    let output = draconic()
-        .arg("build")
-        .arg(&src)
-        .output()
-        .expect("spawn");
+    let output = draconic().arg("build").arg(&src).output().expect("spawn");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -412,10 +408,7 @@ fn build_native_link_dynamic_lib_missing_is_typed_error() {
         stderr.contains("E0402"),
         "missing dylib must be typed E0402, stderr={stderr}"
     );
-    assert!(
-        stderr.contains("dynamic lib not found"),
-        "stderr={stderr}"
-    );
+    assert!(stderr.contains("dynamic lib not found"), "stderr={stderr}");
 }
 
 /// F04.02: `build --target native --link lib.a` then run: stdout is the C return value.
@@ -524,7 +517,11 @@ fn build_auto_fetches_missing_locked_cache() {
             .arg({
                 let ws = root.join("seed-ws");
                 fs::create_dir_all(&ws).unwrap();
-                fs::write(ws.join("draconic.toml"), "module = \"github.com/acme/seed\"\n").unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
                 ws
             })
             .arg("--cache-dir")
@@ -598,7 +595,10 @@ content_hash = "{content_hash}"
         cache_mod.display()
     );
     let js = fs::read_to_string(&out).expect("js");
-    assert!(js.contains("41") || js.contains("value") || js.contains("inc"), "{js}");
+    assert!(
+        js.contains("41") || js.contains("value") || js.contains("inc"),
+        "{js}"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -635,7 +635,11 @@ fn build_offline_fails_when_cache_missing() {
             .arg({
                 let ws = root.join("seed-ws");
                 fs::create_dir_all(&ws).unwrap();
-                fs::write(ws.join("draconic.toml"), "module = \"github.com/acme/seed\"\n").unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
                 ws
             })
             .arg("--cache-dir")
@@ -686,7 +690,10 @@ content_hash = "{content_hash}"
     let cache_mod = ws
         .join(".draconic/mod-cache/mod/github.com/org/lib")
         .join(&oid);
-    assert!(!cache_mod.is_dir(), "cache must be empty before offline build");
+    assert!(
+        !cache_mod.is_dir(),
+        "cache must be empty before offline build"
+    );
 
     let out = ws.join("out.js");
     let (code, _stdout, stderr) = run_code(
@@ -763,7 +770,11 @@ fn build_prefers_lock_pins_does_not_float() {
             .arg({
                 let ws = root.join("seed-ws");
                 fs::create_dir_all(&ws).unwrap();
-                fs::write(ws.join("draconic.toml"), "module = \"github.com/acme/seed\"\n").unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
                 ws
             })
             .arg("--cache-dir")
@@ -921,7 +932,10 @@ fn build_offline_succeeds_when_cache_present() {
 
     assert!(out.is_file(), "offline build with warm cache must emit js");
     let js = fs::read_to_string(&out).expect("js");
-    assert!(js.contains("41") || js.contains("value") || js.contains("inc"), "{js}");
+    assert!(
+        js.contains("41") || js.contains("value") || js.contains("inc"),
+        "{js}"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

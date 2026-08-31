@@ -186,12 +186,7 @@ fn strip_export(s: &str) -> &str {
 fn strip_keyword<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
     if s.starts_with(kw) {
         let rest = &s[kw.len()..];
-        if rest.is_empty()
-            || rest
-                .chars()
-                .next()
-                .is_some_and(|c| !is_ident_continue(c))
-        {
+        if rest.is_empty() || rest.chars().next().is_some_and(|c| !is_ident_continue(c)) {
             return Some(rest);
         }
     }

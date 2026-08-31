@@ -414,10 +414,7 @@ fn parse_typedef(tokens: &[Tok], i: &mut usize) -> Result<Item, ParseError> {
         expect_semi(tokens, i)?;
         let struct_name = tag.unwrap_or_else(|| name.clone());
         if struct_name == name {
-            return Ok(Item::Struct(StructDecl {
-                name,
-                fields,
-            }));
+            return Ok(Item::Struct(StructDecl { name, fields }));
         }
         return Ok(Item::Struct(StructDecl {
             name: struct_name,
@@ -445,9 +442,7 @@ fn parse_typedef(tokens: &[Tok], i: &mut usize) -> Result<Item, ParseError> {
                 n
             }
             other => {
-                return Err(err(format!(
-                    "expected typedef name, found {other:?}"
-                )));
+                return Err(err(format!("expected typedef name, found {other:?}")));
             }
         };
         expect_semi(tokens, i)?;
@@ -473,10 +468,7 @@ fn parse_typedef(tokens: &[Tok], i: &mut usize) -> Result<Item, ParseError> {
 
 fn expect_semi(tokens: &[Tok], i: &mut usize) -> Result<(), ParseError> {
     if !matches!(peek(tokens, *i), Tok::Semi) {
-        return Err(err(format!(
-            "expected ';' , found {:?}",
-            peek(tokens, *i)
-        )));
+        return Err(err(format!("expected ';' , found {:?}", peek(tokens, *i))));
     }
     *i += 1;
     Ok(())
@@ -971,37 +963,25 @@ mod tests {
     #[test]
     fn emit_simple_struct() {
         let h = parse_header("struct Point { int x; int y; };").unwrap();
-        assert_eq!(
-            emit_externs(&h),
-            "type Point = { x: i32; y: i32 };\n"
-        );
+        assert_eq!(emit_externs(&h), "type Point = { x: i32; y: i32 };\n");
     }
 
     #[test]
     fn emit_typedef_scalar() {
         let h = parse_header("typedef int Int;\ntypedef unsigned int u32_t;").unwrap();
-        assert_eq!(
-            emit_externs(&h),
-            "type Int = i32;\ntype u32_t = u32;\n"
-        );
+        assert_eq!(emit_externs(&h), "type Int = i32;\ntype u32_t = u32;\n");
     }
 
     #[test]
     fn emit_typedef_anonymous_struct() {
         let h = parse_header("typedef struct { int x; int y; } Point;").unwrap();
-        assert_eq!(
-            emit_externs(&h),
-            "type Point = { x: i32; y: i32 };\n"
-        );
+        assert_eq!(emit_externs(&h), "type Point = { x: i32; y: i32 };\n");
     }
 
     #[test]
     fn emit_typedef_struct_tag() {
         let h = parse_header("typedef struct Point { int x; int y; } Point;").unwrap();
-        assert_eq!(
-            emit_externs(&h),
-            "type Point = { x: i32; y: i32 };\n"
-        );
+        assert_eq!(emit_externs(&h), "type Point = { x: i32; y: i32 };\n");
     }
 
     #[test]

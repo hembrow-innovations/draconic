@@ -19,6 +19,7 @@ use draconic_pkg::ensure_locked_for_entry;
 
 mod cmd_test;
 mod doc;
+mod extract;
 mod toolchain_pin;
 
 fn main() -> ExitCode {
@@ -34,6 +35,7 @@ fn main() -> ExitCode {
         "check" => cmd_check(&args),
         "fmt" => cmd_fmt(&args),
         "doc" => cmd_doc(&args),
+        "extract" => extract::cmd_extract(&args),
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
         "repl" => cmd_repl(&args),
@@ -1514,6 +1516,7 @@ draconic — the Draconic toolchain
 
 Usage:
   draconic parse <file>                          Parse a Program and print the AST dump
+  draconic extract <file>                        Print v1 JSON extract for one Program
   draconic check [--watch] <file>                Typecheck + bind a Program (no emit)
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
   draconic doc [--format md|html] [-o <out>] <file>

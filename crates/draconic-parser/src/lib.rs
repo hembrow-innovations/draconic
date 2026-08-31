@@ -2435,6 +2435,31 @@ impl Parser {
         })
     }
 
+    /// `import type { … }` / `import type foo from` / `import type * as ns from`.
+    /// Not `import type from "mod"` (default binding named `type`).
+    fn at_type_only_import_modifier(&self) -> bool {
+        matches!(&self.current().kind, TokenKind::Ident(n) if n == "type")
+            && (self.peek_is(&TokenKind::LBrace)
+                || self.peek_is(&TokenKind::Star)
+                || matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                    Some(TokenKind::Ident(_))
+                ))
+    }
+
+    /// `{ type foo }` / `{ type foo as bar }`, not `{ type }` / `{ type as bar }`.
+    fn at_inline_type_import_specifier(&self) -> bool {
+        matches!(&self.current().kind, TokenKind::Ident(n) if n == "type")
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .and_then(|t| t.ident_name_opt())
+                .is_some()
+            && !self.peek_is(&TokenKind::As)
+            && !self.peek_is(&TokenKind::Comma)
+            && !self.peek_is(&TokenKind::RBrace)
+    }
+
     /// `import { a, b as c } from "mod";`
     /// `import d from "mod";`
     /// `import d, { a } from "mod";`
@@ -2446,6 +2471,7 @@ impl Parser {
         let mut specifiers = Vec::new();
         let mut namespace = None;
         let mut phase = ImportPhase::Evaluation;
+        let mut type_only = false;
 
         // Side-effect import: `import "mod"` (optional WithClause).
         let source = if matches!(self.current().kind, TokenKind::String(_)) {
@@ -2460,6 +2486,10 @@ impl Parser {
             self.expect(&TokenKind::From)?;
             self.expect_string_lit()?
         } else {
+            if self.at_type_only_import_modifier() {
+                self.bump();
+                type_only = true;
+            }
             if self.check(&TokenKind::Star) {
                 namespace = Some(self.parse_namespace_import()?);
             } else if matches!(self.current().kind, TokenKind::Ident(_)) {
@@ -2482,6 +2512,7 @@ impl Parser {
                         span: def_span,
                     },
                     local,
+                    is_type: false,
                 });
                 if self.check(&TokenKind::Comma) {
                     self.bump();
@@ -2514,6 +2545,7 @@ impl Parser {
             source,
             attributes,
             phase,
+            type_only,
             span: Span::new(start, end),
         })
     }
@@ -2615,6 +2647,12 @@ impl Parser {
             return Ok(());
         }
         loop {
+            let is_type = if self.at_inline_type_import_specifier() {
+                self.bump();
+                true
+            } else {
+                false
+            };
             // `default` is a keyword but valid as ImportedBinding name: `{ default as x }`.
             let (imported_name, imported_span) = self.expect_ident_name()?;
             let imported = Ident {
@@ -2643,7 +2681,11 @@ impl Parser {
                     local.span,
                 ));
             }
-            specifiers.push(ImportSpecifier { imported, local });
+            specifiers.push(ImportSpecifier {
+                imported,
+                local,
+                is_type,
+            });
             if self.check(&TokenKind::Comma) {
                 self.bump();
                 if self.check(&TokenKind::RBrace) {

@@ -315,6 +315,7 @@ pub enum Stmt {
     /// `import { a, b as c } from "mod"` / `import d from "mod"` / `import d, { a } from "mod"`
     /// / `import * as ns from "mod"` / `import d, * as ns from "mod"` / `import "mod"`
     /// / `import defer * as ns from "mod"` (E19.42).
+    /// / `import type { a }` / `import type d from` / `import type * as ns from`.
     /// Default import is a specifier with `imported.name == "default"`.
     /// Namespace import binds `namespace` to a module namespace object.
     /// Optional `with {…}` / `assert {…}` import attributes (E19.38).
@@ -326,6 +327,8 @@ pub enum Stmt {
         attributes: Vec<ImportAttribute>,
         /// Evaluation (default) or `import defer * as ns` deferred namespace (E19.42).
         phase: ImportPhase,
+        /// `import type …` (type-only; no runtime local bindings).
+        type_only: bool,
         span: Span,
     },
     /// `export let/const/function …` or `export { a, b as c }` or `export { a } from "mod"`
@@ -391,6 +394,8 @@ pub struct ImportSpecifier {
     pub imported: Ident,
     /// Local binding name in this module.
     pub local: Ident,
+    /// Inline `type` specifier (`import { type foo }`).
+    pub is_type: bool,
 }
 
 /// One entry of `with { key: "value" }` / `assert { key: "value" }` (import attributes).
