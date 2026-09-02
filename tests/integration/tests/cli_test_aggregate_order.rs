@@ -1,4 +1,4 @@
-//! ROADMAP C04.02: deterministic aggregate exit + stable failure summary order.
+//! ROADMAP C04 / C04.02: deterministic aggregate exit + stable failure summary order.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -94,5 +94,69 @@ fn cli_test_failure_summary_order_by_fixture_id() {
         fail_ids(&stdout),
         ["alpha", "zeta"],
         "FAIL summary must be fixture-id order:\n{stdout}"
+    );
+}
+
+fn write_js_fixture(dir: &Path, id: &str, source: &str) {
+    fs::write(dir.join(format!("{id}.drac")), source).unwrap();
+    fs::write(
+        dir.join(format!("{id}.meta")),
+        format!(
+            "\
+id: {id}
+targets: js
+js.exit: 0
+"
+        ),
+    )
+    .unwrap();
+}
+
+/// ROADMAP C04: default worker pool (no `--jobs`) still exits 1 and orders FAIL by id.
+#[test]
+fn cli_test_default_pool_failure_summary_order_by_fixture_id() {
+    let dir = temp_dir();
+    write_js_fixture(&dir, "ok_mid", "let n = 0;\n");
+    write_failing_js_fixture(&dir, "z_fail", "alpha");
+    write_failing_js_fixture(&dir, "a_fail", "zeta");
+
+    let run = || {
+        Command::new(draconic_bin())
+            .arg("test")
+            .arg(&dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("spawn draconic test")
+    };
+    let first = run();
+    let stdout = String::from_utf8_lossy(&first.stdout);
+    let stderr = String::from_utf8_lossy(&first.stderr);
+    assert_eq!(
+        first.status.code().unwrap_or(255),
+        1,
+        "stdout={stdout}\nstderr={stderr}"
+    );
+    assert_eq!(
+        fail_ids(&stdout),
+        ["alpha", "zeta"],
+        "default pool FAIL summary must be fixture-id order:\n{stdout}"
+    );
+    let second = run();
+    let stdout2 = String::from_utf8_lossy(&second.stdout);
+    let stderr2 = String::from_utf8_lossy(&second.stderr);
+    assert_eq!(
+        second.status.code().unwrap_or(255),
+        1,
+        "stdout={stdout2}\nstderr={stderr2}"
+    );
+    assert_eq!(
+        fail_ids(&stdout2),
+        fail_ids(&stdout),
+        "FAIL order must be stable across default-pool runs\nfirst={stdout}\nsecond={stdout2}"
+    );
+    assert!(
+        stdout.contains("ok ok_mid"),
+        "passing sibling must still be reported:\n{stdout}"
     );
 }

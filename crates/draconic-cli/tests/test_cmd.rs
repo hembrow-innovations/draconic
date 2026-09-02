@@ -566,3 +566,107 @@ fn test_failure_summary_order_is_fixture_id() {
         "FAIL order must be stable across runs\nfirst={stdout}\nsecond={stdout2}"
     );
 }
+
+fn assert_c04_parallel_surface(code: i32, stdout: &str, stderr: &str) {
+    assert_eq!(
+        code, 1,
+        "C04 aggregate exit must be 1 when any fixture fails\nstdout={stdout}\nstderr={stderr}"
+    );
+    assert!(
+        stdout.contains("ok left") && stdout.contains("ok right"),
+        "C04 worker pool (N>1) must let overlapping fixtures pass:\n{stdout}"
+    );
+    assert_eq!(
+        fail_ids(stdout),
+        ["alpha", "zeta"],
+        "C04 FAIL summary must be fixture-id order:\n{stdout}"
+    );
+}
+
+fn write_c04_surface_dir() -> (PathBuf, PathBuf) {
+    let dir = temp_dir();
+    let barrier = dir.join("barrier");
+    fs::create_dir_all(&barrier).unwrap();
+    write_js_fixture(&dir, "left", &barrier_program("left", "right"));
+    write_js_fixture(&dir, "right", &barrier_program("right", "left"));
+    write_failing_js_fixture(&dir, "z_fail", "alpha");
+    write_failing_js_fixture(&dir, "a_fail", "zeta");
+    (dir, barrier)
+}
+
+/// ROADMAP C04: default N>1 workers + mixed pass/fail → exit 1 + stable FAIL order.
+#[test]
+fn test_c04_parallel_surface_default_jobs() {
+    let (dir, barrier) = write_c04_surface_dir();
+    let (code, stdout, stderr) = run(draconic()
+        .arg("test")
+        .env("DRACONIC_C0401_BARRIER", &barrier)
+        .arg(&dir));
+    assert_c04_parallel_surface(code, &stdout, &stderr);
+    let (code2, stdout2, stderr2) = run(draconic()
+        .arg("test")
+        .env("DRACONIC_C0401_BARRIER", &barrier)
+        .arg(&dir));
+    assert_c04_parallel_surface(code2, &stdout2, &stderr2);
+    assert_eq!(
+        fail_ids(&stdout2),
+        fail_ids(&stdout),
+        "C04 FAIL order must be stable across default-jobs runs"
+    );
+}
+
+/// ROADMAP C04: `--jobs` path of the combined parallel-test surface.
+#[test]
+fn test_c04_parallel_surface_jobs_flag() {
+    let (dir, barrier) = write_c04_surface_dir();
+    let (code, stdout, stderr) = run(draconic()
+        .arg("test")
+        .arg("--jobs")
+        .arg("2")
+        .env("DRACONIC_C0401_BARRIER", &barrier)
+        .arg(&dir));
+    assert_c04_parallel_surface(code, &stdout, &stderr);
+}
+
+/// ROADMAP C04: default worker pool and `--jobs` both yield exit 1 with a
+/// passing sibling, and FAIL order is fixture-id stable across runs.
+#[test]
+fn test_parallel_surface_aggregate_exit_and_stable_fail_order() {
+    let dir = temp_dir();
+    write_js_fixture(&dir, "ok_mid", "let n = 0;\n");
+    write_failing_js_fixture(&dir, "z_fail", "alpha");
+    write_failing_js_fixture(&dir, "a_fail", "zeta");
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg("--jobs").arg("2").arg(&dir));
+    assert_eq!(
+        code, 1,
+        "--jobs 2 aggregate exit 1\nstdout={stdout}\nstderr={stderr}"
+    );
+    assert_eq!(
+        fail_ids(&stdout),
+        ["alpha", "zeta"],
+        "FAIL summary must be fixture-id order:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("ok ok_mid") || stdout.contains("ok_mid"),
+        "passing sibling must still be reported:\n{stdout}"
+    );
+
+    let (code2, stdout2, stderr2) = run(draconic().arg("test").arg(&dir));
+    assert_eq!(
+        code2, 1,
+        "default pool aggregate exit 1\nstdout={stdout2}\nstderr={stderr2}"
+    );
+    assert_eq!(
+        fail_ids(&stdout2),
+        ["alpha", "zeta"],
+        "default pool FAIL order must match --jobs:\n{stdout2}"
+    );
+    let (code3, stdout3, stderr3) = run(draconic().arg("test").arg(&dir));
+    assert_eq!(code3, 1, "stdout={stdout3}\nstderr={stderr3}");
+    assert_eq!(
+        fail_ids(&stdout3),
+        fail_ids(&stdout2),
+        "FAIL order must be stable across default-pool runs\nfirst={stdout2}\nsecond={stdout3}"
+    );
+}

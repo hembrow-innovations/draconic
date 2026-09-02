@@ -954,7 +954,7 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 | C03 | done | native | `once` / thread-safe init; mutex only if Runtime internals need it | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
 | C03.01 | done | native | `once` / thread-safe init primitive | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
 | C03.02 | done | native | Runtime-internal mutex only where required (not user-facing shared heap) | `crates/draconic-runtime` |
-| C04 | todo | compiler | Parallel `draconic test`: multi-fixture workers; deterministic aggregate exit | `crates/draconic-cli`, `tests/integration` |
+| C04 | done | compiler | Parallel `draconic test`: multi-fixture workers; deterministic aggregate exit | `crates/draconic-cli`, `tests/integration` |
 | C04.01 | done | compiler | `draconic test` runs fixtures on worker pool (N>1) | `crates/draconic-cli`, `tests/integration` |
 | C04.02 | done | compiler | Deterministic aggregate exit code + stable failure summary order | `crates/draconic-cli`, `tests/integration` |
 | C05 | todo | both | Structured cancellation / timeout helpers on async work (channels + timers) | `tests/conformance` fixtures `concurrency/cancel` |

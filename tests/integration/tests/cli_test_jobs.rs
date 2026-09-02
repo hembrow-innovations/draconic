@@ -1,4 +1,4 @@
-//! ROADMAP C04.01: `draconic test` runs fixtures on a worker pool (N>1).
+//! ROADMAP C04 / C04.01: `draconic test` runs fixtures on a worker pool (N>1).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -86,6 +86,81 @@ fn cli_test_jobs_two_overlaps_barrier() {
         .arg("test")
         .arg("--jobs")
         .arg("2")
+        .env("DRACONIC_C0401_BARRIER", &barrier)
+        .arg(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn draconic test");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code().unwrap_or(1),
+        0,
+        "stdout={stdout}\nstderr={stderr}"
+    );
+    assert!(
+        stdout.contains("left") && stdout.contains("right"),
+        "stdout={stdout}"
+    );
+}
+
+fn write_failing_js_fixture(dir: &Path, file_stem: &str, id: &str) {
+    fs::write(dir.join(format!("{file_stem}.drac")), "let x = 1;\n").unwrap();
+    fs::write(
+        dir.join(format!("{file_stem}.meta")),
+        format!(
+            "\
+id: {id}
+targets: js
+js.exit: 0
+js.check: if (x !== 99) process.exit(1);
+"
+        ),
+    )
+    .unwrap();
+}
+
+/// ROADMAP C04: `--jobs` 2 with a passing sibling still aggregates to exit 1.
+#[test]
+fn cli_test_jobs_aggregate_exit_one_with_passing_sibling() {
+    let dir = temp_dir();
+    write_js_fixture(&dir, "ok_mid", "let n = 0;\n");
+    write_failing_js_fixture(&dir, "z_fail", "alpha");
+
+    let output = Command::new(draconic_bin())
+        .arg("test")
+        .arg("--jobs")
+        .arg("2")
+        .arg(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn draconic test");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code().unwrap_or(255),
+        1,
+        "stdout={stdout}\nstderr={stderr}"
+    );
+    assert!(
+        stdout.contains("ok_mid") && stdout.contains("FAIL alpha"),
+        "stdout={stdout}"
+    );
+}
+
+/// ROADMAP C04: default `draconic test` uses a worker pool (N>1) without `--jobs`.
+#[test]
+fn cli_test_default_jobs_two_overlaps_barrier() {
+    let dir = temp_dir();
+    let barrier = dir.join("barrier");
+    fs::create_dir_all(&barrier).unwrap();
+    write_js_fixture(&dir, "left", &barrier_program("left", "right"));
+    write_js_fixture(&dir, "right", &barrier_program("right", "left"));
+
+    let output = Command::new(draconic_bin())
+        .arg("test")
         .env("DRACONIC_C0401_BARRIER", &barrier)
         .arg(&dir)
         .stdout(Stdio::piped())
