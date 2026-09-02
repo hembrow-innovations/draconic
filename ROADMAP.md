@@ -951,7 +951,7 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 | C02.02 | done | both | Structured-clone (or designed) for plain objects; reject shared refs | `tests/conformance` fixtures `concurrency/channels` |
 | C02.03 | done | both | Bounded buffer: backpressure / full-channel behavior as designed | `tests/conformance` fixtures `concurrency/channels` |
 | C02.04 | done | both | Worker ↔ parent channel e2e (C01 + C02) | `tests/conformance` fixtures `concurrency/channels` |
-| C03 | todo | native | `once` / thread-safe init; mutex only if Runtime internals need it | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
+| C03 | done | native | `once` / thread-safe init; mutex only if Runtime internals need it | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
 | C03.01 | done | native | `once` / thread-safe init primitive | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/sync` |
 | C03.02 | done | native | Runtime-internal mutex only where required (not user-facing shared heap) | `crates/draconic-runtime` |
 | C04 | todo | compiler | Parallel `draconic test`: multi-fixture workers; deterministic aggregate exit | `crates/draconic-cli`, `tests/integration` |

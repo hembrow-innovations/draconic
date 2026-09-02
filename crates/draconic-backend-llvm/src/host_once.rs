@@ -1,7 +1,10 @@
-//! C03.01: `makeOnce` + `onceRun` thread-safe init primitive.
+//! C03 / C03.01: `makeOnce` + `onceRun` thread-safe init primitive.
+//! C03 parent also locks that mutex is not a user Host API (`typeof makeMutex`
+//! / `mutexLock` / `mutexUnlock` → `"undefined"`).
 //!
 //! Supported subset:
 //! - `typeof makeOnce` / `typeof onceRun` → `"function"`
+//! - `typeof` unresolved ident → `"undefined"` (no public mutex Host API)
 //! - `makeOnce()` → handle number >= 1
 //! - `onceRun(h)` → 1 first caller / 0 already done / negative invalid
 //! - number comparisons and bool locals
@@ -139,6 +142,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                 Some(SlotTy::String)
             } else if is_named_ident(arg, "onceRun") {
                 ctx.uses_run = true;
+                Some(SlotTy::String)
+            } else if matches!(arg.as_ref(), Expr::IdentName { .. }) {
                 Some(SlotTy::String)
             } else {
                 let _ = classify_expr(arg, ctx)?;
@@ -483,6 +488,13 @@ impl<'a> Emitter<'a> {
             } if is_named_ident(arg, "makeOnce") || is_named_ident(arg, "onceRun") => {
                 Ok(self.emit_cstr_ptr("function"))
             }
+            Expr::Unary {
+                op: UnaryOp::TypeOf,
+                arg,
+                ..
+            } if matches!(arg.as_ref(), Expr::IdentName { .. }) => {
+                Ok(self.emit_cstr_ptr("undefined"))
+            }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
                 let v = self.fresh();
@@ -533,5 +545,23 @@ mod tests {
         assert!(is_host_once_module(&m));
         let ir = emit_host_once(&m).expect("emit");
         assert!(ir.contains("function"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_typeof_unresolved_mutex_as_undefined() {
+        let m = lower_src(
+            r#"
+            let t = typeof makeOnce;
+            let o = makeOnce();
+            let a = onceRun(o);
+            let mu = typeof makeMutex;
+            let lock = typeof mutexLock;
+            let unlock = typeof mutexUnlock;
+            "#,
+        );
+        assert!(is_host_once_module(&m));
+        let ir = emit_host_once(&m).expect("emit");
+        assert!(ir.contains("undefined"), "{ir}");
+        assert!(!ir.contains("draconic_rt_host_internal_mutex"), "{ir}");
     }
 }

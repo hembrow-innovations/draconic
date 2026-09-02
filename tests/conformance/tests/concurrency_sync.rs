@@ -1,3 +1,4 @@
+//! ROADMAP C03: `once` / thread-safe init; mutex only if Runtime internals need it.
 //! ROADMAP C03.01: `once` / thread-safe init primitive.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
@@ -37,4 +38,14 @@ fn once_basic_fixture_present() {
 #[test]
 fn once_basic_runs_native() {
     assert_fixture_runs_native("concurrency/sync/once_basic");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("concurrency/sync/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    assert_fixture_runs_native("concurrency/sync/surface");
 }
