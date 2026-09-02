@@ -45,3 +45,13 @@ draconic build --target native hello.drac -o hello
 ```
 
 The clone-build-run path stays in the repository README. Learn assumes you can already parse and build.
+
+## Reproducibility
+
+Same source plus a matching toolchain pin does not always mean byte-identical files. Use this policy to tell whether two artifacts should match.
+
+- JS artifacts: byte-identical for the same Program source and pin. The JS backend does not embed timestamps or source paths.
+- LLVM IR: identical for the same Program source, pin, and source path. Native DWARF records embed the source path (filename and directory), so a different checkout path produces different IR.
+- Linked native binaries: Mach-O and ELF timestamps, UUIDs, and linker noise may differ across builds. Documented-equivalent for native is identical LLVM IR, not a byte-identical packaged binary.
+
+Release artifacts copied by the install path keep the linked binary as the host toolchain wrote it. They are not normalized for timestamps or paths.

@@ -1024,7 +1024,7 @@ Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi
 | D02.01 | done | compiler | Manifest field: required/optional toolchain version | `crates/draconic-cli`, `crates/draconic-pkg` |
 | D02.02 | done | compiler | CLI: enforce or warn when running toolchain ≠ pin | `crates/draconic-cli`, `tests/integration` |
 | D03 | done | compiler | Reproducible builds: same source + pin → documented-equivalent artifacts | `tests/integration` |
-| D03.01 | todo | compiler | Document reproducibility expectations (timestamps, paths) | `tests/integration`, docs |
+| D03.01 | done | compiler | Document reproducibility expectations (timestamps, paths) | `tests/integration`, docs |
 | D03.02 | done | compiler | Same source + pin → byte-identical or documented-equivalent emit | `tests/integration` |
 | D04 | todo | native | Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available) | `tests/integration`, `crates/draconic-backend-llvm` |
 | D04.01 | todo | native | Cross-compile: at least one non-host triple smoke | `tests/integration`, `crates/draconic-backend-llvm` |
