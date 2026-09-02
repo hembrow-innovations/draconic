@@ -1,0 +1,15 @@
+// H01: one Program — args, env get/set/delete, pid/ppid, exitCode.
+let args = processArgs();
+let n = args.length;
+let a0 = args[0];
+envSet("DRACONIC_H01_SURFACE", "alpha");
+let got = envGet("DRACONIC_H01_SURFACE");
+let missing = envGet("DRACONIC_H01_SURFACE_MISSING");
+envDelete("DRACONIC_H01_SURFACE");
+let after = envGet("DRACONIC_H01_SURFACE");
+let t_p = typeof pid();
+let t_pp = typeof ppid();
+let pid_ok = pid() > 0;
+let ppid_ok = ppid() >= 0;
+setExitCode(0);
+let code = exitCode();

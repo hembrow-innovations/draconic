@@ -756,7 +756,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H00.01 | done | compiler | Host API registry: known symbols + target availability; js unsupported → hard diagnostic | `crates/draconic-check`, `tests/conformance/host/policy` |
 | H00.02 | done | native | Host Runtime ABI scaffold: syscall/error codes, handles, path encoding at boundary | `crates/draconic-runtime` |
 | H00.03 | done | native | I/O bytes boundary: `Uint8Array`/`ArrayBuffer` as OS read/write buffers | `crates/draconic-runtime`, `tests/conformance/host/bytes` |
-| H01 | todo | both | Process: args, env, exit | `tests/conformance/host/process` |
+| H01 | done | both | Process: args, env, exit | `tests/conformance/host/process` |
 | H01.01 | done | both | Program args as string array (native OS argv; js Node bridge) | `tests/conformance` fixtures `host/process` |
 | H01.02 | done | both | Env get/set/delete (string values); missing → undefined | `tests/conformance` fixtures `host/process` |
 | H01.03 | done | both | `exit(code)` / exitCode: terminate with status; default 0 | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |

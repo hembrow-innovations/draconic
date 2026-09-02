@@ -1,4 +1,5 @@
 //! ROADMAP H01 / H14 / H15: process + signals + run + spawn + async wait.
+//! H01 parent locks the combined args / env / pid / exitCode surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -98,6 +99,44 @@ fn process_exit_default_runs_js_and_native() {
 #[test]
 fn process_pid_fixture_present() {
     assert_fixture_present("host/process/process_pid");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/process/surface");
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/process/surface")
+        .expect("host/process/surface");
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "host/process/surface must target js and native"
+    );
+    assert_eq!(
+        fixture.expect_native.args,
+        vec!["surface-arg".to_string()],
+        "H01 surface must pass one user arg"
+    );
+    assert_eq!(
+        fixture.expect_js.args,
+        vec!["surface-arg".to_string()],
+        "H01 surface must pass one user arg on js"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("1\nsurface-arg\nalpha\nundefined\nundefined\nnumber\nnumber\ntrue\ntrue\n0\n"),
+        "H01 surface must observe args, env get/set/delete, pid/ppid, and exitCode"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H01 surface must terminate with exitCode 0"
+    );
+    assert_fixture_runs_js_and_native("host/process/surface");
 }
 
 #[test]

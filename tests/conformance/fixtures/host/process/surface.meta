@@ -1,0 +1,7 @@
+id: host/process/surface
+targets: js,native
+args: surface-arg
+js.exit: 0
+js.check: if (n !== 1) process.exit(1); if (a0 !== "surface-arg") process.exit(2); if (got !== "alpha") process.exit(3); if (missing !== undefined) process.exit(4); if (after !== undefined) process.exit(5); if (t_p !== "number") process.exit(6); if (t_pp !== "number") process.exit(7); if (pid_ok !== true) process.exit(8); if (ppid_ok !== true) process.exit(9); if (code !== 0) process.exit(10);
+native.exit: 0
+native.stdout: 1\nsurface-arg\nalpha\nundefined\nundefined\nnumber\nnumber\ntrue\ntrue\n0\n
