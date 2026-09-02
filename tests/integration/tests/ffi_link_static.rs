@@ -1,4 +1,5 @@
-//! ROADMAP F04.01 / F04.02: native build links an extra `.a`, resolves, and calls one C symbol.
+//! ROADMAP F04 / F04.01–F04.02: native build links an extra `.a`, resolves, and calls one C symbol.
+//! F04 parent locks the combined link-static / call-one-symbol surface.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,5 +91,40 @@ fn e2e_native_build_calls_linked_static_symbol() {
         String::from_utf8_lossy(&output.stdout),
         "42\n7\n",
         "stdout must be C-computed returns"
+    );
+}
+
+#[test]
+fn e2e_native_build_links_and_calls_static_surface() {
+    let dir = temp_dir();
+    let c_src = dir.join("surface.c");
+    fs::write(
+        &c_src,
+        "void draconic_link_static_touch(void) {}\nint draconic_link_static_add(int a, int b) { return a + b; }\n",
+    )
+    .unwrap();
+    let archive = dir.join("libsurface.a");
+    build_c_static_lib(&c_src, &archive).expect("build .a");
+
+    let module = compile_source(
+        "extern \"C\" function draconic_link_static_touch(): void;\nextern \"C\" function draconic_link_static_add(a: i32, b: i32): i32;\ndraconic_link_static_touch();\nlet x: i32 = 1;\nlet s: i32 = draconic_link_static_add(20, 22);\nlet t: i32 = draconic_link_static_add(-5, 12);\n",
+    )
+    .expect("compile");
+    let ll = emit_llvm_ir(&module).expect("emit_llvm_ir");
+
+    let out = dir.join("prog");
+    build_native_binary_with_static_libs(&ll, Path::new(&out), &[archive])
+        .expect("build_native_binary_with_static_libs");
+    let output = Command::new(&out).output().expect("run");
+    assert!(
+        output.status.success(),
+        "exit {:?}\nstderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "1\n42\n7\n",
+        "stdout must be resolve print plus C-computed returns"
     );
 }

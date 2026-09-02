@@ -1,0 +1,5 @@
+id: ffi/link_static/surface
+targets: native
+native.link: surface.c
+native.exit: 0
+native.stdout: 1\n42\n7\n
