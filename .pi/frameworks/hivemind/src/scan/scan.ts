@@ -10,8 +10,14 @@ export type ScannedNote = {
   frontMatter: Record<string, YamlValue>;
 };
 
+export type QuarantinedNote = {
+  path: string;
+  fault: string;
+};
+
 export type ScanResult = {
   notes: ScannedNote[];
+  quarantines: QuarantinedNote[];
 };
 
 type FolderSchema =
@@ -38,6 +44,7 @@ export function scan(opts: {
   }
 
   const notes: ScannedNote[] = [];
+  const quarantines: QuarantinedNote[] = [];
   const destDir = join(opts.cwd, quarantine.path);
   const at = now.toISOString();
   const watch = config.watch;
@@ -53,34 +60,39 @@ export function scan(opts: {
       const parsed = readFrontMatter(raw);
       if (parsed.kind === "fault") {
         quarantineFile({ abs, destDir, origin, fault: parsed.fault, at });
+        quarantines.push({ path: origin, fault: parsed.fault });
         continue;
       }
       const unknown = unknownKey(parsed.map, folder);
       if (unknown !== undefined) {
+        const fault = `unknown-key:${unknown}`;
         quarantineFile({
           abs,
           destDir,
           origin,
-          fault: `unknown-key:${unknown}`,
+          fault,
           at,
         });
+        quarantines.push({ path: origin, fault });
         continue;
       }
       const missing = missingKey(parsed.map, folder.required);
       if (missing !== undefined) {
+        const fault = `missing-key:${missing}`;
         quarantineFile({
           abs,
           destDir,
           origin,
-          fault: `missing-key:${missing}`,
+          fault,
           at,
         });
+        quarantines.push({ path: origin, fault });
         continue;
       }
       notes.push({ path: origin, frontMatter: parsed.map });
     }
   }
-  return { notes };
+  return { notes, quarantines };
 }
 
 function isQuarantineFolder(folder: FolderEntry): boolean {

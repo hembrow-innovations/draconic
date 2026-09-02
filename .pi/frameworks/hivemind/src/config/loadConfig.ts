@@ -8,6 +8,7 @@ const CONFIG_KEYS = new Set([
   "folders",
   "lanes",
   "disable",
+  "history",
 ]);
 
 export type Lane = {
@@ -29,6 +30,7 @@ export type HivemindConfig = {
   concurrency: number;
   disable: readonly string[];
   watch: readonly string[] | undefined;
+  history: string | undefined;
 };
 
 export function loadConfig(cwd: string): HivemindConfig {
@@ -48,7 +50,16 @@ export function loadConfig(cwd: string): HivemindConfig {
     concurrency: parseConcurrency(raw.concurrency),
     disable: parseStringList(raw.disable, "disable"),
     watch: parseWatch(raw.watch),
+    history: parseHistory(raw.history),
   };
+}
+
+function parseHistory(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value === "") {
+    throw new Error("history must be a path");
+  }
+  return value;
 }
 
 function parseWatch(value: unknown): string[] | undefined {

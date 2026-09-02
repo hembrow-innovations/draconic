@@ -91,6 +91,8 @@ Options:
   -h, --help              Show help
   --until-quiet           watch: exit after one quiet scan
   --until-target PATH     watch: exit when PATH exists
+
+Events print to stderr. Optional history TSV is set in hivemind.yaml.
 `);
 }
 
