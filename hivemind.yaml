@@ -19,6 +19,9 @@ folders:
     schema: quarantine
     required: [origin-location, quarantined-at, fault]
 lanes:
+  # Plan: one ready-for-agent ticket → one sealed slice (oracles, status ready).
+  # Claims the ticket as active, writes the slice under .heio/planning, then
+  # marks the ticket promoted. No product code and no task-pool files.
   - lane: plan
     cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
     agent: heio-planner
@@ -31,6 +34,9 @@ lanes:
       - .heio/tickets
     claim-status: active
     backoff: 15s
+  # Tasker: one ready slice → task-pool files plus [[id]] links on the slice.
+  # Claims the slice as active. One sitting per task. No product code; does
+  # not edit EXPECT, intent, roadmap, or sprint shape.
   - lane: tasker
     cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
     agent: heio-tasker
@@ -42,6 +48,9 @@ lanes:
       - .heio/planning
     claim-status: active
     backoff: 15s
+  # Build: one incomplete task on an active slice. Runs draconic-loop + TDD,
+  # commits the work package (never stages .heio/). Leaves the slice active
+  # if more tasks remain; sets released when the pool is done so Review matches.
   - lane: build
     cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
     agent: heio-builder
@@ -56,6 +65,9 @@ lanes:
       - ROADMAP.md
     claim-status: active
     backoff: 15s
+  # Review: one released slice. Claims as reviewing, re-runs oracles.
+  # ALL MET → slice met and ROADMAP done. Miss → slice failed and mints a
+  # ready-for-agent ticket with caused-by (mint-status). No product code.
   - lane: review
     cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
     agent: heio-verifier
@@ -70,6 +82,10 @@ lanes:
     claim-status: reviewing
     mint-status: ready-for-agent
     backoff: 15s
+  # Pump: idle pump + empty in-flight queue → one ROADMAP todo ticket at
+  # ready-for-agent (mint-status), then pump returns to idle. Occupied board
+  # → mint nothing, stay idle. No todos left → exhausted so watch can exit.
+  # Listed last so plan/tasker/build/review win while work is in flight.
   - lane: pump
     cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
     agent: heio-triage
