@@ -8,24 +8,24 @@ tags: [sprints]
 
 ## Roadmap
 
-Bets over time. Not a schedule. “We are going here, in this order, for these reasons.”
+Locations. Not a schedule. Each bullet is a destination: this is working when. Add bullets. Do not rewrite siblings to add one.
 
-Each line names a sprint and the decision that sprint must force. Dates are fine as *force functions*, bad as forecasts. Keep the sentence “this sprint exists to decide X,” not “ship by Friday.”
+A **bet** is an optional sub-bullet under a location: `bet: try X; pivot if Y`. If it wins, it becomes a location or a sprint grouping.
 
-Human or **heio-wayfinder** writes `.heio/planning/roadmap.md`. Builder agents read it.
+When a location needs depth, copy `templates/location.md` to `planning/locations/<slug>.md`. That file is the same shape: short why, nested location bullets, optional bets, enough links. No nested folders.
 
 ## Sprint
 
-A date or event that forces a cut. Ship, review, kill, or re-scope. A destination *and* a decision point.
+A grouping of slices. Named after a **location** or a **timebox** (`week-1`).
 
-`.heio/planning/sprints/<id>/shape.md` lists slices in, slices out, and what this sprint means. Planner pass. Status `shaping` until the slice specs and `EXPECT:` lines exist, then `active`.
+`.heio/planning/sprints/<id>/shape.md` lists slices in, slices out, and what this grouping is. Status `shaping` until the slice files have Done and `EXPECT:` lines, then `active`.
 
-A sprint holds 2–4+ vertical slices. Only one slice is `active` at a time.
+A sprint holds 2–4+ vertical slices. Many slices may be `active`. A slice that must wait names `blocked-by`.
 
 ## End of sprint
 
 Status `review`, then:
 
-1. Keep, cut, or rewrite the next slices on the roadmap.
+1. Keep, cut, or rewrite the next slices. Grow or drop location bullets on the roadmap.
 2. Re-file or drop leftover tickets (`rules/tickets.md`).
-3. Status `closed`.
+3. Move the sprint folder to `.heio/archive/planning/sprints/<id>/`. Add a one-liner to `archive/index.md`. Status `closed`.

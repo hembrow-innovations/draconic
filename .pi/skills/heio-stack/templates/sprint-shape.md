@@ -1,6 +1,6 @@
 ---
-id: "m3"
-title: "m3 — decide X"
+id: "week-1"
+title: "week-1"
 kind: sprint
 status: shaping
 tags: []
@@ -8,20 +8,20 @@ created_at: "ISO-8601"
 updated_at: "ISO-8601"
 ---
 
-# m3 — decide X
+# week-1
 
-## This sprint exists to decide
+## Grouping
 
-X. A destination and a decision point. Dates are a force function, not a forecast.
+Timebox `week-1`, or location: <roadmap bullet>.
 
 ## Slices in
 
-- `s-slug`: why this vertical cut is in, what we demo or learn
+- `s-slug`: why this vertical cut is in, what we demo or learn. blocked-by: none
 
 ## Slices out
 
-- not this sprint: why it stays out
+- not this grouping: why it stays out
 
-## Cut line
+## See also
 
-At the end: keep, cut, or rewrite the next slices. Ship, review, kill, or re-scope.
+ADRs, specs, paths. Enough that a stranger does not hunt.

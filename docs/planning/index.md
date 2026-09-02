@@ -10,9 +10,7 @@ tags: [planning, index]
 
 # Planning
 
-Issue tracker and second-brain workspace (replaces GitHub Issues / `.scratch/`).
-Workflow: `issue → plan/tasks → execute → review → new issues` (**planning-workflow**
-skill). Language completeness: still [[ROADMAP]] + **draconic-loop**.
+Historical vault tracker (replaces GitHub Issues / `.scratch/`). Live agent OS is **heio-stack** under `.heio/` (gitignored). Language completeness: still [[ROADMAP]] + **draconic-loop**. Closed issues below are archived into `.heio/archive/tickets/`.
 
 ## Folders
 

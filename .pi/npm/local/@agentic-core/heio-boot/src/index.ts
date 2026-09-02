@@ -44,7 +44,7 @@ function notify(ctx: Pick<ExtensionContext, "ui">, message: string): void {
 
 const DEST_LOADER_NAME = "dest_activate_tools";
 const LENS_LOADER_NAME = "pi_lens_activate_tools";
-const FIRST_PARTY_NAMES = new Set(["heio_todo", DEST_LOADER_NAME]);
+const FIRST_PARTY_NAMES = new Set([DEST_LOADER_NAME]);
 const FIRST_PARTY_PREFIXES = ["coms_", "team_", "task_"] as const;
 const PARKED_NAMES = new Set([
   "web_search",
@@ -269,7 +269,7 @@ export default function (pi: ExtensionAPI) {
     name: DEST_LOADER_NAME,
     label: "Activate dest tools",
     description:
-      "Activate one or more registered tools that stay inactive until requested. Call this once with the tool names you need. They become callable starting the next turn.",
+      "Activate one or more registered tools that stay inactive until requested. Call this once with the tool names you need. They become callable on the next model request after this result. Continue; do not wait for the user.",
     promptSnippet:
       "Activate parked third-party tools by name before using them",
     parameters: Type.Object({
@@ -292,7 +292,7 @@ export default function (pi: ExtensionAPI) {
             type: "text" as const,
             text:
               valid.length > 0
-                ? `Activated: ${valid.join(", ")}. Available starting next turn.`
+                ? `Activated: ${valid.join(", ")}. Callable on the next model request. Continue.`
                 : "No valid tool names given.",
           },
         ],

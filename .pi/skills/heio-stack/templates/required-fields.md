@@ -5,7 +5,7 @@ Every stack note includes these fields. Kind-specific fields follow on the kind 
 ```yaml
 id: "<filename stem or folder name>"
 title: "<same string as the h1>"
-kind: intent | roadmap | sprint | slice | ticket
+kind: intent | roadmap | location | sprint | slice | ticket | task
 tags: []
 created_at: "<ISO-8601>"
 updated_at: "<ISO-8601>"
@@ -15,11 +15,13 @@ updated_at: "<ISO-8601>"
 
 - **intent**: `intent` (file `intent.md`)
 - **roadmap**: `roadmap` (file `roadmap.md`)
-- **sprint**: the sprint folder name (`m3`, `launch`)
-- **slice**: the slice folder name (`s-login`)
+- **location**: the slug (`auth-working`)
+- **sprint**: the sprint folder name (`week-1`, `auth-working`)
+- **slice**: the file stem (`s-login`)
 - **ticket**: `ticket-01-slug`
+- **task**: the file stem (`task-id`)
 
-Slice `tasks.md` and `oracles.md` have no frontmatter. They belong to the slice folder.
+`archive/index.md` has no frontmatter.
 
 ## Optional fields
 
@@ -29,7 +31,7 @@ Add only the ones the kind uses.
 description: "one sentence"
 status: "see rules/layout.md"
 labels: feature
-sprint: "m3"
+sprint: "week-1"
 slice: "s-login"
 references: ["ticket-01-slug"]
 ```

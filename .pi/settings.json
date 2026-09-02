@@ -2,11 +2,11 @@
   "packages": [
     "npm:pi-lens",
     "npm:pi-subagents",
-    "npm/local/@agentic-core/heio-todo",
     "npm/local/@agentic-core/heio-boot",
     "npm/local/@agentic-core/heio-footer",
-    "npm/local/@agentic-core/heio-coord",
-    "npm/local/@agentic-core/heio-onic"
+    "npm/local/@agentic-core/heio-onic",
+    "npm:@inobit/pi-todo@0.1.1",
+    "npm:@juicesharp/rpiv-ask-user-question@2.8.0"
   ],
   "toolDescriptionMode": "compact",
   "defaultTools": [

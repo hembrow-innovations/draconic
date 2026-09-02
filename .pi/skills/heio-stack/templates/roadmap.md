@@ -10,13 +10,13 @@ updated_at: "ISO-8601"
 
 # Roadmap
 
-Ordered bets. Not a schedule. We are going here, in this order, for these reasons.
+Locations. Destinations, not a schedule. Add bullets. Do not rewrite siblings to add one.
 
-## Bets in order
+## Locations
 
-1. **<sprint-id> — decide <X>**: why this bet, what the sprint exists to decide
-2. **<sprint-id> — decide <Y>**: why this bet, what the sprint exists to decide
+- **<location>**: <this is working when>
+  - bet: try X; pivot if Y
 
-## Not a bet
+## See also
 
-Work that would change the order or the destination. Leave it off. File a ticket.
+ADRs, specs, paths. Enough that a stranger does not hunt.

@@ -1,5 +1,5 @@
 ---
-description: Chart intent, roadmap, and sprint shape
+description: Chart intent, locations, and sprint shape
 argument-hint: "[roadmap or sprint]"
 ---
 

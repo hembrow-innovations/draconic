@@ -13,7 +13,7 @@ updated_at: "ISO-8601"
 
 ## Signal
 
-What arrived. Bug, complaint, request, idea. Not yet work.
+What arrived. Bug, complaint, request, idea. Not yet work. Not map hygiene.
 
 ## Fit
 
@@ -21,8 +21,8 @@ Unknown until triage. Then one of:
 
 - this slice → promote to a task
 - this project, later slice → park
-- changes the bet → escalate
+- would rewrite a location destination during a workflow → escalate
 
 ## Notes
 
-Facts only. The solution lives on a slice spec, not here.
+Facts only. The solution lives on a slice, not here.

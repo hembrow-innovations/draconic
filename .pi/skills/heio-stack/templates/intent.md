@@ -12,7 +12,7 @@ updated_at: "ISO-8601"
 
 ## Why this project exists
 
-One page. The bet behind the bets.
+One page. The destination behind the locations.
 
 ## Success looks like
 
@@ -21,3 +21,7 @@ X. Observable. A stranger could tell.
 ## We will not
 
 Y. Non-goals held on purpose.
+
+## See also
+
+ADRs, specs, paths. Enough that a stranger does not hunt.

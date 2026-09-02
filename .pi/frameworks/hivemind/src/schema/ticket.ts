@@ -1,0 +1,16 @@
+export const TICKET_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "title",
+  "kind",
+  "status",
+  "labels",
+  "tags",
+  "sprint",
+  "slice",
+  "created_at",
+  "updated_at",
+  "claimed-by",
+  "caused-by",
+  "failed",
+  "intent",
+]);

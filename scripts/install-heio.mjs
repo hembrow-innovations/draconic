@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Reinstall the heio-stack profile from a local agentic-core checkout.
+// Reinstall the draconic profile from a local agentic-core checkout.
 // Usage: node scripts/install-heio.mjs
 //        AGENTIC_CORE=/path/to/agentic-core node scripts/install-heio.mjs
 import { spawnSync } from "node:child_process";
@@ -18,7 +18,7 @@ if (!existsSync(resolve(src, "profiles")) || !existsSync(resolve(src, "ai/skills
 
 const result = spawnSync(
 	"pnpm",
-	["exec", "agentic-core", "install", dest, "--profile", "heio-stack"],
+	["exec", "agentic-core", "install", dest, "--profile", "draconic"],
 	{ cwd: src, stdio: "inherit" },
 );
 process.exit(result.status ?? 1);

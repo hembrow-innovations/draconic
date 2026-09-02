@@ -1,5 +1,5 @@
 ---
-description: Plan a slice spec and oracles, or triage a ticket
+description: Plan a slice (oracles on the file) or triage a ticket
 argument-hint: "[slice or ticket]"
 ---
 

@@ -1,0 +1,8 @@
+{
+  "name": "hivemind",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "hivemind": "./src/cli.ts"
+  }
+}
