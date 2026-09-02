@@ -8,16 +8,44 @@ on:
 
 jobs:
   host-binary:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            pair: "linux/amd64"
+            artifact: linux-amd64
+          - os: ubuntu-24.04-arm
+            pair: "linux/arm64"
+            artifact: linux-arm64
+          - os: macos-15-intel
+            pair: "darwin/amd64"
+            artifact: darwin-amd64
+          - os: macos-latest
+            pair: "darwin/arm64"
+            artifact: darwin-arm64
+          - os: windows-latest
+            pair: "windows/amd64"
+            artifact: windows-amd64
+          - os: windows-11-arm
+            pair: "windows/arm64"
+            artifact: windows-arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Build CLI (release)
         run: cargo build -p draconic-cli --release
       - name: Stage host-triple artifact
-        run: bash scripts/release-artifact.sh --bin target/release/draconic --out dist
+        shell: bash
+        run: |
+          BIN=target/release/draconic
+          if [[ -f target/release/draconic.exe ]]; then
+            BIN=target/release/draconic.exe
+          fi
+          bash scripts/release-artifact.sh --bin "$BIN" --out dist
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: draconic-host
+          name: draconic-${{ matrix.artifact }}
           path: dist/draconic-*

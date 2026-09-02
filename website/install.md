@@ -16,6 +16,15 @@ curl -fsSL https://raw.githubusercontent.com/hembrow-innovations/draconic/main/s
 
 That places `draconic` in `~/.draconic/bin`. Add that directory to `PATH` if needed.
 
+The install script picks the host pair. Release CI builds a host-triple binary for each available OS/arch pair:
+
+- linux/amd64
+- linux/arm64
+- darwin/amd64
+- darwin/arm64
+- windows/amd64
+- windows/arm64
+
 A Program is a unit of Draconic source the toolchain accepts. Save this as `hello.drac`. It builds today:
 
 ```drac

@@ -1028,7 +1028,7 @@ Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi
 | D03.02 | done | compiler | Same source + pin → byte-identical or documented-equivalent emit | `tests/integration` |
 | D04 | todo | native | Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available) | `tests/integration`, `crates/draconic-backend-llvm` |
 | D04.01 | todo | native | Cross-compile: at least one non-host triple smoke | `tests/integration`, `crates/draconic-backend-llvm` |
-| D04.02 | todo | native | Matrix docs + CI jobs for available OS/arch pairs | CI, `tests/integration` |
+| D04.02 | done | native | Matrix docs + CI jobs for available OS/arch pairs | CI, `tests/integration` |
 | D05 | todo | native | Binary size opts: strip / LTO flags documented and testable | `tests/integration`, `crates/draconic-cli` |
 | D05.01 | todo | native | CLI/build flags: strip symbols | `crates/draconic-cli`, `tests/integration` |
 | D05.02 | todo | native | LTO (or designed) flag documented; size delta smoke | `crates/draconic-cli`, `tests/integration` |
