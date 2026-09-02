@@ -1,4 +1,5 @@
-//! ROADMAP D02.02: CLI enforces or warns when running toolchain ≠ pin.
+//! ROADMAP D02: toolchain version pin in `draconic.toml`; CLI enforces or warns.
+//! Child D02.02 locks the mismatch path; parent D02 is the combined pin surface.
 
 use std::fs;
 use std::path::{Path, PathBuf};

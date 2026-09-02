@@ -1,4 +1,9 @@
-//! ROADMAP D02.02: CLI enforces or warns when running toolchain ≠ pin.
+//! ROADMAP D02: toolchain version pin in `draconic.toml`; CLI enforces or warns.
+//!
+//! Combined surface for the parent row: a Program names a required or optional
+//! toolchain pin, and the CLI hard-fails or warns when the running toolchain
+//! does not match. Child rows D02.01–D02.02 lock the manifest field and the
+//! mismatch path; this file locks pin + enforce/warn as one sitting.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -125,6 +130,71 @@ fn matching_required_pin_check_succeeds() {
     assert!(
         !stderr.to_ascii_lowercase().contains("warning"),
         "stderr={stderr}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+fn write_manifest(dir: &Path, body: &str) {
+    fs::write(dir.join("draconic.toml"), body).unwrap();
+}
+
+fn check(src: &Path) -> (i32, String, String) {
+    run(Command::new(draconic_bin()).arg("check").arg(src))
+}
+
+/// Required mismatch hard-fails, optional mismatch warns, matching pin is silent.
+#[test]
+fn required_optional_and_matching_pins_are_one_enforce_or_warn_surface() {
+    let dir = temp_dir();
+    let src = write_program(&dir, "ok.drac", "let x = 1 + 2;\n");
+    let ver = running_version();
+
+    write_manifest(
+        &dir,
+        "module = \"github.com/acme/app\"\ntoolchain = { version = \"9.9.9\", required = true }\n",
+    );
+    let (code, stdout, stderr) = check(&src);
+    assert_eq!(code, 1, "required mismatch\nstdout={stdout}\nstderr={stderr}");
+    assert!(
+        stderr.contains("9.9.9") && stderr.contains(ver),
+        "required mismatch must name pin and running version:\n{stderr}"
+    );
+    assert!(
+        stderr.to_ascii_lowercase().contains("toolchain"),
+        "required mismatch must mention toolchain:\n{stderr}"
+    );
+
+    write_manifest(
+        &dir,
+        "module = \"github.com/acme/app\"\ntoolchain = \"9.9.9\"\n",
+    );
+    let (code, stdout, stderr) = check(&src);
+    assert_eq!(code, 0, "optional mismatch\nstdout={stdout}\nstderr={stderr}");
+    assert!(
+        stderr.to_ascii_lowercase().contains("warning"),
+        "optional mismatch must warn:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("9.9.9") && stderr.contains(ver),
+        "optional mismatch must name pin and running version:\n{stderr}"
+    );
+
+    write_manifest(
+        &dir,
+        &format!(
+            "module = \"github.com/acme/app\"\ntoolchain = {{ version = \"{ver}\", required = true }}\n"
+        ),
+    );
+    let (code, stdout, stderr) = check(&src);
+    assert_eq!(code, 0, "matching pin\nstdout={stdout}\nstderr={stderr}");
+    assert!(
+        !stderr.to_ascii_lowercase().contains("warning"),
+        "matching pin must be silent:\n{stderr}"
+    );
+    assert!(
+        !stderr.to_ascii_lowercase().contains("toolchain"),
+        "matching pin must not mention toolchain:\n{stderr}"
     );
 
     let _ = fs::remove_dir_all(&dir);
