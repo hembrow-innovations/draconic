@@ -70,6 +70,7 @@ Do not write `frozen` on a slice. Tasker only matches `ready`. Review misses min
 - Do not edit `.pi/` copies.
 - Do not write intent, roadmap, or sprint destination sentences from Build or Review.
 - Do not invent work when no matching ticket or slice exists and ROADMAP has no `todo`.
+- Always keep the `target` directory below 10GB.
 
 ## Loop
 
