@@ -29,9 +29,6 @@ lanes:
     trigger:
       kind: ticket
       status: ready-for-agent
-    scope:
-      - .heio/planning
-      - .heio/tickets
     claim-status: active
     backoff: 15s
   # Tasker: one ready slice → task-pool files plus [[id]] links on the slice.
@@ -44,8 +41,6 @@ lanes:
     trigger:
       kind: slice
       status: ready
-    scope:
-      - .heio/planning
     claim-status: active
     backoff: 15s
   # Build: one incomplete task on an active slice. Runs draconic-loop + TDD,
@@ -58,11 +53,6 @@ lanes:
     trigger:
       kind: slice
       status: active
-    scope:
-      - .heio/planning
-      - crates
-      - tests
-      - ROADMAP.md
     claim-status: active
     backoff: 15s
   # Review: one released slice. Claims as reviewing, re-runs oracles.
@@ -75,10 +65,6 @@ lanes:
     trigger:
       kind: slice
       status: released
-    scope:
-      - .heio/planning
-      - .heio/tickets
-      - ROADMAP.md
     claim-status: reviewing
     mint-status: ready-for-agent
     backoff: 15s
@@ -93,9 +79,6 @@ lanes:
     trigger:
       kind: pump
       status: idle
-    scope:
-      - .heio/planning
-      - .heio/tickets
     claim-status: active
     mint-status: ready-for-agent
     backoff: 15s
