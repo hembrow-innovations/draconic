@@ -957,7 +957,7 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 | C04 | done | compiler | Parallel `draconic test`: multi-fixture workers; deterministic aggregate exit | `crates/draconic-cli`, `tests/integration` |
 | C04.01 | done | compiler | `draconic test` runs fixtures on worker pool (N>1) | `crates/draconic-cli`, `tests/integration` |
 | C04.02 | done | compiler | Deterministic aggregate exit code + stable failure summary order | `crates/draconic-cli`, `tests/integration` |
-| C05 | todo | both | Structured cancellation / timeout helpers on async work (channels + timers) | `tests/conformance` fixtures `concurrency/cancel` |
+| C05 | done | both | Structured cancellation / timeout helpers on async work (channels + timers) | `tests/conformance` fixtures `concurrency/cancel` |
 | C05.01 | done | both | Cancel token / Abort-like signal: propagate to async work | `tests/conformance` fixtures `concurrency/cancel` |
 | C05.02 | done | both | Timeout helper: race work vs timer (needs **H05**); settle cleanly | `tests/conformance` fixtures `concurrency/cancel` |
 | C06 | todo | native | Optional later: shared-memory atomics (advanced; not v1 bar) | `tests/conformance` fixtures `concurrency/atomics` |

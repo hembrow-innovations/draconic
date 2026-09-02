@@ -1,6 +1,7 @@
-//! C05.01: `makeCancelToken` + `cancelTokenAbort` + `cancelTokenAborted` +
+//! C05 / C05.01: `makeCancelToken` + `cancelTokenAbort` + `cancelTokenAborted` +
 //! `cancelTokenLink`.
-//! C05.02: `withTimeout(ms)` + `clearWithTimeout(token)`.
+//! C05 / C05.02: `withTimeout(ms)` + `clearWithTimeout(token)`.
+//! C05 parent locks abort (sticky/idempotent), child-link, and timeout race in one Program.
 //!
 //! Supported subset:
 //! - `typeof` on the host APIs → `"function"`
@@ -696,6 +697,33 @@ mod tests {
         );
         assert!(is_host_cancel_module(&m));
         let ir = emit_host_cancel(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_cancel_timeout"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_cancel_clear_timeout"), "{ir}");
+        assert!(ir.contains("draconic_rt_job_drain"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_combined_cancel_timeout_surface() {
+        let m = lower_src(
+            r#"
+            let parent = makeCancelToken();
+            let child = makeCancelToken();
+            let linked = cancelTokenLink(child, parent);
+            cancelTokenAbort(parent);
+            let childAborted = cancelTokenAborted(child);
+            let fire = withTimeout(0);
+            let fireAborted = cancelTokenAborted(fire);
+            let work = withTimeout(0);
+            let cleared = clearWithTimeout(work);
+            let workAborted = cancelTokenAborted(work);
+            "#,
+        );
+        assert!(is_host_cancel_module(&m));
+        let ir = emit_host_cancel(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_cancel_make"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_cancel_abort"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_cancel_aborted"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_cancel_link"), "{ir}");
         assert!(ir.contains("draconic_rt_host_cancel_timeout"), "{ir}");
         assert!(ir.contains("draconic_rt_host_cancel_clear_timeout"), "{ir}");
         assert!(ir.contains("draconic_rt_job_drain"), "{ir}");

@@ -1,5 +1,6 @@
-//! ROADMAP C05.01: cancel token / Abort-like signal; abort propagates to linked tokens.
-//! ROADMAP C05.02: timeout helper races work vs timer; settle cleanly.
+//! ROADMAP C05 / C05.01–C05.02: cancel token abort (sticky/idempotent) and child-link
+//! propagation, plus `withTimeout` / `clearWithTimeout` racing work vs timer.
+//! C05 parent locks the combined cancel/timeout surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -88,4 +89,14 @@ fn timeout_cleared_fixture_present() {
 #[test]
 fn timeout_cleared_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/cancel/timeout_cleared");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("concurrency/cancel/surface");
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/cancel/surface");
 }
