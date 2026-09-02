@@ -1,0 +1,6 @@
+id: host/path/surface
+targets: js,native
+js.exit: 0
+js.check: if (joined !== "foo/bar") process.exit(1); if (normalized !== "foo/bar") process.exit(2); if (dir !== "/foo/bar") process.exit(3); if (base !== "baz.txt") process.exit(4); if (ext !== ".html") process.exit(5); if (abs !== true) process.exit(6); if (rel !== false) process.exit(7); if (resolved !== "/foo/bar") process.exit(8); if (cwd_abs !== true) process.exit(9);
+native.exit: 0
+native.stdout: foo/bar\nfoo/bar\n/foo/bar\nbaz.txt\n.html\ntrue\nfalse\n/foo/bar\ntrue\n

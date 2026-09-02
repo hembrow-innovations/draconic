@@ -1,4 +1,5 @@
-//! ROADMAP H03.01–H03.03: pathJoin / pathNormalize / dirname / basename / extname / isAbsolute / pathResolve.
+//! ROADMAP H03 / H03.01–H03.03: pathJoin / pathNormalize / dirname / basename / extname / isAbsolute / pathResolve.
+//! H03 parent locks the combined path-helper surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -97,4 +98,32 @@ fn path_resolve_fixture_present() {
 #[test]
 fn path_resolve_runs_js_and_native() {
     assert_fixture_runs("host/path/path_resolve");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/path/surface");
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/path/surface")
+        .expect("host/path/surface");
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "host/path/surface must target js and native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("foo/bar\nfoo/bar\n/foo/bar\nbaz.txt\n.html\ntrue\nfalse\n/foo/bar\ntrue\n"),
+        "H03 surface must observe join, normalize, dirname, basename, extname, isAbsolute, and resolve"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H03 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/path/surface");
 }

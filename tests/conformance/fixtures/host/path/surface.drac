@@ -1,0 +1,10 @@
+// H03: one Program — join, normalize, dirname, basename, extname, isAbsolute, resolve.
+let joined = pathJoin("foo", "bar");
+let normalized = pathNormalize("foo//bar");
+let dir = pathDirname("/foo/bar/baz");
+let base = pathBasename("/foo/bar/baz.txt");
+let ext = pathExtname("index.html");
+let abs = pathIsAbsolute("/foo/bar");
+let rel = pathIsAbsolute("foo/bar");
+let resolved = pathResolve("/foo", "bar");
+let cwd_abs = pathIsAbsolute(pathResolve());
