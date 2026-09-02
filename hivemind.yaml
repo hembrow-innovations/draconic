@@ -4,7 +4,7 @@
 # ready-for-agent vs ready-for-human. Pump mints one ROADMAP.md todo as a
 # ticket. Doctor not shipped. cmd is pi --print so watch does not open a TUI.
 # Pump is last so plan/tasker/build/review win while work is in flight.
-concurrency: 1
+concurrency: 5
 folders:
   - path: .heio/tickets
     schema: ticket
