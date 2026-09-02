@@ -39,7 +39,11 @@ fn each_fixture_declares_js_and_or_native() {
 
 #[test]
 fn run_all_fixtures_green_on_declared_targets() {
-    let results = run_all(&fixtures_dir()).expect("run_all");
+    // E00: `run_all` exercises js + native on the smoke slice. Per-area tests
+    // already run the rest of the tree; re-running every fixture here (native
+    // LLVM included) made `cargo test --workspace` exceed the Review window as
+    // E17.02 remainder fixtures accumulated.
+    let results = run_all(&fixtures_dir().join("smoke")).expect("run_all");
     assert!(!results.is_empty(), "run_all produced no results");
 
     let mut js_runs = 0;
