@@ -1,7 +1,5 @@
-//! ROADMAP F07.01: parse C header subset (scalar/pointer function decls).
-//! ROADMAP F07.02: emit Draconic `extern "C"` decls from parsed header.
-//! ROADMAP F07.03: `draconic bindgen <header>` writes an extern module.
-//! ROADMAP F07.04: header subset — simple structs + typedef names.
+//! ROADMAP F07 / F07.01–F07.04: bindgen-ish C header subset → Draconic extern module.
+//! F07 parent locks parse + emit + CLI write for scalar/pointer fns, structs, and typedefs.
 
 use std::fs;
 use std::path::PathBuf;
@@ -234,6 +232,52 @@ fn bindgen_cli_writes_struct_typedef_module() {
     );
     let got = fs::read_to_string(dir.join("api.drac")).expect("wrote api.drac");
     assert_eq!(got, STRUCT_EXPECTED_MODULE);
+    draconic_parser::parse(&got).expect("written module must parse");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+const SURFACE_HEADER_SRC: &str = concat!(
+    "struct Point { int x; int y; };\n",
+    "typedef int Int;\n",
+    "typedef struct { int a; int b; } Pair;\n",
+    "int add(int a, int b);\n",
+    "void free(void *p);\n",
+    "char *strdup(const char *s);\n",
+    "Int ident(Int n);\n",
+    "int take(struct Point p);\n",
+    "Pair *make_pair(Int a, Int b);\n",
+);
+
+const SURFACE_EXPECTED_MODULE: &str = concat!(
+    "type Point = { x: i32; y: i32 };\n",
+    "type Int = i32;\n",
+    "type Pair = { a: i32; b: i32 };\n",
+    "extern \"C\" function add(a: i32, b: i32): i32;\n",
+    "extern \"C\" function free(p: *u8): void;\n",
+    "extern \"C\" function strdup(s: *u8): *u8;\n",
+    "extern \"C\" function ident(n: Int): Int;\n",
+    "extern \"C\" function take(p: Point): i32;\n",
+    "extern \"C\" function make_pair(a: Int, b: Int): *Pair;\n",
+);
+
+#[test]
+fn bindgen_cli_writes_combined_header_surface() {
+    let dir = temp_dir();
+    let header = dir.join("api.h");
+    fs::write(&header, SURFACE_HEADER_SRC).unwrap();
+    let src = fs::read_to_string(&header).unwrap();
+    let h = parse_header(&src).expect("parse_header");
+    let emitted = emit_externs(&h);
+    assert_eq!(emitted, SURFACE_EXPECTED_MODULE);
+    draconic_parser::parse(&emitted).expect("emitted Draconic must parse");
+
+    let (code, stdout, stderr) = run(Command::new(draconic_bin()).arg("bindgen").arg(&header));
+    assert_eq!(
+        code, 0,
+        "bindgen failed\nstdout={stdout}\nstderr={stderr}"
+    );
+    let got = fs::read_to_string(dir.join("api.drac")).expect("wrote api.drac");
+    assert_eq!(got, SURFACE_EXPECTED_MODULE);
     draconic_parser::parse(&got).expect("written module must parse");
     let _ = fs::remove_dir_all(&dir);
 }

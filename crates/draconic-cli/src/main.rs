@@ -177,7 +177,7 @@ fn parse_check_args(args: &[String]) -> Result<CheckArgs, String> {
     Ok(CheckArgs { input, watch })
 }
 
-/// ROADMAP F07.03: `draconic bindgen <header>` — write Draconic `extern "C"` module.
+/// ROADMAP F07 / F07.03: `draconic bindgen <header>` — write Draconic `extern "C"` module.
 fn cmd_bindgen(args: &[String]) -> ExitCode {
     const USAGE: &str = "usage: draconic bindgen <header> [-o <out>]";
     let mut output: Option<PathBuf> = None;

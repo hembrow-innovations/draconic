@@ -1,7 +1,5 @@
-//! F07.01: parse a C header subset — function decls with scalar/pointer params.
-//! F07.02: emit Draconic `extern "C"` decls from a parsed header.
-//! F07.03: default extern-module path for `draconic bindgen`.
-//! F07.04: simple structs + typedef names (no full C).
+//! F07 / F07.01–F07.04: parse a C header subset and emit Draconic `extern "C"` decls.
+//! F07 parent: scalar/pointer functions, simple structs, and typedef names (no full C).
 
 use std::path::{Path, PathBuf};
 
