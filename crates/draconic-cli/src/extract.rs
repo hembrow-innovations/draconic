@@ -609,13 +609,10 @@ fn apply_instance_binding(name: &str, value: Option<&Expr>, names: &mut HashSet<
                 names.remove(name);
             }
         }
-        Expr::Ident(id) => {
-            if names.contains(&id.name) {
+        Expr::Ident(id)
+            if names.contains(&id.name) => {
                 names.insert(name.to_string());
-            } else {
-                names.remove(name);
             }
-        }
         _ => {
             names.remove(name);
         }
