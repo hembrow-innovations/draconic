@@ -1,0 +1,796 @@
+// E17.02.167: with + Named binding reassignment residual (E19.57:
+// non-strict reassign of named function/async function/function*/
+// async function* expression binding and class expression name; strict
+// → runtime TypeError not compile reject) through object environment
+// (non-strict). Inner name is local (shadows object); sloppy reassign
+// is silent no-op (does not write object; name still the function);
+// strict function body / class name → TypeError (does not write object);
+// other body idents hit object (else outer); params named the same are
+// local mutable (do not write object); default-param idents hit object
+// (else outer); inherited HasBinding; accessor get/set this is with
+// object; unresolvable → ReferenceError; live close; nested with;
+// unscopables skip.
+
+function sloppyFeReassignNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let f = function g() {
+      g = 1;
+      return g;
+    };
+    return f() === f && obj.g === 99;
+  }
+}
+let a = sloppyFeReassignNoop();
+
+function sloppyFeDoesNotWriteObject() {
+  let obj = {};
+  with (obj) {
+    let f = function g() {
+      g = 1;
+      return g === f;
+    };
+    return f() === true && obj.g === undefined && Object.prototype.hasOwnProperty.call(obj, "g") === false;
+  }
+}
+let b = sloppyFeDoesNotWriteObject();
+
+function sloppyFeNoImplicitGlobal() {
+  delete globalThis.e1702167_g;
+  let obj = {};
+  with (obj) {
+    let f = function g() {
+      g = 1;
+    };
+    f();
+  }
+  let ok =
+    typeof globalThis.e1702167_g === "undefined" &&
+    typeof globalThis.g === "undefined";
+  delete globalThis.e1702167_g;
+  return ok;
+}
+let c = sloppyFeNoImplicitGlobal();
+
+function strictFeTypeError() {
+  let obj = { g: 99 };
+  with (obj) {
+    let f = function g() {
+      "use strict";
+      try {
+        g = 1;
+        return false;
+      } catch (err) {
+        return err instanceof TypeError && g === f && obj.g === 99;
+      }
+    };
+    return f();
+  }
+}
+let d = strictFeTypeError();
+
+function strictFeDoesNotWriteObject() {
+  let obj = {};
+  with (obj) {
+    let f = function g() {
+      "use strict";
+      try {
+        g = 1;
+        return false;
+      } catch (err) {
+        return (
+          err instanceof TypeError &&
+          g === f &&
+          obj.g === undefined &&
+          Object.prototype.hasOwnProperty.call(obj, "g") === false
+        );
+      }
+    };
+    return f();
+  }
+}
+let e = strictFeDoesNotWriteObject();
+
+function nameIsLocal() {
+  let obj = { g: 99 };
+  with (obj) {
+    let f = function g() {
+      return g === f;
+    };
+    return f() === true && obj.g === 99;
+  }
+}
+let f = nameIsLocal();
+
+function otherIdentHitsObject() {
+  let obj = { x: 1 };
+  with (obj) {
+    (function g() {
+      x = 2;
+    })();
+    return obj.x === 2 && x === 2;
+  }
+}
+let g = otherIdentHitsObject();
+
+function otherIdentMissUsesOuter() {
+  let x = 3;
+  with ({}) {
+    (function g() {
+      x = 4;
+    })();
+  }
+  return x === 4;
+}
+let h = otherIdentMissUsesOuter();
+
+function liveClose() {
+  let obj = { x: 7 };
+  let run;
+  with (obj) {
+    run = function g() {
+      return x;
+    };
+  }
+  obj.x = 1;
+  return run() === 1;
+}
+let j = liveClose();
+
+function inheritedHasBinding() {
+  let proto = { x: 7 };
+  let env = Object.create(proto);
+  with (env) {
+    return (
+      (function g() {
+        return x;
+      })() === 7
+    );
+  }
+}
+let k = inheritedHasBinding();
+
+function accessorGetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    get x() {
+      seen = this;
+      return 7;
+    }
+  };
+  with (env) {
+    return (
+      (function g() {
+        return x;
+      })() === 7 && seen === env
+    );
+  }
+}
+let l = accessorGetThisIsWithObject();
+
+function unresolvableThrows() {
+  with ({}) {
+    try {
+      (function g() {
+        return e1702167_miss;
+      })();
+      return false;
+    } catch (err) {
+      return (
+        err instanceof ReferenceError &&
+        typeof globalThis.e1702167_miss === "undefined"
+      );
+    }
+  }
+}
+let m = unresolvableThrows();
+
+function nestedWithInnerWins() {
+  let inner = { x: 7 };
+  let outer = { x: 1 };
+  with (outer) {
+    with (inner) {
+      return (
+        (function g() {
+          return x;
+        })() === 7
+      );
+    }
+  }
+}
+let n = nestedWithInnerWins();
+
+function unscopablesSkip() {
+  let x = 1;
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: true };
+  with (env) {
+    return (
+      (function g() {
+        return x;
+      })() === 1
+    );
+  }
+}
+let p = unscopablesSkip();
+
+function genSloppyNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let f = function* g() {
+      g = 1;
+      yield g === f && obj.g === 99;
+    };
+    return f().next().value === true;
+  }
+}
+let q = genSloppyNoop();
+
+function asyncSloppyNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = async function g() {
+      g = 1;
+      return g === fn && obj.g === 99;
+    };
+    return fn();
+  }
+}
+let r = false;
+asyncSloppyNoop().then(function (v) {
+  r = v;
+});
+
+function asyncGenSloppyNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = async function* g() {
+      g = 1;
+      yield g === fn && obj.g === 99;
+    };
+    return fn().next();
+  }
+}
+let s = false;
+asyncGenSloppyNoop().then(function (v) {
+  s = v.value === true;
+});
+
+function classExprTypeError() {
+  let obj = { Name: 99 };
+  with (obj) {
+    let C = class Name {
+      m() {
+        try {
+          Name = 1;
+          return false;
+        } catch (err) {
+          return err instanceof TypeError && Name === C && obj.Name === 99;
+        }
+      }
+    };
+    return new C().m();
+  }
+}
+let t = classExprTypeError();
+
+function classExprNameIsLocal() {
+  let obj = { Name: 99 };
+  with (obj) {
+    let C = class Name {
+      m() {
+        return Name === C;
+      }
+    };
+    return new C().m() === true && obj.Name === 99 && C.name === "Name";
+  }
+}
+let u = classExprNameIsLocal();
+
+function classExprDoesNotWrite() {
+  let obj = {};
+  with (obj) {
+    let C = class Name {
+      m() {
+        try {
+          Name = 1;
+          return false;
+        } catch (err) {
+          return (
+            err instanceof TypeError &&
+            Name === C &&
+            obj.Name === undefined &&
+            Object.prototype.hasOwnProperty.call(obj, "Name") === false
+          );
+        }
+      }
+    };
+    return new C().m();
+  }
+}
+let vv = classExprDoesNotWrite();
+
+function classDeclTypeError() {
+  let obj = { C: 99 };
+  with (obj) {
+    class C {
+      m() {
+        try {
+          C = 1;
+          return false;
+        } catch (err) {
+          return err instanceof TypeError && typeof C === "function" && obj.C === 99;
+        }
+      }
+    }
+    return new C().m();
+  }
+}
+let w = classDeclTypeError();
+
+function sloppyUpdateNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = function g() {
+      let old = g++;
+      return g === fn && Number.isNaN(old) && obj.g === 99;
+    };
+    return fn();
+  }
+}
+let aa = sloppyUpdateNoop();
+
+function sloppyCompoundNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = function g() {
+      g += 1;
+      return g === fn && obj.g === 99;
+    };
+    return fn();
+  }
+}
+let ab = sloppyCompoundNoop();
+
+function iifeNamedNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let got = (function g() {
+      g = 1;
+      return g;
+    })();
+    return typeof got === "function" && obj.g === 99;
+  }
+}
+let ac = iifeNamedNoop();
+
+function nestedWithNameStillLocal() {
+  let inner = { g: 7 };
+  let outer = { g: 1 };
+  with (outer) {
+    with (inner) {
+      let fn = function g() {
+        g = 1;
+        return g === fn && inner.g === 7 && outer.g === 1;
+      };
+      return fn();
+    }
+  }
+}
+let ad = nestedWithNameStillLocal();
+
+function paramShadowsName() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = function g(g) {
+      g = 1;
+      return g;
+    };
+    return fn(0) === 1 && obj.g === 99;
+  }
+}
+let ae = paramShadowsName();
+
+function recursionViaName() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = function g(n) {
+      if (n <= 0) {
+        return 0;
+      }
+      return n + g(n - 1);
+    };
+    return fn(3) === 6 && obj.g === 99;
+  }
+}
+let af = recursionViaName();
+
+function otherIdentInFeHitsObject() {
+  let x = 0;
+  let obj = { x: 7 };
+  with (obj) {
+    (function g() {
+      x = x + 1;
+    })();
+  }
+  return obj.x === 8 && x === 0;
+}
+let ag = otherIdentInFeHitsObject();
+
+function accessorSetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    _x: 1,
+    set x(v) {
+      seen = this;
+      this._x = v;
+    },
+    get x() {
+      return this._x;
+    }
+  };
+  with (env) {
+    (function g() {
+      x = 2;
+    })();
+    return env._x === 2 && seen === env;
+  }
+}
+let ah = accessorSetThisIsWithObject();
+
+function emptyWithUsesOuter() {
+  let x = 7;
+  with ({}) {
+    return (
+      (function g() {
+        return x;
+      })() === 7
+    );
+  }
+}
+let aj = emptyWithUsesOuter();
+
+function ownShadowsProto() {
+  let proto = { x: 1 };
+  let env = Object.create(proto);
+  env.x = 7;
+  with (env) {
+    return (
+      (function g() {
+        return x;
+      })() === 7
+    );
+  }
+}
+let ak = ownShadowsProto();
+
+function withInsideFunction() {
+  let obj = { x: 7 };
+  function run() {
+    with (obj) {
+      return (function g() {
+        return x;
+      })();
+    }
+  }
+  return run() === 7;
+}
+let al = withInsideFunction();
+
+function unscopablesFalseyDoesNotBlock() {
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: false };
+  with (env) {
+    return (
+      (function g() {
+        return x;
+      })() === 7
+    );
+  }
+}
+let am = unscopablesFalseyDoesNotBlock();
+
+function nestedWithOuterAfterInner() {
+  let inner = { x: 1 };
+  let outer = { x: 7 };
+  with (outer) {
+    with (inner) {
+      (function g() {
+        return x;
+      })();
+    }
+    return (
+      (function g() {
+        return x;
+      })() === 7
+    );
+  }
+}
+let an = nestedWithOuterAfterInner();
+
+function inheritedAccessorGetThis() {
+  let seen = null;
+  let proto = {
+    get x() {
+      seen = this;
+      return 7;
+    }
+  };
+  let env = Object.create(proto);
+  with (env) {
+    return (
+      (function g() {
+        return x;
+      })() === 7 && seen === env
+    );
+  }
+}
+let ap = inheritedAccessorGetThis();
+
+function getterRunsOnce() {
+  let n = 0;
+  let env = {
+    get x() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    return (
+      (function g() {
+        return x;
+      })() === 7 && n === 1
+    );
+  }
+}
+let aq = getterRunsOnce();
+
+function deleteThenUnresolvable() {
+  let env = { x: 7 };
+  with (env) {
+    delete x;
+    try {
+      (function g() {
+        return x;
+      })();
+      return false;
+    } catch (err) {
+      return err instanceof ReferenceError;
+    }
+  }
+}
+let ar = deleteThenUnresolvable();
+
+function withThenOuterStillOuter() {
+  let x = 1;
+  let obj = { x: 7 };
+  with (obj) {
+    (function g() {
+      return x;
+    })();
+  }
+  return x === 1;
+}
+let at = withThenOuterStillOuter();
+
+function mixedHitAndMiss() {
+  let y = 3;
+  let obj = { x: 1 };
+  with (obj) {
+    return (
+      (function g() {
+        return x === 1 && y === 3;
+      })() === true
+    );
+  }
+}
+let au = mixedHitAndMiss();
+
+function classMethodOtherIdentHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    let C = class Name {
+      m() {
+        return x;
+      }
+    };
+    return new C().m() === 7;
+  }
+}
+let av = classMethodOtherIdentHitsObject();
+
+function strictGenTypeError() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = function* g() {
+      "use strict";
+      try {
+        g = 1;
+        yield false;
+      } catch (err) {
+        yield err instanceof TypeError && g === fn && obj.g === 99;
+      }
+    };
+    return fn().next().value === true;
+  }
+}
+let aw = strictGenTypeError();
+
+function namedFeInClosure() {
+  let obj = { x: 7 };
+  with (obj) {
+    function run() {
+      return (function g() {
+        return x;
+      })();
+    }
+    return run() === 7;
+  }
+}
+let ax = namedFeInClosure();
+
+function twoLiveIndependent() {
+  let env = { x: 7 };
+  let run;
+  with (env) {
+    run = function g() {
+      return x;
+    };
+  }
+  let first = run();
+  env.x = 1;
+  let second = run();
+  return first === 7 && second === 1;
+}
+let ay = twoLiveIndependent();
+
+function unscopablesSkipDoesNotAffectName() {
+  let env = { g: 7 };
+  env[Symbol.unscopables] = { g: true };
+  with (env) {
+    let fn = function g() {
+      return g === fn;
+    };
+    return fn() === true && env.g === 7;
+  }
+}
+let az = unscopablesSkipDoesNotAffectName();
+
+function letBindingDoesNotWrite() {
+  let obj = { x: 7 };
+  with (obj) {
+    let x = 1;
+    return (
+      (function g() {
+        return x;
+      })() === 1 && obj.x === 7
+    );
+  }
+}
+let ba = letBindingDoesNotWrite();
+
+function assignOtherFromInsideFe() {
+  let obj = { x: 1, g: 99 };
+  with (obj) {
+    (function g() {
+      x = 2;
+    })();
+    return obj.x === 2 && obj.g === 99;
+  }
+}
+let bb = assignOtherFromInsideFe();
+
+function classStaticNameTypeError() {
+  let obj = { Name: 99 };
+  with (obj) {
+    let C = class Name {
+      static m() {
+        try {
+          Name = 1;
+          return false;
+        } catch (err) {
+          return err instanceof TypeError && Name === C && obj.Name === 99;
+        }
+      }
+    };
+    return C.m();
+  }
+}
+let bc = classStaticNameTypeError();
+
+function prefixUpdateNoop() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = function g() {
+      let v = ++g;
+      return g === fn && Number.isNaN(v) && obj.g === 99;
+    };
+    return fn();
+  }
+}
+let bd = prefixUpdateNoop();
+
+function nestedFeNamesDistinct() {
+  let obj = { g: 99, h: 88 };
+  with (obj) {
+    let outer = function g() {
+      let inner = function h() {
+        h = 1;
+        g = 2;
+        return h === inner && g === outer;
+      };
+      return inner();
+    };
+    return outer() === true && obj.g === 99 && obj.h === 88;
+  }
+}
+let be = nestedFeNamesDistinct();
+
+function defaultParamHitsObject() {
+  let obj = { x: 7 };
+  with (obj) {
+    let fn = function g(p = x) {
+      return p;
+    };
+    return fn() === 7;
+  }
+}
+let bf = defaultParamHitsObject();
+
+function asyncStrictTypeError() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = async function g() {
+      "use strict";
+      try {
+        g = 1;
+        return false;
+      } catch (err) {
+        return err instanceof TypeError && g === fn && obj.g === 99;
+      }
+    };
+    return fn();
+  }
+}
+let bg = false;
+asyncStrictTypeError().then(function (v) {
+  bg = v;
+});
+
+function returnedKeepsName() {
+  let obj = { g: 99 };
+  let run;
+  with (obj) {
+    run = function g() {
+      g = 1;
+      return g;
+    };
+  }
+  return run() === run && obj.g === 99;
+}
+let bh = returnedKeepsName();
+
+function sloppyFeReadAfterAssign() {
+  let obj = { g: 99 };
+  with (obj) {
+    let fn = function g() {
+      g = 1;
+      return typeof g === "function" && g.name === "g";
+    };
+    return fn() === true && obj.g === 99;
+  }
+}
+let bj = sloppyFeReadAfterAssign();
+
+function objectShadowsOuterForOtherIdent() {
+  let x = 3;
+  let obj = { x: 7 };
+  with (obj) {
+    return (
+      (function g() {
+        return x;
+      })() === 7
+    );
+  }
+}
+let bk = objectShadowsOuterForOtherIdent();

@@ -1708,3 +1708,13 @@ fn with_tla_export_forms_fixture_present() {
 fn with_tla_export_forms_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_tla_export_forms");
 }
+
+#[test]
+fn with_named_binding_reassign_fixture_present() {
+    assert_fixture_present("es/legacy/with_named_binding_reassign");
+}
+
+#[test]
+fn with_named_binding_reassign_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_named_binding_reassign");
+}
