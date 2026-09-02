@@ -2,11 +2,13 @@
 id: "ticket-90-l10-crypto-later-hmac-aead-after"
 title: "L10 Crypto later: HMAC + AEAD (after L03)"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: feature
 tags: []
+sprint: platform
+slice: "s-l10"
 created_at: "2026-09-02T11:05:01Z"
-updated_at: "2026-09-02T21:10:18Z"
+updated_at: "2026-09-02T22:03:02Z"
 ---
 
 # L10 Crypto later: HMAC + AEAD (after L03)

@@ -2,11 +2,13 @@
 id: "ticket-67-f05-link-load-dynamic-lib-so"
 title: "F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: feature
 tags: []
+sprint: platform
+slice: "s-f05"
 created_at: "2026-09-02T11:05:01Z"
-updated_at: "2026-09-02T21:10:18Z"
+updated_at: "2026-09-02T21:57:55Z"
 ---
 
 # F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol

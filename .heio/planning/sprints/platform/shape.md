@@ -25,6 +25,7 @@ Location: remaining platform-capability and leftover conformance after the langu
 - **s-d03-01**: D03.01 Document reproducibility expectations (timestamps, paths)
 - **s-d03-02**: D03.02 Same source + pin → byte-identical or documented-equivalent emit
 - **s-d04**: D04 Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available)
+- **s-d04-01**: D04.01 Cross-compile: at least one non-host triple smoke
 - **s-d04-02**: D04.02 Matrix docs + CI jobs for available OS/arch pairs
 - **s-d05**: D05 Binary size opts: strip / LTO flags documented and testable
 - **s-d05-01**: D05.01 CLI/build flags: strip symbols
@@ -63,6 +64,8 @@ Location: remaining platform-capability and leftover conformance after the langu
 - **s-h14**: H14 Signals
 - **s-h15**: H15 Subprocess
 - **s-h16**: H16 OS misc
+- **s-h17**: H17 Success Programs & host cutover
+- **s-h17-04**: H17.04 Optional JS/Node bridge for subset host APIs (after native green)
 - **s-k01**: K01 Manifest (`draconic.toml`): module path, deps, optional path→git URL map
 - **s-k02**: K02 Lockfile (draconic.lock): resolved pins
 - **s-k03**: K03 Module cache: layout, git clone/fetch, checkout by OID
@@ -72,14 +75,18 @@ Location: remaining platform-capability and leftover conformance after the langu
 - **s-k08**: K08 Integrity: verify lock hashes; refuse tampered cache
 - **s-k09**: K09 E2E: temp git dep + consumer Program
 - **s-k11**: K11 Post-v1 packaging (not v1 bar)
+- **s-k11-01**: K11.01 Private git auth (HTTPS token / SSH)
 - **s-k11-02**: K11.02 `replace` directive: fork/local override
 - **s-k11-03**: K11.03 Multi-module monorepo (subdir module paths)
 - **s-k11-04**: K11.04 Module proxy/mirror (git still canonical)
 - **s-k11-05**: K11.05 Yank/retract when advisory source configured
 - **s-f02**: F02 C callbacks: Draconic fn as extern C pointer; host invokes
+- **s-f03**: F03 C-compatible struct layout (repr(C)-style); read/write both sides
 - **s-f04**: F04 Link external static lib (`.a`); call one symbol
+- **s-f05**: F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol
 - **s-f07**: F07 Bindgen-ish: generate externs from C header subset
 - **s-f08**: F08 Unsafe/native-only FFI diagnostics; JS hard-error; clear spans
+- **s-f09**: F09 Optional later: wasm32/wasi emit + link smoke
 - **s-c01**: C01 Worker / OS thread: spawn isolate running module/fn; join/terminate; no shared JS heap by default
 - **s-c02**: C02 Message-passing channels: send/recv; structured-clone or transfer policy; bounded buffer as designed
 - **s-c03**: C03 `once` / thread-safe init; mutex only if Runtime internals need it
@@ -100,6 +107,8 @@ Location: remaining platform-capability and leftover conformance after the langu
 - **s-l08**: L08 URL / query parse + serialize
 - **s-l10-01**: L10.01 HMAC-SHA256 (after L03)
 - **s-l09**: L09 MIME multipart later (HTTP-shaped programs; after H10)
+- **s-l10**: L10 Crypto later: HMAC + AEAD (after L03)
+- **s-l10-02**: L10.02 AEAD encrypt/decrypt (after L03; algorithm as designed)
 
 ## Slices out
 

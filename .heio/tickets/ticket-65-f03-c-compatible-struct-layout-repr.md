@@ -2,11 +2,13 @@
 id: "ticket-65-f03-c-compatible-struct-layout-repr"
 title: "F03 C-compatible struct layout (repr(C)-style); read/write both sides"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: feature
 tags: []
+sprint: platform
+slice: "s-f03"
 created_at: "2026-09-02T11:05:01Z"
-updated_at: "2026-09-02T21:10:18Z"
+updated_at: "2026-09-02T21:56:19Z"
 ---
 
 # F03 C-compatible struct layout (repr(C)-style); read/write both sides
