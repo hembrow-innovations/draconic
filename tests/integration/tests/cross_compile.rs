@@ -84,11 +84,7 @@ fn matrix_covers_roadmap_os_arch_pairs() {
     for (pair, triple) in SPEC_PAIRS {
         let found = matrix.iter().find(|p| p.pair == *pair);
         assert!(found.is_some(), "matrix missing OS/arch pair {pair}");
-        assert_eq!(
-            found.unwrap().triple,
-            *triple,
-            "LLVM triple for {pair}"
-        );
+        assert_eq!(found.unwrap().triple, *triple, "LLVM triple for {pair}");
     }
 }
 
@@ -97,7 +93,9 @@ fn host_pair_is_in_the_matrix() {
     let host = host_cross_compile_pair().expect("D04 host should be a matrix pair");
     assert_eq!(host.pair, expected_host_pair());
     assert!(
-        cross_compile_matrix().iter().any(|p| p.pair == host.pair && p.triple == host.triple),
+        cross_compile_matrix()
+            .iter()
+            .any(|p| p.pair == host.pair && p.triple == host.triple),
         "host pair {} / {} must appear in the matrix",
         host.pair,
         host.triple

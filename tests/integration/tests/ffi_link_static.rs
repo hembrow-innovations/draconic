@@ -43,8 +43,8 @@ fn e2e_native_build_links_static_lib_and_resolves_symbol() {
     let ll = emit_llvm_ir(&module).expect("emit_llvm_ir");
 
     let missing = dir.join("no_lib");
-    let err = build_native_binary(&ll, Path::new(&missing))
-        .expect_err("link without extra .a must fail");
+    let err =
+        build_native_binary(&ll, Path::new(&missing)).expect_err("link without extra .a must fail");
     let msg = err.to_string();
     assert!(
         msg.contains("draconic_link_static_touch")

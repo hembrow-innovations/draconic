@@ -59,7 +59,11 @@ fn installed_name() -> &'static str {
 
 fn run_bash(script: &str, args: &[&str]) -> (i32, String, String) {
     let path = repo_root().join(script);
-    assert!(path.is_file(), "missing {} (D01 parent surface)", path.display());
+    assert!(
+        path.is_file(),
+        "missing {} (D01 parent surface)",
+        path.display()
+    );
     let output = Command::new("bash")
         .arg(&path)
         .args(args)

@@ -119,11 +119,7 @@ fn strip_and_lto_together_are_invokable_on_native() {
         code, 0,
         "--strip --lto must be accepted on native build\nstdout={stdout}\nstderr={stderr}"
     );
-    assert!(
-        out.is_file(),
-        "native binary missing at {}",
-        out.display()
-    );
+    assert!(out.is_file(), "native binary missing at {}", out.display());
 
     let _ = fs::remove_dir_all(&dir);
 }

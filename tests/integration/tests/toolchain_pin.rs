@@ -155,7 +155,10 @@ fn required_optional_and_matching_pins_are_one_enforce_or_warn_surface() {
         "module = \"github.com/acme/app\"\ntoolchain = { version = \"9.9.9\", required = true }\n",
     );
     let (code, stdout, stderr) = check(&src);
-    assert_eq!(code, 1, "required mismatch\nstdout={stdout}\nstderr={stderr}");
+    assert_eq!(
+        code, 1,
+        "required mismatch\nstdout={stdout}\nstderr={stderr}"
+    );
     assert!(
         stderr.contains("9.9.9") && stderr.contains(ver),
         "required mismatch must name pin and running version:\n{stderr}"
@@ -170,7 +173,10 @@ fn required_optional_and_matching_pins_are_one_enforce_or_warn_surface() {
         "module = \"github.com/acme/app\"\ntoolchain = \"9.9.9\"\n",
     );
     let (code, stdout, stderr) = check(&src);
-    assert_eq!(code, 0, "optional mismatch\nstdout={stdout}\nstderr={stderr}");
+    assert_eq!(
+        code, 0,
+        "optional mismatch\nstdout={stdout}\nstderr={stderr}"
+    );
     assert!(
         stderr.to_ascii_lowercase().contains("warning"),
         "optional mismatch must warn:\n{stderr}"

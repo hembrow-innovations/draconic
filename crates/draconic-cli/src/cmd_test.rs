@@ -15,9 +15,7 @@ pub fn cmd_test(args: &[String]) -> ExitCode {
             eprintln!("{msg}");
             eprintln!("usage: draconic test [--coverage] [--jobs <n>] <path>");
             eprintln!("  --coverage  report JS line coverage for fixture sources (U11)");
-            eprintln!(
-                "  --jobs <n>  worker pool size (C04; default N>1 when multiple fixtures)"
-            );
+            eprintln!("  --jobs <n>  worker pool size (C04; default N>1 when multiple fixtures)");
             eprintln!("  <path>      fixture directory or single .drac file (with optional .meta)");
             return ExitCode::from(2);
         }

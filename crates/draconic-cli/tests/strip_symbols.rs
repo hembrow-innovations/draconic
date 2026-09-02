@@ -85,7 +85,10 @@ fn build_js_strip_flag_is_native_only() {
         .arg(&src)
         .arg("-o")
         .arg(&out));
-    assert_ne!(code, 0, "js --strip must fail\nstdout={stdout}\nstderr={stderr}");
+    assert_ne!(
+        code, 0,
+        "js --strip must fail\nstdout={stdout}\nstderr={stderr}"
+    );
     let combined = format!("{stdout}{stderr}");
     assert!(
         combined.contains("strip") && combined.contains("native"),

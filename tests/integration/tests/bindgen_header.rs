@@ -145,10 +145,7 @@ fn bindgen_cli_writes_sibling_drac_module() {
     let header = dir.join("api.h");
     fs::write(&header, HEADER_SRC).unwrap();
     let (code, stdout, stderr) = run(Command::new(draconic_bin()).arg("bindgen").arg(&header));
-    assert_eq!(
-        code, 0,
-        "bindgen failed\nstdout={stdout}\nstderr={stderr}"
-    );
+    assert_eq!(code, 0, "bindgen failed\nstdout={stdout}\nstderr={stderr}");
     let out = dir.join("api.drac");
     let got = fs::read_to_string(&out).expect("wrote api.drac");
     assert_eq!(got, EXPECTED_MODULE);
@@ -162,18 +159,19 @@ fn bindgen_cli_dash_o_writes_named_module() {
     let header = dir.join("api.h");
     let dest = dir.join("externs.drac");
     fs::write(&header, HEADER_SRC).unwrap();
-    let (code, stdout, stderr) = run(
-        Command::new(draconic_bin())
-            .arg("bindgen")
-            .arg(&header)
-            .arg("-o")
-            .arg(&dest),
-    );
+    let (code, stdout, stderr) = run(Command::new(draconic_bin())
+        .arg("bindgen")
+        .arg(&header)
+        .arg("-o")
+        .arg(&dest));
     assert_eq!(
         code, 0,
         "bindgen -o failed\nstdout={stdout}\nstderr={stderr}"
     );
-    assert!(!dir.join("api.drac").exists(), "default sibling must not be written when -o is set");
+    assert!(
+        !dir.join("api.drac").exists(),
+        "default sibling must not be written when -o is set"
+    );
     let got = fs::read_to_string(&dest).expect("wrote -o path");
     assert_eq!(got, EXPECTED_MODULE);
     let _ = fs::remove_dir_all(&dir);
@@ -226,10 +224,7 @@ fn bindgen_cli_writes_struct_typedef_module() {
     let header = dir.join("api.h");
     fs::write(&header, STRUCT_HEADER_SRC).unwrap();
     let (code, stdout, stderr) = run(Command::new(draconic_bin()).arg("bindgen").arg(&header));
-    assert_eq!(
-        code, 0,
-        "bindgen failed\nstdout={stdout}\nstderr={stderr}"
-    );
+    assert_eq!(code, 0, "bindgen failed\nstdout={stdout}\nstderr={stderr}");
     let got = fs::read_to_string(dir.join("api.drac")).expect("wrote api.drac");
     assert_eq!(got, STRUCT_EXPECTED_MODULE);
     draconic_parser::parse(&got).expect("written module must parse");
@@ -272,10 +267,7 @@ fn bindgen_cli_writes_combined_header_surface() {
     draconic_parser::parse(&emitted).expect("emitted Draconic must parse");
 
     let (code, stdout, stderr) = run(Command::new(draconic_bin()).arg("bindgen").arg(&header));
-    assert_eq!(
-        code, 0,
-        "bindgen failed\nstdout={stdout}\nstderr={stderr}"
-    );
+    assert_eq!(code, 0, "bindgen failed\nstdout={stdout}\nstderr={stderr}");
     let got = fs::read_to_string(dir.join("api.drac")).expect("wrote api.drac");
     assert_eq!(got, SURFACE_EXPECTED_MODULE);
     draconic_parser::parse(&got).expect("written module must parse");
