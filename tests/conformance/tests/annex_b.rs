@@ -498,3 +498,23 @@ fn async_generators_fixture_present() {
 fn async_generators_runs() {
     assert_fixture_runs_declared_targets("es/annex-b/async_generators");
 }
+
+#[test]
+fn regexp_annex_b_pattern_fixture_present() {
+    assert_fixture_present("es/annex-b/regexp_annex_b_pattern");
+}
+
+#[test]
+fn regexp_annex_b_pattern_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_annex_b_pattern");
+}
+
+#[test]
+fn regexp_annex_b_pattern_u_err_fixture_present() {
+    assert_fixture_present("es/annex-b/regexp_annex_b_pattern_u_err");
+}
+
+#[test]
+fn regexp_annex_b_pattern_u_err_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_annex_b_pattern_u_err");
+}

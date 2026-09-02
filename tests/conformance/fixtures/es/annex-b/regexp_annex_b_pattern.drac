@@ -1,0 +1,13 @@
+let a = /\101/.test("A");
+let b = /\101/.test("a");
+let c = /\12/.test("\n");
+let d = /\0/.test("\0");
+let e = /\8/.test("8");
+let f = /\9/.test("9");
+let g = /\x/.test("x");
+let h = /\x1/.test("x1");
+let i = /\x1/.test("x");
+let j = /\377/.test("\xFF");
+let k = /\40/.test(" ");
+let m = /[\101]/.test("A");
+let s = /\101/.source;

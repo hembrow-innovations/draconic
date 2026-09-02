@@ -1,0 +1,3 @@
+id: es/annex-b/regexp_annex_b_pattern_u_err
+targets: js
+js.error: invalid regular expression
