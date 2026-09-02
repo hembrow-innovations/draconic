@@ -2,7 +2,7 @@
 id: "f05-link-load-dynamic-lib-so"
 title: "F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol"
 kind: task
-status: ready
+status: claimed
 tags: []
 created_at: "2026-09-02T22:10:45Z"
 updated_at: "2026-09-02T22:10:45Z"
