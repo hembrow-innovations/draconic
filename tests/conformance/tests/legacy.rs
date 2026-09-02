@@ -1718,3 +1718,13 @@ fn with_named_binding_reassign_fixture_present() {
 fn with_named_binding_reassign_runs() {
     assert_fixture_runs_declared_targets("es/legacy/with_named_binding_reassign");
 }
+
+#[test]
+fn with_assign_update_target_fixture_present() {
+    assert_fixture_present("es/legacy/with_assign_update_target");
+}
+
+#[test]
+fn with_assign_update_target_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/with_assign_update_target");
+}

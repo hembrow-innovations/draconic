@@ -1,0 +1,526 @@
+// E17.02.168: with + Assignment/update target residual (E19.60:
+// parenthesized cover id `(id)++`/`(id)=`; const PutValue / dstr put-const
+// runtime TypeError not compile reject; non-strict `eval`/`arguments`
+// assignment target) through object environment (non-strict).
+// Parenthesized / bare LHS hits object (else outer); const miss → TypeError
+// (does not write object); const hit writes object (outer const unchanged);
+// dstr put-const same; eval/arguments assign/update hit object (else outer
+// / local); inherited HasBinding; accessor set this is with object;
+// unresolvable sloppy assign → implicit global; live close; nested with;
+// unscopables skip.
+
+function parenAssignHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    (x) = 9;
+  }
+  return obj.x === 9 && x === 1;
+}
+let a = parenAssignHitsObject();
+
+function parenAssignMissUsesOuter() {
+  let x = 1;
+  let obj = {};
+  with (obj) {
+    (x) = 9;
+  }
+  return (
+    x === 9 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let b = parenAssignMissUsesOuter();
+
+function nestedParenAssignHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    ((x)) = 9;
+  }
+  return obj.x === 9 && x === 1;
+}
+let c = nestedParenAssignHitsObject();
+
+function parenPostfixHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  let old;
+  with (obj) {
+    old = (x)++;
+  }
+  return old === 2 && obj.x === 3 && x === 1;
+}
+let d = parenPostfixHitsObject();
+
+function parenPrefixHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  let next;
+  with (obj) {
+    next = ++(x);
+  }
+  return next === 3 && obj.x === 3 && x === 1;
+}
+let e = parenPrefixHitsObject();
+
+function parenCompoundHitsObject() {
+  let x = 1;
+  let obj = { x: 2 };
+  with (obj) {
+    (x) += 3;
+  }
+  return obj.x === 5 && x === 1;
+}
+let f = parenCompoundHitsObject();
+
+function parenAssignYieldsRhs() {
+  let obj = { x: 0 };
+  let r;
+  with (obj) {
+    r = ((x) = 5);
+  }
+  return r === 5 && obj.x === 5;
+}
+let g = parenAssignYieldsRhs();
+
+function constMissTypeError() {
+  const x = 1;
+  with ({}) {
+    try {
+      x = 2;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let h = constMissTypeError();
+
+function constMissDoesNotWriteObject() {
+  const x = 1;
+  let obj = {};
+  with (obj) {
+    try {
+      x = 2;
+    } catch (err) {
+      return (
+        err instanceof TypeError &&
+        x === 1 &&
+        Object.prototype.hasOwnProperty.call(obj, "x") === false
+      );
+    }
+    return false;
+  }
+}
+let j = constMissDoesNotWriteObject();
+
+function parenConstMissTypeError() {
+  const x = 1;
+  with ({}) {
+    try {
+      (x) = 2;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let k = parenConstMissTypeError();
+
+function constHitWritesObject() {
+  const x = 1;
+  let obj = { x: 7 };
+  with (obj) {
+    x = 2;
+    return obj.x === 2 && x === 2;
+  }
+}
+let l = constHitWritesObject();
+
+function constHitOuterUnchanged() {
+  const x = 1;
+  let obj = { x: 7 };
+  with (obj) {
+    x = 2;
+  }
+  return x === 1 && obj.x === 2;
+}
+let m = constHitOuterUnchanged();
+
+function parenConstHitWritesObject() {
+  const x = 1;
+  let obj = { x: 7 };
+  with (obj) {
+    (x) = 2;
+  }
+  return x === 1 && obj.x === 2;
+}
+let n = parenConstHitWritesObject();
+
+function constInWithBodyTypeError() {
+  let obj = { x: 7 };
+  with (obj) {
+    const x = 1;
+    try {
+      x = 2;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1 && obj.x === 7;
+    }
+  }
+}
+let p = constInWithBodyTypeError();
+
+function constUpdateMissTypeError() {
+  const x = 1;
+  with ({}) {
+    try {
+      x++;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let q = constUpdateMissTypeError();
+
+function parenConstUpdateMissTypeError() {
+  const x = 1;
+  with ({}) {
+    try {
+      (x)++;
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let r = parenConstUpdateMissTypeError();
+
+function dstrPutConstMissTypeError() {
+  const x = 1;
+  with ({}) {
+    try {
+      ({ x } = { x: 2 });
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let s = dstrPutConstMissTypeError();
+
+function dstrPutConstHitWritesObject() {
+  const x = 1;
+  let obj = { x: 7 };
+  with (obj) {
+    ({ x } = { x: 2 });
+  }
+  return x === 1 && obj.x === 2;
+}
+let t = dstrPutConstHitWritesObject();
+
+function arrayDstrPutConstMissTypeError() {
+  const x = 1;
+  with ({}) {
+    try {
+      [x] = [2];
+      return false;
+    } catch (err) {
+      return err instanceof TypeError && x === 1;
+    }
+  }
+}
+let u = arrayDstrPutConstMissTypeError();
+
+function arrayDstrPutConstHitWritesObject() {
+  const x = 1;
+  let obj = { x: 7 };
+  with (obj) {
+    [x] = [2];
+  }
+  return x === 1 && obj.x === 2;
+}
+let v = arrayDstrPutConstHitWritesObject();
+
+function evalAssignHitsObject() {
+  let obj = { eval: 1 };
+  with (obj) {
+    eval = 2;
+  }
+  return obj.eval === 2 && typeof globalThis.eval === "function";
+}
+let w = evalAssignHitsObject();
+
+function parenEvalAssignHitsObject() {
+  let obj = { eval: 1 };
+  with (obj) {
+    (eval) = 2;
+  }
+  return obj.eval === 2 && typeof globalThis.eval === "function";
+}
+let aa = parenEvalAssignHitsObject();
+
+function evalUpdateHitsObject() {
+  let obj = { eval: 3 };
+  let old;
+  with (obj) {
+    old = eval++;
+  }
+  return old === 3 && obj.eval === 4 && typeof globalThis.eval === "function";
+}
+let ab = evalUpdateHitsObject();
+
+function argumentsAssignHitsObject() {
+  function run() {
+    let obj = { arguments: 1 };
+    with (obj) {
+      arguments = 2;
+    }
+    return obj.arguments === 2;
+  }
+  return run();
+}
+let ac = argumentsAssignHitsObject();
+
+function parenArgumentsAssignHitsObject() {
+  function run() {
+    let obj = { arguments: 1 };
+    with (obj) {
+      (arguments) = 2;
+    }
+    return obj.arguments === 2;
+  }
+  return run();
+}
+let ad = parenArgumentsAssignHitsObject();
+
+function argumentsUpdateHitsObject() {
+  function run() {
+    let obj = { arguments: 3 };
+    let old;
+    with (obj) {
+      old = arguments++;
+    }
+    return old === 3 && obj.arguments === 4;
+  }
+  return run();
+}
+let ae = argumentsUpdateHitsObject();
+
+function argumentsAssignMissUsesLocal() {
+  function run() {
+    with ({}) {
+      arguments = 1;
+    }
+    return arguments === 1;
+  }
+  return run();
+}
+let af = argumentsAssignMissUsesLocal();
+
+function inheritedHasBindingParenAssign() {
+  let proto = { x: 7 };
+  let env = Object.create(proto);
+  with (env) {
+    (x) = 2;
+  }
+  return env.x === 2 && proto.x === 7;
+}
+let ag = inheritedHasBindingParenAssign();
+
+function accessorSetThisIsWithObject() {
+  let seen = null;
+  let env = {
+    _x: 1,
+    set x(v) {
+      seen = this;
+      this._x = v;
+    },
+    get x() {
+      return this._x;
+    }
+  };
+  with (env) {
+    (x) = 2;
+  }
+  return env._x === 2 && seen === env;
+}
+let ah = accessorSetThisIsWithObject();
+
+function unresolvableParenAssignImplicitGlobal() {
+  delete globalThis.e1702168_miss;
+  with ({}) {
+    (e1702168_miss) = 9;
+  }
+  let ok = globalThis.e1702168_miss === 9;
+  delete globalThis.e1702168_miss;
+  return ok;
+}
+let aj = unresolvableParenAssignImplicitGlobal();
+
+function liveCloseParenAssign() {
+  let obj = { x: 7 };
+  let run;
+  with (obj) {
+    run = function () {
+      (x) = 1;
+    };
+  }
+  run();
+  return obj.x === 1;
+}
+let ak = liveCloseParenAssign();
+
+function nestedWithInnerWins() {
+  let inner = { x: 1 };
+  let outer = { x: 7 };
+  with (outer) {
+    with (inner) {
+      (x) = 2;
+    }
+  }
+  return inner.x === 2 && outer.x === 7;
+}
+let al = nestedWithInnerWins();
+
+function nestedWithOuterAfterInner() {
+  let inner = { x: 1 };
+  let outer = { x: 7 };
+  with (outer) {
+    with (inner) {
+      (x) = 2;
+    }
+    (x) = 3;
+  }
+  return inner.x === 2 && outer.x === 3;
+}
+let am = nestedWithOuterAfterInner();
+
+function unscopablesSkip() {
+  let x = 1;
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: true };
+  with (env) {
+    (x) = 2;
+  }
+  return x === 2 && env.x === 7;
+}
+let an = unscopablesSkip();
+
+function unscopablesFalseyDoesNotBlock() {
+  let x = 1;
+  let env = { x: 7 };
+  env[Symbol.unscopables] = { x: false };
+  with (env) {
+    (x) = 2;
+  }
+  return x === 1 && env.x === 2;
+}
+let ap = unscopablesFalseyDoesNotBlock();
+
+function getterOnlySilent() {
+  let n = 0;
+  let env = {
+    get x() {
+      n = n + 1;
+      return 7;
+    }
+  };
+  with (env) {
+    (x) = 2;
+  }
+  return n === 0 && env.x === 7 && Object.prototype.hasOwnProperty.call(env, "x") === true;
+}
+let aq = getterOnlySilent();
+
+function nonWritableSilent() {
+  let env = {};
+  Object.defineProperty(env, "x", { value: 7, writable: false, configurable: true });
+  with (env) {
+    (x) = 2;
+  }
+  return env.x === 7;
+}
+let ar = nonWritableSilent();
+
+function ownShadowsProtoParenAssign() {
+  let proto = { x: 1 };
+  let env = Object.create(proto);
+  env.x = 7;
+  with (env) {
+    (x) = 2;
+  }
+  return env.x === 2 && proto.x === 1;
+}
+let at = ownShadowsProtoParenAssign();
+
+function mixedHitAndMiss() {
+  let y = 3;
+  let obj = { x: 1 };
+  with (obj) {
+    (x) = 2;
+    (y) = 4;
+  }
+  return obj.x === 2 && y === 4 && Object.prototype.hasOwnProperty.call(obj, "y") === false;
+}
+let au = mixedHitAndMiss();
+
+function evalAssignMissDoesNotWriteObject() {
+  let saved = globalThis.eval;
+  let obj = {};
+  try {
+    with (obj) {
+      eval = 42;
+    }
+    let ok =
+      Object.prototype.hasOwnProperty.call(obj, "eval") === false &&
+      globalThis.eval === 42;
+    globalThis.eval = saved;
+    return ok;
+  } catch (err) {
+    globalThis.eval = saved;
+    return false;
+  }
+}
+let av = evalAssignMissDoesNotWriteObject();
+
+function parenCompoundMissUsesOuter() {
+  let x = 10;
+  let obj = {};
+  with (obj) {
+    (x) += 2;
+  }
+  return (
+    x === 12 && Object.prototype.hasOwnProperty.call(obj, "x") === false
+  );
+}
+let aw = parenCompoundMissUsesOuter();
+
+function dstrPutConstMissDoesNotWrite() {
+  const x = 1;
+  let obj = {};
+  with (obj) {
+    try {
+      ({ x } = { x: 2 });
+    } catch (err) {
+      return (
+        err instanceof TypeError &&
+        x === 1 &&
+        Object.prototype.hasOwnProperty.call(obj, "x") === false
+      );
+    }
+    return false;
+  }
+}
+let ax = dstrPutConstMissDoesNotWrite();
+
+function constHitUpdateWritesObject() {
+  const x = 1;
+  let obj = { x: 7 };
+  with (obj) {
+    x++;
+  }
+  return x === 1 && obj.x === 8;
+}
+let ay = constHitUpdateWritesObject();
