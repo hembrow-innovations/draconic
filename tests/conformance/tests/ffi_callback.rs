@@ -1,4 +1,5 @@
-//! ROADMAP F02.01–F02.02: export Draconic fn as C function pointer; host invoke.
+//! ROADMAP F02 / F02.01–F02.02: export Draconic fn as C function pointer; host invoke.
+//! F02 parent locks the combined surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +48,14 @@ fn invoke_scalar_fixture_present() {
 #[test]
 fn invoke_scalar_runs_native() {
     assert_fixture_runs_native("ffi/callback/invoke_scalar");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("ffi/callback/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    assert_fixture_runs_native("ffi/callback/surface");
 }

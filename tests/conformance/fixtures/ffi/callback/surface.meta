@@ -1,0 +1,4 @@
+id: ffi/callback/surface
+targets: native
+native.exit: 0
+native.stdout: 1\n42\n7\n

@@ -1,0 +1,9 @@
+// F02: one Program — export Draconic fn as extern "C" pointer; host invokes scalars.
+function add(a: i32, b: i32): i32 {
+  return a + b;
+}
+extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;
+extern "C" function draconic_rt_call_i32_i32(cb: function, a: i32, b: i32): i32;
+let ok: i32 = draconic_rt_fnptr_nonnull(add);
+let r: i32 = draconic_rt_call_i32_i32(add, 20, 22);
+let s: i32 = draconic_rt_call_i32_i32(add, -5, 12);
