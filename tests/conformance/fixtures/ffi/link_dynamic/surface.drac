@@ -1,0 +1,7 @@
+// F05: one Program — load extra shared lib, resolve C symbols, call and observe returns.
+extern "C" function draconic_link_dynamic_touch(): void;
+extern "C" function draconic_link_dynamic_add(a: i32, b: i32): i32;
+draconic_link_dynamic_touch();
+let x: i32 = 1;
+let s: i32 = draconic_link_dynamic_add(20, 22);
+let t: i32 = draconic_link_dynamic_add(-5, 12);
