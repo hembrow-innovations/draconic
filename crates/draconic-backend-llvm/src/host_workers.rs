@@ -727,6 +727,33 @@ mod tests {
     }
 
     #[test]
+    fn classifies_combined_surface() {
+        let m = lower_src(
+            r#"
+            let parentFlag = 1;
+            let fnH = spawnWorker(function () {});
+            let modH = spawnWorker("./worker_empty.drac");
+            let joined = joinWorker(fnH);
+            let term = terminateWorker(modH);
+            let dead = joinWorker(modH);
+            let isolated = parentFlag === 1;
+            let fnOk = fnH > 0;
+            let modOk = modH > 0;
+            let joinOk = joined === 0;
+            let termOk = term === 0;
+            let deadOk = dead < 0;
+            "#,
+        );
+        assert!(is_host_workers_module(&m));
+        let ir = emit_host_workers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_worker_spawn"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_worker_join"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_worker_terminate"), "{ir}");
+        assert!(ir.contains("i32 0, ptr null"), "{ir}");
+        assert!(ir.contains("i32 1,"), "{ir}");
+    }
+
+    #[test]
     fn classifies_os_thread() {
         let m = lower_src(
             r#"

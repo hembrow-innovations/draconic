@@ -1,0 +1,12 @@
+let parentFlag = 1;
+let fnH = spawnWorker(function () {});
+let modH = spawnWorker("./worker_empty.drac");
+let joined = joinWorker(fnH);
+let term = terminateWorker(modH);
+let dead = joinWorker(modH);
+let isolated = parentFlag === 1;
+let fnOk = fnH > 0;
+let modOk = modH > 0;
+let joinOk = joined === 0;
+let termOk = term === 0;
+let deadOk = dead < 0;

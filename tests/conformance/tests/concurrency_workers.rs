@@ -1,3 +1,4 @@
+//! ROADMAP C01: worker / OS-thread isolate surface (spawn, join, terminate, no shared heap).
 //! ROADMAP C01.01: spawn worker isolate from module path or fn entry.
 //! ROADMAP C01.02: join worker — wait for exit; capture result/error.
 //! ROADMAP C01.03: terminate worker; no shared JS heap across isolates.
@@ -100,6 +101,16 @@ fn isolate_heap_fixture_present() {
 #[test]
 fn isolate_heap_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/workers/isolate_heap");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("concurrency/workers/surface");
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/workers/surface");
 }
 
 fn assert_fixture_runs_native(id: &str) {
