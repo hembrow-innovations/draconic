@@ -1,0 +1,17 @@
+let ch = makeChannel(2);
+let nSent = channelSend(ch, 1);
+let sSent = channelSend(ch, "hi");
+let full = channelSend(ch, 3);
+let n = channelRecv(ch);
+let s = channelRecv(ch);
+let obj = { a: 1 };
+let och = makeChannel();
+let oSent = channelSend(och, obj);
+obj.a = 99;
+let rec = channelRecv(och);
+let same = rec === obj;
+let a = rec.a;
+let inner = { n: 1 };
+let diamond = { x: inner, y: inner };
+let bad = channelSend(och, diamond);
+let err = bad < 0;

@@ -1,5 +1,5 @@
-//! ROADMAP C02.01–C02.04: channel send/recv — scalars, strings, clone, bounded buffer,
-//! worker ↔ parent e2e.
+//! ROADMAP C02 / C02.01–C02.04: channel send/recv — scalars, strings, clone, bounded
+//! buffer, worker ↔ parent e2e. C02 parent locks the combined surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -128,4 +128,14 @@ fn channel_worker_e2e_fixture_present() {
 #[test]
 fn channel_worker_e2e_runs_js_and_native() {
     assert_fixture_runs_js_and_native("concurrency/channels/channel_worker_e2e");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("concurrency/channels/surface");
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    assert_fixture_runs_js_and_native("concurrency/channels/surface");
 }

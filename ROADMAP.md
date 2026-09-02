@@ -20,7 +20,7 @@ A item is `done` only when its tests are green on every applicable target (`js`,
 ## B — Bootstrap (spine before full Conformance velocity)
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | B01 | done | compiler | Lexer: scan source into tokens (identifiers, keywords, punctuators, literals, EOF) | `crates/draconic-lexer` |
 | B02 | done | compiler | Parser + AST: parse a minimal Program; AST dump stable for snapshots | `crates/draconic-parser`, `crates/draconic-ast` |
 | B03 | done | compiler | CLI: `draconic parse <file>` prints AST dump | `crates/draconic-cli` |
@@ -39,7 +39,7 @@ A item is `done` only when its tests are green on every applicable target (`js`,
 Each cluster expands into finer rows as the Loop reaches it. Until then the cluster is the unit.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | E00 | done | both | Conformance harness: load fixtures, run on js + native runners | `tests/conformance` |
 | E01 | done | js | Expressions & operators (ECMA-262 §12–13 core) | `tests/conformance/es/expressions` |
 | E01.01 | done | js | Numeric arithmetic: `+` `-` `*` `/` `%`, unary `+`/`-`, grouping/precedence | `tests/conformance` fixtures `es/expressions` |
@@ -205,7 +205,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E17.02.133 | done | js | `with` + Object destructuring (E18.19): `let {a, b} = obj` / `let {a, ...rest} = obj` / assignment `{a, b} = obj` (rename, nested; defaults deferred) through object environment: RHS ident hits object (else outer); `let`/`const` bindings are block-local (do not write object); assignment LHS idents hit object (else outer); computed/numeric/keyword keys; inherited HasBinding; accessor get/set `this` is with object; unresolvable → ReferenceError; live close; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
 | E17.02.132 | done | js | `with` + Regular expression literals (E18.18): `/pattern/` / `/pattern/flags`; `typeof` `"object"`; `.source`/`.flags`/`.test`/`.exec` parity with `new RegExp` through object environment: ident compared/combined with those literals hits object (else outer); `with (/pat/)` method idents hit `test`/`exec`/`source`/`flags`; inherited HasBinding; accessor get/set `this` is with object; unresolvable → ReferenceError; live close; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
 | E17.02.131 | done | js | `with` + VariableStatements in Catch (Annex B.3.4): `catch (e) { var e … }` allowed; var hoists to VariableEnvironment; initializer assigns catch binding through object environment: catch param is catch-local (does not write object; shadows); `var` of catch name assigns catch binding when catch is inner (VE stays uninitialized); `with` inside catch: HasBinding assign hits object (else catch/VE); initializer RHS idents hit object (else catch/outer); binding is enclosing VE (not the object) when miss; skipped catch still hoists; `let` in catch does not write object; inherited HasBinding; accessor get/set `this` is with object; unresolvable init → ReferenceError; live close; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
-| E17.02.130 | done | js | `with` + RegExp constructor Annex B statics (B.2.5): `$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, `lastParen`/`$+`, `leftContext`/`$\``, `rightContext`/`$'` after match/exec through object environment: `RegExp` ident hits object (else outer); `with (RegExp)` method/static idents hit RegExp (`input`/`lastMatch`/`lastParen`/`leftContext`/`rightContext`/`$1`/`$_`/`name`/`length`/`prototype`); instance `exec`/`test` via member/`[]`; `$&`/`$+`/`$\``/`$'` via member/`[]` (not ident); inherited HasBinding; accessor `this` is with object; unresolvable → ReferenceError; live close; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
+| E17.02.130 | done | js | `with` + RegExp constructor Annex B statics (B.2.5): `$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, `lastParen`/`$+`, `leftContext`/`$\``,`rightContext`/`$'` after match/exec through object environment: `RegExp` ident hits object (else outer); `with (RegExp)` method/static idents hit RegExp (`input`/`lastMatch`/`lastParen`/`leftContext`/`rightContext`/`$1`/`$_`/`name`/`length`/`prototype`); instance `exec`/`test` via member/`[]`; `$&`/`$+`/`$\``/`$'`via member/`[]` (not ident); inherited HasBinding; accessor `this` is with object; unresolvable → ReferenceError; live close; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
 | E17.02.129 | done | js | `with` + `var` in `for` heads: `for (var i=…;…;…)`, `for (var k in/of …)`, Annex B.3.5 `for (var k = init in obj)` through object environment: iterable/right ident hits object (else outer); initializer RHS idents hit object (else outer); binding is enclosing VE (not the object) when miss; HasBinding assign (init + each iteration) hits object (VE stays uninitialized); skipped loop still hoists; `let`/`const` in head does not write object; inherited HasBinding; accessor get/set `this` is with object; unresolvable → ReferenceError; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
 | E17.02.128 | done | js | `with` + `var` declarations: `var x` / `var x = expr` (function-scoped hoist; redeclaration; no TDZ; simple ident) through object environment: initializer RHS idents hit object (else outer); binding is enclosing VE (not the object) when miss; HasBinding assign hits object (VE stays uninitialized); skipped `if` still hoists; block-nested still function-scoped; inherited HasBinding; accessor get/set `this` is with object; unresolvable init → ReferenceError; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
 | E17.02.127 | done | js | `with` + block-level function declarations (Annex B.3.3): `{ function f(){…} }` (non-strict) through object environment: body idents hit object (else outer); name bound in enclosing statement list (not the object); assigned when block runs; skipped block not assigned; sequential blocks last wins; block-local inside block; function closes over object env (live); `let` in function does not write object; inherited HasBinding; accessor `this` is with object; unresolvable → ReferenceError; live close; nested with; unscopables skip | `tests/conformance` fixtures `es/legacy` |
@@ -364,7 +364,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E18.19 | done | js | Object destructuring: `let {a, b} = obj` / `let {a, ...rest} = obj` / assignment `{a, b} = obj` (rename, nested; defaults deferred) | `tests/conformance` fixtures `es/annex-b` |
 | E18.18 | done | js | Regular expression literals: `/pattern/` / `/pattern/flags`; `typeof` `"object"`; `.source`/`.flags`/`.test`/`.exec` parity with `new RegExp` | `tests/conformance` fixtures `es/annex-b` |
 | E18.17 | done | js | VariableStatements in Catch (Annex B.3.4): `catch (e) { var e … }` allowed; var hoists to VariableEnvironment; initializer assigns catch binding | `tests/conformance` fixtures `es/annex-b` |
-| E18.16 | done | js | RegExp constructor Annex B statics (B.2.5): `$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, `lastParen`/`$+`, `leftContext`/`$\``, `rightContext`/`$'` after match/exec | `tests/conformance` fixtures `es/annex-b` |
+| E18.16 | done | js | RegExp constructor Annex B statics (B.2.5): `$1`–`$9`, `input`/`$_`, `lastMatch`/`$&`, `lastParen`/`$+`, `leftContext`/`$\``,`rightContext`/`$'` after match/exec | `tests/conformance` fixtures `es/annex-b` |
 | E18.15 | done | js | `var` in `for` heads: `for (var i=…;…;…)`, `for (var k in/of …)`, Annex B.3.5 `for (var k = init in obj)` | `tests/conformance` fixtures `es/annex-b` |
 | E18.14 | done | js | `var` declarations: `var x` / `var x = expr` (function-scoped hoist; redeclaration; no TDZ; simple ident) | `tests/conformance` fixtures `es/annex-b` |
 | E18.13 | done | js | Block-level function declarations (Annex B.3.2): `{ function f(){…} }` (non-strict); name block-local + enclosing var-like binding; assigned when block runs | `tests/conformance` fixtures `es/annex-b` |
@@ -388,7 +388,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 Curated allowlist + harness first. Full suite is not the day-one bar. Failures are **report-only** until triage promotes Roadmap rows. Target: **js** only for v1.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | E19.01 | done | js | Test262 harness + curated allowlist + `scripts/fetch-test262.mjs` (suite optional; skip when missing) | `tests/test262` |
 | E19.02 | done | js | Expand allowlist / first failure cluster promotion after baseline triage (language/types + early gaps) | `tests/test262` (allowlist + baseline-report) |
 | E19.03 | done | js | Lexer: multi-byte UTF-8 IdentityEscape / NonEscapeSequence in string literals (e.g. `"\А"`); no mid-code-unit panic; Test262 `language/literals/string` Cyrillic + line-continuation cluster | `crates/draconic-lexer`, `tests/test262` |
@@ -505,7 +505,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 ## T — Types (Checker; TS-inspired)
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | T01 | done | compiler | Type annotations on bindings and functions | `tests/conformance/types` |
 | T02 | done | compiler | Structural object types, type aliases | `tests/conformance/types` |
 | T03 | done | compiler | Unions, intersections, narrowing | `tests/conformance/types` |
@@ -524,7 +524,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 ## N — Native types & LLVM
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | N01 | done | native | Integer types `i8`–`i64`, `u8`–`u64` | `tests/conformance/native/ints` |
 | N02 | done | native | Floats `f32`/`f64`, native bool | `tests/conformance/native/floats` |
 | N03 | done | native | Structs, fixed arrays, pointers/references as designed | `tests/conformance/native/layout` |
@@ -724,7 +724,7 @@ Curated allowlist + harness first. Full suite is not the day-one bar. Failures a
 ## Tooling
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | U01 | done | compiler | `draconic test` runner integration | `crates/draconic-cli` |
 | U02 | done | compiler | Diagnostics: span, message, pretty print | `crates/draconic-diagnostics` |
 | U03 | done | compiler | Source maps for JS emit | `crates/draconic-backend-js` |
@@ -749,7 +749,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 **Locked (ADR-0008 / issues-16):** sockets-first API, then thin HTTP/1.1 helpers; **native first**; JS hard-error or host polyfill **per row**. v1 HTTP = plaintext HTTP/1.1. TLS / HTTP/2 / WebSocket later. Success: `examples/http-echo` pure Draconic native; later cutover of `examples/todo` C host.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | H00 | todo | both | Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix | `tests/conformance/host/policy`, `crates/draconic-runtime` |
 | H00.01 | done | compiler | Host API registry: known symbols + target availability; js unsupported → hard diagnostic | `crates/draconic-check`, `tests/conformance/host/policy` |
 | H00.02 | done | native | Host Runtime ABI scaffold: syscall/error codes, handles, path encoding at boundary | `crates/draconic-runtime` |
@@ -843,7 +843,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):** hybrid identity — import uses Go-like module path (`github.com/org/pkg`); `draconic.toml` may map path → git URL; versions = semver tags; lockfile pins commit OID + tree SHA-256; files `draconic.toml` + `draconic.lock`; CLI `draconic get` / `draconic mod tidy`; build auto-fetches unless `--offline`.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | K01 | todo | compiler | Manifest (`draconic.toml`): module path, deps, optional path→git URL map | `crates/draconic-pkg` |
 | K01.01 | done | compiler | Parse `draconic.toml`: own module path + deps map (path → version req) | `crates/draconic-pkg` |
 | K01.02 | done | compiler | Write/round-trip `draconic.toml` (stable order) | `crates/draconic-pkg` |
@@ -898,7 +898,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS hard-errors native-only FFI (N04 spirit).
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | F01 | done | native | `extern "C"` call: scalar args/returns (`i32`/`i64`/`f64`/`*T`/void) | `tests/conformance` fixtures `ffi/call` |
 | F01.01 | done | native | Call extern C fn: i32 args/return | `tests/conformance` fixtures `ffi/call` |
 | F01.02 | done | native | Call extern C: i64 / f64 / void return | `tests/conformance` fixtures `ffi/call` |
@@ -940,13 +940,13 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H05** (not duplicated). Default cross-isolate model: **message-passing channels** (safer dual-world default); shared-memory/atomics deferred.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | C01 | todo | both | Worker / OS thread: spawn isolate running module/fn; join/terminate; no shared JS heap by default | `tests/conformance` fixtures `concurrency/workers` |
 | C01.01 | done | both | Spawn worker isolate from module path or fn entry | `tests/conformance` fixtures `concurrency/workers` |
 | C01.02 | done | both | Join worker: wait for exit; capture result/error | `tests/conformance` fixtures `concurrency/workers` |
 | C01.03 | done | both | Terminate worker; no shared JS heap across isolates | `tests/conformance` fixtures `concurrency/workers` |
 | C01.04 | done | native | OS thread backing for native workers | `crates/draconic-runtime`, `tests/conformance` fixtures `concurrency/workers` |
-| C02 | todo | both | Message-passing channels: send/recv; structured-clone or transfer policy; bounded buffer as designed | `tests/conformance` fixtures `concurrency/channels` |
+| C02 | done | both | Message-passing channels: send/recv; structured-clone or transfer policy; bounded buffer as designed | `tests/conformance` fixtures `concurrency/channels` |
 | C02.01 | done | both | Channel send/recv: scalars + strings | `tests/conformance` fixtures `concurrency/channels` |
 | C02.02 | done | both | Structured-clone (or designed) for plain objects; reject shared refs | `tests/conformance` fixtures `concurrency/channels` |
 | C02.03 | done | both | Bounded buffer: backpressure / full-channel behavior as designed | `tests/conformance` fixtures `concurrency/channels` |
@@ -973,7 +973,7 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 Portable libraries beyond raw host syscalls and ECMA builtins already under **E15** (JSON, RegExp — do not re-file). Prefer portable API + native Runtime impl; native-only must hard-error on js.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | L01 | todo | both | Encoding: UTF-8 bytes↔string, Base64, hex | `tests/conformance` fixtures `stdlib/encoding` |
 | L01.01 | done | both | UTF-8 encode/decode: string ↔ bytes; invalid UTF-8 error | `tests/conformance` fixtures `stdlib/encoding` |
 | L01.02 | done | both | Base64 encode/decode | `tests/conformance` fixtures `stdlib/encoding` |
@@ -1015,7 +1015,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi-OS/arch.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | D01 | todo | compiler | Release binaries + install script; one-line install to PATH | `tests/integration` (install smoke), CI |
 | D01.01 | done | compiler | CI/release: produce platform binary artifact for host triple | CI, `tests/integration` |
 | D01.02 | done | compiler | Install script: download + place `draconic` on PATH (one-line) | `tests/integration` (install smoke) |
@@ -1044,7 +1044,7 @@ Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi
 Embed/runtime safety, optional permissions, supply-chain (with **K**), native failure policy. Does not replace **N09** GC stress or **N07** embed surface.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | R01 | todo | native | Embed/eval resource limits: max source size, alloc/time budget | `crates/draconic-embed`, `crates/draconic-runtime` |
 | R01.01 | done | native | Max source size for embed/eval; reject oversize | `crates/draconic-embed` |
 | R01.02 | done | native | Alloc budget: fail closed when exceeded | `crates/draconic-runtime`, `crates/draconic-embed` |
@@ -1078,7 +1078,7 @@ Examples, DX, and polish-driven gaps. Prefer draining spine `todo`s first; claim
 Native depth stays under **N**; host/net under **H**; packages under **K**.
 
 | ID | Status | Targets | Item | Tests |
-|----|--------|---------|------|-------|
+| ---- | -------- | --------- | ------ | ------- |
 | P01 | done | js | Flagship example Program (fizzbuzz): in-repo `examples/fizzbuzz/`, builds via `draconic` js, clone→build→run | `examples/fizzbuzz` |
 | P02 | done | compiler | README status + onboarding path match reality (parse / build js\|native; no stale “bootstrap only”) | `README.md` |
 | P03 | done | compiler | Language book / docs site skeleton: modules, dual-worlds, native types, host I/O, packages | `tests/integration/tests/website_pipeline.rs`, README |
