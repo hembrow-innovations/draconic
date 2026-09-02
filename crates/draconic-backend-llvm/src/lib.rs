@@ -71,11 +71,15 @@ mod host_worker_channels;
 mod host_channels;
 mod native_ints;
 mod cross_compile;
+mod wasm32_wasi;
 
 pub use debug_info::SourceDebug;
 pub use cross_compile::{
     compile_object_for_non_host, compile_object_for_triple, cross_compile_matrix,
     host_cross_compile_pair, CrossCompilePair,
+};
+pub use wasm32_wasi::{
+    compile_object_for_wasm32_wasi, link_wasm32_wasi, WASM32_WASI_TRIPLE,
 };
 
 use std::path::{Path, PathBuf};
