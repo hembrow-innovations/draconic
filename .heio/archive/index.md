@@ -1,0 +1,55 @@
+# Archive
+
+One-liners of what landed. Newest first. Closed vault issues from docs/planning.
+
+- **d01-release-binaries-install-script** — D01 release binaries + install-to-PATH surface
+- **d03-reproducible-builds** — D03 reproducible builds surface
+- **c06-shared-memory-atomics** — C06 shared-memory atomics surface
+- **f07-bindgen-ish-generate-externs-from** — F07 bindgen-ish generate externs from C header subset
+- **h01-process-args-env-exit** — H01 process args, env, exit
+- **f04-link-external-static-lib** — F04 link external static lib surface
+- **f02-c-callbacks** — F02 C callbacks surface
+- **e18-44-untracked-ecma-262-remainder** — E18.44 one atomic untracked ECMA-262 remainder
+- **e17-02-168-assign-update-target** — E17.02.168 with + assignment/update target residual
+- **d05-binary-size-opts** — D05 Binary size opts: strip / LTO flags documented and testable
+- **d05-02-lto-flag-size-delta** — D05.02 LTO flag documented; size delta smoke
+- **d05-01-strip-symbols** — D05.01 CLI/build flags: strip symbols
+- **d04-cross-compile-matrix** — D04 cross-compile matrix surface
+- **d03-01-document-reproducibility-expectations** — D03.01 document reproducibility expectations (timestamps, paths)
+- **d02-toolchain-version-pin** — D02 toolchain version pin in draconic.toml; CLI enforces or warns
+- **c05-structured-cancellation** — C05 structured cancellation / timeout surface
+- **c04-parallel-draconic-test** — C04 parallel draconic test surface
+- **c03-once-thread-safe-init** — C03 once / thread-safe init surface
+- **c01-worker-os-thread** — C01 worker / OS-thread isolate surface
+- **c02-message-passing-channels** — C02 message-passing channel surface
+- **d03-02-same-source-pin-byte-identical** — D03.02 Same source + pin → byte-identical or documented-equivalent emit
+- **f08-unsafe-native-only-ffi-diagnostics** — F08 unsafe/native-only FFI diagnostics
+- **d04-02-matrix-docs-ci-jobs** — D04.02 matrix docs + CI jobs for available OS/arch pairs
+- **e17-02-workspace-timeout** — E17.02 remainder workspace tests finish
+- **e17-02-remainder** — E17.02 one atomic non-strict legacy remainder
+- **ticket-26-docs-pages-readme** — Publish docs site and link README
+- **ticket-25-docs-reference-skeleton** — Reference skeleton pages
+- **ticket-24-docs-learn-skeleton** — Learn skeleton pages
+- **ticket-23-docs-fence-pipeline** — Docs pipeline: shipped fences must build
+- **ticket-22-docs-markdown-subset** — Docs SSG: markdown subset
+- **ticket-21-docs-learn-reference-nav** — Docs site: Learn and Reference nav plus status
+- **ticket-20-docs-ssg-one-page** — Docs SSG: one page to HTML
+- **ticket-19-language-docs-site** — Language Learn + Reference site
+- **ticket-18-complete-roadmap-seed-data** — Complete Roadmap seed data
+- **ticket-17-roadmap-git-package-manager** — Expand Roadmap for Go-style git package manager
+- **ticket-16-roadmap-e2e-http-server** — Expand Roadmap for end-to-end HTTP server
+- **ticket-15-deepen-ir-backend-diverge** — Deepen IR where backends diverge
+- **ticket-14-unify-eval-embed-fold** — Unify eval folding with Embed interpreter
+- **ticket-13-checker-target-neutral** — Pull target mapping out of the Checker
+- **ticket-12-split-mega-files-seams** — Split mega-files along real internal seams
+- **ticket-11-linker-own-module** — Give module linking its own deep module
+- **ticket-10-collapse-llvm-multipath** — Collapse LLVM multi-path façade into one lowerer
+- **ticket-09-runtime-abi-seam** — Make Runtime ABI a real seam
+- **ticket-08-deepen-frontend-compile-module** — Deepen Frontend into one compile module
+- **ticket-07-new-roadmap-phase** — New Roadmap phase (Loop source of truth)
+- **ticket-06-architecture-cleanup** — Architecture cleanup after mega-loop
+- **ticket-05-ship-real-program** — Ship a real program
+- **ticket-04-language-product-polish** — Language product polish
+- **ticket-03-native-depth** — Native depth (LLVM / Runtime)
+- **ticket-02-test262-deeper-conformance** — Test262 / deeper conformance
+- **ticket-01-roadmap-honesty-pass** — Roadmap honesty pass
