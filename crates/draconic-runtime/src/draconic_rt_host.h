@@ -884,3 +884,27 @@ int32_t draconic_rt_host_cancel_aborted(int32_t handle);
 int32_t draconic_rt_host_cancel_link(int32_t child, int32_t parent);
 int32_t draconic_rt_host_cancel_timeout(double ms);
 int32_t draconic_rt_host_cancel_clear_timeout(int32_t handle);
+
+/* --- Shared-memory atomics (C06) -----------------------------------------
+   makeSharedMemory(len): integer slots, zeroed. Handle >= 1, or -1.
+   load/add/cas: return i32 (invalid load/add/cas → 0).
+   store: 0 ok, -1 invalid.
+   wait: 0 woken, 1 not-equal, 2 timed-out, -1 invalid.
+   notify: waiter count, or -1 invalid.
+   Buffer is process-global (visible to worker isolates); no JS heap. */
+
+int32_t draconic_rt_host_shared_make(int32_t len);
+int32_t draconic_rt_host_shared_load(int32_t handle, int32_t index);
+int32_t draconic_rt_host_shared_store(int32_t handle, int32_t index, int32_t value);
+int32_t draconic_rt_host_shared_add(int32_t handle, int32_t index, int32_t delta);
+int32_t draconic_rt_host_shared_cmpxchg(
+    int32_t handle,
+    int32_t index,
+    int32_t expected,
+    int32_t replacement);
+int32_t draconic_rt_host_shared_wait(
+    int32_t handle,
+    int32_t index,
+    int32_t expected,
+    double timeout_ms);
+int32_t draconic_rt_host_shared_notify(int32_t handle, int32_t index);

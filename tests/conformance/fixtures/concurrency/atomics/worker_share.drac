@@ -1,0 +1,11 @@
+let mem = makeSharedMemory(1);
+let st = sharedStore(mem, 0, 0);
+let h = spawnWorker(function (mem) {
+  sharedStore(mem, 0, 41);
+  sharedAdd(mem, 0, 1);
+  sharedNotify(mem, 0);
+}, mem);
+let w = sharedWait(mem, 0, 0, 1000);
+let joined = joinWorker(h);
+let v = sharedLoad(mem, 0);
+let ok = v === 42;

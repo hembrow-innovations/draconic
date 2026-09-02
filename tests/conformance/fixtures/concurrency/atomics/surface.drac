@@ -1,0 +1,23 @@
+let tMake = typeof makeSharedMemory;
+let tLoad = typeof sharedLoad;
+let tStore = typeof sharedStore;
+let tAdd = typeof sharedAdd;
+let tCas = typeof sharedCompareExchange;
+let tWait = typeof sharedWait;
+let tNotify = typeof sharedNotify;
+let mem = makeSharedMemory(1);
+let live = mem > 0;
+let st = sharedStore(mem, 0, 5);
+let v0 = sharedLoad(mem, 0);
+let old = sharedAdd(mem, 0, 2);
+let v1 = sharedLoad(mem, 0);
+let cas = sharedCompareExchange(mem, 0, 7, 9);
+let v2 = sharedLoad(mem, 0);
+let timed = sharedWait(mem, 0, 9, 1);
+let n = sharedNotify(mem, 0);
+let h = spawnWorker(function (mem) {
+  sharedStore(mem, 0, 11);
+}, mem);
+let joined = joinWorker(h);
+let v3 = sharedLoad(mem, 0);
+let ok = v3 === 11;

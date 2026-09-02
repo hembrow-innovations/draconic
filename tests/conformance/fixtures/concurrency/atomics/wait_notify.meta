@@ -1,0 +1,4 @@
+id: concurrency/atomics/wait_notify
+targets: native
+native.exit: 0
+native.stdout: function\nfunction\n1\n0\n2\n0\n0\n1\ntrue\ntrue\ntrue\n-1\ntrue\n

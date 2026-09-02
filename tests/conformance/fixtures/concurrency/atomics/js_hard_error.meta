@@ -1,0 +1,3 @@
+id: concurrency/atomics/js_hard_error
+targets: js
+js.error: native-only

@@ -20,6 +20,8 @@ mod host_worker_tests;
 #[cfg(test)]
 mod host_once_tests;
 #[cfg(test)]
+mod host_atomics_tests;
+#[cfg(test)]
 mod host_mutex_tests;
 #[cfg(test)]
 mod host_cancel_tests;

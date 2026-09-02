@@ -1,0 +1,13 @@
+let t = typeof sharedWait;
+let u = typeof sharedNotify;
+let mem = makeSharedMemory(1);
+let st = sharedStore(mem, 0, 7);
+let timed = sharedWait(mem, 0, 7, 1);
+let n = sharedNotify(mem, 0);
+let st2 = sharedStore(mem, 0, 1);
+let ne = sharedWait(mem, 0, 7, 1000);
+let timedOut = timed === 2;
+let none = n === 0;
+let notEq = ne === 1;
+let bad = sharedWait(0, 0, 0, 1);
+let invalid = bad < 0;

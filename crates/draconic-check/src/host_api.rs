@@ -131,6 +131,9 @@ pub struct HostApiEntry {
 /// - `withTimeout` / `clearWithTimeout` (C05.02): both — race work vs timer;
 ///   `withTimeout(ms)` returns a token that auto-aborts after ms; `clearWithTimeout`
 ///   cancels the pending timer (work won; settle cleanly).
+/// - `makeSharedMemory` / `sharedLoad` / `sharedStore` / `sharedAdd` /
+///   `sharedCompareExchange` / `sharedWait` / `sharedNotify` (C06): native-only
+///   integer buffer visible to worker isolates (no shared JS heap). JS hard-error.
 const HOST_APIS: &[HostApiEntry] = &[
     HostApiEntry {
         name: "processArgs",
@@ -792,6 +795,41 @@ const HOST_APIS: &[HostApiEntry] = &[
         availability: HostAvailability::BOTH,
         note: "C05.02 clear pending timeout; work won race",
     },
+    HostApiEntry {
+        name: "makeSharedMemory",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C06 shared integer buffer handle",
+    },
+    HostApiEntry {
+        name: "sharedLoad",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C06 atomic load i32 at index",
+    },
+    HostApiEntry {
+        name: "sharedStore",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C06 atomic store i32 at index; 0 ok / -1 invalid",
+    },
+    HostApiEntry {
+        name: "sharedAdd",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C06 atomic add; returns old i32",
+    },
+    HostApiEntry {
+        name: "sharedCompareExchange",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C06 atomic CAS; returns old i32",
+    },
+    HostApiEntry {
+        name: "sharedWait",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C06 wait until not expected; 0 ok / 1 not-eq / 2 timeout / -1 invalid",
+    },
+    HostApiEntry {
+        name: "sharedNotify",
+        availability: HostAvailability::NATIVE_ONLY,
+        note: "C06 wake waiters on index; count or -1 invalid",
+    },
 ];
 
 /// All known host API entries.
@@ -821,11 +859,7 @@ pub fn is_available(name: &str, target: CompileTarget) -> bool {
 /// Build a hard diagnostic when a free host API reference is unsupported on `target`.
 ///
 /// Returns `None` when `name` is not a host API, or when it is available on `target`.
-pub fn unsupported_diagnostic(
-    name: &str,
-    target: CompileTarget,
-    span: Span,
-) -> Option<Diagnostic> {
+pub fn unsupported_diagnostic(name: &str, target: CompileTarget, span: Span) -> Option<Diagnostic> {
     let entry = lookup(name)?;
     if entry.availability.on(target) {
         return None;
@@ -861,9 +895,7 @@ mod tests {
         assert!(is_host_api("processArgs"));
         assert!(is_available("processArgs", CompileTarget::Js));
         assert!(is_available("processArgs", CompileTarget::Native));
-        assert!(
-            unsupported_diagnostic("processArgs", CompileTarget::Js, Span::dummy()).is_none()
-        );
+        assert!(unsupported_diagnostic("processArgs", CompileTarget::Js, Span::dummy()).is_none());
         assert!(
             unsupported_diagnostic("processArgs", CompileTarget::Native, Span::dummy()).is_none()
         );
@@ -966,9 +998,7 @@ mod tests {
         assert!(entry.availability.native);
         assert!(is_available("processRun", CompileTarget::Js));
         assert!(is_available("processRun", CompileTarget::Native));
-        assert!(
-            unsupported_diagnostic("processRun", CompileTarget::Js, Span::dummy()).is_none()
-        );
+        assert!(unsupported_diagnostic("processRun", CompileTarget::Js, Span::dummy()).is_none());
     }
 
     #[test]
@@ -1013,9 +1043,7 @@ mod tests {
         assert!(entry.availability.native);
         assert!(is_available("stdoutWrite", CompileTarget::Js));
         assert!(is_available("stdoutWrite", CompileTarget::Native));
-        assert!(
-            unsupported_diagnostic("stdoutWrite", CompileTarget::Js, Span::dummy()).is_none()
-        );
+        assert!(unsupported_diagnostic("stdoutWrite", CompileTarget::Js, Span::dummy()).is_none());
     }
 
     #[test]
@@ -1025,9 +1053,7 @@ mod tests {
         assert!(entry.availability.native);
         assert!(is_available("stderrWrite", CompileTarget::Js));
         assert!(is_available("stderrWrite", CompileTarget::Native));
-        assert!(
-            unsupported_diagnostic("stderrWrite", CompileTarget::Js, Span::dummy()).is_none()
-        );
+        assert!(unsupported_diagnostic("stderrWrite", CompileTarget::Js, Span::dummy()).is_none());
     }
 
     #[test]
@@ -1206,9 +1232,7 @@ mod tests {
         assert!(entry.availability.native);
         assert!(is_available("monotonicMs", CompileTarget::Js));
         assert!(is_available("monotonicMs", CompileTarget::Native));
-        assert!(
-            unsupported_diagnostic("monotonicMs", CompileTarget::Js, Span::dummy()).is_none()
-        );
+        assert!(unsupported_diagnostic("monotonicMs", CompileTarget::Js, Span::dummy()).is_none());
     }
 
     #[test]
@@ -1444,9 +1468,7 @@ mod tests {
         assert!(is_host_api("spawnWorker"));
         assert!(is_available("spawnWorker", CompileTarget::Js));
         assert!(is_available("spawnWorker", CompileTarget::Native));
-        assert!(
-            unsupported_diagnostic("spawnWorker", CompileTarget::Js, Span::dummy()).is_none()
-        );
+        assert!(unsupported_diagnostic("spawnWorker", CompileTarget::Js, Span::dummy()).is_none());
         assert!(
             unsupported_diagnostic("spawnWorker", CompileTarget::Native, Span::dummy()).is_none()
         );
@@ -1461,9 +1483,7 @@ mod tests {
         assert!(is_host_api("joinWorker"));
         assert!(is_available("joinWorker", CompileTarget::Js));
         assert!(is_available("joinWorker", CompileTarget::Native));
-        assert!(
-            unsupported_diagnostic("joinWorker", CompileTarget::Js, Span::dummy()).is_none()
-        );
+        assert!(unsupported_diagnostic("joinWorker", CompileTarget::Js, Span::dummy()).is_none());
         assert!(
             unsupported_diagnostic("joinWorker", CompileTarget::Native, Span::dummy()).is_none()
         );
@@ -1647,5 +1667,56 @@ mod tests {
         assert!(!is_host_api("makeMutex"));
         assert!(!is_host_api("mutexLock"));
         assert!(!is_host_api("mutexUnlock"));
+    }
+
+    #[test]
+    fn registry_lists_shared_memory_atomics_native_only() {
+        for name in [
+            "makeSharedMemory",
+            "sharedLoad",
+            "sharedStore",
+            "sharedAdd",
+            "sharedCompareExchange",
+            "sharedWait",
+            "sharedNotify",
+        ] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(!entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_host_api(name), "{name}");
+            assert!(!is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_some(),
+                "{name}"
+            );
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Native, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn check_for_target_js_rejects_shared_memory_atomics() {
+        for src in [
+            "makeSharedMemory(1);",
+            "sharedLoad(1, 0);",
+            "sharedStore(1, 0, 1);",
+            "sharedAdd(1, 0, 1);",
+            "sharedCompareExchange(1, 0, 0, 1);",
+            "sharedWait(1, 0, 0, 1);",
+            "sharedNotify(1, 0);",
+        ] {
+            let program = parse(src).unwrap();
+            let err = check_for_target(program, CompileTarget::Js)
+                .expect_err(&format!("js must hard-error: {src}"));
+            assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED), "src={src}");
+            assert!(
+                err.message.contains("unsupported on js") && err.message.contains("native-only"),
+                "src={src} got {}",
+                err.message
+            );
+        }
     }
 }

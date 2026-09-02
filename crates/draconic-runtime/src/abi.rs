@@ -675,7 +675,6 @@ pub const ES_PROMISE_DECLARES: &[AbiFn] = &[
     OBJECT_GET,
 ];
 
-
 // --- Host I/O substrate (H00.02–H00.03): errors, handles, path, bytes ---
 //
 // Stable integer codes shared with `draconic_rt.h` / `draconic_rt_host.c`.
@@ -935,15 +934,15 @@ pub const HOST_WORKER_TERMINATE: AbiFn = AbiFn {
     params: "i32",
 };
 /* C01.04: 1 if handle is a live OS thread distinct from the caller; 0 if same
-   thread / no OS thread; -1 invalid or already joined/terminated. */
+thread / no OS thread; -1 invalid or already joined/terminated. */
 pub const HOST_WORKER_OS_THREAD: AbiFn = AbiFn {
     symbol: "draconic_rt_host_worker_os_thread",
     ret: "i32",
     params: "i32",
 };
 /* C02.01/C02.03: makeChannel — FIFO handle >= 1, or -1 on failure.
-   cap > 0 bounds the buffer; cap <= 0 is unbounded. Send on a full
-   bounded channel returns -2 (backpressure). */
+cap > 0 bounds the buffer; cap <= 0 is unbounded. Send on a full
+bounded channel returns -2 (backpressure). */
 pub const HOST_CHANNEL_MAKE: AbiFn = AbiFn {
     symbol: "draconic_rt_host_channel_make",
     ret: "i32",
@@ -992,14 +991,56 @@ pub const HOST_ONCE_MAKE: AbiFn = AbiFn {
     params: "",
 };
 /* C03.01: onceRun — call fn at most once per handle. 1 ran, 0 already done,
-    -1 invalid. fn may be null (empty init). Concurrent callers wait. */
+-1 invalid. fn may be null (empty init). Concurrent callers wait. */
 pub const HOST_ONCE_RUN: AbiFn = AbiFn {
     symbol: "draconic_rt_host_once_run",
     ret: "i32",
     params: "i32, ptr",
 };
+/* C06: makeSharedMemory(len) — integer slots; handle >= 1, or -1. */
+pub const HOST_SHARED_MAKE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_shared_make",
+    ret: "i32",
+    params: "i32",
+};
+/* C06: sharedLoad(handle, index) — atomic i32; invalid → 0. */
+pub const HOST_SHARED_LOAD: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_shared_load",
+    ret: "i32",
+    params: "i32, i32",
+};
+/* C06: sharedStore(handle, index, value) — 0 ok, -1 invalid. */
+pub const HOST_SHARED_STORE: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_shared_store",
+    ret: "i32",
+    params: "i32, i32, i32",
+};
+/* C06: sharedAdd(handle, index, delta) — old i32; invalid → 0. */
+pub const HOST_SHARED_ADD: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_shared_add",
+    ret: "i32",
+    params: "i32, i32, i32",
+};
+/* C06: sharedCompareExchange — old i32; invalid → 0. */
+pub const HOST_SHARED_CMPXCHG: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_shared_cmpxchg",
+    ret: "i32",
+    params: "i32, i32, i32, i32",
+};
+/* C06: sharedWait — 0 woken / 1 not-equal / 2 timed-out / -1 invalid. */
+pub const HOST_SHARED_WAIT: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_shared_wait",
+    ret: "i32",
+    params: "i32, i32, i32, double",
+};
+/* C06: sharedNotify(handle, index) — waiter count, or -1 invalid. */
+pub const HOST_SHARED_NOTIFY: AbiFn = AbiFn {
+    symbol: "draconic_rt_host_shared_notify",
+    ret: "i32",
+    params: "i32, i32",
+};
 /* C03.02: Runtime-internal mutex (not a user Host API; no shared JS heap lock).
-    make → handle >= 1 or -1; lock/unlock → 0 success, -1 invalid. */
+make → handle >= 1 or -1; lock/unlock → 0 success, -1 invalid. */
 pub const HOST_INTERNAL_MUTEX_MAKE: AbiFn = AbiFn {
     symbol: "draconic_rt_host_internal_mutex_make",
     ret: "i32",

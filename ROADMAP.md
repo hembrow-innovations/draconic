@@ -960,7 +960,7 @@ Beyond single-thread Promise/job-queue (**N06** / **E12**). Host timers are **H0
 | C05 | done | both | Structured cancellation / timeout helpers on async work (channels + timers) | `tests/conformance` fixtures `concurrency/cancel` |
 | C05.01 | done | both | Cancel token / Abort-like signal: propagate to async work | `tests/conformance` fixtures `concurrency/cancel` |
 | C05.02 | done | both | Timeout helper: race work vs timer (needs **H05**); settle cleanly | `tests/conformance` fixtures `concurrency/cancel` |
-| C06 | todo | native | Optional later: shared-memory atomics (advanced; not v1 bar) | `tests/conformance` fixtures `concurrency/atomics` |
+| C06 | done | native | Optional later: shared-memory atomics (advanced; not v1 bar) | `tests/conformance` fixtures `concurrency/atomics` |
 
 **C v1 done bar:** C01.01–03 + C02.01 + C02.04. C03/C04 tooling; C05 after H05; C06 later.
 

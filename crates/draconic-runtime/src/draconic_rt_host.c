@@ -9290,3 +9290,237 @@ int32_t draconic_rt_host_cancel_clear_timeout(int32_t handle) {
     }
     return 0;
 }
+
+/* --- Shared-memory atomics (C06) ------------------------------------------ */
+
+#define DRACONIC_SHARED_SLOTS 32
+#define DRACONIC_SHARED_MAX_LEN 1024
+
+typedef struct {
+    int live;
+    int32_t len;
+    int32_t *cells;
+    int waiters;
+#if !defined(_WIN32)
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+#endif
+} DraconicSharedMem;
+
+static DraconicSharedMem g_shared[DRACONIC_SHARED_SLOTS];
+#if !defined(_WIN32)
+static pthread_mutex_t g_shared_table_mu = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+static DraconicSharedMem *host_shared_get(int32_t handle) {
+    size_t i;
+    if (handle < 1) {
+        return NULL;
+    }
+    i = (size_t)(handle - 1);
+    if (i >= DRACONIC_SHARED_SLOTS) {
+        return NULL;
+    }
+    if (g_shared[i].live == 0) {
+        return NULL;
+    }
+    return &g_shared[i];
+}
+
+int32_t draconic_rt_host_shared_make(int32_t len) {
+    size_t i;
+    int32_t *cells;
+    if (len < 1 || len > DRACONIC_SHARED_MAX_LEN) {
+        return -1;
+    }
+    cells = (int32_t *)calloc((size_t)len, sizeof(int32_t));
+    if (!cells) {
+        return -1;
+    }
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_shared_table_mu);
+#endif
+    for (i = 0; i < DRACONIC_SHARED_SLOTS; i++) {
+        if (g_shared[i].live == 0) {
+#if !defined(_WIN32)
+            if (pthread_mutex_init(&g_shared[i].mu, NULL) != 0) {
+                pthread_mutex_unlock(&g_shared_table_mu);
+                free(cells);
+                return -1;
+            }
+            if (pthread_cond_init(&g_shared[i].cv, NULL) != 0) {
+                pthread_mutex_destroy(&g_shared[i].mu);
+                pthread_mutex_unlock(&g_shared_table_mu);
+                free(cells);
+                return -1;
+            }
+#endif
+            g_shared[i].cells = cells;
+            g_shared[i].len = len;
+            g_shared[i].waiters = 0;
+            g_shared[i].live = 1;
+#if !defined(_WIN32)
+            pthread_mutex_unlock(&g_shared_table_mu);
+#endif
+            return (int32_t)(i + 1);
+        }
+    }
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&g_shared_table_mu);
+#endif
+    free(cells);
+    return -1;
+}
+
+int32_t draconic_rt_host_shared_load(int32_t handle, int32_t index) {
+    DraconicSharedMem *s = host_shared_get(handle);
+    int32_t v;
+    if (!s || index < 0 || index >= s->len) {
+        return 0;
+    }
+#if defined(_WIN32)
+    v = s->cells[index];
+#else
+    pthread_mutex_lock(&s->mu);
+    v = s->cells[index];
+    pthread_mutex_unlock(&s->mu);
+#endif
+    return v;
+}
+
+int32_t draconic_rt_host_shared_store(int32_t handle, int32_t index, int32_t value) {
+    DraconicSharedMem *s = host_shared_get(handle);
+    if (!s || index < 0 || index >= s->len) {
+        return -1;
+    }
+#if defined(_WIN32)
+    s->cells[index] = value;
+#else
+    pthread_mutex_lock(&s->mu);
+    s->cells[index] = value;
+    pthread_mutex_unlock(&s->mu);
+#endif
+    return 0;
+}
+
+int32_t draconic_rt_host_shared_add(int32_t handle, int32_t index, int32_t delta) {
+    DraconicSharedMem *s = host_shared_get(handle);
+    int32_t old;
+    if (!s || index < 0 || index >= s->len) {
+        return 0;
+    }
+#if defined(_WIN32)
+    old = s->cells[index];
+    s->cells[index] = old + delta;
+#else
+    pthread_mutex_lock(&s->mu);
+    old = s->cells[index];
+    s->cells[index] = old + delta;
+    pthread_mutex_unlock(&s->mu);
+#endif
+    return old;
+}
+
+int32_t draconic_rt_host_shared_cmpxchg(
+    int32_t handle,
+    int32_t index,
+    int32_t expected,
+    int32_t replacement) {
+    DraconicSharedMem *s = host_shared_get(handle);
+    int32_t old;
+    if (!s || index < 0 || index >= s->len) {
+        return 0;
+    }
+#if defined(_WIN32)
+    old = s->cells[index];
+    if (old == expected) {
+        s->cells[index] = replacement;
+    }
+#else
+    pthread_mutex_lock(&s->mu);
+    old = s->cells[index];
+    if (old == expected) {
+        s->cells[index] = replacement;
+    }
+    pthread_mutex_unlock(&s->mu);
+#endif
+    return old;
+}
+
+int32_t draconic_rt_host_shared_wait(
+    int32_t handle,
+    int32_t index,
+    int32_t expected,
+    double timeout_ms) {
+    DraconicSharedMem *s = host_shared_get(handle);
+    int rc;
+    if (!s || index < 0 || index >= s->len) {
+        return -1;
+    }
+#if defined(_WIN32)
+    (void)timeout_ms;
+    if (s->cells[index] != expected) {
+        return 1;
+    }
+    return 2;
+#else
+    pthread_mutex_lock(&s->mu);
+    if (s->cells[index] != expected) {
+        pthread_mutex_unlock(&s->mu);
+        return 1;
+    }
+    s->waiters += 1;
+    if (timeout_ms < 0.0) {
+        rc = pthread_cond_wait(&s->cv, &s->mu);
+    } else {
+        struct timespec ts;
+        long add_ms;
+        if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+            s->waiters -= 1;
+            pthread_mutex_unlock(&s->mu);
+            return -1;
+        }
+        add_ms = (long)timeout_ms;
+        if (add_ms < 0) {
+            add_ms = 0;
+        }
+        ts.tv_sec += add_ms / 1000;
+        ts.tv_nsec += (add_ms % 1000) * 1000000L;
+        if (ts.tv_nsec >= 1000000000L) {
+            ts.tv_sec += 1;
+            ts.tv_nsec -= 1000000000L;
+        }
+        rc = pthread_cond_timedwait(&s->cv, &s->mu, &ts);
+    }
+    s->waiters -= 1;
+    pthread_mutex_unlock(&s->mu);
+    if (rc == ETIMEDOUT) {
+        return 2;
+    }
+    if (rc != 0) {
+        return -1;
+    }
+    return 0;
+#endif
+}
+
+int32_t draconic_rt_host_shared_notify(int32_t handle, int32_t index) {
+    DraconicSharedMem *s = host_shared_get(handle);
+    int n;
+    if (!s || index < 0 || index >= s->len) {
+        return -1;
+    }
+#if defined(_WIN32)
+    (void)index;
+    return 0;
+#else
+    pthread_mutex_lock(&s->mu);
+    n = s->waiters;
+    if (n > 0) {
+        pthread_cond_broadcast(&s->cv);
+    }
+    pthread_mutex_unlock(&s->mu);
+    return n;
+#endif
+}
+
