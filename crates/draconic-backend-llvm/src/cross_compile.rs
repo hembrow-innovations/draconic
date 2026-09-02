@@ -64,6 +64,31 @@ pub fn host_cross_compile_pair() -> Option<CrossCompilePair> {
     MATRIX.iter().copied().find(|p| p.pair == pair)
 }
 
+/// Compile LLVM IR to an object for at least one non-host D04 matrix triple.
+/// Returns the pair that succeeded. D04.01 smoke.
+pub fn compile_object_for_non_host(
+    llvm_ir: &str,
+    out_obj: &Path,
+) -> Result<CrossCompilePair, Diagnostic> {
+    let host = host_cross_compile_pair();
+    let mut last_err = None;
+    for pair in MATRIX.iter().copied() {
+        if Some(pair) == host {
+            continue;
+        }
+        match compile_object_for_triple(llvm_ir, pair.triple, out_obj) {
+            Ok(()) => return Ok(pair),
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        Diagnostic::new(
+            "no non-host D04 matrix triple available for LLVM emit",
+            Span::dummy(),
+        )
+    }))
+}
+
 /// Compile LLVM IR to an object for `triple`. Pairs clang cannot target stay
 /// unavailable (error); D04 does not require a non-host success.
 pub fn compile_object_for_triple(
@@ -135,6 +160,31 @@ mod tests {
                 "windows/arm64",
             ]
         );
+    }
+
+    #[test]
+    fn at_least_one_non_host_triple_emits_an_object() {
+        let host = host_cross_compile_pair().expect("host is a D04 pair");
+        let ir = "define i32 @main() {\n  ret i32 0\n}\n";
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "draconic-d04-01-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("smoke.o");
+
+        let pair = compile_object_for_non_host(ir, &out)
+            .expect("D04.01 requires LLVM emit for at least one non-host matrix triple");
+
+        assert_ne!(pair.pair, host.pair, "smoke triple must not be the host");
+        let bytes = std::fs::read(&out).unwrap();
+        assert!(!bytes.is_empty(), "non-host object should be non-empty");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
