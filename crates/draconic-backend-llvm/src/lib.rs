@@ -70,8 +70,12 @@ mod host_workers;
 mod host_worker_channels;
 mod host_channels;
 mod native_ints;
+mod cross_compile;
 
 pub use debug_info::SourceDebug;
+pub use cross_compile::{
+    compile_object_for_triple, cross_compile_matrix, host_cross_compile_pair, CrossCompilePair,
+};
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -655,7 +659,7 @@ fn build_native_binary_with_libs(
     Ok(())
 }
 
-fn find_clang() -> Option<PathBuf> {
+pub(crate) fn find_clang() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("CLANG") {
         let p = PathBuf::from(p);
         if p.is_file() {
