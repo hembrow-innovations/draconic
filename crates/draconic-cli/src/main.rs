@@ -7,9 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use draconic_ast::print_program;
 use draconic_backend_js::emit_js;
-use draconic_backend_llvm::{
-    build_native_binary, build_native_binary_with_static_libs, emit_llvm_ir_with_debug, SourceDebug,
-};
+use draconic_backend_llvm::{build_native_binary_with_lto, emit_llvm_ir_with_debug, SourceDebug};
 use draconic_diagnostics::Diagnostic;
 use draconic_embed::{eval_source, EmbedValue};
 use draconic_frontend::{check_path, compile_path, compile_source};
@@ -443,6 +441,8 @@ struct BuildArgs {
     link_libs: Vec<PathBuf>,
     /// D05.01: strip symbols from the native artifact.
     strip: bool,
+    /// D05.02: LTO (size-opt) native link.
+    lto: bool,
 }
 
 fn cmd_build(args: &[String]) -> ExitCode {
@@ -451,7 +451,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
         Err(msg) => {
             eprintln!("{msg}");
             eprintln!(
-                "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--link <lib.a>] <file> [-o <out>]"
+                "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]"
             );
             return ExitCode::from(2);
         }
@@ -474,6 +474,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
                 &out,
                 parsed.offline,
                 &parsed.link_libs,
+                parsed.lto,
             )
             .map_err(|d| d.to_string())?;
             if parsed.strip {
@@ -489,6 +490,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
         &out,
         parsed.offline,
         &parsed.link_libs,
+        parsed.lto,
     ) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
@@ -583,7 +585,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         Target::Native => work.join("out"),
     };
 
-    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact, false, &[]) {
+    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact, false, &[], false) {
         let _ = fs::remove_dir_all(&work);
         eprintln!("error: {d}");
         return ExitCode::from(1);
@@ -721,6 +723,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     let mut watch = false;
     let mut offline = false;
     let mut strip = false;
+    let mut lto = false;
     let mut link_libs: Vec<PathBuf> = Vec::new();
 
     let mut i = 0;
@@ -753,6 +756,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             "--watch" => watch = true,
             "--offline" => offline = true,
             "--strip" | "--strip-symbols" => strip = true,
+            "--lto" => lto = true,
             "--link" => {
                 i += 1;
                 let val = args
@@ -768,7 +772,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             }
             "-h" | "--help" => {
                 return Err(
-                    "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--link <lib.a>] <file> [-o <out>]".into(),
+                    "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]".into(),
                 );
             }
             other if other.starts_with('-') => {
@@ -789,6 +793,9 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     if strip && target != Target::Native {
         return Err("--strip is only valid with --target native".to_string());
     }
+    if lto && target != Target::Native {
+        return Err("--lto is only valid with --target native".to_string());
+    }
     Ok(BuildArgs {
         target,
         input,
@@ -797,6 +804,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
         offline,
         link_libs,
         strip,
+        lto,
     })
 }
 
@@ -823,6 +831,7 @@ fn build_program(
     out: &Path,
     offline: bool,
     link_libs: &[PathBuf],
+    lto: bool,
 ) -> Result<(), Diagnostic> {
     // K07.01: auto-fetch missing locked package checkouts before link/compile.
     // K07.02: `--offline` → cache only; miss → fixit (no network).
@@ -871,11 +880,7 @@ fn build_program(
             })?;
             let debug = SourceDebug::from_path(input, source);
             let ll = emit_llvm_ir_with_debug(&module, &debug)?;
-            if link_libs.is_empty() {
-                build_native_binary(&ll, out)?;
-            } else {
-                build_native_binary_with_static_libs(&ll, out, link_libs)?;
-            }
+            build_native_binary_with_lto(&ll, out, link_libs, lto)?;
         }
     }
     Ok(())
@@ -1065,7 +1070,7 @@ fn repl_eval_js(session: &str, chunk: &str) -> Result<ReplEval, String> {
     let module = compile_source(&full).map_err(|d| d.to_string())?;
     let (js, has_last_expr) = emit_js_repl(&module).map_err(|d| d.to_string())?;
 
-    let work = run_work_dir().map_err(|e| e)?;
+    let work = run_work_dir()?;
     let artifact = work.join("repl.js");
     fs::write(&artifact, &js).map_err(|e| format!("write temp JS failed: {e}"))?;
 
@@ -1540,7 +1545,7 @@ Usage:
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
   draconic doc [--format md|html] [-o <out>] <file>
                                                  Extract /** doc comments */ to markdown or HTML
-  draconic build --target js|native [--watch] [--strip] [--link <lib.a>] <file> [-o <out>]
+  draconic build --target js|native [--watch] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]
                                                   Compile a Program to JS or a native binary
   draconic run [--target js|native] <file> [args...]
                                                   Build and execute a Program (default target: js)
@@ -1684,7 +1689,7 @@ mod tests {
         let out = dir.join("t.js");
         let input = dir.join("t.drac");
         fs::write(&input, "let x = 1;").unwrap();
-        build_program(&input, Target::Js, &out, false, &[]).unwrap();
+        build_program(&input, Target::Js, &out, false, &[], false).unwrap();
         let js = fs::read_to_string(&out).unwrap();
         assert!(js.contains("let x"));
         let _ = fs::remove_dir_all(&dir);

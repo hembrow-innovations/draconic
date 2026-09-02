@@ -496,7 +496,7 @@ fn emit_empty_hello() -> String {
 
 /// Compile LLVM IR + Runtime C into a native executable via `clang`.
 pub fn build_native_binary(llvm_ir: &str, out_bin: &Path) -> Result<(), Diagnostic> {
-    build_native_binary_with_libs(llvm_ir, out_bin, &[], &[])
+    build_native_binary_with_libs(llvm_ir, out_bin, &[], &[], false)
 }
 
 /// F04.01: same as [`build_native_binary`], plus extra `.a` archives on the link line.
@@ -505,7 +505,7 @@ pub fn build_native_binary_with_static_libs(
     out_bin: &Path,
     extra_static_libs: &[PathBuf],
 ) -> Result<(), Diagnostic> {
-    build_native_binary_with_libs(llvm_ir, out_bin, extra_static_libs, &[])
+    build_native_binary_with_libs(llvm_ir, out_bin, extra_static_libs, &[], false)
 }
 
 /// F05.01: same as [`build_native_binary`], plus extra shared libraries on the link line.
@@ -514,7 +514,17 @@ pub fn build_native_binary_with_dynamic_libs(
     out_bin: &Path,
     extra_dynamic_libs: &[PathBuf],
 ) -> Result<(), Diagnostic> {
-    build_native_binary_with_libs(llvm_ir, out_bin, &[], extra_dynamic_libs)
+    build_native_binary_with_libs(llvm_ir, out_bin, &[], extra_dynamic_libs, false)
+}
+
+/// D05.02: same as [`build_native_binary_with_static_libs`], with optional LTO.
+pub fn build_native_binary_with_lto(
+    llvm_ir: &str,
+    out_bin: &Path,
+    extra_static_libs: &[PathBuf],
+    lto: bool,
+) -> Result<(), Diagnostic> {
+    build_native_binary_with_libs(llvm_ir, out_bin, extra_static_libs, &[], lto)
 }
 
 fn build_native_binary_with_libs(
@@ -522,6 +532,7 @@ fn build_native_binary_with_libs(
     out_bin: &Path,
     extra_static_libs: &[PathBuf],
     extra_dynamic_libs: &[PathBuf],
+    lto: bool,
 ) -> Result<(), Diagnostic> {
     let clang = find_clang().ok_or_else(|| {
         Diagnostic::new(
@@ -535,7 +546,7 @@ fn build_native_binary_with_libs(
     std::fs::write(&ll_path, llvm_ir)
         .map_err(|e| Diagnostic::new(format!("write LLVM IR failed: {e}"), Span::dummy()))?;
 
-    let rt_lib = draconic_runtime::build_runtime_static_lib(&work).map_err(|e| {
+    let rt_lib = draconic_runtime::build_runtime_static_lib_with_lto(&work, lto).map_err(|e| {
         Diagnostic::new(
             format!("build runtime static lib failed: {e}"),
             Span::dummy(),
@@ -560,6 +571,9 @@ fn build_native_binary_with_libs(
         .arg("-o")
         .arg(&obj_path)
         .arg("-Wno-override-module");
+    if lto {
+        cc_obj.arg("-flto").arg("-Os");
+    }
     if want_debug {
         cc_obj.arg("-g");
     }
@@ -630,6 +644,14 @@ fn build_native_binary_with_libs(
         }
     }
     cc_link.arg(&rt_lib).arg("-o").arg(out_bin);
+    if lto {
+        cc_link.arg("-flto").arg("-Os");
+        if cfg!(target_os = "macos") {
+            cc_link.arg("-Wl,-dead_strip");
+        } else {
+            cc_link.arg("-Wl,--gc-sections");
+        }
+    }
     if want_debug {
         cc_link.arg("-g");
     }

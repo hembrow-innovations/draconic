@@ -1031,7 +1031,7 @@ Ship the toolchain like rustup/go: installable binaries, pinned toolchain, multi
 | D04.02 | done | native | Matrix docs + CI jobs for available OS/arch pairs | CI, `tests/integration` |
 | D05 | todo | native | Binary size opts: strip / LTO flags documented and testable | `tests/integration`, `crates/draconic-cli` |
 | D05.01 | done | native | CLI/build flags: strip symbols | `crates/draconic-cli`, `tests/integration` |
-| D05.02 | todo | native | LTO (or designed) flag documented; size delta smoke | `crates/draconic-cli`, `tests/integration` |
+| D05.02 | done | native | LTO (or designed) flag documented; size delta smoke | `crates/draconic-cli`, `tests/integration` |
 
 **D v1 done bar:** D01.01–03 + D02. D03/D04/D05 deepen distribution quality.
 

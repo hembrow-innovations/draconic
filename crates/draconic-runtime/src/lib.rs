@@ -599,6 +599,11 @@ pub fn apply_runtime_link_flags(cmd: &mut Command) {
 /// into the archive. Callers link with the archive path (or `-L`/`-ldraconic_rt`)
 /// instead of recompiling C sources each time.
 pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
+    build_runtime_static_lib_with_lto(out_dir, false)
+}
+
+/// D05.02: same as [`build_runtime_static_lib`], compiling with `-flto -Os` when `lto`.
+pub fn build_runtime_static_lib_with_lto(out_dir: &Path, lto: bool) -> Result<PathBuf, String> {
     let clang = find_clang().ok_or_else(|| {
         "clang not found (set CLANG or install a C toolchain)".to_string()
     })?;
@@ -636,6 +641,9 @@ pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
             .arg(&header_dir)
             // H11.01 Secure Transport APIs are deprecated in favor of Network.framework.
             .arg("-Wno-deprecated-declarations");
+        if lto {
+            compile_cmd.arg("-flto").arg("-Os");
+        }
         let compile = compile_cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

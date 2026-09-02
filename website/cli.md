@@ -9,7 +9,7 @@ status: shipped
 The toolchain command is `draconic`. A Program is the unit of source it accepts.
 
 - `draconic parse <file>` — parse a Program and print the AST dump
-- `draconic build --target js|native <file> [-o <out>]` — compile to JavaScript or a native binary
+- `draconic build --target js|native [--strip] [--lto] <file> [-o <out>]` — compile to JavaScript or a native binary. `--strip` and `--lto` are native-only size opts (LTO is a size-delta smoke versus the default native artifact).
 - `draconic test <path>` — run conformance fixtures
 - `draconic version` — print version
 - `draconic help` — show usage
