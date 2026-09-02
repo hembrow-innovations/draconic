@@ -1,0 +1,6 @@
+id: ffi/policy/surface
+targets: js,native
+js.error: ^^^
+js.error_code: E0307
+native.error: ^^^
+native.error_code: E0307

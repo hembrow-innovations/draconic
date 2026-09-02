@@ -1,0 +1,2 @@
+// F08: combined policy surface — unsupported type is E0307 with a caret span on both targets.
+extern "C" function f(x: any): void;

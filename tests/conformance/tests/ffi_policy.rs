@@ -1,5 +1,6 @@
-//! ROADMAP F08.01: FFI/extern on js → hard diagnostic (N04 spirit).
-//! ROADMAP F08.02: clear spans + codes for bad extern signatures / unsupported types.
+//! ROADMAP F08 / F08.01–F08.02: unsafe/native-only FFI diagnostics; JS hard-error; clear spans.
+//! F08 parent locks the combined policy surface: js hard-error (E0401) plus
+//! bad-extern codes and caret spans (E0307) on both targets.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -85,4 +86,18 @@ fn rest_param_fixture_present() {
 #[test]
 fn rest_param_both_targets() {
     assert_fixture_runs_both("ffi/policy/rest_param");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("ffi/policy/surface");
+}
+
+#[test]
+fn surface_js_hard_error_and_bad_extern_spans() {
+    assert_fixture_runs_js("ffi/policy/extern_js_hard_error");
+    assert_fixture_runs_both("ffi/policy/bad_param_string");
+    assert_fixture_runs_both("ffi/policy/bad_return_string");
+    assert_fixture_runs_both("ffi/policy/rest_param");
+    assert_fixture_runs_both("ffi/policy/surface");
 }
