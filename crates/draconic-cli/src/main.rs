@@ -20,6 +20,7 @@ use draconic_pkg::ensure_locked_for_entry;
 mod cmd_test;
 mod doc;
 mod extract;
+mod strip_symbols;
 mod toolchain_pin;
 
 fn main() -> ExitCode {
@@ -440,6 +441,8 @@ struct BuildArgs {
     offline: bool,
     /// F04.01: extra static archives (`.a`) for native link.
     link_libs: Vec<PathBuf>,
+    /// D05.01: strip symbols from the native artifact.
+    strip: bool,
 }
 
 fn cmd_build(args: &[String]) -> ExitCode {
@@ -448,7 +451,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
         Err(msg) => {
             eprintln!("{msg}");
             eprintln!(
-                "usage: draconic build --target js|native [--watch] [--offline] [--link <lib.a>] <file> [-o <out>]"
+                "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--link <lib.a>] <file> [-o <out>]"
             );
             return ExitCode::from(2);
         }
@@ -472,7 +475,11 @@ fn cmd_build(args: &[String]) -> ExitCode {
                 parsed.offline,
                 &parsed.link_libs,
             )
-            .map_err(|d| d.to_string())
+            .map_err(|d| d.to_string())?;
+            if parsed.strip {
+                strip_symbols::strip_native_binary(&out).map_err(|d| d.to_string())?;
+            }
+            Ok(())
         });
     }
 
@@ -485,6 +492,12 @@ fn cmd_build(args: &[String]) -> ExitCode {
     ) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
+    }
+    if parsed.strip {
+        if let Err(d) = strip_symbols::strip_native_binary(&out) {
+            eprintln!("error: {d}");
+            return ExitCode::from(1);
+        }
     }
 
     ExitCode::SUCCESS
@@ -707,6 +720,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     let mut input: Option<PathBuf> = None;
     let mut watch = false;
     let mut offline = false;
+    let mut strip = false;
     let mut link_libs: Vec<PathBuf> = Vec::new();
 
     let mut i = 0;
@@ -738,6 +752,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             }
             "--watch" => watch = true,
             "--offline" => offline = true,
+            "--strip" | "--strip-symbols" => strip = true,
             "--link" => {
                 i += 1;
                 let val = args
@@ -753,7 +768,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             }
             "-h" | "--help" => {
                 return Err(
-                    "usage: draconic build --target js|native [--watch] [--offline] [--link <lib.a>] <file> [-o <out>]".into(),
+                    "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--link <lib.a>] <file> [-o <out>]".into(),
                 );
             }
             other if other.starts_with('-') => {
@@ -771,6 +786,9 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
 
     let target = target.ok_or_else(|| "missing required --target js|native".to_string())?;
     let input = input.ok_or_else(|| "missing input file".to_string())?;
+    if strip && target != Target::Native {
+        return Err("--strip is only valid with --target native".to_string());
+    }
     Ok(BuildArgs {
         target,
         input,
@@ -778,6 +796,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
         watch,
         offline,
         link_libs,
+        strip,
     })
 }
 
@@ -1521,7 +1540,7 @@ Usage:
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
   draconic doc [--format md|html] [-o <out>] <file>
                                                  Extract /** doc comments */ to markdown or HTML
-  draconic build --target js|native [--watch] [--link <lib.a>] <file> [-o <out>]
+  draconic build --target js|native [--watch] [--strip] [--link <lib.a>] <file> [-o <out>]
                                                   Compile a Program to JS or a native binary
   draconic run [--target js|native] <file> [args...]
                                                   Build and execute a Program (default target: js)
