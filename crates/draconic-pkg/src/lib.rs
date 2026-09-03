@@ -1,5 +1,6 @@
 //! Package manager support: `draconic.toml` manifests and related types (Roadmap K).
 //!
+//! K01: combined manifest surface — module path, deps, optional path→git URL map.
 //! K01.01: parse own module path + dependencies map (path → version req).
 //! K01.02: write/round-trip `draconic.toml` with stable dependency order.
 //! K01.03: schema validation (module paths, version reqs, unknown fields) + diagnostics.
@@ -11,8 +12,9 @@
 //! K03.02: git clone/fetch into cache VCS store (HTTPS; fixture repos in tests).
 //! K03.03: checkout pinned OID into mod store; cache hit skips network.
 //! K03.04: content hash SHA-256 over canonical package tree.
-//! K04: resolve version req against git tags; highest matching semver;
-//! fail closed on empty/invalid req, empty tags, non-semver-only, no match.
+//! K04: version resolve — semver tag → commit OID; fail closed; direct-deps → lock pins.
+//! K04.01: resolve version req against git tags; highest matching semver.
+//! K04.02: fail closed: no match / non-semver-only / empty → diagnostic.
 //! K04.03: resolve direct-deps set → lock pins (v1: direct only).
 //! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 //! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
@@ -1466,6 +1468,102 @@ module = "github.com/acme/app"
                 m.urls.get("github.com/org/lib").map(String::as_str),
                 Some(url)
             );
+        }
+    }
+
+    // --- K01: combined manifest surface (parent of K01.01–K01.04) ---
+
+    #[test]
+    fn k01_combined_manifest_parse_write_validate_and_url_map() {
+        let src = "\
+module = \"github.com/acme/app\"
+
+[dependencies]
+\"github.com/z/last\" = \"3.0.0\"
+\"github.com/a/first\" = \"^1.2.3\"
+
+[urls]
+\"github.com/a/first\" = \"https://git.example.com/mirror/first.git\"
+";
+        let m = parse_manifest(src).expect("parse honest manifest");
+        validate_manifest(&m).expect("schema");
+        assert_eq!(m.module, "github.com/acme/app");
+        assert_eq!(
+            m.dependencies.get("github.com/a/first").map(String::as_str),
+            Some("^1.2.3")
+        );
+        assert_eq!(
+            m.dependencies.get("github.com/z/last").map(String::as_str),
+            Some("3.0.0")
+        );
+
+        // Stable write order: deps and urls sorted by path (K01.02 + K01.04).
+        let expected = "\
+module = \"github.com/acme/app\"
+
+[dependencies]
+\"github.com/a/first\" = \"^1.2.3\"
+\"github.com/z/last\" = \"3.0.0\"
+
+[urls]
+\"github.com/a/first\" = \"https://git.example.com/mirror/first.git\"
+";
+        let written = write_manifest(&m);
+        assert_eq!(written, expected);
+        let again = parse_manifest(&written).expect("round-trip");
+        assert_eq!(again, m);
+        assert_eq!(write_manifest(&again), written);
+
+        // URL map override vs default derive (K01.04).
+        assert_eq!(
+            resolve_git_url(&m, "github.com/a/first"),
+            "https://git.example.com/mirror/first.git"
+        );
+        assert_eq!(
+            resolve_git_url(&m, "github.com/z/last"),
+            "https://github.com/z/last.git"
+        );
+        assert_eq!(
+            default_git_url("github.com/acme/app"),
+            "https://github.com/acme/app.git"
+        );
+
+        // Schema diagnostics still reject invalid combined documents (K01.03).
+        let unknown = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+license = "MIT"
+[dependencies]
+"github.com/org/lib" = "1.0.0"
+[urls]
+"github.com/org/lib" = "https://git.example.com/lib.git"
+"#,
+        )
+        .expect_err("unknown field");
+        match &unknown {
+            ManifestError::UnknownField { field } => assert_eq!(field, "license"),
+            other => panic!("expected UnknownField, got {other:?}"),
+        }
+        assert!(
+            unknown.to_string().contains("draconic.toml"),
+            "diagnostic: {unknown}"
+        );
+
+        let self_dep = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+[dependencies]
+"github.com/acme/app" = "1.0.0"
+[urls]
+"github.com/acme/app" = "https://git.example.com/app.git"
+"#,
+        )
+        .expect_err("self dependency");
+        match self_dep {
+            ManifestError::SelfDependency { path } => {
+                assert_eq!(path, "github.com/acme/app");
+            }
+            other => panic!("expected SelfDependency, got {other:?}"),
         }
     }
 
