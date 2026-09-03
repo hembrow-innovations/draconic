@@ -1,0 +1,4 @@
+id: host/net/tls/surface
+targets: native
+native.exit: 1
+native.stderr: EIO\n

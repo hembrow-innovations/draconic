@@ -808,7 +808,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H10.05 | done | native | HTTP/1.1 client: request + response on connected TCP | `tests/conformance` fixtures `host/http` |
 | H10.06 | done | native | Chunked transfer encoding (after v1 bar) — parse TE:chunked request/response bodies; write_request/write_response encode body as chunks when headers include Transfer-Encoding: chunked | `tests/conformance` fixtures `host/http`, `crates/draconic-runtime` |
 | H10.07 | done | js | HTTP listen helpers: hard-error on js until Node bridge | `tests/conformance` fixtures `host/policy` |
-| H11 | todo | native | TLS | `tests/conformance/host/net/tls` |
+| H11 | done | native | TLS | `tests/conformance/host/net/tls` |
 | H11.01 | done | native | TLS client wrap: trust roots / insecure-test mode — `tlsClientWrap(conn, serverName, insecure)`; system trust roots when insecure=0; skip verify when insecure=1; `tlsRead`/`tlsWrite`/`closeTls` | `tests/conformance` fixtures `host/net/tls`, `crates/draconic-runtime` |
 | H11.02 | done | native | TLS server wrap: cert/key; accept TLS connection — `tlsServerWrap(conn, certPath, keyPath)` PEM; handshake; reuse `tlsRead`/`tlsWrite`/`closeTls` | `tests/conformance` fixtures `host/net/tls`, `crates/draconic-runtime` |
 | H11.03 | done | native | HTTPS: HTTP/1.1 over TLS loopback | `tests/conformance` fixtures `host/net/tls` |

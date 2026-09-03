@@ -1,0 +1,28 @@
+// H11: one Program — TLS client wrap (insecure-test), server wrap (PEM),
+// tlsRead/tlsWrite/closeTls, HTTPS HTTP/1.1 request/response helpers.
+// Handshake needs two processes; missing PEM fails closed (EIO) before wrap.
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let ts = tlsServerWrap(
+  a,
+  "/nonexistent/draconic-h11-cert.pem",
+  "/nonexistent/draconic-h11-key.pem"
+);
+let tc = tlsClientWrap(c, "localhost", 1);
+let reqMsg = httpWriteRequest("GET", "/hello", "Host: localhost\r\n", "");
+tlsWrite(tc, reqMsg);
+let raw = tlsRead(ts, 4096);
+let req = httpParseRequest(raw);
+let path = req.path;
+let resp = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", path);
+tlsWrite(ts, resp);
+let out = tlsRead(tc, 4096);
+let res = httpParseResponse(out);
+let v = res.version;
+let st = res.status;
+let r = res.reason;
+let b = res.body;
+closeTls(tc);
+closeTls(ts);
+closeTcp(s);

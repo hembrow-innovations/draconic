@@ -1,4 +1,5 @@
-//! ROADMAP H11.01–H11.03: TLS client/server wrap + HTTPS loopback.
+//! ROADMAP H11 / H11.01–H11.03: TLS client/server wrap + HTTPS loopback.
+//! H11 parent locks the combined TLS surface in one Program.
 
 use std::fs;
 use std::net::TcpListener;
@@ -209,9 +210,7 @@ closeTls(t);
     // would consume the single accept slot before the client connects.
     thread::sleep(Duration::from_millis(150));
 
-    let client_out = Command::new(&client_bin)
-        .output()
-        .expect("run client");
+    let client_out = Command::new(&client_bin).output().expect("run client");
     let _ = server.kill();
     let server_out = server.wait_with_output().expect("wait server");
 
@@ -230,4 +229,48 @@ closeTls(t);
     );
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/net/tls/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tls/surface")
+        .expect("host/net/tls/surface");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    for name in [
+        "tlsClientWrap",
+        "tlsServerWrap",
+        "tlsRead",
+        "tlsWrite",
+        "closeTls",
+        "httpWriteRequest",
+        "httpParseRequest",
+        "httpWriteResponse",
+        "httpParseResponse",
+    ] {
+        assert!(
+            fixture.source.contains(name),
+            "H11 surface must use {name} in one Program"
+        );
+    }
+    assert_eq!(
+        fixture.expect_native.exit, 1,
+        "H11 surface handshake needs two processes; missing PEM fails closed"
+    );
+    assert_eq!(
+        fixture.expect_native.stderr.as_deref(),
+        Some("EIO\n"),
+        "H11 surface must fail closed on missing cert/key"
+    );
+    assert_fixture_runs("host/net/tls/surface");
 }
