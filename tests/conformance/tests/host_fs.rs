@@ -1,4 +1,5 @@
-//! ROADMAP H04.01–H04.06: whole-file + directory + rename/copy/delete + open handle host APIs.
+//! ROADMAP H04 / H04.01–H04.06: whole-file + directory + rename/copy/delete + open handle host APIs.
+//! H04 parent locks the combined read / write / dirs surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -23,6 +24,16 @@ fn assert_fixture_runs(id: &str) {
             r.message
         );
     }
+}
+
+fn assert_fixture_runs_js_and_native(id: &str) {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "{id} must target js and native"
+    );
+    assert_fixture_runs(id);
 }
 
 #[test]
@@ -194,4 +205,34 @@ fn delete_file_runs() {
 fn open_handle_rw_runs() {
     assert_fixture_present("host/fs/open_handle_rw");
     assert_fixture_runs("host/fs/open_handle_rw");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/fs/surface");
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/fs/surface")
+        .expect("host/fs/surface");
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "host/fs/surface must target js and native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some(
+            "hi-h04\n3\nxyz\ntrue\nfalse\n6\ntrue\nfalse\ntrue\ntrue\ntrue\n1\nonly.txt\nfalse\nren\ncp\ncp\nfalse\nfalse\n",
+        ),
+        "H04 surface must observe write/read/append, bytes, exists/stat, mkdir/readdir/rmdir, rename/copy/delete"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H04 surface must terminate with exit 0"
+    );
+    assert_fixture_runs_js_and_native("host/fs/surface");
 }

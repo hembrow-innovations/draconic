@@ -1,0 +1,6 @@
+id: host/fs/surface
+targets: js,native
+js.exit: 0
+js.check: if (t !== "hi-h04") process.exit(1); if (n !== 3) process.exit(2); if (tb !== "xyz") process.exit(3); if (file_ok !== true) process.exit(4); if (miss !== false) process.exit(5); if (size !== 6) process.exit(6); if (isF !== true) process.exit(7); if (isD !== false) process.exit(8); if (mtOk !== true) process.exit(9); if (dirIsD !== true) process.exit(10); if (mk_ok !== true) process.exit(11); if (rn !== 1) process.exit(12); if (a0 !== "only.txt") process.exit(13); if (gone_ren !== false) process.exit(14); if (t_ren !== "ren") process.exit(15); if (t_cp_src !== "cp") process.exit(16); if (t_cp_dst !== "cp") process.exit(17); if (gone_file !== false) process.exit(18); if (gone_dir !== false) process.exit(19);
+native.exit: 0
+native.stdout: hi-h04\n3\nxyz\ntrue\nfalse\n6\ntrue\nfalse\ntrue\ntrue\ntrue\n1\nonly.txt\nfalse\nren\ncp\ncp\nfalse\nfalse\n
