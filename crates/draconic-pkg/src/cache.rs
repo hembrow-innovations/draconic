@@ -25,6 +25,7 @@ use crate::auth::{
     clone_url_with_auth, git_auth_rejected, git_ssh_command, is_git_auth_failure, is_ssh_git_url,
     redact_secrets, sanitize_stored_git_url, GitAuth, GitAuthError,
 };
+use crate::proxy::ProxyError;
 use crate::validate_module_path;
 
 /// On-disk module cache root and entry path helpers (K03.01).
@@ -79,6 +80,8 @@ pub enum CacheFetchError {
     Git(String),
     /// Private git credentials missing or rejected (K11.01).
     Auth(GitAuthError),
+    /// Module proxy is off or invalid (K11.04).
+    Proxy(ProxyError),
 }
 
 impl fmt::Display for CacheFetchError {
@@ -91,6 +94,7 @@ impl fmt::Display for CacheFetchError {
             CacheFetchError::Io(msg) => write!(f, "module cache: I/O error: {msg}"),
             CacheFetchError::Git(msg) => write!(f, "module cache: git error: {msg}"),
             CacheFetchError::Auth(e) => write!(f, "module cache: {e}"),
+            CacheFetchError::Proxy(e) => write!(f, "module cache: {e}"),
         }
     }
 }
@@ -106,6 +110,12 @@ impl From<CachePathError> for CacheFetchError {
 impl From<GitAuthError> for CacheFetchError {
     fn from(e: GitAuthError) -> Self {
         CacheFetchError::Auth(e)
+    }
+}
+
+impl From<ProxyError> for CacheFetchError {
+    fn from(e: ProxyError) -> Self {
+        CacheFetchError::Proxy(e)
     }
 }
 
@@ -305,14 +315,25 @@ impl ModuleCache {
         git_url: &str,
         auth: &GitAuth,
     ) -> Result<PathBuf, CacheFetchError> {
-        if let Err(reason) = validate_clone_url(git_url) {
+        self.clone_or_fetch_split(module_path, git_url, git_url, auth)
+    }
+
+    /// Clone from `fetch_url` but persist `stored_url` as `origin` (K11.04).
+    pub(crate) fn clone_or_fetch_split(
+        &self,
+        module_path: &str,
+        fetch_url: &str,
+        stored_url: &str,
+        auth: &GitAuth,
+    ) -> Result<PathBuf, CacheFetchError> {
+        if let Err(reason) = validate_clone_url(fetch_url) {
             return Err(CacheFetchError::InvalidUrl {
-                url: git_url.to_string(),
+                url: fetch_url.to_string(),
                 reason,
             });
         }
-        let fetch_url = clone_url_with_auth(git_url, auth)?;
-        let stored_url = sanitize_stored_git_url(git_url);
+        let authed_fetch = clone_url_with_auth(fetch_url, auth)?;
+        let stored_url = sanitize_stored_git_url(stored_url);
         let dest = self.vcs_dir(module_path)?;
         if is_bare_git_repo(&dest) {
             let dest_str = dest
@@ -325,11 +346,11 @@ impl ModuleCache {
                     dest_str,
                     "fetch",
                     "--force",
-                    &fetch_url,
+                    &authed_fetch,
                     "+refs/*:refs/*",
                 ],
                 auth,
-                Some(git_url),
+                Some(fetch_url),
             )?;
             let _ = run_git(&["-C", dest_str, "remote", "set-url", "origin", &stored_url]);
             return Ok(dest);
@@ -349,9 +370,9 @@ impl ModuleCache {
             .to_str()
             .ok_or_else(|| CacheFetchError::Io("VCS path is not valid UTF-8".into()))?;
         if let Err(e) = run_git_authed(
-            &["clone", "--bare", &fetch_url, dest_str],
+            &["clone", "--bare", &authed_fetch, dest_str],
             auth,
-            Some(git_url),
+            Some(fetch_url),
         ) {
             let _ = fs::remove_dir_all(&dest);
             return Err(e);

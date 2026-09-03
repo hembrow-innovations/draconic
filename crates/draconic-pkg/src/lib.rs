@@ -31,8 +31,9 @@
 //! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 //! K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
 //! K11.01: private git auth — HTTPS token or SSH; fail closed; never persist secrets.
-//! K11.03: multi-module monorepo — module path may map to a git subdirectory.
 //! K11.02: `replace` directive — fork git source or local path override.
+//! K11.03: multi-module monorepo — module path may map to a git subdirectory.
+//! K11.04: module proxy/mirror (GOPROXY-shaped); git identity stays canonical.
 //! K11.05: yank/retract when an advisory source is configured; else not a v1 check.
 //! D02.01: optional/required toolchain version pin in `draconic.toml`.
 //! D02.02: CLI compares running toolchain version to that pin (warn or hard-fail).
@@ -44,9 +45,10 @@ mod get;
 mod hash;
 mod import_resolve;
 mod lock;
+mod proxy;
 mod replace;
-mod subdir;
 mod resolve;
+mod subdir;
 mod tidy;
 mod toolchain;
 mod yank;
@@ -76,12 +78,16 @@ pub use import_resolve::{
     ResolvedImport,
 };
 pub use lock::{parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError};
-pub use subdir::{derive_package_subdir, repo_path_from_git_url, validate_package_subdir};
+pub use proxy::{
+    mirror_fetch_url, module_proxy_from_vars, ModuleProxy, ProxyEntry, ProxyError, ProxyFetch,
+    PROXY_ENV,
+};
 pub use replace::ReplaceSource;
 pub use resolve::{
     resolve_direct_deps, resolve_direct_deps_with_advisory, resolve_highest_matching_tag,
     ResolveDirectError, ResolveError, ResolvedVersion,
 };
+pub use subdir::{derive_package_subdir, repo_path_from_git_url, validate_package_subdir};
 pub use yank::{advisory_from_vars, AdvisoryError, AdvisorySource, YankKind, ADVISORY_ENV};
 pub use tidy::{mod_tidy, mod_tidy_default_cache, TidyError, TidyResult};
 pub use toolchain::{check_toolchain_pin, check_toolchain_pin_for_entry, ToolchainPinStatus};
