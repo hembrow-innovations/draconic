@@ -31,6 +31,7 @@
 //! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 //! K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
 //! K11.01: private git auth — HTTPS token or SSH; fail closed; never persist secrets.
+//! K11.02: `replace` directive — fork git source or local path override.
 //! D02.01: optional/required toolchain version pin in `draconic.toml`.
 //! D02.02: CLI compares running toolchain version to that pin (warn or hard-fail).
 
@@ -41,6 +42,7 @@ mod get;
 mod hash;
 mod import_resolve;
 mod lock;
+mod replace;
 mod resolve;
 mod tidy;
 mod toolchain;
@@ -70,6 +72,7 @@ pub use import_resolve::{
     ResolvedImport,
 };
 pub use lock::{parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError};
+pub use replace::ReplaceSource;
 pub use resolve::{
     resolve_direct_deps, resolve_highest_matching_tag, ResolveDirectError, ResolveError,
     ResolvedVersion,
@@ -82,8 +85,8 @@ use std::fmt;
 
 use toml::Value as TomlValue;
 
-/// Known top-level keys in `draconic.toml` (K01.01–K01.04, D02.01).
-const KNOWN_TOP_LEVEL_KEYS: &[&str] = &["module", "dependencies", "urls", "toolchain"];
+/// Known top-level keys in `draconic.toml` (K01.01–K01.04, K11.02, D02.01).
+const KNOWN_TOP_LEVEL_KEYS: &[&str] = &["module", "dependencies", "urls", "replace", "toolchain"];
 
 /// Known keys inside a `[toolchain]` / inline-table pin (D02.01).
 const KNOWN_TOOLCHAIN_KEYS: &[&str] = &["version", "required"];
@@ -100,7 +103,7 @@ pub struct ToolchainPin {
     pub required: bool,
 }
 
-/// Parsed `draconic.toml` (K01: module path + deps + optional URL map; D02.01 pin).
+/// Parsed `draconic.toml` (K01: module path + deps + optional URL map; K11.02 replace; D02.01 pin).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     /// This package's module path (Go-like), e.g. `github.com/org/pkg`.
@@ -109,6 +112,8 @@ pub struct Manifest {
     pub dependencies: BTreeMap<String, String>,
     /// Optional path → git URL overrides when default derivation is wrong (K01.04).
     pub urls: BTreeMap<String, String>,
+    /// Optional module path → fork git source or local path (K11.02).
+    pub replace: BTreeMap<String, ReplaceSource>,
     /// Optional toolchain version pin (D02.01). Omitted → no pin.
     pub toolchain: Option<ToolchainPin>,
 }
@@ -154,6 +159,22 @@ pub enum ManifestError {
         url: String,
         reason: &'static str,
     },
+    /// `replace` is present but not a table of module path → source.
+    InvalidReplace,
+    /// A `replace` entry is not a string or inline table.
+    InvalidReplaceValue { path: String },
+    /// A `replace` key fails Go-like module path schema.
+    InvalidReplacePath { path: String, reason: &'static str },
+    /// A `replace` source (git URL, module path, or local path) is invalid.
+    InvalidReplaceSource {
+        path: String,
+        source: String,
+        reason: &'static str,
+    },
+    /// A `replace` inline table sets more than one of `git` / `module` / `path`.
+    AmbiguousReplace { path: String },
+    /// A `replace` inline table sets none of `git` / `module` / `path`.
+    MissingReplaceSource { path: String },
     /// `toolchain` is present but not a version string or table.
     InvalidToolchain,
     /// `toolchain` version is empty or not semver-shaped.
@@ -201,7 +222,7 @@ impl fmt::Display for ManifestError {
             ),
             ManifestError::UnknownField { field } => write!(
                 f,
-                "draconic.toml: unknown field `{field}` (expected one of: module, dependencies, urls, toolchain)"
+                "draconic.toml: unknown field `{field}` (expected one of: module, dependencies, urls, replace, toolchain)"
             ),
             ManifestError::SelfDependency { path } => write!(
                 f,
@@ -222,6 +243,34 @@ impl fmt::Display for ManifestError {
             ManifestError::InvalidUrl { path, url, reason } => write!(
                 f,
                 "draconic.toml: urls entry `{path}` has invalid git URL `{url}`: {reason}"
+            ),
+            ManifestError::InvalidReplace => write!(
+                f,
+                "draconic.toml: `replace` must be a table of module path → git source, module path, or local path"
+            ),
+            ManifestError::InvalidReplaceValue { path } => write!(
+                f,
+                "draconic.toml: replace entry `{path}` must be a string or a table with `git`, `module`, or `path`"
+            ),
+            ManifestError::InvalidReplacePath { path, reason } => write!(
+                f,
+                "draconic.toml: invalid replace module path `{path}`: {reason}"
+            ),
+            ManifestError::InvalidReplaceSource {
+                path,
+                source,
+                reason,
+            } => write!(
+                f,
+                "draconic.toml: replace entry `{path}` has invalid source `{source}`: {reason}"
+            ),
+            ManifestError::AmbiguousReplace { path } => write!(
+                f,
+                "draconic.toml: replace entry `{path}` must set exactly one of `git`, `module`, or `path`"
+            ),
+            ManifestError::MissingReplaceSource { path } => write!(
+                f,
+                "draconic.toml: replace entry `{path}` is missing `git`, `module`, or `path`"
             ),
             ManifestError::InvalidToolchain => write!(
                 f,
@@ -245,7 +294,7 @@ impl std::error::Error for ManifestError {}
 
 /// Parse a `draconic.toml` source string into a schema-valid [`Manifest`].
 ///
-/// Expected shape (K01.01–K01.04, D02.01):
+/// Expected shape (K01.01–K01.04, K11.02, D02.01):
 /// ```toml
 /// module = "github.com/org/pkg"
 /// toolchain = "0.1.0"
@@ -255,12 +304,15 @@ impl std::error::Error for ManifestError {}
 ///
 /// [urls]
 /// "github.com/other/lib" = "https://git.example.com/other/lib.git"
+///
+/// [replace]
+/// "github.com/other/lib" = { git = "https://github.com/fork/lib.git" }
 /// ```
 ///
-/// `dependencies`, `urls`, and `toolchain` may be omitted. `toolchain` may be a
+/// `dependencies`, `urls`, `replace`, and `toolchain` may be omitted. `toolchain` may be a
 /// version string (optional pin) or a table `{ version, required }`. Performs
 /// structural decode plus schema validation (module paths, version requirements,
-/// git URLs, unknown fields).
+/// git URLs, replace sources, unknown fields).
 pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
     let value: TomlValue = toml::from_str(src).map_err(|e| ManifestError::Toml(e.to_string()))?;
     let table = match value {
@@ -317,12 +369,19 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
         Some(_) => return Err(ManifestError::InvalidUrls),
     };
 
+    let replace = match table.get("replace") {
+        None => BTreeMap::new(),
+        Some(TomlValue::Table(replace_table)) => replace::parse_replace_table(replace_table)?,
+        Some(_) => return Err(ManifestError::InvalidReplace),
+    };
+
     let toolchain = parse_toolchain_value(table.get("toolchain"))?;
 
     let manifest = Manifest {
         module,
         dependencies,
         urls,
+        replace,
         toolchain,
     };
     validate_manifest(&manifest)?;
@@ -406,6 +465,8 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), ManifestError> {
         }
     }
 
+    replace::validate_replace(&manifest.replace)?;
+
     if let Some(pin) = &manifest.toolchain {
         if let Err(reason) = validate_version_req(&pin.version) {
             return Err(ManifestError::InvalidToolchainVersion {
@@ -423,9 +484,13 @@ pub fn default_git_url(module_path: &str) -> String {
     format!("https://{module_path}.git")
 }
 
-/// Resolve the git URL for `module_path`: `[urls]` override if present, else
-/// [`default_git_url`].
+/// Resolve the git URL for `module_path`.
+///
+/// Order: `[replace]` (K11.02) wins over `[urls]` (K01.04), else [`default_git_url`].
 pub fn resolve_git_url(manifest: &Manifest, module_path: &str) -> String {
+    if let Some(repl) = manifest.replace.get(module_path) {
+        return repl.fetch_url();
+    }
     manifest
         .urls
         .get(module_path)
@@ -651,12 +716,13 @@ fn is_semver_ident_chain(s: &str) -> bool {
 
 /// Serialize a [`Manifest`] to a stable `draconic.toml` document.
 ///
-/// Emit shape (K01.02 / K01.04 / D02.01):
+/// Emit shape (K01.02 / K01.04 / K11.02 / D02.01):
 /// - `module = "…"` first
 /// - `toolchain = "…"` when optional pin; inline table when `required = true`
 /// - blank line then `[dependencies]` only when non-empty
 /// - dependency keys in sorted (BTreeMap) order, each quoted
 /// - blank line then `[urls]` only when non-empty (sorted keys)
+/// - blank line then `[replace]` only when non-empty (sorted keys; inline tables)
 /// - trailing newline
 ///
 /// Round-trip: `parse_manifest(&write_manifest(m)) == Ok(m)` (equal after parse).
@@ -701,7 +767,32 @@ pub fn write_manifest(manifest: &Manifest) -> String {
         }
     }
 
+    if !manifest.replace.is_empty() {
+        out.push('\n');
+        out.push_str("[replace]\n");
+        for (path, source) in &manifest.replace {
+            out.push_str(&toml_quoted_string(path));
+            out.push_str(" = ");
+            out.push_str(&write_replace_source(source));
+            out.push('\n');
+        }
+    }
+
     out
+}
+
+fn write_replace_source(source: &ReplaceSource) -> String {
+    match source {
+        ReplaceSource::Git { url } => {
+            format!("{{ git = {} }}", toml_quoted_string(url))
+        }
+        ReplaceSource::Module { path } => {
+            format!("{{ module = {} }}", toml_quoted_string(path))
+        }
+        ReplaceSource::Path { path } => {
+            format!("{{ path = {} }}", toml_quoted_string(path))
+        }
+    }
 }
 
 /// Quote a string as a TOML basic string (escape `\`, `"`, and control chars).
@@ -745,6 +836,7 @@ mod tests {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+            replace: BTreeMap::new(),
             toolchain: None,
         }
     }
@@ -1173,6 +1265,7 @@ module = "github.com/acme/app"
             module: "not-valid".into(),
             dependencies: BTreeMap::new(),
             urls: BTreeMap::new(),
+            replace: BTreeMap::new(),
             toolchain: None,
         };
         let err = validate_manifest(&m).expect_err("should fail schema");
