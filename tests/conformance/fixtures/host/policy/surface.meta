@@ -1,0 +1,6 @@
+id: host/policy/surface
+targets: js,native
+js.exit: 0
+js.check: if (joined !== "a/b") process.exit(1);
+native.exit: 0
+native.stdout: a/b\n

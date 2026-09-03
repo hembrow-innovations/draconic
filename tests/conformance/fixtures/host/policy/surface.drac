@@ -1,0 +1,2 @@
+// H00: host APIs are free identifiers on the global object (not a module import).
+let joined = pathJoin("a", "b");

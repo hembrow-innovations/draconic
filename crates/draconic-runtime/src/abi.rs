@@ -706,6 +706,28 @@ pub const HOST_E_CONN: i32 = 10;
 /// Address error (in use, not available).
 pub const HOST_E_ADDR: i32 = 11;
 
+/// Language `HostError.code` / native stderr token for an ABI failure (H00).
+///
+/// `HOST_OK` and unknown codes return `None` (not an error token).
+/// Native Programs print this token on stderr and exit 1; js throws a catchable
+/// `Error` with `.name === "HostError"` and `.code` equal to this string.
+pub fn host_error_name(code: i32) -> Option<&'static str> {
+    match code {
+        HOST_E_INVAL => Some("EINVAL"),
+        HOST_E_NOENT => Some("ENOENT"),
+        HOST_E_NOSYS => Some("ENOSYS"),
+        HOST_E_BADF => Some("EBADF"),
+        HOST_E_EXIST => Some("EEXIST"),
+        HOST_E_PERM => Some("EPERM"),
+        HOST_E_IO => Some("EIO"),
+        HOST_E_NOMEM => Some("ENOMEM"),
+        HOST_E_AGAIN => Some("EAGAIN"),
+        HOST_E_CONN => Some("ECONN"),
+        HOST_E_ADDR => Some("EADDR"),
+        _ => None,
+    }
+}
+
 /// Sentinel for an unset / closed host handle (`DraconicHostHandle`).
 pub const HOST_HANDLE_INVALID: i64 = -1;
 

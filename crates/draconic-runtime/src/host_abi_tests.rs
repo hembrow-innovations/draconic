@@ -19,6 +19,21 @@ fn host_error_codes_stable_in_abi_and_header() {
     assert_eq!(HOST_E_ADDR, 11);
     assert_eq!(HOST_HANDLE_INVALID, -1);
 
+    // H00: language HostError.code / native stderr token for each ABI failure.
+    assert_eq!(host_error_name(HOST_OK), None);
+    assert_eq!(host_error_name(HOST_E_INVAL), Some("EINVAL"));
+    assert_eq!(host_error_name(HOST_E_NOENT), Some("ENOENT"));
+    assert_eq!(host_error_name(HOST_E_NOSYS), Some("ENOSYS"));
+    assert_eq!(host_error_name(HOST_E_BADF), Some("EBADF"));
+    assert_eq!(host_error_name(HOST_E_EXIST), Some("EEXIST"));
+    assert_eq!(host_error_name(HOST_E_PERM), Some("EPERM"));
+    assert_eq!(host_error_name(HOST_E_IO), Some("EIO"));
+    assert_eq!(host_error_name(HOST_E_NOMEM), Some("ENOMEM"));
+    assert_eq!(host_error_name(HOST_E_AGAIN), Some("EAGAIN"));
+    assert_eq!(host_error_name(HOST_E_CONN), Some("ECONN"));
+    assert_eq!(host_error_name(HOST_E_ADDR), Some("EADDR"));
+    assert_eq!(host_error_name(99), None);
+
     let host_hdr = c_host_runtime_header_source();
     let main_hdr = c_runtime_header_source();
     assert!(

@@ -752,7 +752,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 
 | ID | Status | Targets | Item | Tests |
 | ---- | -------- | --------- | ------ | ------- |
-| H00 | todo | both | Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix | `tests/conformance/host/policy`, `crates/draconic-runtime` |
+| H00 | done | both | Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix | `tests/conformance/host/policy`, `crates/draconic-runtime` |
 | H00.01 | done | compiler | Host API registry: known symbols + target availability; js unsupported → hard diagnostic | `crates/draconic-check`, `tests/conformance/host/policy` |
 | H00.02 | done | native | Host Runtime ABI scaffold: syscall/error codes, handles, path encoding at boundary | `crates/draconic-runtime` |
 | H00.03 | done | native | I/O bytes boundary: `Uint8Array`/`ArrayBuffer` as OS read/write buffers | `crates/draconic-runtime`, `tests/conformance/host/bytes` |

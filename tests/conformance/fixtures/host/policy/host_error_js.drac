@@ -1,0 +1,9 @@
+// H00: js host failures are catchable HostError with .name and .code (no silent undefined).
+let name = "";
+let code = "";
+try {
+  readFileText("fixtures/host/policy/__no_such_h00__");
+} catch (e) {
+  name = e.name;
+  code = e.code;
+}

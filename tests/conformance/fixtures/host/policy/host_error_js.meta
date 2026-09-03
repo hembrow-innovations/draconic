@@ -1,0 +1,4 @@
+id: host/policy/host_error_js
+targets: js
+js.exit: 0
+js.check: if (name !== "HostError") process.exit(1); if (code !== "ENOENT") process.exit(2);

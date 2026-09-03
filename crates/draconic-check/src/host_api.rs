@@ -1,8 +1,8 @@
-//! Host API registry: known symbols + per-target availability (H00.01).
+//! Host API registry: known symbols + per-target availability (H00 / H00.01).
 //!
 //! Scaffold for H01+ surfaces. Native-only entries hard-error on the js target
-//! (ADR-0008). Module/global shape of the full host surface is H00; this module
-//! owns the name registry and availability checks only.
+//! (ADR-0008). H00 locks host APIs as **free identifiers** on the global object
+//! (not a module import); this module owns the name registry and availability.
 
 use draconic_diagnostics::{codes, Diagnostic, Span};
 
@@ -51,7 +51,7 @@ impl HostAvailability {
 /// One known host API symbol in the compiler registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostApiEntry {
-    /// Free identifier name used in Programs (provisional until H00 locks shape).
+    /// Free identifier name used in Programs (H00 locked global shape).
     pub name: &'static str,
     pub availability: HostAvailability,
     /// Short note for diagnostics (e.g. cluster id).
@@ -1717,6 +1717,64 @@ mod tests {
                 "src={src} got {}",
                 err.message
             );
+        }
+    }
+
+    #[test]
+    fn h00_host_apis_are_free_identifiers() {
+        for entry in host_apis() {
+            assert!(
+                entry
+                    .name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_'),
+                "H00 shape: `{}` must be a free identifier, not a module path",
+                entry.name
+            );
+            assert!(
+                !entry.name.contains('.') && !entry.name.contains('/') && !entry.name.contains(':'),
+                "H00 shape: `{}` must not be a module specifier",
+                entry.name
+            );
+            let first = entry.name.chars().next().expect("non-empty host API name");
+            assert!(
+                first.is_ascii_alphabetic() || first == '_',
+                "H00 shape: `{}` must be a JS IdentifierName",
+                entry.name
+            );
+        }
+    }
+
+    #[test]
+    fn h00_no_js_only_host_api_and_native_only_hard_errors() {
+        for entry in host_apis() {
+            assert!(
+                entry.availability.native,
+                "H00 matrix: `{}` must be available on native (no js-only host API)",
+                entry.name
+            );
+            if entry.availability.js {
+                assert!(
+                    unsupported_diagnostic(entry.name, CompileTarget::Js, Span::dummy()).is_none(),
+                    "H00 matrix: `{}` is BOTH — js must not hard-error",
+                    entry.name
+                );
+            } else {
+                let d = unsupported_diagnostic(entry.name, CompileTarget::Js, Span::dummy())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "H00 matrix: `{}` native-only must hard-error on js",
+                            entry.name
+                        )
+                    });
+                assert_eq!(d.code, Some(codes::HOST_API_UNSUPPORTED));
+                assert!(
+                    d.message.contains("unsupported on js"),
+                    "H00 matrix: `{}` message={:?}",
+                    entry.name,
+                    d.message
+                );
+            }
         }
     }
 }
