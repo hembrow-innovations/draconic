@@ -91,6 +91,11 @@ pub enum ResolveDirectError {
     ContentHash { path: String, message: String },
     /// Built lock entry failed validation (should be rare).
     LockEntry { path: String, message: String },
+    /// Advisory source refused a yanked or retracted version (K11.05).
+    Advisory {
+        path: String,
+        source: crate::AdvisoryError,
+    },
 }
 
 impl fmt::Display for ResolveDirectError {
@@ -107,6 +112,9 @@ impl fmt::Display for ResolveDirectError {
             }
             ResolveDirectError::LockEntry { path, message } => {
                 write!(f, "resolve direct deps: `{path}` lock entry: {message}")
+            }
+            ResolveDirectError::Advisory { path, source } => {
+                write!(f, "resolve direct deps: `{path}`: {source}")
             }
         }
     }
@@ -128,6 +136,18 @@ pub fn resolve_direct_deps(
     manifest: &Manifest,
     cache: &ModuleCache,
 ) -> Result<LockFile, ResolveDirectError> {
+    resolve_direct_deps_with_advisory(manifest, cache, None)
+}
+
+/// [`resolve_direct_deps`] with an optional advisory source (K11.05).
+///
+/// When `advisory` is `Some`, a yanked or retracted resolved version hard-fails
+/// and is not pinned or checked out. `None` does not invent a yank check.
+pub fn resolve_direct_deps_with_advisory(
+    manifest: &Manifest,
+    cache: &ModuleCache,
+    advisory: Option<&crate::AdvisorySource>,
+) -> Result<LockFile, ResolveDirectError> {
     let mut packages = BTreeMap::new();
 
     for (path, req) in &manifest.dependencies {
@@ -145,6 +165,15 @@ pub fn resolve_direct_deps(
                 path: path.clone(),
                 source,
             })?;
+
+        if let Some(source) = advisory {
+            source
+                .refuse(path, &resolved.version)
+                .map_err(|e| ResolveDirectError::Advisory {
+                    path: path.clone(),
+                    source: e,
+                })?;
+        }
 
         let subdir = crate::derive_package_subdir(path, &git_url);
         let checkout = cache

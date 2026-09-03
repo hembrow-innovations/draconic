@@ -66,6 +66,11 @@ pub enum GetError {
     LockEntry { path: String, message: String },
     /// Writing manifest/lock failed.
     Io(String),
+    /// Advisory source refused a yanked or retracted version (K11.05).
+    Advisory {
+        path: String,
+        source: crate::AdvisoryError,
+    },
 }
 
 impl fmt::Display for GetError {
@@ -104,6 +109,9 @@ impl fmt::Display for GetError {
                 write!(f, "get: `{path}` lock entry: {message}")
             }
             GetError::Io(msg) => write!(f, "get: {msg}"),
+            GetError::Advisory { path, source } => {
+                write!(f, "get: `{path}`: {source}")
+            }
         }
     }
 }
@@ -277,6 +285,18 @@ pub fn get_package_with_auth(
             path: module_path.to_string(),
             source,
         })?;
+
+    if let Some(advisory) = crate::AdvisorySource::from_env().map_err(|e| GetError::Advisory {
+        path: module_path.to_string(),
+        source: e,
+    })? {
+        advisory
+            .refuse(module_path, &resolved.version)
+            .map_err(|e| GetError::Advisory {
+                path: module_path.to_string(),
+                source: e,
+            })?;
+    }
 
     let subdir = crate::derive_package_subdir(module_path, &stored_url);
     let checkout = cache

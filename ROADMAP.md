@@ -889,7 +889,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K11.02 | done | compiler | `replace` directive: fork/local override | `crates/draconic-pkg` |
 | K11.03 | done | compiler | Multi-module monorepo (subdir module paths) | `crates/draconic-pkg` |
 | K11.04 | todo | compiler | Module proxy/mirror (git still canonical) | `crates/draconic-pkg` |
-| K11.05 | todo | compiler | Yank/retract when advisory source configured | `crates/draconic-pkg` |
+| K11.05 | done | compiler | Yank/retract when advisory source configured | `crates/draconic-pkg` |
 
 **K v1 done bar:** K01–K08 + K09.02. K10 demo; K11 later.
 

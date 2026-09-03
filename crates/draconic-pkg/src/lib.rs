@@ -33,6 +33,7 @@
 //! K11.01: private git auth — HTTPS token or SSH; fail closed; never persist secrets.
 //! K11.03: multi-module monorepo — module path may map to a git subdirectory.
 //! K11.02: `replace` directive — fork git source or local path override.
+//! K11.05: yank/retract when an advisory source is configured; else not a v1 check.
 //! D02.01: optional/required toolchain version pin in `draconic.toml`.
 //! D02.02: CLI compares running toolchain version to that pin (warn or hard-fail).
 
@@ -48,6 +49,7 @@ mod subdir;
 mod resolve;
 mod tidy;
 mod toolchain;
+mod yank;
 
 pub use auth::{
     clone_url_with_auth, git_auth_from_vars, git_auth_rejected, git_ssh_command,
@@ -77,9 +79,10 @@ pub use lock::{parse_lock, write_lock, LockEntry, LockEntryError, LockFile, Lock
 pub use subdir::{derive_package_subdir, repo_path_from_git_url, validate_package_subdir};
 pub use replace::ReplaceSource;
 pub use resolve::{
-    resolve_direct_deps, resolve_highest_matching_tag, ResolveDirectError, ResolveError,
-    ResolvedVersion,
+    resolve_direct_deps, resolve_direct_deps_with_advisory, resolve_highest_matching_tag,
+    ResolveDirectError, ResolveError, ResolvedVersion,
 };
+pub use yank::{advisory_from_vars, AdvisoryError, AdvisorySource, YankKind, ADVISORY_ENV};
 pub use tidy::{mod_tidy, mod_tidy_default_cache, TidyError, TidyResult};
 pub use toolchain::{check_toolchain_pin, check_toolchain_pin_for_entry, ToolchainPinStatus};
 
