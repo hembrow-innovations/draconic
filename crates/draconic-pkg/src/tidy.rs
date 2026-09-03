@@ -184,7 +184,7 @@ fn try_ensure_checkout(cache: &ModuleCache, path: &str, entry: &LockEntry) -> Re
         return Ok(());
     }
     cache
-        .checkout(path, &entry.commit_oid, &entry.git_url)
+        .checkout_with_subdir(path, &entry.commit_oid, &entry.git_url, &entry.subdir)
         .map(|_| ())
         .map_err(|_| ())
 }
@@ -208,8 +208,9 @@ fn resolve_and_pin(
             source,
         })?;
 
+    let subdir = crate::derive_package_subdir(path, git_url);
     let checkout = cache
-        .checkout(path, &resolved.commit_oid, git_url)
+        .checkout_with_subdir(path, &resolved.commit_oid, git_url, &subdir)
         .map_err(|e| TidyError::Cache {
             path: path.to_string(),
             message: e.to_string(),
@@ -227,6 +228,11 @@ fn resolve_and_pin(
         resolved.commit_oid,
         content_hash,
     )
+    .map_err(|e| TidyError::LockEntry {
+        path: path.to_string(),
+        message: e.to_string(),
+    })?
+    .with_subdir(subdir)
     .map_err(|e| TidyError::LockEntry {
         path: path.to_string(),
         message: e.to_string(),

@@ -31,6 +31,7 @@
 //! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 //! K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
 //! K11.01: private git auth — HTTPS token or SSH; fail closed; never persist secrets.
+//! K11.03: multi-module monorepo — module path may map to a git subdirectory.
 //! K11.02: `replace` directive — fork git source or local path override.
 //! D02.01: optional/required toolchain version pin in `draconic.toml`.
 //! D02.02: CLI compares running toolchain version to that pin (warn or hard-fail).
@@ -43,6 +44,7 @@ mod hash;
 mod import_resolve;
 mod lock;
 mod replace;
+mod subdir;
 mod resolve;
 mod tidy;
 mod toolchain;
@@ -72,6 +74,7 @@ pub use import_resolve::{
     ResolvedImport,
 };
 pub use lock::{parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError};
+pub use subdir::{derive_package_subdir, repo_path_from_git_url, validate_package_subdir};
 pub use replace::ReplaceSource;
 pub use resolve::{
     resolve_direct_deps, resolve_highest_matching_tag, ResolveDirectError, ResolveError,

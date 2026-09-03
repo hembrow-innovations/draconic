@@ -11,7 +11,7 @@ use std::fmt;
 
 use toml::Value as TomlValue;
 
-use crate::{validate_git_url, validate_module_path, validate_version_req};
+use crate::{validate_git_url, validate_module_path, validate_package_subdir, validate_version_req};
 
 /// One pinned dependency in `draconic.lock` (K02.01).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +26,9 @@ pub struct LockEntry {
     pub commit_oid: String,
     /// SHA-256 hex (64 lowercase) of the canonical package tree.
     pub content_hash: String,
+    /// Subdirectory inside the git tree that is this package's root (K11.03).
+    /// Empty = repository root (single-module checkout).
+    pub subdir: String,
 }
 
 /// Error while constructing or validating a [`LockEntry`].
@@ -44,6 +47,8 @@ pub enum LockEntryError {
     InvalidCommitOid { oid: String, reason: &'static str },
     /// Content hash is not a 64-char lowercase hex SHA-256 digest.
     InvalidContentHash { hash: String, reason: &'static str },
+    /// Package subdirectory is not a safe relative path (K11.03).
+    InvalidSubdir { subdir: String, reason: &'static str },
 }
 
 impl fmt::Display for LockEntryError {
@@ -63,6 +68,9 @@ impl fmt::Display for LockEntryError {
             }
             LockEntryError::InvalidContentHash { hash, reason } => {
                 write!(f, "lock entry: invalid content hash `{hash}`: {reason}")
+            }
+            LockEntryError::InvalidSubdir { subdir, reason } => {
+                write!(f, "lock entry: invalid subdir `{subdir}`: {reason}")
             }
         }
     }
@@ -85,9 +93,17 @@ impl LockEntry {
             git_url: git_url.into(),
             commit_oid: commit_oid.into(),
             content_hash: content_hash.into(),
+            subdir: String::new(),
         };
         entry.validate()?;
         Ok(entry)
+    }
+
+    /// Set the git-tree subdirectory that is this package's root (K11.03).
+    pub fn with_subdir(mut self, subdir: impl Into<String>) -> Result<Self, LockEntryError> {
+        self.subdir = subdir.into();
+        self.validate()?;
+        Ok(self)
     }
 
     /// Validate all fields of this entry.
@@ -119,6 +135,12 @@ impl LockEntry {
         if let Err(reason) = validate_content_hash(&self.content_hash) {
             return Err(LockEntryError::InvalidContentHash {
                 hash: self.content_hash.clone(),
+                reason,
+            });
+        }
+        if let Err(reason) = validate_package_subdir(&self.subdir) {
+            return Err(LockEntryError::InvalidSubdir {
+                subdir: self.subdir.clone(),
                 reason,
             });
         }
@@ -255,7 +277,8 @@ impl std::error::Error for LockFileError {}
 
 const LOCK_FORMAT_VERSION: u32 = 1;
 const KNOWN_LOCK_TOP_LEVEL: &[&str] = &["version", "package"];
-const KNOWN_PACKAGE_KEYS: &[&str] = &["path", "version", "git_url", "commit_oid", "content_hash"];
+const KNOWN_PACKAGE_KEYS: &[&str] =
+    &["path", "version", "git_url", "commit_oid", "content_hash", "subdir"];
 
 /// Parse a `draconic.lock` source string into a validated [`LockFile`].
 ///
@@ -317,7 +340,10 @@ pub fn parse_lock(src: &str) -> Result<LockFile, LockFileError> {
                 let git_url = require_pkg_string(pkg_table, "git_url")?;
                 let commit_oid = require_pkg_string(pkg_table, "commit_oid")?;
                 let content_hash = require_pkg_string(pkg_table, "content_hash")?;
+                let subdir = optional_pkg_string(pkg_table, "subdir")?.unwrap_or_default();
                 let entry = LockEntry::new(path.clone(), ver, git_url, commit_oid, content_hash)
+                    .map_err(LockFileError::Entry)?
+                    .with_subdir(subdir)
                     .map_err(LockFileError::Entry)?;
                 if packages.contains_key(&path) {
                     return Err(LockFileError::DuplicatePath { path });
@@ -338,6 +364,17 @@ fn require_pkg_string(
     match table.get(field) {
         None => Err(LockFileError::MissingPackageField { field }),
         Some(TomlValue::String(s)) => Ok(s.clone()),
+        Some(_) => Err(LockFileError::InvalidPackageField { field }),
+    }
+}
+
+fn optional_pkg_string(
+    table: &toml::map::Map<String, TomlValue>,
+    field: &'static str,
+) -> Result<Option<String>, LockFileError> {
+    match table.get(field) {
+        None => Ok(None),
+        Some(TomlValue::String(s)) => Ok(Some(s.clone())),
         Some(_) => Err(LockFileError::InvalidPackageField { field }),
     }
 }
@@ -371,6 +408,11 @@ pub fn write_lock(lock: &LockFile) -> String {
         out.push_str("content_hash = ");
         out.push_str(&toml_quoted_string(&entry.content_hash));
         out.push('\n');
+        if !entry.subdir.is_empty() {
+            out.push_str("subdir = ");
+            out.push_str(&toml_quoted_string(&entry.subdir));
+            out.push('\n');
+        }
     }
     out
 }

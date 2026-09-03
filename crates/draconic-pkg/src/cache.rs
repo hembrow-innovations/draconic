@@ -390,6 +390,24 @@ impl ModuleCache {
         commit_oid: &str,
         git_url: &str,
     ) -> Result<PathBuf, CacheFetchError> {
+        let subdir = crate::derive_package_subdir(module_path, git_url);
+        self.checkout_with_subdir(module_path, commit_oid, git_url, &subdir)
+    }
+
+    /// Checkout a pinned OID, extracting `subdir` (empty = whole tree) as the
+    /// package root (K11.03).
+    pub fn checkout_with_subdir(
+        &self,
+        module_path: &str,
+        commit_oid: &str,
+        git_url: &str,
+        subdir: &str,
+    ) -> Result<PathBuf, CacheFetchError> {
+        if let Err(reason) = crate::validate_package_subdir(subdir) {
+            return Err(CacheFetchError::Git(format!(
+                "invalid package subdir `{subdir}`: {reason}"
+            )));
+        }
         if let Err(reason) = validate_commit_oid(commit_oid) {
             return Err(CachePathError::InvalidCommitOid {
                 oid: commit_oid.to_string(),
@@ -432,9 +450,28 @@ impl ModuleCache {
             .to_str()
             .ok_or_else(|| CacheFetchError::Io("checkout path is not valid UTF-8".into()))?;
 
+        let tree_ish = if subdir.is_empty() {
+            commit_oid.to_string()
+        } else {
+            let kind = run_git(&[
+                "-C",
+                vcs_str,
+                "cat-file",
+                "-t",
+                &format!("{commit_oid}:{subdir}"),
+            ])?;
+            if kind != "tree" {
+                return Err(CacheFetchError::Git(format!(
+                    "package subdir `{subdir}` is not a tree at {commit_oid} (got `{kind}`)"
+                )));
+            }
+            format!("{commit_oid}:{subdir}")
+        };
+
         // Extract tree only (no .git) so K03.04 content hash is over package files.
+        // `oid:subdir` archives that tree as the archive root (package root = subdir).
         let archive = Command::new("git")
-            .args(["-C", vcs_str, "archive", "--format=tar", commit_oid])
+            .args(["-C", vcs_str, "archive", "--format=tar", &tree_ish])
             .output()
             .map_err(|e| CacheFetchError::Git(format!("failed to spawn git archive: {e}")))?;
         if !archive.status.success() {

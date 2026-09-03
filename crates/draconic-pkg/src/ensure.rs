@@ -134,8 +134,13 @@ pub fn ensure_locked_entries(
         if offline {
             return Err(EnsureLockedError::OfflineMiss { path: path.clone() });
         }
+        let subdir = if entry.subdir.is_empty() {
+            crate::derive_package_subdir(path, &entry.git_url)
+        } else {
+            entry.subdir.clone()
+        };
         cache
-            .checkout(path, &entry.commit_oid, &entry.git_url)
+            .checkout_with_subdir(path, &entry.commit_oid, &entry.git_url, &subdir)
             .map_err(|e: CacheFetchError| EnsureLockedError::Cache {
                 path: path.clone(),
                 message: e.to_string(),

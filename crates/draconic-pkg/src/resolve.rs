@@ -146,8 +146,9 @@ pub fn resolve_direct_deps(
                 source,
             })?;
 
+        let subdir = crate::derive_package_subdir(path, &git_url);
         let checkout = cache
-            .checkout(path, &resolved.commit_oid, &git_url)
+            .checkout_with_subdir(path, &resolved.commit_oid, &git_url, &subdir)
             .map_err(|e| ResolveDirectError::Cache {
                 path: path.clone(),
                 message: e.to_string(),
@@ -166,6 +167,11 @@ pub fn resolve_direct_deps(
             resolved.commit_oid,
             content_hash,
         )
+        .map_err(|e| ResolveDirectError::LockEntry {
+            path: path.clone(),
+            message: e.to_string(),
+        })?
+        .with_subdir(subdir)
         .map_err(|e| ResolveDirectError::LockEntry {
             path: path.clone(),
             message: e.to_string(),

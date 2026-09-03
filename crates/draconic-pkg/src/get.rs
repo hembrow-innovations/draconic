@@ -278,8 +278,9 @@ pub fn get_package_with_auth(
             source,
         })?;
 
+    let subdir = crate::derive_package_subdir(module_path, &stored_url);
     let checkout = cache
-        .checkout(module_path, &resolved.commit_oid, &clone_url)
+        .checkout_with_subdir(module_path, &resolved.commit_oid, &clone_url, &subdir)
         .map_err(|e| GetError::Cache {
             path: module_path.to_string(),
             message: e.to_string(),
@@ -297,6 +298,11 @@ pub fn get_package_with_auth(
         resolved.commit_oid.clone(),
         content_hash,
     )
+    .map_err(|e| GetError::LockEntry {
+        path: module_path.to_string(),
+        message: e.to_string(),
+    })?
+    .with_subdir(subdir)
     .map_err(|e| GetError::LockEntry {
         path: module_path.to_string(),
         message: e.to_string(),
