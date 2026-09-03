@@ -789,7 +789,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H06.04 | done | native | TCP read/write bytes; partial read; close/shutdown | `tests/conformance` fixtures `host/net/tcp` |
 | H06.05 | done | native | TCP loopback e2e: listen + connect + echo + close | `tests/conformance` fixtures `host/net/tcp` |
 | H06.06 | done | js | TCP listen/accept: hard-error on js until optional Node bridge | `tests/conformance` fixtures `host/policy` |
-| H07 | todo | native | Async socket I/O + job queue | `tests/conformance/host/net/async`, `crates/draconic-runtime` |
+| H07 | done | native | Async socket I/O + job queue | `tests/conformance/host/net/async`, `crates/draconic-runtime` |
 | H07.01 | done | native | Non-blocking readiness; complete via job queue | `crates/draconic-runtime` |
 | H07.02 | done | native | Async accept/connect/read/write → Promises; cancel/close settles cleanly | `tests/conformance` fixtures `host/net/async` |
 | H07.03 | done | native | Concurrent connections without starving job queue | `tests/conformance` fixtures `host/net/async` |

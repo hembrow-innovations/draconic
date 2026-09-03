@@ -1,0 +1,62 @@
+// H07: one Program — cancel/close, async accept/connect Promises,
+// async read/write, concurrent connections on one job drain.
+let rejected = 0;
+let fulfilled = 0;
+let s0 = tcpListen(0);
+tcpAcceptAsync(s0).then(
+  function () {
+    fulfilled = 1;
+  },
+  function () {
+    rejected = 1;
+  }
+);
+closeTcp(s0);
+let accepted = 0;
+let connected = 0;
+let s = tcpListen(0);
+tcpAcceptAsync(s).then(function (a) {
+  accepted = 1;
+  closeTcp(a);
+  closeTcp(s);
+});
+tcpConnectAsync("127.0.0.1", tcpLocalPort(s)).then(function (c) {
+  connected = 1;
+  closeTcp(c);
+});
+let nread = 0;
+let nwrite = 0;
+let s1 = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s1));
+let a = tcpAccept(s1);
+tcpWriteAsync(c, "ping").then(function (n) {
+  nwrite = n;
+});
+tcpReadAsync(a, 64).then(function (n) {
+  nread = n;
+});
+let w1 = 0;
+let r1 = 0;
+let w2 = 0;
+let r2 = 0;
+let s2 = tcpListen(0);
+let c1 = tcpConnect("127.0.0.1", tcpLocalPort(s2));
+let a1 = tcpAccept(s2);
+let c2 = tcpConnect("127.0.0.1", tcpLocalPort(s2));
+let a2 = tcpAccept(s2);
+tcpWriteAsync(c1, "aa").then(function (n) {
+  w1 = n;
+});
+tcpReadAsync(a1, 8).then(function (n) {
+  r1 = n;
+});
+tcpWriteAsync(c2, "bb").then(function (n) {
+  w2 = n;
+});
+tcpReadAsync(a2, 8).then(function (n) {
+  r2 = n;
+});
+let t_aa = typeof tcpAcceptAsync;
+let t_ca = typeof tcpConnectAsync;
+let t_ra = typeof tcpReadAsync;
+let t_wa = typeof tcpWriteAsync;

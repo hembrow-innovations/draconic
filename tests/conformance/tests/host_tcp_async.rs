@@ -1,4 +1,5 @@
-//! ROADMAP H07.02–H07.03: async TCP Promises; concurrent connections.
+//! ROADMAP H07 / H07.02–H07.03: async TCP Promises; concurrent connections.
+//! H07 parent locks the combined async TCP surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -83,4 +84,32 @@ fn tcp_async_concurrent_runs_native() {
         "must target native"
     );
     assert_fixture_runs("host/net/async/tcp_async_concurrent");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/net/async/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/async/surface")
+        .expect("host/net/async/surface");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("1\n0\n1\n1\n4\n4\n2\n2\n2\n2\nfunction\nfunction\nfunction\nfunction\n"),
+        "H07 surface must observe cancel/close, async accept/connect, async r/w, concurrent, and API typeof"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H07 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/net/async/surface");
 }
