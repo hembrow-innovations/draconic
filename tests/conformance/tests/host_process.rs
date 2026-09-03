@@ -1,5 +1,7 @@
 //! ROADMAP H01 / H14 / H15: process + signals + run + spawn + async wait.
 //! H01 parent locks the combined args / env / pid / exitCode surface in one Program.
+//! H15 parent locks the combined subprocess surface (run argv/cwd/env, spawn
+//! capture/kill) in one Program on both targets; async wait stays native-only.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -212,6 +214,34 @@ fn process_wait_async_runs_native() {
     );
     assert!(!fixture.targets.contains(&Target::Js), "native-only");
     assert_fixture_runs("host/process/process_wait_async");
+}
+
+#[test]
+fn subprocess_fixture_present() {
+    assert_fixture_present("host/process/subprocess");
+}
+
+#[test]
+fn subprocess_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/process/subprocess")
+        .expect("host/process/subprocess");
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "host/process/subprocess must target js and native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("function\nfunction\ntrue\ntrue\ntrue\n1\n0\n0\nhello\nerr-msg\n\ntrue\ntrue\ntrue\n2\n0\n143\ntrue\n0\n0\n"),
+        "H15 subprocess must observe run argv/cwd/env, spawn capture, and kill"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H15 subprocess must terminate with exit 0"
+    );
+    assert_fixture_runs_js_and_native("host/process/subprocess");
 }
 
 #[test]

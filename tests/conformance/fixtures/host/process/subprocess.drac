@@ -1,0 +1,27 @@
+// H15: one Program — run argv/cwd/env, spawn capture stdin/stdout/stderr, kill.
+let t_run = typeof processRun;
+let t_spawn = typeof processSpawn;
+let run_ok = processRun(["/bin/sh", "-c", "exit 42"]) === 42;
+let cwd_ok = processRun(
+  ["/bin/sh", "-c", "test \"$(pwd -P)\" = \"$(cd / && pwd -P)\""],
+  "/"
+) === 0;
+let env_ok = processRun(
+  ["/bin/sh", "-c", "test \"$DRACONIC_H15_SURFACE\" = hello"],
+  null,
+  { DRACONIC_H15_SURFACE: "hello" }
+) === 0;
+let h = processSpawn(["/bin/sh", "-c", "cat; printf 'err-msg\\n' 1>&2"]);
+let w = processStdinWrite(h, "hello");
+let cap_code = processWait(h);
+let out = processStdout(h);
+let err = processStderr(h);
+let out_ok = out === "hello";
+let err_ok = err === "err-msg\n";
+let cap_ok = cap_code === 0;
+let h2 = processSpawn(["/bin/sh", "-c", "sleep 30"]);
+let k = processKill(h2);
+let kill_code = processWait(h2);
+let kill_ok = kill_code === 143;
+let closed = processClose(h);
+let closed2 = processClose(h2);
