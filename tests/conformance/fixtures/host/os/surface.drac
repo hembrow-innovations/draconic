@@ -1,0 +1,19 @@
+// H16: one Program — cwd/chdir, hostname/osType/osArch, tempDir/homeDir.
+let t_cwd = typeof cwd();
+let saved = cwd();
+chdir("/");
+let at_root = cwd() === "/";
+chdir(saved);
+let restored = cwd() === saved;
+let t_h = typeof hostname();
+let t_o = typeof osType();
+let t_a = typeof osArch();
+let h_ok = hostname() !== "";
+let o_ok = osType() !== "";
+let a_ok = osArch() !== "";
+let t_t = typeof tempDir();
+let t_hd = typeof homeDir();
+let td = tempDir();
+let hd = homeDir();
+let t_ok = td !== "";
+let hd_ok = hd !== "";

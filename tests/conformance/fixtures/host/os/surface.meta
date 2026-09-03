@@ -1,0 +1,6 @@
+id: host/os/surface
+targets: js,native
+js.exit: 0
+js.check: if (t_cwd !== "string") process.exit(1); if (typeof saved !== "string" || saved.length < 1) process.exit(2); if (at_root !== true) process.exit(3); if (restored !== true) process.exit(4); if (t_h !== "string") process.exit(5); if (t_o !== "string") process.exit(6); if (t_a !== "string") process.exit(7); if (h_ok !== true) process.exit(8); if (o_ok !== true) process.exit(9); if (a_ok !== true) process.exit(10); var ot = osType(); if (["darwin","linux","win32","freebsd","openbsd","netbsd","sunos","aix","android"].indexOf(ot) < 0) process.exit(11); var oa = osArch(); if (typeof oa !== "string" || oa.length < 1) process.exit(12); if (t_t !== "string") process.exit(13); if (t_hd !== "string") process.exit(14); if (t_ok !== true) process.exit(15); if (hd_ok !== true) process.exit(16); if (typeof td !== "string" || td.length < 1) process.exit(17); if (typeof hd !== "string" || hd.length < 1) process.exit(18);
+native.exit: 0
+native.stdout: string\ntrue\ntrue\nstring\nstring\nstring\ntrue\ntrue\ntrue\nstring\nstring\ntrue\ntrue\n

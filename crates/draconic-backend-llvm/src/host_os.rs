@@ -1,4 +1,4 @@
-//! H16.01 / H16.02 / H16.03: native observations for OS host APIs.
+//! H16 / H16.01 / H16.02 / H16.03: native observations for OS host APIs.
 //!
 //! - `cwd()` → absolute path string (not auto-printed; use in `===` / `typeof`)
 //! - `chdir(path)` → side-effect; missing path → HostError (ENOENT) on full path later
@@ -245,7 +245,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_os (H16.01/H16.02/H16.03)").ok();
+        writeln!(self.out, "; Draconic LLVM host_os (H16)").ok();
         let decls = vec![
             GC_INIT,
             PRINT_STR,
@@ -507,6 +507,41 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_hostname"), "{ir}");
         assert!(ir.contains("draconic_rt_host_os_type"), "{ir}");
         assert!(ir.contains("draconic_rt_host_os_arch"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_combined_os_misc_surface() {
+        let m = lower_src(
+            r#"
+            let t_cwd = typeof cwd();
+            let saved = cwd();
+            chdir("/");
+            let at_root = cwd() === "/";
+            chdir(saved);
+            let restored = cwd() === saved;
+            let t_h = typeof hostname();
+            let t_o = typeof osType();
+            let t_a = typeof osArch();
+            let h_ok = hostname() !== "";
+            let o_ok = osType() !== "";
+            let a_ok = osArch() !== "";
+            let t_t = typeof tempDir();
+            let t_hd = typeof homeDir();
+            let td = tempDir();
+            let hd = homeDir();
+            let t_ok = td !== "";
+            let hd_ok = hd !== "";
+            "#,
+        );
+        assert!(is_host_os_module(&m));
+        let ir = emit_host_os(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_cwd"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_chdir"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_hostname"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_os_type"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_os_arch"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_temp_dir"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_home_dir"), "{ir}");
     }
 
     #[test]
