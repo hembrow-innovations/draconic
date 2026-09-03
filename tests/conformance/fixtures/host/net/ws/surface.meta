@@ -1,0 +1,4 @@
+id: host/net/ws/surface
+targets: native
+native.exit: 0
+native.stdout: Hello\nHi\nbye\nx\nx\nhello\n

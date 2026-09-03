@@ -4,7 +4,8 @@
 //! - `wsClientHandshakeRequest(path, host, key)` → request string
 //! - `wsClientCheckAccept(response, key)` → void (EINVAL on fail)
 //! - `wsHandshakeResponse(key)` → 101 response string
-//! - `wsEncodeTextClient` / `wsEncodeText` / `wsDecodeFrame` + frame fields
+//! - `wsEncodeTextClient` / `wsEncodeText` / `wsEncodeBinary` / `wsEncodeClose` /
+//!   `wsEncodePing` / `wsEncodePong` / `wsDecodeFrame` + frame fields
 //! - `stdoutWrite`
 
 use std::collections::HashMap;
@@ -16,7 +17,8 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE,
     HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT,
     HOST_TCP_READ, HOST_TCP_WRITE, HOST_WS_CLIENT_CHECK_ACCEPT, HOST_WS_CLIENT_HANDSHAKE_REQUEST,
-    HOST_WS_DECODE_FRAME, HOST_WS_ENCODE_TEXT, HOST_WS_ENCODE_TEXT_CLIENT,
+    HOST_WS_DECODE_FRAME, HOST_WS_ENCODE_BINARY, HOST_WS_ENCODE_CLOSE, HOST_WS_ENCODE_PING,
+    HOST_WS_ENCODE_PONG, HOST_WS_ENCODE_TEXT, HOST_WS_ENCODE_TEXT_CLIENT,
     HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64, PRINT_STR,
 };
 
@@ -185,6 +187,31 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodeText") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::DynBytes)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsEncodeBinary") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::DynBytes)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "wsEncodeClose") =>
+        {
+            classify_number_arg(arg_expr(&args[0])?, ctx)?;
+            classify_string_arg(arg_expr(&args[1])?, ctx)?;
+            Some(SlotTy::DynBytes)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsEncodePing") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::DynBytes)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "wsEncodePong") =>
         {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             Some(SlotTy::DynBytes)
@@ -454,6 +481,10 @@ impl<'a> Emitter<'a> {
             HOST_WS_CLIENT_HANDSHAKE_REQUEST,
             HOST_WS_CLIENT_CHECK_ACCEPT,
             HOST_WS_ENCODE_TEXT,
+            HOST_WS_ENCODE_BINARY,
+            HOST_WS_ENCODE_CLOSE,
+            HOST_WS_ENCODE_PING,
+            HOST_WS_ENCODE_PONG,
             HOST_WS_ENCODE_TEXT_CLIENT,
             HOST_WS_DECODE_FRAME,
             HOST_STDOUT_WRITE,
@@ -717,18 +748,120 @@ impl<'a> Emitter<'a> {
                 )
                 .ok();
                 self.emit_check_rc(&rc)?;
-                let d = self.fresh();
-                let n = self.fresh();
-                writeln!(self.body, "  {d} = load ptr, ptr {out_data}").ok();
-                writeln!(self.body, "  {n} = load i64, ptr {out_len}").ok();
-                let dp = self.slot_ptr(local)?;
-                let lp = self.slot_len_ptr(local)?;
-                writeln!(self.body, "  store ptr {d}, ptr {dp}").ok();
-                writeln!(self.body, "  store i64 {n}, ptr {lp}").ok();
-                Ok(())
+                self.store_dynbytes_from_out(local, &out_data, &out_len)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "wsEncodeBinary") =>
+            {
+                let (d, n) = self.emit_bytes_ptr_len(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_ws_e2e: bin payload"))?,
+                )?;
+                let out_data = self.fresh();
+                let out_len = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_data} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
+                writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {d}, i64 {n}, ptr {out_data}, ptr {out_len})",
+                    HOST_WS_ENCODE_BINARY.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                self.store_dynbytes_from_out(local, &out_data, &out_len)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "wsEncodeClose") =>
+            {
+                let code_f = self.emit_number_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_ws_e2e: close code"))?,
+                )?;
+                let code_i = self.fresh();
+                writeln!(self.body, "  {code_i} = fptosi double {code_f} to i32").ok();
+                let reason = self.emit_string_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_ws_e2e: close reason"))?,
+                )?;
+                let out_data = self.fresh();
+                let out_len = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_data} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
+                writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i32 {code_i}, ptr {reason}, ptr {out_data}, ptr {out_len})",
+                    HOST_WS_ENCODE_CLOSE.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                self.store_dynbytes_from_out(local, &out_data, &out_len)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "wsEncodePing") =>
+            {
+                let p = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_ws_e2e: ping payload"))?,
+                )?;
+                let out_data = self.fresh();
+                let out_len = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_data} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
+                writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {p}, ptr {out_data}, ptr {out_len})",
+                    HOST_WS_ENCODE_PING.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                self.store_dynbytes_from_out(local, &out_data, &out_len)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "wsEncodePong") =>
+            {
+                let p = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_ws_e2e: pong payload"))?,
+                )?;
+                let out_data = self.fresh();
+                let out_len = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_data} = alloca ptr, align 8").ok();
+                writeln!(self.body, "  {out_len} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store ptr null, ptr {out_data}").ok();
+                writeln!(self.body, "  store i64 0, ptr {out_len}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {p}, ptr {out_data}, ptr {out_len})",
+                    HOST_WS_ENCODE_PONG.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                self.store_dynbytes_from_out(local, &out_data, &out_len)
             }
             _ => Err(diag("host_ws_e2e: expected dynbytes producer")),
         }
+    }
+
+    fn store_dynbytes_from_out(
+        &mut self,
+        local: LocalId,
+        out_data: &str,
+        out_len: &str,
+    ) -> Result<(), Diagnostic> {
+        let d = self.fresh();
+        let n = self.fresh();
+        writeln!(self.body, "  {d} = load ptr, ptr {out_data}").ok();
+        writeln!(self.body, "  {n} = load i64, ptr {out_len}").ok();
+        let dp = self.slot_ptr(local)?;
+        let lp = self.slot_len_ptr(local)?;
+        writeln!(self.body, "  store ptr {d}, ptr {dp}").ok();
+        writeln!(self.body, "  store i64 {n}, ptr {lp}").ok();
+        Ok(())
     }
 
     fn emit_frame_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
@@ -915,8 +1048,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {port_i} = fptosi double {port_f} to i32").ok();
                 let backlog_i = if args.len() == 2 {
                     let bf = self.emit_number_expr(
-                        arg_expr(&args[1])
-                            .ok_or_else(|| diag("host_ws_e2e: tcpListen backlog"))?,
+                        arg_expr(&args[1]).ok_or_else(|| diag("host_ws_e2e: tcpListen backlog"))?,
                     )?;
                     let bi = self.fresh();
                     writeln!(self.body, "  {bi} = fptosi double {bf} to i32").ok();
@@ -1180,8 +1312,14 @@ mod tests {
             ir.contains("draconic_rt_host_ws_client_handshake_request"),
             "{ir}"
         );
-        assert!(ir.contains("draconic_rt_host_ws_client_check_accept"), "{ir}");
-        assert!(ir.contains("draconic_rt_host_ws_encode_text_client"), "{ir}");
+        assert!(
+            ir.contains("draconic_rt_host_ws_client_check_accept"),
+            "{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_host_ws_encode_text_client"),
+            "{ir}"
+        );
         assert!(ir.contains("draconic_rt_host_ws_decode_frame"), "{ir}");
     }
 
@@ -1195,6 +1333,9 @@ mod tests {
         );
         assert!(is_host_ws_e2e_module(&m));
         let ir = emit_host_ws_e2e(&m).expect("emit");
-        assert!(ir.contains("draconic_rt_host_ws_client_check_accept"), "{ir}");
+        assert!(
+            ir.contains("draconic_rt_host_ws_client_check_accept"),
+            "{ir}"
+        );
     }
 }

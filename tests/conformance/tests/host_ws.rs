@@ -1,4 +1,5 @@
-//! ROADMAP H12.01–H12.03: WebSocket handshake + frames + client dial echo.
+//! ROADMAP H12 / H12.01–H12.03: WebSocket handshake + frames + client dial echo.
+//! H12 parent locks the combined WebSocket surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -63,10 +64,7 @@ fn ws_handshake_empty_key_runs_native() {
         "must target native"
     );
     assert_eq!(fixture.expect_native.exit, 1);
-    assert_eq!(
-        fixture.expect_native.stderr.as_deref(),
-        Some("EINVAL\n")
-    );
+    assert_eq!(fixture.expect_native.stderr.as_deref(), Some("EINVAL\n"));
     assert_fixture_runs("host/net/ws/ws_handshake_empty_key");
 }
 
@@ -137,10 +135,7 @@ fn ws_frame_bad_runs_native() {
         .find(|f| f.id == "host/net/ws/ws_frame_bad")
         .expect("host/net/ws/ws_frame_bad");
     assert_eq!(fixture.expect_native.exit, 1);
-    assert_eq!(
-        fixture.expect_native.stderr.as_deref(),
-        Some("EINVAL\n")
-    );
+    assert_eq!(fixture.expect_native.stderr.as_deref(), Some("EINVAL\n"));
     assert_fixture_runs("host/net/ws/ws_frame_bad");
 }
 
@@ -169,9 +164,51 @@ fn ws_client_bad_accept_runs_native() {
         .find(|f| f.id == "host/net/ws/ws_client_bad_accept")
         .expect("host/net/ws/ws_client_bad_accept");
     assert_eq!(fixture.expect_native.exit, 1);
-    assert_eq!(
-        fixture.expect_native.stderr.as_deref(),
-        Some("EINVAL\n")
-    );
+    assert_eq!(fixture.expect_native.stderr.as_deref(), Some("EINVAL\n"));
     assert_fixture_runs("host/net/ws/ws_client_bad_accept");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/net/ws/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/ws/surface")
+        .expect("host/net/ws/surface");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    for name in [
+        "wsHandshakeResponse",
+        "wsEncodeText",
+        "wsEncodeBinary",
+        "wsEncodeClose",
+        "wsEncodePing",
+        "wsEncodePong",
+        "wsDecodeFrame",
+        "wsClientHandshakeRequest",
+        "wsClientCheckAccept",
+        "wsEncodeTextClient",
+    ] {
+        assert!(
+            fixture.source.contains(name),
+            "H12 surface must use {name} in one Program"
+        );
+    }
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("Hello\nHi\nbye\nx\nx\nhello\n"),
+        "H12 surface must observe frame payloads and loopback text echo"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H12 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/net/ws/surface");
 }
