@@ -1,0 +1,29 @@
+// H10: one Program — parse/write, client request/response, keep-alive two
+// requests, and chunked transfer encoding on one TCP connection.
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let reqMsg = httpWriteRequest("GET", "/hello", "Host: x\r\nConnection: keep-alive\r\n", "");
+tcpWrite(c, reqMsg);
+let raw1 = tcpRead(a, 4096);
+let req1 = httpParseRequest(raw1);
+let path1 = req1.path;
+let resp1 = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\nConnection: keep-alive\r\n", path1);
+tcpWrite(a, resp1);
+let out1 = tcpRead(c, 4096);
+let res1 = httpParseResponse(out1);
+let b1 = res1.body;
+let h1 = httpResponseHeader(res1, "Content-Type");
+let reqMsg2 = httpWriteRequest("GET", "/up", "Host: x\r\nConnection: close\r\n", "");
+tcpWrite(c, reqMsg2);
+let raw2 = tcpRead(a, 4096);
+let req2 = httpParseRequest(raw2);
+let path2 = req2.path;
+let resp2 = httpWriteResponse(200, "OK", "Transfer-Encoding: chunked\r\nConnection: close\r\n", path2);
+tcpWrite(a, resp2);
+let out2 = tcpRead(c, 4096);
+let res2 = httpParseResponse(out2);
+let b2 = res2.body;
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);

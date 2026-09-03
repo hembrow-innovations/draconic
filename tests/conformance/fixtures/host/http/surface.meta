@@ -1,0 +1,4 @@
+id: host/http/surface
+targets: native
+native.exit: 0
+native.stdout: /hello\ntext/plain\n/up\n

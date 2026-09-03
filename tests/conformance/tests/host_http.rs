@@ -1,4 +1,5 @@
-//! ROADMAP H10.01–H10.06: HTTP/1.1 parse, write, server, keep-alive, client, chunked.
+//! ROADMAP H10 / H10.01–H10.06: HTTP/1.1 parse, write, server, keep-alive, client, chunked.
+//! H10 parent locks the combined HTTP/1.1 helper surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -80,10 +81,7 @@ fn parse_malformed_runs_native() {
         "must target native"
     );
     assert_eq!(fixture.expect_native.exit, 1);
-    assert_eq!(
-        fixture.expect_native.stderr.as_deref(),
-        Some("EINVAL\n")
-    );
+    assert_eq!(fixture.expect_native.stderr.as_deref(), Some("EINVAL\n"));
     assert_fixture_runs("host/http/parse_malformed");
 }
 
@@ -138,10 +136,7 @@ fn write_bad_status_runs_native() {
         "must target native"
     );
     assert_eq!(fixture.expect_native.exit, 1);
-    assert_eq!(
-        fixture.expect_native.stderr.as_deref(),
-        Some("EINVAL\n")
-    );
+    assert_eq!(fixture.expect_native.stderr.as_deref(), Some("EINVAL\n"));
     assert_fixture_runs("host/http/write_bad_status");
 }
 
@@ -314,9 +309,50 @@ fn parse_response_chunked_runs_native() {
         fixture.targets.contains(&Target::Native),
         "must target native"
     );
+    assert_eq!(fixture.expect_native.stdout.as_deref(), Some("200\nfoo\n"));
+    assert_fixture_runs("host/http/parse_response_chunked");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/http/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/http/surface")
+        .expect("host/http/surface");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    for name in [
+        "httpParseRequest",
+        "httpWriteResponse",
+        "httpWriteRequest",
+        "httpParseResponse",
+        "httpResponseHeader",
+        "Transfer-Encoding: chunked",
+        "tcpListen",
+        "tcpAccept",
+        "tcpConnect",
+    ] {
+        assert!(
+            fixture.source.contains(name),
+            "H10 surface must use {name} in one Program"
+        );
+    }
     assert_eq!(
         fixture.expect_native.stdout.as_deref(),
-        Some("200\nfoo\n")
+        Some("/hello\ntext/plain\n/up\n"),
+        "H10 surface must observe keep-alive client parse plus chunked response body"
     );
-    assert_fixture_runs("host/http/parse_response_chunked");
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H10 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/http/surface");
 }
