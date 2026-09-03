@@ -1,0 +1,4 @@
+id: host/http2/surface
+targets: native
+native.exit: 0
+native.stdout: GET\n/hello\nok-body\n/hello\n33\n9\n9\n

@@ -1,0 +1,35 @@
+// H13: one Program — client/server prefaces + settings ack, encode/parse
+// request/response, one-buffer client open + server reply over TCP.
+let magic = http2ClientPreface();
+let settings = http2ServerPreface();
+let ack = http2SettingsAck();
+let n_magic = magic.length;
+let n_settings = settings.length;
+let n_ack = ack.length;
+let wire_req = http2EncodeRequest("GET", "/hello", "");
+let parsed_req = http2ParseRequest(wire_req);
+stdoutWrite(parsed_req.method);
+stdoutWrite("\n");
+stdoutWrite(parsed_req.path);
+stdoutWrite("\n");
+let wire_res = http2EncodeResponse(200, "ok-body");
+let parsed_res = http2ParseResponse(wire_res);
+stdoutWrite(parsed_res.body);
+stdoutWrite("\n");
+let s = tcpListen(0);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let open = http2ClientOpen("GET", "/hello", "");
+tcpWrite(c, open);
+let raw = tcpRead(a, 8192);
+let req = http2ParseRequest(raw);
+let path = req.path;
+let reply = http2ServerReply(200, path);
+tcpWrite(a, reply);
+let out = tcpRead(c, 8192);
+let res = http2ParseResponse(out);
+stdoutWrite(res.body);
+stdoutWrite("\n");
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);
