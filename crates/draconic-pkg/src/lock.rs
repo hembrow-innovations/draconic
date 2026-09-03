@@ -1,7 +1,7 @@
-//! Lockfile types for `draconic.lock` (Roadmap K02.01–K02.03).
+//! Lockfile types for `draconic.lock` (Roadmap K02).
 //!
-//! A lock entry pins one direct dependency: module path, resolved version,
-//! git URL, commit OID, and content hash SHA-256 (K02.01).
+//! K02: a Program's package graph pins resolved deps in `draconic.lock`.
+//! K02.01: lock entry — path + version + git URL + commit OID + content hash SHA-256.
 //! K02.02: parse/write the lock document; reject malformed input.
 //! K02.03: stable serialize — packages sorted by path; rewrite of unchanged
 //! lock is byte-identical.
@@ -41,15 +41,9 @@ pub enum LockEntryError {
     /// Git URL is empty or not an acceptable clone URL.
     InvalidGitUrl { url: String, reason: &'static str },
     /// Commit OID is not a full 40-char lowercase hex SHA-1.
-    InvalidCommitOid {
-        oid: String,
-        reason: &'static str,
-    },
+    InvalidCommitOid { oid: String, reason: &'static str },
     /// Content hash is not a 64-char lowercase hex SHA-256 digest.
-    InvalidContentHash {
-        hash: String,
-        reason: &'static str,
-    },
+    InvalidContentHash { hash: String, reason: &'static str },
 }
 
 impl fmt::Display for LockEntryError {
@@ -221,10 +215,16 @@ impl fmt::Display for LockFileError {
                 write!(f, "draconic.lock: missing required field `version`")
             }
             LockFileError::InvalidVersion { got } => {
-                write!(f, "draconic.lock: `version` must be a positive integer, got {got}")
+                write!(
+                    f,
+                    "draconic.lock: `version` must be a positive integer, got {got}"
+                )
             }
             LockFileError::UnsupportedVersion { version } => {
-                write!(f, "draconic.lock: unsupported format version {version} (expected 1)")
+                write!(
+                    f,
+                    "draconic.lock: unsupported format version {version} (expected 1)"
+                )
             }
             LockFileError::UnknownField { field } => write!(
                 f,
@@ -235,7 +235,10 @@ impl fmt::Display for LockFileError {
                 "draconic.lock: `package` must be an array of tables (`[[package]]`)"
             ),
             LockFileError::MissingPackageField { field } => {
-                write!(f, "draconic.lock: package entry missing required field `{field}`")
+                write!(
+                    f,
+                    "draconic.lock: package entry missing required field `{field}`"
+                )
             }
             LockFileError::InvalidPackageField { field } => {
                 write!(f, "draconic.lock: package field `{field}` has invalid type")
@@ -252,13 +255,7 @@ impl std::error::Error for LockFileError {}
 
 const LOCK_FORMAT_VERSION: u32 = 1;
 const KNOWN_LOCK_TOP_LEVEL: &[&str] = &["version", "package"];
-const KNOWN_PACKAGE_KEYS: &[&str] = &[
-    "path",
-    "version",
-    "git_url",
-    "commit_oid",
-    "content_hash",
-];
+const KNOWN_PACKAGE_KEYS: &[&str] = &["path", "version", "git_url", "commit_oid", "content_hash"];
 
 /// Parse a `draconic.lock` source string into a validated [`LockFile`].
 ///
@@ -274,8 +271,7 @@ const KNOWN_PACKAGE_KEYS: &[&str] = &[
 /// content_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 /// ```
 pub fn parse_lock(src: &str) -> Result<LockFile, LockFileError> {
-    let value: TomlValue =
-        toml::from_str(src).map_err(|e| LockFileError::Toml(e.to_string()))?;
+    let value: TomlValue = toml::from_str(src).map_err(|e| LockFileError::Toml(e.to_string()))?;
     let table = match value {
         TomlValue::Table(t) => t,
         _ => return Err(LockFileError::NotATable),
@@ -283,9 +279,7 @@ pub fn parse_lock(src: &str) -> Result<LockFile, LockFileError> {
 
     for key in table.keys() {
         if !KNOWN_LOCK_TOP_LEVEL.contains(&key.as_str()) {
-            return Err(LockFileError::UnknownField {
-                field: key.clone(),
-            });
+            return Err(LockFileError::UnknownField { field: key.clone() });
         }
     }
 
@@ -447,8 +441,7 @@ content_hash = "{HASH}"
 
     #[test]
     fn reject_invalid_module_path() {
-        let err = LockEntry::new("not-a-path", VERSION, GIT_URL, OID, HASH)
-            .expect_err("bad path");
+        let err = LockEntry::new("not-a-path", VERSION, GIT_URL, OID, HASH).expect_err("bad path");
         match &err {
             LockEntryError::InvalidPath { path, reason } => {
                 assert_eq!(path, "not-a-path");
@@ -715,7 +708,10 @@ content_hash = "{HASH}"
         let twice = write_lock(&parse_lock(&once).expect("reparse"));
         assert_eq!(once.as_bytes(), twice.as_bytes());
         // Canonical form is also stable across a third rewrite.
-        assert_eq!(write_lock(&parse_lock(&twice).unwrap()).as_bytes(), once.as_bytes());
+        assert_eq!(
+            write_lock(&parse_lock(&twice).unwrap()).as_bytes(),
+            once.as_bytes()
+        );
     }
 
     #[test]
@@ -742,7 +738,10 @@ content_hash = "{HASH}"
     #[test]
     fn reject_version_wrong_type() {
         let err = parse_lock("version = \"1\"\n").expect_err("string version");
-        assert!(matches!(err, LockFileError::InvalidVersion { .. }), "{err:?}");
+        assert!(
+            matches!(err, LockFileError::InvalidVersion { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -842,5 +841,94 @@ extra = true
             }
             other => panic!("expected UnknownField, got {other:?}"),
         }
+    }
+
+    // --- K02: combined lockfile resolved pins (parent of K02.01–K02.03) ---
+
+    #[test]
+    fn k02_combined_lockfile_resolved_pins() {
+        // Unsorted input; each pin carries path + version + git URL + commit OID + tree SHA-256.
+        let src = format!(
+            r#"version = 1
+
+[[package]]
+path = "github.com/z/last"
+version = "3.0.0"
+git_url = "https://github.com/z/last.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+
+[[package]]
+path = "github.com/a/first"
+version = "1.2.3"
+git_url = "https://git.example.com/mirror/first.git"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        );
+        let lock = parse_lock(&src).expect("parse honest lock");
+        assert_eq!(lock.version, 1);
+        assert_eq!(lock.packages.len(), 2);
+
+        let a = lock.packages.get("github.com/a/first").expect("a");
+        assert_eq!(a.path, "github.com/a/first");
+        assert_eq!(a.version, "1.2.3");
+        assert_eq!(a.git_url, "https://git.example.com/mirror/first.git");
+        assert_eq!(a.commit_oid, OID);
+        assert_eq!(a.content_hash, HASH);
+        a.validate().expect("entry schema");
+
+        let z = lock.packages.get("github.com/z/last").expect("z");
+        assert_eq!(z.path, "github.com/z/last");
+        assert_eq!(z.version, "3.0.0");
+        assert_eq!(z.git_url, "https://github.com/z/last.git");
+        assert_eq!(z.commit_oid, OID);
+        assert_eq!(z.content_hash, HASH);
+        z.validate().expect("entry schema");
+
+        // Stable serialize: sorted by path; rewrite of unchanged lock is byte-identical (K02.03).
+        let written = write_lock(&lock);
+        let a_pos = written
+            .find("path = \"github.com/a/first\"")
+            .expect("a path");
+        let z_pos = written
+            .find("path = \"github.com/z/last\"")
+            .expect("z path");
+        assert!(a_pos < z_pos, "packages sorted by path:\n{written}");
+        let again = parse_lock(&written).expect("round-trip");
+        assert_eq!(again, lock);
+        assert_eq!(write_lock(&again).as_bytes(), written.as_bytes());
+
+        // Parse/write reject malformed (K02.02).
+        let malformed = parse_lock("version = 1\nextra = true\n").expect_err("unknown field");
+        match &malformed {
+            LockFileError::UnknownField { field } => assert_eq!(field, "extra"),
+            other => panic!("expected UnknownField, got {other:?}"),
+        }
+        assert!(
+            malformed.to_string().contains("draconic.lock"),
+            "diagnostic: {malformed}"
+        );
+
+        let bad_entry = parse_lock(&format!(
+            r#"version = 1
+
+[[package]]
+path = "not-a-path"
+version = "{VERSION}"
+git_url = "{GIT_URL}"
+commit_oid = "{OID}"
+content_hash = "{HASH}"
+"#
+        ))
+        .expect_err("bad path");
+        assert!(
+            matches!(bad_entry, LockFileError::Entry(_)),
+            "{bad_entry:?}"
+        );
+        assert!(
+            bad_entry.to_string().contains("module path"),
+            "diagnostic: {bad_entry}"
+        );
     }
 }

@@ -851,7 +851,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K01.02 | done | compiler | Write/round-trip `draconic.toml` (stable order) | `crates/draconic-pkg` |
 | K01.03 | done | compiler | Manifest schema validation + diagnostics | `crates/draconic-pkg` |
 | K01.04 | done | compiler | Optional URL map; default derive `https://{module_path}.git` | `crates/draconic-pkg` |
-| K02 | todo | compiler | Lockfile (`draconic.lock`): resolved pins | `crates/draconic-pkg` |
+| K02 | done | compiler | Lockfile (`draconic.lock`): resolved pins | `crates/draconic-pkg` |
 | K02.01 | done | compiler | Lock entry: path + version + git URL + commit OID + content hash SHA-256 | `crates/draconic-pkg` |
 | K02.02 | done | compiler | Parse/write lock; reject malformed | `crates/draconic-pkg` |
 | K02.03 | done | compiler | Stable lock serialize: sorted paths; byte-identical rewrite when unchanged | `crates/draconic-pkg` |
@@ -860,7 +860,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K03.02 | done | compiler | git clone/fetch into cache (HTTPS; fixture repos in tests) | `crates/draconic-pkg` |
 | K03.03 | done | compiler | Checkout pinned OID; cache hit skips network | `crates/draconic-pkg` |
 | K03.04 | done | compiler | Content hash SHA-256 over canonical package tree | `crates/draconic-pkg` |
-| K04 | done | compiler | Version resolve: semver tag → commit OID; fail closed | `crates/draconic-pkg` |
+| K04 | todo | compiler | Version resolve: semver tag → commit OID; fail closed | `crates/draconic-pkg` |
 | K04.01 | done | compiler | Resolve version req against git tags; highest matching semver | `crates/draconic-pkg` |
 | K04.02 | done | compiler | Fail closed: no match / non-semver-only / empty → diagnostic | `crates/draconic-pkg` |
 | K04.03 | done | compiler | Resolve direct-deps set → lock pins (v1: direct only) | `crates/draconic-pkg` |

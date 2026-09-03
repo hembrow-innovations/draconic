@@ -5,6 +5,7 @@
 //! K01.02: write/round-trip `draconic.toml` with stable dependency order.
 //! K01.03: schema validation (module paths, version reqs, unknown fields) + diagnostics.
 //! K01.04: optional URL map (path → git URL); default derive `https://{module_path}.git`.
+//! K02: lockfile (`draconic.lock`) resolved pins — path, version, git URL, commit OID, tree SHA-256.
 //! K02.01: lock entry — path + version + git URL + commit OID + content hash SHA-256.
 //! K02.02: parse/write `draconic.lock`; reject malformed.
 //! K02.03: stable lock serialize — sorted paths; byte-identical rewrite when unchanged.
@@ -41,8 +42,7 @@ mod tidy;
 mod toolchain;
 
 pub use cache::{
-    entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError,
-    ModuleCache,
+    entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError, ModuleCache,
 };
 pub use ensure::{
     ensure_locked_entries, ensure_locked_for_entry, EnsureLockedError, EnsureLockedResult,
@@ -60,17 +60,13 @@ pub use import_resolve::{
     match_locked_package, path_is_within_root, resolve_module_import, ImportResolveError,
     ResolvedImport,
 };
-pub use lock::{
-    parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError,
-};
+pub use lock::{parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError};
 pub use resolve::{
     resolve_direct_deps, resolve_highest_matching_tag, ResolveDirectError, ResolveError,
     ResolvedVersion,
 };
 pub use tidy::{mod_tidy, mod_tidy_default_cache, TidyError, TidyResult};
-pub use toolchain::{
-    check_toolchain_pin, check_toolchain_pin_for_entry, ToolchainPinStatus,
-};
+pub use toolchain::{check_toolchain_pin, check_toolchain_pin_for_entry, ToolchainPinStatus};
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -257,8 +253,7 @@ impl std::error::Error for ManifestError {}
 /// structural decode plus schema validation (module paths, version requirements,
 /// git URLs, unknown fields).
 pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
-    let value: TomlValue =
-        toml::from_str(src).map_err(|e| ManifestError::Toml(e.to_string()))?;
+    let value: TomlValue = toml::from_str(src).map_err(|e| ManifestError::Toml(e.to_string()))?;
     let table = match value {
         TomlValue::Table(t) => t,
         _ => return Err(ManifestError::NotATable),
@@ -266,9 +261,7 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
 
     for key in table.keys() {
         if !KNOWN_TOP_LEVEL_KEYS.contains(&key.as_str()) {
-            return Err(ManifestError::UnknownField {
-                field: key.clone(),
-            });
+            return Err(ManifestError::UnknownField { field: key.clone() });
         }
     }
 
@@ -287,9 +280,7 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
                 let req = match value {
                     TomlValue::String(s) => s.clone(),
                     _ => {
-                        return Err(ManifestError::InvalidDependencyValue {
-                            path: path.clone(),
-                        });
+                        return Err(ManifestError::InvalidDependencyValue { path: path.clone() });
                     }
                 };
                 deps.insert(path.clone(), req);
@@ -307,9 +298,7 @@ pub fn parse_manifest(src: &str) -> Result<Manifest, ManifestError> {
                 let url = match value {
                     TomlValue::String(s) => s.clone(),
                     _ => {
-                        return Err(ManifestError::InvalidUrlValue {
-                            path: path.clone(),
-                        });
+                        return Err(ManifestError::InvalidUrlValue { path: path.clone() });
                     }
                 };
                 map.insert(path.clone(), url);
@@ -341,9 +330,7 @@ fn parse_toolchain_value(value: Option<&TomlValue>) -> Result<Option<ToolchainPi
         Some(TomlValue::Table(table)) => {
             for key in table.keys() {
                 if !KNOWN_TOOLCHAIN_KEYS.contains(&key.as_str()) {
-                    return Err(ManifestError::UnknownField {
-                        field: key.clone(),
-                    });
+                    return Err(ManifestError::UnknownField { field: key.clone() });
                 }
             }
             let version = match table.get("version") {
@@ -377,9 +364,7 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), ManifestError> {
 
     for (path, req) in &manifest.dependencies {
         if path == &manifest.module {
-            return Err(ManifestError::SelfDependency {
-                path: path.clone(),
-            });
+            return Err(ManifestError::SelfDependency { path: path.clone() });
         }
         if let Err(reason) = validate_module_path(path) {
             return Err(ManifestError::InvalidDependencyPath {
@@ -527,9 +512,7 @@ pub(crate) fn validate_module_path(path: &str) -> Result<(), &'static str> {
 
     let segments: Vec<&str> = path.split('/').collect();
     if segments.len() < 2 {
-        return Err(
-            "must contain at least two path segments (e.g. github.com/org/pkg)",
-        );
+        return Err("must contain at least two path segments (e.g. github.com/org/pkg)");
     }
 
     let host = segments[0];
@@ -548,9 +531,7 @@ pub(crate) fn validate_module_path(path: &str) -> Result<(), &'static str> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
         {
-            return Err(
-                "segments may only contain ASCII letters, digits, '.', '-', '_'",
-            );
+            return Err("segments may only contain ASCII letters, digits, '.', '-', '_'");
         }
     }
 
@@ -655,12 +636,8 @@ fn is_semver_ident_chain(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-    s.split('.').all(|part| {
-        !part.is_empty()
-            && part
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-')
-    })
+    s.split('.')
+        .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
 }
 
 /// Serialize a [`Manifest`] to a stable `draconic.toml` document.
@@ -748,11 +725,7 @@ mod tests {
         manifest_with_urls(module, deps, &[])
     }
 
-    fn manifest_with_urls(
-        module: &str,
-        deps: &[(&str, &str)],
-        urls: &[(&str, &str)],
-    ) -> Manifest {
+    fn manifest_with_urls(module: &str, deps: &[(&str, &str)], urls: &[(&str, &str)]) -> Manifest {
         Manifest {
             module: module.to_string(),
             dependencies: deps
@@ -997,35 +970,46 @@ module = \"github.com/acme/app\"
     #[test]
     fn reject_module_path_leading_slash() {
         let err = parse_manifest(r#"module = "/github.com/org/pkg""#).expect_err("leading slash");
-        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+        assert!(
+            matches!(err, ManifestError::InvalidModulePath { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
     fn reject_module_path_trailing_slash() {
-        let err =
-            parse_manifest(r#"module = "github.com/org/pkg/""#).expect_err("trailing slash");
-        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+        let err = parse_manifest(r#"module = "github.com/org/pkg/""#).expect_err("trailing slash");
+        assert!(
+            matches!(err, ManifestError::InvalidModulePath { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
     fn reject_module_path_empty_segment() {
-        let err =
-            parse_manifest(r#"module = "github.com//pkg""#).expect_err("empty segment");
-        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+        let err = parse_manifest(r#"module = "github.com//pkg""#).expect_err("empty segment");
+        assert!(
+            matches!(err, ManifestError::InvalidModulePath { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
     fn reject_module_path_dot_segment() {
-        let err =
-            parse_manifest(r#"module = "github.com/org/../evil""#).expect_err("dotdot");
-        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+        let err = parse_manifest(r#"module = "github.com/org/../evil""#).expect_err("dotdot");
+        assert!(
+            matches!(err, ManifestError::InvalidModulePath { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
     fn reject_module_path_whitespace() {
-        let err =
-            parse_manifest(r#"module = "github.com/org/my pkg""#).expect_err("whitespace");
-        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+        let err = parse_manifest(r#"module = "github.com/org/my pkg""#).expect_err("whitespace");
+        assert!(
+            matches!(err, ManifestError::InvalidModulePath { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -1183,15 +1167,15 @@ module = "github.com/acme/app"
             toolchain: None,
         };
         let err = validate_manifest(&m).expect_err("should fail schema");
-        assert!(matches!(err, ManifestError::InvalidModulePath { .. }), "{err:?}");
+        assert!(
+            matches!(err, ManifestError::InvalidModulePath { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
     fn validate_manifest_accepts_good() {
-        let m = manifest(
-            "github.com/acme/app",
-            &[("github.com/org/lib", "^1.2.3")],
-        );
+        let m = manifest("github.com/acme/app", &[("github.com/org/lib", "^1.2.3")]);
         validate_manifest(&m).expect("valid");
     }
 
@@ -1274,9 +1258,7 @@ module = "github.com/acme/app"
             Some("https://git.example.com/org/lib.git")
         );
         assert_eq!(
-            m.urls
-                .get("github.com/private/tool")
-                .map(String::as_str),
+            m.urls.get("github.com/private/tool").map(String::as_str),
             Some("git@github.com:private/tool.git")
         );
         assert_eq!(
@@ -1440,10 +1422,7 @@ module = "github.com/acme/app"
 "#,
         )
         .expect_err("ftp not allowed");
-        assert!(
-            matches!(err, ManifestError::InvalidUrl { .. }),
-            "{err:?}"
-        );
+        assert!(matches!(err, ManifestError::InvalidUrl { .. }), "{err:?}");
     }
 
     #[test]
@@ -1644,14 +1623,8 @@ toolchain = 12
 "#,
         )
         .expect_err("wrong type");
-        assert!(
-            matches!(err, ManifestError::InvalidToolchain),
-            "{err:?}"
-        );
-        assert!(
-            err.to_string().contains("toolchain"),
-            "diagnostic: {err}"
-        );
+        assert!(matches!(err, ManifestError::InvalidToolchain), "{err:?}");
+        assert!(err.to_string().contains("toolchain"), "diagnostic: {err}");
     }
 
     #[test]
