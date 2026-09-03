@@ -1,2 +1,0 @@
-// H10.07: httpWriteResponse is native-only — hard-error on js until Node bridge.
-httpWriteResponse(200, "OK", "", "");

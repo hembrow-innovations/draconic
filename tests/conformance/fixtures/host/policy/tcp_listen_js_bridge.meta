@@ -1,0 +1,4 @@
+id: host/policy/tcp_listen_js_bridge
+targets: js
+js.exit: 0
+js.check: if (typeof p !== "number") process.exit(1); if (!(p > 0 && p < 65536)) process.exit(2);

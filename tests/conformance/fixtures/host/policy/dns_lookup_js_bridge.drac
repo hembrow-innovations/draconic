@@ -1,0 +1,4 @@
+// H17.04: dnsLookup Node bridge — IPv4 literal → ["127.0.0.1"].
+let addrs = dnsLookup("127.0.0.1");
+let n = addrs.length;
+let a0 = addrs[0];

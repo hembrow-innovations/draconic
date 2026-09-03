@@ -1,5 +1,7 @@
-//! ROADMAP H00 / H00.01 / H06.06 / H09.03 / H10.07: host I/O surface policy.
+//! ROADMAP H00 / H00.01 / H17.04: host I/O surface policy.
 //! H00 parent locks free-identifier shape, HostError model, and js hard-error vs polyfill.
+//! H17.04 lands the JS/Node bridge subset (TCP listen/accept, dnsLookup, HTTP helpers);
+//! APIs outside that subset still hard-error on js (no silent polyfill).
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -45,23 +47,23 @@ fn assert_fixture_runs_both(id: &str) {
 }
 
 #[test]
-fn tcp_listen_js_hard_error_fixture_present() {
-    assert_fixture_present("host/policy/tcp_listen_js_hard_error");
+fn tcp_listen_js_bridge_fixture_present() {
+    assert_fixture_present("host/policy/tcp_listen_js_bridge");
 }
 
 #[test]
-fn tcp_listen_js_hard_error_on_js() {
-    assert_fixture_runs_js("host/policy/tcp_listen_js_hard_error");
+fn tcp_listen_js_bridge_on_js() {
+    assert_fixture_runs_js("host/policy/tcp_listen_js_bridge");
 }
 
 #[test]
-fn tcp_accept_js_hard_error_fixture_present() {
-    assert_fixture_present("host/policy/tcp_accept_js_hard_error");
+fn tcp_accept_js_bridge_fixture_present() {
+    assert_fixture_present("host/policy/tcp_accept_js_bridge");
 }
 
 #[test]
-fn tcp_accept_js_hard_error_on_js() {
-    assert_fixture_runs_js("host/policy/tcp_accept_js_hard_error");
+fn tcp_accept_js_bridge_on_js() {
+    assert_fixture_runs_js("host/policy/tcp_accept_js_bridge");
 }
 
 #[test]
@@ -75,33 +77,33 @@ fn open_file_js_hard_error_on_js() {
 }
 
 #[test]
-fn http_parse_request_js_hard_error_fixture_present() {
-    assert_fixture_present("host/policy/http_parse_request_js_hard_error");
+fn http_parse_request_js_bridge_fixture_present() {
+    assert_fixture_present("host/policy/http_parse_request_js_bridge");
 }
 
 #[test]
-fn http_parse_request_js_hard_error_on_js() {
-    assert_fixture_runs_js("host/policy/http_parse_request_js_hard_error");
+fn http_parse_request_js_bridge_on_js() {
+    assert_fixture_runs_js("host/policy/http_parse_request_js_bridge");
 }
 
 #[test]
-fn http_write_response_js_hard_error_fixture_present() {
-    assert_fixture_present("host/policy/http_write_response_js_hard_error");
+fn http_write_response_js_bridge_fixture_present() {
+    assert_fixture_present("host/policy/http_write_response_js_bridge");
 }
 
 #[test]
-fn http_write_response_js_hard_error_on_js() {
-    assert_fixture_runs_js("host/policy/http_write_response_js_hard_error");
+fn http_write_response_js_bridge_on_js() {
+    assert_fixture_runs_js("host/policy/http_write_response_js_bridge");
 }
 
 #[test]
-fn http_request_header_js_hard_error_fixture_present() {
-    assert_fixture_present("host/policy/http_request_header_js_hard_error");
+fn http_write_request_js_bridge_fixture_present() {
+    assert_fixture_present("host/policy/http_write_request_js_bridge");
 }
 
 #[test]
-fn http_request_header_js_hard_error_on_js() {
-    assert_fixture_runs_js("host/policy/http_request_header_js_hard_error");
+fn http_write_request_js_bridge_on_js() {
+    assert_fixture_runs_js("host/policy/http_write_request_js_bridge");
 }
 
 #[test]
@@ -165,13 +167,13 @@ fn restore_signal_js_hard_error_on_js() {
 }
 
 #[test]
-fn dns_lookup_js_hard_error_fixture_present() {
-    assert_fixture_present("host/policy/dns_lookup_js_hard_error");
+fn dns_lookup_js_bridge_fixture_present() {
+    assert_fixture_present("host/policy/dns_lookup_js_bridge");
 }
 
 #[test]
-fn dns_lookup_js_hard_error_on_js() {
-    assert_fixture_runs_js("host/policy/dns_lookup_js_hard_error");
+fn dns_lookup_js_bridge_on_js() {
+    assert_fixture_runs_js("host/policy/dns_lookup_js_bridge");
 }
 
 #[test]
@@ -222,5 +224,11 @@ fn host_error_js_is_catchable_name_and_code() {
 fn surface_locks_host_policy() {
     assert_fixture_runs_both("host/policy/surface");
     assert_fixture_runs_js("host/policy/host_error_js");
-    assert_fixture_runs_js("host/policy/tcp_listen_js_hard_error");
+    assert_fixture_runs_js("host/policy/tcp_listen_js_bridge");
+    assert_fixture_runs_js("host/policy/tcp_accept_js_bridge");
+    assert_fixture_runs_js("host/policy/dns_lookup_js_bridge");
+    assert_fixture_runs_js("host/policy/http_parse_request_js_bridge");
+    assert_fixture_runs_js("host/policy/http_write_response_js_bridge");
+    assert_fixture_runs_js("host/policy/http_write_request_js_bridge");
+    assert_fixture_runs_js("host/policy/tls_client_wrap_js_hard_error");
 }

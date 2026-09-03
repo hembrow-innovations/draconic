@@ -1,0 +1,4 @@
+id: host/policy/http_parse_request_js_bridge
+targets: js
+js.exit: 0
+js.check: if (m !== "GET") process.exit(1); if (p !== "/hello") process.exit(2); if (v !== "HTTP/1.1") process.exit(3); if (b !== "") process.exit(4); if (h !== "example.com") process.exit(5);

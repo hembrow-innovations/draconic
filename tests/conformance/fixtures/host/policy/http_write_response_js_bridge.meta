@@ -1,0 +1,4 @@
+id: host/policy/http_write_response_js_bridge
+targets: js
+js.exit: 0
+js.check: if (typeof msg !== "string") process.exit(1); if (msg.indexOf("HTTP/1.1 200 OK") !== 0) process.exit(2); if (msg.indexOf("Content-Type: text/plain") < 0) process.exit(3); if (msg.indexOf("Content-Length: 5") < 0) process.exit(4); if (msg.slice(-5) !== "hello") process.exit(5);

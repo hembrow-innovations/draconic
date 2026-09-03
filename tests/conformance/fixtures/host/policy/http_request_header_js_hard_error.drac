@@ -1,2 +1,0 @@
-// H10.07: httpRequestHeader is native-only — hard-error on js until Node bridge.
-httpRequestHeader(null, "Host");

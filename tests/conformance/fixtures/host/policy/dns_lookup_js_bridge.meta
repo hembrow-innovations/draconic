@@ -1,0 +1,4 @@
+id: host/policy/dns_lookup_js_bridge
+targets: js
+js.exit: 0
+js.check: if (n !== 1) process.exit(1); if (a0 !== "127.0.0.1") process.exit(2);

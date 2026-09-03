@@ -1,0 +1,4 @@
+// H17.04: tcpListen Node bridge — ephemeral listen + local port + close.
+let s = tcpListen(0);
+let p = tcpLocalPort(s);
+closeTcp(s);

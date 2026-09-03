@@ -1,0 +1,4 @@
+id: host/policy/tcp_accept_js_bridge
+targets: js
+js.exit: 0
+js.check: if (peer !== "127.0.0.1") process.exit(1);

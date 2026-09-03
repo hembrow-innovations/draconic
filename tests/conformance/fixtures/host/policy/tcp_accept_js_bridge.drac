@@ -1,0 +1,9 @@
+// H17.04: tcpAccept Node bridge — loopback listen + connect + accept + peer.
+let s = tcpListen(0);
+let p = tcpLocalPort(s);
+let c = tcpConnect("127.0.0.1", p);
+let a = tcpAccept(s);
+let peer = tcpPeerAddress(a);
+closeTcp(c);
+closeTcp(a);
+closeTcp(s);

@@ -2,9 +2,11 @@
 //! + host I/O substrate (H00.02–H00.03, H01.01 process args); embed later (N07).
 
 pub mod abi;
+pub mod host_js_bridge;
 pub mod logging;
 pub use abi::*;
 pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
+pub use host_js_bridge::{dns_js_polyfill, http_js_polyfill, tcp_js_polyfill};
 pub use logging::create_logger_js_polyfill;
 pub use testing::describe_it_js_polyfill;
 pub use url::{
@@ -12,26 +14,25 @@ pub use url::{
 };
 
 #[cfg(test)]
-mod host_abi_tests;
-#[cfg(test)]
-mod host_bytes_tests;
-#[cfg(test)]
-mod host_worker_tests;
-#[cfg(test)]
-mod host_once_tests;
-#[cfg(test)]
-mod host_atomics_tests;
-#[cfg(test)]
-mod host_mutex_tests;
-#[cfg(test)]
-mod host_cancel_tests;
-#[cfg(test)]
-mod gc_alloc_budget_tests;
+mod abort_policy_tests;
 #[cfg(test)]
 mod eval_time_budget_tests;
 #[cfg(test)]
-mod abort_policy_tests;
-
+mod gc_alloc_budget_tests;
+#[cfg(test)]
+mod host_abi_tests;
+#[cfg(test)]
+mod host_atomics_tests;
+#[cfg(test)]
+mod host_bytes_tests;
+#[cfg(test)]
+mod host_cancel_tests;
+#[cfg(test)]
+mod host_mutex_tests;
+#[cfg(test)]
+mod host_once_tests;
+#[cfg(test)]
+mod host_worker_tests;
 
 /// L03.01 / L03.02: SHA-256 digest and OS CSPRNG bytes.
 pub mod crypto {
@@ -88,10 +89,10 @@ if (typeof globalThis !== "undefined") globalThis.randomBytes = randomBytes;
     }
 }
 
-    /// L05.01 / L05.02 / L05.03: in-language `describe` / `it` / `expect` + hooks.
-    pub mod testing {
-        pub fn describe_it_js_polyfill() -> &'static str {
-            r#"var __testSuites = [{ beforeEach: [], afterEach: [], after: [] }];
+/// L05.01 / L05.02 / L05.03: in-language `describe` / `it` / `expect` + hooks.
+pub mod testing {
+    pub fn describe_it_js_polyfill() -> &'static str {
+        r#"var __testSuites = [{ beforeEach: [], afterEach: [], after: [] }];
 function describe(name, fn) {
   if (typeof fn !== "function") throw new TypeError("describe expects a function");
   __testSuites.push({ beforeEach: [], afterEach: [], after: [] });
@@ -196,33 +197,47 @@ pub mod url {
         }
         while i < bytes.len() {
             let b = bytes[i];
-            if b == b':' { break; }
+            if b == b':' {
+                break;
+            }
             if !(b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.')) {
                 return Err(());
             }
             i += 1;
         }
-        if i == 0 || i >= bytes.len() || bytes[i] != b':' { return Err(()); }
+        if i == 0 || i >= bytes.len() || bytes[i] != b':' {
+            return Err(());
+        }
         let scheme = input[..i].to_ascii_lowercase();
         i += 1;
-        if i + 1 >= bytes.len() || bytes[i] != b'/' || bytes[i + 1] != b'/' { return Err(()); }
+        if i + 1 >= bytes.len() || bytes[i] != b'/' || bytes[i + 1] != b'/' {
+            return Err(());
+        }
         i += 2;
         let auth_start = i;
-        while i < bytes.len() && !matches!(bytes[i], b'/' | b'?' | b'#') { i += 1; }
-        if i == auth_start { return Err(()); }
+        while i < bytes.len() && !matches!(bytes[i], b'/' | b'?' | b'#') {
+            i += 1;
+        }
+        if i == auth_start {
+            return Err(());
+        }
         let host = input[auth_start..i].to_string();
         let mut path = String::new();
         if i < bytes.len() && bytes[i] == b'/' {
             let path_start = i;
             i += 1;
-            while i < bytes.len() && !matches!(bytes[i], b'?' | b'#') { i += 1; }
+            while i < bytes.len() && !matches!(bytes[i], b'?' | b'#') {
+                i += 1;
+            }
             path = input[path_start..i].to_string();
         }
         let mut query = String::new();
         if i < bytes.len() && bytes[i] == b'?' {
             i += 1;
             let q_start = i;
-            while i < bytes.len() && bytes[i] != b'#' { i += 1; }
+            while i < bytes.len() && bytes[i] != b'#' {
+                i += 1;
+            }
             query = input[q_start..i].to_string();
         }
         let mut hash = String::new();
@@ -230,7 +245,13 @@ pub mod url {
             i += 1;
             hash = input[i..].to_string();
         }
-        Ok(ParsedUrl { scheme, host, path, query, hash })
+        Ok(ParsedUrl {
+            scheme,
+            host,
+            path,
+            query,
+            hash,
+        })
     }
 
     pub fn parse_url_js_polyfill() -> &'static str {
@@ -604,9 +625,8 @@ pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
 
 /// D05.02: same as [`build_runtime_static_lib`], compiling with `-flto -Os` when `lto`.
 pub fn build_runtime_static_lib_with_lto(out_dir: &Path, lto: bool) -> Result<PathBuf, String> {
-    let clang = find_clang().ok_or_else(|| {
-        "clang not found (set CLANG or install a C toolchain)".to_string()
-    })?;
+    let clang = find_clang()
+        .ok_or_else(|| "clang not found (set CLANG or install a C toolchain)".to_string())?;
     let ar = find_ar().ok_or_else(|| "ar not found (set AR or install binutils)".to_string())?;
 
     let sources = c_runtime_source_paths();
@@ -672,7 +692,10 @@ pub fn build_runtime_static_lib_with_lto(out_dir: &Path, lto: bool) -> Result<Pa
     }
 
     if !archive.is_file() {
-        return Err(format!("static lib missing after ar: {}", archive.display()));
+        return Err(format!(
+            "static lib missing after ar: {}",
+            archive.display()
+        ));
     }
     Ok(archive)
 }
@@ -734,7 +757,12 @@ fn find_ar() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    for candidate in ["ar", "/usr/bin/ar", "llvm-ar", "/opt/homebrew/opt/llvm/bin/llvm-ar"] {
+    for candidate in [
+        "ar",
+        "/usr/bin/ar",
+        "llvm-ar",
+        "/opt/homebrew/opt/llvm/bin/llvm-ar",
+    ] {
         let ok = Command::new(candidate)
             .arg("--version")
             .stdout(Stdio::null())
@@ -782,7 +810,10 @@ mod tests {
             src.contains("puts(\"hello\")"),
             "C runtime must print hello: {src}"
         );
-        assert!(c_runtime_path().is_file(), "draconic_rt.c must exist on disk");
+        assert!(
+            c_runtime_path().is_file(),
+            "draconic_rt.c must exist on disk"
+        );
     }
 
     #[test]
@@ -949,7 +980,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(
             status.success(),
             "clang failed to link against libdraconic_rt.a"
@@ -991,7 +1022,11 @@ mod tests {
         assert!(status.success(), "clang failed to link runtime");
 
         let output = Command::new(&bin).output().expect("run rt_hello");
-        assert!(output.status.success(), "binary failed: {:?}", output.status);
+        assert!(
+            output.status.success(),
+            "binary failed: {:?}",
+            output.status
+        );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "hello\n", "stdout={stdout:?}");
     }
@@ -1257,7 +1292,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link gc stress test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_stress");
@@ -1430,7 +1465,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link gc mark props test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_mark_props");
@@ -1709,7 +1744,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link gc cycles test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_cycles");
@@ -1888,7 +1923,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link gc root stack test");
 
         let output = Command::new(&bin).output().expect("run rt_gc_root_stack");
@@ -2050,8 +2085,11 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
-        assert!(status.success(), "clang failed to link gc auto-collect test");
+        };
+        assert!(
+            status.success(),
+            "clang failed to link gc auto-collect test"
+        );
 
         let output = Command::new(&bin).output().expect("run rt_gc_auto");
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2260,7 +2298,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link promise test");
 
         let output = Command::new(&bin).output().expect("run rt_promise");
@@ -2392,10 +2430,15 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
-        assert!(status.success(), "clang failed to link promise construct test");
+        };
+        assert!(
+            status.success(),
+            "clang failed to link promise construct test"
+        );
 
-        let output = Command::new(&bin).output().expect("run rt_promise_construct");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run rt_promise_construct");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             output.status.success(),
@@ -2537,7 +2580,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link promise all test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_all");
@@ -2659,7 +2702,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link promise race test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_race");
@@ -2802,10 +2845,15 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
-        assert!(status.success(), "clang failed to link promise allSettled test");
+        };
+        assert!(
+            status.success(),
+            "clang failed to link promise allSettled test"
+        );
 
-        let output = Command::new(&bin).output().expect("run rt_promise_all_settled");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run rt_promise_all_settled");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
             output.status.success(),
@@ -2967,7 +3015,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link promise any test");
 
         let output = Command::new(&bin).output().expect("run rt_promise_any");
@@ -3089,8 +3137,11 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
-        assert!(status.success(), "clang failed to link promise finally test");
+        };
+        assert!(
+            status.success(),
+            "clang failed to link promise finally test"
+        );
 
         let output = Command::new(&bin).output().expect("run rt_promise_finally");
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -3215,7 +3266,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link job queue test");
 
         let output = Command::new(&bin).output().expect("run rt_job_queue");
@@ -3311,7 +3362,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link timer test");
 
         let output = Command::new(&bin).output().expect("run rt_timer");
@@ -3395,7 +3446,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link interval test");
 
         let output = Command::new(&bin).output().expect("run rt_interval");
@@ -3498,7 +3549,7 @@ mod tests {
                 .arg(&bin);
             apply_runtime_link_flags(&mut link);
             link.status().expect("spawn clang")
-            };
+        };
         assert!(status.success(), "clang failed to link timer wait test");
 
         let output = Command::new(&bin).output().expect("run rt_timer_wait");

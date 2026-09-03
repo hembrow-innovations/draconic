@@ -87,21 +87,20 @@ pub struct HostApiEntry {
 /// - `openFile` / `fileRead` / `fileWrite` / `fileSeek` / `closeFile` (H04.06): native-only open handles.
 /// - `nowMs` (H05.01): both — wall clock ms since Unix epoch (`Date.now` equivalent).
 /// - `monotonicMs` (H05.02): both — monotonic clock ms for durations (not wall epoch).
-/// - `tcpListen` / `tcpLocalPort` / `closeTcp` (H06.01): native-only TCP listen + port query + close.
-/// - `tcpAccept` / `tcpPeerAddress` / `tcpPeerPort` (H06.02): accept + peer.
-/// - `tcpConnect` (H06.02–H06.03): dial IPv4 host:port; refused/timeout → HostError ECONN.
-/// - `tcpRead` / `tcpWrite` / `tcpShutdown` (H06.04): connection bytes + half-close.
-/// - H06.06: all TCP listen/accept (and related) APIs hard-error on js until optional Node bridge.
+/// - `tcpListen` / `tcpLocalPort` / `closeTcp` (H06.01 / H17.04): both — TCP listen + port query + close; js Node `net` bridge.
+/// - `tcpAccept` / `tcpPeerAddress` / `tcpPeerPort` (H06.02 / H17.04): both — accept + peer.
+/// - `tcpConnect` (H06.03 / H17.04): both — dial IPv4 host:port; refused/timeout → HostError ECONN.
+/// - `tcpRead` / `tcpWrite` / `tcpShutdown` (H06.04 / H17.04): both — connection bytes + half-close.
+/// - H06.06: listen/accept were js hard-error until H17.04 Node bridge.
 /// - `udpBind` / `udpLocalPort` / `udpSendTo` / `udpRecvFrom` / `closeUdp` (H08.01): native-only UDP.
-/// - `dnsLookup` (H09.01): native-only DNS hostname → IPv4 address string[]; failure → HostError EADDR.
-/// - H09.03: `dnsLookup` hard-error on js until optional Node bridge.
-/// - `httpParseRequest` / `httpRequestHeader` (H10.01): native-only HTTP/1.1 request parse.
-/// - `httpWriteResponse` (H10.02): native-only HTTP/1.1 response format (status+headers+body).
+/// - `dnsLookup` (H09.01 / H17.04): both — DNS hostname → IPv4 address string[]; failure → HostError EADDR; js Node `dns` bridge.
+/// - H09.03: `dnsLookup` was js hard-error until H17.04 Node bridge.
+/// - `httpParseRequest` / `httpRequestHeader` (H10.01 / H17.04): both — HTTP/1.1 request parse.
+/// - `httpWriteResponse` (H10.02 / H17.04): both — HTTP/1.1 response format (status+headers+body).
 /// - H10.03: compose TCP accept + parse + write + close (server one-shot; see `host_http_server`).
-/// - `httpWriteRequest` / `httpParseResponse` / `httpResponseHeader` (H10.05): client helpers.
+/// - `httpWriteRequest` / `httpParseResponse` / `httpResponseHeader` (H10.05 / H17.04): both — client helpers.
 /// - H10.04: same surface, two request/response cycles on one connection (keep-alive).
-/// - H10.07: HTTP listen helpers (`httpParseRequest` / `httpRequestHeader` / `httpWriteResponse`
-///   and client parse/write) hard-error on js until optional Node bridge.
+/// - H10.07: HTTP helpers were js hard-error until H17.04 Node bridge.
 /// - `tlsClientWrap` / `tlsServerWrap` / `tlsRead` / `tlsWrite` / `closeTls` (H11.01/H11.02): native-only TLS.
 /// - `wsHandshakeResponse` (H12.01): native-only WebSocket server opening handshake (RFC 6455).
 /// - `wsEncodeText` / `wsEncodeBinary` / `wsEncodeClose` / `wsEncodePing` / `wsEncodePong` /
@@ -492,53 +491,53 @@ const HOST_APIS: &[HostApiEntry] = &[
     },
     HostApiEntry {
         name: "tcpListen",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.01 TCP listen",
+        availability: HostAvailability::BOTH,
+        note: "H06.01/H17.04 TCP listen",
     },
     HostApiEntry {
         name: "tcpLocalPort",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.01 TCP local port",
+        availability: HostAvailability::BOTH,
+        note: "H06.01/H17.04 TCP local port",
     },
     HostApiEntry {
         name: "closeTcp",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.01 close TCP listen/conn handle",
+        availability: HostAvailability::BOTH,
+        note: "H06.01/H17.04 close TCP listen/conn handle",
     },
     HostApiEntry {
         name: "tcpAccept",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.02 TCP accept → connection handle",
+        availability: HostAvailability::BOTH,
+        note: "H06.02/H17.04 TCP accept → connection handle",
     },
     HostApiEntry {
         name: "tcpConnect",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.03 TCP connect dial host:port; refused/timeout → ECONN",
+        availability: HostAvailability::BOTH,
+        note: "H06.03/H17.04 TCP connect dial host:port; refused/timeout → ECONN",
     },
     HostApiEntry {
         name: "tcpPeerAddress",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.02 TCP peer IPv4 address string",
+        availability: HostAvailability::BOTH,
+        note: "H06.02/H17.04 TCP peer IPv4 address string",
     },
     HostApiEntry {
         name: "tcpPeerPort",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.02 TCP peer port",
+        availability: HostAvailability::BOTH,
+        note: "H06.02/H17.04 TCP peer port",
     },
     HostApiEntry {
         name: "tcpRead",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.04 TCP read bytes (partial OK)",
+        availability: HostAvailability::BOTH,
+        note: "H06.04/H17.04 TCP read bytes (partial OK)",
     },
     HostApiEntry {
         name: "tcpWrite",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.04 TCP write bytes",
+        availability: HostAvailability::BOTH,
+        note: "H06.04/H17.04 TCP write bytes",
     },
     HostApiEntry {
         name: "tcpShutdown",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H06.04 TCP shutdown (0=RD 1=WR 2=RDWR)",
+        availability: HostAvailability::BOTH,
+        note: "H06.04/H17.04 TCP shutdown (0=RD 1=WR 2=RDWR)",
     },
     HostApiEntry {
         name: "tcpAcceptAsync",
@@ -587,23 +586,23 @@ const HOST_APIS: &[HostApiEntry] = &[
     },
     HostApiEntry {
         name: "dnsLookup",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H09.01 DNS lookup hostname → IPv4 address strings",
+        availability: HostAvailability::BOTH,
+        note: "H09.01/H17.04 DNS lookup hostname → IPv4 address strings",
     },
     HostApiEntry {
         name: "httpParseRequest",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H10.01 HTTP/1.1 request parse → method/path/version/body",
+        availability: HostAvailability::BOTH,
+        note: "H10.01/H17.04 HTTP/1.1 request parse → method/path/version/body",
     },
     HostApiEntry {
         name: "httpRequestHeader",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H10.01 HTTP/1.1 request header lookup (case-insensitive)",
+        availability: HostAvailability::BOTH,
+        note: "H10.01/H17.04 HTTP/1.1 request header lookup (case-insensitive)",
     },
     HostApiEntry {
         name: "httpWriteResponse",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H10.02 HTTP/1.1 response write → status-line + headers + body",
+        availability: HostAvailability::BOTH,
+        note: "H10.02/H17.04 HTTP/1.1 response write → status-line + headers + body",
     },
     HostApiEntry {
         name: "httpServeStatic",
@@ -612,18 +611,18 @@ const HOST_APIS: &[HostApiEntry] = &[
     },
     HostApiEntry {
         name: "httpWriteRequest",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H10.05 HTTP/1.1 request write → request-line + headers + body",
+        availability: HostAvailability::BOTH,
+        note: "H10.05/H17.04 HTTP/1.1 request write → request-line + headers + body",
     },
     HostApiEntry {
         name: "httpParseResponse",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H10.05 HTTP/1.1 response parse → version/status/reason/body",
+        availability: HostAvailability::BOTH,
+        note: "H10.05/H17.04 HTTP/1.1 response parse → version/status/reason/body",
     },
     HostApiEntry {
         name: "httpResponseHeader",
-        availability: HostAvailability::NATIVE_ONLY,
-        note: "H10.05 HTTP/1.1 response header lookup (case-insensitive)",
+        availability: HostAvailability::BOTH,
+        note: "H10.05/H17.04 HTTP/1.1 response header lookup (case-insensitive)",
     },
     HostApiEntry {
         name: "wsHandshakeResponse",
@@ -1266,7 +1265,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_lists_tcp_listen_native_only() {
+    fn registry_lists_h17_04_bridge_subset_both() {
         for name in [
             "tcpListen",
             "tcpLocalPort",
@@ -1278,6 +1277,30 @@ mod tests {
             "tcpRead",
             "tcpWrite",
             "tcpShutdown",
+            "dnsLookup",
+            "httpParseRequest",
+            "httpRequestHeader",
+            "httpWriteResponse",
+            "httpWriteRequest",
+            "httpParseResponse",
+            "httpResponseHeader",
+        ] {
+            let entry = lookup(name).unwrap_or_else(|| panic!("{name} registered"));
+            assert!(entry.availability.js, "{name}");
+            assert!(entry.availability.native, "{name}");
+            assert!(is_host_api(name), "{name}");
+            assert!(is_available(name, CompileTarget::Js), "{name}");
+            assert!(is_available(name, CompileTarget::Native), "{name}");
+            assert!(
+                unsupported_diagnostic(name, CompileTarget::Js, Span::dummy()).is_none(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_lists_remaining_net_native_only() {
+        for name in [
             "tcpAcceptAsync",
             "tcpConnectAsync",
             "tcpReadAsync",
@@ -1287,13 +1310,6 @@ mod tests {
             "udpSendTo",
             "udpRecvFrom",
             "closeUdp",
-            "dnsLookup",
-            "httpParseRequest",
-            "httpRequestHeader",
-            "httpWriteResponse",
-            "httpWriteRequest",
-            "httpParseResponse",
-            "httpResponseHeader",
             "tlsClientWrap",
             "tlsServerWrap",
             "tlsRead",
@@ -1335,8 +1351,8 @@ mod tests {
 
     #[test]
     fn unsupported_diagnostic_on_js_for_native_only() {
-        let d = unsupported_diagnostic("tcpListen", CompileTarget::Js, Span::new(0, 9))
-            .expect("js must reject tcpListen");
+        let d = unsupported_diagnostic("tlsClientWrap", CompileTarget::Js, Span::new(0, 13))
+            .expect("js must reject tlsClientWrap");
         assert_eq!(d.code, Some(codes::HOST_API_UNSUPPORTED));
         assert!(
             d.message.contains("host API") && d.message.contains("unsupported on js"),
@@ -1345,49 +1361,34 @@ mod tests {
         );
         assert!(d.message.contains("native-only"), "message={:?}", d.message);
         assert!(
-            unsupported_diagnostic("tcpListen", CompileTarget::Native, Span::dummy()).is_none()
+            unsupported_diagnostic("tlsClientWrap", CompileTarget::Native, Span::dummy()).is_none()
         );
         assert!(unsupported_diagnostic("console", CompileTarget::Js, Span::dummy()).is_none());
     }
 
     #[test]
-    fn check_for_target_js_rejects_free_tcp_listen() {
+    fn check_for_target_js_allows_free_tcp_listen() {
         let program = parse("tcpListen(8080);").unwrap();
-        let err = check_for_target(program, CompileTarget::Js).expect_err("js hard diagnostic");
-        assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED));
-        assert!(
-            err.message.contains("tcpListen") && err.message.contains("unsupported on js"),
-            "got {}",
-            err.message
-        );
+        check_for_target(program, CompileTarget::Js)
+            .expect("H17.04 js Node bridge allows tcpListen");
     }
 
     #[test]
-    fn check_for_target_js_rejects_free_tcp_accept() {
+    fn check_for_target_js_allows_free_tcp_accept() {
         let program = parse("tcpAccept(0);").unwrap();
-        let err = check_for_target(program, CompileTarget::Js).expect_err("js hard diagnostic");
-        assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED));
-        assert!(
-            err.message.contains("tcpAccept") && err.message.contains("unsupported on js"),
-            "got {}",
-            err.message
-        );
+        check_for_target(program, CompileTarget::Js)
+            .expect("H17.04 js Node bridge allows tcpAccept");
     }
 
     #[test]
-    fn check_for_target_js_rejects_dns_lookup() {
+    fn check_for_target_js_allows_dns_lookup() {
         let program = parse("dnsLookup(\"localhost\");").unwrap();
-        let err = check_for_target(program, CompileTarget::Js).expect_err("js hard diagnostic");
-        assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED));
-        assert!(
-            err.message.contains("dnsLookup") && err.message.contains("unsupported on js"),
-            "got {}",
-            err.message
-        );
+        check_for_target(program, CompileTarget::Js)
+            .expect("H17.04 js Node bridge allows dnsLookup");
     }
 
     #[test]
-    fn check_for_target_js_rejects_http_listen_helpers() {
+    fn check_for_target_js_allows_http_listen_helpers() {
         for src in [
             "httpParseRequest(\"\");",
             "httpRequestHeader(null, \"Host\");",
@@ -1397,14 +1398,8 @@ mod tests {
             "httpResponseHeader(null, \"Content-Type\");",
         ] {
             let program = parse(src).unwrap();
-            let err = check_for_target(program, CompileTarget::Js)
-                .expect_err(&format!("js must hard-error: {src}"));
-            assert_eq!(err.code, Some(codes::HOST_API_UNSUPPORTED), "src={src}");
-            assert!(
-                err.message.contains("unsupported on js"),
-                "src={src} got {}",
-                err.message
-            );
+            check_for_target(program, CompileTarget::Js)
+                .unwrap_or_else(|e| panic!("H17.04 js Node bridge allows {src}: {e}"));
         }
     }
 

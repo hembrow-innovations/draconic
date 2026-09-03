@@ -834,7 +834,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H17.01 | done | native | `examples/http-echo`: pure Draconic native HTTP/1.1 (no C host) | `examples/http-echo` |
 | H17.02 | done | native | Integration: start echo, client request, assert status/body, shutdown | `tests/integration`, `examples/http-echo` |
 | H17.03 | done | native | `examples/todo` C host cutover → Draconic native serve | `examples/todo` |
-| H17.04 | todo | js | Optional JS/Node bridge for subset host APIs (after native green) | `tests/conformance` fixtures `host/policy` |
+| H17.04 | done | js | Optional JS/Node bridge for subset host APIs (after native green) | `tests/conformance` fixtures `host/policy` |
 
 **H critical path to http-echo:** H00 → H00.03 → H06.01–05 → (H07 if async) → H10.01–03 → H17.01 → H17.02.
 

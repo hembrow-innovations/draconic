@@ -1,0 +1,7 @@
+// H17.04: httpParseRequest JS/Node bridge — GET method/path/version + Host header.
+let req = httpParseRequest("GET /hello HTTP/1.1\r\nHost: example.com\r\n\r\n");
+let m = req.method;
+let p = req.path;
+let v = req.version;
+let b = req.body;
+let h = httpRequestHeader(req, "Host");

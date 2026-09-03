@@ -77,7 +77,8 @@ fn module_uses_parse_url(module: &Module) -> bool {
 
 /// L08.02: `parseQuery` / `serializeQuery`.
 fn module_uses_query(module: &Module) -> bool {
-    module_uses_named_local(module, "parseQuery") || module_uses_named_local(module, "serializeQuery")
+    module_uses_named_local(module, "parseQuery")
+        || module_uses_named_local(module, "serializeQuery")
 }
 
 /// L06.01: `createLogger`.
@@ -139,16 +140,18 @@ fn module_uses_process_exit(module: &Module) -> bool {
 
 /// H01.04: free host APIs `pid` / `ppid`.
 fn module_uses_process_pid(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "pid") || stmt_uses_ident_name(s, "ppid")
-    })
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "pid") || stmt_uses_ident_name(s, "ppid"))
 }
 
 /// H16.01: free host APIs `cwd` / `chdir`.
 fn module_uses_cwd_chdir(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "cwd") || stmt_uses_ident_name(s, "chdir")
-    })
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "cwd") || stmt_uses_ident_name(s, "chdir"))
 }
 
 /// H16.02: free host APIs `hostname` / `osType` / `osArch`.
@@ -162,9 +165,10 @@ fn module_uses_hostname_os(module: &Module) -> bool {
 
 /// H16.03: free host APIs `tempDir` / `homeDir`.
 fn module_uses_temp_home(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "tempDir") || stmt_uses_ident_name(s, "homeDir")
-    })
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "tempDir") || stmt_uses_ident_name(s, "homeDir"))
 }
 
 /// H15.01: free host API `processRun`.
@@ -221,10 +225,7 @@ fn module_uses_cancel_token(module: &Module) -> bool {
 
 /// H05.01: free host API `nowMs`.
 fn module_uses_now_ms(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "nowMs"))
+    module.body.iter().any(|s| stmt_uses_ident_name(s, "nowMs"))
 }
 
 /// H05.02: free host API `monotonicMs`.
@@ -237,16 +238,18 @@ fn module_uses_monotonic_ms(module: &Module) -> bool {
 
 /// H05.03: free host APIs `setTimeout` / `clearTimeout`.
 fn module_uses_set_timeout(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "setTimeout") || stmt_uses_ident_name(s, "clearTimeout")
-    })
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "setTimeout") || stmt_uses_ident_name(s, "clearTimeout"))
 }
 
 /// H05.04: free host APIs `setInterval` / `clearInterval`.
 fn module_uses_set_interval(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "setInterval") || stmt_uses_ident_name(s, "clearInterval")
-    })
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "setInterval") || stmt_uses_ident_name(s, "clearInterval"))
 }
 
 /// H02.01: free host API `stdoutWrite`.
@@ -306,6 +309,42 @@ fn module_uses_fs_read(module: &Module) -> bool {
     })
 }
 
+/// H17.04: HTTP/1.1 helpers (parse/write request/response).
+fn module_uses_http_helpers(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "httpParseRequest")
+            || stmt_uses_ident_name(s, "httpRequestHeader")
+            || stmt_uses_ident_name(s, "httpWriteResponse")
+            || stmt_uses_ident_name(s, "httpWriteRequest")
+            || stmt_uses_ident_name(s, "httpParseResponse")
+            || stmt_uses_ident_name(s, "httpResponseHeader")
+    })
+}
+
+/// H17.04: `dnsLookup` Node bridge.
+fn module_uses_dns_lookup(module: &Module) -> bool {
+    module
+        .body
+        .iter()
+        .any(|s| stmt_uses_ident_name(s, "dnsLookup"))
+}
+
+/// H17.04: sync TCP Node `net` bridge.
+fn module_uses_tcp(module: &Module) -> bool {
+    module.body.iter().any(|s| {
+        stmt_uses_ident_name(s, "tcpListen")
+            || stmt_uses_ident_name(s, "tcpLocalPort")
+            || stmt_uses_ident_name(s, "closeTcp")
+            || stmt_uses_ident_name(s, "tcpAccept")
+            || stmt_uses_ident_name(s, "tcpConnect")
+            || stmt_uses_ident_name(s, "tcpPeerAddress")
+            || stmt_uses_ident_name(s, "tcpPeerPort")
+            || stmt_uses_ident_name(s, "tcpRead")
+            || stmt_uses_ident_name(s, "tcpWrite")
+            || stmt_uses_ident_name(s, "tcpShutdown")
+    })
+}
+
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
     match stmt {
         Stmt::Declare { init: Some(e), .. }
@@ -335,15 +374,17 @@ fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
             update,
             body,
         } => {
-            init.as_ref()
-                .is_some_and(|s| stmt_uses_ident_name(s, name))
+            init.as_ref().is_some_and(|s| stmt_uses_ident_name(s, name))
                 || test.as_ref().is_some_and(|e| expr_uses_ident_name(e, name))
                 || update
                     .as_ref()
                     .is_some_and(|e| expr_uses_ident_name(e, name))
                 || stmt_uses_ident_name(body, name)
         }
-        Stmt::ForIn { left, right, body } | Stmt::ForOf { left, right, body, .. } => {
+        Stmt::ForIn { left, right, body }
+        | Stmt::ForOf {
+            left, right, body, ..
+        } => {
             stmt_uses_ident_name(left, name)
                 || expr_uses_ident_name(right, name)
                 || stmt_uses_ident_name(body, name)
@@ -416,9 +457,9 @@ fn expr_uses_ident_name(expr: &Expr, name: &str) -> bool {
                     Arg::Expr(e) | Arg::Spread(e) => expr_uses_ident_name(e, name),
                 })
         }
-        Expr::Member { object, property, .. } => {
-            expr_uses_ident_name(object, name) || expr_uses_ident_name(property, name)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_uses_ident_name(object, name) || expr_uses_ident_name(property, name),
         Expr::Array { elements, .. } => elements.iter().any(|el| match el {
             ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_uses_ident_name(e, name),
             ArrayElement::Elision => false,
@@ -470,10 +511,11 @@ fn stmt_uses_local(stmt: &Stmt, ids: &[LocalId]) -> bool {
                 || update.as_ref().is_some_and(|e| expr_uses_local(e, ids))
                 || stmt_uses_local(body, ids)
         }
-        Stmt::ForIn { left, right, body } | Stmt::ForOf { left, right, body, .. } => {
-            stmt_uses_local(left, ids)
-                || expr_uses_local(right, ids)
-                || stmt_uses_local(body, ids)
+        Stmt::ForIn { left, right, body }
+        | Stmt::ForOf {
+            left, right, body, ..
+        } => {
+            stmt_uses_local(left, ids) || expr_uses_local(right, ids) || stmt_uses_local(body, ids)
         }
         Stmt::Labeled { body, .. } => stmt_uses_local(body, ids),
         Stmt::Switch {
@@ -501,7 +543,9 @@ fn stmt_uses_local(stmt: &Stmt, ids: &[LocalId]) -> bool {
                     .as_ref()
                     .is_some_and(|f| f.iter().any(|s| stmt_uses_local(s, ids)))
         }
-        Stmt::With { object, body } => expr_uses_local(object, ids) || body.iter().any(|s| stmt_uses_local(s, ids)),
+        Stmt::With { object, body } => {
+            expr_uses_local(object, ids) || body.iter().any(|s| stmt_uses_local(s, ids))
+        }
         _ => false,
     }
 }
@@ -540,9 +584,9 @@ fn expr_uses_local(expr: &Expr, ids: &[LocalId]) -> bool {
                     Arg::Expr(e) | Arg::Spread(e) => expr_uses_local(e, ids),
                 })
         }
-        Expr::Member { object, property, .. } => {
-            expr_uses_local(object, ids) || expr_uses_local(property, ids)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_uses_local(object, ids) || expr_uses_local(property, ids),
         Expr::Array { elements, .. } => elements.iter().any(|el| match el {
             ArrayElement::Expr(e) | ArrayElement::Spread(e) => expr_uses_local(e, ids),
             ArrayElement::Elision => false,
@@ -777,6 +821,27 @@ fn emit_js_full(
             out.push('\n');
         }
     }
+    // H17.04: HTTP/1.1 helpers (portable parse/write).
+    if module_uses_http_helpers(module) {
+        out.push_str(draconic_runtime::http_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H17.04: `dnsLookup` Node `dns` bridge.
+    if module_uses_dns_lookup(module) {
+        out.push_str(draconic_runtime::dns_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // H17.04: sync TCP Node `net` bridge.
+    if module_uses_tcp(module) {
+        out.push_str(draconic_runtime::tcp_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
     let mut builder = map_opts.map(SourceMapBuilder::new);
 
     for (i, stmt) in module.body.iter().enumerate() {
@@ -901,10 +966,7 @@ fn reject_native_only_stmt(stmt: &Stmt) -> Result<(), Diagnostic> {
         }
         Stmt::ForIn { left, right, body }
         | Stmt::ForOf {
-            left,
-            right,
-            body,
-            ..
+            left, right, body, ..
         } => {
             reject_native_only_stmt(left)?;
             reject_native_only_expr(right)?;
@@ -1281,7 +1343,10 @@ mod tests {
     fn emit_create_logger_polyfill() {
         let js = emit_src("let logger = createLogger(); logger.info(\"hi\");");
         assert!(js.contains("function createLogger("), "{js}");
-        assert!(js.contains("globalThis.createLogger = createLogger"), "{js}");
+        assert!(
+            js.contains("globalThis.createLogger = createLogger"),
+            "{js}"
+        );
         assert!(js.contains("setLevel"), "{js}");
     }
 
@@ -1406,10 +1471,7 @@ mod tests {
     #[test]
     fn emit_compound_assignment_to_property() {
         let js = emit_src("let o = { a: 1 }; o.a += 2; o[\"a\"] *= 3;");
-        assert_eq!(
-            js,
-            "let o = {a: 1};\n((o).a += 2);\n((o)[\"a\"] *= 3);\n"
-        );
+        assert_eq!(js, "let o = {a: 1};\n((o).a += 2);\n((o)[\"a\"] *= 3);\n");
     }
 
     #[test]
@@ -1450,10 +1512,7 @@ mod tests {
     #[test]
     fn emit_while() {
         let js = emit_src("let x = 0; while (x < 3) { x = x + 1; }");
-        assert_eq!(
-            js,
-            "let x = 0;\nwhile ((x) < (3)) {\n(x = (x) + (1));\n}\n"
-        );
+        assert_eq!(js, "let x = 0;\nwhile ((x) < (3)) {\n(x = (x) + (1));\n}\n");
     }
 
     #[test]
@@ -1572,7 +1631,9 @@ class C extends B {
 
     #[test]
     fn n04_native_struct_polyfill() {
-        let js = emit_src("type Point = { x: i32; y: i32 }; let p: Point = { x: 10, y: 20 }; let a: i32 = p.x;");
+        let js = emit_src(
+            "type Point = { x: i32; y: i32 }; let p: Point = { x: 10, y: 20 }; let a: i32 = p.x;",
+        );
         assert!(js.contains("let p = {x: 10, y: 20};"), "{js}");
         assert!(js.contains("let a = (p).x;"), "{js}");
     }
@@ -1621,10 +1682,7 @@ class C extends B {
         assert_eq!(map.version, 3);
         assert_eq!(map.sources, vec!["main.drac".to_string()]);
         assert_eq!(map.file.as_deref(), Some("out.js"));
-        assert_eq!(
-            map.sources_content,
-            vec![Some("let x = 1;\n".to_string())]
-        );
+        assert_eq!(map.sources_content, vec![Some("let x = 1;\n".to_string())]);
         assert!(!map.mappings.is_empty(), "mappings={}", map.mappings);
         assert_eq!(emitted.code, "let x = 1;\n");
     }
@@ -1675,7 +1733,10 @@ class C extends B {
     #[test]
     fn emit_array_pattern_elision_holes() {
         let only = emit_src("let [,] = vals;");
-        assert!(only.contains("let [,] = vals;") || only.contains("let [, ] = vals;"), "{only}");
+        assert!(
+            only.contains("let [,] = vals;") || only.contains("let [, ] = vals;"),
+            "{only}"
+        );
         assert!(!only.contains("let [] ="), "{only}");
 
         let trail = emit_src("let [a,,] = vals;");

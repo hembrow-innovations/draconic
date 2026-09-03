@@ -1,4 +1,0 @@
-id: host/policy/tcp_accept_js_hard_error
-targets: js
-js.error: unsupported on js
-js.error_code: E0400
