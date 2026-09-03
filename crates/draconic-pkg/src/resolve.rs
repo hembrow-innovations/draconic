@@ -5,6 +5,8 @@
 //! Fail closed (K04.02): empty/invalid req, no tags, non-semver-only tags, or
 //! no matching tag → typed diagnostic (never silent float / wrong pin).
 //!
+//! K04.01: resolve version req against git tags; highest matching semver.
+//! K04.02: fail closed on no match / non-semver-only / empty → diagnostic.
 //! K04.03: resolve a manifest's direct-deps set → full lock pins (version +
 //! git URL + commit OID + content hash); v1 walks direct deps only.
 
@@ -82,25 +84,13 @@ impl std::error::Error for ResolveError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveDirectError {
     /// One dependency failed version/tag resolve.
-    Dep {
-        path: String,
-        source: ResolveError,
-    },
+    Dep { path: String, source: ResolveError },
     /// Clone/fetch/checkout into the module cache failed.
-    Cache {
-        path: String,
-        message: String,
-    },
+    Cache { path: String, message: String },
     /// Content hash of a checked-out package tree failed.
-    ContentHash {
-        path: String,
-        message: String,
-    },
+    ContentHash { path: String, message: String },
     /// Built lock entry failed validation (should be rare).
-    LockEntry {
-        path: String,
-        message: String,
-    },
+    LockEntry { path: String, message: String },
 }
 
 impl fmt::Display for ResolveDirectError {
@@ -143,19 +133,18 @@ pub fn resolve_direct_deps(
     for (path, req) in &manifest.dependencies {
         let git_url = resolve_git_url(manifest, path);
 
-        let vcs = cache.clone_or_fetch(path, &git_url).map_err(|e| {
-            ResolveDirectError::Cache {
+        let vcs = cache
+            .clone_or_fetch(path, &git_url)
+            .map_err(|e| ResolveDirectError::Cache {
                 path: path.clone(),
                 message: e.to_string(),
-            }
-        })?;
+            })?;
 
-        let resolved = resolve_highest_matching_tag(&vcs, req).map_err(|source| {
-            ResolveDirectError::Dep {
+        let resolved =
+            resolve_highest_matching_tag(&vcs, req).map_err(|source| ResolveDirectError::Dep {
                 path: path.clone(),
                 source,
-            }
-        })?;
+            })?;
 
         let checkout = cache
             .checkout(path, &resolved.commit_oid, &git_url)
@@ -164,12 +153,11 @@ pub fn resolve_direct_deps(
                 message: e.to_string(),
             })?;
 
-        let content_hash = content_hash_tree(&checkout).map_err(|e| {
-            ResolveDirectError::ContentHash {
+        let content_hash =
+            content_hash_tree(&checkout).map_err(|e| ResolveDirectError::ContentHash {
                 path: path.clone(),
                 message: e.to_string(),
-            }
-        })?;
+            })?;
 
         let entry = LockEntry::new(
             path.clone(),
@@ -226,10 +214,7 @@ pub fn resolve_highest_matching_tag(
     let mut best: Option<(SemVer, String, String)> = None;
 
     for tag in tags {
-        let ver_str = tag
-            .strip_prefix('v')
-            .unwrap_or(tag.as_str())
-            .to_string();
+        let ver_str = tag.strip_prefix('v').unwrap_or(tag.as_str()).to_string();
         let Ok(ver) = parse_semver(&ver_str) else {
             continue;
         };
@@ -264,9 +249,7 @@ pub fn resolve_highest_matching_tag(
 }
 
 fn looks_like_git_repo(path: &Path) -> bool {
-    path.join("HEAD").is_file()
-        || path.join(".git").is_dir()
-        || path.join(".git").is_file()
+    path.join("HEAD").is_file() || path.join(".git").is_dir() || path.join(".git").is_file()
 }
 
 fn run_git(repo: &Path, args: &[&str]) -> Result<String, ResolveError> {
@@ -308,9 +291,7 @@ fn list_git_tags(repo: &Path) -> Result<Vec<String>, ResolveError> {
 fn tag_commit_oid(repo: &Path, tag: &str) -> Result<String, ResolveError> {
     // Peel annotated tags to the commit.
     let peeled = format!("{tag}^{{commit}}");
-    let oid = run_git(repo, &["rev-parse", &peeled])?
-        .trim()
-        .to_string();
+    let oid = run_git(repo, &["rev-parse", &peeled])?.trim().to_string();
     if oid.len() != 40 || !oid.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) {
         return Err(ResolveError::Git(format!(
             "tag `{tag}` resolved to non-OID `{oid}`"
@@ -829,10 +810,7 @@ mod tests {
         let (upstream, _, _, oid_123) = tagged_fixture(&root);
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/lib";
-        let m = manifest_deps(
-            &[(path, "^1.0.0")],
-            &[(path, upstream.to_str().unwrap())],
-        );
+        let m = manifest_deps(&[(path, "^1.0.0")], &[(path, upstream.to_str().unwrap())]);
 
         let lock = resolve_direct_deps(&m, &cache).expect("resolve");
         assert_eq!(lock.packages.len(), 1);
@@ -842,7 +820,10 @@ mod tests {
         assert_eq!(e.commit_oid, oid_123);
         assert_eq!(e.git_url, upstream.to_str().unwrap());
         assert_eq!(e.content_hash.len(), 64);
-        assert!(e.content_hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+        assert!(e
+            .content_hash
+            .chars()
+            .all(|c| matches!(c, '0'..='9' | 'a'..='f')));
 
         // Checkout exists and hash matches tree.
         let entry_dir = cache.entry_dir(path, &oid_123).unwrap();
@@ -929,10 +910,7 @@ mod tests {
 
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/lib";
-        let m = manifest_deps(
-            &[(path, "1.0.0")],
-            &[(path, upstream.to_str().unwrap())],
-        );
+        let m = manifest_deps(&[(path, "1.0.0")], &[(path, upstream.to_str().unwrap())]);
         let lock = resolve_direct_deps(&m, &cache).expect("resolve");
         assert_eq!(lock.packages.len(), 1);
         assert!(lock.packages.contains_key(path));
@@ -948,10 +926,7 @@ mod tests {
         let (upstream, _, _, _) = tagged_fixture(&root);
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/lib";
-        let m = manifest_deps(
-            &[(path, "9.9.9")],
-            &[(path, upstream.to_str().unwrap())],
-        );
+        let m = manifest_deps(&[(path, "9.9.9")], &[(path, upstream.to_str().unwrap())]);
         let err = resolve_direct_deps(&m, &cache).expect_err("no match");
         match &err {
             ResolveDirectError::Dep { path: p, source } => {
@@ -970,16 +945,141 @@ mod tests {
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/lib";
         let missing = root.join("no-such-upstream");
-        let m = manifest_deps(
-            &[(path, "1.0.0")],
-            &[(path, missing.to_str().unwrap())],
-        );
+        let m = manifest_deps(&[(path, "1.0.0")], &[(path, missing.to_str().unwrap())]);
         let err = resolve_direct_deps(&m, &cache).expect_err("missing remote");
-        assert!(
-            matches!(err, ResolveDirectError::Cache { .. }),
-            "{err:?}"
-        );
+        assert!(matches!(err, ResolveDirectError::Cache { .. }), "{err:?}");
         assert!(err.to_string().contains(path));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- K04: combined version resolve (parent of K04.01–K04.03) ---
+
+    #[test]
+    fn k04_combined_semver_tag_to_oid_fail_closed_direct_pins() {
+        let root = temp_dir("k04-combined");
+        let (upstream, _, _, oid_123) = tagged_fixture(&root);
+
+        // Highest matching semver tag → commit OID (K04.01).
+        let r = resolve_highest_matching_tag(&upstream, "^1.0.0").expect("highest match");
+        assert_eq!(r.version, "1.2.3");
+        assert_eq!(r.tag, "v1.2.3");
+        assert_eq!(r.commit_oid, oid_123);
+        assert_eq!(r.commit_oid.len(), 40);
+        assert!(r
+            .commit_oid
+            .chars()
+            .all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+        assert_ne!(r.version, "2.0.0");
+
+        // Fail closed: no match / empty tags / non-semver-only (K04.02).
+        let no_match = resolve_highest_matching_tag(&upstream, "9.9.9").expect_err("no 9.x");
+        match &no_match {
+            ResolveError::NoMatch { req } => assert_eq!(req, "9.9.9"),
+            other => panic!("expected NoMatch, got {other:?}"),
+        }
+        assert!(no_match.to_string().contains("no semver tag"));
+
+        let empty_repo = root.join("empty-tags");
+        fs::create_dir_all(&empty_repo).unwrap();
+        git_ok(&["init"], &empty_repo);
+        git_ok(
+            &["config", "user.email", "test@draconic.local"],
+            &empty_repo,
+        );
+        git_ok(&["config", "user.name", "Draconic Test"], &empty_repo);
+        git_ok(&["checkout", "-B", "main"], &empty_repo);
+        let _ = commit_file(&empty_repo, "a.txt", "x\n", "init");
+        let empty = resolve_highest_matching_tag(&empty_repo, "1.0.0").expect_err("no tags");
+        assert!(
+            matches!(empty, ResolveError::EmptyTags),
+            "expected EmptyTags, got {empty:?}"
+        );
+        assert!(empty.to_string().contains("no tags"));
+
+        let nonsemver = root.join("nonsemver-only");
+        fs::create_dir_all(&nonsemver).unwrap();
+        git_ok(&["init"], &nonsemver);
+        git_ok(&["config", "user.email", "test@draconic.local"], &nonsemver);
+        git_ok(&["config", "user.name", "Draconic Test"], &nonsemver);
+        git_ok(&["checkout", "-B", "main"], &nonsemver);
+        let _ = commit_file(&nonsemver, "a.txt", "x\n", "init");
+        git_ok(&["tag", "latest"], &nonsemver);
+        let only = resolve_highest_matching_tag(&nonsemver, "1.0.0").expect_err("no semver");
+        assert!(
+            matches!(only, ResolveError::NonSemverOnly),
+            "expected NonSemverOnly, got {only:?}"
+        );
+        assert!(only.to_string().contains("none are semver"));
+
+        // Direct-deps set → lock pins; v1 does not walk nested package deps (K04.03).
+        let nested = root.join("nested-upstream");
+        fs::create_dir_all(&nested).unwrap();
+        git_ok(&["init"], &nested);
+        git_ok(&["config", "user.email", "test@draconic.local"], &nested);
+        git_ok(&["config", "user.name", "Draconic Test"], &nested);
+        git_ok(&["checkout", "-B", "main"], &nested);
+        fs::write(
+            nested.join("draconic.toml"),
+            r#"module = "github.com/org/lib"
+
+[dependencies]
+"github.com/transitive/only" = "1.0.0"
+"#,
+        )
+        .unwrap();
+        fs::write(nested.join("lib.drac"), "export let x = 1;\n").unwrap();
+        git_ok(&["add", "."], &nested);
+        git_ok(&["commit", "-m", "v1.0.0"], &nested);
+        git_ok(&["tag", "v1.0.0"], &nested);
+        let nested_oid = {
+            let out = Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&nested)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+
+        let cache = ModuleCache::new(root.join("cache"));
+        let lib_path = "github.com/org/lib";
+        let util_path = "github.com/org/util";
+        let m = manifest_deps(
+            &[(lib_path, "1.0.0"), (util_path, "^1.0.0")],
+            &[
+                (lib_path, nested.to_str().unwrap()),
+                (util_path, upstream.to_str().unwrap()),
+            ],
+        );
+        let lock = resolve_direct_deps(&m, &cache).expect("direct pins");
+        assert_eq!(lock.version, 1);
+        assert_eq!(lock.packages.len(), 2);
+        let keys: Vec<_> = lock.packages.keys().cloned().collect();
+        assert_eq!(keys, vec![lib_path.to_string(), util_path.to_string()]);
+        assert!(!lock.packages.contains_key("github.com/transitive/only"));
+
+        let lib = lock.packages.get(lib_path).expect("lib pin");
+        assert_eq!(lib.version, "1.0.0");
+        assert_eq!(lib.commit_oid, nested_oid);
+        assert_eq!(lib.git_url, nested.to_str().unwrap());
+        assert_eq!(lib.content_hash.len(), 64);
+
+        let util = lock.packages.get(util_path).expect("util pin");
+        assert_eq!(util.version, "1.2.3");
+        assert_eq!(util.commit_oid, oid_123);
+        assert_eq!(util.git_url, upstream.to_str().unwrap());
+        assert_eq!(util.content_hash.len(), 64);
+        assert!(util
+            .content_hash
+            .chars()
+            .all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+
+        let util_dir = cache.entry_dir(util_path, &oid_123).unwrap();
+        assert!(cache.has_entry(util_path, &oid_123).unwrap());
+        assert_eq!(
+            crate::content_hash_tree(&util_dir).unwrap(),
+            util.content_hash
+        );
+
         let _ = fs::remove_dir_all(&root);
     }
 }
