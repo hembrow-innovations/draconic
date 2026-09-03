@@ -796,7 +796,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H08 | done | native | UDP | `tests/conformance/host/net/udp` |
 | H08.01 | done | native | UDP bind; sendto/recvfrom; close | `tests/conformance` fixtures `host/net/udp`, `crates/draconic-runtime` |
 | H08.02 | done | native | UDP loopback e2e | `tests/conformance` fixtures `host/net/udp` |
-| H09 | todo | native | DNS | `tests/conformance/host/net/dns` |
+| H09 | done | native | DNS | `tests/conformance/host/net/dns` |
 | H09.01 | done | native | DNS lookup hostname → addresses; failure errors | `tests/conformance` fixtures `host/net/dns`, `crates/draconic-runtime` |
 | H09.02 | done | native | Connect-by-name (H09.01 + H06.03) | `tests/conformance` fixtures `host/net/dns` |
 | H09.03 | done | both | DNS on js: hard-error or Node polyfill (when client bridge lands) — `dnsLookup` hard-error on js (E0400); Node polyfill deferred with H17.04 bridge | `tests/conformance` fixtures `host/policy` |

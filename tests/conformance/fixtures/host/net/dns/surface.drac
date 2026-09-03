@@ -1,0 +1,11 @@
+// H09: one Program — dnsLookup addresses + connect-by-name + close.
+let addrs = dnsLookup("127.0.0.1");
+let n = addrs.length;
+let a0 = addrs[0];
+let s = tcpListen(0);
+let p = tcpLocalPort(s);
+let c = tcpConnect("localhost", p);
+let t = typeof c;
+let ok = c > 0;
+closeTcp(c);
+closeTcp(s);

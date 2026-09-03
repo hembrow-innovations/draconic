@@ -1,17 +1,21 @@
-//! H09.01: native DNS lookup — `dnsLookup(hostname)` → string[] of IPv4 addresses.
+//! H09 / H09.01–H09.02: native DNS surface — lookup + connect-by-name.
 //!
 //! - `dnsLookup(host)` → GC string array (`.length` + index `[i]`)
+//! - `tcpListen` / `tcpLocalPort` / `tcpConnect(name, port)` / `closeTcp` (H09.02)
 //! - Resolution failure → stderr `EADDR` + exit 1
 //! - Empty/invalid host → stderr `EINVAL` + exit 1
+//! - Connect refused → stderr `ECONN` + exit 1
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_DNS_LOOKUP,
-    HOST_PROCESS_EXIT, HOST_STDERR_WRITE, PRINT_F64, PRINT_STR,
+    HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_TCP_CONNECT, HOST_TCP_LISTEN,
+    HOST_TCP_LOCAL_PORT, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_dns_module(module: &Module) -> bool {
@@ -30,6 +34,8 @@ enum SlotTy {
     String,
     Number,
     Array,
+    Handle,
+    Bool,
 }
 
 struct ModuleInfo {
@@ -70,16 +76,39 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            match ty {
-                SlotTy::String | SlotTy::Number => {
-                    ctx.print_locals.push((*local, ty));
-                }
-                SlotTy::Array => {}
+            if matches!(ty, SlotTy::Bool | SlotTy::String)
+                || (ty == SlotTy::Number && is_array_length(init, ctx))
+            {
+                ctx.print_locals.push((*local, ty));
             }
             Some(())
         }
         Stmt::Expr { expr, .. } => classify_side_effect(expr, ctx),
         _ => None,
+    }
+}
+
+fn is_array_length(expr: &Expr, ctx: &ClassifyCtx) -> bool {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            computed: false,
+            ..
+        } => {
+            let name = match string_lit(property) {
+                Some(n) => n,
+                None => return false,
+            };
+            if name != "length" {
+                return false;
+            }
+            match object.as_ref() {
+                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&SlotTy::Array),
+                _ => false,
+            }
+        }
+        _ => false,
     }
 }
 
@@ -90,6 +119,12 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         {
             ctx.has_dns = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(())
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "closeTcp") =>
+        {
+            classify_expr(arg_expr(&args[0])?, ctx)?;
             Some(())
         }
         _ => None,
@@ -104,6 +139,34 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_dns = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             Some(SlotTy::Array)
+        }
+        Expr::Call { callee, args, .. }
+            if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpListen") =>
+        {
+            classify_expr(arg_expr(&args[0])?, ctx)?;
+            if args.len() == 2 {
+                classify_expr(arg_expr(&args[1])?, ctx)?;
+            }
+            Some(SlotTy::Handle)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "tcpLocalPort") =>
+        {
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            if ht != SlotTy::Handle {
+                return None;
+            }
+            Some(SlotTy::Number)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
+        {
+            let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
+            let pt = classify_expr(arg_expr(&args[1])?, ctx)?;
+            if ht != SlotTy::String || pt != SlotTy::Number {
+                return None;
+            }
+            Some(SlotTy::Handle)
         }
         Expr::Member {
             object,
@@ -129,6 +192,38 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             if ot != SlotTy::Array || it != SlotTy::Number {
                 return None;
             }
+            Some(SlotTy::String)
+        }
+        Expr::Binary {
+            op:
+                BinaryOp::Gt
+                | BinaryOp::GtEq
+                | BinaryOp::Lt
+                | BinaryOp::LtEq
+                | BinaryOp::EqEq
+                | BinaryOp::EqEqEq
+                | BinaryOp::NotEq
+                | BinaryOp::NotEqEq,
+            left,
+            right,
+            ..
+        } => {
+            let lt = classify_expr(left, ctx)?;
+            let rt = classify_expr(right, ctx)?;
+            if matches!(lt, SlotTy::Number | SlotTy::Handle)
+                && matches!(rt, SlotTy::Number | SlotTy::Handle)
+            {
+                Some(SlotTy::Bool)
+            } else {
+                None
+            }
+        }
+        Expr::Unary {
+            op: UnaryOp::TypeOf,
+            arg,
+            ..
+        } => {
+            let _ = classify_expr(arg, ctx)?;
             Some(SlotTy::String)
         }
         Expr::Number { .. } => Some(SlotTy::Number),
@@ -256,18 +351,23 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_dns (H09.01 dnsLookup → IPv4 address strings)"
+            "; Draconic LLVM host_dns (H09 lookup + connect-by-name surface)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
             GC_INIT,
             PRINT_STR,
             PRINT_F64,
+            PRINT_BOOL,
             HOST_DNS_LOOKUP,
             ARRAY_NEW,
             ARRAY_SET,
             ARRAY_GET,
             ARRAY_LEN,
+            HOST_TCP_LISTEN,
+            HOST_TCP_LOCAL_PORT,
+            HOST_TCP_CONNECT,
+            HOST_HANDLE_CLOSE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
         ]));
@@ -279,8 +379,11 @@ impl<'a> Emitter<'a> {
                 SlotTy::String | SlotTy::Array => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::Number => {
+                SlotTy::Number | SlotTy::Handle => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
+                }
+                SlotTy::Bool => {
+                    writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
                 }
             }
         }
@@ -302,7 +405,12 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::Array => {}
+                SlotTy::Bool => {
+                    let v = self.fresh();
+                    writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                    writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
+                }
+                SlotTy::Array | SlotTy::Handle => {}
             }
         }
 
@@ -366,6 +474,20 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "{inval_l}:").ok();
         self.emit_host_err_exit("EINVAL")?;
         writeln!(self.body, "{addr_chk}:").ok();
+        let is_conn = self.fresh();
+        let conn_l = format!("dns_conn_{}", self.next_tmp);
+        let addr_chk2 = format!("dns_addrchk2_{}", self.next_tmp);
+        self.next_tmp += 1;
+        // HOST_E_CONN = 10
+        writeln!(self.body, "  {is_conn} = icmp eq i32 {rc}, 10").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is_conn}, label %{conn_l}, label %{addr_chk2}"
+        )
+        .ok();
+        writeln!(self.body, "{conn_l}:").ok();
+        self.emit_host_err_exit("ECONN")?;
+        writeln!(self.body, "{addr_chk2}:").ok();
         let is_addr = self.fresh();
         let addr_l = format!("dns_addr_{}", self.next_tmp);
         let other_l = format!("dns_other_{}", self.next_tmp);
@@ -407,6 +529,16 @@ impl<'a> Emitter<'a> {
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
+                    SlotTy::Handle => {
+                        let v = self.emit_handle_expr(init)?;
+                        let ptr = self.slot_ptr(*local)?;
+                        writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                    }
+                    SlotTy::Bool => {
+                        let v = self.emit_bool_expr(init)?;
+                        let ptr = self.slot_ptr(*local)?;
+                        writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
+                    }
                     SlotTy::Array => {
                         let v = self.emit_array_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
@@ -429,6 +561,21 @@ impl<'a> Emitter<'a> {
                     arg_expr(&args[0]).ok_or_else(|| diag("host_dns: dnsLookup host"))?,
                 )?;
                 Ok(())
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "closeTcp") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_dns: closeTcp handle"))?,
+                )?;
+                let rc = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h})",
+                    HOST_HANDLE_CLOSE.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)
             }
             _ => Err(diag("host_dns: unsupported expr stmt")),
         }
@@ -552,7 +699,156 @@ impl<'a> Emitter<'a> {
                 .ok();
                 Ok(el)
             }
+            Expr::Unary {
+                op: UnaryOp::TypeOf,
+                arg,
+                ..
+            } => self.emit_typeof(arg),
             _ => Err(diag("host_dns: unsupported string expr")),
+        }
+    }
+
+    fn emit_typeof(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
+        match arg {
+            Expr::Local { id, .. } => {
+                let ty = self
+                    .slot_of
+                    .get(id)
+                    .copied()
+                    .ok_or_else(|| diag("host_dns: typeof unknown local"))?;
+                let s = match ty {
+                    SlotTy::Handle | SlotTy::Number => "number",
+                    SlotTy::Bool => "boolean",
+                    SlotTy::String | SlotTy::Array => "object",
+                };
+                Ok(self.emit_cstr_ptr(s))
+            }
+            _ => Err(diag("host_dns: typeof unsupported arg")),
+        }
+    }
+
+    fn emit_handle_i64(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        let f = self.emit_handle_expr(expr)?;
+        let i = self.fresh();
+        writeln!(self.body, "  {i} = fptosi double {f} to i64").ok();
+        Ok(i)
+    }
+
+    fn emit_handle_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Call { callee, args, .. }
+                if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpListen") =>
+            {
+                let port_f = self.emit_number_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_dns: tcpListen port"))?,
+                )?;
+                let port_i = self.fresh();
+                writeln!(self.body, "  {port_i} = fptosi double {port_f} to i32").ok();
+                let backlog_i = if args.len() == 2 {
+                    let bf = self.emit_number_expr(
+                        arg_expr(&args[1]).ok_or_else(|| diag("host_dns: tcpListen backlog"))?,
+                    )?;
+                    let bi = self.fresh();
+                    writeln!(self.body, "  {bi} = fptosi double {bf} to i32").ok();
+                    bi
+                } else {
+                    "0".to_string()
+                };
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i32 {port_i}, i32 {backlog_i}, ptr {out_h})",
+                    HOST_TCP_LISTEN.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
+            {
+                let host = self.emit_string_expr(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_dns: tcpConnect host"))?,
+                )?;
+                let port_f = self.emit_number_expr(
+                    arg_expr(&args[1]).ok_or_else(|| diag("host_dns: tcpConnect port"))?,
+                )?;
+                let port_i = self.fresh();
+                writeln!(self.body, "  {port_i} = fptosi double {port_f} to i32").ok();
+                let out_h = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_h} = alloca i64, align 8").ok();
+                writeln!(self.body, "  store i64 -1, ptr {out_h}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(ptr {host}, i32 {port_i}, ptr {out_h})",
+                    HOST_TCP_CONNECT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i64, ptr {out_h}").ok();
+                writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
+                Ok(fv)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_dns: expected handle expr")),
+        }
+    }
+
+    fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
+        match expr {
+            Expr::Binary {
+                op, left, right, ..
+            } if matches!(
+                op,
+                BinaryOp::Gt
+                    | BinaryOp::GtEq
+                    | BinaryOp::Lt
+                    | BinaryOp::LtEq
+                    | BinaryOp::EqEq
+                    | BinaryOp::EqEqEq
+                    | BinaryOp::NotEq
+                    | BinaryOp::NotEqEq
+            ) =>
+            {
+                let l = self.emit_number_expr(left)?;
+                let r = self.emit_number_expr(right)?;
+                let cmp = self.fresh();
+                let pred = match op {
+                    BinaryOp::Gt => "ogt",
+                    BinaryOp::GtEq => "oge",
+                    BinaryOp::Lt => "olt",
+                    BinaryOp::LtEq => "ole",
+                    BinaryOp::EqEq | BinaryOp::EqEqEq => "oeq",
+                    BinaryOp::NotEq | BinaryOp::NotEqEq => "one",
+                    _ => unreachable!(),
+                };
+                writeln!(self.body, "  {cmp} = fcmp {pred} double {l}, {r}").ok();
+                let b = self.fresh();
+                writeln!(self.body, "  {b} = zext i1 {cmp} to i8").ok();
+                Ok(b)
+            }
+            Expr::Local { id, .. } => {
+                let ptr = self.slot_ptr(*id)?;
+                let v = self.fresh();
+                writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
+                Ok(v)
+            }
+            _ => Err(diag("host_dns: expected bool expr")),
         }
     }
 
@@ -564,6 +860,29 @@ impl<'a> Emitter<'a> {
                 } else {
                     Ok(format!("{raw}.0"))
                 }
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "tcpLocalPort") =>
+            {
+                let h = self.emit_handle_i64(
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_dns: tcpLocalPort handle"))?,
+                )?;
+                let out_p = self.fresh();
+                let rc = self.fresh();
+                writeln!(self.body, "  {out_p} = alloca i32, align 4").ok();
+                writeln!(self.body, "  store i32 0, ptr {out_p}").ok();
+                writeln!(
+                    self.body,
+                    "  {rc} = call i32 @{}(i64 {h}, ptr {out_p})",
+                    HOST_TCP_LOCAL_PORT.symbol
+                )
+                .ok();
+                self.emit_check_rc(&rc)?;
+                let iv = self.fresh();
+                let fv = self.fresh();
+                writeln!(self.body, "  {iv} = load i32, ptr {out_p}").ok();
+                writeln!(self.body, "  {fv} = sitofp i32 {iv} to double").ok();
+                Ok(fv)
             }
             Expr::Local { id, .. } => {
                 let ptr = self.slot_ptr(*id)?;
@@ -640,5 +959,28 @@ mod tests {
         assert!(is_host_dns_module(&m));
         let ir = emit_host_dns(&m).expect("emit");
         assert!(ir.contains("EADDR"), "{ir}");
+    }
+
+    #[test]
+    fn emit_dns_connect_by_name_surface() {
+        let m = lower_src(
+            r#"
+            let addrs = dnsLookup("127.0.0.1");
+            let n = addrs.length;
+            let a0 = addrs[0];
+            let s = tcpListen(0);
+            let p = tcpLocalPort(s);
+            let c = tcpConnect("localhost", p);
+            let t = typeof c;
+            let ok = c > 0;
+            closeTcp(c);
+            closeTcp(s);
+            "#,
+        );
+        assert!(is_host_dns_module(&m));
+        let ir = emit_host_dns(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_dns_lookup"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_connect"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_handle_close"), "{ir}");
     }
 }

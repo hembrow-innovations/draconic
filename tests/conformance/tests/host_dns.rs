@@ -1,5 +1,5 @@
-//! ROADMAP H09.01: DNS lookup hostname → addresses; failure errors.
-//! ROADMAP H09.02: Connect-by-name (tcpConnect hostname via DNS + H06.03).
+//! ROADMAP H09 / H09.01–H09.02: DNS lookup + connect-by-name.
+//! H09 parent locks the combined DNS surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -62,10 +62,7 @@ fn dns_lookup_fail_runs_native() {
         "must target native"
     );
     assert_eq!(fixture.expect_native.exit, 1);
-    assert_eq!(
-        fixture.expect_native.stderr.as_deref(),
-        Some("EADDR\n")
-    );
+    assert_eq!(fixture.expect_native.stderr.as_deref(), Some("EADDR\n"));
     assert_fixture_runs("host/net/dns/dns_lookup_fail");
 }
 
@@ -101,9 +98,34 @@ fn tcp_connect_by_name_fail_runs_native() {
         "must target native"
     );
     assert_eq!(fixture.expect_native.exit, 1);
-    assert_eq!(
-        fixture.expect_native.stderr.as_deref(),
-        Some("EADDR\n")
-    );
+    assert_eq!(fixture.expect_native.stderr.as_deref(), Some("EADDR\n"));
     assert_fixture_runs("host/net/dns/tcp_connect_by_name_fail");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/net/dns/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/dns/surface")
+        .expect("host/net/dns/surface");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("1\n127.0.0.1\nnumber\ntrue\n"),
+        "H09 surface must observe lookup addresses, connect-by-name typeof, and handle ok"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H09 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/net/dns/surface");
 }
