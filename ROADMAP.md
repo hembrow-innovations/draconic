@@ -818,7 +818,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H12.03 | done | native | WebSocket client dial + echo e2e — `wsClientHandshakeRequest` / `wsClientCheckAccept` / `wsEncodeTextClient`; loopback text echo | `tests/conformance` fixtures `host/net/ws` |
 | H13 | done | native | HTTP/2 (later; not v1 bar) | `tests/conformance/host/http2` |
 | H13.01 | done | native | HTTP/2 preface + single stream request/response | `tests/conformance` fixtures `host/http2` |
-| H14 | done | native | Signals | `tests/conformance/host/process/signals` |
+| H14 | todo | native | Signals | `tests/conformance/host/process/signals` |
 | H14.01 | done | native | Signal watch: SIGINT/SIGTERM → handler/job; default terminate documented | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
 | H14.02 | done | native | Signal ignore / restore default | `tests/conformance` fixtures `host/process` |
 | H15 | done | both | Subprocess | `tests/conformance/host/process/subprocess` |
@@ -830,7 +830,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H16.02 | done | both | Hostname / OS type / arch strings — `hostname()` / `osType()` / `osArch()`; Node-like platform/arch; both targets | `tests/conformance` fixtures `host/os`, `crates/draconic-runtime` |
 | H16.03 | done | both | Temp dir + home dir paths — `tempDir()` / `homeDir()`; native Runtime ABI + Node `os.tmpdir`/`homedir` bridge; both targets | `tests/conformance` fixtures `host/os`, `crates/draconic-runtime` |
 | H16.04 | done | native | OS sleep / yield for timer tests | `crates/draconic-runtime` |
-| H17 | todo | native | Success Programs & host cutover | `examples/http-echo`, `examples/todo` |
+| H17 | done | native | Success Programs & host cutover | `examples/http-echo`, `examples/todo` |
 | H17.01 | done | native | `examples/http-echo`: pure Draconic native HTTP/1.1 (no C host) | `examples/http-echo` |
 | H17.02 | done | native | Integration: start echo, client request, assert status/body, shutdown | `tests/integration`, `examples/http-echo` |
 | H17.03 | done | native | `examples/todo` C host cutover → Draconic native serve | `examples/todo` |
