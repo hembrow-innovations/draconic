@@ -761,7 +761,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H01.02 | done | both | Env get/set/delete (string values); missing → undefined | `tests/conformance` fixtures `host/process` |
 | H01.03 | done | both | `exit(code)` / exitCode: terminate with status; default 0 | `tests/conformance` fixtures `host/process`, `crates/draconic-runtime` |
 | H01.04 | done | both | `pid` + `ppid` (read-only) | `tests/conformance` fixtures `host/process` |
-| H02 | todo | both | Stdio: stdout / stderr / stdin | `tests/conformance/host/stdio` |
+| H02 | done | both | Stdio: stdout / stderr / stdin | `tests/conformance/host/stdio` |
 | H02.01 | done | both | stdout write: string + newline; bytes via `Uint8Array` | `tests/conformance` fixtures `host/stdio`, `crates/draconic-runtime` |
 | H02.02 | done | both | stderr write | `tests/conformance` fixtures `host/stdio` |
 | H02.03 | done | both | stdin read: line or bounded bytes (v1 blocking ok on native) | `tests/conformance` fixtures `host/stdio` |

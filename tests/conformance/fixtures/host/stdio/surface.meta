@@ -1,0 +1,10 @@
+id: host/stdio/surface
+targets: js,native
+stdin: ping\n
+js.exit: 0
+js.stdout: hello\nB\n
+js.stderr: warn\n
+js.check: if (line !== "ping") process.exit(1); if (t !== "string") process.exit(2);
+native.exit: 0
+native.stdout: hello\nB\nping\nstring\n
+native.stderr: warn\n

@@ -1,4 +1,4 @@
-//! H02.01–H02.03: native observations for host stdio.
+//! H02 / H02.01–H02.03: native observations for host stdio (combined surface).
 //!
 //! - `stdoutWrite` / `stderrWrite` — string or Uint8Array
 //! - `stdinReadLine()` — maybe-string (null at EOF); auto-printed via `print_str`
@@ -235,7 +235,7 @@ fn number_lit_u8(expr: &Expr) -> Option<u8> {
     match expr {
         Expr::Number { raw, .. } => {
             let n: f64 = raw.parse().ok()?;
-            if n.is_finite() && n >= 0.0 && n <= 255.0 && n.fract() == 0.0 {
+            if n.is_finite() && (0.0..=255.0).contains(&n) && n.fract() == 0.0 {
                 Some(n as u8)
             } else {
                 None
@@ -345,7 +345,10 @@ impl<'a> Emitter<'a> {
         .ok();
         let mut decls = vec![GC_INIT];
         let push_unique = |decls: &mut Vec<_>, f: draconic_runtime::abi::AbiFn| {
-            if !decls.iter().any(|d: &draconic_runtime::abi::AbiFn| d.symbol == f.symbol) {
+            if !decls
+                .iter()
+                .any(|d: &draconic_runtime::abi::AbiFn| d.symbol == f.symbol)
+            {
                 decls.push(f);
             }
         };
@@ -506,7 +509,11 @@ impl<'a> Emitter<'a> {
         self.next_tmp += 1;
         writeln!(self.body, "  {v} = load ptr, ptr {slot_ptr}").ok();
         writeln!(self.body, "  {is_null} = icmp eq ptr {v}, null").ok();
-        writeln!(self.body, "  br i1 {is_null}, label %{join}, label %{use_v}").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is_null}, label %{join}, label %{use_v}"
+        )
+        .ok();
         writeln!(self.body, "{use_v}:").ok();
         writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
         writeln!(self.body, "  br label %{end}").ok();
@@ -554,12 +561,7 @@ impl<'a> Emitter<'a> {
                             && is_named_callee(callee, "stdinReadLine", self.module) =>
                     {
                         let v = self.fresh();
-                        writeln!(
-                            self.body,
-                            "  {}",
-                            HOST_STDIN_READ_LINE.call_to(&v, "")
-                        )
-                        .ok();
+                        writeln!(self.body, "  {}", HOST_STDIN_READ_LINE.call_to(&v, "")).ok();
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                         Ok(())
@@ -602,8 +604,8 @@ impl<'a> Emitter<'a> {
                         computed: false,
                         ..
                     } => {
-                        let prop = string_lit(property)
-                            .ok_or_else(|| diag("host_stdio: length prop"))?;
+                        let prop =
+                            string_lit(property).ok_or_else(|| diag("host_stdio: length prop"))?;
                         if prop != "length" {
                             return Err(diag("host_stdio: only .length"));
                         }
@@ -663,7 +665,11 @@ impl<'a> Emitter<'a> {
                     let s_obj = self.emit_cstr_ptr("object");
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {is_null} = icmp eq ptr {v}, null").ok();
-                    writeln!(self.body, "  br i1 {is_null}, label %{join}, label %{use_s}").ok();
+                    writeln!(
+                        self.body,
+                        "  br i1 {is_null}, label %{join}, label %{use_s}"
+                    )
+                    .ok();
                     writeln!(self.body, "{use_s}:").ok();
                     writeln!(self.body, "  br label %{end}").ok();
                     writeln!(self.body, "{join}:").ok();
@@ -760,8 +766,7 @@ impl<'a> Emitter<'a> {
                     g.clone()
                 } else {
                     let g = format!(".hs.bytes.{}", self.str_globals.len());
-                    self.str_globals
-                        .insert(hex_key, (g.clone(), bytes.len()));
+                    self.str_globals.insert(hex_key, (g.clone(), bytes.len()));
                     g
                 };
                 let n = bytes.len();
@@ -830,8 +835,7 @@ impl<'a> Emitter<'a> {
                         let end = format!("w_end_{}", self.next_tmp);
                         self.next_tmp += 1;
                         writeln!(self.body, "  {is_null} = icmp eq ptr {p}, null").ok();
-                        writeln!(self.body, "  br i1 {is_null}, label %{end}, label %{do_w}")
-                            .ok();
+                        writeln!(self.body, "  br i1 {is_null}, label %{end}, label %{do_w}").ok();
                         writeln!(self.body, "{do_w}:").ok();
                         writeln!(
                             self.body,
@@ -855,7 +859,7 @@ impl<'a> Emitter<'a> {
 }
 
 fn hex_decode(hex: &str) -> Option<Vec<u8>> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Some(Vec::new());
     }
     let mut out = Vec::with_capacity(hex.len() / 2);
@@ -1014,5 +1018,27 @@ mod tests {
         let ir = emit_host_stdio(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_stdin_read_bytes"), "{ir}");
         clang_ok(&ir, "stdin-bytes");
+    }
+
+    #[test]
+    fn classifies_combined_surface() {
+        let m = lower_src(
+            r#"
+            stdoutWrite("hello\n");
+            let u = new Uint8Array(2);
+            u[0] = 66;
+            u[1] = 10;
+            stdoutWrite(u);
+            stderrWrite("warn\n");
+            let line = stdinReadLine();
+            let t = typeof line;
+            "#,
+        );
+        assert!(is_host_stdio_module(&m));
+        let ir = emit_host_stdio(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_stderr_write"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_stdin_read_line"), "{ir}");
+        clang_ok(&ir, "surface");
     }
 }

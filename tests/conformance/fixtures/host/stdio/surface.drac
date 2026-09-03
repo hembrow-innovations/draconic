@@ -1,0 +1,9 @@
+// H02: one Program — stdout string + newline, stdout bytes, stderr write, stdin line.
+stdoutWrite("hello\n");
+let u = new Uint8Array(2);
+u[0] = 66;
+u[1] = 10;
+stdoutWrite(u);
+stderrWrite("warn\n");
+let line = stdinReadLine();
+let t = typeof line;
