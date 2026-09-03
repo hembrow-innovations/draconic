@@ -1,12 +1,13 @@
-//! H05.03–H05.05: timers via Runtime timer + job queue ABI.
+//! H05 / H05.03–H05.05: timers via Runtime timer + job queue ABI.
 //!
 //! Supported subset for conformance:
 //! - top-level number/bool/string locals
+//! - `nowMs()` / `Date.now()` / `monotonicMs()` wall and monotonic clocks
 //! - `setTimeout` / `setInterval(function () { … }, delay)` with number assigns
 //! - nested `setTimeout` / `setInterval` inside timer callbacks
 //! - `clearTimeout(id)` / `clearInterval(id)`
-//! - `typeof` on timer host APIs
-//! - comparison `id > 0` / `ticks >= n`
+//! - `typeof` on timer host APIs and clock calls
+//! - comparison `id > 0` / `ticks >= n` / clock range checks
 //! - `if (test) { … }` in timer callbacks (clear after N ticks)
 //!
 //! End of main: `job_drain` (promotes due timers, sleeps until future timers
@@ -20,8 +21,8 @@ use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_TIMER_DECLARES, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR,
-    TIMER_CLEAR, TIMER_SET, TIMER_SET_INTERVAL,
+    llvm_declares, GC_INIT, HOST_MONOTONIC_MS, HOST_NOW_MS, HOST_TIMER_DECLARES, JOB_DRAIN,
+    PRINT_BOOL, PRINT_I64, PRINT_STR, TIMER_CLEAR, TIMER_SET, TIMER_SET_INTERVAL,
 };
 
 pub(crate) fn is_host_timer_module(module: &Module) -> bool {
@@ -107,7 +108,8 @@ fn kind_from_init(expr: &Expr) -> Option<SlotKind> {
             ..
         } => Some(SlotKind::String),
         Expr::Binary {
-            op: BinaryOp::Gt
+            op:
+                BinaryOp::Gt
                 | BinaryOp::GtEq
                 | BinaryOp::Lt
                 | BinaryOp::LtEq
@@ -117,6 +119,9 @@ fn kind_from_init(expr: &Expr) -> Option<SlotKind> {
                 | BinaryOp::NotEqEq,
             ..
         } => Some(SlotKind::Bool),
+        Expr::Call { callee, args, .. } if args.is_empty() && is_clock_callee(callee) => {
+            Some(SlotKind::Number)
+        }
         Expr::Call { callee, .. }
             if is_named_callee(callee, "setTimeout") || is_named_callee(callee, "setInterval") =>
         {
@@ -220,6 +225,12 @@ fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {
             }
             check_expr(arg_expr(&args[0])?, uses)
         }
+        Expr::Call { callee, args, .. } if is_clock_callee(callee) => {
+            if !args.is_empty() {
+                return Err("nowMs/monotonicMs/Date.now expects no args".into());
+            }
+            Ok(())
+        }
         Expr::Call { .. } => Err("unsupported call in host_timer".into()),
         Expr::Assign { target, value, .. } => {
             match target {
@@ -244,10 +255,9 @@ fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {
             check_expr(left, uses)?;
             check_expr(right, uses)
         }
-        Expr::Local { .. }
-        | Expr::Number { .. }
-        | Expr::Boolean { .. }
-        | Expr::String { .. } => Ok(()),
+        Expr::Local { .. } | Expr::Number { .. } | Expr::Boolean { .. } | Expr::String { .. } => {
+            Ok(())
+        }
         Expr::IdentName { name, .. } if is_timer_api_name(name) => {
             *uses = true;
             Ok(())
@@ -297,6 +307,39 @@ fn arg_expr(arg: &Arg) -> Result<&Expr, String> {
 
 fn is_named_callee(expr: &Expr, want: &str) -> bool {
     matches!(expr, Expr::IdentName { name, .. } if name == want)
+}
+
+fn is_clock_callee(expr: &Expr) -> bool {
+    is_named_callee(expr, "nowMs")
+        || is_named_callee(expr, "monotonicMs")
+        || is_date_now_callee(expr)
+}
+
+fn is_date_now_callee(expr: &Expr) -> bool {
+    match expr {
+        Expr::Member {
+            object,
+            property,
+            computed: false,
+            ..
+        } => {
+            let is_date = match object.as_ref() {
+                Expr::IdentName { name, .. } => name == "Date",
+                // Frontend binds `Date` as a local; property `now` is the clock call.
+                Expr::Local { .. } => true,
+                _ => false,
+            };
+            is_date && string_lit(property).as_deref() == Some("now")
+        }
+        _ => false,
+    }
+}
+
+fn string_lit(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::String { value, .. } => Some(value.to_string_lossy()),
+        _ => None,
+    }
 }
 
 fn diag(msg: impl Into<String>) -> Diagnostic {
@@ -384,10 +427,16 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_timers (H05.03–H05.05 timers)"
+            "; Draconic LLVM host_timers (H05 clocks + H05.03–H05.05 timers)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(HOST_TIMER_DECLARES)).ok();
+        writeln!(
+            self.out,
+            "{}",
+            llvm_declares(&[HOST_NOW_MS, HOST_MONOTONIC_MS])
+        )
+        .ok();
         writeln!(self.out).ok();
 
         self.body.clear();
@@ -562,10 +611,7 @@ impl<'a> Emitter<'a> {
                 ..
             } => self.emit_typeof(arg),
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } => self.emit_binary(*op, left, right),
             Expr::Call { callee, args, .. } if is_named_callee(callee, "setTimeout") => {
                 if self.in_callback {
@@ -586,6 +632,9 @@ impl<'a> Emitter<'a> {
                     || is_named_callee(callee, "clearInterval") =>
             {
                 self.emit_clear_timeout(args)
+            }
+            Expr::Call { callee, args, .. } if args.is_empty() && is_clock_callee(callee) => {
+                self.emit_clock_ms(callee)
             }
             Expr::Assign {
                 target: AssignTarget::Local(id),
@@ -732,10 +781,30 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
+    fn emit_clock_ms(&mut self, callee: &Expr) -> Result<String, Diagnostic> {
+        let d = self.fresh();
+        let abi = if is_named_callee(callee, "monotonicMs") {
+            HOST_MONOTONIC_MS
+        } else {
+            HOST_NOW_MS
+        };
+        writeln!(self.body, "  {}", abi.call_to(&d, "")).ok();
+        let i = self.fresh();
+        writeln!(self.body, "  {i} = fptosi double {d} to i64").ok();
+        Ok(i)
+    }
+
     fn emit_typeof(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
         let s = match arg {
             Expr::IdentName { name, .. } if is_timer_api_name(name) => "function",
-            _ => return Err(diag("host_timer: typeof only on timer host APIs")),
+            Expr::Call { callee, args, .. } if args.is_empty() && is_clock_callee(callee) => {
+                "number"
+            }
+            _ => {
+                return Err(diag(
+                    "host_timer: typeof only on timer host APIs or clock calls",
+                ))
+            }
         };
         let g = self.intern_cstr(s);
         let n = s.len() + 1;
@@ -803,12 +872,7 @@ impl<'a> Emitter<'a> {
             Arg::Expr(e) => e,
             _ => return Err(diag("timer set bad delay")),
         };
-        let Expr::Function {
-            params,
-            body,
-            ..
-        } = fn_expr
-        else {
+        let Expr::Function { params, body, .. } = fn_expr else {
             return Err(diag("timer set needs function"));
         };
         let _ = params;
@@ -825,7 +889,10 @@ impl<'a> Emitter<'a> {
         writeln!(
             self.body,
             "  {}",
-            abi.call_to(&id, &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}"))
+            abi.call_to(
+                &id,
+                &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}")
+            )
         )
         .ok();
         Ok(id)
@@ -1064,7 +1131,10 @@ impl<'a> Emitter<'a> {
         writeln!(
             self.body,
             "  {}",
-            abi.call_to(&id, &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}"))
+            abi.call_to(
+                &id,
+                &format!("ptr @{fn_name}, ptr {data_op}, double {delay_d}")
+            )
         )
         .ok();
         Ok(id)
@@ -1201,6 +1271,30 @@ mod tests {
         );
         assert!(is_host_timer_module(&m));
         let ir = emit_host_timers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_timer_set"), "{ir}");
+        assert!(ir.contains("draconic_rt_job_drain"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_combined_time_surface() {
+        let m = ir_of(
+            r#"
+            let now_ok = nowMs() > 1600000000000;
+            let date_ok = Date.now() > 1600000000000;
+            let mono_ok = monotonicMs() >= 0;
+            let t_now = typeof nowMs();
+            let fired = 0;
+            setTimeout(function () { fired = 1; }, 20);
+            let t = typeof setTimeout;
+            "#,
+        );
+        match try_classify(&m) {
+            Ok(info) => assert!(info.uses_timer, "combined surface must use timers"),
+            Err(e) => panic!("classify failed: {e}"),
+        }
+        let ir = emit_host_timers(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_now_ms"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_monotonic_ms"), "{ir}");
         assert!(ir.contains("draconic_rt_timer_set"), "{ir}");
         assert!(ir.contains("draconic_rt_job_drain"), "{ir}");
     }

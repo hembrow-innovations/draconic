@@ -1,0 +1,28 @@
+// H05: one Program — wall clock, monotonic clock, timeout/interval, run-loop wait.
+let now_ok = nowMs() > 1600000000000;
+let date_ok = Date.now() > 1600000000000;
+let mono_ok = monotonicMs() >= 0;
+let t_now = typeof nowMs();
+let t_mono = typeof monotonicMs();
+let fired = 0;
+let cancelled = 0;
+setTimeout(function () {
+  fired = 1;
+}, 20);
+let tid = setTimeout(function () {
+  cancelled = 1;
+}, 20);
+clearTimeout(tid);
+let ticks = 0;
+let iid = setInterval(function () {
+  ticks = ticks + 1;
+  if (ticks >= 2) {
+    clearInterval(iid);
+  }
+}, 0);
+let t_st = typeof setTimeout;
+let t_ct = typeof clearTimeout;
+let t_si = typeof setInterval;
+let t_ci = typeof clearInterval;
+let tid_ok = tid > 0;
+let iid_ok = iid > 0;

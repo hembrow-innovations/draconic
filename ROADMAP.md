@@ -776,7 +776,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H04.04 | done | both | Directory: `mkdir` (optional recursive), `readdir`, `rmdir` / remove file | `tests/conformance` fixtures `host/fs` |
 | H04.05 | done | both | Rename / copy / delete file | `tests/conformance` fixtures `host/fs` |
 | H04.06 | done | native | Open handle: open/read/write/seek/close (fd-like; optional shared stream traits) | `tests/conformance` fixtures `host/fs`, `crates/draconic-runtime` |
-| H05 | todo | both | Time, clock, timers (job-queue integrated) | `tests/conformance/host/time` |
+| H05 | done | both | Time, clock, timers (job-queue integrated) | `tests/conformance/host/time` |
 | H05.01 | done | both | Wall clock: real OS time on native (`Date.now` / host `now_ms`) | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |
 | H05.02 | done | both | Monotonic clock for durations | `tests/conformance` fixtures `host/time` |
 | H05.03 | done | both | `setTimeout` / `clearTimeout` via job queue | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |

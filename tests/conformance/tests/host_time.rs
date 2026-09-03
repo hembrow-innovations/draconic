@@ -1,4 +1,5 @@
-//! ROADMAP H05.01–H05.05: wall clock, monotonic clock, timers, run-loop wait.
+//! ROADMAP H05 / H05.01–H05.05: wall clock, monotonic clock, timers, run-loop wait.
+//! H05 parent locks the combined time surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -87,4 +88,32 @@ fn timer_wait_fixture_present() {
 #[test]
 fn timer_wait_runs_js_and_native() {
     assert_fixture_runs("host/time/timer_wait");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/time/surface");
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/time/surface")
+        .expect("host/time/surface");
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "host/time/surface must target js and native"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("true\ntrue\ntrue\nnumber\nnumber\n1\n0\n2\n2\n3\nfunction\nfunction\nfunction\nfunction\ntrue\ntrue\n"),
+        "H05 surface must observe wall clock, monotonic clock, timeout, interval, and timer ids"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H05 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/time/surface");
 }
