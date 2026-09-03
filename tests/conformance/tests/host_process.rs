@@ -1,5 +1,7 @@
 //! ROADMAP H01 / H14 / H15: process + signals + run + spawn + async wait.
 //! H01 parent locks the combined args / env / pid / exitCode surface in one Program.
+//! H14 parent locks the combined native signal surface (watch SIGINT, ignore
+//! SIGTERM, restore + rewatch) in one Program; default terminate stays in Runtime.
 //! H15 parent locks the combined subprocess surface (run argv/cwd/env, spawn
 //! capture/kill) in one Program on both targets; async wait stays native-only.
 
@@ -320,4 +322,36 @@ fn signal_restore_rewatch_runs_native() {
         "must target native"
     );
     assert_fixture_runs("host/process/signal_restore_rewatch");
+}
+
+#[test]
+fn signals_fixture_present() {
+    assert_fixture_present("host/process/signals");
+}
+
+#[test]
+fn signals_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/process/signals")
+        .expect("host/process/signals");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
+    assert!(
+        !fixture.targets.contains(&Target::Js),
+        "H14 signals is native-only"
+    );
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("1\n0\n1\nfunction\nfunction\nfunction\nfunction\n"),
+        "H14 signals must observe SIGINT watch, SIGTERM ignore, restore+rewatch, and typeofs"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H14 signals must terminate with exit 0"
+    );
+    assert_fixture_runs("host/process/signals");
 }

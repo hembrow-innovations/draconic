@@ -1,0 +1,22 @@
+// H14: one Program — watch SIGINT, ignore SIGTERM, restore + rewatch.
+let n_int = 0;
+onSignal("SIGINT", function () {
+  n_int = n_int + 1;
+});
+raiseSignal("SIGINT");
+let n_ign = 0;
+onSignal("SIGTERM", function () {
+  n_ign = 1;
+});
+ignoreSignal("SIGTERM");
+raiseSignal("SIGTERM");
+let n_rest = 0;
+restoreSignal("SIGTERM");
+onSignal("SIGTERM", function () {
+  n_rest = 1;
+});
+raiseSignal("SIGTERM");
+let t_on = typeof onSignal;
+let t_raise = typeof raiseSignal;
+let t_ign = typeof ignoreSignal;
+let t_rest = typeof restoreSignal;

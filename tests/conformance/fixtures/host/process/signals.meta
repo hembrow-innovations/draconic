@@ -1,0 +1,4 @@
+id: host/process/signals
+targets: native
+native.exit: 0
+native.stdout: 1\n0\n1\nfunction\nfunction\nfunction\nfunction\n
