@@ -940,6 +940,173 @@ fn build_offline_succeeds_when_cache_present() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// ROADMAP K07: combined auto-fetch / `--offline` / lock-pin build (parent of K07.01–K07.03).
+#[test]
+fn k07_combined_build_auto_fetch_offline_lock_pins() {
+    let root = temp_dir();
+
+    let upstream = root.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+    let oid_v1 = git_stdout(&["rev-parse", "HEAD"], &upstream);
+
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 99;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v2.0.0"], &upstream);
+    git_ok(&["tag", "v2.0.0"], &upstream);
+    let oid_v2 = git_stdout(&["rev-parse", "HEAD"], &upstream);
+    assert_ne!(oid_v1, oid_v2);
+
+    let seed_cache = root.join("seed-cache");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/org/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg({
+                let ws = root.join("seed-ws");
+                fs::create_dir_all(&ws).unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
+                ws
+            })
+            .arg("--cache-dir")
+            .arg(&seed_cache),
+    );
+    assert_eq!(code, 0, "seed get failed: {stderr}");
+    let lock_src = fs::read_to_string(root.join("seed-ws/draconic.lock")).unwrap();
+    let content_hash = lock_src
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("content_hash = \""))
+        .and_then(|s| s.strip_suffix('"'))
+        .expect("content_hash in seed lock")
+        .to_string();
+
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        format!(
+            "module = \"github.com/acme/app\"\n\n[dependencies]\n\"github.com/org/lib\" = \">=1.0.0\"\n\n[urls]\n\"github.com/org/lib\" = \"{}\"\n",
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    let lock_text = format!(
+        r#"version = 1
+
+[[package]]
+path = "github.com/org/lib"
+version = "1.0.0"
+git_url = "{}"
+commit_oid = "{oid_v1}"
+content_hash = "{content_hash}"
+"#,
+        upstream.display()
+    );
+    fs::write(ws.join("draconic.lock"), &lock_text).unwrap();
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        "import { value, inc } from \"github.com/org/lib\";\nlet a = value;\nlet b = inc(value);\n",
+    )
+    .unwrap();
+
+    let cache_v1 = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid_v1);
+    let cache_v2 = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid_v2);
+    assert!(
+        !cache_v1.is_dir(),
+        "cache must be empty before combined K07"
+    );
+
+    let out = ws.join("out.js");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg("--offline")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert_ne!(code, 0, "offline miss must fail");
+    assert!(
+        stderr.contains("offline") || stderr.contains("--offline"),
+        "stderr should mention offline: {stderr}"
+    );
+    assert!(
+        stderr.contains("draconic get") || stderr.contains("without --offline"),
+        "stderr should include fixit: {stderr}"
+    );
+    assert!(!cache_v1.is_dir(), "offline must not fetch");
+    assert!(!out.is_file(), "offline miss must not write output");
+
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert!(cache_v1.is_dir(), "online build must auto-fetch locked v1");
+    assert!(
+        !cache_v2.is_dir(),
+        "build must not materialize floated v2 OID"
+    );
+    let js = fs::read_to_string(&out).expect("js");
+    assert!(js.contains("41"), "locked pin value 41, got:\n{js}");
+    assert!(
+        !js.contains("99"),
+        "must not float to v2 value 99, got:\n{js}"
+    );
+    let lock_after = fs::read_to_string(ws.join("draconic.lock")).unwrap();
+    assert_eq!(lock_after, lock_text, "build must not rewrite present lock");
+
+    let out2 = ws.join("out-offline.js");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg("--offline")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out2),
+    );
+    assert!(out2.is_file(), "offline hit must emit js");
+    let js2 = fs::read_to_string(&out2).expect("js");
+    assert!(js2.contains("41"), "offline hit still locked pin:\n{js2}");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 /// ROADMAP K09.02: E2E CLI build of consumer importing module path from temp git fixture.
 /// get → lock+cache → build --target js → Node observes imported values.
 #[test]

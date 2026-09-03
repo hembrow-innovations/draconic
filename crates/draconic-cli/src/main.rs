@@ -435,7 +435,7 @@ struct BuildArgs {
     input: PathBuf,
     output: Option<PathBuf>,
     watch: bool,
-    /// K07.02: cache-only package ensure; no network fetch on miss.
+    /// K07 / K07.02: cache-only package ensure; no network fetch on miss.
     offline: bool,
     /// F04.01: extra static archives (`.a`) for native link.
     link_libs: Vec<PathBuf>,
@@ -833,8 +833,8 @@ fn build_program(
     link_libs: &[PathBuf],
     lto: bool,
 ) -> Result<(), Diagnostic> {
-    // K07.01: auto-fetch missing locked package checkouts before link/compile.
-    // K07.02: `--offline` → cache only; miss → fixit (no network).
+    // K07: auto-fetch missing locked package checkouts before link/compile.
+    // K07.01: materialise missing pins. K07.02: `--offline` → cache only; miss → fixit.
     // K07.03: lock pins are authoritative (commit OID); do not float versions.
     if let Err(e) = ensure_locked_for_entry(input, offline) {
         return Err(Diagnostic::new(

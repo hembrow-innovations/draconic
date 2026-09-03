@@ -1,4 +1,4 @@
-//! Ensure locked package checkouts exist in the module cache (Roadmap K07.01–K07.03 / K08).
+//! Ensure locked package checkouts exist in the module cache (Roadmap K07 / K07.01–K07.03 / K08).
 //!
 //! Used by `draconic build` to auto-fetch missing locked cache entries before link.
 //! With `offline`, only the cache is consulted; a miss is a hard error with a fixit.
@@ -110,12 +110,13 @@ pub fn ensure_locked_entries(
     let mut fetched = Vec::new();
 
     for (path, entry) in &lock.packages {
-        let present = cache
-            .has_entry(path, &entry.commit_oid)
-            .map_err(|e| EnsureLockedError::Cache {
-                path: path.clone(),
-                message: e.to_string(),
-            })?;
+        let present =
+            cache
+                .has_entry(path, &entry.commit_oid)
+                .map_err(|e| EnsureLockedError::Cache {
+                    path: path.clone(),
+                    message: e.to_string(),
+                })?;
         if present {
             verify_locked_entry_integrity(cache, path, entry)?;
             kept.push(path.clone());
@@ -131,9 +132,7 @@ pub fn ensure_locked_entries(
             });
         }
         if offline {
-            return Err(EnsureLockedError::OfflineMiss {
-                path: path.clone(),
-            });
+            return Err(EnsureLockedError::OfflineMiss { path: path.clone() });
         }
         cache
             .checkout(path, &entry.commit_oid, &entry.git_url)
@@ -249,9 +248,8 @@ fn discover_lock(entry: &Path) -> Result<Option<(PathBuf, LockFile)>, EnsureLock
     loop {
         let lock_path = dir.join(LOCK_FILE);
         if lock_path.is_file() {
-            let src = fs::read_to_string(&lock_path).map_err(|e| {
-                EnsureLockedError::Io(format!("read {}: {e}", lock_path.display()))
-            })?;
+            let src = fs::read_to_string(&lock_path)
+                .map_err(|e| EnsureLockedError::Io(format!("read {}: {e}", lock_path.display())))?;
             let lock = parse_lock(&src).map_err(|e| EnsureLockedError::Lock(e.to_string()))?;
             return Ok(Some((dir.to_path_buf(), lock)));
         }
@@ -345,14 +343,8 @@ mod tests {
         fs::remove_dir_all(cache.root.join("mod")).unwrap();
         fs::remove_dir_all(cache.root.join("vcs")).ok();
 
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
-        )
-        .unwrap();
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -387,14 +379,8 @@ mod tests {
         fs::remove_dir_all(cache.root.join("mod")).unwrap();
         fs::remove_dir_all(cache.root.join("vcs")).ok();
 
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
-        )
-        .unwrap();
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -410,7 +396,10 @@ mod tests {
         }
         assert!(!cache.has_entry(path, &oid).unwrap());
         assert!(msg.contains("offline"), "{msg}");
-        assert!(msg.contains("draconic get") || msg.contains("without --offline"), "{msg}");
+        assert!(
+            msg.contains("draconic get") || msg.contains("without --offline"),
+            "{msg}"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -426,14 +415,8 @@ mod tests {
             .unwrap();
         let hash = content_hash_tree(&checkout).unwrap();
 
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
-        )
-        .unwrap();
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -472,14 +455,8 @@ mod tests {
         let hash = content_hash_tree(&checkout).unwrap();
         fs::remove_dir_all(&cache_root).unwrap();
 
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
-        )
-        .unwrap();
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -555,14 +532,8 @@ mod tests {
         fs::remove_dir_all(cache.root.join("mod")).unwrap();
         fs::remove_dir_all(cache.root.join("vcs")).ok();
 
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            repo.to_str().unwrap(),
-            oid_v1.clone(),
-            hash,
-        )
-        .unwrap();
+        let entry =
+            LockEntry::new(path, "1.0.0", repo.to_str().unwrap(), oid_v1.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -577,8 +548,8 @@ mod tests {
             !cache.has_entry(path, &oid_v2).unwrap(),
             "must not materialize newer unpinned OID"
         );
-        let src = fs::read_to_string(cache.entry_dir(path, &oid_v1).unwrap().join("index.drac"))
-            .unwrap();
+        let src =
+            fs::read_to_string(cache.entry_dir(path, &oid_v1).unwrap().join("index.drac")).unwrap();
         assert!(src.contains("41"), "locked pin content: {src}");
         assert!(!src.contains("99"), "must not float to v2 content: {src}");
 
@@ -597,14 +568,8 @@ mod tests {
             .unwrap();
         let hash = content_hash_tree(&checkout).unwrap();
 
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
-        )
-        .unwrap();
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -720,14 +685,8 @@ mod tests {
         fs::remove_dir_all(cache.root.join("mod")).unwrap();
         fs::remove_dir_all(cache.root.join("vcs")).ok();
 
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
-        )
-        .unwrap();
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -755,17 +714,15 @@ mod tests {
         let hash = content_hash_tree(&checkout).unwrap();
         // Corrupt marker to a different OID while leaving tree in place.
         let other = "ffffffffffffffffffffffffffffffffffffffff";
-        fs::write(checkout.join(".draconic-checkout-oid"), format!("{other}\n")).unwrap();
-        assert!(!cache.has_entry(path, &oid).unwrap());
-
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
+        fs::write(
+            checkout.join(".draconic-checkout-oid"),
+            format!("{other}\n"),
         )
         .unwrap();
+        assert!(!cache.has_entry(path, &oid).unwrap());
+
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -788,7 +745,10 @@ mod tests {
             other => panic!("expected OidMismatch, got {other:?}"),
         }
         assert!(msg.contains("OID mismatch"), "{msg}");
-        assert!(msg.contains("refuse") || msg.contains("wrong tree"), "{msg}");
+        assert!(
+            msg.contains("refuse") || msg.contains("wrong tree"),
+            "{msg}"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -805,16 +765,14 @@ mod tests {
             .unwrap();
         let hash = content_hash_tree(&checkout).unwrap();
         let other = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        fs::write(checkout.join(".draconic-checkout-oid"), format!("{other}\n")).unwrap();
-
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            upstream.to_str().unwrap(),
-            oid.clone(),
-            hash,
+        fs::write(
+            checkout.join(".draconic-checkout-oid"),
+            format!("{other}\n"),
         )
         .unwrap();
+
+        let entry =
+            LockEntry::new(path, "1.0.0", upstream.to_str().unwrap(), oid.clone(), hash).unwrap();
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         let lock = LockFile {
@@ -827,6 +785,102 @@ mod tests {
             matches!(err, EnsureLockedError::OidMismatch { .. }),
             "{err:?}"
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- K07: combined auto-fetch / offline / lock-pin ensure (parent of K07.01–K07.03) ---
+
+    #[test]
+    fn k07_combined_auto_fetch_offline_lock_pins() {
+        let root = temp_dir();
+        let repo = root.join("upstream");
+        fs::create_dir_all(&repo).unwrap();
+        git_ok(&["init"], &repo);
+        git_ok(&["config", "user.email", "test@draconic.local"], &repo);
+        git_ok(&["config", "user.name", "Draconic Test"], &repo);
+        git_ok(&["checkout", "-B", "main"], &repo);
+        fs::write(repo.join("index.drac"), "export let x = 41;\n").unwrap();
+        git_ok(&["add", "."], &repo);
+        git_ok(&["commit", "-m", "v1.0.0"], &repo);
+        git_ok(&["tag", "v1.0.0"], &repo);
+        let oid_v1 = String::from_utf8(
+            Command::new("git")
+                .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+
+        fs::write(repo.join("index.drac"), "export let x = 99;\n").unwrap();
+        git_ok(&["add", "."], &repo);
+        git_ok(&["commit", "-m", "v2.0.0"], &repo);
+        git_ok(&["tag", "v2.0.0"], &repo);
+        let oid_v2 = String::from_utf8(
+            Command::new("git")
+                .args(["-C", repo.to_str().unwrap(), "rev-parse", "HEAD"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+        assert_ne!(oid_v1, oid_v2);
+
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/lib";
+        let checkout_v1 = cache
+            .checkout(path, &oid_v1, repo.to_str().unwrap())
+            .unwrap();
+        let hash = content_hash_tree(&checkout_v1).unwrap();
+        fs::remove_dir_all(cache.root.join("mod")).unwrap();
+        fs::remove_dir_all(cache.root.join("vcs")).ok();
+
+        let entry =
+            LockEntry::new(path, "1.0.0", repo.to_str().unwrap(), oid_v1.clone(), hash).unwrap();
+        let mut packages = BTreeMap::new();
+        packages.insert(path.to_string(), entry);
+        let lock = LockFile {
+            version: 1,
+            packages,
+        };
+
+        // K07.02: offline miss → fixit, no fetch.
+        let err = ensure_locked_entries(&lock, &cache, true).expect_err("offline miss");
+        assert!(
+            matches!(err, EnsureLockedError::OfflineMiss { .. }),
+            "{err:?}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("offline"), "{msg}");
+        assert!(
+            msg.contains("draconic get") || msg.contains("without --offline"),
+            "{msg}"
+        );
+        assert!(!cache.has_entry(path, &oid_v1).unwrap());
+
+        // K07.01 + K07.03: online auto-fetch uses the lock OID, never floats to v2.
+        let fetched = ensure_locked_entries(&lock, &cache, false).expect("auto-fetch");
+        assert_eq!(fetched.fetched, vec![path.to_string()]);
+        assert!(fetched.kept.is_empty());
+        assert!(cache.has_entry(path, &oid_v1).unwrap());
+        assert!(
+            !cache.has_entry(path, &oid_v2).unwrap(),
+            "must not materialize unpinned v2 OID"
+        );
+        let src =
+            fs::read_to_string(cache.entry_dir(path, &oid_v1).unwrap().join("index.drac")).unwrap();
+        assert!(src.contains("41"), "locked pin content: {src}");
+        assert!(!src.contains("99"), "must not float to v2 content: {src}");
+
+        // Warm cache: offline hit, no extra fetch.
+        let hit = ensure_locked_entries(&lock, &cache, true).expect("offline hit");
+        assert_eq!(hit.kept, vec![path.to_string()]);
+        assert!(hit.fetched.is_empty());
 
         let _ = fs::remove_dir_all(&root);
     }
