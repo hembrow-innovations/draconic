@@ -782,7 +782,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H05.03 | done | both | `setTimeout` / `clearTimeout` via job queue | `tests/conformance` fixtures `host/time`, `crates/draconic-runtime` |
 | H05.04 | done | both | `setInterval` / `clearInterval` | `tests/conformance` fixtures `host/time` |
 | H05.05 | done | native | Run loop waits for due timers (not busy-spin forever) | `crates/draconic-runtime`, `tests/conformance` fixtures `host/time` |
-| H06 | todo | native | TCP sockets (sockets-first) | `tests/conformance/host/net/tcp` |
+| H06 | done | native | TCP sockets (sockets-first) | `tests/conformance/host/net/tcp` |
 | H06.01 | done | native | TCP listen: bind, backlog, close; port 0 → ephemeral + query local port | `tests/conformance` fixtures `host/net/tcp`, `crates/draconic-runtime` |
 | H06.02 | done | native | TCP accept → connection handle; peer address | `tests/conformance` fixtures `host/net/tcp` |
 | H06.03 | done | native | TCP connect: dial host:port; refused/timeout errors | `tests/conformance` fixtures `host/net/tcp` |

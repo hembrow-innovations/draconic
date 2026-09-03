@@ -1,4 +1,5 @@
-//! ROADMAP H06.01–H06.05: TCP listen/accept/connect/peer + read/write/shutdown + loopback echo.
+//! ROADMAP H06 / H06.01–H06.05: TCP listen/accept/connect/peer + read/write/shutdown + loopback echo.
+//! H06 parent locks the combined TCP surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -132,9 +133,34 @@ fn tcp_loopback_echo_runs_native() {
         fixture.targets.contains(&Target::Native),
         "must target native"
     );
+    assert_eq!(fixture.expect_native.stdout.as_deref(), Some("echo-me7\n"));
+    assert_fixture_runs("host/net/tcp/tcp_loopback_echo");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/net/tcp/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/tcp/surface")
+        .expect("host/net/tcp/surface");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
     assert_eq!(
         fixture.expect_native.stdout.as_deref(),
-        Some("echo-me7\n")
+        Some("echo-me127.0.0.1\ntrue\n3\n3\n7\n0\n"),
+        "H06 surface must observe peer, partial read, echo, and shutdown EOF"
     );
-    assert_fixture_runs("host/net/tcp/tcp_loopback_echo");
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H06 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/net/tcp/surface");
 }

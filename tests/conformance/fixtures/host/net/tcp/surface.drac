@@ -1,0 +1,24 @@
+// H06: one Program — listen/bind/backlog/ephemeral, accept+peer, connect,
+// read/write/partial, shutdown, close, loopback echo.
+let s = tcpListen(0, 16);
+let c = tcpConnect("127.0.0.1", tcpLocalPort(s));
+let a = tcpAccept(s);
+let peer = tcpPeerAddress(a);
+let ok_peer = tcpPeerPort(a) > 0;
+tcpWrite(c, "abcdef");
+let part = tcpRead(a, 3);
+let pn = part.length;
+let rest = tcpRead(a, 64);
+let rn = rest.length;
+tcpWrite(c, "echo-me");
+let req = tcpRead(a, 64);
+tcpWrite(a, req);
+let res = tcpRead(c, 64);
+stdoutWrite(res);
+let n = res.length;
+tcpShutdown(c);
+let eof = tcpRead(a, 64);
+let z = eof.length;
+closeTcp(a);
+closeTcp(c);
+closeTcp(s);

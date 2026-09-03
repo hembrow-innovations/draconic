@@ -1,0 +1,4 @@
+id: host/net/tcp/surface
+targets: native
+native.exit: 0
+native.stdout: echo-me127.0.0.1\ntrue\n3\n3\n7\n0\n
