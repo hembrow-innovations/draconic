@@ -22,8 +22,7 @@ pub(crate) fn is_es_optional_chain_module(module: &Module) -> bool {
 }
 
 pub(crate) fn emit_es_optional_chain(module: &Module) -> Result<String, Diagnostic> {
-    let info =
-        classify(module).ok_or_else(|| diag("internal: not an es_optional_chain module"))?;
+    let info = classify(module).ok_or_else(|| diag("internal: not an es_optional_chain module"))?;
     let mut em = Emitter::new();
     em.emit_module(&info)?;
     Ok(em.finish())
@@ -116,14 +115,14 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 }
 
 fn module_has_optional(body: &[Stmt]) -> bool {
-    body.iter().any(|s| stmt_has_optional(s))
+    body.iter().any(stmt_has_optional)
 }
 
 fn stmt_has_optional(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Declare { init: Some(e), .. } | Stmt::Expr { expr: e } | Stmt::Return { value: Some(e) } => {
-            expr_has_optional(e)
-        }
+        Stmt::Declare { init: Some(e), .. }
+        | Stmt::Expr { expr: e }
+        | Stmt::Return { value: Some(e) } => expr_has_optional(e),
         Stmt::Block { body } | Stmt::Function { body, .. } => module_has_optional(body),
         _ => false,
     }
@@ -156,9 +155,7 @@ fn expr_has_optional(expr: &Expr) -> bool {
             alternate,
             ..
         } => {
-            expr_has_optional(test)
-                || expr_has_optional(consequent)
-                || expr_has_optional(alternate)
+            expr_has_optional(test) || expr_has_optional(consequent) || expr_has_optional(alternate)
         }
         _ => false,
     }
@@ -219,16 +216,13 @@ fn params_ok(params: &[Param], by_id: &HashMap<LocalId, &Local>) -> bool {
 
 fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
-        Expr::Number { .. }
-        | Expr::String { .. }
-        | Expr::Boolean { .. }
-        | Expr::Null { .. } => true,
+        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => {
+            true
+        }
         Expr::Local { id, .. } => by_id.contains_key(id),
         Expr::IdentName { name, .. } => name == "undefined",
         Expr::Object { properties, .. } => properties.iter().all(|p| match p {
-            ObjectProp::Property { key, value } => {
-                prop_key_ok(key, by_id) && expr_ok(value, by_id)
-            }
+            ObjectProp::Property { key, value } => prop_key_ok(key, by_id) && expr_ok(value, by_id),
             ObjectProp::Accessor { .. } | ObjectProp::Spread(_) => false,
         }),
         Expr::Function {
@@ -241,11 +235,7 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
         Expr::Member {
             object, property, ..
         } => expr_ok(object, by_id) && expr_ok(property, by_id),
-        Expr::Call {
-            callee,
-            args,
-            ..
-        } => {
+        Expr::Call { callee, args, .. } => {
             expr_ok(callee, by_id)
                 && args.iter().all(|a| match a {
                     Arg::Expr(e) => expr_ok(e, by_id),
@@ -542,12 +532,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_str(&mut self, s: &str) {

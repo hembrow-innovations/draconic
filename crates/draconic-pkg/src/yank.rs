@@ -424,9 +424,7 @@ module = "github.com/acme/app"
             ResolveDirectError::Advisory { path, source } => {
                 assert_eq!(path, PATH);
                 match source {
-                    AdvisoryError::Refused {
-                        version, kind, ..
-                    } => {
+                    AdvisoryError::Refused { version, kind, .. } => {
                         assert_eq!(version, "1.2.3");
                         assert_eq!(*kind, YankKind::Yank);
                     }
@@ -510,7 +508,9 @@ module = "github.com/acme/app"
         })
         .expect("file url")
         .expect("some");
-        via_url.refuse(PATH, "1.2.3").expect_err("yanked via file://");
+        via_url
+            .refuse(PATH, "1.2.3")
+            .expect_err("yanked via file://");
         let _ = fs::remove_dir_all(&root);
     }
 }

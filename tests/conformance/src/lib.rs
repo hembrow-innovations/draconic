@@ -274,7 +274,10 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
             "native.stdin" => meta.expect_native.stdin = Some(unescape(value)),
             "native.link" => {
                 if value.is_empty() {
-                    return Err(format!("meta line {}: native.link requires a path", lineno + 1));
+                    return Err(format!(
+                        "meta line {}: native.link requires a path",
+                        lineno + 1
+                    ));
                 }
                 meta.expect_native.link.push(PathBuf::from(value));
             }
@@ -429,7 +432,7 @@ pub fn run_all(root: &Path) -> Result<Vec<RunResult>, String> {
     Ok(results)
 }
 
-fn run_js(fixture: &Fixture, mut coverage: Option<&mut CoverageReport>) -> Result<(), String> {
+fn run_js(fixture: &Fixture, coverage: Option<&mut CoverageReport>) -> Result<(), String> {
     let expect = &fixture.expect_js;
     if expect.error_contains.is_some() || expect.error_code.is_some() {
         return expect_compile_or_emit_error(
@@ -491,7 +494,7 @@ fn run_js(fixture: &Fixture, mut coverage: Option<&mut CoverageReport>) -> Resul
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    if let (Some(report), Some(path)) = (coverage.as_deref_mut(), &cov_path) {
+    if let (Some(report), Some(path)) = (coverage, &cov_path) {
         let hit = read_hits(path);
         let display = fixture.source_path.display().to_string();
         report.merge_file(&display, executable, hit);
@@ -538,9 +541,7 @@ fn run_with_optional_stdin(cmd: &mut Command, stdin: Option<&str>) -> Result<Out
                 .map_err(|e| format!("write stdin: {e}"))?;
         }
     }
-    child
-        .wait_with_output()
-        .map_err(|e| format!("wait: {e}"))
+    child.wait_with_output().map_err(|e| format!("wait: {e}"))
 }
 
 /// F04.01: `native.link` paths are relative to the fixture directory.
@@ -616,8 +617,8 @@ fn resolve_native_dylink_libs(fixture: &Fixture) -> Result<Vec<PathBuf>, String>
                 path.display()
             ));
         }
-        let dylib = temp_bin_path(&format!("{}-dylink-{i}", fixture.id))
-            .with_extension(dynamic_lib_ext());
+        let dylib =
+            temp_bin_path(&format!("{}-dylink-{i}", fixture.id)).with_extension(dynamic_lib_ext());
         if let Some(parent) = dylib.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -668,8 +669,11 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
         return Err("native.link and native.dylink together are not supported".to_string());
     }
 
-    let output = run_with_optional_stdin(Command::new(&out).args(&expect.args), expect.stdin.as_deref())
-        .map_err(|e| format!("run native binary: {e}"))?;
+    let output = run_with_optional_stdin(
+        Command::new(&out).args(&expect.args),
+        expect.stdin.as_deref(),
+    )
+    .map_err(|e| format!("run native binary: {e}"))?;
 
     let _ = fs::remove_file(&out);
 
@@ -849,10 +853,7 @@ native.exit: 0
 ",
         )
         .unwrap();
-        assert_eq!(
-            meta.expect_native.link,
-            vec![PathBuf::from("resolve.c")]
-        );
+        assert_eq!(meta.expect_native.link, vec![PathBuf::from("resolve.c")]);
     }
 
     #[test]
@@ -876,7 +877,10 @@ native.exit: 0
         let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
         assert!(ids.contains(&"smoke"), "got {ids:?}");
         assert!(ids.contains(&"suite"), "got {ids:?}");
-        assert!(!ids.contains(&"dep"), "dependency module should stay excluded, got {ids:?}");
+        assert!(
+            !ids.contains(&"dep"),
+            "dependency module should stay excluded, got {ids:?}"
+        );
     }
 
     #[test]
@@ -890,9 +894,6 @@ native.exit: 0
 ",
         )
         .unwrap();
-        assert_eq!(
-            meta.expect_native.dylink,
-            vec![PathBuf::from("resolve.c")]
-        );
+        assert_eq!(meta.expect_native.dylink, vec![PathBuf::from("resolve.c")]);
     }
 }

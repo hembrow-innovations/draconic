@@ -21,9 +21,7 @@ use std::fmt;
 /// Hard diagnostic when `extern "C"` / FFI appears on the js target (F08.01).
 pub fn extern_unsupported_on_js_diagnostic(name: &str, span: Span) -> Diagnostic {
     Diagnostic::new(
-        format!(
-            "extern \"C\" function `{name}` is unsupported on js target (native-only FFI)"
-        ),
+        format!("extern \"C\" function `{name}` is unsupported on js target (native-only FFI)"),
         span,
     )
     .with_code(codes::EXTERN_UNSUPPORTED)
@@ -368,7 +366,10 @@ fn format_type_full(
                 .props
                 .iter()
                 .map(|(n, t)| {
-                    format!("{n}: {}", format_type_full(*t, shapes, unions, intersections))
+                    format!(
+                        "{n}: {}",
+                        format_type_full(*t, shapes, unions, intersections)
+                    )
                 })
                 .collect();
             format!("{{ {} }}", props.join("; "))
@@ -524,7 +525,8 @@ fn catch_stmt_lexical_name(stmt: &Stmt, param: &str) -> Option<Span> {
     }
     match s {
         Stmt::Let {
-            kind: BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing,
+            kind:
+                BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing,
             binding,
             ..
         } => {
@@ -563,9 +565,9 @@ fn peel_labels(stmt: &Stmt) -> &Stmt {
 
 /// ECMA-262 IsSimpleParameterList: only BindingIdentifiers, no rest/defaults.
 fn is_simple_parameter_list(params: &[Param]) -> bool {
-    params.iter().all(|p| {
-        !p.rest && p.default.is_none() && matches!(p.binding, BindingPattern::Ident(_))
-    })
+    params
+        .iter()
+        .all(|p| !p.rest && p.default.is_none() && matches!(p.binding, BindingPattern::Ident(_)))
 }
 
 /// SuperCall in parameter defaults (E19.39 method early error).
@@ -750,7 +752,9 @@ fn stmt_contains_super_call(stmt: &Stmt) -> bool {
         } => {
             expr_contains_super_call(test)
                 || stmt_contains_super_call(consequent)
-                || alternate.as_ref().is_some_and(|a| stmt_contains_super_call(a))
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_contains_super_call(a))
         }
         Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
             expr_contains_super_call(test) || stmt_contains_super_call(body)
@@ -801,7 +805,9 @@ fn loop_body_has_escaping_break(stmt: &Stmt) -> bool {
             ..
         } => {
             loop_body_has_escaping_break(consequent)
-                || alternate.as_deref().is_some_and(loop_body_has_escaping_break)
+                || alternate
+                    .as_deref()
+                    .is_some_and(loop_body_has_escaping_break)
         }
         Stmt::Try {
             block,
@@ -811,7 +817,9 @@ fn loop_body_has_escaping_break(stmt: &Stmt) -> bool {
         } => {
             loop_body_has_escaping_break(block)
                 || handler.as_deref().is_some_and(loop_body_has_escaping_break)
-                || finalizer.as_deref().is_some_and(loop_body_has_escaping_break)
+                || finalizer
+                    .as_deref()
+                    .is_some_and(loop_body_has_escaping_break)
         }
         Stmt::Labeled { body, .. } => loop_body_has_escaping_break(body),
         // A `break` inside these targets the inner construct, not the outer loop.
@@ -838,9 +846,7 @@ fn stmt_cannot_fall_through(stmt: &Stmt) -> bool {
             alternate,
             ..
         } => match alternate {
-            Some(alt) => {
-                stmt_cannot_fall_through(consequent) && stmt_cannot_fall_through(alt)
-            }
+            Some(alt) => stmt_cannot_fall_through(consequent) && stmt_cannot_fall_through(alt),
             None => false,
         },
         Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
@@ -856,7 +862,9 @@ fn stmt_cannot_fall_through(stmt: &Stmt) -> bool {
             if !cases.iter().any(|c| c.test.is_none()) {
                 return false;
             }
-            cases.iter().any(|c| c.body.iter().any(stmt_cannot_fall_through))
+            cases
+                .iter()
+                .any(|c| c.body.iter().any(stmt_cannot_fall_through))
         }
         _ => false,
     }
@@ -939,7 +947,8 @@ where
         let s = peel_labels(stmt);
         match s {
             Stmt::Let {
-                kind: BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing,
+                kind:
+                    BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing,
                 binding,
                 ..
             } => {
@@ -1028,9 +1037,7 @@ fn collect_var_declared_names_stmt(stmt: &Stmt, out: &mut Vec<(String, Span)>) {
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::With { body, .. } => {
             collect_var_declared_names_stmt(body, out);
         }
-        Stmt::For {
-            init, body, ..
-        } => {
+        Stmt::For { init, body, .. } => {
             if let Some(init) = init {
                 collect_var_declared_names_stmt(init, out);
             }
@@ -1555,7 +1562,10 @@ impl Binder {
                     self.declare_var_span(&name, span);
                     return Ok(existing);
                 }
-                BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing => {
+                BindingKind::Let
+                | BindingKind::Const
+                | BindingKind::Using
+                | BindingKind::AwaitUsing => {
                     return Err(Diagnostic::new(
                         format!("duplicate declaration of `{name}`"),
                         span,
@@ -1766,7 +1776,13 @@ impl Binder {
             // `var` then `let`/`const` in the same var environment is a conflict.
             let existing_kind = self.symbols[existing.0 as usize].kind;
             if existing_kind == BindingKind::Var
-                && matches!(kind, BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing)
+                && matches!(
+                    kind,
+                    BindingKind::Let
+                        | BindingKind::Const
+                        | BindingKind::Using
+                        | BindingKind::AwaitUsing
+                )
             {
                 return Err(Diagnostic::new(
                     format!("duplicate declaration of `{name}`"),
@@ -1877,7 +1893,13 @@ impl Binder {
                     ..
                 }) = init.as_deref()
                 {
-                    if matches!(kind, BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing) {
+                    if matches!(
+                        kind,
+                        BindingKind::Let
+                            | BindingKind::Const
+                            | BindingKind::Using
+                            | BindingKind::AwaitUsing
+                    ) {
                         // E19.67: ForDeclaration BoundNames ∩ VarDeclaredNames(Statement) empty.
                         let mut bound = Vec::new();
                         binding.for_each_ident(&mut |id| {
@@ -1973,7 +1995,8 @@ impl Binder {
                     // E19.39: ContainsUseStrict && !IsSimpleParameterList → SyntaxError.
                     if !is_simple_parameter_list(params) {
                         return Err(Diagnostic::new(
-                            "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
                             *span,
                         ));
                     }
@@ -2009,9 +2032,7 @@ impl Binder {
                 Ok(())
             }
             Stmt::ClassDeclaration {
-                super_class,
-                body,
-                ..
+                super_class, body, ..
             } => {
                 // Name already declared in the enclosing list's first pass.
                 if let Some(sc) = super_class {
@@ -2170,13 +2191,11 @@ impl Binder {
             ..
         } = left
         {
-            if init.is_some() {
-                if !(is_for_in && *kind == BindingKind::Var) {
-                    return Err(Diagnostic::new(
-                        "for-in/of binding cannot have an initializer".to_string(),
-                        binding.span(),
-                    ));
-                }
+            if init.is_some() && !(is_for_in && *kind == BindingKind::Var) {
+                return Err(Diagnostic::new(
+                    "for-in/of binding cannot have an initializer".to_string(),
+                    binding.span(),
+                ));
             }
             // ForDeclaration BoundNames ∩ VarDeclaredNames(Statement) must be empty.
             if kind.is_lexical() {
@@ -2195,7 +2214,13 @@ impl Binder {
                     }
                 }
             }
-            if matches!(kind, BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing) {
+            if matches!(
+                kind,
+                BindingKind::Let
+                    | BindingKind::Const
+                    | BindingKind::Using
+                    | BindingKind::AwaitUsing
+            ) {
                 self.push_scope();
                 self.declare_binding(binding, *kind)?;
                 self.bind_pattern_defaults(binding)?;
@@ -2233,7 +2258,8 @@ impl Binder {
             | Expr::Null { .. }
             | Expr::This { .. }
             | Expr::Super { .. }
-            | Expr::NewTarget { .. } | Expr::ImportMeta { .. } => Ok(()),
+            | Expr::NewTarget { .. }
+            | Expr::ImportMeta { .. } => Ok(()),
             Expr::ImportCall {
                 source, options, ..
             } => {
@@ -2339,14 +2365,16 @@ impl Binder {
                     // E19.39: ContainsUseStrict && !IsSimpleParameterList → SyntaxError.
                     if !is_simple_parameter_list(params) {
                         return Err(Diagnostic::new(
-                            "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
                             *span,
                         ));
                     }
                     self.strict = true;
                 }
                 // E19.39: object/class methods (is_method) cannot contain SuperCall.
-                if *is_method && (params_contain_super_call(params) || stmt_contains_super_call(body))
+                if *is_method
+                    && (params_contain_super_call(params) || stmt_contains_super_call(body))
                 {
                     return Err(Diagnostic::new(
                         "method cannot contain super call".to_string(),
@@ -2477,10 +2505,7 @@ impl Binder {
                 Ok(())
             }
             Expr::ArrowFunction {
-                params,
-                body,
-                span,
-                ..
+                params, body, span, ..
             } => {
                 let prev_strict = self.strict;
                 let body_strict = match body {
@@ -2490,7 +2515,8 @@ impl Binder {
                 if body_strict {
                     if !is_simple_parameter_list(params) {
                         return Err(Diagnostic::new(
-                            "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
                             *span,
                         ));
                     }
@@ -2554,9 +2580,7 @@ impl Binder {
                                 }
                                 self.strict = true;
                             }
-                            if params_contain_super_call(params)
-                                || stmt_contains_super_call(body)
-                            {
+                            if params_contain_super_call(params) || stmt_contains_super_call(body) {
                                 return Err(Diagnostic::new(
                                     "method cannot contain super call".to_string(),
                                     *span,
@@ -2650,10 +2674,7 @@ impl Binder {
                 // E19.39: strict mode — `eval`/`arguments` are not valid simple assignment targets.
                 if self.strict && (id.name == "eval" || id.name == "arguments") {
                     return Err(Diagnostic::new(
-                        format!(
-                            "cannot assign to `{}` in strict mode",
-                            id.name
-                        ),
+                        format!("cannot assign to `{}` in strict mode", id.name),
                         id.span,
                     ));
                 }
@@ -2756,11 +2777,7 @@ impl Binder {
         }
     }
 
-    fn bind_params(
-        &mut self,
-        params: &[Param],
-        allow_sloppy_dups: bool,
-    ) -> Result<(), Diagnostic> {
+    fn bind_params(&mut self, params: &[Param], allow_sloppy_dups: bool) -> Result<(), Diagnostic> {
         // E19.24: strict FormalParameters / ArrowParameters cannot bind `eval` or `arguments`.
         if self.strict {
             for p in params {
@@ -2771,10 +2788,7 @@ impl Binder {
                     }
                     if id.name == "eval" || id.name == "arguments" {
                         err = Some(Diagnostic::new(
-                            format!(
-                                "binding `{}` is invalid in strict mode",
-                                id.name
-                            ),
+                            format!("binding `{}` is invalid in strict mode", id.name),
                             id.span,
                         ));
                     }
@@ -2922,14 +2936,12 @@ impl<'a> Checker<'a> {
                     | "ReferenceError" | "SyntaxError" | "URIError" | "EvalError"
                     | "AggregateError" | "parseInt" | "parseFloat" | "isNaN" | "isFinite"
                     | "encodeURI" | "decodeURI" | "encodeURIComponent" | "decodeURIComponent"
-                    | "Date" | "RegExp" | "Map" | "Set" | "WeakMap" | "WeakSet"
-                    | "ArrayBuffer" | "DataView" | "Int8Array" | "Uint8Array"
-                    | "Uint8ClampedArray" | "Int16Array" | "Uint16Array" | "Int32Array"
-                    | "Uint32Array" | "Float32Array" | "Float64Array" | "BigInt64Array"
-                    | "BigUint64Array" | "TextEncoder" | "TextDecoder" | "eval" | "escape"
-                    | "unescape" | "ShadowRealm" => {
-                        Type::Function
-                    }
+                    | "Date" | "RegExp" | "Map" | "Set" | "WeakMap" | "WeakSet" | "ArrayBuffer"
+                    | "DataView" | "Int8Array" | "Uint8Array" | "Uint8ClampedArray"
+                    | "Int16Array" | "Uint16Array" | "Int32Array" | "Uint32Array"
+                    | "Float32Array" | "Float64Array" | "BigInt64Array" | "BigUint64Array"
+                    | "TextEncoder" | "TextDecoder" | "eval" | "escape" | "unescape"
+                    | "ShadowRealm" => Type::Function,
                     "NaN" | "Infinity" => Type::Number,
                     // `undefined` is its own ES language type; coarse `any` until refined.
                     "undefined" => Type::Any,
@@ -3024,13 +3036,8 @@ impl<'a> Checker<'a> {
                 }
                 let _ = self.resolve_type_ann(&ty)?;
                 self.type_param_env = saved;
-                self.generic_aliases.insert(
-                    name,
-                    GenericAlias {
-                        params,
-                        body: ty,
-                    },
-                );
+                self.generic_aliases
+                    .insert(name, GenericAlias { params, body: ty });
             }
         }
         let mut labels = Vec::new();
@@ -3074,8 +3081,7 @@ impl<'a> Checker<'a> {
                     self.record(id.span, ty);
                 } else {
                     if let Some(target) = self.host_target {
-                        if let Some(d) =
-                            host_api::unsupported_diagnostic(&id.name, target, id.span)
+                        if let Some(d) = host_api::unsupported_diagnostic(&id.name, target, id.span)
                         {
                             return Err(d);
                         }
@@ -3179,10 +3185,7 @@ impl<'a> Checker<'a> {
                     .find(|s| s.span == name.span)
                     .map(|s| s.id)
                     .ok_or_else(|| {
-                        Diagnostic::new(
-                            format!("undeclared binding `{}`", name.name),
-                            name.span,
-                        )
+                        Diagnostic::new(format!("undeclared binding `{}`", name.name), name.span)
                     })?;
                 self.symbol_types[id.0 as usize] = ty;
                 if annotated {
@@ -3410,11 +3413,8 @@ impl<'a> Checker<'a> {
                 if let (BindingPattern::Ident(name), Some(init)) = (binding, init) {
                     if let Some(params) = fn_params_of_expr(init) {
                         if let Some(sig) = self.fn_sig_from_params(params) {
-                            if let Some(sym) = self
-                                .bound
-                                .symbols()
-                                .iter()
-                                .find(|s| s.span == name.span)
+                            if let Some(sym) =
+                                self.bound.symbols().iter().find(|s| s.span == name.span)
                             {
                                 self.fn_sigs[sym.id.0 as usize] = Some(sig);
                             }
@@ -3830,9 +3830,7 @@ impl<'a> Checker<'a> {
                 Type::Any
             }
             Expr::TemplateLiteral {
-                expressions,
-                span,
-                ..
+                expressions, span, ..
             } => {
                 for e in expressions {
                     self.check_expr(e)?;
@@ -3901,8 +3899,7 @@ impl<'a> Checker<'a> {
                     // Free / with-chain name (Object Environment).
                     // H00.01: free host API refs hard-error when unavailable on target.
                     if let Some(target) = self.host_target {
-                        if let Some(d) =
-                            host_api::unsupported_diagnostic(&id.name, target, id.span)
+                        if let Some(d) = host_api::unsupported_diagnostic(&id.name, target, id.span)
                         {
                             return Err(d);
                         }
@@ -4104,17 +4101,14 @@ impl<'a> Checker<'a> {
                     } => {
                         if op.binary_op().is_some() {
                             return Err(Diagnostic::new(
-                                "compound assignment through pointer not yet supported"
-                                    .to_string(),
+                                "compound assignment through pointer not yet supported".to_string(),
                                 *span,
                             ));
                         }
                         let ptr_ty = self.check_expr(arg)?;
                         let Type::Ptr(n) = ptr_ty else {
                             return Err(Diagnostic::new(
-                                format!(
-                                    "cannot assign through type `{ptr_ty}` (pointer required)"
-                                ),
+                                format!("cannot assign through type `{ptr_ty}` (pointer required)"),
                                 *span,
                             ));
                         };
@@ -4263,24 +4257,15 @@ impl<'a> Checker<'a> {
                         span: cspan,
                         ..
                     } => {
-                        return Err(Diagnostic::new(
-                            "invalid update target".to_string(),
-                            *cspan,
-                        ));
+                        return Err(Diagnostic::new("invalid update target".to_string(), *cspan));
                     }
                     _ => {
-                        return Err(Diagnostic::new(
-                            "invalid update target".to_string(),
-                            *span,
-                        ));
+                        return Err(Diagnostic::new("invalid update target".to_string(), *span));
                     }
                 }
             }
             Expr::Call {
-                callee,
-                args,
-                span,
-                ..
+                callee, args, span, ..
             } => {
                 let callee_ty = self.check_expr(callee)?;
                 let mut arg_tys = Vec::with_capacity(args.len());
@@ -4339,11 +4324,7 @@ impl<'a> Checker<'a> {
                 self.record(*span, result_ty);
                 result_ty
             }
-            Expr::New {
-                callee,
-                args,
-                span,
-            } => {
+            Expr::New { callee, args, span } => {
                 let callee_ty = self.check_expr(callee)?;
                 let mut arg_tys = Vec::with_capacity(args.len());
                 for arg in args {
@@ -4819,8 +4800,7 @@ impl<'a> Checker<'a> {
             return rest[0];
         }
         let id = self.intersections.len() as u32;
-        self.intersections
-            .push(IntersectionType { members: rest });
+        self.intersections.push(IntersectionType { members: rest });
         Type::Intersection(id)
     }
 
@@ -4893,7 +4873,8 @@ impl<'a> Checker<'a> {
             }
             Type::Intersection(id) => {
                 let i = self.intersections.get(id as usize);
-                if let Some(t) = i.and_then(|i| i.members.iter().find_map(|m| self.prop_type(*m, name)))
+                if let Some(t) =
+                    i.and_then(|i| i.members.iter().find_map(|m| self.prop_type(*m, name)))
                 {
                     return Ok(t);
                 }
@@ -4912,12 +4893,15 @@ impl<'a> Checker<'a> {
         span: Span,
         checker: &Self,
     ) -> Diagnostic {
-        let obj_s = format_type_full(obj, &checker.shapes, &checker.unions, &checker.intersections);
+        let obj_s = format_type_full(
+            obj,
+            &checker.shapes,
+            &checker.unions,
+            &checker.intersections,
+        );
         Diagnostic::new(format!("unknown property `{name}` on type `{obj_s}`"), span)
             .with_code(codes::UNKNOWN_PROPERTY)
-            .with_help(
-                "check the property name, or extend the type annotation to include it",
-            )
+            .with_help("check the property name, or extend the type annotation to include it")
     }
 
     /// Whether a type is entirely strict (annotated) shapes, recursing intersections.
@@ -4955,9 +4939,7 @@ impl<'a> Checker<'a> {
                             aliased
                         } else if self.generic_aliases.contains_key(other) {
                             return Err(Diagnostic::new(
-                                format!(
-                                    "generic type `{other}` requires type arguments"
-                                ),
+                                format!("generic type `{other}` requires type arguments"),
                                 *span,
                             ));
                         } else {
@@ -5018,9 +5000,7 @@ impl<'a> Checker<'a> {
                 match pointee {
                     Type::Native(n) => Ok(Type::Ptr(n)),
                     other => Err(Diagnostic::new(
-                        format!(
-                            "pointer pointee must be a native scalar type, got `{other}`"
-                        ),
+                        format!("pointer pointee must be a native scalar type, got `{other}`"),
                         *span,
                     )),
                 }
@@ -5070,8 +5050,7 @@ impl<'a> Checker<'a> {
             let id = self.next_type_param_id;
             self.next_type_param_id += 1;
             open_ids.insert(p.clone(), id);
-            self.type_param_env
-                .insert(p.clone(), Type::TypeParam(id));
+            self.type_param_env.insert(p.clone(), Type::TypeParam(id));
         }
         // Resolve param annotations under open env and unify with arg types.
         for (i, pann) in sig.param_types.iter().enumerate() {
@@ -5210,9 +5189,7 @@ impl<'a> Checker<'a> {
                 arg,
                 ..
             } => matches!(arg.as_ref(), Expr::Number(_)),
-            Expr::Paren { expr, .. } | Expr::As { expr, .. } => {
-                Self::is_number_literal_expr(expr)
-            }
+            Expr::Paren { expr, .. } | Expr::As { expr, .. } => Self::is_number_literal_expr(expr),
             _ => false,
         }
     }
@@ -5344,7 +5321,10 @@ impl<'a> Checker<'a> {
             return None;
         }
         for prop in properties {
-            let ObjectProp::Property { key, value, span, .. } = prop else {
+            let ObjectProp::Property {
+                key, value, span, ..
+            } = prop
+            else {
                 return None;
             };
             let name = match key {
@@ -5358,17 +5338,23 @@ impl<'a> Checker<'a> {
                 .find(|(n, _)| n == &name)
                 .map(|(_, t)| *t)
             else {
-                return Some(Diagnostic::new(
-                    format!("object literal has excess property `{name}` not in annotated shape"),
-                    *span,
-                )
-                .with_code(codes::EXCESS_PROPERTY)
-                .with_help(
-                    "remove the extra property, or add it to the annotated shape",
-                ));
+                return Some(
+                    Diagnostic::new(
+                        format!(
+                            "object literal has excess property `{name}` not in annotated shape"
+                        ),
+                        *span,
+                    )
+                    .with_code(codes::EXCESS_PROPERTY)
+                    .with_help("remove the extra property, or add it to the annotated shape"),
+                );
             };
-            if let (Expr::ObjectExpression { properties: inner, .. }, Type::Shape(inner_id)) =
-                (value, want)
+            if let (
+                Expr::ObjectExpression {
+                    properties: inner, ..
+                },
+                Type::Shape(inner_id),
+            ) = (value, want)
             {
                 if let Some(inner_shape) = self.shapes.get(inner_id as usize) {
                     if let Some(diag) = self.object_literal_excess_diag(inner, inner_shape) {
@@ -5490,26 +5476,18 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn require_assignable(
-        &self,
-        from: Type,
-        to: Type,
-        span: Span,
-    ) -> Result<(), Diagnostic> {
+    fn require_assignable(&self, from: Type, to: Type, span: Span) -> Result<(), Diagnostic> {
         if self.is_assignable(from, to) {
             Ok(())
         } else {
-            let from_s =
-                format_type_full(from, &self.shapes, &self.unions, &self.intersections);
+            let from_s = format_type_full(from, &self.shapes, &self.unions, &self.intersections);
             let to_s = format_type_full(to, &self.shapes, &self.unions, &self.intersections);
             Err(Diagnostic::new(
                 format!("type `{from_s}` is not assignable to type `{to_s}`"),
                 span,
             )
             .with_code(codes::NOT_ASSIGNABLE)
-            .with_help(
-                "change the value to match the expected type, or widen the annotation",
-            ))
+            .with_help("change the value to match the expected type, or widen the annotation"))
         }
     }
 
@@ -5535,10 +5513,7 @@ impl<'a> Checker<'a> {
             "bigint" => ty == Type::BigInt || ty == Type::Any,
             "function" => ty == Type::Function || ty == Type::Any,
             "object" => {
-                matches!(
-                    ty,
-                    Type::Object | Type::Shape(_) | Type::Null | Type::Any
-                )
+                matches!(ty, Type::Object | Type::Shape(_) | Type::Null | Type::Any)
             }
             _ => false,
         }
@@ -5760,11 +5735,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Resolve a type annotation for an extern ABI position: native scalar, `*T`, `function`, or native layout.
-    fn resolve_extern_abi_type(
-        &mut self,
-        ann: &TypeAnn,
-        role: &str,
-    ) -> Result<Type, Diagnostic> {
+    fn resolve_extern_abi_type(&mut self, ann: &TypeAnn, role: &str) -> Result<Type, Diagnostic> {
         let ty = self.resolve_type_ann(ann)?;
         if matches!(ty, Type::Native(_) | Type::Ptr(_) | Type::Function) {
             return Ok(ty);
@@ -5884,7 +5855,11 @@ impl<'a> Checker<'a> {
         let Some(shape) = self.shapes.get(id as usize) else {
             return false;
         };
-        !shape.props.is_empty() && shape.props.iter().all(|(_, t)| matches!(t, Type::Native(_)))
+        !shape.props.is_empty()
+            && shape
+                .props
+                .iter()
+                .all(|(_, t)| matches!(t, Type::Native(_)))
     }
 
     fn check_unary(&self, op: UnaryOp, arg: Type, span: Span) -> Result<Type, Diagnostic> {
@@ -6000,8 +5975,7 @@ impl<'a> Checker<'a> {
                             span,
                         ))
                     }
-                } else if let Some(n) =
-                    self.native_arith_result(left, right, left_expr, right_expr)
+                } else if let Some(n) = self.native_arith_result(left, right, left_expr, right_expr)
                 {
                     Ok(Type::Native(n))
                 } else if matches!(
@@ -6046,7 +6020,9 @@ impl<'a> Checker<'a> {
                 if left == Type::BigInt || right == Type::BigInt {
                     // Same-type BigInt (except `>>>`, which always TypeErrors on BigInt).
                     // E19.07: mixed bigint×number/object/any — TypeError is runtime, not compile.
-                    if left == Type::BigInt && right == Type::BigInt && !matches!(op, BinaryOp::UShr)
+                    if left == Type::BigInt
+                        && right == Type::BigInt
+                        && !matches!(op, BinaryOp::UShr)
                     {
                         Ok(Type::BigInt)
                     } else if self.is_js_bigint_mixed_operand(left)
@@ -6061,8 +6037,7 @@ impl<'a> Checker<'a> {
                             span,
                         ))
                     }
-                } else if let Some(n) =
-                    self.native_arith_result(left, right, left_expr, right_expr)
+                } else if let Some(n) = self.native_arith_result(left, right, left_expr, right_expr)
                 {
                     // `>>>` is JS ToUint32; reject on native types.
                     if matches!(op, BinaryOp::UShr) {
@@ -6081,7 +6056,9 @@ impl<'a> Checker<'a> {
                     Ok(Type::Number)
                 } else {
                     Err(Diagnostic::new(
-                        format!("operator `{op}` cannot be applied to types `{left}` and `{right}`"),
+                        format!(
+                            "operator `{op}` cannot be applied to types `{left}` and `{right}`"
+                        ),
                         span,
                     ))
                 }
@@ -6099,7 +6076,9 @@ impl<'a> Checker<'a> {
                     Ok(Type::Boolean)
                 } else {
                     Err(Diagnostic::new(
-                        format!("operator `{op}` cannot be applied to types `{left}` and `{right}`"),
+                        format!(
+                            "operator `{op}` cannot be applied to types `{left}` and `{right}`"
+                        ),
                         span,
                     ))
                 }
@@ -6440,20 +6419,17 @@ mod tests {
 
     #[test]
     fn check_arrow_super_property_in_method_ok() {
-        let program = parse(
-            "class B {} class C extends B { m() { return () => super.x; } }",
-        )
-        .unwrap();
+        let program =
+            parse("class B {} class C extends B { m() { return () => super.x; } }").unwrap();
         check(program).expect("arrow SuperProperty in method must typecheck");
     }
 
     #[test]
     fn check_arrow_super_call_in_derived_ctor_ok() {
         // E19.82.05: SuperCall in arrow nested in derived constructor is valid.
-        let program = parse(
-            "class B {} class C extends B { constructor() { let f = () => super(); f(); } }",
-        )
-        .unwrap();
+        let program =
+            parse("class B {} class C extends B { constructor() { let f = () => super(); f(); } }")
+                .unwrap();
         check(program).expect("arrow SuperCall in derived ctor must typecheck");
     }
 
@@ -6725,7 +6701,8 @@ mod tests {
 
     #[test]
     fn check_promise_is_function() {
-        let program = parse("let t = typeof Promise; let p = new Promise(function (r) { r(1); });").unwrap();
+        let program =
+            parse("let t = typeof Promise; let p = new Promise(function (r) { r(1); });").unwrap();
         let checked = check(program).unwrap();
         let sym = checked
             .bound
@@ -6770,10 +6747,9 @@ mod tests {
 
     #[test]
     fn check_proxy_of_function_is_callable() {
-        let program = parse(
-            "let t = function (a) { return a; }; let p = new Proxy(t, {}); let r = p(1);",
-        )
-        .unwrap();
+        let program =
+            parse("let t = function (a) { return a; }; let p = new Proxy(t, {}); let r = p(1);")
+                .unwrap();
         let checked = check(program).unwrap();
         let p = checked
             .bound
@@ -6928,10 +6904,9 @@ mod tests {
 
     #[test]
     fn check_error_constructors_are_functions() {
-        let program = parse(
-            "let a = typeof Error; let b = typeof TypeError; let c = typeof AggregateError;",
-        )
-        .unwrap();
+        let program =
+            parse("let a = typeof Error; let b = typeof TypeError; let c = typeof AggregateError;")
+                .unwrap();
         let checked = check(program).unwrap();
         for name in [
             "Error",
@@ -7135,7 +7110,8 @@ mod tests {
 
     #[test]
     fn check_json_is_object() {
-        let program = parse("let t = typeof JSON; let p = JSON.parse; let s = JSON.stringify;").unwrap();
+        let program =
+            parse("let t = typeof JSON; let p = JSON.parse; let s = JSON.stringify;").unwrap();
         let checked = check(program).unwrap();
         let sym = checked
             .bound
@@ -7338,10 +7314,8 @@ mod tests {
 
     #[test]
     fn bind_resolves_global_arraybuffer_dataview_typedarrays() {
-        let program = parse(
-            "ArrayBuffer; DataView; Uint8Array; Int32Array; Float64Array;",
-        )
-        .unwrap();
+        let program =
+            parse("ArrayBuffer; DataView; Uint8Array; Int32Array; Float64Array;").unwrap();
         let bound = bind(program).unwrap();
         for name in [
             "ArrayBuffer",
@@ -7364,7 +7338,13 @@ mod tests {
         )
         .unwrap();
         let checked = check(program).unwrap();
-        for name in ["ArrayBuffer", "DataView", "Uint8Array", "Int32Array", "Float64Array"] {
+        for name in [
+            "ArrayBuffer",
+            "DataView",
+            "Uint8Array",
+            "Int32Array",
+            "Float64Array",
+        ] {
             let sym = checked
                 .bound
                 .symbols()
@@ -7419,7 +7399,8 @@ mod tests {
 
     #[test]
     fn check_eval_call_ok() {
-        let program = parse("let a = eval(\"1 + 2\"); let b = eval(\"typeof undefined\");").unwrap();
+        let program =
+            parse("let a = eval(\"1 + 2\"); let b = eval(\"typeof undefined\");").unwrap();
         check(program).unwrap();
     }
 
@@ -7655,11 +7636,7 @@ mod tests {
     fn bind_object_method_super_call_errors() {
         let program = parse("({ m() { super(); } });").unwrap();
         let err = bind(program).unwrap_err();
-        assert!(
-            err.message.contains("super"),
-            "unexpected: {}",
-            err.message
-        );
+        assert!(err.message.contains("super"), "unexpected: {}", err.message);
     }
 
     // E17.02.04: duplicate formals allowed only for non-strict simple plain `function`.
@@ -7918,7 +7895,8 @@ mod tests {
 
     #[test]
     fn check_unary_plus_coerces_to_number() {
-        let program = parse(r#"let a = +"42"; let b = +true; let c = +null; let d = +"";"#).unwrap();
+        let program =
+            parse(r#"let a = +"42"; let b = +true; let c = +null; let d = +"";"#).unwrap();
         let checked = check(program).unwrap();
         assert_eq!(sym_type(&checked, "a"), Type::Number);
         assert_eq!(sym_type(&checked, "b"), Type::Number);
@@ -7952,7 +7930,8 @@ mod tests {
 
     #[test]
     fn check_abstract_eq_mixed_types() {
-        let program = parse(r#"let a = 1 == "1"; let b = null == 0; let c = true != "1";"#).unwrap();
+        let program =
+            parse(r#"let a = 1 == "1"; let b = null == 0; let c = true != "1";"#).unwrap();
         let checked = check(program).unwrap();
         assert_eq!(sym_type(&checked, "a"), Type::Boolean);
         assert_eq!(sym_type(&checked, "b"), Type::Boolean);
@@ -8195,7 +8174,8 @@ mod tests {
                 | Expr::Null { .. }
                 | Expr::This { .. }
                 | Expr::Super { .. }
-                | Expr::NewTarget { .. } | Expr::ImportMeta { .. } => {}
+                | Expr::NewTarget { .. }
+                | Expr::ImportMeta { .. } => {}
                 Expr::ImportCall {
                     source, options, ..
                 } => {
@@ -8219,9 +8199,7 @@ mod tests {
                 }
                 Expr::Unary { arg, .. }
                 | Expr::Paren { expr: arg, .. }
-                | Expr::As { expr: arg, .. } => {
-                    walk_expr(arg, name, out)
-                }
+                | Expr::As { expr: arg, .. } => walk_expr(arg, name, out),
                 Expr::Binary { left, right, .. } => {
                     walk_expr(left, name, out);
                     walk_expr(right, name, out);
@@ -8364,7 +8342,9 @@ mod tests {
                             {
                                 *out = Some(id.span);
                             }
-                            ArrayPatternElement::Rest(BindingPattern::Array { elements, .. }) => {
+                            ArrayPatternElement::Rest(BindingPattern::Array {
+                                elements, ..
+                            }) => {
                                 walk_expr(
                                     &Expr::ArrayPattern {
                                         elements: elements.clone(),
@@ -8375,7 +8355,8 @@ mod tests {
                                 );
                             }
                             ArrayPatternElement::Rest(BindingPattern::Object {
-                                properties, ..
+                                properties,
+                                ..
                             }) => {
                                 walk_expr(
                                     &Expr::ObjectPattern {
@@ -8448,8 +8429,7 @@ mod tests {
                                 key,
                                 binding:
                                     BindingPattern::Object {
-                                        properties: nested,
-                                        ..
+                                        properties: nested, ..
                                     },
                                 default,
                                 ..
@@ -8604,16 +8584,12 @@ mod tests {
                         }
                     }
                 }
-                Stmt::FunctionDeclaration {
-                    params, body, ..
-                } => {
+                Stmt::FunctionDeclaration { params, body, .. } => {
                     let _ = params;
                     walk_stmt(body, name, out);
                 }
                 Stmt::ClassDeclaration {
-                    super_class,
-                    body,
-                    ..
+                    super_class, body, ..
                 } => {
                     if let Some(sc) = super_class {
                         walk_expr(sc, name, out);
@@ -8642,9 +8618,7 @@ mod tests {
                     argument: Some(arg),
                     ..
                 } => walk_expr(arg, name, out),
-                Stmt::Return {
-                    argument: None, ..
-                } => {}
+                Stmt::Return { argument: None, .. } => {}
                 Stmt::Throw { argument, .. } => walk_expr(argument, name, out),
                 Stmt::Try {
                     block,
@@ -8878,10 +8852,8 @@ mod tests {
 
     #[test]
     fn check_return_in_condition_then_tail_ok() {
-        let program = parse(
-            "function f(x: boolean): number { if (x) { return 1; } return 2; }",
-        )
-        .unwrap();
+        let program =
+            parse("function f(x: boolean): number { if (x) { return 1; } return 2; }").unwrap();
         check(program).expect("return in if plus trailing return should typecheck");
     }
 
@@ -9092,8 +9064,9 @@ mod tests {
 
     #[test]
     fn check_annotated_callable_declared_fn_ok() {
-        let program = parse("function g(a: number): number { return a * 2; } let m: number = g(21);")
-            .unwrap();
+        let program =
+            parse("function g(a: number): number { return a * 2; } let m: number = g(21);")
+                .unwrap();
         check(program).expect("annotated declared function is callable");
     }
 
@@ -9146,10 +9119,17 @@ mod tests {
             err.message
         );
         assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
-        assert!(!err.span.is_dummy(), "F08.02: span must point at the bad type");
+        assert!(
+            !err.span.is_dummy(),
+            "F08.02: span must point at the bad type"
+        );
         let lo = err.span.start.0 as usize;
         let hi = err.span.end.0 as usize;
-        assert_eq!(&src[lo..hi], "string", "span should cover the unsupported type");
+        assert_eq!(
+            &src[lo..hi],
+            "string",
+            "span should cover the unsupported type"
+        );
     }
 
     #[test]
@@ -9236,10 +9216,17 @@ mod tests {
             err.message
         );
         assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
-        assert!(!err.span.is_dummy(), "F08.02: span must point at the bad type");
+        assert!(
+            !err.span.is_dummy(),
+            "F08.02: span must point at the bad type"
+        );
         let lo = err.span.start.0 as usize;
         let hi = err.span.end.0 as usize;
-        assert_eq!(&src[lo..hi], "string", "span should cover the unsupported type");
+        assert_eq!(
+            &src[lo..hi],
+            "string",
+            "span should cover the unsupported type"
+        );
     }
 
     #[test]

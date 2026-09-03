@@ -408,8 +408,7 @@ fn slot_for_declare(
                     }
                 }
                 SlotTy::Heap => {
-                    if !object_expr_ok(init, by_id, slot_of)
-                        && !array_expr_ok(init, by_id, slot_of)
+                    if !object_expr_ok(init, by_id, slot_of) && !array_expr_ok(init, by_id, slot_of)
                     {
                         return None;
                     }
@@ -864,7 +863,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::Expr { expr } => {
-                let _ = self.emit_discard_expr(expr)?;
+                self.emit_discard_expr(expr)?;
                 Ok(())
             }
             Stmt::Block { body } => {
@@ -892,11 +891,7 @@ impl<'a> Emitter<'a> {
                     )
                     .ok();
                 } else {
-                    writeln!(
-                        self.body,
-                        "  br i1 {cond}, label %{then_l}, label %{end_l}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  br i1 {cond}, label %{then_l}, label %{end_l}").ok();
                 }
                 writeln!(self.body, "{then_l}:").ok();
                 self.emit_stmt(consequent)?;
@@ -941,7 +936,7 @@ impl<'a> Emitter<'a> {
                 }
                 writeln!(self.body, "{upd}:").ok();
                 if let Some(u) = update {
-                    let _ = self.emit_discard_expr(u)?;
+                    self.emit_discard_expr(u)?;
                 }
                 writeln!(self.body, "  br label %{head}").ok();
                 writeln!(self.body, "{end}:").ok();
@@ -963,12 +958,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_for_in(
-        &mut self,
-        left: &Stmt,
-        right: &Expr,
-        body: &Stmt,
-    ) -> Result<(), Diagnostic> {
+    fn emit_for_in(&mut self, left: &Stmt, right: &Expr, body: &Stmt) -> Result<(), Diagnostic> {
         let (bind_id, annex_init) = match left {
             Stmt::Declare { local, init, .. } => (*local, init.as_ref()),
             _ => return Err(diag("es_var_for: for-in left must be var declare")),
@@ -1002,14 +992,11 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn emit_for_of(
-        &mut self,
-        left: &Stmt,
-        right: &Expr,
-        body: &Stmt,
-    ) -> Result<(), Diagnostic> {
+    fn emit_for_of(&mut self, left: &Stmt, right: &Expr, body: &Stmt) -> Result<(), Diagnostic> {
         let bind_id = match left {
-            Stmt::Declare { local, init: None, .. } => *local,
+            Stmt::Declare {
+                local, init: None, ..
+            } => *local,
             _ => return Err(diag("es_var_for: for-of left must be bare var declare")),
         };
         let arr = self.emit_array_expr(right)?;
@@ -1142,9 +1129,7 @@ impl<'a> Emitter<'a> {
                 target: AssignTarget::Local(id),
                 value,
                 ..
-            } => {
-                self.slot_ty(*id).ok() == Some(SlotTy::Number) && self.is_number_slot_expr(value)
-            }
+            } => self.slot_ty(*id).ok() == Some(SlotTy::Number) && self.is_number_slot_expr(value),
             _ => false,
         }
     }
@@ -1159,10 +1144,7 @@ impl<'a> Emitter<'a> {
                 Ok(t)
             }
             Expr::Binary {
-                left,
-                op,
-                right,
-                ..
+                left, op, right, ..
             } => {
                 let l = self.emit_number_expr(left)?;
                 let r = self.emit_number_expr(right)?;
@@ -1197,18 +1179,12 @@ impl<'a> Emitter<'a> {
         match expr {
             Expr::Boolean { value, .. } => Ok(if *value { "true" } else { "false" }.into()),
             Expr::Binary {
-                left,
-                op,
-                right,
-                ..
+                left, op, right, ..
             } => {
                 // string === string or number compare
                 if matches!(
                     op,
-                    BinaryOp::EqEqEq
-                        | BinaryOp::NotEqEq
-                        | BinaryOp::EqEq
-                        | BinaryOp::NotEq
+                    BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::EqEq | BinaryOp::NotEq
                 ) && (self.is_stringish(left) || self.is_stringish(right))
                 {
                     let l = self.emit_string_expr(left)?;

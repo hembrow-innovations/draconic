@@ -59,7 +59,10 @@ enum JsVal {
     /// Array iterable (for `yield* […]` / nested `for-of`).
     Array(Vec<JsVal>),
     /// Iterator result `{ value, done }`.
-    Result { value: Box<JsVal>, done: bool },
+    Result {
+        value: Box<JsVal>,
+        done: bool,
+    },
     /// Plain object or class instance (own props + optional prototype methods).
     Object {
         props: HashMap<String, JsVal>,
@@ -204,10 +207,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             }
             "Symbol" => {
                 let mut props = HashMap::new();
-                props.insert(
-                    "asyncIterator".into(),
-                    JsVal::SymKey("asyncIterator"),
-                );
+                props.insert("asyncIterator".into(), JsVal::SymKey("asyncIterator"));
                 env.insert(
                     loc.id,
                     JsVal::Object {
@@ -329,7 +329,7 @@ fn module_has_generator(body: &[Stmt]) -> bool {
 
 /// True when body (incl. nested function bodies) contains `for await…of`.
 fn module_has_for_await(body: &[Stmt]) -> bool {
-    body.iter().any(|s| stmt_has_for_await(s))
+    body.iter().any(stmt_has_for_await)
 }
 
 fn stmt_has_for_await(stmt: &Stmt) -> bool {
@@ -378,13 +378,11 @@ fn expr_has_for_await(expr: &Expr) -> bool {
                     _ => false,
                 })
         }
-        Expr::Member { object, property, .. } => {
-            expr_has_for_await(object) || expr_has_for_await(property)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_has_for_await(object) || expr_has_for_await(property),
         Expr::Unary { arg, .. } => expr_has_for_await(arg),
-        Expr::Binary { left, right, .. } => {
-            expr_has_for_await(left) || expr_has_for_await(right)
-        }
+        Expr::Binary { left, right, .. } => expr_has_for_await(left) || expr_has_for_await(right),
         Expr::Array { elements, .. } => elements.iter().any(|el| match el {
             ArrayElement::Expr(e) => expr_has_for_await(e),
             _ => false,
@@ -419,13 +417,11 @@ fn expr_has_generator(expr: &Expr) -> bool {
                     _ => false,
                 })
         }
-        Expr::Member { object, property, .. } => {
-            expr_has_generator(object) || expr_has_generator(property)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_has_generator(object) || expr_has_generator(property),
         Expr::Unary { arg, .. } => expr_has_generator(arg),
-        Expr::Binary { left, right, .. } => {
-            expr_has_generator(left) || expr_has_generator(right)
-        }
+        Expr::Binary { left, right, .. } => expr_has_generator(left) || expr_has_generator(right),
         Expr::Array { elements, .. } => elements.iter().any(|el| match el {
             ArrayElement::Expr(e) => expr_has_generator(e),
             _ => false,
@@ -469,7 +465,7 @@ fn eval_body(
     fn_bind: &mut HashMap<LocalId, usize>,
     gens: &mut Vec<GenInst>,
 ) -> Result<(), ()> {
-    for (i, stmt) in body.iter().enumerate() {
+    for stmt in body.iter() {
         match eval_stmt(stmt, env, gen_fns, fn_bind, gens) {
             Ok(Flow::Next) => {}
             Ok(Flow::Break | Flow::Continue | Flow::Return(_) | Flow::Throw(_)) => {
@@ -656,7 +652,9 @@ fn bind_for_of_left(
     env: &mut HashMap<LocalId, JsVal>,
 ) -> Result<(), ()> {
     match left {
-        Stmt::Declare { local, init: None, .. } => {
+        Stmt::Declare {
+            local, init: None, ..
+        } => {
             env.insert(*local, value);
             Ok(())
         }
@@ -685,13 +683,7 @@ fn eval_for_of(
     };
     match iterable {
         JsVal::GenInst(idx) => loop {
-            let r = match gen_next(
-                &JsVal::GenInst(idx),
-                JsVal::Undef,
-                gen_fns,
-                fn_bind,
-                gens,
-            ) {
+            let r = match gen_next(&JsVal::GenInst(idx), JsVal::Undef, gen_fns, fn_bind, gens) {
                 Ok(v) => v,
                 Err(_) => return Err(()),
             };
@@ -838,9 +830,7 @@ fn eval_expr(
             let mut vals = Vec::new();
             for el in elements {
                 match el {
-                    ArrayElement::Expr(e) => {
-                        vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?)
-                    }
+                    ArrayElement::Expr(e) => vals.push(eval_expr(e, env, gen_fns, fn_bind, gens)?),
                     _ => return Err(Ev::U),
                 }
             }
@@ -848,10 +838,7 @@ fn eval_expr(
         }
         Expr::Object { properties, .. } => eval_object_lit(properties, env, gen_fns, fn_bind, gens),
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             let l = eval_expr(left, env, gen_fns, fn_bind, gens)?;
             let r = eval_expr(right, env, gen_fns, fn_bind, gens)?;
@@ -939,11 +926,7 @@ fn eval_expr(
             optional: false,
             ..
         } => eval_call(callee, args, env, gen_fns, fn_bind, gens),
-        Expr::New {
-            callee,
-            args,
-            ..
-        } => {
+        Expr::New { callee, args, .. } => {
             let c = eval_expr(callee, env, gen_fns, fn_bind, gens)?;
             eval_new(c, args, env, gen_fns, fn_bind, gens)
         }
@@ -1091,11 +1074,7 @@ fn call_thenable_cb(
     let mut saved: HashMap<LocalId, Option<JsVal>> = HashMap::new();
     for (i, pid) in param_ids.iter().enumerate() {
         saved.insert(*pid, env.get(pid).cloned());
-        let v = if i == 0 {
-            value.clone()
-        } else {
-            JsVal::Undef
-        };
+        let v = if i == 0 { value.clone() } else { JsVal::Undef };
         env.insert(*pid, v);
     }
     let ret = match eval_fn_body_stmts(body, env, gen_fns, fn_bind, gens) {
@@ -1170,7 +1149,9 @@ fn call_async_fn(
                 name: None,
             });
             fn_bind.insert(*local, idx);
-            saved.entry(*local).or_insert_with(|| env.get(local).cloned());
+            saved
+                .entry(*local)
+                .or_insert_with(|| env.get(local).cloned());
             env.insert(*local, JsVal::GenFn(idx));
         }
     }
@@ -1328,12 +1309,7 @@ fn try_eval_class_iife(
                 pending_key = Some(value.to_string_lossy());
             }
             Stmt::Expr {
-                expr:
-                    Expr::Call {
-                        callee,
-                        args,
-                        ..
-                    },
+                expr: Expr::Call { callee, args, .. },
             } if is_object_define_property(callee) && args.len() == 3 => {
                 let ctor = ctor_local.ok_or(())?;
                 let key = pending_key
@@ -1417,9 +1393,7 @@ fn extract_ctor_assigns(body: &[Stmt]) -> Result<Vec<(String, LocalId)>, ()> {
                     Expr::Assign {
                         target:
                             AssignTarget::Member {
-                                object,
-                                property,
-                                ..
+                                object, property, ..
                             },
                         op: AssignOp::Eq,
                         value,
@@ -1487,7 +1461,7 @@ fn string_arg_key(arg: &Arg) -> Option<String> {
     }
 }
 
-fn find_method_function<'a>(arg: &'a Arg) -> Option<&'a Expr> {
+fn find_method_function(arg: &Arg) -> Option<&Expr> {
     let Arg::Expr(expr) = arg else {
         return None;
     };
@@ -1550,9 +1524,7 @@ fn find_method_function_expr(expr: &Expr) -> Option<&Expr> {
 
 fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
     match stmt {
-        Stmt::Expr { expr } | Stmt::Return { value: Some(expr) } => {
-            find_method_function_expr(expr)
-        }
+        Stmt::Expr { expr } | Stmt::Return { value: Some(expr) } => find_method_function_expr(expr),
         Stmt::Declare {
             init: Some(expr), ..
         } => find_method_function_expr(expr),
@@ -1570,7 +1542,11 @@ fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
             alternate,
         } => find_method_function_expr(test)
             .or_else(|| find_method_function_in_stmt(consequent))
-            .or_else(|| alternate.as_ref().and_then(|a| find_method_function_in_stmt(a))),
+            .or_else(|| {
+                alternate
+                    .as_ref()
+                    .and_then(|a| find_method_function_in_stmt(a))
+            }),
         _ => None,
     }
 }
@@ -2122,8 +2098,7 @@ fn start_yield_star(
             bind,
         },
         JsVal::GenFn(fid) => {
-            let inst = match spawn_gen_vals(JsVal::GenFn(fid), &[], None, gen_fns, fn_bind, gens)
-            {
+            let inst = match spawn_gen_vals(JsVal::GenFn(fid), &[], None, gen_fns, fn_bind, gens) {
                 Ok(v) => v,
                 Err(_) => return Err(()),
             };
@@ -2156,10 +2131,7 @@ fn step_yield_star(
                 JsVal::Result { value, done: false } => {
                     gens[outer_idx].yield_star = Some(YieldStarState::Gen { idx: inner, bind });
                     gens[outer_idx].suspended = true;
-                    Ok(Step::Yield(JsVal::Result {
-                        value,
-                        done: false,
-                    }))
+                    Ok(Step::Yield(JsVal::Result { value, done: false }))
                 }
                 JsVal::Result { value, done: true } => {
                     if let Some(local) = bind {
@@ -2241,10 +2213,7 @@ fn eval_in_gen(
             Ok(JsVal::Array(vals))
         }
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             let l = eval_in_gen(left, gen_idx, gen_fns, fn_bind, gens)?;
             let r = eval_in_gen(right, gen_idx, gen_fns, fn_bind, gens)?;
@@ -2318,9 +2287,7 @@ fn eval_in_gen(
             let mut arg_vals = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => {
-                        arg_vals.push(eval_in_gen(e, gen_idx, gen_fns, fn_bind, gens)?)
-                    }
+                    Arg::Expr(e) => arg_vals.push(eval_in_gen(e, gen_idx, gen_fns, fn_bind, gens)?),
                     _ => return Err(()),
                 }
             }
@@ -2418,12 +2385,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_bool(&mut self, b: bool) {
@@ -2493,5 +2455,3 @@ impl Emitter {
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
-
-

@@ -5,10 +5,7 @@ use std::process::Command;
 
 #[test]
 fn abort_declare() {
-    assert_eq!(
-        ABORT.declare(),
-        "declare void @draconic_rt_abort()"
-    );
+    assert_eq!(ABORT.declare(), "declare void @draconic_rt_abort()");
 }
 
 #[test]

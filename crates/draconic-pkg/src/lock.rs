@@ -11,7 +11,9 @@ use std::fmt;
 
 use toml::Value as TomlValue;
 
-use crate::{validate_git_url, validate_module_path, validate_package_subdir, validate_version_req};
+use crate::{
+    validate_git_url, validate_module_path, validate_package_subdir, validate_version_req,
+};
 
 /// One pinned dependency in `draconic.lock` (K02.01).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +50,10 @@ pub enum LockEntryError {
     /// Content hash is not a 64-char lowercase hex SHA-256 digest.
     InvalidContentHash { hash: String, reason: &'static str },
     /// Package subdirectory is not a safe relative path (K11.03).
-    InvalidSubdir { subdir: String, reason: &'static str },
+    InvalidSubdir {
+        subdir: String,
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for LockEntryError {
@@ -277,8 +282,14 @@ impl std::error::Error for LockFileError {}
 
 const LOCK_FORMAT_VERSION: u32 = 1;
 const KNOWN_LOCK_TOP_LEVEL: &[&str] = &["version", "package"];
-const KNOWN_PACKAGE_KEYS: &[&str] =
-    &["path", "version", "git_url", "commit_oid", "content_hash", "subdir"];
+const KNOWN_PACKAGE_KEYS: &[&str] = &[
+    "path",
+    "version",
+    "git_url",
+    "commit_oid",
+    "content_hash",
+    "subdir",
+];
 
 /// Parse a `draconic.lock` source string into a validated [`LockFile`].
 ///

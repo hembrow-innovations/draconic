@@ -77,13 +77,7 @@ fn surface_runs_js_and_native() {
         "host/os/surface must target js and native"
     );
     for name in [
-        "cwd",
-        "chdir",
-        "hostname",
-        "osType",
-        "osArch",
-        "tempDir",
-        "homeDir",
+        "cwd", "chdir", "hostname", "osType", "osArch", "tempDir", "homeDir",
     ] {
         assert!(
             fixture.source.contains(name),

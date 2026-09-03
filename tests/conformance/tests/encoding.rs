@@ -1,14 +1,14 @@
-//! ROADMAP L01.01 / L01.02 / L01.03: UTF-8, Base64, and hex stdlib fixtures on declared targets.
+//! ROADMAP L01 / L01.01 / L01.02 / L01.03: UTF-8, Base64, and hex stdlib fixtures
+//! on declared targets. L01 parent locks the combined encoding surface in one Program.
 
-use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
+use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
 #[test]
 fn utf8_roundtrip_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "stdlib/encoding/utf8_roundtrip"),
+        ids.iter().any(|id| *id == "stdlib/encoding/utf8_roundtrip"),
         "missing stdlib/encoding/utf8_roundtrip fixture, got {ids:?}"
     );
 }
@@ -96,8 +96,7 @@ fn base64_invalid_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "stdlib/encoding/base64_invalid"),
+        ids.iter().any(|id| *id == "stdlib/encoding/base64_invalid"),
         "missing stdlib/encoding/base64_invalid fixture, got {ids:?}"
     );
 }
@@ -126,8 +125,7 @@ fn hex_roundtrip_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "stdlib/encoding/hex_roundtrip"),
+        ids.iter().any(|id| *id == "stdlib/encoding/hex_roundtrip"),
         "missing stdlib/encoding/hex_roundtrip fixture, got {ids:?}"
     );
 }
@@ -156,8 +154,7 @@ fn hex_invalid_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "stdlib/encoding/hex_invalid"),
+        ids.iter().any(|id| *id == "stdlib/encoding/hex_invalid"),
         "missing stdlib/encoding/hex_invalid fixture, got {ids:?}"
     );
 }
@@ -170,6 +167,62 @@ fn hex_invalid_runs() {
         .find(|f| f.id == "stdlib/encoding/hex_invalid")
         .expect("stdlib/encoding/hex_invalid");
     assert!(!fixture.targets.is_empty());
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn surface_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "stdlib/encoding/surface"),
+        "missing stdlib/encoding/surface fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn surface_runs_js_and_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/encoding/surface")
+        .expect("stdlib/encoding/surface");
+    assert!(
+        fixture.targets.contains(&Target::Js) && fixture.targets.contains(&Target::Native),
+        "stdlib/encoding/surface must target js and native"
+    );
+    for name in [
+        "TextEncoder",
+        "TextDecoder",
+        "toBase64",
+        "fromBase64",
+        "toHex",
+        "fromHex",
+        "TypeError",
+        "SyntaxError",
+    ] {
+        assert!(
+            fixture.source.contains(name),
+            "L01 surface must use {name} in one Program"
+        );
+    }
+    assert_eq!(
+        fixture.expect_native.stdout.as_deref(),
+        Some("café\naGk=\n6869\nhi\nhi\n1\n1\n1\n"),
+        "L01 surface must observe UTF-8, Base64, and hex roundtrips plus invalid-input errors"
+    );
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "L01 surface must terminate with exit 0"
+    );
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

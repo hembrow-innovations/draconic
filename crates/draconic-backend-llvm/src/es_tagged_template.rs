@@ -26,7 +26,8 @@ pub(crate) fn is_es_tagged_template_module(module: &Module) -> bool {
 }
 
 pub(crate) fn emit_es_tagged_template(module: &Module) -> Result<String, Diagnostic> {
-    let info = classify(module).ok_or_else(|| diag("internal: not an es_tagged_template module"))?;
+    let info =
+        classify(module).ok_or_else(|| diag("internal: not an es_tagged_template module"))?;
     let mut em = Emitter::new(module, &info);
     em.emit_module(&info)?;
     Ok(em.finish())
@@ -107,8 +108,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 if matches!(init, Expr::Function { .. }) {
                     continue;
                 }
-                let kind =
-                    slot_kind_of(init, &by_id, &fn_binding, &slot_of, &ret_of)?;
+                let kind = slot_kind_of(init, &by_id, &fn_binding, &slot_of, &ret_of)?;
                 if !expr_ok(init, &by_id, &fn_binding, &slot_of) {
                     return None;
                 }
@@ -168,14 +168,15 @@ fn collect_functions(
             }
             Stmt::Declare {
                 local,
-                init: Some(Expr::Function {
-                    params,
-                    body,
-                    is_async,
-                    is_generator,
-                    is_arrow,
-                    ..
-                }),
+                init:
+                    Some(Expr::Function {
+                        params,
+                        body,
+                        is_async,
+                        is_generator,
+                        is_arrow,
+                        ..
+                    }),
                 ..
             } => {
                 if *is_async || *is_generator || *is_arrow {
@@ -226,9 +227,7 @@ fn collect_functions(
                     }
                 }
             }
-            Stmt::Declare {
-                init: Some(e), ..
-            } => collect_expr_fns(e, by_id, out, fn_binding)?,
+            Stmt::Declare { init: Some(e), .. } => collect_expr_fns(e, by_id, out, fn_binding)?,
             _ => {}
         }
     }
@@ -362,15 +361,13 @@ fn find_return(body: &[Stmt]) -> Option<&Expr> {
 }
 
 fn body_has_tagged(body: &[Stmt]) -> bool {
-    body.iter().any(|s| stmt_has_tagged(s))
+    body.iter().any(stmt_has_tagged)
 }
 
 fn stmt_has_tagged(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Return { value: Some(e) } | Stmt::Expr { expr: e } => expr_has_tagged(e),
-        Stmt::Declare {
-            init: Some(e), ..
-        } => expr_has_tagged(e),
+        Stmt::Declare { init: Some(e), .. } => expr_has_tagged(e),
         Stmt::Block { body } => body.iter().any(stmt_has_tagged),
         _ => false,
     }
@@ -382,9 +379,9 @@ fn expr_has_tagged(expr: &Expr) -> bool {
         Expr::Binary { left, right, .. } => expr_has_tagged(left) || expr_has_tagged(right),
         Expr::Call { callee, args, .. } => {
             expr_has_tagged(callee)
-                || args.iter().any(|a| {
-                    matches!(a, draconic_ir::Arg::Expr(e) if expr_has_tagged(e))
-                })
+                || args
+                    .iter()
+                    .any(|a| matches!(a, draconic_ir::Arg::Expr(e) if expr_has_tagged(e)))
         }
         Expr::Member { object, .. } => expr_has_tagged(object),
         _ => false,
@@ -436,7 +433,7 @@ fn slot_kind_of(
             }
             Expr::Call { .. } | Expr::Member { .. } => Some(SlotTy::String),
             _ => None,
-        }
+        },
         Expr::Local { id, ty } => {
             if let Some(k) = slot_of.get(id) {
                 return Some(*k);
@@ -446,12 +443,12 @@ fn slot_kind_of(
                 Type::Boolean => Some(SlotTy::Bool),
                 Type::Object => Some(SlotTy::Object),
                 Type::Function => Some(SlotTy::Function),
-                Type::Any => by_id.get(id).and_then(|l| match l.ty {
-                    Type::String => Some(SlotTy::String),
-                    Type::Boolean => Some(SlotTy::Bool),
-                    Type::Object => Some(SlotTy::Object),
-                    Type::Function => Some(SlotTy::Function),
-                    _ => Some(SlotTy::String),
+                Type::Any => by_id.get(id).map(|l| match l.ty {
+                    Type::String => SlotTy::String,
+                    Type::Boolean => SlotTy::Bool,
+                    Type::Object => SlotTy::Object,
+                    Type::Function => SlotTy::Function,
+                    _ => SlotTy::String,
                 }),
                 _ => None,
             }
@@ -474,8 +471,7 @@ fn fn_body_ok(
     fn_binding: &HashMap<LocalId, usize>,
     params: &[LocalId],
 ) -> bool {
-    body.iter()
-        .all(|s| stmt_ok(s, by_id, fn_binding, params))
+    body.iter().all(|s| stmt_ok(s, by_id, fn_binding, params))
 }
 
 fn stmt_ok(
@@ -485,14 +481,14 @@ fn stmt_ok(
     params: &[LocalId],
 ) -> bool {
     match stmt {
-        Stmt::Return { value: Some(e) } => expr_ok(e, by_id, fn_binding, &HashMap::new()) || {
-            // allow param locals
-            expr_ok_with_params(e, by_id, fn_binding, params)
-        },
+        Stmt::Return { value: Some(e) } => {
+            expr_ok(e, by_id, fn_binding, &HashMap::new()) || {
+                // allow param locals
+                expr_ok_with_params(e, by_id, fn_binding, params)
+            }
+        }
         Stmt::Return { value: None } => true,
-        Stmt::Block { body } => body
-            .iter()
-            .all(|s| stmt_ok(s, by_id, fn_binding, params)),
+        Stmt::Block { body } => body.iter().all(|s| stmt_ok(s, by_id, fn_binding, params)),
         _ => false,
     }
 }
@@ -519,14 +515,12 @@ fn expr_ok_with_params(
                     || matches!(property.as_ref(), Expr::Number { .. })
                     || expr_ok_with_params(property, by_id, fn_binding, params))
         }
-        Expr::Binary { left, right, op, .. } => {
+        Expr::Binary {
+            left, right, op, ..
+        } => {
             matches!(
                 op,
-                BinaryOp::Add
-                    | BinaryOp::EqEqEq
-                    | BinaryOp::EqEq
-                    | BinaryOp::And
-                    | BinaryOp::Or
+                BinaryOp::Add | BinaryOp::EqEqEq | BinaryOp::EqEq | BinaryOp::And | BinaryOp::Or
             ) && expr_ok_with_params(left, by_id, fn_binding, params)
                 && expr_ok_with_params(right, by_id, fn_binding, params)
         }
@@ -538,16 +532,12 @@ fn expr_ok_with_params(
         } => {
             expr_ok_with_params(callee, by_id, fn_binding, params)
                 && args.iter().all(|a| match a {
-                    draconic_ir::Arg::Expr(e) => {
-                        expr_ok_with_params(e, by_id, fn_binding, params)
-                    }
+                    draconic_ir::Arg::Expr(e) => expr_ok_with_params(e, by_id, fn_binding, params),
                     _ => false,
                 })
         }
         Expr::TaggedTemplate {
-            tag,
-            expressions,
-            ..
+            tag, expressions, ..
         } => {
             expr_ok_with_params(tag, by_id, fn_binding, params)
                 && expressions
@@ -570,9 +560,7 @@ fn expr_ok(
             fn_binding.contains_key(id) || slot_of.contains_key(id) || by_id.contains_key(id)
         }
         Expr::TaggedTemplate {
-            tag,
-            expressions,
-            ..
+            tag, expressions, ..
         } => {
             tag_ok(tag, by_id, fn_binding, slot_of)
                 && expressions
@@ -602,14 +590,12 @@ fn expr_ok(
                 && matches!(property.as_ref(), Expr::String { .. })
         }
         Expr::Object { properties, .. } => object_ok(properties, by_id, fn_binding),
-        Expr::Binary { left, right, op, .. } => {
+        Expr::Binary {
+            left, right, op, ..
+        } => {
             matches!(
                 op,
-                BinaryOp::Add
-                    | BinaryOp::EqEqEq
-                    | BinaryOp::EqEq
-                    | BinaryOp::And
-                    | BinaryOp::Or
+                BinaryOp::Add | BinaryOp::EqEqEq | BinaryOp::EqEq | BinaryOp::And | BinaryOp::Or
             ) && expr_ok(left, by_id, fn_binding, slot_of)
                 && expr_ok(right, by_id, fn_binding, slot_of)
         }
@@ -683,16 +669,15 @@ impl<'a> Emitter<'a> {
                 for p in properties {
                     if let ObjectProp::Property {
                         key: ObjectPropKey::Static(k),
-                        value:
-                            Expr::Function {
-                                params, body, ..
-                            },
+                        value: Expr::Function { params, body, .. },
                     } = p
                     {
                         let ids = simple_params(params).unwrap_or_default();
-                        if let Some(idx) = info.functions.iter().position(|f| {
-                            f.params == ids && f.body == *body
-                        }) {
+                        if let Some(idx) = info
+                            .functions
+                            .iter()
+                            .position(|f| f.params == ids && f.body == *body)
+                        {
                             let name = k.to_string_lossy();
                             object_methods
                                 .entry(*local)
@@ -963,12 +948,7 @@ impl<'a> Emitter<'a> {
             return Err(diag("es_tt: expected object"));
         };
         let obj = self.fresh();
-        writeln!(
-            self.body,
-            "  {}",
-            ALLOC_OBJECT.call_to(&obj, "")
-        )
-        .ok();
+        writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&obj, "")).ok();
         if let Some(methods) = self.object_methods.get(&local).cloned() {
             for (key, idx) in methods {
                 let k = self.string_const(&key)?;
@@ -1110,9 +1090,7 @@ impl<'a> Emitter<'a> {
                 let idx = self.resolve_fn_idx(callee)?;
                 Ok(self.fn_ptr_value(idx))
             }
-            _ => Err(diag(format!(
-                "es_tt: unsupported stringy expr: {expr:?}"
-            ))),
+            _ => Err(diag(format!("es_tt: unsupported stringy expr: {expr:?}"))),
         }
     }
 
@@ -1217,9 +1195,19 @@ impl<'a> Emitter<'a> {
         let l = self.emit_stringy(left)?;
         let r = self.emit_stringy(right)?;
         let ll = self.fresh();
-        writeln!(self.body, "  {}", CSTR_LEN.call_to(&ll, &format!("ptr {l}"))).ok();
+        writeln!(
+            self.body,
+            "  {}",
+            CSTR_LEN.call_to(&ll, &format!("ptr {l}"))
+        )
+        .ok();
         let rl = self.fresh();
-        writeln!(self.body, "  {}", CSTR_LEN.call_to(&rl, &format!("ptr {r}"))).ok();
+        writeln!(
+            self.body,
+            "  {}",
+            CSTR_LEN.call_to(&rl, &format!("ptr {r}"))
+        )
+        .ok();
         let eq = self.fresh();
         writeln!(
             self.body,
@@ -1302,11 +1290,7 @@ impl<'a> Emitter<'a> {
             cases.push_str(&format!(" i64 {}, label %{}", f.idx, lab));
         }
         self.tmp += 1;
-        writeln!(
-            self.body,
-            "  switch i64 {idxv}, label %{bad} [{cases} ]"
-        )
-        .ok();
+        writeln!(self.body, "  switch i64 {idxv}, label %{bad} [{cases} ]").ok();
 
         for (idx, lab) in &case_labels {
             writeln!(self.body, "{lab}:").ok();
@@ -1345,18 +1329,11 @@ impl<'a> Emitter<'a> {
         }
         let args_s = parts.join(", ");
         let t = self.fresh();
-        writeln!(
-            self.body,
-            "  {t} = call ptr @d_tt_fn_{idx}({args_s})"
-        )
-        .ok();
+        writeln!(self.body, "  {t} = call ptr @d_tt_fn_{idx}({args_s})").ok();
         Ok(t)
     }
 
-    fn resolve_tag(
-        &mut self,
-        tag: &Expr,
-    ) -> Result<(Option<usize>, Option<String>), Diagnostic> {
+    fn resolve_tag(&mut self, tag: &Expr) -> Result<(Option<usize>, Option<String>), Diagnostic> {
         match tag {
             Expr::Local { id, .. } => {
                 let idx = *self

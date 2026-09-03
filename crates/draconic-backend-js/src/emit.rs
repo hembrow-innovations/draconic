@@ -258,7 +258,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, names: &HashMap<LocalId, 
             for s in block {
                 emit_stmt(out, s, names);
             }
-            out.push_str("}");
+            out.push('}');
             if let Some(handler) = handler {
                 if let Some(param) = handler_param {
                     out.push_str(" catch (");
@@ -473,9 +473,7 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
         Expr::String { value, .. } => {
             push_js_string(out, value);
         }
-        Expr::RegExp {
-            pattern, flags, ..
-        } => {
+        Expr::RegExp { pattern, flags, .. } => {
             out.push('/');
             out.push_str(pattern);
             out.push('/');
@@ -594,10 +592,7 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
             out.push(')');
         }
         Expr::Assign {
-            target,
-            op,
-            value,
-            ..
+            target, op, value, ..
         } => {
             out.push('(');
             emit_assign_target(out, target, names);
@@ -608,10 +603,7 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
             out.push(')');
         }
         Expr::Update {
-            op,
-            target,
-            prefix,
-            ..
+            op, target, prefix, ..
         } => {
             out.push('(');
             let op_s = match op {
@@ -816,11 +808,7 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                         }
                         // value is Function — emit as method body `(params) { … }`
                         match value {
-                            Expr::Function {
-                                params,
-                                body,
-                                ..
-                            } => {
+                            Expr::Function { params, body, .. } => {
                                 out.push('(');
                                 emit_params(out, params, names);
                                 out.push_str(") {\n");
@@ -860,10 +848,7 @@ fn emit_expr(out: &mut String, expr: &Expr, names: &HashMap<LocalId, &str>) {
                     draconic_ir::ArrayElement::Elision => {}
                 }
             }
-            if matches!(
-                elements.last(),
-                Some(draconic_ir::ArrayElement::Elision)
-            ) {
+            if matches!(elements.last(), Some(draconic_ir::ArrayElement::Elision)) {
                 out.push(',');
             }
             out.push(']');
@@ -959,7 +944,9 @@ fn expr_needs_stmt_paren(expr: &Expr) -> bool {
     match expr {
         Expr::Object { .. } => true,
         // Non-arrow function expression at stmt start → FunctionDeclaration.
-        Expr::Function { is_arrow: false, .. } => true,
+        Expr::Function {
+            is_arrow: false, ..
+        } => true,
         Expr::Assign { value, .. } => expr_needs_stmt_paren(value),
         Expr::Binary {
             op: BinaryOp::Comma,

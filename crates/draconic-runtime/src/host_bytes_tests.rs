@@ -17,10 +17,7 @@ fn host_bytes_symbols_present_in_source_header_and_abi() {
     ] {
         assert!(src.contains(sym), "host C source must define {sym}");
         assert!(host_hdr.contains(sym), "host header must declare {sym}");
-        assert!(
-            HOST_SYMBOLS.contains(&sym),
-            "HOST_SYMBOLS must list {sym}"
-        );
+        assert!(HOST_SYMBOLS.contains(&sym), "HOST_SYMBOLS must list {sym}");
     }
     assert!(
         host_hdr.contains("DraconicHostBytes"),
@@ -296,7 +293,7 @@ fn host_bytes_io_boundary_link_smoke() {
             .arg(&bin);
         apply_runtime_link_flags(&mut link);
         link.status().expect("spawn clang")
-        };
+    };
     assert!(
         status.success(),
         "clang failed to link host bytes smoke against libdraconic_rt.a"

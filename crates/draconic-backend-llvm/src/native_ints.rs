@@ -12,7 +12,7 @@ use draconic_ir::{
     ObjectProp, ObjectPropKey, ObjectShape, Param, Pattern, Stmt, UpdateTarget,
 };
 use draconic_runtime::abi::{
-    llvm_declares, PRINT_BOOL, PRINT_F64, PRINT_I64, PRINT_U64, NATIVE_INT_DECLARES,
+    llvm_declares, NATIVE_INT_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_I64, PRINT_U64,
 };
 
 use crate::debug_info::{dbg_marker, SourceDebug};
@@ -93,7 +93,7 @@ fn shape_is_native_layout(shape: &ObjectShape) -> bool {
             .all(|(_, t)| matches!(t, Type::Native(_)))
 }
 
-fn native_layout_of<'a>(module: &'a Module, ty: Type) -> Option<&'a ObjectShape> {
+fn native_layout_of(module: &Module, ty: Type) -> Option<&ObjectShape> {
     match ty {
         Type::Shape(id) => {
             let shape = module.shapes.get(id as usize)?;
@@ -212,9 +212,7 @@ fn function_decl_local_ids(body: &[Stmt]) -> HashSet<LocalId> {
                     out.extend(function_decl_local_ids_stmt(a));
                 }
             }
-            Stmt::While { body, .. }
-            | Stmt::DoWhile { body, .. }
-            | Stmt::Labeled { body, .. } => {
+            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
                 out.extend(function_decl_local_ids_stmt(body));
             }
             Stmt::For { init, body, .. } => {
@@ -283,11 +281,7 @@ fn collect_user_local_ids_stmt(stmt: &Stmt, out: &mut HashSet<LocalId>) {
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
             collect_user_local_ids_stmt(body, out);
         }
-        Stmt::For {
-            init,
-            body,
-            ..
-        } => {
+        Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 collect_user_local_ids_stmt(i, out);
             }
@@ -350,8 +344,6 @@ struct ExternAbi {
     ret: Option<Type>,
 }
 
-
-
 struct Emitter<'a> {
     module: &'a Module,
     debug: Option<&'a SourceDebug>,
@@ -376,17 +368,13 @@ struct Emitter<'a> {
 
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module, debug: Option<&'a SourceDebug>) -> Self {
-        let locals: HashMap<LocalId, &'a Local> =
-            module.locals.iter().map(|l| (l.id, l)).collect();
+        let locals: HashMap<LocalId, &'a Local> = module.locals.iter().map(|l| (l.id, l)).collect();
         let mut fn_names = HashMap::new();
         let mut extern_fns = HashMap::new();
         for stmt in &module.body {
             match stmt {
                 Stmt::Function { local, .. } => {
-                    let name = locals
-                        .get(local)
-                        .map(|l| l.name.as_str())
-                        .unwrap_or("fn");
+                    let name = locals.get(local).map(|l| l.name.as_str()).unwrap_or("fn");
                     let safe: String = name
                         .chars()
                         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
@@ -494,7 +482,9 @@ impl<'a> Emitter<'a> {
             } = stmt
             {
                 if *is_async || *is_generator {
-                    return Err(diag("native scalars: async/generator functions not supported"));
+                    return Err(diag(
+                        "native scalars: async/generator functions not supported",
+                    ));
                 }
                 self.emit_function(*local, params, body)?;
             }
@@ -570,9 +560,8 @@ impl<'a> Emitter<'a> {
             Type::Number => Ok("double".into()),
             Type::Ptr(_) | Type::Function => Ok("ptr".into()),
             Type::Shape(_) => {
-                let shape = native_layout_of(self.module, ty).ok_or_else(|| {
-                    diag("extern ABI: type is not a native layout")
-                })?;
+                let shape = native_layout_of(self.module, ty)
+                    .ok_or_else(|| diag("extern ABI: type is not a native layout"))?;
                 let size = layout_size(shape);
                 if size == 0 || size > 16 {
                     return Err(diag(
@@ -678,13 +667,7 @@ impl<'a> Emitter<'a> {
                 ty.align()
             )
             .ok();
-            writeln!(
-                pre,
-                "  store {} %p{}, ptr {ptr}",
-                ty.llvm_ty(),
-                id.0
-            )
-            .ok();
+            writeln!(pre, "  store {} %p{}, ptr {ptr}", ty.llvm_ty(), id.0).ok();
             // Params are also addressable via alloca now.
             self.params.remove(id);
         }
@@ -886,11 +869,7 @@ impl<'a> Emitter<'a> {
                     )
                     .ok();
                 } else {
-                    writeln!(
-                        self.body,
-                        "  br i1 {cond}, label %{then_l}, label %{end_l}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  br i1 {cond}, label %{then_l}, label %{end_l}").ok();
                 }
                 writeln!(self.body, "{then_l}:").ok();
                 self.emit_stmt(consequent)?;
@@ -990,19 +969,9 @@ impl<'a> Emitter<'a> {
             let ext = self.fresh_tmp();
             if n.bit_width() < 64 {
                 if n.is_signed() {
-                    writeln!(
-                        self.body,
-                        "  {ext} = sext {} {v} to i64",
-                        llvm_ty(n)
-                    )
-                    .ok();
+                    writeln!(self.body, "  {ext} = sext {} {v} to i64", llvm_ty(n)).ok();
                 } else {
-                    writeln!(
-                        self.body,
-                        "  {ext} = zext {} {v} to i64",
-                        llvm_ty(n)
-                    )
-                    .ok();
+                    writeln!(self.body, "  {ext} = zext {} {v} to i64", llvm_ty(n)).ok();
                 }
             } else {
                 writeln!(self.body, "  {ext} = add i64 {v}, 0").ok();
@@ -1024,12 +993,7 @@ impl<'a> Emitter<'a> {
             Type::Native(n) if n.is_int() => {
                 let v = self.emit_expr(expr, Some(Scalar(n)))?;
                 let t = self.fresh_tmp();
-                writeln!(
-                    self.body,
-                    "  {t} = icmp ne {} {v}, 0",
-                    llvm_ty(n)
-                )
-                .ok();
+                writeln!(self.body, "  {t} = icmp ne {} {v}, 0", llvm_ty(n)).ok();
                 Ok(t)
             }
             Type::Native(n) if n.is_float() => {
@@ -1046,11 +1010,7 @@ impl<'a> Emitter<'a> {
             Type::Number => {
                 let v = self.emit_expr(expr, Some(Scalar(NativeType::F64)))?;
                 let t = self.fresh_tmp();
-                writeln!(
-                    self.body,
-                    "  {t} = fcmp one double {v}, 0.000000e+00"
-                )
-                .ok();
+                writeln!(self.body, "  {t} = fcmp one double {v}, 0.000000e+00").ok();
                 Ok(t)
             }
             _ => Err(diag(
@@ -1059,11 +1019,7 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_expr(
-        &mut self,
-        expr: &Expr,
-        expect: Option<Scalar>,
-    ) -> Result<String, Diagnostic> {
+    fn emit_expr(&mut self, expr: &Expr, expect: Option<Scalar>) -> Result<String, Diagnostic> {
         let v = self.emit_expr_uncast(expr, expect)?;
         let Some(want) = expect else {
             return Ok(v);
@@ -1157,53 +1113,27 @@ impl<'a> Emitter<'a> {
                 let nty = match ty {
                     Type::Native(n) if !n.is_bool() => *n,
                     Type::Number => NativeType::F64,
-                    _ => {
-                        return Err(diag("native scalars: unary result must be native numeric"))
-                    }
+                    _ => return Err(diag("native scalars: unary result must be native numeric")),
                 };
                 let a = self.emit_expr(arg, Some(Scalar(nty)))?;
                 let t = self.fresh_tmp();
                 match op {
                     UnaryOp::Minus if nty.is_float() => {
-                        writeln!(
-                            self.body,
-                            "  {t} = fneg {} {a}",
-                            llvm_ty(nty)
-                        )
-                        .ok();
+                        writeln!(self.body, "  {t} = fneg {} {a}", llvm_ty(nty)).ok();
                     }
                     UnaryOp::Minus => {
-                        writeln!(
-                            self.body,
-                            "  {t} = sub {} 0, {a}",
-                            llvm_ty(nty)
-                        )
-                        .ok();
+                        writeln!(self.body, "  {t} = sub {} 0, {a}", llvm_ty(nty)).ok();
                     }
                     UnaryOp::BitNot if nty.is_int() => {
-                        writeln!(
-                            self.body,
-                            "  {t} = xor {} {a}, -1",
-                            llvm_ty(nty)
-                        )
-                        .ok();
+                        writeln!(self.body, "  {t} = xor {} {a}, -1", llvm_ty(nty)).ok();
                     }
                     UnaryOp::Plus if nty.is_float() => {
-                        writeln!(
-                            self.body,
-                            "  {t} = fadd {} {a}, 0.000000e+00",
-                            llvm_ty(nty)
-                        )
-                        .ok();
+                        writeln!(self.body, "  {t} = fadd {} {a}, 0.000000e+00", llvm_ty(nty)).ok();
                     }
                     UnaryOp::Plus => {
                         writeln!(self.body, "  {t} = add {} {a}, 0", llvm_ty(nty)).ok();
                     }
-                    _ => {
-                        return Err(diag(&format!(
-                            "native scalars: unsupported unary {op}"
-                        )))
-                    }
+                    _ => return Err(diag(&format!("native scalars: unsupported unary {op}"))),
                 }
                 Ok(t)
             }
@@ -1268,12 +1198,7 @@ impl<'a> Emitter<'a> {
                     arg_parts.push(format!("{} {v}", pty.llvm_ty()));
                 }
                 let t = self.fresh_tmp();
-                write!(
-                    self.body,
-                    "  {t} = call {} @{fn_name}(",
-                    ret_ty.llvm_ty()
-                )
-                .ok();
+                write!(self.body, "  {t} = call {} @{fn_name}(", ret_ty.llvm_ty()).ok();
                 for (i, p) in arg_parts.iter().enumerate() {
                     if i > 0 {
                         self.body.push_str(", ");
@@ -1516,9 +1441,11 @@ impl<'a> Emitter<'a> {
                 let Expr::Local { id, .. } = callee.as_ref() else {
                     return Err(diag("native layout: only direct extern calls supported"));
                 };
-                let ext = self.extern_fns.get(id).cloned().ok_or_else(|| {
-                    diag("native layout: init call must be extern \"C\"")
-                })?;
+                let ext = self
+                    .extern_fns
+                    .get(id)
+                    .cloned()
+                    .ok_or_else(|| diag("native layout: init call must be extern \"C\""))?;
                 let v = self.emit_extern_call(&ext, args, *ty, None)?;
                 let abi = layout_abi_llvm(shape);
                 writeln!(self.body, "  store {abi} {v}, ptr {dest_ptr}").ok();
@@ -1550,7 +1477,8 @@ impl<'a> Emitter<'a> {
                 | BinaryOp::EqEqEq
                 | BinaryOp::NotEqEq
         ) {
-            let sty = scalar_operand_ty(left, right, expect.filter(|s| s.is_int() || s.is_float()))?;
+            let sty =
+                scalar_operand_ty(left, right, expect.filter(|s| s.is_int() || s.is_float()))?;
             if sty.is_bool() {
                 return Err(diag("native scalars: compare needs numeric operands"));
             }
@@ -1568,12 +1496,7 @@ impl<'a> Emitter<'a> {
                     BinaryOp::GtEq => "oge",
                     _ => unreachable!(),
                 };
-                writeln!(
-                    self.body,
-                    "  {t} = fcmp {pred} {} {l}, {r}",
-                    llvm_ty(nty)
-                )
-                .ok();
+                writeln!(self.body, "  {t} = fcmp {pred} {} {l}, {r}", llvm_ty(nty)).ok();
             } else {
                 let pred = match op {
                     BinaryOp::EqEq | BinaryOp::EqEqEq => "eq",
@@ -1608,12 +1531,7 @@ impl<'a> Emitter<'a> {
                     }
                     _ => unreachable!(),
                 };
-                writeln!(
-                    self.body,
-                    "  {t} = icmp {pred} {} {l}, {r}",
-                    llvm_ty(nty)
-                )
-                .ok();
+                writeln!(self.body, "  {t} = icmp {pred} {} {l}, {r}", llvm_ty(nty)).ok();
             }
             return Ok(t);
         }
@@ -1706,11 +1624,7 @@ impl<'a> Emitter<'a> {
                 Some(s) => s,
                 None => match ptr_expr.ty() {
                     Type::Ptr(n) => Scalar(n),
-                    _ => {
-                        return Err(diag(
-                            "native pointers: store value must be a native scalar",
-                        ))
-                    }
+                    _ => return Err(diag("native pointers: store value must be a native scalar")),
                 },
             };
             let dest = self.emit_ptr_expr(ptr_expr)?;
@@ -1740,9 +1654,8 @@ impl<'a> Emitter<'a> {
         // when the RHS expression is still typed `number` in IR (contextual lit).
         let sty = match self.local_scalar(*id) {
             Ok(s) => s,
-            Err(_) => scalar_of_type(*ty).ok_or_else(|| {
-                diag("native scalars: assignment needs a native scalar local")
-            })?,
+            Err(_) => scalar_of_type(*ty)
+                .ok_or_else(|| diag("native scalars: assignment needs a native scalar local"))?,
         };
         let ptr = self
             .allocas
@@ -1764,21 +1677,11 @@ impl<'a> Emitter<'a> {
             let ll = llvm_ty(nty);
             if nty.is_float() {
                 match op {
-                    AssignOp::AddEq => {
-                        writeln!(self.body, "  {t} = fadd {ll} {cur}, {rhs_v}").ok()
-                    }
-                    AssignOp::SubEq => {
-                        writeln!(self.body, "  {t} = fsub {ll} {cur}, {rhs_v}").ok()
-                    }
-                    AssignOp::MulEq => {
-                        writeln!(self.body, "  {t} = fmul {ll} {cur}, {rhs_v}").ok()
-                    }
-                    AssignOp::DivEq => {
-                        writeln!(self.body, "  {t} = fdiv {ll} {cur}, {rhs_v}").ok()
-                    }
-                    AssignOp::RemEq => {
-                        writeln!(self.body, "  {t} = frem {ll} {cur}, {rhs_v}").ok()
-                    }
+                    AssignOp::AddEq => writeln!(self.body, "  {t} = fadd {ll} {cur}, {rhs_v}").ok(),
+                    AssignOp::SubEq => writeln!(self.body, "  {t} = fsub {ll} {cur}, {rhs_v}").ok(),
+                    AssignOp::MulEq => writeln!(self.body, "  {t} = fmul {ll} {cur}, {rhs_v}").ok(),
+                    AssignOp::DivEq => writeln!(self.body, "  {t} = fdiv {ll} {cur}, {rhs_v}").ok(),
+                    AssignOp::RemEq => writeln!(self.body, "  {t} = frem {ll} {cur}, {rhs_v}").ok(),
                     _ => {
                         return Err(diag(&format!(
                             "native scalars: unsupported float compound assign {op:?}"
@@ -1787,15 +1690,9 @@ impl<'a> Emitter<'a> {
                 };
             } else {
                 match op {
-                    AssignOp::AddEq => {
-                        writeln!(self.body, "  {t} = add {ll} {cur}, {rhs_v}").ok()
-                    }
-                    AssignOp::SubEq => {
-                        writeln!(self.body, "  {t} = sub {ll} {cur}, {rhs_v}").ok()
-                    }
-                    AssignOp::MulEq => {
-                        writeln!(self.body, "  {t} = mul {ll} {cur}, {rhs_v}").ok()
-                    }
+                    AssignOp::AddEq => writeln!(self.body, "  {t} = add {ll} {cur}, {rhs_v}").ok(),
+                    AssignOp::SubEq => writeln!(self.body, "  {t} = sub {ll} {cur}, {rhs_v}").ok(),
+                    AssignOp::MulEq => writeln!(self.body, "  {t} = mul {ll} {cur}, {rhs_v}").ok(),
                     AssignOp::DivEq => {
                         if nty.is_signed() {
                             writeln!(self.body, "  {t} = sdiv {ll} {cur}, {rhs_v}").ok()
@@ -1813,15 +1710,11 @@ impl<'a> Emitter<'a> {
                     AssignOp::BitAndEq => {
                         writeln!(self.body, "  {t} = and {ll} {cur}, {rhs_v}").ok()
                     }
-                    AssignOp::BitOrEq => {
-                        writeln!(self.body, "  {t} = or {ll} {cur}, {rhs_v}").ok()
-                    }
+                    AssignOp::BitOrEq => writeln!(self.body, "  {t} = or {ll} {cur}, {rhs_v}").ok(),
                     AssignOp::BitXorEq => {
                         writeln!(self.body, "  {t} = xor {ll} {cur}, {rhs_v}").ok()
                     }
-                    AssignOp::ShlEq => {
-                        writeln!(self.body, "  {t} = shl {ll} {cur}, {rhs_v}").ok()
-                    }
+                    AssignOp::ShlEq => writeln!(self.body, "  {t} = shl {ll} {cur}, {rhs_v}").ok(),
                     AssignOp::ShrEq => {
                         if nty.is_signed() {
                             writeln!(self.body, "  {t} = ashr {ll} {cur}, {rhs_v}").ok()
@@ -1869,12 +1762,8 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {cur} = load {}, ptr {ptr}", llvm_ty(nty)).ok();
         let next = self.fresh_tmp();
         match op {
-            UpdateOp::Inc => {
-                writeln!(self.body, "  {next} = add {} {cur}, 1", llvm_ty(nty)).ok()
-            }
-            UpdateOp::Dec => {
-                writeln!(self.body, "  {next} = sub {} {cur}, 1", llvm_ty(nty)).ok()
-            }
+            UpdateOp::Inc => writeln!(self.body, "  {next} = add {} {cur}, 1", llvm_ty(nty)).ok(),
+            UpdateOp::Dec => writeln!(self.body, "  {next} = sub {} {cur}, 1", llvm_ty(nty)).ok(),
         };
         writeln!(self.body, "  store {} {next}, ptr {ptr}", llvm_ty(nty)).ok();
         if prefix {
@@ -1952,11 +1841,9 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load {abi}, ptr {ptr}").ok();
                     arg_parts.push(format!("{abi} {v}"));
                 }
-                _ => {
-                    return Err(diag(
-                        "native FFI: extern param must be native scalar, pointer, function, or layout",
-                    ))
-                }
+                _ => return Err(diag(
+                    "native FFI: extern param must be native scalar, pointer, function, or layout",
+                )),
             }
         }
         let ret_llvm = match ext.ret {
@@ -2012,12 +1899,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Dual-worlds / width change: convert unboxed scalar `v` from `from` to `to`.
-    fn coerce_scalar(
-        &mut self,
-        v: &str,
-        from: Scalar,
-        to: Scalar,
-    ) -> Result<String, Diagnostic> {
+    fn coerce_scalar(&mut self, v: &str, from: Scalar, to: Scalar) -> Result<String, Diagnostic> {
         if from == to {
             return Ok(v.to_string());
         }
@@ -2342,9 +2224,7 @@ fn infer_return_scalar(body: &[Stmt]) -> Option<Scalar> {
 
 fn infer_return_scalar_stmt(stmt: &Stmt) -> Option<Scalar> {
     match stmt {
-        Stmt::Return {
-            value: Some(v), ..
-        } => scalar_of_type(v.ty()),
+        Stmt::Return { value: Some(v), .. } => scalar_of_type(v.ty()),
         Stmt::Block { body } => infer_return_scalar(body),
         Stmt::If {
             consequent,
@@ -2389,4 +2269,3 @@ fn collect_declared_locals_stmt(stmt: &Stmt, out: &mut Vec<LocalId>) {
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
-

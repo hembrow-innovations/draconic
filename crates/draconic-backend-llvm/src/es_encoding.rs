@@ -1,7 +1,9 @@
-//! L01.01 / L01.02 / L01.03 / L03.01 / L03.02: native observations for UTF-8
+//! L01 / L01.01 / L01.02 / L01.03 / L03.01 / L03.02: native observations for UTF-8
 //! TextEncoder / TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), hex
 //! (`toHex` / `fromHex`), SHA-256 (`sha256`), and `randomBytes`.
 //!
+//! L01 parent: one Program combining UTF-8 bytes↔string, Base64, and hex,
+//! with invalid input as catchable errors rather than silent corruption.
 //! Compile-time evaluation of TextEncoder/TextDecoder encode/decode plus
 //! fatal invalid UTF-8 TypeError. Emits Runtime prints of final top-level
 //! number/string/bool locals.
@@ -1213,5 +1215,45 @@ mod tests {
         assert!(is_es_encoding_module(&m));
         let ir = emit_es_encoding(&m).expect("emit");
         assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_combined_encoding_surface() {
+        let m = compile_src(
+            r#"
+            let s = new TextDecoder().decode(new TextEncoder().encode("café"));
+            let b64 = new Uint8Array([104, 105]).toBase64();
+            let hx = new Uint8Array([104, 105]).toHex();
+            let b64s = new TextDecoder().decode(Uint8Array.fromBase64(b64));
+            let hxs = new TextDecoder().decode(Uint8Array.fromHex(hx));
+            let utf8_bad = 0;
+            try {
+              new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([255]));
+              utf8_bad = -1;
+            } catch (e) {
+              utf8_bad = e.name === "TypeError" ? 1 : -2;
+            }
+            let b64_bad = 0;
+            try {
+              Uint8Array.fromBase64("!!!");
+              b64_bad = -1;
+            } catch (e) {
+              b64_bad = e.name === "SyntaxError" ? 1 : -2;
+            }
+            let hex_bad = 0;
+            try {
+              Uint8Array.fromHex("zzz");
+              hex_bad = -1;
+            } catch (e) {
+              hex_bad = e.name === "SyntaxError" ? 1 : -2;
+            }
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"), "{ir}");
+        assert!(ir.contains("aGk="), "{ir}");
+        assert!(ir.contains("6869"), "{ir}");
+        assert!(ir.contains("c\"hi\\00"), "{ir}");
     }
 }

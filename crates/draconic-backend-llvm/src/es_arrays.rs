@@ -155,15 +155,10 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
             if !array_expr_ok(right, ctx.by_id, &ctx.slot_of) {
                 return None;
             }
-            let ek = array_expr_elem_kind(
-                right,
-                &ctx.arr_inits,
-                &ctx.arr_elem,
-                &ctx.slot_of,
-            )
-            // Empty arrays (and other untyped iterables) still support for-of;
-            // bind as Number when element kind is unknown (body never observes).
-            .unwrap_or(ElemKind::Unknown);
+            let ek = array_expr_elem_kind(right, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of)
+                // Empty arrays (and other untyped iterables) still support for-of;
+                // bind as Number when element kind is unknown (body never observes).
+                .unwrap_or(ElemKind::Unknown);
             let bind_ty = match ek {
                 ElemKind::Number | ElemKind::Unknown => SlotTy::Number,
                 ElemKind::String => SlotTy::String,
@@ -261,10 +256,11 @@ fn classify_pattern_binding(
                     ctx.arr_elem.insert(*id, elem_kind);
                 }
             }
-            if print_nums && bind_ty == SlotTy::Number {
-                if !ctx.print_locals.iter().any(|(l, _)| l == id) {
-                    ctx.print_locals.push((*id, SlotTy::Number));
-                }
+            if print_nums
+                && bind_ty == SlotTy::Number
+                && !ctx.print_locals.iter().any(|(l, _)| l == id)
+            {
+                ctx.print_locals.push((*id, SlotTy::Number));
             }
             Some(())
         }
@@ -349,9 +345,7 @@ fn classify_for_of_left(
 ) -> Option<()> {
     match left {
         Stmt::Declare {
-            local,
-            init: None,
-            ..
+            local, init: None, ..
         } => {
             if ctx.slot_of.contains_key(local) {
                 return None;
@@ -403,7 +397,10 @@ fn for_of_bound_array_elem_kind(
     };
     let mut kind: Option<ElemKind> = None;
     for el in elements {
-        let ArrayElement::Expr(Expr::Array { elements: inner, .. }) = el else {
+        let ArrayElement::Expr(Expr::Array {
+            elements: inner, ..
+        }) = el
+        else {
             return None;
         };
         let k = array_lit_elem_kind(&inner, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of)?;
@@ -416,11 +413,7 @@ fn for_of_bound_array_elem_kind(
     kind
 }
 
-fn classify_declare(
-    local: LocalId,
-    init: Option<&Expr>,
-    ctx: &mut ClassifyCtx<'_>,
-) -> Option<()> {
+fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
     let loc = ctx.by_id.get(&local)?;
     let Some(init) = init else {
         // Bare `let y` — provisional number slot (for-of assign target).
@@ -472,7 +465,11 @@ fn classify_declare(
         return Some(());
     }
     if let Expr::Local { id, .. } = init {
-        if ctx.slots.iter().any(|(s, k)| s == id && *k == SlotTy::Array) {
+        if ctx
+            .slots
+            .iter()
+            .any(|(s, k)| s == id && *k == SlotTy::Array)
+        {
             ctx.has_array = true;
             ctx.slots.push((local, SlotTy::Array));
             ctx.slot_of.insert(local, SlotTy::Array);
@@ -484,7 +481,11 @@ fn classify_declare(
             }
             return Some(());
         }
-        if ctx.slots.iter().any(|(s, k)| s == id && *k == SlotTy::String) {
+        if ctx
+            .slots
+            .iter()
+            .any(|(s, k)| s == id && *k == SlotTy::String)
+        {
             ctx.slots.push((local, SlotTy::String));
             ctx.slot_of.insert(local, SlotTy::String);
             return Some(());
@@ -511,13 +512,7 @@ fn classify_declare(
         match kind {
             SlotTy::Number => ctx.print_locals.push((local, SlotTy::Number)),
             SlotTy::String => {
-                if matches!(
-                    init,
-                    Expr::Member {
-                        computed: true,
-                        ..
-                    }
-                ) {
+                if matches!(init, Expr::Member { computed: true, .. }) {
                     ctx.print_locals.push((local, SlotTy::String));
                 }
             }
@@ -683,8 +678,8 @@ fn resolve_array_elem(
                 return None;
             }
             let outer_idx = const_index(property)?;
-            let outer = resolve_array_elem(object, outer_idx, arr_inits)?;
-            outer
+
+            resolve_array_elem(object, outer_idx, arr_inits)?
         }
         _ => return None,
     };
@@ -835,9 +830,7 @@ fn spread_source_elem_kind(
             }),
             _ => None,
         },
-        Expr::Array { elements, .. } => {
-            array_lit_elem_kind(elements, arr_inits, arr_elem, slot_of)
-        }
+        Expr::Array { elements, .. } => array_lit_elem_kind(elements, arr_inits, arr_elem, slot_of),
         Expr::Member {
             object,
             property,
@@ -1075,9 +1068,7 @@ fn bool_expr_ok(
         Expr::Local { id, ty } => {
             slot_of.get(id) == Some(&SlotTy::Bool)
                 || matches!(ty, Type::Boolean)
-                || by_id
-                    .get(id)
-                    .is_some_and(|l| matches!(l.ty, Type::Boolean))
+                || by_id.get(id).is_some_and(|l| matches!(l.ty, Type::Boolean))
         }
         Expr::Member {
             object,
@@ -1107,9 +1098,9 @@ fn null_expr_ok(
             is_undefined_local(*id, by_id)
                 || slot_of.get(id) == Some(&SlotTy::Null)
                 || matches!(ty, Type::Null | Type::Any)
-                    && by_id
-                        .get(id)
-                        .is_some_and(|l| matches!(l.ty, Type::Null | Type::Any) || l.name == "undefined")
+                    && by_id.get(id).is_some_and(|l| {
+                        matches!(l.ty, Type::Null | Type::Any) || l.name == "undefined"
+                    })
         }
         Expr::Member {
             object,
@@ -1143,9 +1134,7 @@ fn is_undefined_expr(expr: &Expr) -> bool {
 }
 
 fn is_undefined_local(id: LocalId, by_id: &HashMap<LocalId, &Local>) -> bool {
-    by_id
-        .get(&id)
-        .is_some_and(|l| l.name == "undefined")
+    by_id.get(&id).is_some_and(|l| l.name == "undefined")
 }
 
 fn member_key_string(property: &Expr) -> Option<String> {
@@ -1261,11 +1250,7 @@ impl<'a> Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::String
-                | SlotTy::Bool
-                | SlotTy::Null
-                | SlotTy::Array
-                | SlotTy::Object => {
+                SlotTy::String | SlotTy::Bool | SlotTy::Null | SlotTy::Array | SlotTy::Object => {
                     let g = ptr_global_name(*id, *kind);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
@@ -1453,11 +1438,7 @@ impl<'a> Emitter<'a> {
             )
             .ok();
         } else {
-            writeln!(
-                self.body,
-                "  br i1 {cond}, label %{then_l}, label %{end_l}"
-            )
-            .ok();
+            writeln!(self.body, "  br i1 {cond}, label %{then_l}, label %{end_l}").ok();
         }
         writeln!(self.body, "{then_l}:").ok();
         self.emit_stmt(consequent)?;
@@ -1477,10 +1458,7 @@ impl<'a> Emitter<'a> {
 
     fn emit_cmp_i1(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         let Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } = expr
         else {
             return Err(diag("es_arrays: if test must be comparison"));
@@ -1685,7 +1663,9 @@ impl<'a> Emitter<'a> {
                     {
                         self.emit_string_expr(property)?
                     } else {
-                        return Err(diag("es_arrays: computed member pattern key must be string"));
+                        return Err(diag(
+                            "es_arrays: computed member pattern key must be string",
+                        ));
                     }
                 } else {
                     let s = member_key_string(property)
@@ -1764,14 +1744,11 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_for_of(
-        &mut self,
-        left: &Stmt,
-        right: &Expr,
-        body: &Stmt,
-    ) -> Result<(), Diagnostic> {
+    fn emit_for_of(&mut self, left: &Stmt, right: &Expr, body: &Stmt) -> Result<(), Diagnostic> {
         let bind_id = match left {
-            Stmt::Declare { local, init: None, .. } => *local,
+            Stmt::Declare {
+                local, init: None, ..
+            } => *local,
             Stmt::Expr {
                 expr: Expr::Local { id, .. },
             } => *id,
@@ -2027,17 +2004,10 @@ impl<'a> Emitter<'a> {
                 ..
             } => self.emit_member_assign(expr, true),
             Expr::Binary {
-                left,
-                op,
-                right,
-                ..
+                left, op, right, ..
             } if matches!(
                 op,
-                BinaryOp::Add
-                    | BinaryOp::Sub
-                    | BinaryOp::Mul
-                    | BinaryOp::Div
-                    | BinaryOp::Rem
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
             ) =>
             {
                 let l = self.emit_number_expr(left)?;
@@ -2156,12 +2126,7 @@ impl<'a> Emitter<'a> {
 
         // Spread path: grow from empty via ARRAY_SET / ARRAY_SPREAD_*.
         let arr = self.fresh();
-        writeln!(
-            self.body,
-            "  {}",
-            ARRAY_NEW.call_to(&arr, "i64 0")
-        )
-        .ok();
+        writeln!(self.body, "  {}", ARRAY_NEW.call_to(&arr, "i64 0")).ok();
         for el in elements {
             match el {
                 ArrayElement::Elision => {

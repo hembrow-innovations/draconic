@@ -363,9 +363,7 @@ fn object_define_setter(props: &mut Vec<(String, PropSlot)>, key: String, setter
 
 fn object_lookup_getter(props: &[(String, PropSlot)], key: &str) -> JsVal {
     match object_own_slot(props, key) {
-        Some(PropSlot::Accessor {
-            get: Some(g), ..
-        }) => g.clone(),
+        Some(PropSlot::Accessor { get: Some(g), .. }) => g.clone(),
         _ => JsVal::Undef,
     }
 }
@@ -374,10 +372,7 @@ fn proto_lookup_setter(proto: &JsVal, key: &str) -> Option<JsVal> {
     match proto {
         JsVal::Object { props, proto, .. } => {
             let props = props.borrow();
-            if let Some(PropSlot::Accessor {
-                set: Some(s), ..
-            }) = object_own_slot(&props, key)
-            {
+            if let Some(PropSlot::Accessor { set: Some(s), .. }) = object_own_slot(&props, key) {
                 return Some(s.clone());
             }
             if let Some(PropSlot::Data(_)) = object_own_slot(&props, key) {
@@ -483,14 +478,8 @@ fn object_get_own_property_descriptor(target: &JsVal, key: &str) -> Result<JsVal
             desc_props.push(("configurable".into(), PropSlot::Data(JsVal::Bool(true))));
         }
         PropSlot::Accessor { get, set } => {
-            desc_props.push((
-                "get".into(),
-                PropSlot::Data(get.unwrap_or(JsVal::Undef)),
-            ));
-            desc_props.push((
-                "set".into(),
-                PropSlot::Data(set.unwrap_or(JsVal::Undef)),
-            ));
+            desc_props.push(("get".into(), PropSlot::Data(get.unwrap_or(JsVal::Undef))));
+            desc_props.push(("set".into(), PropSlot::Data(set.unwrap_or(JsVal::Undef))));
             desc_props.push(("enumerable".into(), PropSlot::Data(JsVal::Bool(true))));
             desc_props.push(("configurable".into(), PropSlot::Data(JsVal::Bool(true))));
         }
@@ -579,9 +568,7 @@ fn apply_define_property(
 
 fn object_lookup_setter(props: &[(String, PropSlot)], key: &str) -> JsVal {
     match object_own_slot(props, key) {
-        Some(PropSlot::Accessor {
-            set: Some(s), ..
-        }) => s.clone(),
+        Some(PropSlot::Accessor { set: Some(s), .. }) => s.clone(),
         _ => JsVal::Undef,
     }
 }
@@ -740,8 +727,8 @@ struct RegExpStatics {
 }
 
 thread_local! {
-    static CURRENT_THIS: std::cell::RefCell<JsVal> = std::cell::RefCell::new(JsVal::Undef);
-    static CURRENT_NEW_TARGET: std::cell::RefCell<JsVal> = std::cell::RefCell::new(JsVal::Undef);
+    static CURRENT_THIS: std::cell::RefCell<JsVal> = const { std::cell::RefCell::new(JsVal::Undef) };
+    static CURRENT_NEW_TARGET: std::cell::RefCell<JsVal> = const { std::cell::RefCell::new(JsVal::Undef) };
     static REGEXP_STATICS: std::cell::RefCell<RegExpStatics> =
         std::cell::RefCell::new(RegExpStatics::default());
 }
@@ -843,7 +830,9 @@ fn module_has_accessor_surface(module: &Module) -> bool {
                 alternate,
                 ..
             } => expr_acc(test) || expr_acc(consequent) || expr_acc(alternate),
-            Expr::Member { object, property, .. } => expr_acc(object) || expr_acc(property),
+            Expr::Member {
+                object, property, ..
+            } => expr_acc(object) || expr_acc(property),
             Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
                 expr_acc(callee)
                     || args.iter().any(|a| match a {
@@ -1025,7 +1014,10 @@ fn error_ctor_name(b: BuiltinId) -> Option<&'static str> {
 }
 
 fn module_has_builtin_surface(module: &Module, by_id: &HashMap<LocalId, &Local>) -> bool {
-    module.body.iter().any(|s| stmt_has_builtin_surface(s, by_id))
+    module
+        .body
+        .iter()
+        .any(|s| stmt_has_builtin_surface(s, by_id))
 }
 
 fn stmt_has_builtin_surface(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
@@ -1039,9 +1031,7 @@ fn stmt_has_builtin_surface(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bo
             finalizer,
             ..
         } => {
-            block
-                .iter()
-                .any(|s| stmt_has_builtin_surface(s, by_id))
+            block.iter().any(|s| stmt_has_builtin_surface(s, by_id))
                 || handler
                     .as_ref()
                     .is_some_and(|h| h.iter().any(|s| stmt_has_builtin_surface(s, by_id)))
@@ -1057,7 +1047,9 @@ fn stmt_has_builtin_surface(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bo
 fn expr_has_builtin_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
         Expr::RegExp { .. } => true,
-        Expr::Local { id, .. } => by_id.get(id).is_some_and(|l| builtin_for_name(&l.name).is_some()),
+        Expr::Local { id, .. } => by_id
+            .get(id)
+            .is_some_and(|l| builtin_for_name(&l.name).is_some()),
         Expr::IdentName { name, .. } => builtin_for_name(name).is_some(),
         Expr::Function { body, .. } => body.iter().any(|s| stmt_has_builtin_surface(s, by_id)),
         Expr::Unary { arg, .. } => expr_has_builtin_surface(arg, by_id),
@@ -1074,9 +1066,9 @@ fn expr_has_builtin_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bo
                 || expr_has_builtin_surface(consequent, by_id)
                 || expr_has_builtin_surface(alternate, by_id)
         }
-        Expr::Member { object, property, .. } => {
-            expr_has_builtin_surface(object, by_id) || expr_has_builtin_surface(property, by_id)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_has_builtin_surface(object, by_id) || expr_has_builtin_surface(property, by_id),
         Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
             expr_has_builtin_surface(callee, by_id)
                 || args.iter().any(|a| match a {
@@ -1143,21 +1135,15 @@ fn stmt_ok(stmt: &Stmt) -> bool {
             test,
             consequent,
             alternate,
-        } => {
-            expr_ok(test)
-                && stmt_ok(consequent)
-                && alternate.as_ref().is_none_or(|a| stmt_ok(a))
-        }
+        } => expr_ok(test) && stmt_ok(consequent) && alternate.as_ref().is_none_or(|a| stmt_ok(a)),
         _ => false,
     }
 }
 
 fn simple_fn_params_ok(params: &[Param]) -> bool {
-    params.iter().all(|p| {
-        !p.rest
-            && p.default.is_none()
-            && matches!(p.pattern, Pattern::Local(_))
-    })
+    params
+        .iter()
+        .all(|p| !p.rest && p.default.is_none() && matches!(p.pattern, Pattern::Local(_)))
 }
 
 fn user_fn_from_expr(expr: &Expr) -> Option<JsVal> {
@@ -1185,7 +1171,9 @@ fn user_fn_from_expr(expr: &Expr) -> Option<JsVal> {
 
 fn expr_ok(expr: &Expr) -> bool {
     match expr {
-        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => true,
+        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => {
+            true
+        }
         Expr::RegExp { .. } => true,
         Expr::Local { .. }
         | Expr::This { .. }
@@ -1210,7 +1198,9 @@ fn expr_ok(expr: &Expr) -> bool {
             arg,
             ..
         } => expr_ok(arg),
-        Expr::Binary { left, right, op, .. } => {
+        Expr::Binary {
+            left, right, op, ..
+        } => {
             matches!(
                 op,
                 BinaryOp::EqEqEq
@@ -1241,11 +1231,7 @@ fn expr_ok(expr: &Expr) -> bool {
             optional: false,
             ..
         } => expr_ok(object) && expr_ok(property),
-        Expr::New {
-            callee,
-            args,
-            ..
-        }
+        Expr::New { callee, args, .. }
         | Expr::Call {
             callee,
             args,
@@ -1266,9 +1252,7 @@ fn expr_ok(expr: &Expr) -> bool {
         } => expr_ok(value),
         Expr::Assign {
             target: AssignTarget::Member {
-                object,
-                property,
-                ..
+                object, property, ..
             },
             op: AssignOp::Eq,
             value,
@@ -1399,9 +1383,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         Expr::Boolean { value, .. } => Ok(Ok(JsVal::Bool(*value))),
         Expr::String { value, .. } => Ok(Ok(JsVal::Str(js_string_to_utf8(value)))),
         Expr::Null { .. } => Ok(Ok(JsVal::Null)),
-        Expr::RegExp {
-            pattern, flags, ..
-        } => {
+        Expr::RegExp { pattern, flags, .. } => {
             if !regexp_flags_ok(flags) {
                 return Err(());
             }
@@ -1482,10 +1464,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             }
         }
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             let l = match eval_expr(left, env)? {
                 Ok(v) => v,
@@ -1537,12 +1516,8 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     match (&l, &r) {
                         (JsVal::Num(a), JsVal::Num(b)) => Ok(Ok(JsVal::Num(a + b))),
                         (JsVal::Str(a), JsVal::Str(b)) => Ok(Ok(JsVal::Str(format!("{a}{b}")))),
-                        (JsVal::Str(a), JsVal::Num(b)) => {
-                            Ok(Ok(JsVal::Str(format!("{a}{b}"))))
-                        }
-                        (JsVal::Num(a), JsVal::Str(b)) => {
-                            Ok(Ok(JsVal::Str(format!("{a}{b}"))))
-                        }
+                        (JsVal::Str(a), JsVal::Num(b)) => Ok(Ok(JsVal::Str(format!("{a}{b}")))),
+                        (JsVal::Num(a), JsVal::Str(b)) => Ok(Ok(JsVal::Str(format!("{a}{b}")))),
                         _ => {
                             // ToNumber fallback for accessor fixtures (this.x + 1).
                             let a = to_number(&l)?;
@@ -1690,12 +1665,9 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             Ok(Ok(v))
         }
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -1828,8 +1800,17 @@ fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Str
     }
 }
 
-fn eval_new(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
-    if let JsVal::UserFn { params, body, props } = callee {
+fn eval_new(
+    callee: &JsVal,
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<JsVal, ()> {
+    if let JsVal::UserFn {
+        params,
+        body,
+        props,
+    } = callee
+    {
         // Ordinary [[Construct]]: this = Object.create(ctor.prototype); new.target = ctor
         let proto = match props.borrow().iter().find(|(k, _)| k == "prototype") {
             Some((_, PropSlot::Data(p))) => p.clone(),
@@ -1837,9 +1818,7 @@ fn eval_new(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -
         };
         let this = new_object_with_proto(Vec::new(), proto);
         let ctor = callee.clone();
-        let result = with_new_target(ctor, || {
-            call_user_fn(params, body, this.clone(), args, env)
-        })?;
+        let result = with_new_target(ctor, || call_user_fn(params, body, this.clone(), args, env))?;
         // `this.prop = …` mutates CURRENT_THIS; prefer that over the pre-call clone.
         let this_final = CURRENT_THIS.with(|cell| cell.borrow().clone());
         let this_out = match this_final {
@@ -1878,9 +1857,7 @@ fn eval_new(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -
         if !args.is_empty() {
             return Err(());
         }
-        return Ok(JsVal::SetInst {
-            values: Vec::new(),
-        });
+        return Ok(JsVal::SetInst { values: Vec::new() });
     }
     if *b == BuiltinId::WeakMap {
         if !args.is_empty() {
@@ -1894,9 +1871,7 @@ fn eval_new(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -
         if !args.is_empty() {
             return Err(());
         }
-        return Ok(JsVal::WeakSetInst {
-            values: Vec::new(),
-        });
+        return Ok(JsVal::WeakSetInst { values: Vec::new() });
     }
     if *b == BuiltinId::ArrayBuffer {
         let len = match args.first() {
@@ -2006,7 +1981,11 @@ fn call_user_fn(
     }
 }
 
-fn eval_call(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
+fn eval_call(
+    callee: &JsVal,
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<JsVal, ()> {
     if let JsVal::UserFn { params, body, .. } = callee {
         return call_user_fn(params, body, JsVal::Undef, args, env);
     }
@@ -2231,7 +2210,9 @@ fn eval_method_call(
                 _ => return Err(()),
             };
             match this_arg {
-                JsVal::Object { props, .. } => Ok(JsVal::Bool(object_own_has(&props.borrow(), prop))),
+                JsVal::Object { props, .. } => {
+                    Ok(JsVal::Bool(object_own_has(&props.borrow(), prop)))
+                }
                 _ => Ok(JsVal::Bool(false)),
             }
         }
@@ -2342,9 +2323,7 @@ fn eval_method_call(
             "set" => {
                 let k = args.first().cloned().ok_or(())?;
                 let v = args.get(1).cloned().unwrap_or(JsVal::Undef);
-                if let Some((_, slot)) = entries
-                    .iter_mut()
-                    .find(|(ek, _)| same_value_zero(ek, &k))
+                if let Some((_, slot)) = entries.iter_mut().find(|(ek, _)| same_value_zero(ek, &k))
                 {
                     *slot = v;
                 } else {
@@ -2382,9 +2361,7 @@ fn eval_method_call(
             }
             "has" => {
                 let v = args.first().unwrap_or(&JsVal::Undef);
-                Ok(JsVal::Bool(
-                    values.iter().any(|ev| same_value_zero(ev, v)),
-                ))
+                Ok(JsVal::Bool(values.iter().any(|ev| same_value_zero(ev, v))))
             }
             _ => Err(()),
         },
@@ -2465,9 +2442,7 @@ fn eval_method_call(
             _ => Err(()),
         },
         JsVal::DataViewInst {
-            bytes,
-            byte_length,
-            ..
+            bytes, byte_length, ..
         } => match key {
             "getUint8" => {
                 let idx = match args.first() {
@@ -2773,7 +2748,7 @@ fn parse_atoms_until(
 
 fn char_eq(a: char, b: char, ignore_case: bool) -> bool {
     if ignore_case {
-        a.to_ascii_lowercase() == b.to_ascii_lowercase()
+        a.eq_ignore_ascii_case(&b)
     } else {
         a == b
     }
@@ -3257,12 +3232,7 @@ fn eval_string_method(this_s: &str, key: &str, args: &[JsVal]) -> Result<JsVal, 
             let length = args.get(1);
             Ok(JsVal::Str(js_substr(this_s, start, length)?))
         }
-        "anchor" => Ok(JsVal::Str(create_html(
-            this_s,
-            "a",
-            "name",
-            args.first(),
-        )?)),
+        "anchor" => Ok(JsVal::Str(create_html(this_s, "a", "name", args.first())?)),
         "big" => Ok(JsVal::Str(create_html(this_s, "big", "", None)?)),
         "blink" => Ok(JsVal::Str(create_html(this_s, "blink", "", None)?)),
         "bold" => Ok(JsVal::Str(create_html(this_s, "b", "", None)?)),
@@ -3280,12 +3250,7 @@ fn eval_string_method(this_s: &str, key: &str, args: &[JsVal]) -> Result<JsVal, 
             args.first(),
         )?)),
         "italics" => Ok(JsVal::Str(create_html(this_s, "i", "", None)?)),
-        "link" => Ok(JsVal::Str(create_html(
-            this_s,
-            "a",
-            "href",
-            args.first(),
-        )?)),
+        "link" => Ok(JsVal::Str(create_html(this_s, "a", "href", args.first())?)),
         "small" => Ok(JsVal::Str(create_html(this_s, "small", "", None)?)),
         "strike" => Ok(JsVal::Str(create_html(this_s, "strike", "", None)?)),
         "sub" => Ok(JsVal::Str(create_html(this_s, "sub", "", None)?)),
@@ -3299,7 +3264,10 @@ fn eval_string_method(this_s: &str, key: &str, args: &[JsVal]) -> Result<JsVal, 
 /// uriUnescaped = Alpha / DecimalDigit / "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")"
 fn is_uri_unescaped(b: u8) -> bool {
     b.is_ascii_alphanumeric()
-        || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+        || matches!(
+            b,
+            b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+        )
 }
 
 /// uriReserved = ";" / "/" / "?" / ":" / "@" / "&" / "=" / "+" / "$" / ","
@@ -3357,7 +3325,9 @@ fn js_unescape(input: &str) -> String {
                     hex_nibble(bytes[i + 4]),
                     hex_nibble(bytes[i + 5]),
                 ) {
-                    units.push(((a as u16) << 12) | ((b as u16) << 8) | ((c as u16) << 4) | d as u16);
+                    units.push(
+                        ((a as u16) << 12) | ((b as u16) << 8) | ((c as u16) << 4) | d as u16,
+                    );
                     i += 6;
                     continue;
                 }
@@ -3583,11 +3553,7 @@ fn js_parse_float(input: &str) -> f64 {
     s[..i].parse::<f64>().unwrap_or(f64::NAN)
 }
 
-fn member_get(
-    obj: &JsVal,
-    key: &str,
-    env: &mut HashMap<LocalId, JsVal>,
-) -> Result<JsVal, ()> {
+fn member_get(obj: &JsVal, key: &str, env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
     match obj {
         JsVal::Builtin(BuiltinId::GlobalThis) => match key {
             "Object" => Ok(JsVal::Builtin(BuiltinId::Object)),
@@ -3647,9 +3613,7 @@ fn member_get(
             Ok(JsVal::Builtin(BuiltinId::RegExpPrototype))
         }
         // Annex B.2.5 RegExp constructor statics (getters return strings).
-        JsVal::Builtin(BuiltinId::RegExp) => regexp_static_get(key)
-            .map(JsVal::Str)
-            .ok_or(()),
+        JsVal::Builtin(BuiltinId::RegExp) => regexp_static_get(key).map(JsVal::Str).ok_or(()),
         JsVal::Builtin(BuiltinId::RegExpPrototype) => regexp_proto_method_builtin(key)
             .map(JsVal::Builtin)
             .ok_or(()),
@@ -3668,9 +3632,9 @@ fn member_get(
         JsVal::Str(_) => string_annex_method_builtin(key)
             .map(JsVal::Builtin)
             .ok_or(()),
-        JsVal::Builtin(BuiltinId::DatePrototype) => date_proto_method_builtin(key)
-            .map(JsVal::Builtin)
-            .ok_or(()),
+        JsVal::Builtin(BuiltinId::DatePrototype) => {
+            date_proto_method_builtin(key).map(JsVal::Builtin).ok_or(())
+        }
         JsVal::Builtin(BuiltinId::Array) if key == "isArray" => {
             Ok(JsVal::Builtin(BuiltinId::ArrayIsArray))
         }
@@ -3700,9 +3664,7 @@ fn member_get(
         JsVal::DateInst { ms } => {
             let _ = ms;
             // Bound methods via eval_method_call; bare get yields callable for typeof paths.
-            date_proto_method_builtin(key)
-                .map(JsVal::Builtin)
-                .ok_or(())
+            date_proto_method_builtin(key).map(JsVal::Builtin).ok_or(())
         }
         JsVal::RegExpInst { source, flags } => match key {
             "source" => Ok(JsVal::Str(source.clone())),
@@ -3714,9 +3676,7 @@ fn member_get(
         JsVal::ArrayBufferInst { bytes, .. } if key == "byteLength" => {
             Ok(JsVal::Num(bytes.borrow().len() as f64))
         }
-        JsVal::TypedArrayInst { length, .. } if key == "length" => {
-            Ok(JsVal::Num(*length as f64))
-        }
+        JsVal::TypedArrayInst { length, .. } if key == "length" => Ok(JsVal::Num(*length as f64)),
         JsVal::TypedArrayInst {
             kind,
             bytes,
@@ -3747,9 +3707,7 @@ fn member_get(
             if let Some(slot) = own {
                 return match slot {
                     PropSlot::Data(v) => Ok(v),
-                    PropSlot::Accessor {
-                        get: Some(g), ..
-                    } => {
+                    PropSlot::Accessor { get: Some(g), .. } => {
                         let this = obj.clone();
                         match g {
                             JsVal::UserFn { params, body, .. } => {
@@ -3784,9 +3742,7 @@ fn member_get(
                         if let Some(slot) = object_own_slot(&pprops.borrow(), key).cloned() {
                             return match slot {
                                 PropSlot::Data(v) => Ok(v),
-                                PropSlot::Accessor {
-                                    get: Some(g), ..
-                                } => {
+                                PropSlot::Accessor { get: Some(g), .. } => {
                                     let this = obj.clone();
                                     match g {
                                         JsVal::UserFn { params, body, .. } => {
@@ -3807,13 +3763,15 @@ fn member_get(
             }
         }
         JsVal::UserFn { props, .. } => {
-            let own = props.borrow().iter().find(|(k, _)| k == key).map(|(_, s)| s.clone());
+            let own = props
+                .borrow()
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, s)| s.clone());
             if let Some(slot) = own {
                 return match slot {
                     PropSlot::Data(v) => Ok(v),
-                    PropSlot::Accessor {
-                        get: Some(g), ..
-                    } => {
+                    PropSlot::Accessor { get: Some(g), .. } => {
                         let this = obj.clone();
                         match g {
                             JsVal::UserFn { params, body, .. } => {
@@ -3864,7 +3822,7 @@ fn member_set(
         }
         JsVal::Object { props, proto, .. } => {
             if key == "__proto__" && !object_own_has(&props.borrow(), "__proto__") {
-                *proto = Box::new(val);
+                **proto = val;
                 return Ok(());
             }
             let existing = object_own_slot(&props.borrow(), key).cloned();
@@ -3873,9 +3831,7 @@ fn member_set(
                     object_set_data(&mut props.borrow_mut(), key.to_string(), val);
                     Ok(())
                 }
-                Some(PropSlot::Accessor {
-                    set: Some(s), ..
-                }) => {
+                Some(PropSlot::Accessor { set: Some(s), .. }) => {
                     let this = obj.clone();
                     match s {
                         JsVal::UserFn { params, body, .. } => {
@@ -3902,7 +3858,9 @@ fn member_set(
                         }
                         return Ok(());
                     }
-                    props.borrow_mut().push((key.to_string(), PropSlot::Data(val)));
+                    props
+                        .borrow_mut()
+                        .push((key.to_string(), PropSlot::Data(val)));
                     Ok(())
                 }
             }
@@ -3918,9 +3876,7 @@ fn member_set(
                     object_set_data(&mut props.borrow_mut(), key.to_string(), val);
                     Ok(())
                 }
-                Some(PropSlot::Accessor {
-                    set: Some(s), ..
-                }) => {
+                Some(PropSlot::Accessor { set: Some(s), .. }) => {
                     let this = obj.clone();
                     match s {
                         JsVal::UserFn { params, body, .. } => {
@@ -3969,12 +3925,12 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Builtin(BuiltinId::Nan | BuiltinId::Infinity) => "number".into(),
         JsVal::Builtin(
             BuiltinId::GlobalThis
-                | BuiltinId::ObjectPrototype
-                | BuiltinId::FunctionPrototype
-                | BuiltinId::StringPrototype
-                | BuiltinId::DatePrototype
-                | BuiltinId::RegExpPrototype
-                | BuiltinId::Json,
+            | BuiltinId::ObjectPrototype
+            | BuiltinId::FunctionPrototype
+            | BuiltinId::StringPrototype
+            | BuiltinId::DatePrototype
+            | BuiltinId::RegExpPrototype
+            | BuiltinId::Json,
         ) => "object".into(),
         JsVal::Builtin(
             BuiltinId::Object
@@ -4155,7 +4111,8 @@ struct JsonParser<'a> {
 
 impl<'a> JsonParser<'a> {
     fn skip_ws(&mut self) {
-        while self.i < self.bytes.len() && matches!(self.bytes[self.i], b' ' | b'\t' | b'\n' | b'\r')
+        while self.i < self.bytes.len()
+            && matches!(self.bytes[self.i], b' ' | b'\t' | b'\n' | b'\r')
         {
             self.i += 1;
         }
@@ -4430,12 +4387,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
@@ -4637,7 +4589,15 @@ mod tests {
             !ir.contains("draconic_rt_hello"),
             "must not use hello stub:\n{ir}"
         );
-        for s in ["object", "function", "true", "null", "hi", "two", "\\22hi\\22"] {
+        for s in [
+            "object",
+            "function",
+            "true",
+            "null",
+            "hi",
+            "two",
+            "\\22hi\\22",
+        ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
         assert!(
@@ -4736,8 +4696,7 @@ mod tests {
 
     #[test]
     fn weak_map_set_classifies_and_emits() {
-        let src =
-            include_str!("../../../tests/conformance/fixtures/es/builtins/weak_map_set.drac");
+        let src = include_str!("../../../tests/conformance/fixtures/es/builtins/weak_map_set.drac");
         let m = compile(src);
         assert!(is_es_builtins_module(&m), "should classify as es_builtins");
         let ir = emit_es_builtins(&m).expect("emit");
@@ -4781,14 +4740,8 @@ mod tests {
             ir.contains("double -7") || ir.contains("double -7.0"),
             "should print i32_1=-7:\n{ir}"
         );
-        assert!(
-            ir.contains("double 1.5"),
-            "should print f64_0=1.5:\n{ir}"
-        );
-        assert!(
-            ir.contains("double 2.25"),
-            "should print f64_1=2.25:\n{ir}"
-        );
+        assert!(ir.contains("double 1.5"), "should print f64_0=1.5:\n{ir}");
+        assert!(ir.contains("double 2.25"), "should print f64_1=2.25:\n{ir}");
     }
 
     #[test]
@@ -4802,14 +4755,7 @@ mod tests {
             !ir.contains("draconic_rt_hello"),
             "must not use hello stub:\n{ir}"
         );
-        for s in [
-            "function",
-            "true",
-            "a%20b",
-            " ",
-            "caf%E9",
-            "hello world",
-        ] {
+        for s in ["function", "true", "a%20b", " ", "caf%E9", "hello world"] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
     }
@@ -4923,16 +4869,7 @@ mod tests {
             "must not use hello stub:\n{ir}"
         );
         for s in [
-            "function",
-            "a+",
-            "b+",
-            "true",
-            "false",
-            "bar",
-            "w",
-            "y+",
-            "i",
-            "g",
+            "function", "a+", "b+", "true", "false", "bar", "w", "y+", "i", "g",
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
@@ -5002,10 +4939,21 @@ mod tests {
         let ir = emit_es_builtins(&m).expect("emit");
         assert!(ir.contains("draconic_rt_print"), "emits prints");
         // Observed: a=0 b=10 c=11 d=7 e=3 f=1 g=9 h=C i=D
-        for needle in ["double 0.0", "double 10.0", "double 11.0", "double 7.0", "double 3.0", "double 1.0", "double 9.0"] {
+        for needle in [
+            "double 0.0",
+            "double 10.0",
+            "double 11.0",
+            "double 7.0",
+            "double 3.0",
+            "double 1.0",
+            "double 9.0",
+        ] {
             assert!(ir.contains(needle), "missing {needle} in {ir}");
         }
-        assert!(ir.contains("C") && ir.contains("D"), "missing string tags in {ir}");
+        assert!(
+            ir.contains("C") && ir.contains("D"),
+            "missing string tags in {ir}"
+        );
     }
 
     #[test]
@@ -5020,14 +4968,7 @@ mod tests {
             !ir.contains("draconic_rt_hello"),
             "must not use hello stub:\n{ir}"
         );
-        for s in [
-            "function",
-            "42",
-            "7",
-            "9",
-            "undefined",
-            "ok",
-        ] {
+        for s in ["function", "42", "7", "9", "undefined", "ok"] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
     }
@@ -5039,7 +4980,21 @@ mod tests {
         assert!(is_es_builtins_module(&m), "should classify as es_builtins");
         let ir = emit_es_builtins(&m).expect("emit");
         assert!(!ir.contains("draconic_rt_hello"), "hello stub");
-        for s in ["function","true","https","example.com","/path","q=1","frag","http","localhost:8080","user:pass@example.com:443","/a/b","x=1&y=2","top"] {
+        for s in [
+            "function",
+            "true",
+            "https",
+            "example.com",
+            "/path",
+            "q=1",
+            "frag",
+            "http",
+            "localhost:8080",
+            "user:pass@example.com:443",
+            "/a/b",
+            "x=1&y=2",
+            "top",
+        ] {
             assert!(ir.contains(s), "missing {s:?}");
         }
     }
@@ -5065,7 +5020,7 @@ mod tests {
         }
     }
 
-                #[test]
+    #[test]
     fn private_residual_classifies_and_emits() {
         let src =
             include_str!("../../../tests/conformance/fixtures/es/annex-b/private_residual.drac");

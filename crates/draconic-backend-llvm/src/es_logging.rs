@@ -7,15 +7,13 @@ use std::rc::Rc;
 
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
-};
+use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ES_EXPR_DECLARES, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_F64, PRINT_STR,
 };
 
 thread_local! {
-    static SINK_LINES: RefCell<Vec<(bool, String)>> = RefCell::new(Vec::new());
+    static SINK_LINES: RefCell<Vec<(bool, String)>> = const { RefCell::new(Vec::new()) };
 }
 
 pub(crate) fn is_es_logging_module(module: &Module) -> bool {
@@ -67,7 +65,10 @@ enum JsVal {
     Str(String),
     Undef,
     Builtin(BuiltinId),
-    ErrorInst { name: String, message: String },
+    ErrorInst {
+        name: String,
+        message: String,
+    },
     Logger(Rc<RefCell<LoggerState>>),
     LogMethod {
         kind: Method,
@@ -179,9 +180,7 @@ fn stmt_has_logging_surface(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bo
 
 fn expr_has_logging_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
-        Expr::Local { id, .. } => by_id
-            .get(id)
-            .is_some_and(|l| l.name == "createLogger"),
+        Expr::Local { id, .. } => by_id.get(id).is_some_and(|l| l.name == "createLogger"),
         Expr::IdentName { name, .. } => name == "createLogger",
         Expr::Unary { arg, .. } => expr_has_logging_surface(arg, by_id),
         Expr::Binary { left, right, .. } => {
@@ -197,9 +196,9 @@ fn expr_has_logging_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bo
                 || expr_has_logging_surface(consequent, by_id)
                 || expr_has_logging_surface(alternate, by_id)
         }
-        Expr::Member { object, property, .. } => {
-            expr_has_logging_surface(object, by_id) || expr_has_logging_surface(property, by_id)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_has_logging_surface(object, by_id) || expr_has_logging_surface(property, by_id),
         Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
             expr_has_logging_surface(callee, by_id)
                 || args.iter().any(|a| match a {
@@ -372,9 +371,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         Expr::String { value, .. } => Ok(Ok(JsVal::Str(js_string_to_utf8(value)))),
         Expr::Null { .. } => Ok(Ok(JsVal::Undef)),
         Expr::Local { id, .. } => Ok(Ok(env.get(id).cloned().ok_or(())?)),
-        Expr::IdentName { name, .. } => Ok(Ok(JsVal::Builtin(
-            builtin_for_name(name).ok_or(())?,
-        ))),
+        Expr::IdentName { name, .. } => Ok(Ok(JsVal::Builtin(builtin_for_name(name).ok_or(())?))),
         Expr::Unary { op, arg, .. } => {
             let v = match eval_expr(arg, env)? {
                 Ok(v) => v,

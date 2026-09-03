@@ -249,7 +249,10 @@ fn host_cancel_structured_timeout_surface() {
         apply_runtime_link_flags(&mut link);
         link.status().expect("spawn clang")
     };
-    assert!(status.success(), "clang failed for cancel C05 surface smoke");
+    assert!(
+        status.success(),
+        "clang failed for cancel C05 surface smoke"
+    );
 
     let output = Command::new(&bin).output().expect("run cancel surface");
     let stderr = String::from_utf8_lossy(&output.stderr);

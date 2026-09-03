@@ -1,0 +1,27 @@
+// L01: one Program — UTF-8 bytes↔string, Base64, hex; invalid input errors.
+let s = new TextDecoder().decode(new TextEncoder().encode("café"));
+let b64 = new Uint8Array([104, 105]).toBase64();
+let hx = new Uint8Array([104, 105]).toHex();
+let b64s = new TextDecoder().decode(Uint8Array.fromBase64(b64));
+let hxs = new TextDecoder().decode(Uint8Array.fromHex(hx));
+let utf8_bad = 0;
+try {
+  new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array([255]));
+  utf8_bad = -1;
+} catch (e) {
+  utf8_bad = e.name === "TypeError" ? 1 : -2;
+}
+let b64_bad = 0;
+try {
+  Uint8Array.fromBase64("!!!");
+  b64_bad = -1;
+} catch (e) {
+  b64_bad = e.name === "SyntaxError" ? 1 : -2;
+}
+let hex_bad = 0;
+try {
+  Uint8Array.fromHex("zzz");
+  hex_bad = -1;
+} catch (e) {
+  hex_bad = e.name === "SyntaxError" ? 1 : -2;
+}

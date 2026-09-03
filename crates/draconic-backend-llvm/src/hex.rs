@@ -25,7 +25,7 @@ fn nibble(c: u8) -> Result<u8, ()> {
 
 pub(crate) fn decode(s: &str) -> Result<Vec<u8>, ()> {
     let raw = s.as_bytes();
-    if raw.len() % 2 != 0 {
+    if !raw.len().is_multiple_of(2) {
         return Err(());
     }
     let mut out = Vec::with_capacity(raw.len() / 2);

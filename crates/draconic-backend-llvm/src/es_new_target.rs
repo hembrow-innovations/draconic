@@ -199,9 +199,7 @@ fn expr_has_new_target(expr: &Expr) -> bool {
     match expr {
         Expr::NewTarget { .. } => true,
         Expr::Unary { arg, .. } => expr_has_new_target(arg),
-        Expr::Binary { left, right, .. } => {
-            expr_has_new_target(left) || expr_has_new_target(right)
-        }
+        Expr::Binary { left, right, .. } => expr_has_new_target(left) || expr_has_new_target(right),
         Expr::Conditional {
             test,
             consequent,
@@ -581,12 +579,9 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             Ok(Ok(v))
         }
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -776,7 +771,7 @@ fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
                     callee: Box::new(Expr::Super { ty: Type::Any }),
                     args: super_args,
                     optional: false,
-                    ty: ty.clone(),
+                    ty: *ty,
                 },
             });
         }
@@ -785,9 +780,7 @@ fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
                 Expr::Assign {
                     target:
                         AssignTarget::Member {
-                            property,
-                            computed,
-                            ..
+                            property, computed, ..
                         },
                     op: AssignOp::Eq,
                     value,
@@ -803,7 +796,7 @@ fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
                     },
                     op: AssignOp::Eq,
                     value: value.clone(),
-                    ty: ty.clone(),
+                    ty: *ty,
                 },
             });
         }
@@ -891,7 +884,11 @@ fn is_reflect_construct(callee: &Expr) -> bool {
     )
 }
 
-fn eval_new(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
+fn eval_new(
+    callee: &JsVal,
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<JsVal, ()> {
     let JsVal::Fn { id } = callee else {
         return Err(());
     };
@@ -924,7 +921,11 @@ fn eval_super(args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal
     call_user_fn(&parent, this, nt, args, env)
 }
 
-fn eval_call(callee: &JsVal, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
+fn eval_call(
+    callee: &JsVal,
+    args: &[JsVal],
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<JsVal, ()> {
     let JsVal::Fn { id } = callee else {
         // No-op builtins (Object.defineProperty etc. already handled).
         return Ok(JsVal::Undef);
@@ -1097,11 +1098,7 @@ impl Emitter {
             }
         }
 
-        writeln!(
-            self.out,
-            "; Draconic LLVM backend (N08.16.27 new.target)"
-        )
-        .ok();
+        writeln!(self.out, "; Draconic LLVM backend (N08.16.27 new.target)").ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
         for (s, name) in &self.str_consts {
             let n = s.len() + 1;
@@ -1144,8 +1141,7 @@ mod tests {
 
     #[test]
     fn new_target_classifies_and_emits() {
-        let src =
-            include_str!("../../../tests/conformance/fixtures/es/annex-b/new_target.drac");
+        let src = include_str!("../../../tests/conformance/fixtures/es/annex-b/new_target.drac");
         let m = compile_source(src).expect("compile");
         assert!(
             is_es_new_target_module(&m),

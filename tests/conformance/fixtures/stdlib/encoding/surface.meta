@@ -1,0 +1,6 @@
+id: stdlib/encoding/surface
+targets: js,native
+js.exit: 0
+js.check: if (s !== "café") process.exit(1); if (b64 !== "aGk=") process.exit(2); if (hx !== "6869") process.exit(3); if (b64s !== "hi") process.exit(4); if (hxs !== "hi") process.exit(5); if (utf8_bad !== 1) process.exit(6); if (b64_bad !== 1) process.exit(7); if (hex_bad !== 1) process.exit(8);
+native.exit: 0
+native.stdout: café\naGk=\n6869\nhi\nhi\n1\n1\n1\n

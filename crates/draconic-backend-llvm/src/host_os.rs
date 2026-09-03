@@ -345,7 +345,9 @@ impl<'a> Emitter<'a> {
 
     fn emit_side_effect(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         match expr {
-            Expr::Call { callee, args, .. } if is_named_callee(callee, "chdir") && args.len() == 1 => {
+            Expr::Call { callee, args, .. }
+                if is_named_callee(callee, "chdir") && args.len() == 1 =>
+            {
                 let p = self.emit_string_expr(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_os: chdir path"))?,
                 )?;
@@ -364,7 +366,9 @@ impl<'a> Emitter<'a> {
 
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
-            Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "cwd") => {
+            Expr::Call { callee, args, .. }
+                if args.is_empty() && is_named_callee(callee, "cwd") =>
+            {
                 let r = self.fresh();
                 writeln!(self.body, "  {}", HOST_CWD.call_to(&r, "")).ok();
                 Ok(r)
@@ -430,10 +434,7 @@ impl<'a> Emitter<'a> {
     fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::EqEqEq | BinaryOp::EqEq | BinaryOp::NotEqEq | BinaryOp::NotEq

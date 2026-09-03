@@ -88,9 +88,9 @@ pub use resolve::{
     ResolveDirectError, ResolveError, ResolvedVersion,
 };
 pub use subdir::{derive_package_subdir, repo_path_from_git_url, validate_package_subdir};
-pub use yank::{advisory_from_vars, AdvisoryError, AdvisorySource, YankKind, ADVISORY_ENV};
 pub use tidy::{mod_tidy, mod_tidy_default_cache, TidyError, TidyResult};
 pub use toolchain::{check_toolchain_pin, check_toolchain_pin_for_entry, ToolchainPinStatus};
+pub use yank::{advisory_from_vars, AdvisoryError, AdvisorySource, YankKind, ADVISORY_ENV};
 
 use std::collections::BTreeMap;
 use std::fmt;

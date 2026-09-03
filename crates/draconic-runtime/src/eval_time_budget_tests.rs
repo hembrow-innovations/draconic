@@ -118,7 +118,9 @@ fn eval_time_budget_fail_closed_when_exceeded() {
         "clang failed to link eval time budget test"
     );
 
-    let output = Command::new(&bin).output().expect("run rt_eval_time_budget");
+    let output = Command::new(&bin)
+        .output()
+        .expect("run rt_eval_time_budget");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),

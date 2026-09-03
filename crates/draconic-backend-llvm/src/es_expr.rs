@@ -382,7 +382,9 @@ fn for_in_of_left_ok(left: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             expr: Expr::Local { id, ty },
         } => {
             (*ty == Type::Any || *ty == Type::String)
-                && by_id.get(id).is_some_and(|l| l.ty == *ty || l.ty == Type::Any)
+                && by_id
+                    .get(id)
+                    .is_some_and(|l| l.ty == *ty || l.ty == Type::Any)
         }
         _ => false,
     }
@@ -408,12 +410,7 @@ fn expr_is_unary_keyword_arg(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
             }
             matches!(
                 ty,
-                Type::Number
-                    | Type::BigInt
-                    | Type::String
-                    | Type::Boolean
-                    | Type::Null
-                    | Type::Any
+                Type::Number | Type::BigInt | Type::String | Type::Boolean | Type::Null | Type::Any
             ) && by_id.get(id).is_some_and(|l| l.ty == *ty)
         }
         e if expr_is_number_subset(e, by_id) => true,
@@ -441,7 +438,7 @@ fn is_math_global_expr(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
 }
 
 /// `Math.prop` / `Math["prop"]` → property name when object is the Math global.
-fn math_member_name<'a>(expr: &'a Expr, by_id: &HashMap<LocalId, &Local>) -> Option<String> {
+fn math_member_name(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> Option<String> {
     match expr {
         Expr::Member {
             object,
@@ -519,9 +516,9 @@ fn is_number_ctor_expr(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
 /// Global `NaN` / `Infinity` number bindings (host builtins; N08.08.06).
 fn is_nan_or_infinity_local(id: LocalId, ty: Type, by_id: &HashMap<LocalId, &Local>) -> bool {
     ty == Type::Number
-        && by_id.get(&id).is_some_and(|l| {
-            l.ty == Type::Number && (l.name == "NaN" || l.name == "Infinity")
-        })
+        && by_id
+            .get(&id)
+            .is_some_and(|l| l.ty == Type::Number && (l.name == "NaN" || l.name == "Infinity"))
 }
 
 fn nan_or_infinity_name(id: LocalId, by_id: &HashMap<LocalId, &Local>) -> Option<&'static str> {
@@ -537,7 +534,7 @@ fn nan_or_infinity_name(id: LocalId, by_id: &HashMap<LocalId, &Local>) -> Option
 }
 
 /// `Number.prop` / `Number["prop"]` → property name when object is the Number constructor.
-fn number_ctor_member_name<'a>(expr: &'a Expr, by_id: &HashMap<LocalId, &Local>) -> Option<String> {
+fn number_ctor_member_name(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> Option<String> {
     match expr {
         Expr::Member {
             object,
@@ -666,12 +663,7 @@ fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
         // N08.07.02: untagged template → string (cooked quasis + ToString interpolations).
         Expr::Template {
             expressions, ty, ..
-        } => {
-            *ty == Type::String
-                && expressions
-                    .iter()
-                    .all(|e| expr_is_concat_operand(e, by_id))
-        }
+        } => *ty == Type::String && expressions.iter().all(|e| expr_is_concat_operand(e, by_id)),
         Expr::Local { id, ty } => {
             (*ty == Type::String
                 && by_id
@@ -693,11 +685,13 @@ fn expr_is_string_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
             *ty == Type::String
                 && match op {
                     BinaryOp::Comma => {
-                        expr_is_unary_keyword_arg(left, by_id) && expr_is_string_subset(right, by_id)
+                        expr_is_unary_keyword_arg(left, by_id)
+                            && expr_is_string_subset(right, by_id)
                     }
                     // String concat (N08.02.08 / N08.07.01); number operand → ToString.
                     BinaryOp::Add => {
-                        expr_is_concat_operand(left, by_id) && expr_is_concat_operand(right, by_id)
+                        expr_is_concat_operand(left, by_id)
+                            && expr_is_concat_operand(right, by_id)
                             && (expr_is_string_operand(left, by_id)
                                 || expr_is_string_operand(right, by_id))
                     }
@@ -876,11 +870,7 @@ fn expr_is_number_subset(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                 && matches!(target, AssignTarget::Local(id) if by_id.get(id).is_some_and(|l| l.ty == Type::Number))
                 && expr_is_number_subset(value, by_id)
         }
-        Expr::Update {
-            target,
-            ty,
-            ..
-        } => {
+        Expr::Update { target, ty, .. } => {
             *ty == Type::Number
                 && matches!(
                     target,
@@ -1274,11 +1264,7 @@ impl<'a> Emitter<'a> {
                     )
                     .ok();
                 } else {
-                    writeln!(
-                        self.body,
-                        "  br i1 {cond}, label %{then_l}, label %{end_l}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  br i1 {cond}, label %{then_l}, label %{end_l}").ok();
                 }
                 writeln!(self.body, "{then_l}:").ok();
                 self.emit_stmt(consequent)?;
@@ -1783,17 +1769,17 @@ impl<'a> Emitter<'a> {
                     return Ok(());
                 }
                 if *ty == Type::Number
-                    && self.module.locals.iter().any(|l| {
-                        l.id == *id && (l.name == "NaN" || l.name == "Infinity")
-                    })
+                    && self
+                        .module
+                        .locals
+                        .iter()
+                        .any(|l| l.id == *id && (l.name == "NaN" || l.name == "Infinity"))
                 {
                     return Ok(());
                 }
-                let (_, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated discard local %{}", id.0)))?;
+                let (_, slot) = self.allocas.get(id).cloned().ok_or_else(|| {
+                    diag(format!("internal: unallocated discard local %{}", id.0))
+                })?;
                 match slot {
                     SlotTy::Number => {
                         let _ = self.emit_number_expr(expr)?;
@@ -1844,7 +1830,11 @@ impl<'a> Emitter<'a> {
             Expr::Boolean { .. } => Some("boolean"),
             Expr::Null { .. } => Some("object"),
             Expr::Local { id, .. } => {
-                if module.locals.iter().any(|l| l.id == *id && l.name == "Math") {
+                if module
+                    .locals
+                    .iter()
+                    .any(|l| l.id == *id && l.name == "Math")
+                {
                     return Some("object");
                 }
                 if module
@@ -1854,9 +1844,11 @@ impl<'a> Emitter<'a> {
                 {
                     return Some("function");
                 }
-                if module.locals.iter().any(|l| {
-                    l.id == *id && (l.name == "NaN" || l.name == "Infinity")
-                }) {
+                if module
+                    .locals
+                    .iter()
+                    .any(|l| l.id == *id && (l.name == "NaN" || l.name == "Infinity"))
+                {
                     return Some("number");
                 }
                 match slot_of.get(id)? {
@@ -1923,7 +1915,11 @@ impl<'a> Emitter<'a> {
                 let l = self.emit_bigint_expr(left)?;
                 let r = self.emit_bigint_expr(right)?;
                 match op {
-                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                    BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Rem => {
                         let inst = match op {
                             BinaryOp::Add => "add",
                             BinaryOp::Sub => "sub",
@@ -1966,19 +1962,15 @@ impl<'a> Emitter<'a> {
                 }
             }
             Expr::Assign {
-                target,
-                op,
-                value,
-                ..
+                target, op, value, ..
             } => {
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
-                let (ptr, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
+                let (ptr, slot) =
+                    self.allocas.get(id).cloned().ok_or_else(|| {
+                        diag(format!("internal: unallocated assign local %{}", id.0))
+                    })?;
                 if slot != SlotTy::BigInt {
                     return Err(diag("internal: expected bigint assign local"));
                 }
@@ -2082,7 +2074,9 @@ impl<'a> Emitter<'a> {
                     return Err(diag("internal: template with no quasis"));
                 }
                 if quasis.len() != expressions.len() + 1 {
-                    return Err(diag("internal: template quasis/expressions length mismatch"));
+                    return Err(diag(
+                        "internal: template quasis/expressions length mismatch",
+                    ));
                 }
                 let mut acc = self.string_const_js(&quasis[0])?;
                 for (i, e) in expressions.iter().enumerate() {
@@ -2160,10 +2154,7 @@ impl<'a> Emitter<'a> {
                 })
             }
             Expr::Assign {
-                target,
-                op,
-                value,
-                ..
+                target, op, value, ..
             } => {
                 if !matches!(op, AssignOp::Eq) {
                     return Err(diag("internal: only simple = in es_expr string assign"));
@@ -2271,10 +2262,7 @@ impl<'a> Emitter<'a> {
                 self.emit_undefined_expr(right)
             }
             Expr::Assign {
-                target,
-                op,
-                value,
-                ..
+                target, op, value, ..
             } => {
                 if !matches!(op, AssignOp::Eq) {
                     return Err(diag("internal: only simple = in es_expr undefined assign"));
@@ -2282,17 +2270,18 @@ impl<'a> Emitter<'a> {
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
-                let (_, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
+                let (_, slot) =
+                    self.allocas.get(id).cloned().ok_or_else(|| {
+                        diag(format!("internal: unallocated assign local %{}", id.0))
+                    })?;
                 if slot != SlotTy::Undefined {
                     return Err(diag("internal: expected undefined assign target"));
                 }
                 self.emit_undefined_expr(value)
             }
-            _ => Err(diag("internal: unsupported undefined expr in es_expr module")),
+            _ => Err(diag(
+                "internal: unsupported undefined expr in es_expr module",
+            )),
         }
     }
 
@@ -2327,13 +2316,13 @@ impl<'a> Emitter<'a> {
         // N08.08.05: `Math.PI` / `Math.E` / …
         if let Some(name) = self.math_member_name_emit(expr) {
             if is_math_const_name(&name) {
-                return Ok(format_math_const(&name)?);
+                return format_math_const(&name);
             }
         }
         // N08.08.06: `Number.NaN` / `Number.MAX_VALUE` / …
         if let Some(name) = self.number_ctor_member_name_emit(expr) {
             if is_number_ctor_const_name(&name) {
-                return Ok(format_number_ctor_const(&name)?);
+                return format_number_ctor_const(&name);
             }
         }
         // N08.08.05: `Math.abs(…)` / `Math["abs"](…)` / …
@@ -2357,7 +2346,7 @@ impl<'a> Emitter<'a> {
                 let by_id: HashMap<LocalId, &Local> =
                     self.module.locals.iter().map(|l| (l.id, l)).collect();
                 if let Some(name) = nan_or_infinity_name(*id, &by_id) {
-                    return Ok(format_number_ctor_const(name)?);
+                    return format_number_ctor_const(name);
                 }
                 let (ptr, slot) = self
                     .allocas
@@ -2399,7 +2388,11 @@ impl<'a> Emitter<'a> {
                 let l = self.emit_number_expr(left)?;
                 let r = self.emit_number_expr(right)?;
                 match op {
-                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                    BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div
+                    | BinaryOp::Rem => {
                         let inst = match op {
                             BinaryOp::Add => "fadd",
                             BinaryOp::Sub => "fsub",
@@ -2416,8 +2409,11 @@ impl<'a> Emitter<'a> {
                     BinaryOp::And | BinaryOp::Or => {
                         let truthy = self.fresh();
                         // +0/-0/NaN are falsy; `one` is ordered-and-unequal.
-                        writeln!(self.body, "  {truthy} = fcmp one double {l}, 0.00000000000000000e+00")
-                            .ok();
+                        writeln!(
+                            self.body,
+                            "  {truthy} = fcmp one double {l}, 0.00000000000000000e+00"
+                        )
+                        .ok();
                         let t = self.fresh();
                         match op {
                             BinaryOp::And => {
@@ -2478,19 +2474,15 @@ impl<'a> Emitter<'a> {
                 Ok(t)
             }
             Expr::Assign {
-                target,
-                op,
-                value,
-                ..
+                target, op, value, ..
             } => {
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
-                let (ptr, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
+                let (ptr, slot) =
+                    self.allocas.get(id).cloned().ok_or_else(|| {
+                        diag(format!("internal: unallocated assign local %{}", id.0))
+                    })?;
                 if slot != SlotTy::Number {
                     return Err(diag("internal: expected number assign target"));
                 }
@@ -2509,7 +2501,10 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {cur} = load double, ptr {ptr}").ok();
                 let r = self.emit_number_expr(value)?;
                 let v = match op {
-                    AssignOp::AddEq | AssignOp::SubEq | AssignOp::MulEq | AssignOp::DivEq
+                    AssignOp::AddEq
+                    | AssignOp::SubEq
+                    | AssignOp::MulEq
+                    | AssignOp::DivEq
                     | AssignOp::RemEq => {
                         let inst = match op {
                             AssignOp::AddEq => "fadd",
@@ -2559,19 +2554,15 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             Expr::Update {
-                op,
-                target,
-                prefix,
-                ..
+                op, target, prefix, ..
             } => {
                 let UpdateTarget::Local(id) = target else {
                     return Err(diag("internal: only local ++/-- in es_expr"));
                 };
-                let (ptr, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated update local %{}", id.0)))?;
+                let (ptr, slot) =
+                    self.allocas.get(id).cloned().ok_or_else(|| {
+                        diag(format!("internal: unallocated update local %{}", id.0))
+                    })?;
                 if slot != SlotTy::Number {
                     return Err(diag("internal: expected number update target"));
                 }
@@ -2640,7 +2631,11 @@ impl<'a> Emitter<'a> {
             }
         }
         match expr {
-            Expr::Boolean { value, .. } => Ok(if *value { "true".into() } else { "false".into() }),
+            Expr::Boolean { value, .. } => Ok(if *value {
+                "true".into()
+            } else {
+                "false".into()
+            }),
             Expr::Local { id, .. } => {
                 let (ptr, slot) = self
                     .allocas
@@ -2784,10 +2779,7 @@ impl<'a> Emitter<'a> {
                 _ => Err(diag("internal: non-comparison binary in bool emit")),
             },
             Expr::Assign {
-                target,
-                op,
-                value,
-                ..
+                target, op, value, ..
             } => {
                 if !matches!(op, AssignOp::Eq) {
                     return Err(diag("internal: only simple = in es_expr bool assign"));
@@ -2795,11 +2787,10 @@ impl<'a> Emitter<'a> {
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
-                let (ptr, slot) = self
-                    .allocas
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| diag(format!("internal: unallocated assign local %{}", id.0)))?;
+                let (ptr, slot) =
+                    self.allocas.get(id).cloned().ok_or_else(|| {
+                        diag(format!("internal: unallocated assign local %{}", id.0))
+                    })?;
                 if slot != SlotTy::Boolean {
                     return Err(diag("internal: expected boolean assign target"));
                 }
@@ -2862,7 +2853,11 @@ impl<'a> Emitter<'a> {
                 let ord = self.fresh();
                 writeln!(self.body, "  {ord} = fcmp ord double {x}, {x}").ok();
                 let abs = self.fresh();
-                writeln!(self.body, "  {abs} = call double @llvm.fabs.f64(double {x})").ok();
+                writeln!(
+                    self.body,
+                    "  {abs} = call double @llvm.fabs.f64(double {x})"
+                )
+                .ok();
                 let is_inf = self.fresh();
                 writeln!(
                     self.body,
@@ -2880,7 +2875,11 @@ impl<'a> Emitter<'a> {
                 let ord = self.fresh();
                 writeln!(self.body, "  {ord} = fcmp ord double {x}, {x}").ok();
                 let abs = self.fresh();
-                writeln!(self.body, "  {abs} = call double @llvm.fabs.f64(double {x})").ok();
+                writeln!(
+                    self.body,
+                    "  {abs} = call double @llvm.fabs.f64(double {x})"
+                )
+                .ok();
                 let is_inf = self.fresh();
                 writeln!(
                     self.body,
@@ -2908,7 +2907,11 @@ impl<'a> Emitter<'a> {
                 let ord = self.fresh();
                 writeln!(self.body, "  {ord} = fcmp ord double {x}, {x}").ok();
                 let abs = self.fresh();
-                writeln!(self.body, "  {abs} = call double @llvm.fabs.f64(double {x})").ok();
+                writeln!(
+                    self.body,
+                    "  {abs} = call double @llvm.fabs.f64(double {x})"
+                )
+                .ok();
                 let is_inf = self.fresh();
                 writeln!(
                     self.body,
@@ -3185,22 +3188,13 @@ fn parse_js_bigint_literal(s: &str) -> Option<i64> {
 
 /// Parse ECMAScript numeric literal text (no `_` separators) to `f64`.
 fn parse_js_number_literal(s: &str) -> Option<f64> {
-    if let Some(hex) = s
-        .strip_prefix("0x")
-        .or_else(|| s.strip_prefix("0X"))
-    {
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         return u64::from_str_radix(hex, 16).ok().map(|n| n as f64);
     }
-    if let Some(bin) = s
-        .strip_prefix("0b")
-        .or_else(|| s.strip_prefix("0B"))
-    {
+    if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
         return u64::from_str_radix(bin, 2).ok().map(|n| n as f64);
     }
-    if let Some(oct) = s
-        .strip_prefix("0o")
-        .or_else(|| s.strip_prefix("0O"))
-    {
+    if let Some(oct) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
         return u64::from_str_radix(oct, 8).ok().map(|n| n as f64);
     }
     s.parse().ok()

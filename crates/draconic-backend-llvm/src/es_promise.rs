@@ -88,7 +88,10 @@ fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
 
     // Async function declarations bind a function local without a `Declare`.
     for stmt in &module.body {
-        if let Stmt::Function { local, is_async, .. } = stmt {
+        if let Stmt::Function {
+            local, is_async, ..
+        } = stmt
+        {
             if !*is_async {
                 return Err("only async function declarations supported in Promise path".into());
             }
@@ -195,13 +198,11 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             }
             check_expr(arg, promise_id, uses)
         }
-        Expr::Binary { left, op, right, .. } => {
+        Expr::Binary {
+            left, op, right, ..
+        } => {
             match op {
-                BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Rem => {}
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {}
                 _ => return Err(format!("unsupported binary {op:?}")),
             }
             check_expr(left, promise_id, uses)?;
@@ -214,7 +215,12 @@ fn check_expr(expr: &Expr, promise_id: Option<LocalId>, uses: &mut bool) -> Resu
             }
             check_expr(value, promise_id, uses)
         }
-        Expr::Call { callee, args, optional, .. } => {
+        Expr::Call {
+            callee,
+            args,
+            optional,
+            ..
+        } => {
             if *optional {
                 return Err("optional call not supported".into());
             }
@@ -527,19 +533,11 @@ impl<'a> Emitter<'a> {
         match kind {
             SlotKind::Number => {
                 let n = self.fresh();
-                writeln!(
-                    self.body,
-                    "  {n} = ptrtoint ptr {value_ptr_or_num} to i64"
-                )
-                .ok();
+                writeln!(self.body, "  {n} = ptrtoint ptr {value_ptr_or_num} to i64").ok();
                 writeln!(self.body, "  store i64 {n}, ptr {ptr}").ok();
             }
             SlotKind::String | SlotKind::Object => {
-                writeln!(
-                    self.body,
-                    "  store ptr {value_ptr_or_num}, ptr {ptr}"
-                )
-                .ok();
+                writeln!(self.body, "  store ptr {value_ptr_or_num}, ptr {ptr}").ok();
             }
         }
         Ok(())
@@ -630,7 +628,9 @@ impl<'a> Emitter<'a> {
                 UnaryOp::Await => Err(diag("await only valid inside async function body")),
                 _ => Err(diag("unsupported unary")),
             },
-            Expr::Binary { left, op, right, .. } => {
+            Expr::Binary {
+                left, op, right, ..
+            } => {
                 let l = self.emit_expr(left)?;
                 let r = self.emit_expr(right)?;
                 let ln = self.fresh();
@@ -878,11 +878,7 @@ impl<'a> Emitter<'a> {
         Ok(t)
     }
 
-    fn emit_new_promise(
-        &mut self,
-        callee: &Expr,
-        args: &[Arg],
-    ) -> Result<String, Diagnostic> {
+    fn emit_new_promise(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = callee else {
             return Err(diag("new callee must be Promise"));
         };
@@ -920,11 +916,7 @@ impl<'a> Emitter<'a> {
                     return Err(diag("spread not supported"));
                 };
                 let v = self.emit_expr(vexpr)?;
-                writeln!(
-                    self.body,
-                    "  call void {settle}(ptr {cap}, ptr {v})"
-                )
-                .ok();
+                writeln!(self.body, "  call void {settle}(ptr {cap}, ptr {v})").ok();
                 let t = self.fresh();
                 writeln!(self.body, "  {t} = inttoptr i64 0 to ptr").ok();
                 return Ok(t);
@@ -1117,11 +1109,7 @@ impl<'a> Emitter<'a> {
         Ok(p)
     }
 
-    fn emit_promise_all(
-        &mut self,
-        object: &Expr,
-        args: &[Arg],
-    ) -> Result<String, Diagnostic> {
+    fn emit_promise_all(&mut self, object: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = object else {
             return Err(diag("Promise.all requires Promise receiver"));
         };
@@ -1145,11 +1133,7 @@ impl<'a> Emitter<'a> {
         Ok(t)
     }
 
-    fn emit_promise_race(
-        &mut self,
-        object: &Expr,
-        args: &[Arg],
-    ) -> Result<String, Diagnostic> {
+    fn emit_promise_race(&mut self, object: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = object else {
             return Err(diag("Promise.race requires Promise receiver"));
         };
@@ -1201,11 +1185,7 @@ impl<'a> Emitter<'a> {
         Ok(t)
     }
 
-    fn emit_promise_any(
-        &mut self,
-        object: &Expr,
-        args: &[Arg],
-    ) -> Result<String, Diagnostic> {
+    fn emit_promise_any(&mut self, object: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = object else {
             return Err(diag("Promise.any requires Promise receiver"));
         };
@@ -1479,7 +1459,9 @@ impl<'a> Emitter<'a> {
                 let nested_rest = &rest[i + 1..];
                 // Re-enter via emit_async_continuation needs parent body for data — not supported.
                 let _ = (next_bind, nested_rest);
-                return Err(diag("multiple awaits in one async function not supported yet"));
+                return Err(diag(
+                    "multiple awaits in one async function not supported yet",
+                ));
             }
             match stmt {
                 Stmt::Return { value } => {
@@ -1556,11 +1538,7 @@ impl<'a> Emitter<'a> {
         }
 
         let mut fn_ir = String::new();
-        writeln!(
-            fn_ir,
-            "define ptr @{fn_name}(ptr %data, ptr %value) {{"
-        )
-        .ok();
+        writeln!(fn_ir, "define ptr @{fn_name}(ptr %data, ptr %value) {{").ok();
         writeln!(fn_ir, "entry:").ok();
         fn_ir.push_str(&self.body);
         writeln!(fn_ir, "  ret ptr {ret_val}").ok();
@@ -1577,11 +1555,7 @@ impl<'a> Emitter<'a> {
         Ok((fn_name, data_operand))
     }
 
-    fn emit_executor_fn(
-        &mut self,
-        params: &[Param],
-        body: &[Stmt],
-    ) -> Result<String, Diagnostic> {
+    fn emit_executor_fn(&mut self, params: &[Param], body: &[Stmt]) -> Result<String, Diagnostic> {
         let fn_name = self.fresh_fn("exec");
         let mut resolve_param = None;
         let mut reject_param = None;
@@ -1799,11 +1773,7 @@ impl<'a> Emitter<'a> {
         }
 
         let mut fn_ir = String::new();
-        writeln!(
-            fn_ir,
-            "define ptr @{fn_name}(ptr %data, ptr %value) {{"
-        )
-        .ok();
+        writeln!(fn_ir, "define ptr @{fn_name}(ptr %data, ptr %value) {{").ok();
         writeln!(fn_ir, "entry:").ok();
         fn_ir.push_str(&self.body);
         writeln!(fn_ir, "  ret ptr {ret_val}").ok();
@@ -1871,7 +1841,9 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {r} = inttoptr i64 {m} to ptr").ok();
                 Ok(r)
             }
-            Expr::Binary { left, op, right, .. } => {
+            Expr::Binary {
+                left, op, right, ..
+            } => {
                 let l = self.emit_expr_in_reaction(left)?;
                 let r = self.emit_expr_in_reaction(right)?;
                 let ln = self.fresh();
@@ -1980,11 +1952,12 @@ fn match_await_declare(stmt: &Stmt) -> Option<(LocalId, &Expr)> {
     match stmt {
         Stmt::Declare {
             local,
-            init: Some(Expr::Unary {
-                op: UnaryOp::Await,
-                arg,
-                ..
-            }),
+            init:
+                Some(Expr::Unary {
+                    op: UnaryOp::Await,
+                    arg,
+                    ..
+                }),
             ..
         } => Some((*local, arg.as_ref())),
         _ => None,
@@ -2008,9 +1981,7 @@ fn expr_contains_await(expr: &Expr) -> bool {
             op: UnaryOp::Await, ..
         } => true,
         Expr::Unary { arg, .. } => expr_contains_await(arg),
-        Expr::Binary { left, right, .. } => {
-            expr_contains_await(left) || expr_contains_await(right)
-        }
+        Expr::Binary { left, right, .. } => expr_contains_await(left) || expr_contains_await(right),
         Expr::Assign { value, .. } => expr_contains_await(value),
         Expr::Call { callee, args, .. } => {
             expr_contains_await(callee)
@@ -2055,7 +2026,7 @@ fn parse_number(raw: &str) -> Result<i64, Diagnostic> {
     if let Ok(f) = s.parse::<f64>() {
         return Ok(f as i64);
     }
-    Err(diag(&format!("bad number literal `{raw}`")))
+    Err(diag(format!("bad number literal `{raw}`")))
 }
 
 fn escape_llvm_string(s: &str) -> String {

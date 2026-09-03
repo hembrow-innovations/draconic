@@ -125,7 +125,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             Stmt::Declare { init: None, .. } => {
                 // Private compound-assign temps (`__drac_pobj_*` / `__drac_pval_*`).
             }
-            Stmt::Declare { local, init: Some(init), .. } => {
+            Stmt::Declare {
+                local,
+                init: Some(init),
+                ..
+            } => {
                 if let Some(cls) =
                     try_extract_class(init, *local, &by_id, &mut functions, &class_of, &classes)
                 {
@@ -161,14 +165,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     if matches!(st, SlotTy::Number | SlotTy::String | SlotTy::Undefined) {
                         observe_locals.push(*local);
                     }
-                } else if let Some(st) = classify_value_init(
-                    init,
-                    &class_of,
-                    &instance_of,
-                    &classes,
-                    &by_id,
-                    &functions,
-                ) {
+                } else if let Some(st) =
+                    classify_value_init(init, &class_of, &instance_of, &classes, &by_id, &functions)
+                {
                     slots.push((*local, st));
                     if matches!(st, SlotTy::Number | SlotTy::String | SlotTy::Undefined) {
                         observe_locals.push(*local);
@@ -374,12 +373,7 @@ fn try_extract_class(
             // Private instance field storage: `let __drac_pf_N_name = new WeakMap()`
             Stmt::Declare {
                 local,
-                init:
-                    Some(Expr::New {
-                        callee,
-                        args,
-                        ..
-                    }),
+                init: Some(Expr::New { callee, args, .. }),
                 ..
             } if args.is_empty() && is_ident_name(callee, "WeakMap") => {
                 let lname = by_id.get(local)?.name.as_str();
@@ -404,14 +398,15 @@ fn try_extract_class(
             Stmt::If { .. } if ctor_local.is_none() => {}
             Stmt::Declare {
                 local,
-                init: Some(Expr::Function {
-                    params: cparams,
-                    body: cbody,
-                    is_async: ca,
-                    is_generator: cg,
-                    is_arrow: carrow,
-                    ..
-                }),
+                init:
+                    Some(Expr::Function {
+                        params: cparams,
+                        body: cbody,
+                        is_async: ca,
+                        is_generator: cg,
+                        is_arrow: carrow,
+                        ..
+                    }),
                 ..
             } if ctor_local.is_none() => {
                 if *ca || *cg || *carrow {
@@ -447,11 +442,12 @@ fn try_extract_class(
                 pending_key = Some(value.to_string_lossy());
             }
             Stmt::Expr {
-                expr: Expr::Call {
-                    callee: def_callee,
-                    args: def_args,
-                    ..
-                },
+                expr:
+                    Expr::Call {
+                        callee: def_callee,
+                        args: def_args,
+                        ..
+                    },
             } if is_object_define_property(def_callee) && def_args.len() == 3 => {
                 let ctor = ctor_local?;
                 if is_define_on_ctor(def_args, ctor) {
@@ -559,11 +555,12 @@ fn try_extract_class(
             }
             // Derived: Object.setPrototypeOf(ctor.prototype, sproto) / setPrototypeOf(ctor, super)
             Stmt::Expr {
-                expr: Expr::Call {
-                    callee: sp_callee,
-                    args: sp_args,
-                    ..
-                },
+                expr:
+                    Expr::Call {
+                        callee: sp_callee,
+                        args: sp_args,
+                        ..
+                    },
             } if is_object_set_prototype_of(sp_callee) && sp_args.len() == 2 => {}
             Stmt::Return {
                 value: Some(Expr::Local { id, .. }),
@@ -660,7 +657,7 @@ fn rewrite_ctor_name_expr(expr: &Expr, ctor: LocalId, name: &str) -> Expr {
             left: Box::new(rewrite_ctor_name_expr(left, ctor, name)),
             op: *op,
             right: Box::new(rewrite_ctor_name_expr(right, ctor, name)),
-            ty: ty.clone(),
+            ty: *ty,
         },
         Expr::Call {
             callee,
@@ -677,7 +674,7 @@ fn rewrite_ctor_name_expr(expr: &Expr, ctor: LocalId, name: &str) -> Expr {
                 })
                 .collect(),
             optional: *optional,
-            ty: ty.clone(),
+            ty: *ty,
         },
         Expr::Member {
             object,
@@ -690,7 +687,7 @@ fn rewrite_ctor_name_expr(expr: &Expr, ctor: LocalId, name: &str) -> Expr {
             property: Box::new(rewrite_ctor_name_expr(property, ctor, name)),
             computed: *computed,
             optional: *optional,
-            ty: ty.clone(),
+            ty: *ty,
         },
         other => other.clone(),
     }
@@ -720,12 +717,7 @@ fn try_fold_new_class_iife_member(
         Expr::String { value, .. } => value.to_string_lossy(),
         _ => return None,
     };
-    let Expr::New {
-        callee,
-        args,
-        ..
-    } = object.as_ref()
-    else {
+    let Expr::New { callee, args, .. } = object.as_ref() else {
         return None;
     };
     // Only empty-arg `new (class IIFE)()` for constant fold of ctor assigns.
@@ -754,9 +746,7 @@ fn ctor_this_prop_number(body: &[Stmt], key: &str) -> Option<String> {
                     Expr::Assign {
                         target:
                             AssignTarget::Member {
-                                object,
-                                property,
-                                ..
+                                object, property, ..
                             },
                         op: AssignOp::Eq,
                         value,
@@ -791,9 +781,7 @@ fn is_wm_method_call(
     val_param: Option<LocalId>,
 ) -> bool {
     let Expr::Member {
-        object,
-        property,
-        ..
+        object, property, ..
     } = callee
     else {
         return false;
@@ -927,8 +915,10 @@ fn rewrite_private_expr(expr: &Expr, wm_fields: &HashMap<LocalId, String>) -> Op
     match expr {
         Expr::Unary { op, arg, ty } => Some(Expr::Unary {
             op: *op,
-            arg: Box::new(rewrite_private_expr(arg, wm_fields).unwrap_or_else(|| arg.as_ref().clone())),
-            ty: ty.clone(),
+            arg: Box::new(
+                rewrite_private_expr(arg, wm_fields).unwrap_or_else(|| arg.as_ref().clone()),
+            ),
+            ty: *ty,
         }),
         Expr::Binary {
             left,
@@ -948,9 +938,10 @@ fn rewrite_private_expr(expr: &Expr, wm_fields: &HashMap<LocalId, String>) -> Op
                 ),
                 op: *op,
                 right: Box::new(
-                    rewrite_private_expr(right, wm_fields).unwrap_or_else(|| right.as_ref().clone()),
+                    rewrite_private_expr(right, wm_fields)
+                        .unwrap_or_else(|| right.as_ref().clone()),
                 ),
-                ty: ty.clone(),
+                ty: *ty,
             })
         }
         Expr::Call {
@@ -962,9 +953,9 @@ fn rewrite_private_expr(expr: &Expr, wm_fields: &HashMap<LocalId, String>) -> Op
             let new_args: Vec<Arg> = args
                 .iter()
                 .map(|a| match a {
-                    Arg::Expr(e) => Arg::Expr(
-                        rewrite_private_expr(e, wm_fields).unwrap_or_else(|| e.clone()),
-                    ),
+                    Arg::Expr(e) => {
+                        Arg::Expr(rewrite_private_expr(e, wm_fields).unwrap_or_else(|| e.clone()))
+                    }
                     other => other.clone(),
                 })
                 .collect();
@@ -975,7 +966,7 @@ fn rewrite_private_expr(expr: &Expr, wm_fields: &HashMap<LocalId, String>) -> Op
                 ),
                 args: new_args,
                 optional: *optional,
-                ty: ty.clone(),
+                ty: *ty,
             })
         }
         Expr::Member {
@@ -991,7 +982,7 @@ fn rewrite_private_expr(expr: &Expr, wm_fields: &HashMap<LocalId, String>) -> Op
             property: property.clone(),
             optional: *optional,
             computed: *computed,
-            ty: ty.clone(),
+            ty: *ty,
         }),
         Expr::Assign {
             target,
@@ -1004,7 +995,7 @@ fn rewrite_private_expr(expr: &Expr, wm_fields: &HashMap<LocalId, String>) -> Op
             value: Box::new(
                 rewrite_private_expr(value, wm_fields).unwrap_or_else(|| value.as_ref().clone()),
             ),
-            ty: ty.clone(),
+            ty: *ty,
         }),
         other => Some(other.clone()),
     }
@@ -1056,22 +1047,18 @@ fn find_wm_get_in_expr(expr: &Expr, param: LocalId) -> Option<LocalId> {
             consequent,
             alternate,
             ..
-        } => find_wm_get_in_expr(consequent, param).or_else(|| find_wm_get_in_expr(alternate, param)),
-        Expr::Call {
-            callee,
-            args,
-            ..
-        } if is_wm_method_call(callee, args, "get", param, None) => {
+        } => {
+            find_wm_get_in_expr(consequent, param).or_else(|| find_wm_get_in_expr(alternate, param))
+        }
+        Expr::Call { callee, args, .. } if is_wm_method_call(callee, args, "get", param, None) => {
             wm_id_from_callee(callee)
         }
-        Expr::Call { callee, args, .. } => {
-            find_wm_get_in_expr(callee, param).or_else(|| {
-                args.iter().find_map(|a| match a {
-                    Arg::Expr(e) => find_wm_get_in_expr(e, param),
-                    _ => None,
-                })
+        Expr::Call { callee, args, .. } => find_wm_get_in_expr(callee, param).or_else(|| {
+            args.iter().find_map(|a| match a {
+                Arg::Expr(e) => find_wm_get_in_expr(e, param),
+                _ => None,
             })
-        }
+        }),
         Expr::Binary { left, right, .. } => {
             find_wm_get_in_expr(left, param).or_else(|| find_wm_get_in_expr(right, param))
         }
@@ -1079,10 +1066,7 @@ fn find_wm_get_in_expr(expr: &Expr, param: LocalId) -> Option<LocalId> {
     }
 }
 
-fn match_private_set_stmt_expr(
-    expr: &Expr,
-    wm_fields: &HashMap<LocalId, String>,
-) -> Option<Expr> {
+fn match_private_set_stmt_expr(expr: &Expr, wm_fields: &HashMap<LocalId, String>) -> Option<Expr> {
     // Comma: (pobj = this, (pval = v, setcall(pobj)))
     let mut assigns: Vec<(&AssignTarget, &Expr)> = Vec::new();
     let mut tail = expr;
@@ -1120,7 +1104,9 @@ fn match_private_set_stmt_expr(
     let object = assigns
         .iter()
         .find_map(|(t, v)| match t {
-            AssignTarget::Local(_) if matches!(v, Expr::This { .. }) => Some(Expr::This { ty: Type::Any }),
+            AssignTarget::Local(_) if matches!(v, Expr::This { .. }) => {
+                Some(Expr::This { ty: Type::Any })
+            }
             _ => None,
         })
         .unwrap_or(obj);
@@ -1184,19 +1170,18 @@ fn find_wm_set_in_expr(expr: &Expr, param: LocalId) -> Option<(LocalId, Expr)> {
             consequent,
             alternate,
             ..
-        } => find_wm_set_in_expr(consequent, param)
-            .or_else(|| find_wm_set_in_expr(alternate, param)),
+        } => {
+            find_wm_set_in_expr(consequent, param).or_else(|| find_wm_set_in_expr(alternate, param))
+        }
         Expr::Binary {
             op: BinaryOp::Comma,
             left,
             right,
             ..
         } => find_wm_set_in_expr(left, param).or_else(|| find_wm_set_in_expr(right, param)),
-        Expr::Call {
-            callee,
-            args,
-            ..
-        } if is_wm_method_call(callee, args, "set", param, None) && args.len() == 2 => {
+        Expr::Call { callee, args, .. }
+            if is_wm_method_call(callee, args, "set", param, None) && args.len() == 2 =>
+        {
             let id = wm_id_from_callee(callee)?;
             let Arg::Expr(val) = &args[1] else {
                 return None;
@@ -1302,20 +1287,17 @@ fn find_field_init_set(
     wm_fields: &HashMap<LocalId, String>,
 ) -> Option<(String, Expr)> {
     // Call(arrow(o,v)=>…wm.set(o,v)…, this, VAL)
-    let Expr::Call {
-        callee,
-        args,
-        ..
-    } = expr
-    else {
+    let Expr::Call { callee, args, .. } = expr else {
         // recurse
         return match expr {
-            Expr::Call { callee, args, .. } => find_field_init_set(callee, wm_fields).or_else(|| {
-                args.iter().find_map(|a| match a {
-                    Arg::Expr(e) => find_field_init_set(e, wm_fields),
-                    _ => None,
+            Expr::Call { callee, args, .. } => {
+                find_field_init_set(callee, wm_fields).or_else(|| {
+                    args.iter().find_map(|a| match a {
+                        Arg::Expr(e) => find_field_init_set(e, wm_fields),
+                        _ => None,
+                    })
                 })
-            }),
+            }
             _ => None,
         };
     };
@@ -1389,26 +1371,22 @@ fn find_wm_set_param(expr: &Expr, obj_param: LocalId, val_param: LocalId) -> Opt
             ..
         } => find_wm_set_param(consequent, obj_param, val_param)
             .or_else(|| find_wm_set_param(alternate, obj_param, val_param)),
-        Expr::Binary {
-            left, right, ..
-        } => find_wm_set_param(left, obj_param, val_param)
+        Expr::Binary { left, right, .. } => find_wm_set_param(left, obj_param, val_param)
             .or_else(|| find_wm_set_param(right, obj_param, val_param)),
         Expr::Unary { arg, .. } => find_wm_set_param(arg, obj_param, val_param),
-        Expr::Call {
-            callee,
-            args,
-            ..
-        } if is_wm_method_call(callee, args, "set", obj_param, Some(val_param)) => {
+        Expr::Call { callee, args, .. }
+            if is_wm_method_call(callee, args, "set", obj_param, Some(val_param)) =>
+        {
             wm_id_from_callee(callee)
         }
-        Expr::Call { callee, args, .. } => find_wm_set_param(callee, obj_param, val_param).or_else(
-            || {
+        Expr::Call { callee, args, .. } => {
+            find_wm_set_param(callee, obj_param, val_param).or_else(|| {
                 args.iter().find_map(|a| match a {
                     Arg::Expr(e) => find_wm_set_param(e, obj_param, val_param),
                     _ => None,
                 })
-            },
-        ),
+            })
+        }
         _ => None,
     }
 }
@@ -1552,7 +1530,11 @@ fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
             alternate,
         } => find_method_function(test)
             .or_else(|| find_method_function_in_stmt(consequent))
-            .or_else(|| alternate.as_ref().and_then(|a| find_method_function_in_stmt(a))),
+            .or_else(|| {
+                alternate
+                    .as_ref()
+                    .and_then(|a| find_method_function_in_stmt(a))
+            }),
         _ => None,
     }
 }
@@ -1579,7 +1561,14 @@ fn filter_ctor_body(body: &[Stmt]) -> (Vec<Stmt>, Vec<(String, FieldVal)>) {
                     }
                 ) {
                     out.push(s.clone());
-                } else if matches!(expr, Expr::Call { .. } | Expr::Binary { op: BinaryOp::Comma, .. }) {
+                } else if matches!(
+                    expr,
+                    Expr::Call { .. }
+                        | Expr::Binary {
+                            op: BinaryOp::Comma,
+                            ..
+                        }
+                ) {
                     // Private field inits / assigns kept for rewrite_private_stmts.
                     out.push(s.clone());
                 }
@@ -1678,7 +1667,7 @@ fn collect_derived_ctor_stmts_one(
                     callee: Box::new(Expr::Super { ty: Type::Any }),
                     args: super_args,
                     optional: false,
-                    ty: ty.clone(),
+                    ty: *ty,
                 },
             });
             // Instance field inits nested inside the super() IIFE after construct.
@@ -1712,11 +1701,18 @@ fn collect_derived_ctor_stmts_one(
                             },
                             op: AssignOp::Eq,
                             value: value.clone(),
-                            ty: ty.clone(),
+                            ty: *ty,
                         },
                     });
                 }
-            } else if matches!(expr, Expr::Call { .. } | Expr::Binary { op: BinaryOp::Comma, .. }) {
+            } else if matches!(
+                expr,
+                Expr::Call { .. }
+                    | Expr::Binary {
+                        op: BinaryOp::Comma,
+                        ..
+                    }
+            ) {
                 out.push(stmt.clone());
             }
         }
@@ -1897,10 +1893,7 @@ fn field_val_from_expr(expr: &Expr) -> Option<FieldVal> {
             op: UnaryOp::Void, ..
         } => Some(FieldVal::Undef),
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } if matches!(
             op,
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
@@ -1930,8 +1923,6 @@ fn descriptor_direct_method_fn(desc: &Expr) -> Option<&Expr> {
     }
     find_method_function(desc)
 }
-
-
 
 fn is_super_call_iife(callee: &Expr) -> bool {
     let Expr::Function {
@@ -2052,18 +2043,18 @@ fn method_stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
                     optional,
                     ..
                 },
-        } if matches!(c.as_ref(), Expr::Super { .. }) && !*optional => args.iter().all(|a| match a {
-            Arg::Expr(e) => number_expr_ok_method(e, by_id),
-            Arg::Spread(_) => false,
-        }),
+        } if matches!(c.as_ref(), Expr::Super { .. }) && !*optional => {
+            args.iter().all(|a| match a {
+                Arg::Expr(e) => number_expr_ok_method(e, by_id),
+                Arg::Spread(_) => false,
+            })
+        }
         Stmt::Expr {
             expr:
                 Expr::Assign {
                     target:
                         AssignTarget::Member {
-                            object,
-                            property,
-                            ..
+                            object, property, ..
                         },
                     op: AssignOp::Eq,
                     value,
@@ -2095,9 +2086,11 @@ fn string_expr_ok_method(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
             op: UnaryOp::TypeOf,
             arg,
             ..
-        } => number_expr_ok_method(arg, by_id)
-            || matches!(arg.as_ref(), Expr::Member { .. })
-            || matches!(arg.as_ref(), Expr::Local { .. }),
+        } => {
+            number_expr_ok_method(arg, by_id)
+                || matches!(arg.as_ref(), Expr::Member { .. })
+                || matches!(arg.as_ref(), Expr::Local { .. })
+        }
         Expr::String { .. } => true,
         _ => false,
     }
@@ -2107,8 +2100,7 @@ fn is_undefined_expr(expr: &Expr) -> bool {
     match expr {
         Expr::IdentName { name, .. } if name == "undefined" => true,
         Expr::Unary {
-            op: UnaryOp::Void,
-            ..
+            op: UnaryOp::Void, ..
         } => true,
         _ => false,
     }
@@ -2157,12 +2149,9 @@ fn number_expr_ok_method(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool 
                 && number_expr_ok_method(right, by_id)
         }
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -2239,11 +2228,7 @@ fn object_expr_ok(
 ) -> bool {
     match expr {
         Expr::This { .. } => true,
-        Expr::New {
-            callee,
-            args,
-            ..
-        } => {
+        Expr::New { callee, args, .. } => {
             let Expr::Local { id, .. } = callee.as_ref() else {
                 return false;
             };
@@ -2258,7 +2243,10 @@ fn object_expr_ok(
         Expr::Local { id, .. } => {
             class_of.contains_key(id)
                 || by_id.get(id).is_some_and(|l| {
-                    matches!(l.ty, Type::Object | Type::Function | Type::Any | Type::Shape(_))
+                    matches!(
+                        l.ty,
+                        Type::Object | Type::Function | Type::Any | Type::Shape(_)
+                    )
                 })
         }
         Expr::Member {
@@ -2342,8 +2330,13 @@ fn typeof_string_expr_ok(
             ..
         } => {
             // `typeof obj.missing` / `typeof` of values.
-            matches!(arg.as_ref(), Expr::Member { optional: false, .. })
-                || object_expr_ok(arg, class_of, by_id, functions, classes)
+            matches!(
+                arg.as_ref(),
+                Expr::Member {
+                    optional: false,
+                    ..
+                }
+            ) || object_expr_ok(arg, class_of, by_id, functions, classes)
                 || number_expr_ok(arg, class_of, by_id, functions, classes)
         }
         Expr::Call {
@@ -2365,22 +2358,14 @@ fn typeof_string_expr_ok(
     }
 }
 
-fn method_call_returns_number(
-    callee: &Expr,
-    classes: &[ClassInfo],
-    functions: &[FnInfo],
-) -> bool {
+fn method_call_returns_number(callee: &Expr, classes: &[ClassInfo], functions: &[FnInfo]) -> bool {
     match method_call_ret(callee, classes, functions) {
         Some(MethodRet::String) => false,
         _ => true,
     }
 }
 
-fn method_call_returns_string(
-    callee: &Expr,
-    classes: &[ClassInfo],
-    functions: &[FnInfo],
-) -> bool {
+fn method_call_returns_string(callee: &Expr, classes: &[ClassInfo], functions: &[FnInfo]) -> bool {
     method_call_ret(callee, classes, functions) == Some(MethodRet::String)
 }
 
@@ -2595,19 +2580,11 @@ impl<'a> Emitter<'a> {
                     let bits = self.fresh();
                     writeln!(self.body, "  {bits} = bitcast double {v} to i64").ok();
                     let is_u = self.fresh();
-                    writeln!(
-                        self.body,
-                        "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}").ok();
                     let und_l = format!("print_und_{}", id.0);
                     let num_l = format!("print_num_{}", id.0);
                     let end_l = format!("print_end_{}", id.0);
-                    writeln!(
-                        self.body,
-                        "  br i1 {is_u}, label %{und_l}, label %{num_l}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  br i1 {is_u}, label %{und_l}, label %{num_l}").ok();
                     writeln!(self.body, "{und_l}:").ok();
                     self.emit_print_str_lit("undefined")?;
                     writeln!(self.body, "  br label %{end_l}").ok();
@@ -2988,9 +2965,7 @@ impl<'a> Emitter<'a> {
             Expr::Assign {
                 target:
                     AssignTarget::Member {
-                        object,
-                        property,
-                        ..
+                        object, property, ..
                     },
                 op: AssignOp::Eq,
                 value,
@@ -3266,9 +3241,7 @@ impl<'a> Emitter<'a> {
             Expr::Assign {
                 target:
                     AssignTarget::Member {
-                        object,
-                        property,
-                        ..
+                        object, property, ..
                     },
                 op: AssignOp::Eq,
                 value,
@@ -3387,18 +3360,14 @@ impl<'a> Emitter<'a> {
     ) -> Result<String, Diagnostic> {
         let name = match property {
             Expr::String { value, .. } => value.to_string_lossy(),
-            _ => {
-                return Err(diag(
-                    "es_classes: super method name must be string key",
-                ))
-            }
+            _ => return Err(diag("es_classes: super method name must be string key")),
         };
         let start = self
             .active_super_class
             .ok_or_else(|| diag("es_classes: super.m outside derived method"))?;
         let fn_idx = self
             .resolve_super_method(start, &name)
-            .ok_or_else(|| diag(&format!("es_classes: super.{name} not found on parent")))?;
+            .ok_or_else(|| diag(format!("es_classes: super.{name} not found on parent")))?;
         let this = self
             .this_ssa
             .clone()
@@ -3629,7 +3598,6 @@ fn diag(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(message, Span::dummy())
 }
 
-
 #[cfg(test)]
 mod private_fields_tests {
     use super::*;
@@ -3637,9 +3605,13 @@ mod private_fields_tests {
 
     #[test]
     fn private_fields_classifies_and_emits() {
-        let src = include_str!("../../../tests/conformance/fixtures/es/annex-b/private_fields.drac");
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/private_fields.drac");
         let module = compile_source(src).expect("compile");
-        assert!(is_es_classes_module(&module), "should classify as es_classes");
+        assert!(
+            is_es_classes_module(&module),
+            "should classify as es_classes"
+        );
         let ir = emit_es_classes(&module).expect("emit");
         assert!(ir.contains("draconic_rt_print_f64"), "{ir}");
         assert!(ir.contains("draconic_rt_print_str"), "{ir}");

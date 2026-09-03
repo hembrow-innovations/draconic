@@ -58,11 +58,7 @@ impl CoverageReport {
                 .count() as u32;
             total_exec += exec;
             total_hit += hit;
-            let pct = if exec == 0 {
-                100
-            } else {
-                (hit * 100) / exec
-            };
+            let pct = if exec == 0 { 100 } else { (hit * 100) / exec };
             out.push_str(&format!("  {path}: {hit}/{exec} lines ({pct}%)\n"));
         }
         let pct = if total_exec == 0 {
@@ -70,21 +66,14 @@ impl CoverageReport {
         } else {
             (total_hit * 100) / total_exec
         };
-        out.push_str(&format!(
-            "total: {total_hit}/{total_exec} lines ({pct}%)\n"
-        ));
+        out.push_str(&format!("total: {total_hit}/{total_exec} lines ({pct}%)\n"));
         out
     }
 
     pub fn total_hit(&self) -> u32 {
         self.files
             .values()
-            .map(|f| {
-                f.executable
-                    .iter()
-                    .filter(|l| f.hit.contains(l))
-                    .count() as u32
-            })
+            .map(|f| f.executable.iter().filter(|l| f.hit.contains(l)).count() as u32)
             .sum()
     }
 
@@ -113,10 +102,7 @@ pub fn instrument_js(code: &str, map: &SourceMap) -> (String, BTreeSet<u32>) {
 
     let mut probes_at_gen: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     for (orig0, gen_line) in first_gen_line {
-        probes_at_gen
-            .entry(gen_line)
-            .or_default()
-            .push(orig0 + 1);
+        probes_at_gen.entry(gen_line).or_default().push(orig0 + 1);
     }
 
     let line_starts = line_start_offsets(code);

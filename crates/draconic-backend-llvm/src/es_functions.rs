@@ -156,18 +156,16 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         ) {
             return None;
         }
-        for d in &f.defaults {
-            if let Some(e) = d {
-                if !number_expr_ok(
-                    e,
-                    &by_id,
-                    &fn_arities,
-                    &functions,
-                    &fn_binding,
-                    &obj_methods,
-                ) {
-                    return None;
-                }
+        for e in f.defaults.iter().flatten() {
+            if !number_expr_ok(
+                e,
+                &by_id,
+                &fn_arities,
+                &functions,
+                &fn_binding,
+                &obj_methods,
+            ) {
+                return None;
             }
         }
     }
@@ -278,16 +276,14 @@ fn record_obj_methods(
 /// First `arguments` local referenced via Member in `body`, if any.
 fn find_arguments_local(body: &[Stmt], by_id: &HashMap<LocalId, &Local>) -> Option<LocalId> {
     let mut found = None;
-    fn walk_expr(
-        expr: &Expr,
-        by_id: &HashMap<LocalId, &Local>,
-        found: &mut Option<LocalId>,
-    ) {
+    fn walk_expr(expr: &Expr, by_id: &HashMap<LocalId, &Local>, found: &mut Option<LocalId>) {
         if found.is_some() {
             return;
         }
         match expr {
-            Expr::Member { object, property, .. } => {
+            Expr::Member {
+                object, property, ..
+            } => {
                 if let Expr::Local { id, .. } = object.as_ref() {
                     if by_id.get(id).map(|l| l.name.as_str()) == Some("arguments") {
                         *found = Some(*id);
@@ -557,9 +553,9 @@ fn record_if_fn_bindings(
                 let a = alternate.as_ref().and_then(|s| unwrap_if_fn_local(s));
                 match (c, a) {
                     (Some(cl), Some(al)) => {
-                        let same = by_id.get(&cl).is_some_and(|l| {
-                            by_id.get(&al).is_some_and(|r| l.name == r.name)
-                        });
+                        let same = by_id
+                            .get(&cl)
+                            .is_some_and(|l| by_id.get(&al).is_some_and(|r| l.name == r.name));
                         if same {
                             // Uses resolve to the first (consequent) binding.
                             register_annex_b_fn_slot(cl, by_id, if_fn_primary, if_fn_slots);
@@ -734,7 +730,14 @@ fn classify_top_stmt(
                             }
                             return true;
                         }
-                        if !number_expr_ok(init, by_id, fn_arities, functions, fn_binding, obj_methods) {
+                        if !number_expr_ok(
+                            init,
+                            by_id,
+                            fn_arities,
+                            functions,
+                            fn_binding,
+                            obj_methods,
+                        ) {
                             // Call of if-clause function uses dynamic slot — still ok if callee is if-fn.
                             if !call_if_fn_ok(
                                 init,
@@ -774,11 +777,9 @@ fn classify_top_stmt(
                     ) {
                         return false;
                     }
-                    if observe_declares {
-                        if observed.insert(*local) {
-                            user_locals.push(*local);
-                            string_locals.insert(*local);
-                        }
+                    if observe_declares && observed.insert(*local) {
+                        user_locals.push(*local);
+                        string_locals.insert(*local);
                     }
                     true
                 }
@@ -830,10 +831,7 @@ fn typeof_local_ok(
     let Expr::Local { id, .. } = arg.as_ref() else {
         return false;
     };
-    if if_fn_slots.contains(id)
-        || if_fn_primary.contains_key(id)
-        || fn_binding.contains_key(id)
-    {
+    if if_fn_slots.contains(id) || if_fn_primary.contains_key(id) || fn_binding.contains_key(id) {
         return true;
     }
     // `typeof` of a number/any local (incl. hoisted `var` that may be undefined).
@@ -1035,7 +1033,9 @@ fn collect_expr_fns(
             }
             Some(())
         }
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             collect_expr_fns(object, by_id, out, fn_binding)?;
             collect_expr_fns(property, by_id, out, fn_binding)
         }
@@ -1113,10 +1113,8 @@ fn push_fn_with_bound(
     }
     let mut free = HashSet::new();
     collect_free_in_body(body, &bound_ext, &mut free);
-    for d in &defaults {
-        if let Some(e) = d {
-            collect_free_in_expr(e, &bound_ext, &mut free);
-        }
+    for e in defaults.iter().flatten() {
+        collect_free_in_expr(e, &bound_ext, &mut free);
     }
     // Nested free through nested Function decls/exprs already in body free collection
     // for exprs; nested Stmt::Function free handled via collect_free that skips nested
@@ -1170,9 +1168,7 @@ fn collect_bound_in_body(body: &[Stmt], bound: &mut HashSet<LocalId>) {
                 bound.insert(*local);
             }
             Stmt::Block { body } => collect_bound_in_body(body, bound),
-            Stmt::Labeled { body, .. } => {
-                collect_bound_in_body(std::slice::from_ref(body), bound)
-            }
+            Stmt::Labeled { body, .. } => collect_bound_in_body(std::slice::from_ref(body), bound),
             Stmt::If {
                 consequent,
                 alternate,
@@ -1257,7 +1253,9 @@ fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSe
                 }
             }
         }
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             collect_free_in_expr(object, bound, free);
             collect_free_in_expr(property, bound, free);
         }
@@ -1272,10 +1270,7 @@ fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSe
             }
         }
         Expr::Function {
-            name,
-            params,
-            body,
-            ..
+            name, params, body, ..
         } => {
             let fixed: Vec<LocalId> = params
                 .iter()
@@ -1285,10 +1280,13 @@ fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSe
                     _ => None,
                 })
                 .collect();
-            let rest = params.iter().find(|p| p.rest).and_then(|p| match &p.pattern {
-                Pattern::Local(id) => Some(*id),
-                _ => None,
-            });
+            let rest = params
+                .iter()
+                .find(|p| p.rest)
+                .and_then(|p| match &p.pattern {
+                    Pattern::Local(id) => Some(*id),
+                    _ => None,
+                });
             let mut nested_bound = bound_in_fn(&fixed, rest, body);
             if let Some(n) = name {
                 nested_bound.insert(*n);
@@ -1487,15 +1485,29 @@ fn fn_body_ok(
                     && !*is_generator
                     && simple_params(params, by_id).is_some()
                     && nested_rest_locals(params, by_id).is_some_and(|rl| {
-                        fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, &rl)
+                        fn_body_ok(
+                            body,
+                            by_id,
+                            fn_arities,
+                            functions,
+                            fn_binding,
+                            obj_methods,
+                            &rl,
+                        )
                     })
             }
             _ => number_expr_ok(v, by_id, fn_arities, functions, fn_binding, obj_methods),
         },
         Stmt::Return { value: None } => false,
-        Stmt::Block { body } => {
-            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, rest_locals)
-        }
+        Stmt::Block { body } => fn_body_ok(
+            body,
+            by_id,
+            fn_arities,
+            functions,
+            fn_binding,
+            obj_methods,
+            rest_locals,
+        ),
         Stmt::Declare { local, init, .. } => {
             let Some(loc) = by_id.get(local) else {
                 return false;
@@ -1515,7 +1527,15 @@ fn fn_body_ok(
                         && !*is_generator
                         && simple_params(params, by_id).is_some()
                         && nested_rest_locals(params, by_id).is_some_and(|rl| {
-                            fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, &rl)
+                            fn_body_ok(
+                                body,
+                                by_id,
+                                fn_arities,
+                                functions,
+                                fn_binding,
+                                obj_methods,
+                                &rl,
+                            )
                         })
                 }
                 Some(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding, obj_methods),
@@ -1534,7 +1554,15 @@ fn fn_body_ok(
             }
             simple_params(params, by_id).is_some()
                 && nested_rest_locals(params, by_id).is_some_and(|rl| {
-                    fn_body_ok(body, by_id, fn_arities, functions, fn_binding, obj_methods, &rl)
+                    fn_body_ok(
+                        body,
+                        by_id,
+                        fn_arities,
+                        functions,
+                        fn_binding,
+                        obj_methods,
+                        &rl,
+                    )
                 })
         }
         Stmt::If {
@@ -1579,21 +1607,16 @@ fn fn_body_ok(
             if !rest_locals.contains(id) {
                 return false;
             }
-            matches!(
-                left.as_ref(),
-                Stmt::Declare {
-                    init: None,
-                    ..
-                }
-            ) && fn_body_ok(
-                std::slice::from_ref(body),
-                by_id,
-                fn_arities,
-                functions,
-                fn_binding,
-                obj_methods,
-                rest_locals,
-            )
+            matches!(left.as_ref(), Stmt::Declare { init: None, .. })
+                && fn_body_ok(
+                    std::slice::from_ref(body),
+                    by_id,
+                    fn_arities,
+                    functions,
+                    fn_binding,
+                    obj_methods,
+                    rest_locals,
+                )
         }
         Stmt::Expr { expr } => match expr {
             Expr::Assign {
@@ -1628,16 +1651,11 @@ fn bool_expr_ok(
     match expr {
         Expr::Boolean { .. } => true,
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             use draconic_ast::BinaryOp::*;
-            matches!(
-                op,
-                Lt | LtEq | Gt | GtEq | EqEq | NotEq | EqEqEq | NotEqEq
-            ) && number_expr_ok(left, by_id, fn_arities, functions, fn_binding, obj_methods)
+            matches!(op, Lt | LtEq | Gt | GtEq | EqEq | NotEq | EqEqEq | NotEqEq)
+                && number_expr_ok(left, by_id, fn_arities, functions, fn_binding, obj_methods)
                 && number_expr_ok(right, by_id, fn_arities, functions, fn_binding, obj_methods)
         }
         _ => number_expr_ok(expr, by_id, fn_arities, functions, fn_binding, obj_methods),
@@ -1675,13 +1693,12 @@ fn number_expr_ok(
             op: draconic_ast::UnaryOp::Void,
             arg,
             ..
-        } => number_expr_ok(arg, by_id, fn_arities, functions, fn_binding, obj_methods)
-            || matches!(arg.as_ref(), Expr::Number { .. } | Expr::Local { .. }),
+        } => {
+            number_expr_ok(arg, by_id, fn_arities, functions, fn_binding, obj_methods)
+                || matches!(arg.as_ref(), Expr::Number { .. } | Expr::Local { .. })
+        }
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             use draconic_ast::BinaryOp::*;
             matches!(op, Add | Sub | Mul | Div | Rem)
@@ -1698,7 +1715,9 @@ fn number_expr_ok(
                 return false;
             }
             if !args.iter().all(|a| match a {
-                Arg::Expr(e) => number_expr_ok(e, by_id, fn_arities, functions, fn_binding, obj_methods),
+                Arg::Expr(e) => {
+                    number_expr_ok(e, by_id, fn_arities, functions, fn_binding, obj_methods)
+                }
                 Arg::Spread(_) => false,
             }) {
                 return false;
@@ -1819,7 +1838,9 @@ fn number_expr_ok(
             } else {
                 // arguments[N] with constant non-neg index
                 match property.as_ref() {
-                    Expr::Number { raw, .. } => parse_nonneg_index(raw).is_some_and(|i| i < MAX_ARGS),
+                    Expr::Number { raw, .. } => {
+                        parse_nonneg_index(raw).is_some_and(|i| i < MAX_ARGS)
+                    }
                     _ => false,
                 }
             }
@@ -1846,7 +1867,8 @@ fn returned_fn_idx_in_body(body: &[Stmt], functions: &[FnInfo]) -> Option<usize>
                 alternate,
                 ..
             } => {
-                if let Some(i) = returned_fn_idx_in_body(std::slice::from_ref(consequent), functions)
+                if let Some(i) =
+                    returned_fn_idx_in_body(std::slice::from_ref(consequent), functions)
                 {
                     return Some(i);
                 }
@@ -2047,19 +2069,11 @@ impl<'a> Emitter<'a> {
                 let bits = self.fresh();
                 writeln!(self.body, "  {bits} = bitcast double {v} to i64").ok();
                 let is_u = self.fresh();
-                writeln!(
-                    self.body,
-                    "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}"
-                )
-                .ok();
+                writeln!(self.body, "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}").ok();
                 let und_l = self.fresh_label("print_und");
                 let num_l = self.fresh_label("print_num");
                 let end_l = self.fresh_label("print_end");
-                writeln!(
-                    self.body,
-                    "  br i1 {is_u}, label %{und_l}, label %{num_l}"
-                )
-                .ok();
+                writeln!(self.body, "  br i1 {is_u}, label %{und_l}, label %{num_l}").ok();
                 writeln!(self.body, "{und_l}:").ok();
                 self.emit_print_str("undefined")?;
                 writeln!(self.body, "  br label %{end_l}").ok();
@@ -2210,12 +2224,7 @@ impl<'a> Emitter<'a> {
                 let ptr = format!("%l{}", id.0);
                 self.allocas.insert(id, ptr.clone());
                 writeln!(entry, "  {ptr} = alloca double, align 8").ok();
-                writeln!(
-                    entry,
-                    "  store double {}, ptr {ptr}",
-                    undef_double_const()
-                )
-                .ok();
+                writeln!(entry, "  store double {}, ptr {ptr}", undef_double_const()).ok();
             }
         }
         // Nested Annex B if-fn slots for this function body.
@@ -2379,12 +2388,7 @@ impl<'a> Emitter<'a> {
             .get(&local)
             .cloned()
             .ok_or_else(|| diag("es_functions: typeof code slot missing"))?;
-        let primary = self
-            .info
-            .if_fn_primary
-            .get(id)
-            .copied()
-            .unwrap_or(*id);
+        let primary = self.info.if_fn_primary.get(id).copied().unwrap_or(*id);
         if let Some(slot) = self.if_fn_slot_ptrs.get(&primary).cloned() {
             let idx = self.fresh();
             writeln!(self.body, "  {idx} = load i32, ptr {slot}").ok();
@@ -2441,11 +2445,7 @@ impl<'a> Emitter<'a> {
             )
             .ok();
         } else {
-            writeln!(
-                self.body,
-                "  br i1 {cond}, label %{then_l}, label %{end_l}"
-            )
-            .ok();
+            writeln!(self.body, "  br i1 {cond}, label %{then_l}, label %{end_l}").ok();
         }
         writeln!(self.body, "{then_l}:").ok();
         if top {
@@ -2688,18 +2688,10 @@ impl<'a> Emitter<'a> {
         let bits = self.fresh();
         writeln!(self.body, "  {bits} = bitcast double {cur} to i64").ok();
         let is_u = self.fresh();
-        writeln!(
-            self.body,
-            "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}"
-        )
-        .ok();
+        writeln!(self.body, "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}").ok();
         let then_l = self.fresh_label("def");
         let end_l = self.fresh_label("defend");
-        writeln!(
-            self.body,
-            "  br i1 {is_u}, label %{then_l}, label %{end_l}"
-        )
-        .ok();
+        writeln!(self.body, "  br i1 {is_u}, label %{then_l}, label %{end_l}").ok();
         writeln!(self.body, "{then_l}:").ok();
         let v = self.emit_number_expr(def)?;
         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
@@ -2849,11 +2841,7 @@ impl<'a> Emitter<'a> {
                     let argc = self.fresh();
                     writeln!(self.body, "  {argc} = load i64, ptr {len_slot}").ok();
                     let in_range = self.fresh();
-                    writeln!(
-                        self.body,
-                        "  {in_range} = icmp ult i64 {idx}, {argc}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  {in_range} = icmp ult i64 {idx}, {argc}").ok();
                     let then_l = self.fresh_label("arg_ok");
                     let else_l = self.fresh_label("arg_miss");
                     let end_l = self.fresh_label("arg_end");
@@ -2904,18 +2892,13 @@ impl<'a> Emitter<'a> {
 
         match callee {
             Expr::Local { id, .. } => {
-                let primary = self
-                    .info
-                    .if_fn_primary
-                    .get(id)
-                    .copied()
-                    .or_else(|| {
-                        if self.info.if_fn_slots.contains(id) {
-                            Some(*id)
-                        } else {
-                            None
-                        }
-                    });
+                let primary = self.info.if_fn_primary.get(id).copied().or_else(|| {
+                    if self.info.if_fn_slots.contains(id) {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                });
                 if let Some(primary) = primary {
                     if self.if_fn_slot_ptrs.contains_key(&primary) {
                         return self.emit_dynamic_if_fn_call(primary, &arg_vals);
@@ -2976,25 +2959,25 @@ impl<'a> Emitter<'a> {
                     }
                     _ => return Err(diag("es_functions: unsupported higher-order callee")),
                 };
-                    // Pad defaults / pack rest, then load captures from return buffer.
-                    let f = &self.info.functions[idx];
-                    if !call_arity_ok(f, arg_vals.len()) {
-                        return Err(diag("es_functions: higher-order call arity mismatch"));
-                    }
-                    let mut caps = Vec::new();
-                    for i in 0..f.captures.len() {
-                        let gep = self.fresh();
-                        writeln!(
+                // Pad defaults / pack rest, then load captures from return buffer.
+                let f = &self.info.functions[idx];
+                if !call_arity_ok(f, arg_vals.len()) {
+                    return Err(diag("es_functions: higher-order call arity mismatch"));
+                }
+                let mut caps = Vec::new();
+                for i in 0..f.captures.len() {
+                    let gep = self.fresh();
+                    writeln!(
                             self.body,
                             "  {gep} = getelementptr inbounds [{MAX_CAPS} x double], ptr @es_ret_cap, i64 0, i64 {i}"
                         )
                         .ok();
-                        let c = self.fresh();
-                        writeln!(self.body, "  {c} = load double, ptr {gep}").ok();
-                        caps.push(c);
-                    }
-                    self.emit_call_args(idx, &arg_vals, &caps)
+                    let c = self.fresh();
+                    writeln!(self.body, "  {c} = load double, ptr {gep}").ok();
+                    caps.push(c);
                 }
+                self.emit_call_args(idx, &arg_vals, &caps)
+            }
             _ => Err(diag("es_functions: unsupported call callee")),
         }
     }
@@ -3110,11 +3093,7 @@ impl<'a> Emitter<'a> {
                 return Err(diag("es_functions: too many rest args"));
             }
             let buf = self.fresh();
-            writeln!(
-                self.body,
-                "  {buf} = alloca [{MAX_REST} x double], align 8"
-            )
-            .ok();
+            writeln!(self.body, "  {buf} = alloca [{MAX_REST} x double], align 8").ok();
             for (i, v) in rest_vals.iter().enumerate() {
                 let gep = self.fresh();
                 writeln!(
@@ -3140,11 +3119,7 @@ impl<'a> Emitter<'a> {
                 return Err(diag("es_functions: too many arguments"));
             }
             let buf = self.fresh();
-            writeln!(
-                self.body,
-                "  {buf} = alloca [{MAX_ARGS} x double], align 8"
-            )
-            .ok();
+            writeln!(self.body, "  {buf} = alloca [{MAX_ARGS} x double], align 8").ok();
             for (i, v) in arg_vals.iter().enumerate() {
                 let gep = self.fresh();
                 writeln!(
@@ -3210,10 +3185,7 @@ fn stmt_mentions_if_fn(stmt: &Stmt, id: LocalId) -> bool {
             ..
         } => {
             if unwrap_if_fn_local(consequent) == Some(id)
-                || alternate
-                    .as_ref()
-                    .and_then(|a| unwrap_if_fn_local(a))
-                    == Some(id)
+                || alternate.as_ref().and_then(|a| unwrap_if_fn_local(a)) == Some(id)
             {
                 return true;
             }

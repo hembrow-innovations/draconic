@@ -149,7 +149,10 @@ fn gc_alloc_budget_fail_closed_when_exceeded() {
         apply_runtime_link_flags(&mut link);
         link.status().expect("spawn clang")
     };
-    assert!(status.success(), "clang failed to link gc alloc budget test");
+    assert!(
+        status.success(),
+        "clang failed to link gc alloc budget test"
+    );
 
     let output = Command::new(&bin).output().expect("run rt_gc_budget");
     let stderr = String::from_utf8_lossy(&output.stderr);

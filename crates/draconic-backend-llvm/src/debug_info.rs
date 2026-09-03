@@ -165,9 +165,7 @@ pub fn attach_debug_info(ir: &str, module: &Module, debug: &SourceDebug) -> Stri
     out.push_str("!llvm.module.flags = !{!10, !11}\n");
     out.push_str("!llvm.ident = !{!12}\n\n");
 
-    out.push_str(&format!(
-        "!0 = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, file: !1, producer: \"draconic\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, enums: !2)\n"
-    ));
+    out.push_str("!0 = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, file: !1, producer: \"draconic\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, enums: !2)\n");
     out.push_str(&format!(
         "!1 = !DIFile(filename: \"{}\", directory: \"{}\")\n",
         escape_md(&file_name),
