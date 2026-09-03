@@ -855,7 +855,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K02.01 | done | compiler | Lock entry: path + version + git URL + commit OID + content hash SHA-256 | `crates/draconic-pkg` |
 | K02.02 | done | compiler | Parse/write lock; reject malformed | `crates/draconic-pkg` |
 | K02.03 | done | compiler | Stable lock serialize: sorted paths; byte-identical rewrite when unchanged | `crates/draconic-pkg` |
-| K03 | todo | compiler | Module cache: layout, git clone/fetch, checkout by OID | `crates/draconic-pkg` |
+| K03 | done | compiler | Module cache: layout, git clone/fetch, checkout by OID | `crates/draconic-pkg` |
 | K03.01 | done | compiler | Cache layout keyed by module path + commit OID | `crates/draconic-pkg` |
 | K03.02 | done | compiler | git clone/fetch into cache (HTTPS; fixture repos in tests) | `crates/draconic-pkg` |
 | K03.03 | done | compiler | Checkout pinned OID; cache hit skips network | `crates/draconic-pkg` |

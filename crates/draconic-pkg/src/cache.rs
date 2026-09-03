@@ -1,4 +1,4 @@
-//! Module cache layout, git fetch, and OID checkout (Roadmap K03.01–K03.03).
+//! Module cache: layout, git clone/fetch, OID checkout, tree hash (Roadmap K03).
 //!
 //! On-disk roots are keyed by module path + full commit OID. Layout (under a
 //! cache root):
@@ -971,6 +971,86 @@ mod tests {
         fs::write(bare.join("hello.txt"), "hello from fixture\n").unwrap();
         let h_bare = crate::content_hash_tree(&bare).expect("bare");
         assert_eq!(h1, h_bare);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // --- K03: combined module cache (parent of K03.01–K03.04) ---
+
+    #[test]
+    fn k03_combined_layout_clone_checkout_hash() {
+        let root = temp_dir_k0303("k03-combined");
+        let upstream = fixture_repo(&root);
+        let oid = head_oid(&upstream);
+        assert_eq!(oid.len(), 40);
+        assert!(oid.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+
+        let cache = ModuleCache::new(root.join("cache"));
+        let url = upstream.to_str().unwrap();
+
+        // Layout keyed by module path + commit OID (K03.01).
+        let entry_rel = cache.entry_rel(PATH, &oid).expect("entry rel");
+        assert_eq!(
+            entry_rel,
+            PathBuf::from("mod")
+                .join("github.com")
+                .join("org")
+                .join("lib")
+                .join(&oid)
+        );
+        let vcs_rel = cache.vcs_rel(PATH).expect("vcs rel");
+        assert_eq!(
+            vcs_rel,
+            PathBuf::from("vcs")
+                .join("github.com")
+                .join("org")
+                .join("lib")
+        );
+        let entry_dir = cache.entry_dir(PATH, &oid).expect("entry dir");
+        assert!(is_entry_under_root(&cache.root, &entry_dir));
+
+        // Clone/fetch into the VCS store (K03.02).
+        assert!(!cache.has_vcs(PATH).unwrap());
+        let vcs = cache.clone_or_fetch(PATH, url).expect("clone");
+        assert_eq!(vcs, cache.vcs_dir(PATH).unwrap());
+        assert!(is_bare_git_repo(&vcs));
+        assert!(cache.has_vcs(PATH).unwrap());
+
+        // Checkout pinned OID into mod store (K03.03).
+        assert!(!cache.has_entry(PATH, &oid).unwrap());
+        let entry = cache.checkout(PATH, &oid, url).expect("checkout");
+        assert_eq!(entry, entry_dir);
+        assert!(cache.has_entry(PATH, &oid).unwrap());
+        assert_eq!(
+            fs::read_to_string(entry.join("hello.txt")).expect("hello.txt"),
+            "hello from fixture\n"
+        );
+        assert!(!entry.join(".git").exists());
+        assert_eq!(
+            crate::read_checkout_oid(&entry).expect("marker").as_deref(),
+            Some(oid.as_str())
+        );
+
+        // SHA-256 over the canonical package tree (K03.04); marker is not content.
+        let hash = crate::content_hash_tree(&entry).expect("tree hash");
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
+        let bare = root.join("canonical-tree");
+        fs::create_dir_all(&bare).unwrap();
+        fs::write(bare.join("hello.txt"), "hello from fixture\n").unwrap();
+        assert_eq!(crate::content_hash_tree(&bare).expect("bare hash"), hash);
+
+        // Cache hit skips network: upstream gone, second checkout still serves the tree.
+        fs::remove_dir_all(&upstream).expect("remove upstream");
+        let hit = cache
+            .checkout(PATH, &oid, url)
+            .expect("cache hit must not need remote");
+        assert_eq!(hit, entry);
+        assert_eq!(
+            fs::read_to_string(hit.join("hello.txt")).unwrap(),
+            "hello from fixture\n"
+        );
+        assert_eq!(crate::content_hash_tree(&hit).expect("hit hash"), hash);
 
         let _ = fs::remove_dir_all(&root);
     }
