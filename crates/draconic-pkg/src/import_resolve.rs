@@ -69,7 +69,10 @@ pub enum ImportResolveError {
         actual: String,
     },
     /// Integrity check failed (hash I/O, missing marker, etc.).
-    Integrity { module_path: String, message: String },
+    Integrity {
+        module_path: String,
+        message: String,
+    },
     /// Filesystem error while probing the package tree.
     Io(String),
 }
@@ -246,11 +249,10 @@ pub fn resolve_module_import(
         });
     }
 
-    let (module_path, subpath) = match_locked_package(spec, lock).ok_or_else(|| {
-        ImportResolveError::NotInLock {
+    let (module_path, subpath) =
+        match_locked_package(spec, lock).ok_or_else(|| ImportResolveError::NotInLock {
             spec: spec.to_string(),
-        }
-    })?;
+        })?;
 
     if !subpath.is_empty()
         && subpath
@@ -462,14 +464,8 @@ mod tests {
     }
 
     fn lock_with(path: &str, oid: &str, hash: &str) -> LockFile {
-        let entry = LockEntry::new(
-            path,
-            "1.0.0",
-            "https://github.com/org/pkg.git",
-            oid,
-            hash,
-        )
-        .expect("lock entry");
+        let entry = LockEntry::new(path, "1.0.0", "https://github.com/org/pkg.git", oid, hash)
+            .expect("lock entry");
         let mut packages = BTreeMap::new();
         packages.insert(path.to_string(), entry);
         LockFile {
@@ -606,7 +602,10 @@ mod tests {
         assert!(matches!(err, ImportResolveError::NotInLock { .. }), "{err}");
 
         let err = resolve_module_import("github.com/org/pkg", &lock, &cache).unwrap_err();
-        assert!(matches!(err, ImportResolveError::NotInCache { .. }), "{err}");
+        assert!(
+            matches!(err, ImportResolveError::NotInCache { .. }),
+            "{err}"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

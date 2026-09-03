@@ -860,7 +860,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K03.02 | done | compiler | git clone/fetch into cache (HTTPS; fixture repos in tests) | `crates/draconic-pkg` |
 | K03.03 | done | compiler | Checkout pinned OID; cache hit skips network | `crates/draconic-pkg` |
 | K03.04 | done | compiler | Content hash SHA-256 over canonical package tree | `crates/draconic-pkg` |
-| K04 | todo | compiler | Version resolve: semver tag → commit OID; fail closed | `crates/draconic-pkg` |
+| K04 | done | compiler | Version resolve: semver tag → commit OID; fail closed | `crates/draconic-pkg` |
 | K04.01 | done | compiler | Resolve version req against git tags; highest matching semver | `crates/draconic-pkg` |
 | K04.02 | done | compiler | Fail closed: no match / non-semver-only / empty → diagnostic | `crates/draconic-pkg` |
 | K04.03 | done | compiler | Resolve direct-deps set → lock pins (v1: direct only) | `crates/draconic-pkg` |
@@ -885,7 +885,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K10.01 | done | compiler | `examples/pkg-lib` minimal exportable module | `examples/pkg-lib` |
 | K10.02 | done | compiler | `examples/pkg-consumer` depends on lib; documented build path | `examples/pkg-consumer` |
 | K11 | todo | compiler | Post-v1 packaging (not v1 bar) | `crates/draconic-pkg` |
-| K11.01 | todo | compiler | Private git auth (HTTPS token / SSH) | `crates/draconic-pkg`, `crates/draconic-cli` |
+| K11.01 | done | compiler | Private git auth (HTTPS token / SSH) | `crates/draconic-pkg`, `crates/draconic-cli` |
 | K11.02 | todo | compiler | `replace` directive: fork/local override | `crates/draconic-pkg` |
 | K11.03 | todo | compiler | Multi-module monorepo (subdir module paths) | `crates/draconic-pkg` |
 | K11.04 | todo | compiler | Module proxy/mirror (git still canonical) | `crates/draconic-pkg` |

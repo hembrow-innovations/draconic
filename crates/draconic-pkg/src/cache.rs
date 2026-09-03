@@ -21,6 +21,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::auth::{
+    clone_url_with_auth, git_auth_rejected, git_ssh_command, is_git_auth_failure, is_ssh_git_url,
+    redact_secrets, sanitize_stored_git_url, GitAuth, GitAuthError,
+};
 use crate::validate_module_path;
 
 /// On-disk module cache root and entry path helpers (K03.01).
@@ -73,6 +77,8 @@ pub enum CacheFetchError {
     Io(String),
     /// `git` subprocess failed or is unavailable.
     Git(String),
+    /// Private git credentials missing or rejected (K11.01).
+    Auth(GitAuthError),
 }
 
 impl fmt::Display for CacheFetchError {
@@ -84,6 +90,7 @@ impl fmt::Display for CacheFetchError {
             }
             CacheFetchError::Io(msg) => write!(f, "module cache: I/O error: {msg}"),
             CacheFetchError::Git(msg) => write!(f, "module cache: git error: {msg}"),
+            CacheFetchError::Auth(e) => write!(f, "module cache: {e}"),
         }
     }
 }
@@ -93,6 +100,12 @@ impl std::error::Error for CacheFetchError {}
 impl From<CachePathError> for CacheFetchError {
     fn from(e: CachePathError) -> Self {
         CacheFetchError::Path(e)
+    }
+}
+
+impl From<GitAuthError> for CacheFetchError {
+    fn from(e: GitAuthError) -> Self {
+        CacheFetchError::Auth(e)
     }
 }
 
@@ -127,13 +140,25 @@ fn validate_clone_url(url: &str) -> Result<(), &'static str> {
         }
         return Ok(());
     }
+    if let Some(rest) = url.strip_prefix("git@") {
+        if !rest.contains(':') || !rest.contains('.') {
+            return Err("ssh git URL must look like git@host:path");
+        }
+        return Ok(());
+    }
+    if let Some(rest) = url.strip_prefix("ssh://") {
+        if rest.is_empty() {
+            return Err("ssh URL must include a host");
+        }
+        return Ok(());
+    }
     // Absolute local path (fixture repos): Unix `/…` or Windows drive `C:\…` / `C:/…`.
     let path = Path::new(url);
     if path.is_absolute() {
         return Ok(());
     }
 
-    Err("must be https://, http://, file://, or an absolute local path")
+    Err("must be https://, http://, file://, git@, ssh://, or an absolute local path")
 }
 
 /// True if `dir` looks like an existing bare git repository.
@@ -142,8 +167,26 @@ fn is_bare_git_repo(dir: &Path) -> bool {
 }
 
 fn run_git(args: &[&str]) -> Result<String, CacheFetchError> {
-    let output = Command::new("git")
-        .args(args)
+    run_git_authed(args, &GitAuth::None, None)
+}
+
+fn run_git_authed(
+    args: &[&str],
+    auth: &GitAuth,
+    remote_url: Option<&str>,
+) -> Result<String, CacheFetchError> {
+    let mut cmd = Command::new("git");
+    cmd.args(args);
+    // Fail closed: never hang on a password prompt (K11.01).
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GCM_INTERACTIVE", "never");
+    if remote_url.is_some_and(is_ssh_git_url) {
+        // Always BatchMode: fail closed, never hang on a passphrase/host-key prompt.
+        let ssh = git_ssh_command(auth)
+            .unwrap_or_else(|| "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes".to_string());
+        cmd.env("GIT_SSH_COMMAND", ssh);
+    }
+    let output = cmd
         .output()
         .map_err(|e| CacheFetchError::Git(format!("failed to spawn git: {e}")))?;
     if output.status.success() {
@@ -158,6 +201,11 @@ fn run_git(args: &[&str]) -> Result<String, CacheFetchError> {
         } else {
             format!("git {:?} failed with status {}", args, output.status)
         };
+        let detail = redact_secrets(&detail, auth);
+        if is_git_auth_failure(&detail) {
+            let url = remote_url.unwrap_or("remote");
+            return Err(CacheFetchError::Auth(git_auth_rejected(url, &detail, auth)));
+        }
         Err(CacheFetchError::Git(detail))
     }
 }
@@ -236,13 +284,26 @@ impl ModuleCache {
 
     /// Clone `git_url` into the module VCS store, or `git fetch` if already present.
     ///
-    /// Returns the absolute path to the bare repository under the cache root.
-    /// HTTPS/HTTP URLs are accepted for production remotes; `file://` and absolute
-    /// local paths support fixture repos in tests (no network).
+    /// Uses [`GitAuth::from_env`] (K11.01). See [`Self::clone_or_fetch_with_auth`].
     pub fn clone_or_fetch(
         &self,
         module_path: &str,
         git_url: &str,
+    ) -> Result<PathBuf, CacheFetchError> {
+        self.clone_or_fetch_with_auth(module_path, git_url, &GitAuth::from_env())
+    }
+
+    /// Clone/fetch with explicit private git credentials (K11.01).
+    ///
+    /// HTTPS token is applied to the git subprocess only; the stored `origin` URL
+    /// is sanitized so secrets never land in the cache VCS config. SSH URLs
+    /// (`git@` / `ssh://`) are accepted. Missing or rejected credentials fail
+    /// closed (`CacheFetchError::Auth`) without a password prompt.
+    pub fn clone_or_fetch_with_auth(
+        &self,
+        module_path: &str,
+        git_url: &str,
+        auth: &GitAuth,
     ) -> Result<PathBuf, CacheFetchError> {
         if let Err(reason) = validate_clone_url(git_url) {
             return Err(CacheFetchError::InvalidUrl {
@@ -250,19 +311,27 @@ impl ModuleCache {
                 reason,
             });
         }
+        let fetch_url = clone_url_with_auth(git_url, auth)?;
+        let stored_url = sanitize_stored_git_url(git_url);
         let dest = self.vcs_dir(module_path)?;
         if is_bare_git_repo(&dest) {
-            // Update refs from origin (clone sets origin). Fail closed if fetch fails.
-            run_git(&[
-                "-C",
-                dest.to_str().ok_or_else(|| {
-                    CacheFetchError::Io("VCS path is not valid UTF-8".into())
-                })?,
-                "fetch",
-                "--force",
-                "origin",
-                "+refs/*:refs/*",
-            ])?;
+            let dest_str = dest
+                .to_str()
+                .ok_or_else(|| CacheFetchError::Io("VCS path is not valid UTF-8".into()))?;
+            // Fetch from the authed URL (not stored origin) so tokens are not persisted.
+            run_git_authed(
+                &[
+                    "-C",
+                    dest_str,
+                    "fetch",
+                    "--force",
+                    &fetch_url,
+                    "+refs/*:refs/*",
+                ],
+                auth,
+                Some(git_url),
+            )?;
+            let _ = run_git(&["-C", dest_str, "remote", "set-url", "origin", &stored_url]);
             return Ok(dest);
         }
         if dest.exists() {
@@ -273,22 +342,28 @@ impl ModuleCache {
         }
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent).map_err(|e| {
-                CacheFetchError::Io(format!(
-                    "create VCS parent `{}`: {e}",
-                    parent.display()
-                ))
+                CacheFetchError::Io(format!("create VCS parent `{}`: {e}", parent.display()))
             })?;
         }
         let dest_str = dest
             .to_str()
             .ok_or_else(|| CacheFetchError::Io("VCS path is not valid UTF-8".into()))?;
-        run_git(&["clone", "--bare", git_url, dest_str])?;
+        if let Err(e) = run_git_authed(
+            &["clone", "--bare", &fetch_url, dest_str],
+            auth,
+            Some(git_url),
+        ) {
+            let _ = fs::remove_dir_all(&dest);
+            return Err(e);
+        }
         if !is_bare_git_repo(&dest) {
+            let _ = fs::remove_dir_all(&dest);
             return Err(CacheFetchError::Git(format!(
                 "clone succeeded but `{}` is not a bare repository",
                 dest.display()
             )));
         }
+        let _ = run_git(&["-C", dest_str, "remote", "set-url", "origin", &stored_url]);
         Ok(dest)
     }
 
@@ -298,11 +373,7 @@ impl ModuleCache {
     }
 
     /// True when `mod/{path…}/{oid}/` already holds a completed checkout (K03.03).
-    pub fn has_entry(
-        &self,
-        module_path: &str,
-        commit_oid: &str,
-    ) -> Result<bool, CachePathError> {
+    pub fn has_entry(&self, module_path: &str, commit_oid: &str) -> Result<bool, CachePathError> {
         let dir = self.entry_dir(module_path, commit_oid)?;
         Ok(is_complete_checkout(&dir, commit_oid))
     }
@@ -337,11 +408,20 @@ impl ModuleCache {
             .ok_or_else(|| CacheFetchError::Io("VCS path is not valid UTF-8".into()))?;
 
         // Confirm OID exists in the bare store before writing the entry dir.
-        run_git(&["-C", vcs_str, "cat-file", "-e", &format!("{commit_oid}^{{commit}}")])?;
+        run_git(&[
+            "-C",
+            vcs_str,
+            "cat-file",
+            "-e",
+            &format!("{commit_oid}^{{commit}}"),
+        ])?;
 
         if dest.exists() {
             fs::remove_dir_all(&dest).map_err(|e| {
-                CacheFetchError::Io(format!("remove incomplete checkout `{}`: {e}", dest.display()))
+                CacheFetchError::Io(format!(
+                    "remove incomplete checkout `{}`: {e}",
+                    dest.display()
+                ))
             })?;
         }
         fs::create_dir_all(&dest).map_err(|e| {
@@ -361,7 +441,10 @@ impl ModuleCache {
             let stderr = String::from_utf8_lossy(&archive.stderr).trim().to_string();
             let _ = fs::remove_dir_all(&dest);
             return Err(CacheFetchError::Git(if stderr.is_empty() {
-                format!("git archive {commit_oid} failed with status {}", archive.status)
+                format!(
+                    "git archive {commit_oid} failed with status {}",
+                    archive.status
+                )
             } else {
                 stderr
             }));
@@ -549,10 +632,7 @@ mod tests {
     #[test]
     fn nested_module_path_segments() {
         let rel = entry_rel_path("gitlab.com/group/sub/mod", OID).unwrap();
-        assert_eq!(
-            rel,
-            PathBuf::from("mod/gitlab.com/group/sub/mod").join(OID)
-        );
+        assert_eq!(rel, PathBuf::from("mod/gitlab.com/group/sub/mod").join(OID));
     }
 
     #[test]
@@ -603,7 +683,10 @@ mod tests {
     #[test]
     fn is_entry_under_root_rejects_outside() {
         let root = Path::new("/cache");
-        assert!(!is_entry_under_root(root, Path::new("/other/mod/x/y").join(OID).as_path()));
+        assert!(!is_entry_under_root(
+            root,
+            Path::new("/other/mod/x/y").join(OID).as_path()
+        ));
     }
 
     #[test]
@@ -626,7 +709,10 @@ mod tests {
         let a = cache.entry_dir(PATH, OID).unwrap();
         let b = cache.entry_dir(PATH, OID).unwrap();
         assert_eq!(a, b);
-        assert_eq!(cache.entry_rel(PATH, OID).unwrap(), entry_rel_path(PATH, OID).unwrap());
+        assert_eq!(
+            cache.entry_rel(PATH, OID).unwrap(),
+            entry_rel_path(PATH, OID).unwrap()
+        );
     }
 
     // --- K03.02: git clone/fetch into cache ---
@@ -691,7 +777,10 @@ mod tests {
         let rel = vcs_rel_path(PATH).expect("rel");
         assert_eq!(
             rel,
-            PathBuf::from("vcs").join("github.com").join("org").join("lib")
+            PathBuf::from("vcs")
+                .join("github.com")
+                .join("org")
+                .join("lib")
         );
     }
 
@@ -800,6 +889,78 @@ mod tests {
     fn validate_clone_url_accepts_https() {
         assert!(validate_clone_url("https://github.com/org/pkg.git").is_ok());
         assert!(validate_clone_url("http://git.example.com/org/pkg.git").is_ok());
+    }
+
+    #[test]
+    fn k11_01_validate_clone_url_accepts_ssh() {
+        assert!(validate_clone_url("git@github.com:org/pkg.git").is_ok());
+        assert!(validate_clone_url("ssh://git@github.com/org/pkg.git").is_ok());
+    }
+
+    #[test]
+    fn k11_01_clone_or_fetch_ssh_url_is_not_invalid_url() {
+        let root = temp_dir("ssh-url");
+        let cache = ModuleCache::new(root.join("cache"));
+        let err = cache
+            .clone_or_fetch(PATH, "ssh://git@127.0.0.1:1/org/lib.git")
+            .expect_err("ssh to closed port");
+        assert!(
+            !matches!(err, CacheFetchError::InvalidUrl { .. }),
+            "ssh URLs must be accepted for clone: {err:?}"
+        );
+        assert!(
+            matches!(err, CacheFetchError::Git(_) | CacheFetchError::Auth(_)),
+            "{err:?}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn k11_01_clone_missing_ssh_identity_fails_closed() {
+        let cache = ModuleCache::new("/tmp/k11-01-ssh-missing");
+        let auth = GitAuth::Ssh {
+            identity_file: Some(PathBuf::from("/no/such/k11-01-ssh-key")),
+        };
+        let err = cache
+            .clone_or_fetch_with_auth(PATH, "git@github.com:org/lib.git", &auth)
+            .expect_err("missing identity");
+        match err {
+            CacheFetchError::Auth(crate::GitAuthError::MissingSshIdentity { ref path }) => {
+                assert!(path.contains("k11-01-ssh-key"), "{path}");
+            }
+            other => panic!("expected Auth(MissingSshIdentity), got {other:?}"),
+        }
+        let msg = err.to_string();
+        assert!(msg.contains("missing"), "{msg}");
+        assert!(!msg.contains("InvalidUrl"), "{msg}");
+    }
+
+    #[test]
+    fn k11_01_clone_does_not_persist_https_token_in_origin() {
+        let root = temp_dir("auth-origin");
+        let upstream = fixture_repo(&root);
+        let cache = ModuleCache::new(root.join("cache"));
+        let auth = GitAuth::https_token("git", "s3cret-token").unwrap();
+        let url = format!("file://{}", upstream.display());
+        let vcs = cache
+            .clone_or_fetch_with_auth(PATH, &url, &auth)
+            .expect("clone file url with token auth");
+        let origin = Command::new("git")
+            .args([
+                "-C",
+                vcs.to_str().unwrap(),
+                "config",
+                "--get",
+                "remote.origin.url",
+            ])
+            .output()
+            .expect("origin url");
+        let origin = String::from_utf8_lossy(&origin.stdout);
+        assert!(
+            !origin.contains("s3cret-token"),
+            "origin leaked token: {origin}"
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -917,9 +1078,7 @@ mod tests {
         let cache = ModuleCache::new(root.join("cache"));
         let url = upstream.to_str().unwrap();
         let missing = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        let err = cache
-            .checkout(PATH, missing, url)
-            .expect_err("unknown oid");
+        let err = cache.checkout(PATH, missing, url).expect_err("unknown oid");
         assert!(matches!(err, CacheFetchError::Git(_)), "{err:?}");
         assert!(!cache.has_entry(PATH, missing).unwrap());
 
@@ -933,7 +1092,10 @@ mod tests {
             .checkout(PATH, "not-an-oid", "https://example.com/x.git")
             .expect_err("bad oid");
         assert!(
-            matches!(err, CacheFetchError::Path(CachePathError::InvalidCommitOid { .. })),
+            matches!(
+                err,
+                CacheFetchError::Path(CachePathError::InvalidCommitOid { .. })
+            ),
             "{err:?}"
         );
     }

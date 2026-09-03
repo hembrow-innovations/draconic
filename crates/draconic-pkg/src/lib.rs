@@ -23,14 +23,18 @@
 //! K06.01: resolve module-path imports (`github.com/org/pkg` + subpath) → cache file.
 //! K06.02: package boundary — reject path escape outside package checkout root.
 //! K06.03: coexist with E11 relative imports (see linker + `tests/packages`).
+//! K07: build integration — auto-fetch missing locked cache; `--offline`; lock pins win.
 //! K07.01: ensure locked cache entries (auto-fetch missing pins for build).
 //! K07.02: offline ensure — cache only; miss → fixit (no network).
 //! K07.03: build prefers lock pins; does not float versions when lock present.
+//! K08: integrity — verify lock hashes; refuse tampered cache (K08.01 + K08.02).
 //! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 //! K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
+//! K11.01: private git auth — HTTPS token or SSH; fail closed; never persist secrets.
 //! D02.01: optional/required toolchain version pin in `draconic.toml`.
 //! D02.02: CLI compares running toolchain version to that pin (warn or hard-fail).
 
+mod auth;
 mod cache;
 mod ensure;
 mod get;
@@ -41,6 +45,11 @@ mod resolve;
 mod tidy;
 mod toolchain;
 
+pub use auth::{
+    clone_url_with_auth, git_auth_from_vars, git_auth_rejected, git_ssh_command,
+    is_git_auth_failure, is_https_git_url, is_ssh_git_url, redact_secrets, sanitize_stored_git_url,
+    GitAuth, GitAuthError,
+};
 pub use cache::{
     entry_rel_path, is_entry_under_root, vcs_rel_path, CacheFetchError, CachePathError, ModuleCache,
 };
@@ -48,8 +57,8 @@ pub use ensure::{
     ensure_locked_entries, ensure_locked_for_entry, EnsureLockedError, EnsureLockedResult,
 };
 pub use get::{
-    default_cache_root, get_package, get_package_spec, parse_get_spec, GetError, GetResult,
-    DEFAULT_CACHE_DIR_NAME, LOCK_FILE, MANIFEST_FILE,
+    default_cache_root, get_package, get_package_spec, get_package_with_auth, parse_get_spec,
+    GetError, GetResult, DEFAULT_CACHE_DIR_NAME, LOCK_FILE, MANIFEST_FILE,
 };
 pub use hash::{
     content_hash_tree, read_checkout_oid, verify_content_hash, verify_package_integrity,

@@ -9,8 +9,8 @@ use crate::content_hash_tree;
 use crate::lock::{parse_lock, write_lock, LockEntry, LockFile};
 use crate::resolve::{resolve_highest_matching_tag, ResolveError};
 use crate::{
-    parse_manifest, resolve_git_url, validate_git_url, validate_module_path, validate_version_req,
-    write_manifest, ManifestError,
+    parse_manifest, resolve_git_url, sanitize_stored_git_url, validate_git_url,
+    validate_module_path, validate_version_req, write_manifest, GitAuth, ManifestError,
 };
 
 /// Default relative cache dir under the workspace when no override is given.
@@ -45,10 +45,7 @@ pub enum GetError {
     /// Module path schema failed.
     InvalidPath { path: String, reason: &'static str },
     /// Version requirement schema failed.
-    InvalidVersionReq {
-        req: String,
-        reason: &'static str,
-    },
+    InvalidVersionReq { req: String, reason: &'static str },
     /// Optional `--url` failed validation.
     InvalidUrl { url: String, reason: &'static str },
     /// Workspace has no readable `draconic.toml`.
@@ -188,6 +185,26 @@ pub fn get_package(
     git_url_override: Option<&str>,
     cache: &ModuleCache,
 ) -> Result<GetResult, GetError> {
+    get_package_with_auth(
+        workspace,
+        module_path,
+        version_req,
+        git_url_override,
+        cache,
+        &GitAuth::from_env(),
+    )
+}
+
+/// [`get_package`] with explicit [`GitAuth`] (K11.01). Credentials are never written
+/// to `draconic.toml` or `draconic.lock`.
+pub fn get_package_with_auth(
+    workspace: &Path,
+    module_path: &str,
+    version_req: &str,
+    git_url_override: Option<&str>,
+    cache: &ModuleCache,
+    auth: &GitAuth,
+) -> Result<GetResult, GetError> {
     if let Err(reason) = validate_module_path(module_path) {
         return Err(GetError::InvalidPath {
             path: module_path.to_string(),
@@ -232,33 +249,37 @@ pub fn get_package(
     manifest
         .dependencies
         .insert(module_path.to_string(), version_req.to_string());
+
+    // Clone may use userinfo in the override; stored urls/lock never persist secrets (K11.01).
+    let clone_url = git_url_override
+        .map(str::to_string)
+        .unwrap_or_else(|| resolve_git_url(&manifest, module_path));
     if let Some(url) = git_url_override {
         manifest
             .urls
-            .insert(module_path.to_string(), url.to_string());
+            .insert(module_path.to_string(), sanitize_stored_git_url(url));
     }
 
     // Re-validate after mutation (self-dep already checked; paths/reqs validated above).
     crate::validate_manifest(&manifest)?;
 
-    let git_url = resolve_git_url(&manifest, module_path);
+    let stored_url = sanitize_stored_git_url(&clone_url);
 
-    let vcs = cache.clone_or_fetch(module_path, &git_url).map_err(|e| {
-        GetError::Cache {
+    let vcs = cache
+        .clone_or_fetch_with_auth(module_path, &clone_url, auth)
+        .map_err(|e| GetError::Cache {
             path: module_path.to_string(),
             message: e.to_string(),
-        }
-    })?;
+        })?;
 
-    let resolved = resolve_highest_matching_tag(&vcs, version_req).map_err(|source| {
-        GetError::Resolve {
+    let resolved =
+        resolve_highest_matching_tag(&vcs, version_req).map_err(|source| GetError::Resolve {
             path: module_path.to_string(),
             source,
-        }
-    })?;
+        })?;
 
     let checkout = cache
-        .checkout(module_path, &resolved.commit_oid, &git_url)
+        .checkout(module_path, &resolved.commit_oid, &clone_url)
         .map_err(|e| GetError::Cache {
             path: module_path.to_string(),
             message: e.to_string(),
@@ -272,7 +293,7 @@ pub fn get_package(
     let entry = LockEntry::new(
         module_path.to_string(),
         resolved.version.clone(),
-        git_url,
+        stored_url,
         resolved.commit_oid.clone(),
         content_hash,
     )
@@ -284,9 +305,8 @@ pub fn get_package(
     let mut lock = load_or_empty_lock(&lock_path)?;
     lock.packages.insert(module_path.to_string(), entry);
 
-    fs::write(&manifest_path, write_manifest(&manifest)).map_err(|e| {
-        GetError::Io(format!("write {}: {e}", manifest_path.display()))
-    })?;
+    fs::write(&manifest_path, write_manifest(&manifest))
+        .map_err(|e| GetError::Io(format!("write {}: {e}", manifest_path.display())))?;
     fs::write(&lock_path, write_lock(&lock))
         .map_err(|e| GetError::Io(format!("write {}: {e}", lock_path.display())))?;
 
@@ -306,10 +326,7 @@ fn load_or_empty_lock(lock_path: &Path) -> Result<LockFile, GetError> {
             version: 1,
             packages: Default::default(),
         }),
-        Err(e) => Err(GetError::Io(format!(
-            "read {}: {e}",
-            lock_path.display()
-        ))),
+        Err(e) => Err(GetError::Io(format!("read {}: {e}", lock_path.display()))),
     }
 }
 
@@ -427,11 +444,7 @@ mod tests {
         let (upstream, oid) = tagged_upstream(&root);
         let ws = root.join("app");
         fs::create_dir_all(&ws).unwrap();
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/acme/app\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
 
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/lib";
@@ -499,11 +512,7 @@ mod tests {
         let cache = ModuleCache::new(root.join("cache"));
 
         // Seed first dep.
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/acme/app\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
         get_package(
             &ws,
             "github.com/a/first",
@@ -537,14 +546,8 @@ mod tests {
     fn k05_01_missing_manifest() {
         let root = temp_dir("nomf");
         let cache = ModuleCache::new(root.join("cache"));
-        let err = get_package(
-            &root,
-            "github.com/org/lib",
-            "1.0.0",
-            None,
-            &cache,
-        )
-        .expect_err("missing");
+        let err =
+            get_package(&root, "github.com/org/lib", "1.0.0", None, &cache).expect_err("missing");
         assert!(matches!(err, GetError::MissingManifest { .. }), "{err:?}");
         let _ = fs::remove_dir_all(&root);
     }
@@ -554,14 +557,9 @@ mod tests {
         let root = temp_dir("self");
         let ws = root.join("app");
         fs::create_dir_all(&ws).unwrap();
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/org/lib\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/org/lib\"\n").unwrap();
         let cache = ModuleCache::new(root.join("cache"));
-        let err = get_package(&ws, "github.com/org/lib", "1.0.0", None, &cache)
-            .expect_err("self");
+        let err = get_package(&ws, "github.com/org/lib", "1.0.0", None, &cache).expect_err("self");
         assert!(matches!(err, GetError::SelfDependency { .. }), "{err:?}");
         let _ = fs::remove_dir_all(&root);
     }
@@ -572,11 +570,7 @@ mod tests {
         let (upstream, oid) = tagged_upstream(&root);
         let ws = root.join("app");
         fs::create_dir_all(&ws).unwrap();
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/acme/app\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
         let cache = ModuleCache::new(root.join("cache"));
         let r = get_package_spec(
             &ws,
@@ -586,6 +580,63 @@ mod tests {
         )
         .expect("spec get");
         assert_eq!(r.commit_oid, oid);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn k11_01_get_does_not_write_https_token_to_manifest_or_lock() {
+        let root = temp_dir("k11-01-secret");
+        let (upstream, _oid) = tagged_upstream(&root);
+        let ws = root.join("app");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
+        let cache = ModuleCache::new(root.join("cache"));
+        let token = "s3cret-token-k11-01";
+        let auth = GitAuth::https_token("git", token).unwrap();
+        get_package_with_auth(
+            &ws,
+            "github.com/org/lib",
+            "1.2.3",
+            Some(upstream.to_str().unwrap()),
+            &cache,
+            &auth,
+        )
+        .expect("get with token");
+
+        let mf = fs::read_to_string(ws.join(MANIFEST_FILE)).unwrap();
+        let lock = fs::read_to_string(ws.join(LOCK_FILE)).unwrap();
+        assert!(!mf.contains(token), "manifest leaked token:\n{mf}");
+        assert!(!lock.contains(token), "lock leaked token:\n{lock}");
+        assert!(!mf.contains("DRACONIC_GIT_TOKEN"), "{mf}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn k11_01_get_missing_ssh_identity_fails_closed() {
+        let root = temp_dir("k11-01-missing-ssh");
+        let ws = root.join("app");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
+        let cache = ModuleCache::new(root.join("cache"));
+        let auth = GitAuth::Ssh {
+            identity_file: Some(PathBuf::from("/no/such/k11-01-ssh-key")),
+        };
+        let err = get_package_with_auth(
+            &ws,
+            "github.com/org/lib",
+            "1.0.0",
+            Some("git@github.com:org/lib.git"),
+            &cache,
+            &auth,
+        )
+        .expect_err("missing ssh identity");
+        let msg = err.to_string();
+        assert!(msg.contains("missing"), "{msg}");
+        assert!(msg.contains("SSH") || msg.contains("ssh"), "{msg}");
+        assert!(
+            !ws.join(LOCK_FILE).exists(),
+            "must not write lock on auth failure"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

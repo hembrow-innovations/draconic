@@ -8,9 +8,7 @@ use crate::cache::ModuleCache;
 use crate::content_hash_tree;
 use crate::get::{default_cache_root, LOCK_FILE, MANIFEST_FILE};
 use crate::lock::{parse_lock, write_lock, LockEntry, LockFile};
-use crate::resolve::{
-    resolve_highest_matching_tag, version_satisfies_req, ResolveError,
-};
+use crate::resolve::{resolve_highest_matching_tag, version_satisfies_req, ResolveError};
 use crate::{parse_manifest, resolve_git_url, Manifest, ManifestError};
 
 /// Summary of a successful tidy (K05.02).
@@ -139,10 +137,7 @@ fn load_or_empty_lock(lock_path: &Path) -> Result<LockFile, TidyError> {
             version: 1,
             packages: Default::default(),
         }),
-        Err(e) => Err(TidyError::Io(format!(
-            "read {}: {e}",
-            lock_path.display()
-        ))),
+        Err(e) => Err(TidyError::Io(format!("read {}: {e}", lock_path.display()))),
     }
 }
 
@@ -184,11 +179,7 @@ fn rebuild_lock(
     ))
 }
 
-fn try_ensure_checkout(
-    cache: &ModuleCache,
-    path: &str,
-    entry: &LockEntry,
-) -> Result<(), ()> {
+fn try_ensure_checkout(cache: &ModuleCache, path: &str, entry: &LockEntry) -> Result<(), ()> {
     if cache.has_entry(path, &entry.commit_oid).unwrap_or(false) {
         return Ok(());
     }
@@ -204,17 +195,18 @@ fn resolve_and_pin(
     req: &str,
     git_url: &str,
 ) -> Result<LockEntry, TidyError> {
-    let vcs = cache.clone_or_fetch(path, git_url).map_err(|e| TidyError::Cache {
-        path: path.to_string(),
-        message: e.to_string(),
-    })?;
+    let vcs = cache
+        .clone_or_fetch(path, git_url)
+        .map_err(|e| TidyError::Cache {
+            path: path.to_string(),
+            message: e.to_string(),
+        })?;
 
-    let resolved = resolve_highest_matching_tag(&vcs, req).map_err(|source| {
-        TidyError::Resolve {
+    let resolved =
+        resolve_highest_matching_tag(&vcs, req).map_err(|source| TidyError::Resolve {
             path: path.to_string(),
             source,
-        }
-    })?;
+        })?;
 
     let checkout = cache
         .checkout(path, &resolved.commit_oid, git_url)
@@ -290,7 +282,11 @@ mod tests {
         git_ok(&["config", "user.email", "test@draconic.local"], &repo);
         git_ok(&["config", "user.name", "Draconic Test"], &repo);
         git_ok(&["checkout", "-B", "main"], &repo);
-        fs::write(repo.join("lib.drac"), format!("export let x = \"{name}\";\n")).unwrap();
+        fs::write(
+            repo.join("lib.drac"),
+            format!("export let x = \"{name}\";\n"),
+        )
+        .unwrap();
         git_ok(&["add", "."], &repo);
         git_ok(&["commit", "-m", "init"], &repo);
         let oid = {
@@ -355,11 +351,7 @@ mod tests {
         fs::create_dir_all(&ws).unwrap();
         let cache = ModuleCache::new(root.join("cache"));
 
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/acme/app\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
         get_package(
             &ws,
             "github.com/a/keep",
@@ -396,10 +388,7 @@ mod tests {
         assert_eq!(lock.packages.len(), 1);
         assert!(lock.packages.contains_key("github.com/a/keep"));
         assert!(!lock.packages.contains_key("github.com/b/drop"));
-        assert_eq!(
-            lock.packages["github.com/a/keep"].commit_oid,
-            oid_keep
-        );
+        assert_eq!(lock.packages["github.com/a/keep"].commit_oid, oid_keep);
         let _ = oid_drop;
 
         let _ = fs::remove_dir_all(&root);
@@ -414,20 +403,9 @@ mod tests {
         let cache = ModuleCache::new(root.join("cache"));
         let path = "github.com/org/lib";
 
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/acme/app\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
         // Pin exact 1.0.0 first.
-        get_package(
-            &ws,
-            path,
-            "1.0.0",
-            Some(upstream.to_str().unwrap()),
-            &cache,
-        )
-        .expect("get");
+        get_package(&ws, path, "1.0.0", Some(upstream.to_str().unwrap()), &cache).expect("get");
 
         // Widen req but keep lock pin 1.0.0 (do not float to 1.5.0).
         let mut m = parse_manifest(&fs::read_to_string(ws.join(MANIFEST_FILE)).unwrap()).unwrap();
@@ -457,11 +435,7 @@ mod tests {
         fs::create_dir_all(&ws).unwrap();
         let cache = ModuleCache::new(root.join("cache"));
 
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/acme/app\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
         get_package(
             &ws,
             "github.com/org/lib",
@@ -471,11 +445,7 @@ mod tests {
         )
         .expect("get");
 
-        fs::write(
-            ws.join(MANIFEST_FILE),
-            "module = \"github.com/acme/app\"\n",
-        )
-        .unwrap();
+        fs::write(ws.join(MANIFEST_FILE), "module = \"github.com/acme/app\"\n").unwrap();
 
         let r = mod_tidy(&ws, &cache).expect("tidy");
         assert_eq!(r.pruned, vec!["github.com/org/lib".to_string()]);
