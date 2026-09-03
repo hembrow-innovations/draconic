@@ -1,4 +1,4 @@
-//! H08.01–H08.02: native UDP — bind/sendto/recvfrom/close + loopback e2e.
+//! H08 / H08.01–H08.02: native UDP — bind/sendto/recvfrom/close + loopback e2e.
 //!
 //! - `udpBind(port)` → socket handle (number); port 0 → ephemeral
 //! - `udpLocalPort(h)` → bound port
@@ -120,7 +120,8 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
 
 fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
-        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "closeUdp") =>
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "closeUdp") =>
         {
             ctx.has_udp = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
@@ -203,7 +204,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
         }
         Expr::Binary {
-            op: BinaryOp::Gt
+            op:
+                BinaryOp::Gt
                 | BinaryOp::GtEq
                 | BinaryOp::Lt
                 | BinaryOp::LtEq
@@ -393,7 +395,7 @@ impl<'a> Emitter<'a> {
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
         writeln!(
             self.out,
-            "; Draconic LLVM host_udp (H08.01–H08.02 bind/sendto/recvfrom/e2e)"
+            "; Draconic LLVM host_udp (H08 bind/sendto/recvfrom/e2e surface)"
         )
         .ok();
         self.out.push_str(&llvm_declares(&[
@@ -669,11 +671,7 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {ch} = load i8, ptr {cp}").ok();
         let is0 = self.fresh();
         writeln!(self.body, "  {is0} = icmp eq i8 {ch}, 0").ok();
-        writeln!(
-            self.body,
-            "  br i1 {is0}, label %{done_l}, label %{inc_l}"
-        )
-        .ok();
+        writeln!(self.body, "  br i1 {is0}, label %{done_l}, label %{inc_l}").ok();
         writeln!(self.body, "{inc_l}:").ok();
         let iv2 = self.fresh();
         let iv3 = self.fresh();
@@ -850,10 +848,7 @@ impl<'a> Emitter<'a> {
     fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt

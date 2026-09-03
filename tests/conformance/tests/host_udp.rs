@@ -1,4 +1,5 @@
-//! ROADMAP H08.01–H08.02: UDP bind/sendto/recvfrom + loopback e2e.
+//! ROADMAP H08 / H08.01–H08.02: UDP bind/sendto/recvfrom + loopback e2e.
+//! H08 parent locks the combined UDP surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -56,10 +57,7 @@ fn udp_sendto_recvfrom_runs_native() {
         fixture.targets.contains(&Target::Native),
         "must target native"
     );
-    assert_eq!(
-        fixture.expect_native.stdout.as_deref(),
-        Some("udp-hi6\n")
-    );
+    assert_eq!(fixture.expect_native.stdout.as_deref(), Some("udp-hi6\n"));
     assert_fixture_runs("host/net/udp/udp_sendto_recvfrom");
 }
 
@@ -75,9 +73,34 @@ fn udp_loopback_echo_runs_native() {
         fixture.targets.contains(&Target::Native),
         "must target native"
     );
+    assert_eq!(fixture.expect_native.stdout.as_deref(), Some("echo-me7\n"));
+    assert_fixture_runs("host/net/udp/udp_loopback_echo");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("host/net/udp/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "host/net/udp/surface")
+        .expect("host/net/udp/surface");
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "must target native"
+    );
     assert_eq!(
         fixture.expect_native.stdout.as_deref(),
-        Some("echo-me7\n")
+        Some("echo-menumber\ntrue\ntrue\n7\n"),
+        "H08 surface must observe ephemeral port, loopback echo, and close"
     );
-    assert_fixture_runs("host/net/udp/udp_loopback_echo");
+    assert_eq!(
+        fixture.expect_native.exit, 0,
+        "H08 surface must terminate with exit 0"
+    );
+    assert_fixture_runs("host/net/udp/surface");
 }

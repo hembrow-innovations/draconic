@@ -1,0 +1,4 @@
+id: host/net/udp/surface
+targets: native
+native.exit: 0
+native.stdout: echo-menumber\ntrue\ntrue\n7\n

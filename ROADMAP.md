@@ -793,7 +793,7 @@ Runtime host surface for process, stdio, fs, path, time, sockets, and thin HTTP 
 | H07.01 | done | native | Non-blocking readiness; complete via job queue | `crates/draconic-runtime` |
 | H07.02 | done | native | Async accept/connect/read/write → Promises; cancel/close settles cleanly | `tests/conformance` fixtures `host/net/async` |
 | H07.03 | done | native | Concurrent connections without starving job queue | `tests/conformance` fixtures `host/net/async` |
-| H08 | todo | native | UDP | `tests/conformance/host/net/udp` |
+| H08 | done | native | UDP | `tests/conformance/host/net/udp` |
 | H08.01 | done | native | UDP bind; sendto/recvfrom; close | `tests/conformance` fixtures `host/net/udp`, `crates/draconic-runtime` |
 | H08.02 | done | native | UDP loopback e2e | `tests/conformance` fixtures `host/net/udp` |
 | H09 | todo | native | DNS | `tests/conformance/host/net/dns` |

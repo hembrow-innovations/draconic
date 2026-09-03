@@ -1,0 +1,16 @@
+// H08: one Program — bind ephemeral + local port, sendto/recvfrom, loopback echo, close.
+let a = udpBind(0);
+let pa = udpLocalPort(a);
+let t = typeof pa;
+let ok_port = pa > 0;
+let ok_hi = pa < 65536;
+let b = udpBind(0);
+let pb = udpLocalPort(b);
+udpSendTo(a, "echo-me", "127.0.0.1", pb);
+let req = udpRecvFrom(b, 64);
+udpSendTo(b, req, "127.0.0.1", pa);
+let res = udpRecvFrom(a, 64);
+stdoutWrite(res);
+let n = res.length;
+closeUdp(a);
+closeUdp(b);
