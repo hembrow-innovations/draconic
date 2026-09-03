@@ -1,7 +1,8 @@
-//! Canonical package tree content hash (Roadmap K03.04 / K08.01 / K08.02).
+//! Canonical package tree content hash and lock integrity (Roadmap K08).
 //!
 //! SHA-256 over a deterministic encoding of regular files under a package root.
 //! Used for lockfile `content_hash` (K02.01) and integrity checks:
+//! - K08: verify lock hashes; refuse tampered cache (parent of K08.01–K08.02).
 //! - K08.01: recompute tree hash and hard-fail when it does not match the lock pin.
 //! - K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
 
@@ -274,9 +275,9 @@ pub fn verify_package_integrity(
             return Err(PackageIntegrityError::MissingMarker { path: path_s });
         }
         Err(e) => {
-            return Err(PackageIntegrityError::ContentHash(ContentHashVerifyError::Hash(
-                e,
-            )));
+            return Err(PackageIntegrityError::ContentHash(
+                ContentHashVerifyError::Hash(e),
+            ));
         }
     };
     if marker_oid != expected_oid {
@@ -395,8 +396,7 @@ mod tests {
     }
 
     /// SHA-256 of empty input (empty package tree).
-    const EMPTY_SHA256: &str =
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     #[test]
     fn empty_tree_is_sha256_of_empty() {
@@ -442,7 +442,11 @@ mod tests {
         let root = temp_dir("nested");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/lib.drac"), b"export let x = 1;\n").unwrap();
-        fs::write(root.join("draconic.toml"), b"module = \"github.com/org/lib\"\n").unwrap();
+        fs::write(
+            root.join("draconic.toml"),
+            b"module = \"github.com/org/lib\"\n",
+        )
+        .unwrap();
         let h1 = content_hash_tree(&root).unwrap();
         let h2 = content_hash_tree(&root).unwrap();
         assert_eq!(h1, h2);
@@ -619,7 +623,9 @@ mod tests {
         let bogus = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let err = verify_content_hash(&root, bogus).expect_err("wrong lock");
         match err {
-            ContentHashVerifyError::Mismatch { expected, actual, .. } => {
+            ContentHashVerifyError::Mismatch {
+                expected, actual, ..
+            } => {
                 assert_eq!(expected, bogus);
                 assert_ne!(actual, bogus);
             }
@@ -635,7 +641,10 @@ mod tests {
         let expected = content_hash_tree(&root).unwrap();
         fs::write(root.join("evil.txt"), b"x").unwrap();
         let err = verify_content_hash(&root, &expected).expect_err("extra file");
-        assert!(matches!(err, ContentHashVerifyError::Mismatch { .. }), "{err:?}");
+        assert!(
+            matches!(err, ContentHashVerifyError::Mismatch { .. }),
+            "{err:?}"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -740,10 +749,69 @@ mod tests {
     fn read_checkout_oid_trims_marker() {
         let dir = pin_dir("integ-read", OID_A);
         fs::write(dir.join(CHECKOUT_MARKER), format!("  {OID_A}\n")).unwrap();
-        assert_eq!(
-            read_checkout_oid(&dir).unwrap().as_deref(),
-            Some(OID_A)
+        assert_eq!(read_checkout_oid(&dir).unwrap().as_deref(), Some(OID_A));
+        let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    // --- K08: combined integrity (parent of K08.01–K08.02) ---
+
+    #[test]
+    fn k08_combined_verify_lock_hashes_refuse_tampered_cache() {
+        let dir = pin_dir("k08-combined", OID_A);
+        fs::write(dir.join("index.drac"), b"export let x = 1;\n").unwrap();
+        let lock_hash = content_hash_tree(&dir).unwrap();
+        fs::write(dir.join(CHECKOUT_MARKER), format!("{OID_A}\n")).unwrap();
+
+        // Honest pin: recomputed tree SHA-256 matches lock; OID marker + path match.
+        verify_content_hash(&dir, &lock_hash).expect("hash match");
+        verify_package_integrity(&dir, OID_A, &lock_hash).expect("integrity ok");
+
+        // Tampered cache: file content changed after lock pin — hard-fail, never Ok (K08.01).
+        fs::write(dir.join("index.drac"), b"export let x = 999;\n").unwrap();
+        let hash_err = verify_content_hash(&dir, &lock_hash).expect_err("tamper hash");
+        match &hash_err {
+            ContentHashVerifyError::Mismatch {
+                expected, actual, ..
+            } => {
+                assert_eq!(expected, &lock_hash);
+                assert_ne!(actual, &lock_hash);
+            }
+            other => panic!("expected Mismatch, got {other:?}"),
+        }
+        assert!(hash_err.to_string().contains("mismatch"), "{hash_err}");
+        let integ_err =
+            verify_package_integrity(&dir, OID_A, &lock_hash).expect_err("tamper integ");
+        match integ_err {
+            PackageIntegrityError::ContentHash(ContentHashVerifyError::Mismatch { .. }) => {}
+            other => panic!("expected ContentHash Mismatch, got {other:?}"),
+        }
+
+        // Restore honest tree; mismatched marker OID refuses the tree (K08.02).
+        fs::write(dir.join("index.drac"), b"export let x = 1;\n").unwrap();
+        fs::write(dir.join(CHECKOUT_MARKER), format!("{OID_B}\n")).unwrap();
+        let oid_err = verify_package_integrity(&dir, OID_A, &lock_hash).expect_err("oid");
+        match &oid_err {
+            PackageIntegrityError::OidMismatch {
+                expected, actual, ..
+            } => {
+                assert_eq!(expected, OID_A);
+                assert_eq!(actual, OID_B);
+            }
+            other => panic!("expected OidMismatch, got {other:?}"),
+        }
+        assert!(
+            oid_err.to_string().contains("refuse wrong tree"),
+            "{oid_err}"
         );
+
+        // Path tail OID mismatch also refuses (K08.02) — lock OID_B vs dir named OID_A.
+        fs::write(dir.join(CHECKOUT_MARKER), format!("{OID_A}\n")).unwrap();
+        let path_err = verify_package_integrity(&dir, OID_B, &lock_hash).expect_err("path oid");
+        assert!(
+            matches!(path_err, PackageIntegrityError::PathOidMismatch { .. }),
+            "{path_err:?}"
+        );
+
         let _ = fs::remove_dir_all(dir.parent().unwrap());
     }
 }
