@@ -2,6 +2,98 @@
 
 One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 
+- **ticket-99-d04-01-cross-compile-at-least-one** — D04.01 Cross-compile: at least one non-host triple smoke
+- **ticket-98-d04-cross-compile-matrix-linux-darwin** — D04 Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available)
+- **ticket-97-d03-02-same-source-pin-byte-identical** — D03.02 Same source + pin → byte-identical or documented-equivalent emit
+- **ticket-96-d03-01-document-reproducibility-expectations-timestamps-paths** — D03.01 Document reproducibility expectations (timestamps, paths)
+- **ticket-95-d03-reproducible-builds-same-source-pin** — D03 Reproducible builds: same source + pin → documented-equivalent artifacts
+- **ticket-94-d02-toolchain-version-pin-in-draconic** — D02 Toolchain version pin in `draconic.toml`; CLI enforces or warns
+- **ticket-93-d01-release-binaries-install-script-one** — D01 Release binaries + install script; one-line install to PATH
+- **ticket-77-l01-encoding-utf-8-bytes-string** — L01 Encoding: UTF-8 bytes↔string, Base64, hex
+- **ticket-76-c06-optional-later-shared-memory-atomics** — C06 Optional later: shared-memory atomics (advanced; not v1 bar)
+- **ticket-75-c05-structured-cancellation-timeout-helpers-on** — C05 Structured cancellation / timeout helpers on async work (channels + timers)
+- **ticket-74-c04-parallel-draconic-test-multi-fixture** — C04 Parallel `draconic test`: multi-fixture workers; deterministic aggregate exit
+- **ticket-73-c03-once-thread-safe-init-mutex** — C03 `once` / thread-safe init; mutex only if Runtime internals need it
+- **ticket-72-c02-message-passing-channels-send-recv** — C02 Message-passing channels: send/recv; structured-clone or transfer policy; bounded buffer as designed
+- **ticket-71-c01-worker-os-thread-spawn-isolate** — C01 Worker / OS thread: spawn isolate running module/fn; join/terminate; no shared JS heap by default
+- **ticket-70-f09-optional-later-wasm32-wasi-emit** — F09 Optional later: wasm32/wasi emit + link smoke
+- **ticket-69-f08-unsafe-native-only-ffi-diagnostics** — F08 Unsafe/native-only FFI diagnostics; JS hard-error; clear spans
+- **ticket-68-f07-bindgen-ish-generate-externs-from** — F07 Bindgen-ish: generate externs from C header subset
+- **ticket-67-f05-link-load-dynamic-lib-so** — F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol
+- **ticket-66-f04-link-external-static-lib-a** — F04 Link external static lib (`.a`); call one symbol
+- **ticket-64-f02-c-callbacks-draconic-fn-as** — F02 C callbacks: Draconic fn as `extern \"C\"` pointer; host invokes
+- **ticket-63-k11-05-yank-retract-when-advisory-source** — K11.05 Yank/retract when advisory source configured
+- **ticket-62-k11-04-module-proxy-mirror-git-still** — K11.04 Module proxy/mirror (git still canonical)
+- **ticket-61-k11-03-multi-module-monorepo-subdir-module** — K11.03 Multi-module monorepo (subdir module paths)
+- **ticket-60-k11-02-replace-directive-fork-local-override** — K11.02 `replace` directive: fork/local override
+- **ticket-59-k11-01-private-git-auth-https-token** — K11.01 Private git auth (HTTPS token / SSH)
+- **ticket-56-k08-integrity-verify-lock-hashes-refuse** — K08 Integrity: verify lock hashes; refuse tampered cache
+- **ticket-55-k07-build-integration-auto-fetch-offline** — K07 Build integration: auto-fetch; `--offline`
+- **ticket-54-k05-cli-draconic-get-draconic-mod** — K05 CLI: `draconic get`, `draconic mod tidy`
+- **ticket-53-k04-version-resolve-semver-tag-commit** — K04 Version resolve: semver tag → commit OID; fail closed
+- **ticket-52-k03-module-cache-layout-git-clone** — K03 Module cache: layout, git clone/fetch, checkout by OID
+- **ticket-51-k02-lockfile-draconic-lock-resolved-pins** — K02 Lockfile (`draconic.lock`): resolved pins
+- **ticket-50-k01-manifest-draconic-toml-module-path** — K01 Manifest (`draconic.toml`): module path, deps, optional path→git URL map
+- **ticket-49-h17-04-optional-js-node-bridge-for** — H17.04 Optional JS/Node bridge for subset host APIs (after native green)
+- **ticket-48-h17-success-programs-host-cutover** — H17 Success Programs & host cutover
+- **ticket-47-h16-os-misc** — H16 OS misc
+- **ticket-46-h15-subprocess** — H15 Subprocess
+- **ticket-45-h14-signals** — H14 Signals
+- **ticket-44-h13-http-2-later-not-v1** — H13 HTTP/2 (later; not v1 bar)
+- **ticket-43-h12-websocket** — H12 WebSocket
+- **ticket-42-h11-tls** — H11 TLS
+- **ticket-41-h10-http-1-1-thin-helpers** — H10 HTTP/1.1 thin helpers (plaintext) on sockets
+- **ticket-40-h09-dns** — H09 DNS
+- **ticket-39-h08-udp** — H08 UDP
+- **ticket-38-h07-async-socket-i-o-job** — H07 Async socket I/O + job queue
+- **ticket-37-h06-tcp-sockets-sockets-first** — H06 TCP sockets (sockets-first)
+- **ticket-36-h05-time-clock-timers-job-queue** — H05 Time, clock, timers (job-queue integrated)
+- **ticket-35-h04-filesystem-read-write-dirs** — H04 Filesystem: read / write / dirs
+- **ticket-34-h03-path-helpers-string-ops-no** — H03 Path helpers (string ops; no I/O)
+- **ticket-33-h02-stdio-stdout-stderr-stdin** — H02 Stdio: stdout / stderr / stdin
+- **ticket-32-h01-process-args-env-exit** — H01 Process: args, env, exit
+- **ticket-31-h00-host-i-o-surface-policy** — H00 Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix
+- **ticket-30-e18-44-untracked-ecma-262-remainder-beyond** — E18.44 Untracked ECMA-262 remainder beyond E01–E18 children (file finer rows as discovered; do not drop)
+- **ticket-29-e17-02-non-strict-legacy** — E17.02 Other non-strict legacy beyond `with` (children below; untracked remainder stays here)
+- **ticket-28-e17-02-workspace-timeout** — E17.02 remainder workspace tests did not finish (O2 timeout)
+- **ticket-103-d05-02-lto-or-designed-flag-documented** — D05.02 LTO (or designed) flag documented; size delta smoke
+- **ticket-102-d05-01-cli-build-flags-strip-symbols** — D05.01 CLI/build flags: strip symbols
+- **ticket-101-d05-binary-size-opts-strip-lto** — D05 Binary size opts: strip / LTO flags documented and testable
+- **ticket-100-d04-02-matrix-docs-ci-jobs-for** — D04.02 Matrix docs + CI jobs for available OS/arch pairs
+- **l01-encoding-utf-8-bytes-string** — L01 Encoding: UTF-8 bytes↔string, Base64, hex
+- **k11-05-yank-retract-when-advisory-source** — K11.05 Yank/retract when advisory source configured
+- **k11-04-module-proxy-mirror-git-still** — K11.04 Module proxy/mirror (git still canonical)
+- **k11-03-multi-module-monorepo-subdir-module** — K11.03 Multi-module monorepo (subdir module paths)
+- **k11-02-replace-directive-fork-local-override** — K11.02 `replace` directive: fork/local override
+- **k11-01-private-git-auth-https-token** — K11.01 Private git auth (HTTPS token / SSH)
+- **k08-integrity-verify-lock-hashes-refuse** — K08 Integrity: verify lock hashes; refuse tampered cache
+- **k07-build-integration-auto-fetch-offline** — K07 Build integration: auto-fetch; `--offline`
+- **k05-cli-draconic-get-draconic-mod** — K05 CLI: `draconic get`, `draconic mod tidy`
+- **k04-version-resolve-semver-tag-commit** — K04 Version resolve: semver tag → commit OID; fail closed
+- **k03-module-cache-layout-git-clone** — K03 Module cache: layout, git clone/fetch, checkout by OID
+- **k02-lockfile-draconic-lock-resolved-pins** — K02 Lockfile (draconic.lock): resolved pins
+- **k01-manifest-draconic-toml-module-path** — K01 Manifest (`draconic.toml`): module path, deps, optional path→git URL map
+- **h17-native-host-cutover** — H17 Success Programs & host cutover
+- **h17-04-optional-js-node-bridge-for** — H17.04 Optional JS/Node bridge for subset host APIs (after native green)
+- **h16-os-misc** — H16 OS misc
+- **h15-subprocess** — H15 Subprocess
+- **h14-signals** — H14 Signals
+- **h13-http-2-later-not-v1** — H13 HTTP/2 (later; not v1 bar)
+- **h12-websocket** — H12 WebSocket
+- **h11-tls** — H11 TLS
+- **h10-http-1-1-thin-helpers** — H10 HTTP/1.1 thin helpers (plaintext) on sockets
+- **h09-dns** — H09 DNS
+- **h08-udp** — H08 UDP
+- **h07-async-socket-i-o-job** — H07 Async socket I/O + job queue
+- **h06-tcp-sockets-sockets-first** — H06 TCP sockets (sockets-first)
+- **h05-time-clock-timers-job-queue** — H05 Time, clock, timers (job-queue integrated)
+- **h04-filesystem-read-write-dirs** — H04 filesystem read / write / dirs
+- **h03-path-helpers-string-ops-no-i-o** — H03 Path helpers (string ops; no I/O)
+- **h02-stdio-stdout-stderr-stdin** — H02 stdio stdout / stderr / stdin
+- **h00-host-i-o-surface-policy** — H00 Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix
+- **f09-optional-later-wasm32-wasi-emit** — F09 Optional later: wasm32/wasi emit + link smoke
+- **f05-link-load-dynamic-lib-so** — F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol
+- **d04-01-cross-compile-at-least-one-non-host** — D04.01 Cross-compile: at least one non-host triple smoke
 - **d01-release-binaries-install-script** — D01 release binaries + install-to-PATH surface
 - **d03-reproducible-builds** — D03 reproducible builds surface
 - **c06-shared-memory-atomics** — C06 shared-memory atomics surface
