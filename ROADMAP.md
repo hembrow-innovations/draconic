@@ -864,7 +864,7 @@ Git-backed modules (no central registry in v1). **Locked (ADR-0009 / issues-17):
 | K04.01 | done | compiler | Resolve version req against git tags; highest matching semver | `crates/draconic-pkg` |
 | K04.02 | done | compiler | Fail closed: no match / non-semver-only / empty → diagnostic | `crates/draconic-pkg` |
 | K04.03 | done | compiler | Resolve direct-deps set → lock pins (v1: direct only) | `crates/draconic-pkg` |
-| K05 | todo | compiler | CLI: `draconic get`, `draconic mod tidy` | `crates/draconic-cli`, `crates/draconic-pkg` |
+| K05 | done | compiler | CLI: `draconic get`, `draconic mod tidy` | `crates/draconic-cli`, `crates/draconic-pkg` |
 | K05.01 | done | compiler | `draconic get <module_path>@<ver>`: fetch, update manifest+lock+cache | `crates/draconic-cli` |
 | K05.02 | done | compiler | `draconic mod tidy`: lock matches manifest; fetch missing; prune unused | `crates/draconic-cli` |
 | K06 | done | compiler | Import resolve: module-path imports via Linker + cache | `crates/draconic-linker`, `crates/draconic-pkg` |

@@ -1,4 +1,5 @@
-//! ROADMAP K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
+//! ROADMAP K05: `draconic get` / `draconic mod tidy` combined CLI.
+//! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -154,5 +155,80 @@ fn get_missing_manifest_fails() {
         stderr.contains("missing") || stderr.contains("draconic.toml"),
         "stderr={stderr}"
     );
+    let _ = fs::remove_dir_all(&root);
+}
+
+// --- K05: combined get / mod tidy CLI (parent of K05.01–K05.02) ---
+
+#[test]
+fn k05_combined_get_and_mod_tidy_cli() {
+    let (code, stdout, stderr) = run(draconic().arg("help"));
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(
+        stdout.contains("draconic get"),
+        "help should list get:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("mod tidy"),
+        "help should list mod tidy:\n{stdout}"
+    );
+
+    let root = temp_dir();
+    let upstream = tagged_upstream(&root);
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/acme/app\"\n",
+    )
+    .unwrap();
+    let cache = root.join("cache");
+    let path = "github.com/org/lib";
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("get")
+        .arg(format!("{path}@^1.0.0"))
+        .arg("--url")
+        .arg(upstream.to_str().unwrap())
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(&cache));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains(path) && stdout.contains("1.2.3"),
+        "stdout={stdout}"
+    );
+
+    let mf = fs::read_to_string(ws.join("draconic.toml")).unwrap();
+    assert!(mf.contains(path) && mf.contains("^1.0.0"), "{mf}");
+    let lock = fs::read_to_string(ws.join("draconic.lock")).unwrap();
+    assert!(lock.contains(path) && lock.contains("1.2.3"), "{lock}");
+    assert!(
+        lock.contains("commit_oid") && lock.contains("content_hash"),
+        "{lock}"
+    );
+    let mod_root = cache.join("mod").join("github.com").join("org").join("lib");
+    assert!(
+        mod_root.is_dir(),
+        "expected cache checkout under {}",
+        mod_root.display()
+    );
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("mod")
+        .arg("tidy")
+        .arg("--dir")
+        .arg(&ws)
+        .arg("--cache-dir")
+        .arg(&cache));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("kept 1") && stdout.contains("fetched 0") && stdout.contains("pruned 0"),
+        "tidy after get should keep the pin:\n{stdout}"
+    );
+    let lock2 = fs::read_to_string(ws.join("draconic.lock")).unwrap();
+    assert_eq!(lock, lock2, "tidy must not rewrite a still-valid get pin");
+
     let _ = fs::remove_dir_all(&root);
 }

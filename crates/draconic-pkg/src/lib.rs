@@ -16,6 +16,7 @@
 //! K04.01: resolve version req against git tags; highest matching semver.
 //! K04.02: fail closed: no match / non-semver-only / empty → diagnostic.
 //! K04.03: resolve direct-deps set → lock pins (v1: direct only).
+//! K05: CLI `draconic get` / `draconic mod tidy` — one get/tidy package surface.
 //! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 //! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
 //! K06.01: resolve module-path imports (`github.com/org/pkg` + subpath) → cache file.

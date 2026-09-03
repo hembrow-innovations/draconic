@@ -1321,7 +1321,7 @@ fn parse_clang_llvm_version(text: &str) -> Option<String> {
     None
 }
 
-/// ROADMAP K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
+/// ROADMAP K05 / K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
 fn cmd_mod(args: &[String]) -> ExitCode {
     let sub = match args.first().map(String::as_str) {
         Some("tidy") => "tidy",
@@ -1421,7 +1421,7 @@ fn parse_mod_tidy_args(args: &[String]) -> Result<ModTidyArgs, String> {
     Ok(ModTidyArgs { dir, cache_dir })
 }
 
-/// ROADMAP K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
+/// ROADMAP K05 / K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 fn cmd_get(args: &[String]) -> ExitCode {
     let parsed = match parse_get_args(args) {
         Ok(p) => p,

@@ -1,4 +1,5 @@
-//! ROADMAP K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
+//! ROADMAP K05: `draconic get` / `draconic mod tidy` combined CLI.
+//! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
 
 use std::fs;
 use std::path::{Path, PathBuf};
