@@ -1,22 +1,16 @@
 //! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
+mod base64;
 mod debug_info;
 mod es_arrays;
-mod es_param_dstr;
 mod es_builtins;
 mod es_call_spread;
 mod es_class_expr_name;
 mod es_classes;
-mod es_static_private_fields;
-mod es_static_private_methods;
 mod es_coercion;
+mod es_collections;
 mod es_destructure_defaults;
-mod base64;
-mod hex;
-mod sha256;
 mod es_encoding;
-mod es_logging;
-mod es_testing;
 mod es_eval;
 mod es_exceptions;
 mod es_expr;
@@ -24,63 +18,68 @@ mod es_functions;
 mod es_generators;
 mod es_instanceof;
 mod es_legacy;
+mod es_logging;
 mod es_modules;
-mod es_private_methods;
-mod es_private_accessors;
-mod es_optional_chain;
 mod es_new_target;
+mod es_optional_chain;
+mod es_param_dstr;
+mod es_private_accessors;
+mod es_private_methods;
+mod es_static_private_fields;
+mod es_static_private_methods;
+mod es_testing;
+mod hex;
+mod sha256;
 
-mod es_static_blocks;
 mod es_nullish;
 mod es_object_destructure;
 mod es_objects;
+mod es_static_blocks;
 
-mod es_private_in;
+mod cross_compile;
 mod es_async_methods;
+mod es_private_in;
 mod es_promise;
 mod es_proxies;
 mod es_tagged_template;
 mod es_to_primitive;
 mod es_values;
 mod es_var_for;
+mod host_atomics;
+mod host_cancel;
+mod host_channels;
 mod host_dns;
 mod host_docs;
 mod host_fs;
 mod host_http;
+mod host_http2;
 mod host_http_server;
+mod host_once;
 mod host_os;
 mod host_path;
 mod host_process;
-mod host_subprocess;
 mod host_process_async;
 mod host_signals;
 mod host_stdio;
+mod host_subprocess;
 mod host_tcp;
 mod host_tcp_async;
-mod host_udp;
-mod host_ws;
-mod host_ws_e2e;
-mod host_http2;
 mod host_time;
 mod host_timers;
-mod host_once;
-mod host_atomics;
-mod host_cancel;
-mod host_workers;
+mod host_udp;
 mod host_worker_channels;
-mod host_channels;
+mod host_workers;
+mod host_ws;
+mod host_ws_e2e;
 mod native_ints;
-mod cross_compile;
 mod wasm32_wasi;
 
-pub use debug_info::SourceDebug;
 pub use cross_compile::{
     compile_object_for_non_host, compile_object_for_triple, cross_compile_matrix,
     host_cross_compile_pair, CrossCompilePair,
 };
-pub use wasm32_wasi::{
-    compile_object_for_wasm32_wasi, link_wasm32_wasi, WASM32_WASI_TRIPLE,
-};
+pub use debug_info::SourceDebug;
+pub use wasm32_wasi::{compile_object_for_wasm32_wasi, link_wasm32_wasi, WASM32_WASI_TRIPLE};
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -89,24 +88,14 @@ use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_ir::Module;
 
 use es_arrays::{emit_es_arrays, is_es_arrays_module};
-use es_param_dstr::{emit_es_param_dstr, is_es_param_dstr_module};
 use es_builtins::{emit_es_builtins, is_es_builtins_module};
 use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_class_expr_name::{emit_es_class_expr_name, is_es_class_expr_name_module};
 use es_classes::{emit_es_classes, is_es_classes_module};
-use es_static_private_fields::{
-    emit_es_static_private_fields, is_es_static_private_fields_module,
-};
-use es_static_private_methods::{
-    emit_es_static_private_methods, is_es_static_private_methods_module,
-};
 use es_coercion::{emit_es_coercion, is_es_coercion_module};
-use es_destructure_defaults::{
-    emit_es_destructure_defaults, is_es_destructure_defaults_module,
-};
+use es_collections::{emit_es_collections, is_es_collections_module};
+use es_destructure_defaults::{emit_es_destructure_defaults, is_es_destructure_defaults_module};
 use es_encoding::{emit_es_encoding, is_es_encoding_module};
-use es_logging::{emit_es_logging, is_es_logging_module};
-use es_testing::{emit_es_testing, is_es_testing_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
 use es_expr::{emit_es_expr, is_es_expr_module};
@@ -114,51 +103,58 @@ use es_functions::{emit_es_functions, is_es_functions_module};
 use es_generators::{emit_es_generators, is_es_generators_module};
 use es_instanceof::{emit_es_instanceof, is_es_instanceof_module};
 use es_legacy::{emit_es_legacy, is_es_legacy_module};
+use es_logging::{emit_es_logging, is_es_logging_module};
 use es_modules::{emit_es_modules, is_es_modules_module};
-use es_private_methods::{emit_es_private_methods, is_es_private_methods_module};
-use es_private_accessors::{emit_es_private_accessors, is_es_private_accessors_module};
-use es_optional_chain::{emit_es_optional_chain, is_es_optional_chain_module};
 use es_new_target::{emit_es_new_target, is_es_new_target_module};
+use es_optional_chain::{emit_es_optional_chain, is_es_optional_chain_module};
+use es_param_dstr::{emit_es_param_dstr, is_es_param_dstr_module};
+use es_private_accessors::{emit_es_private_accessors, is_es_private_accessors_module};
+use es_private_methods::{emit_es_private_methods, is_es_private_methods_module};
+use es_static_private_fields::{emit_es_static_private_fields, is_es_static_private_fields_module};
+use es_static_private_methods::{
+    emit_es_static_private_methods, is_es_static_private_methods_module,
+};
+use es_testing::{emit_es_testing, is_es_testing_module};
 
-use es_static_blocks::{emit_es_static_blocks, is_es_static_blocks_module};
 use es_nullish::{emit_es_nullish, is_es_nullish_module};
 use es_object_destructure::{emit_es_object_destructure, is_es_object_destructure_module};
 use es_objects::{emit_es_objects, is_es_objects_module};
+use es_static_blocks::{emit_es_static_blocks, is_es_static_blocks_module};
 
-use es_private_in::{emit_es_private_in, is_es_private_in_module};
 use es_async_methods::{emit_es_async_methods, is_es_async_methods_module};
+use es_private_in::{emit_es_private_in, is_es_private_in_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_proxies::{emit_es_proxies, is_es_proxies_module};
 use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
 use es_to_primitive::{emit_es_to_primitive, is_es_to_primitive_module};
 use es_values::{emit_es_values, is_es_values_module};
 use es_var_for::{emit_es_var_for, is_es_var_for_module};
+use host_atomics::{emit_host_atomics, is_host_atomics_module};
+use host_cancel::{emit_host_cancel, is_host_cancel_module};
+use host_channels::{emit_host_channels, is_host_channels_module};
 use host_dns::{emit_host_dns, is_host_dns_module};
 use host_docs::{emit_host_docs, is_host_docs_module};
 use host_fs::{emit_host_fs, is_host_fs_module};
 use host_http::{emit_host_http, is_host_http_module};
+use host_http2::{emit_host_http2, is_host_http2_module};
 use host_http_server::{emit_host_http_server, is_host_http_server_module};
+use host_once::{emit_host_once, is_host_once_module};
 use host_os::{emit_host_os, is_host_os_module};
 use host_path::{emit_host_path, is_host_path_module};
 use host_process::{emit_host_process, is_host_process_module};
-use host_subprocess::{emit_host_subprocess, is_host_subprocess_module};
 use host_process_async::{emit_host_process_async, is_host_process_async_module};
 use host_signals::{emit_host_signals, is_host_signal_module};
 use host_stdio::{emit_host_stdio, is_host_stdio_module};
+use host_subprocess::{emit_host_subprocess, is_host_subprocess_module};
 use host_tcp::{emit_host_tcp, is_host_tcp_module};
 use host_tcp_async::{emit_host_tcp_async, is_host_tcp_async_module};
-use host_udp::{emit_host_udp, is_host_udp_module};
-use host_ws::{emit_host_ws, is_host_ws_module};
-use host_ws_e2e::{emit_host_ws_e2e, is_host_ws_e2e_module};
-use host_http2::{emit_host_http2, is_host_http2_module};
 use host_time::{emit_host_time, is_host_time_module};
 use host_timers::{emit_host_timers, is_host_timer_module};
-use host_once::{emit_host_once, is_host_once_module};
-use host_atomics::{emit_host_atomics, is_host_atomics_module};
-use host_cancel::{emit_host_cancel, is_host_cancel_module};
-use host_workers::{emit_host_workers, is_host_workers_module};
+use host_udp::{emit_host_udp, is_host_udp_module};
 use host_worker_channels::{emit_host_worker_channels, is_host_worker_channels_module};
-use host_channels::{emit_host_channels, is_host_channels_module};
+use host_workers::{emit_host_workers, is_host_workers_module};
+use host_ws::{emit_host_ws, is_host_ws_module};
+use host_ws_e2e::{emit_host_ws_e2e, is_host_ws_e2e_module};
 use native_ints::{emit_native_ints, is_native_int_module};
 
 /// Emit LLVM IR text for a shared IR module.
@@ -254,17 +250,11 @@ pub fn emit_llvm_ir(module: &Module) -> Result<String, Diagnostic> {
 }
 
 /// Emit LLVM IR with DWARF debug info mapping Draconic source lines (U07).
-pub fn emit_llvm_ir_with_debug(
-    module: &Module,
-    debug: &SourceDebug,
-) -> Result<String, Diagnostic> {
+pub fn emit_llvm_ir_with_debug(module: &Module, debug: &SourceDebug) -> Result<String, Diagnostic> {
     emit_llvm_ir_inner(module, Some(debug))
 }
 
-fn emit_llvm_ir_inner(
-    module: &Module,
-    debug: Option<&SourceDebug>,
-) -> Result<String, Diagnostic> {
+fn emit_llvm_ir_inner(module: &Module, debug: Option<&SourceDebug>) -> Result<String, Diagnostic> {
     let ir = emit_llvm_ir_raw(module, debug)?;
     if let Some(dbg) = debug {
         Ok(debug_info::attach_debug_info(&ir, module, dbg))
@@ -273,10 +263,7 @@ fn emit_llvm_ir_inner(
     }
 }
 
-fn emit_llvm_ir_raw(
-    module: &Module,
-    debug: Option<&SourceDebug>,
-) -> Result<String, Diagnostic> {
+fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         return emit_native_ints(module, debug);
     }
@@ -378,6 +365,9 @@ fn emit_llvm_ir_raw(
     }
     if is_es_logging_module(module) {
         return emit_es_logging(module);
+    }
+    if is_es_collections_module(module) {
+        return emit_es_collections(module);
     }
     if is_es_encoding_module(module) {
         return emit_es_encoding(module);
@@ -615,13 +605,11 @@ fn build_native_binary_with_libs(
     }
     for lib in &dynamic_libs {
         if !lib.is_file() {
-            return Err(
-                Diagnostic::new(
-                    format!("dynamic lib not found: {}", lib.display()),
-                    Span::dummy(),
-                )
-                .with_code(codes::MISSING_DYNAMIC_LIB),
-            );
+            return Err(Diagnostic::new(
+                format!("dynamic lib not found: {}", lib.display()),
+                Span::dummy(),
+            )
+            .with_code(codes::MISSING_DYNAMIC_LIB));
         }
     }
 
@@ -720,7 +708,12 @@ fn find_ar() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    for candidate in ["ar", "/usr/bin/ar", "llvm-ar", "/opt/homebrew/opt/llvm/bin/llvm-ar"] {
+    for candidate in [
+        "ar",
+        "/usr/bin/ar",
+        "llvm-ar",
+        "/opt/homebrew/opt/llvm/bin/llvm-ar",
+    ] {
         let ok = Command::new(candidate)
             .arg("--version")
             .stdout(Stdio::null())
@@ -1198,8 +1191,7 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            stdout,
-            "8\n1024\n512\n64\n1\n1\n32\n9\n-8\n16\nbigint\n",
+            stdout, "8\n1024\n512\n64\n1\n1\n32\n9\n-8\n16\nbigint\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -1240,8 +1232,7 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            stdout,
-            "3\n3\n4\n4\n1\n3\n1024\n3\n-1\ntrue\ntrue\nobject\n4\ntrue\ntrue\n",
+            stdout, "3\n3\n4\n4\n1\n3\n1024\n3\n-1\ntrue\ntrue\nobject\n4\ntrue\ntrue\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -1320,8 +1311,7 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            stdout,
-            "symbol\nsymbol\ntrue\ntrue\nshared\nfunction\nfunction\nfunction\n",
+            stdout, "symbol\nsymbol\ntrue\ntrue\nshared\nfunction\nfunction\nfunction\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -1359,8 +1349,7 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            stdout,
-            "1\nundefined\n2\nundefined\n3\n3\nundefined\n4\nundefined\n5\n6\n7\n6\n",
+            stdout, "1\nundefined\n2\nundefined\n3\n3\nundefined\n4\nundefined\n5\n6\n7\n6\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -1399,7 +1388,6 @@ mod tests {
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
-
 
     #[test]
     fn es_objects_lit_access_prints_native() {
@@ -1534,7 +1522,10 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(stdout, "1\n2\n10\n10\n3\n6\n3\n", "stdout={stdout:?}\nir=\n{ir}");
+        assert_eq!(
+            stdout, "1\n2\n10\n10\n3\n6\n3\n",
+            "stdout={stdout:?}\nir=\n{ir}"
+        );
     }
 
     #[test]
@@ -1571,10 +1562,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(
-            stdout, "3\n3\n6\n9\n7\n7\n",
-            "stdout={stdout:?}\nir=\n{ir}"
-        );
+        assert_eq!(stdout, "3\n3\n6\n9\n7\n7\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]
@@ -1930,8 +1918,7 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            stdout,
-            "6\n0\nab\n60\n15\n5\n3\n5\n6\n",
+            stdout, "6\n0\nab\n60\n15\n5\n3\n5\n6\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -2062,7 +2049,8 @@ mod tests {
         let stdout = output.stdout;
         let expected = b"hello\nworld\n\n\nhelloworld\nabc\nn1\n2n\nx\ny\nabc\n3\n0\na\nb\nc\n1\nb\na\nb\na\tb\na\rb\na\\b\na\"b\na'b\na\0b\nit's \"ok\"\nstring\ntrue\ntrue\n";
         assert_eq!(
-            stdout, expected,
+            stdout,
+            expected,
             "stdout={:?}\nir=\n{ir}",
             String::from_utf8_lossy(&stdout)
         );
@@ -2097,7 +2085,8 @@ mod tests {
         let stdout = output.stdout;
         let expected = b"hello\n\na\nb\nworld\nhello world\nworld!\naworldb\n3\nn=3\nx1y2z\nsum=3\nouter inner world end\na`b$c\\d\na\nb\nstring\ntrue\nab\n";
         assert_eq!(
-            stdout, expected,
+            stdout,
+            expected,
             "stdout={:?}\nir=\n{ir}",
             String::from_utf8_lossy(&stdout)
         );
@@ -2144,7 +2133,8 @@ mod tests {
         expected.extend_from_slice("\u{1F4A9}".as_bytes());
         expected.extend_from_slice(b"\nxAy\ntrue\ntrue\ntrue\n2\n1\nHi\n");
         assert_eq!(
-            stdout, expected,
+            stdout,
+            expected,
             "stdout={:?}\nir=\n{ir}",
             String::from_utf8_lossy(&stdout)
         );
@@ -2178,8 +2168,7 @@ mod tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
-            stdout,
-            "hello1\nworld\nhello world!\nx1y2z3\na`b\ntrue\np9q\nm7n\n",
+            stdout, "hello1\nworld\nhello world!\nx1y2z3\na`b\ntrue\np9q\nm7n\n",
             "stdout={stdout:?}\nir=\n{ir}"
         );
     }
@@ -2440,10 +2429,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(
-            stdout, "2\n2\n3\n6\n",
-            "stdout={stdout:?}\nir=\n{ir}"
-        );
+        assert_eq!(stdout, "2\n2\n3\n6\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]
@@ -3007,10 +2993,7 @@ mod tests {
             ir.contains("declare void @free(ptr)"),
             "expected declare free:\n{ir}"
         );
-        assert!(
-            ir.contains("call i32 @abs("),
-            "expected call abs:\n{ir}"
-        );
+        assert!(ir.contains("call i32 @abs("), "expected call abs:\n{ir}");
         let dir = work_dir("draconic-llvm-f06-03-extern").expect("workdir");
         let bin = dir.join("extern_abs");
         build_native_binary(&ir, &bin).expect("build");
@@ -4343,10 +4326,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(
-            stdout, "3\n0\n2\n3\n6\n0\n",
-            "stdout={stdout:?}\nir=\n{ir}"
-        );
+        assert_eq!(stdout, "3\n0\n2\n3\n6\n0\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]
@@ -4378,10 +4358,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(
-            stdout, "3\n1\n2\n3\n6\n0\n",
-            "stdout={stdout:?}\nir=\n{ir}"
-        );
+        assert_eq!(stdout, "3\n1\n2\n3\n6\n0\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]
@@ -4448,10 +4425,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(
-            stdout, "1\n1\n1\n7\n5\n",
-            "stdout={stdout:?}\nir=\n{ir}"
-        );
+        assert_eq!(stdout, "1\n1\n1\n7\n5\n", "stdout={stdout:?}\nir=\n{ir}");
     }
 
     #[test]
@@ -4736,11 +4710,7 @@ mod tests {
     fn native_link_static_lib_resolves_c_symbol() {
         let dir = work_dir("draconic-llvm-f04-01-link-static").expect("workdir");
         let c_src = dir.join("touch.c");
-        std::fs::write(
-            &c_src,
-            "void draconic_link_static_touch(void) {}\n",
-        )
-        .expect("write c");
+        std::fs::write(&c_src, "void draconic_link_static_touch(void) {}\n").expect("write c");
         let archive = dir.join("libtouch.a");
         build_c_static_lib(&c_src, &archive).expect("build .a");
 
@@ -4827,11 +4797,7 @@ mod tests {
     fn native_link_dynamic_lib_resolves_c_symbol() {
         let dir = work_dir("draconic-llvm-f05-01-link-dynamic").expect("workdir");
         let c_src = dir.join("touch.c");
-        std::fs::write(
-            &c_src,
-            "void draconic_link_dynamic_touch(void) {}\n",
-        )
-        .expect("write c");
+        std::fs::write(&c_src, "void draconic_link_dynamic_touch(void) {}\n").expect("write c");
         let dylib = dir.join(dynamic_lib_file_name("touch"));
         build_c_dynamic_lib(&c_src, &dylib).expect("build shared lib");
 

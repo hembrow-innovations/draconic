@@ -1,0 +1,13 @@
+// L02.01: designed free `groupBy` on arrays (not Object.groupBy / Map.groupBy).
+let tp = typeof groupBy;
+let gp = globalThis.groupBy === groupBy;
+let g = groupBy(["a", "b", "a"]);
+let idOk = g.a.length === 2 && g.a[0] === "a" && g.a[1] === "a"
+  && g.b.length === 1 && g.b[0] === "b";
+let g2 = groupBy([1, 2, 1], function (n) { return n; });
+let fnOk = g2[1].length === 2 && g2[1][0] === 1 && g2[1][1] === 1
+  && g2[2].length === 1 && g2[2][0] === 2;
+let g3 = groupBy([{k: "x", v: 1}, {k: "y", v: 2}, {k: "x", v: 3}], "k");
+let propOk = g3.x.length === 2 && g3.x[0].v === 1 && g3.x[1].v === 3
+  && g3.y.length === 1 && g3.y[0].v === 2;
+let emptyOk = groupBy([]).a === undefined;

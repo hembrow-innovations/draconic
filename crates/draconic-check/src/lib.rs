@@ -1235,6 +1235,9 @@ impl Binder {
         binder.install_builtin("randomBytes", BindingKind::Const);
         // L06.01: leveled logger factory
         binder.install_builtin("createLogger", BindingKind::Const);
+        // L02.01: designed collections helpers (not Object.groupBy / Map.groupBy)
+        binder.install_builtin("groupBy", BindingKind::Const);
+        binder.install_builtin("chunk", BindingKind::Const);
         binder
     }
 

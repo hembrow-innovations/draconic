@@ -86,6 +86,11 @@ fn module_uses_create_logger(module: &Module) -> bool {
     module_uses_named_local(module, "createLogger")
 }
 
+/// L02.01: `groupBy` / `chunk`.
+fn module_uses_collections(module: &Module) -> bool {
+    module_uses_named_local(module, "groupBy") || module_uses_named_local(module, "chunk")
+}
+
 /// L05.01 / L05.02 / L05.03: free `describe` / `it` / `expect` / hooks (IdentName so user `let it` does not collide).
 fn module_uses_describe_it(module: &Module) -> bool {
     module.body.iter().any(|s| {
@@ -663,6 +668,13 @@ fn emit_js_full(
     // L06.01: portable `createLogger` polyfill.
     if module_uses_create_logger(module) {
         out.push_str(draconic_runtime::create_logger_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L02.01: portable `groupBy` / `chunk` polyfill.
+    if module_uses_collections(module) {
+        out.push_str(draconic_runtime::collections_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1348,6 +1360,16 @@ mod tests {
             "{js}"
         );
         assert!(js.contains("setLevel"), "{js}");
+    }
+
+    #[test]
+    fn emit_collections_polyfill() {
+        let js =
+            emit_src("let g = groupBy([\"a\", \"b\"], \"length\"); let c = chunk([1, 2, 3], 2);");
+        assert!(js.contains("function groupBy("), "{js}");
+        assert!(js.contains("function chunk("), "{js}");
+        assert!(js.contains("globalThis.groupBy = groupBy"), "{js}");
+        assert!(js.contains("globalThis.chunk = chunk"), "{js}");
     }
 
     #[test]

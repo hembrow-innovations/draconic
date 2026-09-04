@@ -1,0 +1,36 @@
+// L02.01: groupBy / chunk reject non-arrays and bad size/key.
+let notArr = 0;
+try {
+  groupBy("abc");
+  notArr = -1;
+} catch (e) {
+  notArr = e.name === "TypeError" ? 1 : -2;
+}
+let badKey = 0;
+try {
+  groupBy([], 1);
+  badKey = -1;
+} catch (e2) {
+  badKey = e2.name === "TypeError" ? 1 : -2;
+}
+let chunkNotArr = 0;
+try {
+  chunk("abc", 2);
+  chunkNotArr = -1;
+} catch (e3) {
+  chunkNotArr = e3.name === "TypeError" ? 1 : -2;
+}
+let chunkZero = 0;
+try {
+  chunk([], 0);
+  chunkZero = -1;
+} catch (e4) {
+  chunkZero = e4.name === "RangeError" ? 1 : -2;
+}
+let chunkNeg = 0;
+try {
+  chunk([1], -1);
+  chunkNeg = -1;
+} catch (e5) {
+  chunkNeg = e5.name === "RangeError" ? 1 : -2;
+}

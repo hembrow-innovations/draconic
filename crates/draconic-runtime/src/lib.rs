@@ -2,9 +2,11 @@
 //! + host I/O substrate (H00.02–H00.03, H01.01 process args); embed later (N07).
 
 pub mod abi;
+pub mod collections;
 pub mod host_js_bridge;
 pub mod logging;
 pub use abi::*;
+pub use collections::collections_js_polyfill;
 pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
 pub use host_js_bridge::{dns_js_polyfill, http_js_polyfill, tcp_js_polyfill};
 pub use logging::create_logger_js_polyfill;

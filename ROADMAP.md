@@ -981,7 +981,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L01.02 | done | both | Base64 encode/decode | `tests/conformance` fixtures `stdlib/encoding` |
 | L01.03 | done | both | Hex encode/decode | `tests/conformance` fixtures `stdlib/encoding` |
 | L02 | todo | both | Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set) | `tests/conformance` fixtures `stdlib/collections` |
-| L02.01 | todo | both | `groupBy` / `chunk` (or designed names) on arrays | `tests/conformance` fixtures `stdlib/collections` |
+| L02.01 | done | both | `groupBy` / `chunk` (or designed names) on arrays | `tests/conformance` fixtures `stdlib/collections` |
 | L02.02 | todo | both | Deque (or designed): push/pop both ends | `tests/conformance` fixtures `stdlib/collections` |
 | L03 | todo | both | Crypto: SHA-256 digest + secure random bytes | `tests/conformance` fixtures `stdlib/crypto` |
 | L03.01 | done | both | SHA-256 digest over bytes; known test vectors | `tests/conformance` fixtures `stdlib/crypto` |

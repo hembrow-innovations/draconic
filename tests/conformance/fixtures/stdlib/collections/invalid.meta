@@ -1,0 +1,6 @@
+id: stdlib/collections/invalid
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\n1\n1\n1\n1\n
+js.check: if (notArr !== 1) process.exit(1); if (badKey !== 1) process.exit(2); if (chunkNotArr !== 1) process.exit(3); if (chunkZero !== 1) process.exit(4); if (chunkNeg !== 1) process.exit(5);

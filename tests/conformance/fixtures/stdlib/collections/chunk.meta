@@ -1,0 +1,6 @@
+id: stdlib/collections/chunk
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\ntrue\ntrue\ntrue\n
+js.check: if (tp !== "function") process.exit(1); if (gp !== true) process.exit(2); if (splitOk !== true) process.exit(3); if (emptyOk !== true) process.exit(4); if (overOk !== true) process.exit(5);

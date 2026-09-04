@@ -1,0 +1,10 @@
+// L02.01: designed free `chunk` on arrays.
+let tp = typeof chunk;
+let gp = globalThis.chunk === chunk;
+let c = chunk([1, 2, 3, 4, 5], 2);
+let splitOk = c.length === 3 && c[0].length === 2 && c[0][0] === 1 && c[0][1] === 2
+  && c[1].length === 2 && c[1][0] === 3 && c[1][1] === 4
+  && c[2].length === 1 && c[2][0] === 5;
+let emptyOk = chunk([], 3).length === 0;
+let over = chunk([9], 10);
+let overOk = over.length === 1 && over[0].length === 1 && over[0][0] === 9;
