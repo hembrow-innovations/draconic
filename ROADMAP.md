@@ -908,7 +908,7 @@ C ABI boundary on native (Rust-class). Complements **N** layout/pointers. JS har
 | F02 | done | native | C callbacks: Draconic fn as `extern "C"` pointer; host invokes | `tests/conformance` fixtures `ffi/callback` |
 | F02.01 | done | native | Export Draconic fn as C function pointer | `tests/conformance` fixtures `ffi/callback` |
 | F02.02 | done | native | Host invokes callback with scalar args; return value observed | `tests/conformance` fixtures `ffi/callback` |
-| F03 | todo | native | C-compatible struct layout (repr(C)-style); read/write both sides | `tests/conformance` fixtures `ffi/layout` |
+| F03 | done | native | C-compatible struct layout (repr(C)-style); read/write both sides | `tests/conformance` fixtures `ffi/layout` |
 | F03.01 | done | native | repr(C) struct field offsets match C ABI for scalars | `tests/conformance` fixtures `ffi/layout` |
 | F03.02 | done | native | Pass/return struct by value or pointer across FFI | `tests/conformance` fixtures `ffi/layout` |
 | F04 | done | native | Link external static lib (`.a`); call one symbol | `tests/integration`, `tests/conformance` fixtures `ffi/link_static` |

@@ -1,4 +1,5 @@
-//! ROADMAP F03.01–F03.02: repr(C) layout offsets; pass/return struct across FFI.
+//! ROADMAP F03 / F03.01–F03.02: repr(C) layout offsets; pass/return struct across FFI.
+//! F03 parent locks the combined read/write-both-sides layout surface in one Program.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -47,4 +48,14 @@ fn pass_return_fixture_present() {
 #[test]
 fn pass_return_runs_native() {
     assert_fixture_runs_native("ffi/layout/pass_return");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("ffi/layout/surface");
+}
+
+#[test]
+fn surface_runs_native() {
+    assert_fixture_runs_native("ffi/layout/surface");
 }

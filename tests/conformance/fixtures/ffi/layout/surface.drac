@@ -1,0 +1,26 @@
+// F03: one Program — C-compatible layout; read/write both sides; pass/return by value or pointer.
+type Pair = { a: i32; b: i64 };
+type Small = { x: i8; y: i32 };
+extern "C" function draconic_rt_layout_i32_i64_a(p: *u8): i32;
+extern "C" function draconic_rt_layout_i32_i64_b(p: *u8): i64;
+extern "C" function draconic_rt_layout_i32_i64_write(p: *u8, a: i32, b: i64): void;
+extern "C" function draconic_rt_layout_i8_i32_x(p: *u8): i8;
+extern "C" function draconic_rt_layout_i8_i32_y(p: *u8): i32;
+extern "C" function draconic_rt_layout_pass_i32_i64(p: Pair): i32;
+extern "C" function draconic_rt_layout_ret_i32_i64(a: i32, b: i64): Pair;
+extern "C" function draconic_rt_layout_pass_i32_i64_ptr(p: *u8): i32;
+let p: Pair = { a: 10, b: 20 };
+let ra: i32 = draconic_rt_layout_i32_i64_a(&p);
+let rb: i64 = draconic_rt_layout_i32_i64_b(&p);
+let q: Pair = { a: 0, b: 0 };
+draconic_rt_layout_i32_i64_write(&q, 7, 8);
+let qa: i32 = q.a;
+let qb: i64 = q.b;
+let s: Small = { x: 1, y: 99 };
+let sx: i8 = draconic_rt_layout_i8_i32_x(&s);
+let sy: i32 = draconic_rt_layout_i8_i32_y(&s);
+let by_val: i32 = draconic_rt_layout_pass_i32_i64(p);
+let by_ptr: i32 = draconic_rt_layout_pass_i32_i64_ptr(&p);
+let r: Pair = draconic_rt_layout_ret_i32_i64(7, 8);
+let ra2: i32 = r.a;
+let rb2: i64 = r.b;
