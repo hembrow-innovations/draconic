@@ -1,6 +1,6 @@
-//! L01 / L01.01 / L01.02 / L01.03 / L03.01 / L03.02: native observations for UTF-8
+//! L01 / L01.01 / L01.02 / L01.03 / L03.01 / L03.02 / L04: native observations for UTF-8
 //! TextEncoder / TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), hex
-//! (`toHex` / `fromHex`), SHA-256 (`sha256`), and `randomBytes`.
+//! (`toHex` / `fromHex`), SHA-256 (`sha256`), `randomBytes`, and gzip/deflate.
 //!
 //! L01 parent: one Program combining UTF-8 bytes↔string, Base64, and hex,
 //! with invalid input as catchable errors rather than silent corruption.
@@ -22,6 +22,7 @@ use draconic_ir::{
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
 use crate::base64;
+use crate::compression;
 use crate::hex;
 use crate::sha256;
 
@@ -45,6 +46,10 @@ enum BuiltinId {
     TypeError,
     Sha256,
     RandomBytes,
+    Gzip,
+    Gunzip,
+    Deflate,
+    Inflate,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,20 +59,11 @@ enum JsVal {
     Str(String),
     Undef,
     Builtin(BuiltinId),
-    ErrorInst {
-        name: String,
-        message: String,
-    },
+    ErrorInst { name: String, message: String },
     TextEncoderInst,
-    TextDecoderInst {
-        fatal: bool,
-    },
-    Uint8ArrayInst {
-        bytes: Rc<RefCell<Vec<u8>>>,
-    },
-    Object {
-        props: Vec<(String, JsVal)>,
-    },
+    TextDecoderInst { fatal: bool },
+    Uint8ArrayInst { bytes: Rc<RefCell<Vec<u8>>> },
+    Object { props: Vec<(String, JsVal)> },
 }
 
 struct ModuleInfo {
@@ -136,6 +132,10 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "TypeError" => Some(BuiltinId::TypeError),
         "sha256" => Some(BuiltinId::Sha256),
         "randomBytes" => Some(BuiltinId::RandomBytes),
+        "gzip" => Some(BuiltinId::Gzip),
+        "gunzip" => Some(BuiltinId::Gunzip),
+        "deflate" => Some(BuiltinId::Deflate),
+        "inflate" => Some(BuiltinId::Inflate),
         _ => None,
     }
 }
@@ -173,14 +173,19 @@ fn stmt_has_encoding_surface(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> b
 
 fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
-        Expr::Local { id, .. } => by_id
-            .get(id)
-            .is_some_and(|l| {
-                matches!(
-                    l.name.as_str(),
-                    "TextEncoder" | "TextDecoder" | "sha256" | "randomBytes"
-                )
-            }),
+        Expr::Local { id, .. } => by_id.get(id).is_some_and(|l| {
+            matches!(
+                l.name.as_str(),
+                "TextEncoder"
+                    | "TextDecoder"
+                    | "sha256"
+                    | "randomBytes"
+                    | "gzip"
+                    | "gunzip"
+                    | "deflate"
+                    | "inflate"
+            )
+        }),
         Expr::Unary { arg, .. } => expr_has_encoding_surface(arg, by_id),
         Expr::Binary { left, right, .. } => {
             expr_has_encoding_surface(left, by_id) || expr_has_encoding_surface(right, by_id)
@@ -195,7 +200,9 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
                 || expr_has_encoding_surface(consequent, by_id)
                 || expr_has_encoding_surface(alternate, by_id)
         }
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             is_encoding_method_key(property)
                 || expr_has_encoding_surface(object, by_id)
                 || expr_has_encoding_surface(property, by_id)
@@ -689,7 +696,45 @@ fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
                 bytes: Rc::new(RefCell::new(buf)),
             })
         }
+        JsVal::Builtin(
+            id @ (BuiltinId::Gzip | BuiltinId::Gunzip | BuiltinId::Deflate | BuiltinId::Inflate),
+        ) => eval_compression(*id, args),
         _ => Err(None),
+    }
+}
+
+fn eval_compression(id: BuiltinId, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
+    let name = match id {
+        BuiltinId::Gzip => "gzip",
+        BuiltinId::Gunzip => "gunzip",
+        BuiltinId::Deflate => "deflate",
+        BuiltinId::Inflate => "inflate",
+        _ => return Err(None),
+    };
+    let bytes = match args.first() {
+        Some(JsVal::Uint8ArrayInst { bytes }) => bytes.borrow().clone(),
+        _ => {
+            return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                name: "TypeError".into(),
+                message: format!("{name} expects Uint8Array"),
+            })))
+        }
+    };
+    let out = match id {
+        BuiltinId::Gzip => compression::gzip(&bytes),
+        BuiltinId::Gunzip => compression::gunzip(&bytes),
+        BuiltinId::Deflate => compression::deflate(&bytes),
+        BuiltinId::Inflate => compression::inflate(&bytes),
+        _ => return Err(None),
+    };
+    match out {
+        Ok(buf) => Ok(JsVal::Uint8ArrayInst {
+            bytes: Rc::new(RefCell::new(buf)),
+        }),
+        Err(()) => Err(Some(Flow::Throw(JsVal::ErrorInst {
+            name: "Error".into(),
+            message: format!("{name}: invalid or truncated input"),
+        }))),
     }
 }
 
@@ -864,6 +909,10 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "TypeError" => Ok(JsVal::Builtin(BuiltinId::TypeError)),
             "sha256" => Ok(JsVal::Builtin(BuiltinId::Sha256)),
             "randomBytes" => Ok(JsVal::Builtin(BuiltinId::RandomBytes)),
+            "gzip" => Ok(JsVal::Builtin(BuiltinId::Gzip)),
+            "gunzip" => Ok(JsVal::Builtin(BuiltinId::Gunzip)),
+            "deflate" => Ok(JsVal::Builtin(BuiltinId::Deflate)),
+            "inflate" => Ok(JsVal::Builtin(BuiltinId::Inflate)),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
         },
@@ -909,7 +958,11 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::Uint8Array
             | BuiltinId::TypeError
             | BuiltinId::Sha256
-            | BuiltinId::RandomBytes,
+            | BuiltinId::RandomBytes
+            | BuiltinId::Gzip
+            | BuiltinId::Gunzip
+            | BuiltinId::Deflate
+            | BuiltinId::Inflate,
         ) => "function".into(),
         JsVal::Builtin(BuiltinId::GlobalThis) => "object".into(),
     }
@@ -1009,9 +1062,9 @@ impl Emitter {
                 _ => return Err(diag("es_encoding: non-printable value")),
             }
         }
-            writeln!(
+        writeln!(
             self.out,
-            "; Draconic LLVM backend (L01 + L03.01 UTF-8 + Base64 + hex + SHA-256)"
+            "; Draconic LLVM backend (L01 + L03 + L04 UTF-8 + Base64 + hex + SHA-256 + gzip)"
         )
         .ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
@@ -1255,5 +1308,58 @@ mod tests {
         assert!(ir.contains("aGk="), "{ir}");
         assert!(ir.contains("6869"), "{ir}");
         assert!(ir.contains("c\"hi\\00"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_gzip_roundtrip() {
+        let m = compile_src(
+            r#"
+            let src = new TextEncoder().encode("hello");
+            let round = gunzip(gzip(src)).toHex() === src.toHex();
+            let m0 = gzip(src)[0] === 31;
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_deflate_roundtrip() {
+        let m = compile_src(
+            r#"
+            let src = new TextEncoder().encode("hello");
+            let round = inflate(deflate(src)).toHex() === src.toHex();
+            let z0 = deflate(src)[0] === 120;
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_gzip_invalid() {
+        let m = compile_src(
+            r#"
+            let ok = 0;
+            try {
+              gzip("abc");
+              ok = -1;
+            } catch (e) {
+              ok = e.name === "TypeError" ? 1 : -2;
+            }
+            let trunc = 0;
+            try {
+              gunzip(new Uint8Array([31, 139, 8]));
+              trunc = -1;
+            } catch (e) {
+              trunc = e.name === "Error" ? 1 : -2;
+            }
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
     }
 }

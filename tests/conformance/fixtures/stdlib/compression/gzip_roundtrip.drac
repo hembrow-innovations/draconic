@@ -1,0 +1,11 @@
+// L04: gzip/gunzip byte buffers; gzip magic 1f 8b; known vector.
+let tp = typeof gzip;
+let gp = globalThis.gzip === gzip;
+let src = new TextEncoder().encode("hello");
+let gz = gzip(src);
+let m0 = gz[0] === 31;
+let m1 = gz[1] === 139;
+let back = gunzip(gz);
+let round = back.toHex() === src.toHex();
+let empty = gunzip(gzip(new Uint8Array([]))).length === 0;
+let known = new TextDecoder().decode(gunzip(new Uint8Array([31, 139, 8, 0, 0, 0, 0, 0, 2, 19, 203, 72, 205, 201, 201, 7, 0, 134, 166, 16, 54, 5, 0, 0, 0])));

@@ -1,0 +1,6 @@
+id: stdlib/compression/surface
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\n1\n1\n1\n1\n
+js.check: if (gpGzip !== true) process.exit(1); if (gpDeflate !== true) process.exit(2); if (gzipRound !== true) process.exit(3); if (deflateRound !== true) process.exit(4); if (magic !== true) process.exit(5); if (gzipBad !== 1) process.exit(6); if (gunzipBad !== 1) process.exit(7); if (deflateBad !== 1) process.exit(8); if (inflateBad !== 1) process.exit(9);

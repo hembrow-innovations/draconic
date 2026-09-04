@@ -1,0 +1,35 @@
+// L04: one Program — gzip + deflate round-trips and invalid-input errors.
+let gpGzip = globalThis.gzip === gzip;
+let gpDeflate = globalThis.deflate === deflate;
+let src = new TextEncoder().encode("hello");
+let gzipRound = gunzip(gzip(src)).toHex() === src.toHex();
+let deflateRound = inflate(deflate(src)).toHex() === src.toHex();
+let magic = gzip(src)[0] === 31;
+let gzipBad = 0;
+try {
+  gzip("abc");
+  gzipBad = -1;
+} catch (e) {
+  gzipBad = e.name === "TypeError" ? 1 : -2;
+}
+let gunzipBad = 0;
+try {
+  gunzip(new Uint8Array([31, 139, 8]));
+  gunzipBad = -1;
+} catch (e) {
+  gunzipBad = e.name === "Error" ? 1 : -2;
+}
+let deflateBad = 0;
+try {
+  deflate(1);
+  deflateBad = -1;
+} catch (e) {
+  deflateBad = e.name === "TypeError" ? 1 : -2;
+}
+let inflateBad = 0;
+try {
+  inflate(new Uint8Array([0, 1, 2, 3]));
+  inflateBad = -1;
+} catch (e) {
+  inflateBad = e.name === "Error" ? 1 : -2;
+}

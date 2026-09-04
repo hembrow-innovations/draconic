@@ -1,0 +1,6 @@
+id: stdlib/compression/invalid
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\n1\n1\n1\n1\n1\n1\n
+js.check: if (gzipType !== 1) process.exit(1); if (gunzipType !== 1) process.exit(2); if (deflateType !== 1) process.exit(3); if (inflateType !== 1) process.exit(4); if (gzipTrunc !== 1) process.exit(5); if (deflateTrunc !== 1) process.exit(6); if (gzipCorrupt !== 1) process.exit(7);

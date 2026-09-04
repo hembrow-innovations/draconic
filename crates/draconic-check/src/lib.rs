@@ -1233,6 +1233,11 @@ impl Binder {
         binder.install_builtin("sha256", BindingKind::Const);
         // L03.02: OS CSPRNG bytes
         binder.install_builtin("randomBytes", BindingKind::Const);
+        // L04: gzip / zlib-deflate byte buffers
+        binder.install_builtin("gzip", BindingKind::Const);
+        binder.install_builtin("gunzip", BindingKind::Const);
+        binder.install_builtin("deflate", BindingKind::Const);
+        binder.install_builtin("inflate", BindingKind::Const);
         // L06.01: leveled logger factory
         binder.install_builtin("createLogger", BindingKind::Const);
         // L02.01 / L02.02: designed collections helpers (not Object.groupBy / Map.groupBy)

@@ -986,7 +986,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L03 | done | both | Crypto: SHA-256 digest + secure random bytes | `tests/conformance` fixtures `stdlib/crypto` |
 | L03.01 | done | both | SHA-256 digest over bytes; known test vectors | `tests/conformance` fixtures `stdlib/crypto` |
 | L03.02 | done | both | Secure random bytes (OS CSPRNG); length parameter | `tests/conformance` fixtures `stdlib/crypto` |
-| L04 | todo | both | Compression later: gzip/deflate byte buffers | `tests/conformance` fixtures `stdlib/compression` |
+| L04 | done | both | Compression later: gzip/deflate byte buffers | `tests/conformance` fixtures `stdlib/compression` |
 | L05 | todo | both | In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
 | L05.01 | done | both | `describe` / `it` (or designed) register tests; run via `draconic test` | `tests/conformance` fixtures `stdlib/testing`, `crates/draconic-cli` |
 | L05.02 | done | both | `expect` matchers: equality, truthiness; failure messages | `tests/conformance` fixtures `stdlib/testing` |

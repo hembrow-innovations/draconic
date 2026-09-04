@@ -1,0 +1,50 @@
+// L04: non-bytes → TypeError; truncated/invalid compressed input → Error.
+let gzipType = 0;
+try {
+  gzip("abc");
+  gzipType = -1;
+} catch (e) {
+  gzipType = e.name === "TypeError" ? 1 : -2;
+}
+let gunzipType = 0;
+try {
+  gunzip(1);
+  gunzipType = -1;
+} catch (e) {
+  gunzipType = e.name === "TypeError" ? 1 : -2;
+}
+let deflateType = 0;
+try {
+  deflate();
+  deflateType = -1;
+} catch (e) {
+  deflateType = e.name === "TypeError" ? 1 : -2;
+}
+let inflateType = 0;
+try {
+  inflate("abc");
+  inflateType = -1;
+} catch (e) {
+  inflateType = e.name === "TypeError" ? 1 : -2;
+}
+let gzipTrunc = 0;
+try {
+  gunzip(new Uint8Array([31, 139, 8]));
+  gzipTrunc = -1;
+} catch (e) {
+  gzipTrunc = e.name === "Error" ? 1 : -2;
+}
+let deflateTrunc = 0;
+try {
+  inflate(new Uint8Array([120, 218]));
+  deflateTrunc = -1;
+} catch (e) {
+  deflateTrunc = e.name === "Error" ? 1 : -2;
+}
+let gzipCorrupt = 0;
+try {
+  gunzip(new Uint8Array([0, 1, 2, 3, 4, 5]));
+  gzipCorrupt = -1;
+} catch (e) {
+  gzipCorrupt = e.name === "Error" ? 1 : -2;
+}

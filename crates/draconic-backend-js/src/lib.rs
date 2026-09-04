@@ -67,6 +67,14 @@ fn module_uses_random_bytes(module: &Module) -> bool {
     module.body.iter().any(|s| stmt_uses_local(s, &ids))
 }
 
+/// L04: gzip / gunzip / deflate / inflate.
+fn module_uses_compression(module: &Module) -> bool {
+    module_uses_named_local(module, "gzip")
+        || module_uses_named_local(module, "gunzip")
+        || module_uses_named_local(module, "deflate")
+        || module_uses_named_local(module, "inflate")
+}
+
 /// L08.01: true when the Program body references the stdlib `parseUrl` global.
 ///
 /// IR locals include every binder symbol (all builtins), so presence in
@@ -649,6 +657,13 @@ fn emit_js_full(
     // L03.02: portable `randomBytes` polyfill when the Program references it.
     if module_uses_random_bytes(module) {
         out.push_str(draconic_runtime::random_bytes_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L04: portable gzip / deflate polyfill when the Program references it.
+    if module_uses_compression(module) {
+        out.push_str(draconic_runtime::compression_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1351,6 +1366,16 @@ mod tests {
         let js = emit_src("let d = randomBytes(8);");
         assert!(js.contains("function randomBytes("), "{js}");
         assert!(js.contains("globalThis.randomBytes = randomBytes"), "{js}");
+    }
+
+    #[test]
+    fn emit_compression_polyfill() {
+        let js = emit_src("let d = gzip(new Uint8Array([]));");
+        assert!(js.contains("function gzip("), "{js}");
+        assert!(js.contains("function gunzip("), "{js}");
+        assert!(js.contains("function deflate("), "{js}");
+        assert!(js.contains("function inflate("), "{js}");
+        assert!(js.contains("globalThis.gzip = gzip"), "{js}");
     }
 
     #[test]

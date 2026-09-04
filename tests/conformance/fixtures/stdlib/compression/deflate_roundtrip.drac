@@ -1,0 +1,10 @@
+// L04: deflate/inflate byte buffers (zlib format); known vector.
+let tp = typeof deflate;
+let gp = globalThis.deflate === deflate;
+let src = new TextEncoder().encode("hello");
+let d = deflate(src);
+let z0 = d[0] === 120;
+let back = inflate(d);
+let round = back.toHex() === src.toHex();
+let empty = inflate(deflate(new Uint8Array([]))).length === 0;
+let known = new TextDecoder().decode(inflate(new Uint8Array([120, 218, 203, 72, 205, 201, 201, 7, 0, 6, 44, 2, 21])));

@@ -1,0 +1,6 @@
+id: stdlib/compression/deflate_roundtrip
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\ntrue\ntrue\ntrue\nhello\n
+js.check: if (tp !== "function") process.exit(1); if (gp !== true) process.exit(2); if (z0 !== true) process.exit(3); if (round !== true) process.exit(4); if (empty !== true) process.exit(5); if (known !== "hello") process.exit(6);
