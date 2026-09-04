@@ -1,4 +1,4 @@
-//! L02.01: collections helpers polyfill (`groupBy` / `chunk`) on arrays.
+//! L02.01 / L02.02: collections helpers polyfill (`groupBy` / `chunk` / `Deque`).
 
 pub fn collections_js_polyfill() -> &'static str {
     r#"function groupBy(items, key) {
@@ -33,9 +33,29 @@ function chunk(items, size) {
   }
   return out;
 }
+function Deque() {
+  var items = [];
+  var self = this;
+  if (!(this instanceof Deque)) {
+    self = Object.create(Deque.prototype);
+  }
+  self.pushBack = function (v) { items.push(v); };
+  self.pushFront = function (v) { items.unshift(v); };
+  self.popBack = function () {
+    return items.length === 0 ? undefined : items.pop();
+  };
+  self.popFront = function () {
+    return items.length === 0 ? undefined : items.shift();
+  };
+  Object.defineProperty(self, "length", {
+    get: function () { return items.length; }
+  });
+  return self;
+}
 if (typeof globalThis !== "undefined") {
   globalThis.groupBy = groupBy;
   globalThis.chunk = chunk;
+  globalThis.Deque = Deque;
 }
 "#
 }
@@ -56,5 +76,17 @@ mod tests {
         assert!(s.contains("positive integer"), "{s}");
         assert!(s.contains("TypeError"), "{s}");
         assert!(s.contains("RangeError"), "{s}");
+    }
+
+    #[test]
+    fn polyfill_defines_deque() {
+        let s = collections_js_polyfill();
+        assert!(s.contains("function Deque("), "{s}");
+        assert!(s.contains("globalThis.Deque = Deque"), "{s}");
+        assert!(s.contains("pushBack"), "{s}");
+        assert!(s.contains("pushFront"), "{s}");
+        assert!(s.contains("popBack"), "{s}");
+        assert!(s.contains("popFront"), "{s}");
+        assert!(s.contains("length"), "{s}");
     }
 }

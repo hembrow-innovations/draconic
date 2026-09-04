@@ -1,0 +1,6 @@
+id: stdlib/collections/deque
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n
+js.check: if (tp !== "function") process.exit(1); if (gp !== true) process.exit(2); if (distinct !== true) process.exit(3); if (obj !== true) process.exit(4); if (methods !== true) process.exit(5); if (ends !== true) process.exit(6); if (emptyPop !== true) process.exit(7); if (notIndex !== true) process.exit(8); if (len !== true) process.exit(9); if (len0 !== true) process.exit(10);

@@ -86,9 +86,11 @@ fn module_uses_create_logger(module: &Module) -> bool {
     module_uses_named_local(module, "createLogger")
 }
 
-/// L02.01: `groupBy` / `chunk`.
+/// L02.01 / L02.02: `groupBy` / `chunk` / `Deque`.
 fn module_uses_collections(module: &Module) -> bool {
-    module_uses_named_local(module, "groupBy") || module_uses_named_local(module, "chunk")
+    module_uses_named_local(module, "groupBy")
+        || module_uses_named_local(module, "chunk")
+        || module_uses_named_local(module, "Deque")
 }
 
 /// L05.01 / L05.02 / L05.03: free `describe` / `it` / `expect` / hooks (IdentName so user `let it` does not collide).
@@ -672,7 +674,7 @@ fn emit_js_full(
             out.push('\n');
         }
     }
-    // L02.01: portable `groupBy` / `chunk` polyfill.
+    // L02.01 / L02.02: portable `groupBy` / `chunk` / `Deque` polyfill.
     if module_uses_collections(module) {
         out.push_str(draconic_runtime::collections_js_polyfill());
         if !out.ends_with('\n') {
@@ -1370,6 +1372,17 @@ mod tests {
         assert!(js.contains("function chunk("), "{js}");
         assert!(js.contains("globalThis.groupBy = groupBy"), "{js}");
         assert!(js.contains("globalThis.chunk = chunk"), "{js}");
+    }
+
+    #[test]
+    fn emit_deque_polyfill() {
+        let js = emit_src("let d = new Deque(); d.pushBack(1);");
+        assert!(js.contains("function Deque("), "{js}");
+        assert!(js.contains("globalThis.Deque = Deque"), "{js}");
+        assert!(js.contains("pushBack"), "{js}");
+        assert!(js.contains("pushFront"), "{js}");
+        assert!(js.contains("popBack"), "{js}");
+        assert!(js.contains("popFront"), "{js}");
     }
 
     #[test]

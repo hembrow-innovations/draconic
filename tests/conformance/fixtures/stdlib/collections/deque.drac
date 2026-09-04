@@ -1,0 +1,18 @@
+// L02.02: designed Deque — construct and push/pop both ends; not Array.
+let tp = typeof Deque;
+let gp = globalThis.Deque === Deque;
+let distinct = Deque !== Array;
+let d = new Deque();
+let obj = typeof d === "object";
+let methods = typeof d.pushFront === "function" && typeof d.pushBack === "function"
+  && typeof d.popFront === "function" && typeof d.popBack === "function";
+d.pushBack(1);
+d.pushFront(0);
+d.pushBack(2);
+let ends = d.popFront() === 0 && d.popBack() === 2 && d.popFront() === 1;
+let emptyPop = typeof d.popFront() === "undefined";
+d.pushBack(7);
+let notIndex = d[0] === undefined;
+let len = d.length === 1;
+d.popBack();
+let len0 = d.length === 0;

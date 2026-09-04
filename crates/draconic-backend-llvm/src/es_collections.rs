@@ -1,7 +1,9 @@
-//! L02.01: native observations for designed `groupBy` / `chunk` on arrays.
+//! L02.01 / L02.02: native observations for designed `groupBy` / `chunk` / `Deque`.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
+use std::rc::Rc;
 
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
@@ -27,6 +29,16 @@ enum BuiltinId {
     GlobalThis,
     GroupBy,
     Chunk,
+    Deque,
+    Array,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DequeOp {
+    PushFront,
+    PushBack,
+    PopFront,
+    PopBack,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +57,11 @@ enum JsVal {
     UserFn {
         params: Vec<LocalId>,
         body: Vec<Stmt>,
+    },
+    Deque(Rc<RefCell<VecDeque<JsVal>>>),
+    DequeMethod {
+        kind: DequeOp,
+        items: Rc<RefCell<VecDeque<JsVal>>>,
     },
 }
 
@@ -113,6 +130,8 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "globalThis" => Some(BuiltinId::GlobalThis),
         "groupBy" => Some(BuiltinId::GroupBy),
         "chunk" => Some(BuiltinId::Chunk),
+        "Deque" => Some(BuiltinId::Deque),
+        "Array" => Some(BuiltinId::Array),
         _ => None,
     }
 }
@@ -153,8 +172,8 @@ fn expr_has_collections_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -
     match expr {
         Expr::Local { id, .. } => by_id
             .get(id)
-            .is_some_and(|l| l.name == "groupBy" || l.name == "chunk"),
-        Expr::IdentName { name, .. } => name == "groupBy" || name == "chunk",
+            .is_some_and(|l| l.name == "groupBy" || l.name == "chunk" || l.name == "Deque"),
+        Expr::IdentName { name, .. } => name == "groupBy" || name == "chunk" || name == "Deque",
         Expr::Unary { arg, .. } => expr_has_collections_surface(arg, by_id),
         Expr::Binary { left, right, .. } => {
             expr_has_collections_surface(left, by_id) || expr_has_collections_surface(right, by_id)
@@ -291,7 +310,8 @@ fn expr_ok(expr: &Expr) -> bool {
             args,
             optional: false,
             ..
-        } => {
+        }
+        | Expr::New { callee, args, .. } => {
             expr_ok(callee)
                 && args.iter().all(|a| match a {
                     Arg::Expr(e) => expr_ok(e),
@@ -551,6 +571,27 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 Err(None) => Err(()),
             }
         }
+        Expr::New { callee, args, .. } => {
+            let mut arg_vals = Vec::new();
+            for a in args {
+                match a {
+                    Arg::Expr(e) => match eval_expr(e, env)? {
+                        Ok(v) => arg_vals.push(v),
+                        Err(flow) => return Ok(Err(flow)),
+                    },
+                    _ => return Err(()),
+                }
+            }
+            let c = match eval_expr(callee, env)? {
+                Ok(v) => v,
+                Err(flow) => return Ok(Err(flow)),
+            };
+            match eval_new(&c, &arg_vals) {
+                Ok(v) => Ok(Ok(v)),
+                Err(Some(flow)) => Ok(Err(flow)),
+                Err(None) => Err(()),
+            }
+        }
         Expr::Assign {
             target: AssignTarget::Local(id),
             op: AssignOp::Eq,
@@ -626,8 +667,44 @@ fn eval_call_fn(
     match callee {
         JsVal::Builtin(BuiltinId::GroupBy) => group_by(args, env),
         JsVal::Builtin(BuiltinId::Chunk) => chunk(args),
+        JsVal::Builtin(BuiltinId::Deque) => Ok(make_deque()),
+        JsVal::DequeMethod { kind, items } => call_deque_method(*kind, items, args),
         JsVal::UserFn { params, body } => call_user_fn(params, body, args, env),
         _ => Err(None),
+    }
+}
+
+fn eval_new(callee: &JsVal, _args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
+    match callee {
+        JsVal::Builtin(BuiltinId::Deque) => Ok(make_deque()),
+        _ => Err(None),
+    }
+}
+
+fn make_deque() -> JsVal {
+    JsVal::Deque(Rc::new(RefCell::new(VecDeque::new())))
+}
+
+fn call_deque_method(
+    kind: DequeOp,
+    items: &Rc<RefCell<VecDeque<JsVal>>>,
+    args: &[JsVal],
+) -> Result<JsVal, Option<Flow>> {
+    match kind {
+        DequeOp::PushBack => {
+            items
+                .borrow_mut()
+                .push_back(args.first().cloned().unwrap_or(JsVal::Undef));
+            Ok(JsVal::Undef)
+        }
+        DequeOp::PushFront => {
+            items
+                .borrow_mut()
+                .push_front(args.first().cloned().unwrap_or(JsVal::Undef));
+            Ok(JsVal::Undef)
+        }
+        DequeOp::PopBack => Ok(items.borrow_mut().pop_back().unwrap_or(JsVal::Undef)),
+        DequeOp::PopFront => Ok(items.borrow_mut().pop_front().unwrap_or(JsVal::Undef)),
     }
 }
 
@@ -712,7 +789,29 @@ fn member_get(obj: &JsVal, key: &str) -> JsVal {
         JsVal::Builtin(BuiltinId::GlobalThis) => match key {
             "groupBy" => JsVal::Builtin(BuiltinId::GroupBy),
             "chunk" => JsVal::Builtin(BuiltinId::Chunk),
+            "Deque" => JsVal::Builtin(BuiltinId::Deque),
+            "Array" => JsVal::Builtin(BuiltinId::Array),
             "globalThis" => JsVal::Builtin(BuiltinId::GlobalThis),
+            _ => JsVal::Undef,
+        },
+        JsVal::Deque(items) => match key {
+            "length" => JsVal::Num(items.borrow().len() as f64),
+            "pushBack" => JsVal::DequeMethod {
+                kind: DequeOp::PushBack,
+                items: items.clone(),
+            },
+            "pushFront" => JsVal::DequeMethod {
+                kind: DequeOp::PushFront,
+                items: items.clone(),
+            },
+            "popBack" => JsVal::DequeMethod {
+                kind: DequeOp::PopBack,
+                items: items.clone(),
+            },
+            "popFront" => JsVal::DequeMethod {
+                kind: DequeOp::PopFront,
+                items: items.clone(),
+            },
             _ => JsVal::Undef,
         },
         JsVal::ErrorInst { name, message } => match key {
@@ -773,10 +872,13 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::ErrorInst { .. }
         | JsVal::Array(_)
         | JsVal::Object(_)
+        | JsVal::Deque(_)
         | JsVal::Builtin(BuiltinId::GlobalThis) => "object".into(),
-        JsVal::Builtin(BuiltinId::GroupBy | BuiltinId::Chunk) | JsVal::UserFn { .. } => {
-            "function".into()
-        }
+        JsVal::Builtin(
+            BuiltinId::GroupBy | BuiltinId::Chunk | BuiltinId::Deque | BuiltinId::Array,
+        )
+        | JsVal::UserFn { .. }
+        | JsVal::DequeMethod { .. } => "function".into(),
     }
 }
 
@@ -854,7 +956,7 @@ impl Emitter {
                 _ => return Err(diag("es_collections: non-printable value")),
             }
         }
-        writeln!(self.out, "; Draconic LLVM backend (L02.01 groupBy/chunk)").ok();
+        writeln!(self.out, "; Draconic LLVM backend (L02 collections)").ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
         for (s, name) in &self.str_consts {
             let n = s.len() + 1;
@@ -918,6 +1020,21 @@ mod tests {
             r#"
             let c = chunk([1, 2, 3, 4, 5], 2);
             let n = c.length;
+            "#,
+        );
+        assert!(is_es_collections_module(&m));
+        let ir = emit_es_collections(&m).expect("emit");
+        assert!(ir.contains("@main"), "{ir}");
+    }
+
+    #[test]
+    fn classifies_deque() {
+        let m = compile_src(
+            r#"
+            let d = new Deque();
+            d.pushBack(1);
+            d.pushFront(0);
+            let n = d.popFront();
             "#,
         );
         assert!(is_es_collections_module(&m));
