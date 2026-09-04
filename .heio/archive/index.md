@@ -2,6 +2,153 @@
 
 One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 
+- **housekeeping** — archived 131 finished slices (66 met, 65 failed), 72 completed tasks, 73 closed tickets; pump reset idle; platform sprint still holds 26 in-flight slices
+- **ticket-120-c01-workspace-timeout** — C01 workspace tests did not finish (O2 timeout)
+- **ticket-121-c02-workspace-timeout** — C02 workspace tests did not finish (O2 timeout)
+- **ticket-122-c03-workspace-timeout** — C03 workspace tests did not finish (O3 timeout)
+- **ticket-123-c04-workspace-timeout** — C04 workspace tests did not finish (O4 timeout)
+- **ticket-124-c05-workspace-timeout** — C05 workspace tests did not finish (O3 timeout)
+- **ticket-125-c06-workspace-timeout** — C06 workspace tests did not finish (O2 timeout)
+- **ticket-126-d01-workspace-timeout** — D01 workspace tests did not finish (O4 timeout)
+- **ticket-127-d02-workspace-timeout** — D02 workspace tests did not finish (O3 timeout)
+- **ticket-128-d03-01-workspace-timeout** — D03.01 workspace tests did not finish (O2 timeout)
+- **ticket-129-d03-02-workspace-tests** — D03.02 workspace tests did not pass (O2)
+- **ticket-130-d03-workspace-timeout** — D03 workspace tests did not finish (O2 timeout)
+- **ticket-131-d04-01-workspace-timeout** — D04.01 workspace tests did not finish (O2 timeout)
+- **ticket-132-d04-02-workspace-timeout** — D04.02 workspace tests did not finish (O2 timeout)
+- **ticket-133-d04-workspace-timeout** — D04 workspace tests did not finish (O2 timeout)
+- **ticket-134-d05-01-workspace-timeout** — D05.01 workspace tests did not finish (O3 timeout)
+- **ticket-135-d05-02-workspace-timeout** — D05.02 workspace tests did not finish (O3 timeout)
+- **ticket-136-d05-workspace-timeout** — D05 workspace tests did not finish (O2 timeout)
+- **ticket-137-e17-02-remainder-workspace-timeout** — E17.02 remainder workspace tests did not finish (O2 timeout)
+- **ticket-138-e18-44-workspace-timeout** — E18.44 remainder workspace tests did not finish (O2 timeout)
+- **ticket-139-f02-workspace-timeout** — F02 workspace tests did not finish (O2 timeout)
+- **ticket-140-f03-workspace-timeout** — F03 workspace tests did not finish (O2 timeout)
+- **ticket-141-f04-workspace-timeout** — F04 workspace tests did not finish (O3 timeout)
+- **ticket-142-f05-workspace-timeout** — F05 workspace tests did not finish (O3 timeout)
+- **ticket-143-f07-workspace-timeout** — F07 workspace tests did not finish (O3 timeout)
+- **ticket-144-f08-workspace-timeout** — F08 workspace tests did not finish (O2 timeout)
+- **ticket-145-f09-workspace-timeout** — F09 workspace tests did not finish (O3 timeout)
+- **ticket-146-h00-workspace-timeout** — H00 workspace tests did not finish (O3 timeout)
+- **ticket-147-h01-workspace-timeout** — H01 workspace tests did not finish (O2 timeout)
+- **ticket-148-h02-workspace-timeout** — H02 workspace tests did not finish (O2 timeout)
+- **ticket-149-h03-workspace-timeout** — H03 workspace tests did not finish (O2 timeout)
+- **ticket-150-h04-workspace-timeout** — H04 workspace tests did not finish (O2 timeout)
+- **ticket-151-h05-workspace-timeout** — H05 workspace tests did not finish (O2 timeout)
+- **ticket-152-h06-workspace-timeout** — H06 workspace tests did not finish (O2 timeout)
+- **ticket-153-h07-workspace-timeout** — H07 workspace tests did not finish (O3 timeout)
+- **ticket-154-h08-workspace-timeout** — H08 workspace tests did not finish (O2 timeout)
+- **ticket-155-h09-workspace-timeout** — H09 workspace tests did not finish (O2 timeout)
+- **ticket-156-h10-workspace-timeout** — H10 workspace tests did not finish (O2 timeout)
+- **ticket-157-h11-workspace-timeout** — H11 workspace tests did not finish (O2 timeout)
+- **ticket-158-h12-workspace-timeout** — H12 workspace tests did not finish (O2 timeout)
+- **ticket-159-h13-workspace-timeout** — H13 workspace tests did not finish (O2 timeout)
+- **ticket-160-h14-workspace-timeout** — H14 workspace tests did not finish (O3 timeout)
+- **ticket-161-h15-workspace-timeout** — H15 workspace tests did not finish (O2 timeout)
+- **ticket-162-h16-workspace-timeout** — H16 workspace tests did not finish (O2 timeout)
+- **ticket-163-h17-04-workspace-timeout** — H17.04 workspace tests did not finish (O2 timeout)
+- **ticket-164-h17-workspace-timeout** — H17 workspace tests did not finish (O3 timeout)
+- **ticket-165-k01-workspace-timeout** — K01 workspace tests did not finish (O2 timeout)
+- **ticket-166-k02-workspace-timeout** — K02 workspace tests did not finish (O2 timeout)
+- **ticket-167-k03-workspace-timeout** — K03 workspace tests did not finish (O2 timeout)
+- **ticket-168-k04-workspace-timeout** — K04 workspace tests did not finish (O2 timeout)
+- **ticket-169-k05-workspace-timeout** — K05 workspace tests did not finish (O3 timeout)
+- **ticket-170-k07-workspace-timeout** — K07 workspace tests did not finish (O3 timeout)
+- **ticket-171-k08-workspace-timeout** — K08 workspace tests did not finish (O2 timeout)
+- **ticket-172-k09-workspace-timeout** — K09 workspace tests did not finish (O3 timeout)
+- **ticket-173-k11-01-workspace-timeout** — K11.01 workspace tests did not finish (O3 timeout)
+- **ticket-174-k11-02-workspace-timeout** — K11.02 workspace tests did not finish (O2 timeout)
+- **ticket-175-k11-03-workspace-timeout** — K11.03 workspace tests did not finish (O2 timeout)
+- **ticket-176-k11-04-workspace-timeout** — K11.04 workspace tests did not finish (O2 timeout)
+- **ticket-177-k11-05-workspace-timeout** — K11.05 workspace tests did not finish (O2 timeout)
+- **ticket-178-k11-workspace-timeout** — K11 workspace tests did not finish (O2 timeout)
+- **ticket-179-l01-oracle-timeout** — L01 encoding and workspace checks did not finish (O1 O2 timeout)
+- **ticket-180-l02-01-workspace-timeout** — L02.01 workspace tests did not finish (O2 timeout)
+- **ticket-181-l03-workspace-timeout** — L03 workspace tests did not finish (O2 timeout)
+- **ticket-182-l04-workspace-timeout** — L04 workspace tests did not finish (O2 timeout)
+- **ticket-27-e17-02-non-strict-legacy** — E17.02 Other non-strict legacy beyond `with` (children below; untracked remainder stays here)
+- **ticket-57-k09-e2e-temp-git-dep-consumer** — K09 E2E: temp git dep + consumer Program
+- **ticket-58-k11-post-v1-packaging-not-v1** — K11 Post-v1 packaging (not v1 bar)
+- **ticket-65-f03-c-compatible-struct-layout-repr** — F03 C-compatible struct layout (repr(C)-style); read/write both sides
+- **ticket-78-l02-collections-helpers-groupby-chunk-deque** — L02 Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set)
+- **ticket-79-l02-01-groupby-chunk-or-designed-names** — L02.01 `groupBy` / `chunk` (or designed names) on arrays
+- **ticket-80-l02-02-deque-or-designed-push-pop** — L02.02 Deque (or designed): push/pop both ends
+- **ticket-81-l03-crypto-sha-256-digest-secure** — L03 Crypto: SHA-256 digest + secure random bytes
+- **ticket-82-l04-compression-later-gzip-deflate-byte** — L04 Compression later: gzip/deflate byte buffers
+- **ticket-83-l05-in-language-test-framework-describe** — L05 In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test`
+- **c01-workspace-timeout** — C01 workspace tests finish
+- **c02-workspace-timeout** — C02 workspace tests finish
+- **c03-workspace-timeout** — C03 workspace tests finish
+- **c04-workspace-timeout** — C04 workspace tests finish
+- **c05-workspace-timeout** — C05 workspace tests finish
+- **c06-workspace-timeout** — C06 workspace tests finish
+- **d01-workspace-timeout** — D01 workspace tests finish
+- **d02-workspace-timeout** — D02 workspace tests finish
+- **d03-01-workspace-timeout** — D03.01 workspace tests finish
+- **d03-02-workspace-tests** — D03.02 workspace tests pass
+- **d03-workspace-timeout** — D03 workspace tests finish
+- **d04-01-workspace-timeout** — D04.01 workspace tests finish
+- **d04-02-workspace-timeout** — D04.02 workspace tests finish
+- **d04-workspace-timeout** — D04 workspace tests finish
+- **d05-01-workspace-timeout** — D05.01 workspace tests finish
+- **d05-02-workspace-timeout** — D05.02 workspace tests finish
+- **d05-workspace-timeout** — D05 workspace tests finish
+- **e17-02-remainder-workspace-timeout** — E17.02 remainder workspace tests finish
+- **e18-44-workspace-timeout** — E18.44 remainder workspace tests finish
+- **f02-workspace-timeout** — F02 workspace tests finish
+- **f03-c-compatible-struct-layout** — F03 C-compatible struct layout (repr(C)-style); read/write both sides
+- **f03-workspace-timeout** — F03 workspace tests finish
+- **f04-workspace-timeout** — F04 workspace tests finish
+- **f05-workspace-timeout** — F05 workspace tests finish
+- **f07-workspace-timeout** — F07 workspace tests finish
+- **f08-workspace-timeout** — F08 workspace tests finish
+- **f09-workspace-timeout** — F09 workspace tests finish
+- **h00-workspace-timeout** — H00 workspace tests finish
+- **h01-workspace-timeout** — H01 workspace tests finish
+- **h02-workspace-timeout** — H02 workspace tests finish
+- **h03-workspace-timeout** — H03 workspace tests finish
+- **h04-workspace-timeout** — H04 workspace tests finish
+- **h05-workspace-timeout** — H05 workspace tests finish
+- **h06-workspace-timeout** — H06 workspace tests finish
+- **h07-workspace-timeout** — H07 workspace tests finish
+- **h08-workspace-timeout** — H08 workspace tests finish
+- **h09-workspace-timeout** — H09 workspace tests finish
+- **h10-workspace-timeout** — H10 workspace tests finish
+- **h11-workspace-timeout** — H11 workspace tests finish
+- **h12-workspace-timeout** — H12 workspace tests finish
+- **h13-workspace-timeout** — H13 workspace tests finish
+- **h14-workspace-timeout** — H14 workspace tests finish
+- **h15-workspace-timeout** — H15 workspace tests finish
+- **h16-workspace-timeout** — H16 workspace tests finish
+- **h17-04-workspace-timeout** — H17.04 workspace tests finish
+- **h17-workspace-timeout** — H17 workspace tests finish
+- **k01-workspace-timeout** — K01 workspace tests finish
+- **k02-workspace-timeout** — K02 workspace tests finish
+- **k03-workspace-timeout** — K03 workspace tests finish
+- **k04-workspace-timeout** — K04 workspace tests finish
+- **k05-workspace-timeout** — K05 workspace tests finish
+- **k07-workspace-timeout** — K07 workspace tests finish
+- **k08-workspace-timeout** — K08 workspace tests finish
+- **k09-e2e-temp-git-dep-consumer** — K09 E2E: temp git dep + consumer Program
+- **k09-workspace-timeout** — K09 workspace tests finish
+- **k11-01-workspace-timeout** — K11.01 workspace tests finish
+- **k11-02-workspace-timeout** — K11.02 workspace tests finish
+- **k11-03-workspace-timeout** — K11.03 workspace tests finish
+- **k11-04-workspace-timeout** — K11.04 workspace tests finish
+- **k11-05-workspace-timeout** — K11.05 workspace tests finish
+- **k11-post-v1-packaging-not-v1** — K11 Post-v1 packaging (not v1 bar)
+- **k11-workspace-timeout** — K11 workspace tests finish
+- **l01-oracle-timeout** — L01 encoding and workspace checks finish
+- **l02-01-groupby-chunk-or-designed-names** — L02.01 `groupBy` / `chunk` (or designed names) on arrays
+- **l02-01-workspace-timeout** — L02.01 workspace tests finish
+- **l02-02-deque-or-designed-push-pop** — L02.02 Deque (or designed): push/pop both ends
+- **l02-collections-helpers-groupby-chunk-deque** — L02 Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set)
+- **l03-crypto-sha-256-digest-secure-random** — L03 Crypto: SHA-256 digest + secure random bytes
+- **l03-workspace-timeout** — L03 workspace tests finish
+- **l04-compression-later-gzip-deflate** — L04 Compression later: gzip/deflate byte buffers
+- **l04-workspace-timeout** — L04 workspace tests finish
+- **l05-in-language-test-framework-describe** — L05 In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test`
+
 - **ticket-99-d04-01-cross-compile-at-least-one** — D04.01 Cross-compile: at least one non-host triple smoke
 - **ticket-98-d04-cross-compile-matrix-linux-darwin** — D04 Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available)
 - **ticket-97-d03-02-same-source-pin-byte-identical** — D03.02 Same source + pin → byte-identical or documented-equivalent emit
