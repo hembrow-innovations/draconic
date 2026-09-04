@@ -16,4 +16,4 @@ Roadmap of **locations**, optional `locations/<slug>.md` files, plus sprint grou
 
 ## Work (fluid)
 
-Task-pool files and incoming tickets. This layer is supposed to churn. Rigidity comes from writing tasks too early and treating that list as the plan. Tasks live in `.heio/planning/task-pool/`. Tickets stay in `.heio/tickets/` until triage promotes one.
+Task-pool files and incoming tickets. This layer is supposed to churn. Rigidity comes from writing tasks during the grill and treating that list as the plan. A planning sitting publishes the pool after freeze, in the same sitting. Tasks live in `.heio/planning/task-pool/`. Tickets stay in `.heio/tickets/` until triage promotes one.

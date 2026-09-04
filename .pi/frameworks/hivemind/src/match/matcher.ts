@@ -40,28 +40,6 @@ function matchesPredicates(
   return true;
 }
 
-export function exclusiveSetsOverlap(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
-  for (const a of left) {
-    for (const b of right) {
-      if (pathsOverlap(a, b)) return true;
-    }
-  }
-  return false;
-}
-
-function pathsOverlap(left: string, right: string): boolean {
-  const a = normalizePrefix(left);
-  const b = normalizePrefix(right);
-  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
-}
-
-function normalizePrefix(path: string): string {
-  return path.replaceAll("\\", "/").replace(/\/+$/, "");
-}
-
 function yamlEqual(left: YamlValue | undefined, right: YamlValue): boolean {
   if (Object.is(left, right)) return true;
   if (left === undefined || left === null || right === null) return false;

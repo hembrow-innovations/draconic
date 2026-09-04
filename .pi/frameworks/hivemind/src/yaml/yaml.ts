@@ -194,8 +194,12 @@ function rejectUnknown(line: string, raw: string): void {
   if (/:\s*[|>][-+]?\s*$/.test(line)) {
     throw new Error(`Block scalars are not supported: ${raw}`);
   }
-  if (/\{/.test(line) && !inQuotes(line, line.indexOf("{"))) {
-    throw new Error(`Nested maps are not supported: ${raw}`);
+  const brace = line.indexOf("{");
+  if (brace !== -1 && !inQuotes(line, brace)) {
+    const body = line.trim();
+    if (body !== "{}" && !/:\s*\{\}\s*$/.test(body)) {
+      throw new Error(`Nested maps are not supported: ${raw}`);
+    }
   }
 }
 
@@ -215,6 +219,7 @@ function parseScalar(s: string, raw: string): YamlValue {
   if (s === "false") return false;
   if (s === "null" || s === "~") return null;
   if (s === "[]") return [];
+  if (s === "{}") return {};
   if (s.startsWith("[") && s.endsWith("]")) {
     const inner = s.slice(1, -1).trim();
     if (!inner) return [];

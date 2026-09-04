@@ -1,4 +1,6 @@
 .pi/git/
+.heio/logs/
+.hivemind-last-run
 
 /target
 **/*.rs.bk

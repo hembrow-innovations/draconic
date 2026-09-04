@@ -9,7 +9,7 @@ const cli = join(root, ".pi", "frameworks", "hivemind", "src", "cli.ts");
 
 if (!existsSync(cli)) {
 	console.error("missing .pi/frameworks/hivemind/src/cli.ts");
-	console.error("reinstall: node scripts/install-heio.mjs");
+	console.error("copy apps/hivemind from ../hivemind");
 	process.exit(1);
 }
 

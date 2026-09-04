@@ -12,7 +12,7 @@ Copy `templates/ticket.md`. Place it at `.heio/tickets/ticket-<NN>-<slug>.md`. S
 
 ## Triage, same every time
 
-- Fits an unblocked active slice → **TASK**, now. Status `promoted`. Write a task-pool file and link it from the slice.
+- Fits an unblocked active slice → **TASK**, now. Status `promoted`. Write a task-pool file (`ready`, mode, blocked-by) and link it from the slice.
 - Fits the project, not this slice → **TICKET**, park. Status `parked`. Pull into a later slice.
 - Would rewrite a location destination → **ESCALATE**. Status stays `open` until the map changes.
 

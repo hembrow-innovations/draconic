@@ -2,28 +2,90 @@
 # Unattended heio-stack loop. Slice status ready means schedulable (replaces
 # frozen). Then active / released / reviewing / met / failed. Tickets:
 # ready-for-agent vs ready-for-human. Pump mints one ROADMAP.md todo as a
-# ticket. Doctor not shipped. cmd is pi --print so watch does not open a TUI.
-# Pump is last so plan/tasker/build/review win while work is in flight.
-concurrency: 5
+# ticket. Doctor not shipped. cmd is argv. pi --print. --approve trusts the
+# folder. Pump is last so plan/tasker/build/review still match while work is
+# in flight.
+#
+# Pipeline: plan → tasker → build → review
+#   ↻ pump mints the next ready-for-agent ticket when the board is quiet
+history: .heio/logs/hivemind.tsv
 folders:
   - path: .heio/tickets
-    schema: ticket
+    schema:
+      id: string
+      title: string
+      kind: string
+      status: string
+      labels: string
+      tags: string
+      sprint: string
+      slice: string
+      created_at: string
+      updated_at: string
+      claimed-by: string
+      caused-by: string
+      failed: string
+      intent: string
     required: [id, status]
   - path: .heio/planning
-    schema: planning
+    schema:
+      id: string
+      title: string
+      kind: string
+      status: string
+      sprint: string
+      tags: string
+      created_at: string
+      updated_at: string
+      claimed-by: string
+      blocked-by: string
+      mode: string
+      sitting-kind: string
     required: [id, kind, status]
   - path: .heio/archive
-    schema: archive
+    schema:
+      id: string
+      title: string
+      kind: string
+      status: string
+      sprint: string
+      tags: string
+      created_at: string
+      updated_at: string
+      claimed-by: string
+      blocked-by: string
+      caused-by: string
+      failed: string
+      intent: string
+      labels: string
+      slice: string
+      mode: string
+      sitting-kind: string
     required: [id]
   - path: .heio/quarantine
     schema: quarantine
     required: [origin-location, quarantined-at, fault]
+actors:
+  pi:
+    cmd:
+      - pi
+      - --print
+      - --no-session
+      - --approve
+      - --exclude-tools
+      - ask_user_question
+      - --agent
+      - "{{agent}}"
+      - "--"
+      - "@{{prompt}}"
 lanes:
   # Plan: one ready-for-agent ticket → one sealed slice (oracles, status ready).
   # Claims the ticket as active, writes the slice under .heio/planning, then
   # marks the ticket promoted. No product code and no task-pool files.
-  - lane: plan
-    cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
+  plan:
+    type: single
+    concurrency: 1
+    actor: pi
     agent: heio-planner
     prompt: prompts/hivemind-plan.md
     trigger:
@@ -34,8 +96,10 @@ lanes:
   # Tasker: one ready slice → task-pool files plus [[id]] links on the slice.
   # Claims the slice as active. One sitting per task. No product code; does
   # not edit EXPECT, intent, roadmap, or sprint shape.
-  - lane: tasker
-    cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
+  tasker:
+    type: single
+    concurrency: 1
+    actor: pi
     agent: heio-tasker
     prompt: prompts/hivemind-tasker.md
     trigger:
@@ -46,8 +110,10 @@ lanes:
   # Build: one incomplete task on an active slice. Runs draconic-loop + TDD,
   # commits the work package (never stages .heio/). Leaves the slice active
   # if more tasks remain; sets released when the pool is done so Review matches.
-  - lane: build
-    cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
+  build:
+    type: single
+    concurrency: 1
+    actor: pi
     agent: heio-builder
     prompt: prompts/hivemind-build.md
     trigger:
@@ -58,8 +124,10 @@ lanes:
   # Review: one released slice. Claims as reviewing, re-runs oracles.
   # ALL MET → slice met and ROADMAP done. Miss → slice failed and mints a
   # ready-for-agent ticket with caused-by (mint-status). No product code.
-  - lane: review
-    cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
+  review:
+    type: single
+    concurrency: 1
+    actor: pi
     agent: heio-verifier
     prompt: prompts/hivemind-review.md
     trigger:
@@ -72,8 +140,10 @@ lanes:
   # ready-for-agent (mint-status), then pump returns to idle. Occupied board
   # → mint nothing, stay idle. No todos left → exhausted so watch can exit.
   # Listed last so plan/tasker/build/review win while work is in flight.
-  - lane: pump
-    cmd: "pi --print --no-session --approve --agent {{agent}} -- @{{prompt}}"
+  pump:
+    type: single
+    concurrency: 1
+    actor: pi
     agent: heio-triage
     prompt: prompts/hivemind-pump.md
     trigger:

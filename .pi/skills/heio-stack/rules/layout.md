@@ -18,6 +18,7 @@ tags: [layout]
 │  └─ planning/
 │     ├─ task-pool/
 │     ├─ locations/
+│     ├─ rounds/
 │     └─ sprints/
 └─ planning/
    ├─ intent.md
@@ -26,6 +27,8 @@ tags: [layout]
    │  └─ <task>.md
    ├─ locations/
    │  └─ <slug>.md
+   ├─ rounds/
+   │  └─ <NN>-<slug>.md
    └─ sprints/
       └─ <sprint-id>/
          ├─ shape.md
@@ -36,6 +39,8 @@ tags: [layout]
 Create a folder when the first file needs it. `planning/locations/` exists only when a location needs a file. `archive/` exists on the first move.
 
 `.heio/planning/task-pool/` is one markdown file per task. Completed task files move to `.heio/archive/planning/task-pool/`.
+
+`.heio/planning/rounds/` is one markdown file per sitting (`<NN>-<slug>.md`). `kind: round`. `sitting-kind` is `planning` or `wayfinder` (frontmatter, not `mode`). Rounds append in the same file. Published sitting files move to `.heio/archive/planning/rounds/`.
 
 A slice is one markdown file: status, oracle checklist, durable links to task-pool ids. Sprint `shape.md` stays the grouping. Slice `met` means linked task-pool ids are `completed` and oracles hold. Links are never dropped.
 
@@ -54,6 +59,7 @@ Reserved at the root. Leave them in place.
 - **slice file**: `s-<slug>.md`. Lowercase kebab-case. A file, not a folder.
 - **ticket**: `ticket-<NN>-<slug>.md`. `<NN>` is the next unused integer, zero-padded to two digits. Scan `.heio/tickets/`. Start at `01`. Do not reuse a number.
 - **task**: the file stem is the id. `.heio/planning/task-pool/<id>.md`
+- **round**: `<NN>-<slug>.md`. `<NN>` is the next unused integer, zero-padded to two digits. Scan `.heio/planning/rounds/`. Start at `01`. Do not reuse a number. Slug is lowercase kebab-case. No `round-` prefix on the stem. The id is the file stem (`01-slug`).
 
 `slug` is lowercase kebab-case. Keep it short.
 
@@ -66,6 +72,7 @@ Reserved at the root. Leave them in place.
 - **slice**: `shaping` / `frozen` / `active` / `met` / `abandoned`
 - **ticket**: `open` / `parked` / `promoted` / `dropped` / `closed`
 - **task**: `draft` / `ready` / `claimed` / `implemented` / `completed`
+- **round**: `awaiting-answers` / `ready-to-resume` / `awaiting-confirm` / `published`. `parked` is a side door
 
 ## Archive
 
@@ -76,8 +83,9 @@ Reserved at the root. Leave them in place.
 - **task-pool**: `.heio/archive/planning/task-pool/`
 - **sprints**: `.heio/archive/planning/sprints/`
 - **locations**: `.heio/archive/planning/locations/`
+- **rounds**: `.heio/archive/planning/rounds/`
 
-Closed sprint folders, closed tickets, done location files, and completed task files **move**. Done location bullets leave the live roadmap. Add a one-liner to `archive/index.md` that says what landed.
+Closed sprint folders, closed tickets, done location files, completed task files, and published round files **move**. Done location bullets leave the live roadmap. Add a one-liner to `archive/index.md` that says what landed.
 
 Live lists come from the live tree. Archive holds completed work.
 

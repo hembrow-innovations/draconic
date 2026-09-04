@@ -21,7 +21,7 @@ Name `blocked-by` when this slice must wait on another. Unblocked slices may run
 Carry enough ADRs, specs, and paths that a stranger does not hunt.
 
 - **shaping**: Done and `EXPECT:` are still forming.
-- **frozen**: Done and `EXPECT:` exist. Work may hang off the slice as task-pool files.
+- **frozen**: Done and `EXPECT:` exist. A planning sitting publishes the task-pool files and Pool `[[id]]` links in the same sitting.
 - **active**: linked task-pool work is in progress. Many slices may be `active`.
 
 ## Close

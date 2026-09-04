@@ -1,15 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Lane } from "../config/loadConfig.ts";
+import type { Lane, SpawnSpec } from "../config/loadConfig.ts";
 import type { Journal } from "../journal/journal.ts";
-import { exclusiveSetsOverlap, type Match } from "../match/matcher.ts";
-import { claim } from "../spawn/claim.ts";
-import { interpolate } from "../spawn/interpolator.ts";
-import { spawnArgv } from "../spawn/spawner.ts";
-import { tokenize } from "../spawn/tokenizer.ts";
+import type { Match } from "../match/matcher.ts";
+import { claim } from "../note/io.ts";
+import { renderArgv, startSpawn, type SpawnChild } from "../spawn/spawner.ts";
 
-export type SpawnChild = (argv: readonly string[]) => unknown;
+export type { SpawnChild };
 
 export type LiveRun = {
   exclusive: readonly string[];
@@ -23,17 +20,20 @@ export type LiveRun = {
 
 export function spawnMatches(opts: {
   cwd: string;
-  concurrency: number;
   matches: readonly Match[];
   env: NodeJS.ProcessEnv;
   spawnChild?: SpawnChild;
   live: LiveRun[];
   journal?: Journal;
+  lastFinished?: Map<string, number>;
+  now?: () => number;
 }): number {
   let spawned = 0;
+  const now = opts.now ?? Date.now;
   for (const match of opts.matches) {
     const current = opts.live.filter((run) => !run.done);
-    if (current.length >= opts.concurrency) {
+    const laneLive = current.filter((run) => run.lane === match.lane.lane);
+    if (laneLive.length >= match.lane.concurrency) {
       opts.journal?.record({
         kind: "skip",
         lane: match.lane.lane,
@@ -64,17 +64,35 @@ export function spawnMatches(opts: {
       });
       continue;
     }
-    const argv = cmdArgv({ lane: match.lane, cwd: opts.cwd, env: opts.env });
-    if (argv.kind === "skip") {
+    if (match.lane.cooldownMs > 0 && opts.lastFinished !== undefined) {
+      const last = opts.lastFinished.get(match.lane.lane);
+      if (last !== undefined && now() - last < match.lane.cooldownMs) {
+        opts.journal?.record({
+          kind: "skip",
+          lane: match.lane.lane,
+          path: match.note.path,
+          reason: "cooldown",
+        });
+        continue;
+      }
+    }
+    const runId = randomUUID();
+    const rendered = renderArgv({
+      specs: spawnSpecs(match.lane),
+      lane: match.lane.lane,
+      cwd: opts.cwd,
+      env: opts.env,
+      runId,
+    });
+    if (rendered.kind === "skip") {
       opts.journal?.record({
         kind: "skip",
         lane: match.lane.lane,
         path: match.note.path,
-        reason: argv.reason,
+        reason: rendered.reason,
       });
       continue;
     }
-    const runId = randomUUID();
     const taken = claim({
       abs: join(opts.cwd, match.note.path),
       triggerStatus: match.lane.trigger.status,
@@ -96,32 +114,16 @@ export function spawnMatches(opts: {
       path: match.note.path,
       runId,
     });
-    opts.journal?.record({
-      kind: "spawn",
+    const handle = startSpawn({
+      argvList: rendered.argvList,
+      cwd: opts.cwd,
+      env: opts.env,
+      spawnChild: opts.spawnChild,
+      journal: opts.journal,
       lane: match.lane.lane,
       path: match.note.path,
       runId,
-    });
-    if (opts.spawnChild !== undefined) {
-      opts.spawnChild(argv.argv);
-      opts.live.push(
-        track({
-          exclusive: match.lane.exclusive,
-          wait: Promise.resolve(0),
-          kill: noop,
-          path: match.note.path,
-          lane: match.lane.lane,
-          runId,
-          journal: opts.journal,
-        }),
-      );
-      spawned += 1;
-      continue;
-    }
-    const handle = spawnArgv({
-      argv: argv.argv,
-      cwd: opts.cwd,
-      env: opts.env,
+      stages: spawnStages(match.lane),
     });
     opts.live.push(
       track({
@@ -131,7 +133,7 @@ export function spawnMatches(opts: {
         path: match.note.path,
         lane: match.lane.lane,
         runId,
-        journal: opts.journal,
+        lastFinished: opts.lastFinished,
       }),
     );
     spawned += 1;
@@ -139,7 +141,43 @@ export function spawnMatches(opts: {
   return spawned;
 }
 
-function track(run: Omit<LiveRun, "done"> & { journal?: Journal }): LiveRun {
+function exclusiveSetsOverlap(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  for (const a of left) {
+    for (const b of right) {
+      if (pathsOverlap(a, b)) return true;
+    }
+  }
+  return false;
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  const a = normalizePrefix(left);
+  const b = normalizePrefix(right);
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+function normalizePrefix(path: string): string {
+  return path.replaceAll("\\", "/").replace(/\/+$/, "");
+}
+
+function spawnSpecs(lane: Lane): SpawnSpec[] {
+  if (lane.type === "single") return [lane];
+  return [...lane.stages];
+}
+
+function spawnStages(lane: Lane): readonly string[] | undefined {
+  if (lane.type === "single") return undefined;
+  return lane.stages.map((stage) => stage.stage);
+}
+
+function track(
+  run: Omit<LiveRun, "done"> & {
+    lastFinished?: Map<string, number>;
+  },
+): LiveRun {
   const live: LiveRun = {
     exclusive: run.exclusive,
     wait: run.wait,
@@ -150,68 +188,14 @@ function track(run: Omit<LiveRun, "done"> & { journal?: Journal }): LiveRun {
     runId: run.runId,
   };
   void live.wait.then(
-    (status) => {
+    () => {
       live.done = true;
-      run.journal?.record({
-        kind: "exit",
-        lane: live.lane,
-        path: live.path,
-        runId: live.runId,
-        status,
-      });
+      run.lastFinished?.set(live.lane, Date.now());
     },
     () => {
       live.done = true;
-      run.journal?.record({
-        kind: "exit",
-        lane: live.lane,
-        path: live.path,
-        runId: live.runId,
-        status: 1,
-      });
+      run.lastFinished?.set(live.lane, Date.now());
     },
   );
   return live;
-}
-
-function noop(): void {}
-
-function cmdArgv(opts: {
-  lane: Lane;
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-}):
-  | { kind: "ok"; argv: string[] }
-  | { kind: "skip"; reason: "missing-prompt" | "cmd-skip" } {
-  if (opts.lane.prompt !== undefined && opts.lane.prompt !== "") {
-    if (!existsSync(join(opts.cwd, opts.lane.prompt))) {
-      return { kind: "skip", reason: "missing-prompt" };
-    }
-  }
-  if (typeof opts.lane.cmd !== "string") {
-    const argv: string[] = [];
-    for (const part of opts.lane.cmd) {
-      const rendered = interpolate({
-        template: part,
-        cwd: opts.cwd,
-        lane: opts.lane,
-        env: opts.env,
-      });
-      if (rendered.kind === "skip") {
-        return { kind: "skip", reason: "cmd-skip" };
-      }
-      argv.push(rendered.value);
-    }
-    return { kind: "ok", argv };
-  }
-  const rendered = interpolate({
-    template: opts.lane.cmd,
-    cwd: opts.cwd,
-    lane: opts.lane,
-    env: opts.env,
-  });
-  if (rendered.kind === "skip") return { kind: "skip", reason: "cmd-skip" };
-  const tokens = tokenize(rendered.value);
-  if (tokens.kind === "fail") return { kind: "skip", reason: "cmd-skip" };
-  return { kind: "ok", argv: tokens.argv };
 }

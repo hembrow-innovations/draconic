@@ -5,7 +5,7 @@ Every stack note includes these fields. Kind-specific fields follow on the kind 
 ```yaml
 id: "<filename stem or folder name>"
 title: "<same string as the h1>"
-kind: intent | roadmap | location | sprint | slice | ticket | task
+kind: intent | roadmap | location | sprint | slice | ticket | task | round
 tags: []
 created_at: "<ISO-8601>"
 updated_at: "<ISO-8601>"
@@ -20,6 +20,7 @@ updated_at: "<ISO-8601>"
 - **slice**: the file stem (`s-login`)
 - **ticket**: `ticket-01-slug`
 - **task**: the file stem (`task-id`)
+- **round**: the file stem (`01-slug`)
 
 `archive/index.md` has no frontmatter.
 
@@ -34,4 +35,6 @@ labels: feature
 sprint: "week-1"
 slice: "s-login"
 references: ["ticket-01-slug"]
+mode: afk
+blocked-by: []
 ```

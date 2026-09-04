@@ -2,7 +2,9 @@
 id: "task-id"
 title: "task title"
 kind: task
-status: draft
+status: ready
+mode: afk
+blocked-by: []
 tags: []
 created_at: "ISO-8601"
 updated_at: "ISO-8601"
@@ -10,13 +12,17 @@ updated_at: "ISO-8601"
 
 # task title
 
+## Blocked by
+
+None. Or `[[task-id]]`: why this waits.
+
 ## Done
 
 <one-line observable>
 
 ## Context
 
-What this task changes and why.
+Current vs desired behavior, interfaces, out of scope. Durable enough that an AFK agent can take it.
 
 ## Verify
 

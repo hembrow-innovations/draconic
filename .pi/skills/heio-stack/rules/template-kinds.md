@@ -15,6 +15,7 @@ Copy the template. Do not invent a new skeleton.
 - **slice**: `templates/slice.md` → `.heio/planning/sprints/<id>/slices/s-<slug>.md`
 - **ticket**: `templates/ticket.md` → `.heio/tickets/ticket-<NN>-<slug>.md`
 - **pool-task**: `templates/pool-task.md` → `.heio/planning/task-pool/<task>.md`
+- **round**: `templates/round.md` → `.heio/planning/rounds/<NN>-<slug>.md`
 - **archive index**: `templates/archive-index.md` → `.heio/archive/index.md`
 
 Shared fields: `templates/required-fields.md`.

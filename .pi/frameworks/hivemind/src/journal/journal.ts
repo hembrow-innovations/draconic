@@ -1,4 +1,10 @@
-import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 
 export type HistoryEvent =
@@ -6,8 +12,24 @@ export type HistoryEvent =
   | { kind: "quarantine"; path: string; fault: string }
   | { kind: "skip"; lane: string; path: string; reason: string }
   | { kind: "claim"; lane: string; path: string; runId: string }
-  | { kind: "spawn"; lane: string; path: string; runId: string }
-  | { kind: "exit"; lane: string; path: string; runId: string; status: number };
+  | {
+      kind: "spawn";
+      lane: string;
+      path: string;
+      runId: string;
+      stage?: string;
+      pid?: number;
+    }
+  | {
+      kind: "exit";
+      lane: string;
+      path: string;
+      runId: string;
+      status: number;
+      stage?: string;
+      pid?: number;
+    }
+  | { kind: "revert"; lane: string; path: string; runId: string };
 
 export type Journal = {
   record(event: HistoryEvent): void;
@@ -44,6 +66,27 @@ export function resolveHistory(opts: {
   return isAbsolute(opts.path) ? opts.path : join(opts.cwd, opts.path);
 }
 
+export function firstSpawnTimes(
+  historyPath: string | undefined,
+): Map<string, number> {
+  const times = new Map<string, number>();
+  if (historyPath === undefined || historyPath === "") return times;
+  if (!existsSync(historyPath)) return times;
+  for (const line of readFileSync(historyPath, "utf8").split(/\r?\n/)) {
+    if (line === "" || line.startsWith("ts\t")) continue;
+    const cols = line.split("\t");
+    if (cols[1] !== "spawn") continue;
+    const ts = cols[0];
+    const runId = cols[4];
+    if (ts === undefined || runId === undefined || runId === "") continue;
+    if (times.has(runId)) continue;
+    const ms = Date.parse(ts);
+    if (Number.isNaN(ms)) continue;
+    times.set(runId, ms);
+  }
+  return times;
+}
+
 function formatLine(event: HistoryEvent): string {
   switch (event.kind) {
     case "scan":
@@ -58,6 +101,8 @@ function formatLine(event: HistoryEvent): string {
       return `hivemind spawn ${event.lane} ${event.path}`;
     case "exit":
       return `hivemind exit ${event.lane} ${event.path} status=${event.status}`;
+    case "revert":
+      return `hivemind revert ${event.lane} ${event.path}`;
     default: {
       const _exhaustive: never = event;
       return _exhaustive;
@@ -99,16 +144,26 @@ function tsvRow(ts: string, event: HistoryEvent): string {
       fields[5] = event.reason;
       break;
     case "claim":
+      fields[2] = event.lane;
+      fields[3] = event.path;
+      fields[4] = event.runId;
+      break;
     case "spawn":
       fields[2] = event.lane;
       fields[3] = event.path;
       fields[4] = event.runId;
+      fields[5] = spawnExitDetail(event);
       break;
     case "exit":
       fields[2] = event.lane;
       fields[3] = event.path;
       fields[4] = event.runId;
-      fields[5] = `status=${event.status}`;
+      fields[5] = spawnExitDetail(event);
+      break;
+    case "revert":
+      fields[2] = event.lane;
+      fields[3] = event.path;
+      fields[4] = event.runId;
       break;
     default: {
       const _exhaustive: never = event;
@@ -116,6 +171,18 @@ function tsvRow(ts: string, event: HistoryEvent): string {
     }
   }
   return fields.map(tsvField).join("\t");
+}
+
+function spawnExitDetail(
+  event: Extract<HistoryEvent, { kind: "spawn" | "exit" }>,
+): string {
+  const parts: string[] = [];
+  if (event.kind === "exit") parts.push(`status=${event.status}`);
+  if (event.stage !== undefined && event.stage !== "") {
+    parts.push(`stage=${event.stage}`);
+  }
+  if (event.pid !== undefined) parts.push(`pid=${event.pid}`);
+  return parts.join(" ");
 }
 
 function tsvField(value: string): string {

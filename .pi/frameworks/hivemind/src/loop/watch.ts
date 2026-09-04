@@ -2,9 +2,8 @@ import { existsSync, watch, type FSWatcher } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { loadConfig, type Lane } from "../config/loadConfig.ts";
 import { createJournal, resolveHistory } from "../journal/journal.ts";
-import { matchNotes } from "../match/matcher.ts";
-import { scan } from "../scan/scan.ts";
-import { spawnMatches, type LiveRun, type SpawnChild } from "./matches.ts";
+import type { LiveRun, SpawnChild } from "./matches.ts";
+import { runTick } from "./tick.ts";
 
 export async function runWatch(opts: {
   cwd: string;
@@ -24,31 +23,19 @@ export async function runWatch(opts: {
   const target = resolveTarget(opts.cwd, opts.untilTarget);
   const env = opts.env ?? process.env;
   const live: LiveRun[] = [];
+  const lastFinished = new Map<string, number>();
   try {
     while (opts.signal?.aborted !== true) {
       if (target !== undefined && existsSync(target)) return;
-      const { notes, quarantines } = scan({ cwd: opts.cwd, config });
-      journal.record({
-        kind: "scan",
-        notes: notes.length,
-        quarantined: quarantines.length,
-      });
-      for (const item of quarantines) {
-        journal.record({
-          kind: "quarantine",
-          path: item.path,
-          fault: item.fault,
-        });
-      }
-      const matches = matchNotes({ lanes, notes, disable: config.disable });
-      const spawned = spawnMatches({
+      const spawned = runTick({
         cwd: opts.cwd,
-        concurrency: config.concurrency,
-        matches,
+        config,
+        lanes,
         env,
         spawnChild: opts.spawnChild,
         live,
         journal,
+        lastFinished,
       });
       await Promise.resolve();
       const remaining = live.filter((run) => !run.done);

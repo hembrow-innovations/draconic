@@ -1,8 +1,7 @@
 import { loadConfig } from "../config/loadConfig.ts";
 import { createJournal, resolveHistory } from "../journal/journal.ts";
-import { matchNotes } from "../match/matcher.ts";
-import { scan } from "../scan/scan.ts";
-import { spawnMatches, type LiveRun, type SpawnChild } from "./matches.ts";
+import type { LiveRun, SpawnChild } from "./matches.ts";
+import { runTick } from "./tick.ts";
 
 export type { LiveRun, SpawnChild };
 
@@ -22,26 +21,12 @@ export async function runOnce(opts: {
     journal.record({ kind: "scan", notes: 0, quarantined: 0 });
     return;
   }
-  const { notes, quarantines } = scan({ cwd: opts.cwd, config });
-  journal.record({
-    kind: "scan",
-    notes: notes.length,
-    quarantined: quarantines.length,
-  });
-  for (const item of quarantines) {
-    journal.record({
-      kind: "quarantine",
-      path: item.path,
-      fault: item.fault,
-    });
-  }
-  const matches = matchNotes({ lanes, notes, disable: config.disable });
   const env = opts.env ?? process.env;
   const live: LiveRun[] = [];
-  spawnMatches({
+  runTick({
     cwd: opts.cwd,
-    concurrency: config.concurrency,
-    matches,
+    config,
+    lanes,
     env,
     spawnChild: opts.spawnChild,
     live,

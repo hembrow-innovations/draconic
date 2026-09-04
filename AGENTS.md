@@ -27,7 +27,7 @@ This checkout runs **heio-stack**. Live operating notes live under `.heio/planni
 
 Language completeness remains [`ROADMAP.md`](./ROADMAP.md) — that is the **draconic-loop** source of truth. Do not replace ROADMAP.md with `.heio/planning/roadmap.md`. Heio-stack is the agent operating loop (verdicts, slices, tickets); ROADMAP.md is the language feature checklist.
 
-Chart intent and sprints with **heio-wayfinder**. Plan a slice or ticket with **heio-planning**. Execute a frozen slice with **heio-slice**. Every heio output ends `VERDICT: TASK | TICKET | ESCALATE | VERIFY`.
+Chart intent and sprints with **heio-wayfinder**. Plan a slice or ticket with **heio-planning**. File-backed sittings use **heio-rounds** (stop at `awaiting-confirm`; do not publish). Execute a frozen slice with **heio-slice**. Unattended lanes overlay Hivemind nouns (`ready`, not `frozen`). Every heio output ends `VERDICT: TASK | TICKET | ESCALATE | VERIFY`.
 
 Inbound product work that is not a Roadmap atom is a ticket under `.heio/tickets/`. Do not file ECMA-262 Loop atoms only as vault issues.
 
@@ -64,9 +64,9 @@ Do not write `frozen` on a slice. Tasker only matches `ready`. Review misses min
 ## Rules
 
 - Markdown: never tables — use `- **{text}**: {text}`
-- Front matter on `.heio/planning/**/*.md` may only use: `id`, `title`, `kind`, `status`, `sprint`, `tags`, `created_at`, `updated_at`, `claimed-by`, `blocked-by`. Extra keys quarantine the file.
+- Front matter on `.heio/planning/**/*.md` may only use: `id`, `title`, `kind`, `status`, `sprint`, `tags`, `created_at`, `updated_at`, `claimed-by`, `blocked-by`, `mode`, `sitting-kind`. Extra keys quarantine the file.
 - Front matter on tickets may only use the ticket schema keys. Extra keys quarantine.
-- Do not edit `hivemind.yaml` unless changing lanes on purpose.
+- Do not edit `.hivemind/hivemind.yaml` unless changing lanes on purpose.
 - Do not edit `.pi/` copies.
 - Do not write intent, roadmap, or sprint destination sentences from Build or Review.
 - Do not invent work when no matching ticket or slice exists and ROADMAP has no `todo`.
@@ -88,7 +88,7 @@ Install / refresh the dest pack from a local agentic-core checkout:
 node scripts/install-heio.mjs
 ```
 
-Override the source with `AGENTIC_CORE=/path/to/agentic-core`. Dest is `.pi/`. Profile is `draconic`. Run `pi` in this directory and trust the folder.
+Override the source with `AGENTIC_CORE=/path/to/agentic-core`. Dest is `.pi/`. Profile is `draconic`. Run `pi` in this directory and trust the folder. Reinstall does not seed Hivemind. Copy `apps/hivemind` from `../hivemind` into `.pi/frameworks/hivemind` when the engine is missing or stale. Runtime config is `.hivemind/hivemind.yaml` only.
 
 Unattended loop:
 
@@ -97,3 +97,5 @@ node scripts/run-hivemind.mjs watch --until-quiet
 node scripts/run-hivemind.mjs once
 node scripts/hivemind-status.mjs
 ```
+
+`--approve` on every lane trusts this folder. No trust prompt. No TUI.

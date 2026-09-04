@@ -1,4 +1,4 @@
-import type { Lane } from "../config/loadConfig.ts";
+import type { SpawnSpec } from "../config/loadConfig.ts";
 
 export type InterpolateResult =
   | { kind: "ok"; value: string }
@@ -7,8 +7,10 @@ export type InterpolateResult =
 export function interpolate(opts: {
   template: string;
   cwd: string;
-  lane: Lane;
+  lane: string;
+  spec: SpawnSpec;
   env: NodeJS.ProcessEnv;
+  runId?: string;
 }): InterpolateResult {
   let skip = false;
   const value = opts.template.replace(
@@ -19,7 +21,9 @@ export function interpolate(opts: {
         name,
         cwd: opts.cwd,
         lane: opts.lane,
+        spec: opts.spec,
         env: opts.env,
+        runId: opts.runId,
       });
       if (resolved.kind === "skip") {
         skip = true;
@@ -36,8 +40,10 @@ export function interpolate(opts: {
 function resolvePlaceholder(opts: {
   name: string;
   cwd: string;
-  lane: Lane;
+  lane: string;
+  spec: SpawnSpec;
   env: NodeJS.ProcessEnv;
+  runId?: string;
 }): InterpolateResult {
   if (opts.name.startsWith("env.")) {
     const key = opts.name.slice("env.".length);
@@ -47,23 +53,27 @@ function resolvePlaceholder(opts: {
     return { kind: "ok", value };
   }
   if (opts.name === "cwd") return { kind: "ok", value: opts.cwd };
-  if (opts.name === "lane") return { kind: "ok", value: opts.lane.lane };
+  if (opts.name === "lane") return { kind: "ok", value: opts.lane };
+  if (opts.name === "run-id") {
+    if (opts.runId === undefined || opts.runId === "") return { kind: "skip" };
+    return { kind: "ok", value: opts.runId };
+  }
   if (opts.name === "agent") {
-    if (opts.lane.agent === undefined || opts.lane.agent === "") {
+    if (opts.spec.agent === undefined || opts.spec.agent === "") {
       return { kind: "skip" };
     }
-    return { kind: "ok", value: opts.lane.agent };
+    return { kind: "ok", value: opts.spec.agent };
   }
   if (opts.name === "prompt") {
-    if (opts.lane.prompt === undefined || opts.lane.prompt === "") {
+    if (opts.spec.prompt === undefined || opts.spec.prompt === "") {
       return { kind: "skip" };
     }
-    return { kind: "ok", value: opts.lane.prompt };
+    return { kind: "ok", value: opts.spec.prompt };
   }
   if (opts.name === "exclusive") {
-    return { kind: "ok", value: opts.lane.exclusive.join(" ") };
+    return { kind: "ok", value: opts.spec.exclusive.join(" ") };
   }
-  const named = opts.lane.scalars[opts.name];
+  const named = opts.spec.scalars[opts.name];
   if (named === undefined) return { kind: "skip" };
   return { kind: "ok", value: named };
 }

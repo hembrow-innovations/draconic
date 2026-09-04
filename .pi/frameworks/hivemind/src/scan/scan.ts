@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { loadConfig, type HivemindConfig } from "../config/loadConfig.ts";
-import { quarantineFile } from "../quarantine/write.ts";
+import { parseFrontMatter, quarantineNote } from "../note/io.ts";
 import { namedAllowlist } from "../schema/named.ts";
-import { parseYaml, type YamlValue } from "../yaml/yaml.ts";
+import type { YamlValue } from "../yaml/yaml.ts";
 
 export type ScannedNote = {
   path: string;
@@ -57,16 +57,16 @@ export function scan(opts: {
       const origin = projectRel(opts.cwd, abs);
       const raw = readFileSync(abs, "utf8");
       if (!raw.startsWith("---")) continue;
-      const parsed = readFrontMatter(raw);
+      const parsed = parseFrontMatter(raw);
       if (parsed.kind === "fault") {
-        quarantineFile({ abs, destDir, origin, fault: parsed.fault, at });
+        quarantineNote({ abs, destDir, origin, fault: parsed.fault, at });
         quarantines.push({ path: origin, fault: parsed.fault });
         continue;
       }
       const unknown = unknownKey(parsed.map, folder);
       if (unknown !== undefined) {
         const fault = `unknown-key:${unknown}`;
-        quarantineFile({
+        quarantineNote({
           abs,
           destDir,
           origin,
@@ -79,7 +79,7 @@ export function scan(opts: {
       const missing = missingKey(parsed.map, folder.required);
       if (missing !== undefined) {
         const fault = `missing-key:${missing}`;
-        quarantineFile({
+        quarantineNote({
           abs,
           destDir,
           origin,
@@ -119,6 +119,7 @@ function readFolders(folders: YamlValue[]): FolderEntry[] {
 
 function readSchema(value: unknown): FolderSchema {
   if (typeof value === "string" && value !== "") {
+    namedAllowlist(value);
     return { kind: "named", name: value };
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
@@ -164,27 +165,6 @@ function unknownKey(
     if (!allowed.has(key)) return key;
   }
   return undefined;
-}
-
-function readFrontMatter(
-  raw: string,
-):
-  | { kind: "ok"; map: Record<string, YamlValue> }
-  | { kind: "fault"; fault: string } {
-  if (!raw.startsWith("---")) {
-    return { kind: "fault", fault: "parse-error" };
-  }
-  const afterOpen = raw.slice(3);
-  const close = afterOpen.match(/\r?\n---(?:\r?\n|$)/);
-  if (close === null) {
-    return { kind: "fault", fault: "parse-error" };
-  }
-  const yamlText = afterOpen.slice(0, close.index).replace(/^\r?\n/, "");
-  try {
-    return { kind: "ok", map: parseYaml(yamlText) };
-  } catch {
-    return { kind: "fault", fault: "parse-error" };
-  }
 }
 
 function includeFolder(

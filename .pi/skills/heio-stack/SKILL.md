@@ -21,6 +21,7 @@ Search `.heio/` first, including `archive/`. Copy the matching template. Place i
 │  └─ planning/
 │     ├─ task-pool/
 │     ├─ locations/
+│     ├─ rounds/
 │     └─ sprints/
 └─ planning/
    ├─ intent.md
@@ -29,6 +30,8 @@ Search `.heio/` first, including `archive/`. Copy the matching template. Place i
    │  └─ <task>.md
    ├─ locations/
    │  └─ <slug>.md
+   ├─ rounds/
+   │  └─ <NN>-<slug>.md
    └─ sprints/
       └─ <sprint-id>/
          ├─ shape.md
@@ -46,8 +49,9 @@ Create a folder when the first file needs it.
 - **sprint**: grouping of slices. `shape.md` is the grouping. `.heio/planning/sprints/<sprint-id>/shape.md`
 - **slice**: one markdown file. Status, oracle checklist, durable links to task-pool ids. `.heio/planning/sprints/<sprint-id>/slices/s-<slug>.md`
 - **task**: one markdown file in the task pool. `.heio/planning/task-pool/<task>.md`
+- **round**: one sitting file. `kind: round`. `sitting-kind: planning` or `wayfinder` (frontmatter, not `mode`). Rounds append in that file. `.heio/planning/rounds/<NN>-<slug>.md`
 - **ticket**: inbound product signal. `.heio/tickets/ticket-<NN>-<slug>.md`
-- **archive**: completed work, mirroring the live tree. `.heio/archive/index.md` plus `archive/planning/task-pool/`, `archive/planning/sprints/`, `archive/planning/locations/`, `archive/tickets/`
+- **archive**: completed work, mirroring the live tree. `.heio/archive/index.md` plus `archive/planning/task-pool/`, `archive/planning/sprints/`, `archive/planning/locations/`, `archive/planning/rounds/`, `archive/tickets/`
 
 ## Status
 
@@ -58,6 +62,7 @@ Create a folder when the first file needs it.
 - **slice**: `shaping` / `frozen` / `active` / `met` / `abandoned`
 - **ticket**: `open` / `parked` / `promoted` / `dropped` / `closed`
 - **task**: `draft` → `ready` → `claimed` → `implemented` → `completed`
+- **round**: `awaiting-answers` → `ready-to-resume` → `awaiting-confirm` → `published`. `parked` is a side door
 
 A slice is `met` when every linked task-pool id is `completed` and the oracles hold. Links are never dropped.
 
@@ -68,7 +73,8 @@ Work hangs off sprint grouping → slice → task-pool files.
 - **shape.md** lists which slices are in this grouping.
 - A slice is one file. Name `blocked-by` when it waits on another slice. Unblocked slices may run in parallel.
 - Oracles live on the slice file (`CHECK` / `EXPECT` / `EVIDENCE` / `ABANDON`).
-- Each unit of work is a task-pool file. The slice keeps durable `[[id]]` links to those ids.
+- A planning sitting freezes the in-slices and publishes their task-pool files in one pass. Each task is `ready` with `mode: afk` or `mode: hitl` and `blocked-by`.
+- The slice keeps durable `[[id]]` links to those ids. Drain claims unblocked AFK tasks. HITL waits.
 - Inbound product work is a ticket. Triage it into a task-pool file (and link it), park it, or escalate it to the map.
 - Completed work moves to archive. Completed task files move to `.heio/archive/planning/task-pool/`. Closed sprints, done locations, and closed tickets move under the matching archive path. Add a one-liner to `archive/index.md`.
 
@@ -93,6 +99,7 @@ EVIDENCE: <one line>
 - **slice file**: `s-<slug>.md`. Lowercase kebab-case.
 - **ticket**: `ticket-<NN>-<slug>.md`. `<NN>` is the next unused integer, zero-padded to two digits.
 - **task**: the file stem is the id.
+- **round**: `<NN>-<slug>.md`. `<NN>` is the next unused integer, zero-padded to two digits. Scan `.heio/planning/rounds/`. Slug is lowercase kebab-case. No `round-` prefix. The id is the file stem.
 - **links**: `[[id]]`. The `id` is the stem or folder name.
 
 `slug` is lowercase kebab-case. Keep it short.
@@ -108,6 +115,7 @@ Copy the matching file from `templates/`. Shared fields: `templates/required-fie
 - **slice**: `templates/slice.md` → `.heio/planning/sprints/<id>/slices/s-<slug>.md`
 - **ticket**: `templates/ticket.md` → `.heio/tickets/ticket-<NN>-<slug>.md`
 - **task**: `templates/pool-task.md` → `.heio/planning/task-pool/<task>.md`
+- **round**: `templates/round.md` → `.heio/planning/rounds/<NN>-<slug>.md`
 - **archive index**: `templates/archive-index.md` → `.heio/archive/index.md`
 
 ## When to apply

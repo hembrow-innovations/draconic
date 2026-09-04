@@ -18,7 +18,7 @@ When a location needs depth, copy `templates/location.md` to `planning/locations
 
 A grouping of slices. Named after a **location** or a **timebox** (`week-1`).
 
-`.heio/planning/sprints/<id>/shape.md` lists slices in, slices out, and what this grouping is. Status `shaping` until the slice files have Done and `EXPECT:` lines, then `active`.
+`.heio/planning/sprints/<id>/shape.md` lists slices in, slices out, and what this grouping is. Status `shaping` while the way is still fog. A planning sitting sets `active` when it freezes the in-slices and publishes their task-pool files.
 
 A sprint holds 2–4+ vertical slices. Many slices may be `active`. A slice that must wait names `blocked-by`.
 

@@ -81,7 +81,7 @@ function usage(): void {
   console.log(`hivemind
 
 Usage:
-  node --experimental-strip-types frameworks/hivemind/src/cli.ts <command>
+  node --experimental-strip-types apps/hivemind/src/cli.ts <command>
 
 Commands:
   once    one scan, spawn matches, wait, exit
@@ -92,7 +92,7 @@ Options:
   --until-quiet           watch: exit after one quiet scan
   --until-target PATH     watch: exit when PATH exists
 
-Events print to stderr. Optional history TSV is set in hivemind.yaml.
+Events print to stderr. Optional history TSV is set in .hivemind/hivemind.yaml.
 `);
 }
 
