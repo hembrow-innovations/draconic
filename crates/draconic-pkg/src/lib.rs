@@ -30,6 +30,7 @@
 //! K08: integrity — verify lock hashes; refuse tampered cache (K08.01 + K08.02).
 //! K08.01: recompute tree SHA-256; match lock `content_hash` or hard-fail.
 //! K08.02: refuse mismatched checkout OID vs lock pin; no silent wrong tree.
+//! K11: post-v1 packaging (not v1 bar) — later children are opt-in, never silent v1.
 //! K11.01: private git auth — HTTPS token or SSH; fail closed; never persist secrets.
 //! K11.02: `replace` directive — fork git source or local path override.
 //! K11.03: multi-module monorepo — module path may map to a git subdirectory.
@@ -44,6 +45,7 @@ mod ensure;
 mod get;
 mod hash;
 mod import_resolve;
+mod later;
 mod lock;
 mod proxy;
 mod replace;
@@ -77,6 +79,7 @@ pub use import_resolve::{
     match_locked_package, path_is_within_root, resolve_module_import, ImportResolveError,
     ResolvedImport,
 };
+pub use later::{LaterPackaging, LaterPackagingError};
 pub use lock::{parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError};
 pub use proxy::{
     mirror_fetch_url, module_proxy_from_vars, ModuleProxy, ProxyEntry, ProxyError, ProxyFetch,
