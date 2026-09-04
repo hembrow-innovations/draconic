@@ -1,0 +1,12 @@
+// L02: one Program — groupBy, chunk, Deque; not Array.
+let g = groupBy(["a", "b", "a"]);
+let grouped = g.a.length === 2 && g.b.length === 1;
+let c = chunk([1, 2, 3, 4, 5], 2);
+let chunked = c.length === 3 && c[0][0] === 1 && c[2][0] === 5;
+let d = new Deque();
+d.pushBack(1);
+d.pushFront(0);
+d.pushBack(2);
+let ends = d.popFront() === 0 && d.popBack() === 2 && d.popFront() === 1;
+let distinct = Deque !== Array;
+let gp = globalThis.groupBy === groupBy && globalThis.chunk === chunk && globalThis.Deque === Deque;

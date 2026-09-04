@@ -1,0 +1,6 @@
+id: stdlib/collections/surface
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\n
+js.check: if (grouped !== true) process.exit(1); if (chunked !== true) process.exit(2); if (ends !== true) process.exit(3); if (distinct !== true) process.exit(4); if (gp !== true) process.exit(5);
