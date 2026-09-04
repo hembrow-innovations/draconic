@@ -1,0 +1,9 @@
+id: stdlib/logging/surface
+targets: js,native
+js.exit: 0
+js.stdout: info i\ndebug d\n
+js.stderr: warn w\nerror e\n
+js.check: if (gp !== true) process.exit(1); if (recOk !== true) process.exit(2); if (levelOk !== true) process.exit(3); if (isoOk !== true) process.exit(4); if (levelBad !== 1) process.exit(5); if (sinkBad !== 1) process.exit(6);
+native.exit: 0
+native.stdout: info i\ndebug d\ntrue\ntrue\ntrue\ntrue\n1\n1\n
+native.stderr: warn w\nerror e\n

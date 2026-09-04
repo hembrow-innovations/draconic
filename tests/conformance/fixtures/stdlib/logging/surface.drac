@@ -1,0 +1,33 @@
+// L06: one Program — leveled logger + stderr/stdout sink.
+let gp = typeof createLogger === "function" && globalThis.createLogger === createLogger;
+let logger = createLogger("info", "stdio");
+logger.debug("hidden");
+logger.info("i");
+logger.warn("w");
+logger.error("e");
+logger.setLevel("debug");
+logger.debug("d");
+let recs = logger.records();
+let recOk = recs.length === 4 && recs[0].level === "info" && recs[0].message === "i"
+  && recs[1].level === "warn" && recs[1].message === "w"
+  && recs[2].level === "error" && recs[2].message === "e"
+  && recs[3].level === "debug" && recs[3].message === "d";
+let levelOk = logger.getLevel() === "debug";
+let mem = createLogger("error");
+mem.info("no");
+mem.error("yes");
+let isoOk = mem.records().length === 1 && mem.records()[0].message === "yes" && logger.records().length === 4;
+let levelBad = 0;
+try {
+  createLogger("trace");
+  levelBad = -1;
+} catch (err) {
+  levelBad = err.name === "TypeError" ? 1 : -2;
+}
+let sinkBad = 0;
+try {
+  createLogger("info", "file");
+  sinkBad = -1;
+} catch (err2) {
+  sinkBad = err2.name === "TypeError" ? 1 : -2;
+}
