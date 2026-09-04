@@ -75,6 +75,11 @@ fn module_uses_compression(module: &Module) -> bool {
         || module_uses_named_local(module, "inflate")
 }
 
+/// L07.01: `parseFlags`.
+fn module_uses_parse_flags(module: &Module) -> bool {
+    module_uses_named_local(module, "parseFlags")
+}
+
 /// L08.01: true when the Program body references the stdlib `parseUrl` global.
 ///
 /// IR locals include every binder symbol (all builtins), so presence in
@@ -664,6 +669,13 @@ fn emit_js_full(
     // L04: portable gzip / deflate polyfill when the Program references it.
     if module_uses_compression(module) {
         out.push_str(draconic_runtime::compression_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L07.01: portable `parseFlags` polyfill when the Program references it.
+    if module_uses_parse_flags(module) {
+        out.push_str(draconic_runtime::parse_flags_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1376,6 +1388,13 @@ mod tests {
         assert!(js.contains("function deflate("), "{js}");
         assert!(js.contains("function inflate("), "{js}");
         assert!(js.contains("globalThis.gzip = gzip"), "{js}");
+    }
+
+    #[test]
+    fn emit_parse_flags_polyfill() {
+        let js = emit_src("let r = parseFlags([\"--verbose\"]);");
+        assert!(js.contains("function parseFlags("), "{js}");
+        assert!(js.contains("globalThis.parseFlags = parseFlags"), "{js}");
     }
 
     #[test]

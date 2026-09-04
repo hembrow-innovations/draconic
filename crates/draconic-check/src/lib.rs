@@ -1224,6 +1224,8 @@ impl Binder {
         // E18.01: Annex B escape / unescape
         binder.install_builtin("escape", BindingKind::Const);
         binder.install_builtin("unescape", BindingKind::Const);
+        // L07.01: stdlib flags parse
+        binder.install_builtin("parseFlags", BindingKind::Const);
         // L08.01: stdlib URL parse
         binder.install_builtin("parseUrl", BindingKind::Const);
         // L08.02: query parse/serialize

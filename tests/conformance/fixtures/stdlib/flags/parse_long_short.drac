@@ -1,0 +1,19 @@
+// L07.01: parse long flags, short flags, and leftover positionals from a string array.
+let tp = typeof parseFlags;
+let gp = globalThis.parseFlags === parseFlags;
+let r = parseFlags(["--verbose", "-n", "file.txt"]);
+let verbose = r.flags.verbose;
+let nFlag = r.flags.n;
+let pos0 = r.positionals[0];
+let posLen = r.positionals.length;
+let r2 = parseFlags(["--name=alice", "-o=out", "in.txt"]);
+let name = r2.flags.name;
+let o = r2.flags.o;
+let pos20 = r2.positionals[0];
+let r3 = parseFlags(["-abc", "--", "--still"]);
+let fa = r3.flags.a;
+let fb = r3.flags.b;
+let fc = r3.flags.c;
+let pos30 = r3.positionals[0];
+let r4 = parseFlags([]);
+let emptyPos = r4.positionals.length;

@@ -1,0 +1,6 @@
+id: stdlib/flags/parse_long_short
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\ntrue\ntrue\nfile.txt\n1\nalice\nout\nin.txt\ntrue\ntrue\ntrue\n--still\n0\n
+js.check: if (tp !== "function") process.exit(1); if (gp !== true) process.exit(2); if (verbose !== true) process.exit(3); if (nFlag !== true) process.exit(4); if (pos0 !== "file.txt") process.exit(5); if (posLen !== 1) process.exit(6); if (name !== "alice") process.exit(7); if (o !== "out") process.exit(8); if (pos20 !== "in.txt") process.exit(9); if (fa !== true) process.exit(10); if (fb !== true) process.exit(11); if (fc !== true) process.exit(12); if (pos30 !== "--still") process.exit(13); if (emptyPos !== 0) process.exit(14);

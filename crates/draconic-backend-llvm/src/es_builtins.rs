@@ -61,7 +61,7 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
-use draconic_runtime::{parse_query, parse_url, serialize_query};
+use draconic_runtime::{parse_flags, parse_query, parse_url, serialize_query, FlagValue};
 
 pub(crate) fn is_es_builtins_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -163,6 +163,8 @@ enum BuiltinId {
     /// L08.02
     ParseQuery,
     SerializeQuery,
+    /// L07.01
+    ParseFlags,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -995,6 +997,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "parseUrl" => Some(BuiltinId::ParseUrl),
         "parseQuery" => Some(BuiltinId::ParseQuery),
         "serializeQuery" => Some(BuiltinId::SerializeQuery),
+        "parseFlags" => Some(BuiltinId::ParseFlags),
         _ => None,
     }
 }
@@ -2078,6 +2081,33 @@ fn eval_call(
                     .map(|(k, v)| (k, PropSlot::Data(JsVal::Str(v))))
                     .collect(),
             ))
+        }
+        BuiltinId::ParseFlags => {
+            let argv = match args.first() {
+                Some(JsVal::Array(elems)) => elems,
+                _ => return Err(()),
+            };
+            let mut strs = Vec::new();
+            for e in argv {
+                strs.push(to_string_arg(e)?);
+            }
+            let parsed = parse_flags(&strs);
+            let flag_props: Vec<(String, PropSlot)> = parsed
+                .flags
+                .into_iter()
+                .map(|(k, v)| {
+                    let jv = match v {
+                        FlagValue::Present => JsVal::Bool(true),
+                        FlagValue::Value(s) => JsVal::Str(s),
+                    };
+                    (k, PropSlot::Data(jv))
+                })
+                .collect();
+            let pos = JsVal::Array(parsed.positionals.into_iter().map(JsVal::Str).collect());
+            Ok(new_object(vec![
+                ("flags".into(), PropSlot::Data(new_object(flag_props))),
+                ("positionals".into(), PropSlot::Data(pos)),
+            ]))
         }
         BuiltinId::SerializeQuery => {
             let obj = args.first().ok_or(())?;
@@ -3596,6 +3626,7 @@ fn member_get(obj: &JsVal, key: &str, env: &mut HashMap<LocalId, JsVal>) -> Resu
             "parseUrl" => Ok(JsVal::Builtin(BuiltinId::ParseUrl)),
             "parseQuery" => Ok(JsVal::Builtin(BuiltinId::ParseQuery)),
             "serializeQuery" => Ok(JsVal::Builtin(BuiltinId::SerializeQuery)),
+            "parseFlags" => Ok(JsVal::Builtin(BuiltinId::ParseFlags)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -4001,7 +4032,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::Float64Array
             | BuiltinId::ParseUrl
             | BuiltinId::ParseQuery
-            | BuiltinId::SerializeQuery,
+            | BuiltinId::SerializeQuery
+            | BuiltinId::ParseFlags,
         ) => "function".into(),
     }
 }
@@ -4970,6 +5002,21 @@ mod tests {
         );
         for s in ["function", "42", "7", "9", "undefined", "ok"] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+    }
+
+    #[test]
+    fn parse_flags_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/stdlib/flags/parse_long_short.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(!ir.contains("draconic_rt_hello"), "hello stub");
+        for s in [
+            "function", "true", "file.txt", "alice", "out", "in.txt", "--still",
+        ] {
+            assert!(ir.contains(s), "missing {s:?}");
         }
     }
 
