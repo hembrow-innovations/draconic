@@ -1,4 +1,4 @@
-//! L05.01 / L05.02 / L05.03: native observations for `describe` / `it` / `expect` + hooks.
+//! L05 / L05.01 / L05.02 / L05.03: native observations for `describe` / `it` / `expect` + hooks.
 //!
 //! Compile-time evaluation: `describe` runs its callback; `it` runs its callback
 //! and yields `true` on success or `false` if the callback throws. `expect`
@@ -11,9 +11,7 @@ use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
-};
+use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
 pub(crate) fn is_es_testing_module(module: &Module) -> bool {
@@ -74,9 +72,16 @@ enum JsVal {
     Str(String),
     Undef,
     Builtin(BuiltinId),
-    Closure { body: Vec<Stmt> },
-    Matcher { actual: Box<JsVal> },
-    BoundMatcher { kind: MatcherKind, actual: Box<JsVal> },
+    Closure {
+        body: Vec<Stmt>,
+    },
+    Matcher {
+        actual: Box<JsVal>,
+    },
+    BoundMatcher {
+        kind: MatcherKind,
+        actual: Box<JsVal>,
+    },
 }
 
 struct ModuleInfo {
@@ -101,7 +106,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut ctx = EvalCtx::new();
     for loc in &module.locals {
         if loc.name == "globalThis" {
-            ctx.env.insert(loc.id, JsVal::Builtin(BuiltinId::GlobalThis));
+            ctx.env
+                .insert(loc.id, JsVal::Builtin(BuiltinId::GlobalThis));
         }
     }
     match eval_body(&module.body, &mut ctx) {
@@ -169,7 +175,9 @@ fn stmt_has_testing_surface(stmt: &Stmt) -> bool {
         } => {
             expr_has_testing_surface(test)
                 || stmt_has_testing_surface(consequent)
-                || alternate.as_ref().is_some_and(|a| stmt_has_testing_surface(a))
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_has_testing_surface(a))
         }
         Stmt::Try {
             block,
@@ -206,9 +214,9 @@ fn expr_has_testing_surface(expr: &Expr) -> bool {
                     _ => false,
                 })
         }
-        Expr::Member { object, property, .. } => {
-            expr_has_testing_surface(object) || expr_has_testing_surface(property)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_has_testing_surface(object) || expr_has_testing_surface(property),
         Expr::Assign { value, .. } => expr_has_testing_surface(value),
         Expr::Function { body, .. } => body.iter().any(stmt_has_testing_surface),
         Expr::Conditional {
@@ -243,11 +251,7 @@ fn stmt_ok(stmt: &Stmt) -> bool {
             test,
             consequent,
             alternate,
-        } => {
-            expr_ok(test)
-                && stmt_ok(consequent)
-                && alternate.as_ref().is_none_or(|a| stmt_ok(a))
-        }
+        } => expr_ok(test) && stmt_ok(consequent) && alternate.as_ref().is_none_or(|a| stmt_ok(a)),
         Stmt::Try {
             block,
             handler,
@@ -350,11 +354,11 @@ fn eval_stmt(stmt: &Stmt, ctx: &mut EvalCtx) -> Result<Flow, ()> {
         Stmt::Expr { expr } => match eval_expr(expr, ctx)? {
             Ok(_) => Ok(Flow::Normal),
             Err(flow) => Ok(flow),
-        }
+        },
         Stmt::Throw { value } => match eval_expr(value, ctx)? {
             Ok(v) => Ok(Flow::Throw(v)),
             Err(flow) => Ok(flow),
-        }
+        },
         Stmt::Return { value } => {
             let v = match value {
                 Some(e) => match eval_expr(e, ctx)? {
@@ -566,11 +570,7 @@ fn eval_key(property: &Expr, ctx: &mut EvalCtx) -> Result<Result<String, Flow>, 
     }
 }
 
-fn eval_call(
-    callee: &JsVal,
-    args: &[JsVal],
-    ctx: &mut EvalCtx,
-) -> Result<JsVal, Option<Flow>> {
+fn eval_call(callee: &JsVal, args: &[JsVal], ctx: &mut EvalCtx) -> Result<JsVal, Option<Flow>> {
     match callee {
         JsVal::Builtin(BuiltinId::Describe) => {
             let fn_val = args.get(1).ok_or(None)?;
@@ -616,29 +616,17 @@ fn eval_call(
         }
         JsVal::Builtin(BuiltinId::After) => {
             let fn_val = args.first().cloned().ok_or(None)?;
-            ctx.suites
-                .last_mut()
-                .ok_or(None)?
-                .after
-                .push(fn_val);
+            ctx.suites.last_mut().ok_or(None)?.after.push(fn_val);
             Ok(JsVal::Undef)
         }
         JsVal::Builtin(BuiltinId::BeforeEach) => {
             let fn_val = args.first().cloned().ok_or(None)?;
-            ctx.suites
-                .last_mut()
-                .ok_or(None)?
-                .before_each
-                .push(fn_val);
+            ctx.suites.last_mut().ok_or(None)?.before_each.push(fn_val);
             Ok(JsVal::Undef)
         }
         JsVal::Builtin(BuiltinId::AfterEach) => {
             let fn_val = args.first().cloned().ok_or(None)?;
-            ctx.suites
-                .last_mut()
-                .ok_or(None)?
-                .after_each
-                .push(fn_val);
+            ctx.suites.last_mut().ok_or(None)?.after_each.push(fn_val);
             Ok(JsVal::Undef)
         }
         JsVal::Builtin(BuiltinId::Expect) => {
@@ -764,12 +752,12 @@ fn typeof_str(v: &JsVal) -> String {
         JsVal::Undef => "undefined".into(),
         JsVal::Builtin(
             BuiltinId::Describe
-                | BuiltinId::It
-                | BuiltinId::Expect
-                | BuiltinId::Before
-                | BuiltinId::After
-                | BuiltinId::BeforeEach
-                | BuiltinId::AfterEach,
+            | BuiltinId::It
+            | BuiltinId::Expect
+            | BuiltinId::Before
+            | BuiltinId::After
+            | BuiltinId::BeforeEach
+            | BuiltinId::AfterEach,
         )
         | JsVal::Closure { .. }
         | JsVal::BoundMatcher { .. } => "function".into(),
@@ -884,7 +872,7 @@ impl Emitter {
                 _ => return Err(diag("es_testing: non-printable value")),
             }
         }
-            writeln!(
+        writeln!(
             self.out,
             "; Draconic LLVM backend (L05.03 describe/it/expect/hooks)"
         )

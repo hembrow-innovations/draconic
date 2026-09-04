@@ -417,6 +417,70 @@ describe("math", () => {
     );
 }
 
+/// ROADMAP L05: combined describe/it/expect + nested hooks suite with a fixture → exit 0.
+#[test]
+fn test_aggregates_surface_suite_with_passing_fixture() {
+    let dir = temp_dir();
+    write(&dir, "smoke.drac", "let x = 1 + 2;\n");
+    write(
+        &dir,
+        "smoke.meta",
+        "\
+id: smoke
+targets: js
+js.exit: 0
+js.check: if (x !== 3) process.exit(1);
+",
+    );
+    write(
+        &dir,
+        "suite.drac",
+        r#"
+let order = "";
+describe("outer", () => {
+  before(() => {
+    order = order + "B";
+  });
+  after(() => {
+    order = order + "A";
+  });
+  beforeEach(() => {
+    order = order + "b";
+  });
+  afterEach(() => {
+    order = order + "a";
+  });
+  describe("inner", () => {
+    beforeEach(() => {
+      order = order + "i";
+    });
+    afterEach(() => {
+      order = order + "j";
+    });
+    it("matchers", () => {
+      expect(1).toBe(1);
+      expect("x").toBeTruthy();
+      expect(0).toBeFalsy();
+      order = order + "T";
+    });
+  });
+});
+if (order !== "BbiTjaA") throw 1;
+"#,
+    );
+
+    let (code, stdout, stderr) = run(draconic().arg("test").arg(&dir));
+    assert_eq!(code, 0, "stdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("smoke"),
+        "expected fixture id in output:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("suite"),
+        "expected in-language suite id in output:\n{stdout}"
+    );
+}
+
 fn barrier_program(self_name: &str, peer_name: &str) -> String {
     format!(
         r#"

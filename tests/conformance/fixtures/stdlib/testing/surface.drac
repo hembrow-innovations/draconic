@@ -1,0 +1,54 @@
+// L05: one Program — describe / it / expect + nested hooks.
+let namesOk = false;
+if (globalThis.describe === describe) {
+  if (globalThis.it === it) {
+    if (globalThis.expect === expect) {
+      if (globalThis.before === before) {
+        if (globalThis.after === after) {
+          if (globalThis.beforeEach === beforeEach) {
+            if (globalThis.afterEach === afterEach) {
+              namesOk = true;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+let order = "";
+let caseOk = false;
+let failCaught = false;
+describe("outer", () => {
+  before(() => {
+    order = order + "B";
+  });
+  after(() => {
+    order = order + "A";
+  });
+  beforeEach(() => {
+    order = order + "b";
+  });
+  afterEach(() => {
+    order = order + "a";
+  });
+  describe("inner", () => {
+    beforeEach(() => {
+      order = order + "i";
+    });
+    afterEach(() => {
+      order = order + "j";
+    });
+    caseOk = it("matchers", () => {
+      expect(1).toBe(1);
+      expect("x").toBeTruthy();
+      expect(0).toBeFalsy();
+      order = order + "T";
+    });
+  });
+});
+try {
+  expect(1).toBe(2);
+} catch (e) {
+  failCaught = e === "expected 1 to be 2";
+}
+let hookOk = order === "BbiTjaA";
