@@ -1,0 +1,6 @@
+id: stdlib/crypto/surface
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\n1\n1\n1\n
+js.check: if (gpSha !== true) process.exit(1); if (gpRand !== true) process.exit(2); if (digest !== true) process.exit(3); if (n !== true) process.exit(4); if (composed !== true) process.exit(5); if (shaBad !== 1) process.exit(6); if (randBad !== 1) process.exit(7); if (randNeg !== 1) process.exit(8);

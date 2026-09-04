@@ -983,7 +983,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L02 | done | both | Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set) | `tests/conformance` fixtures `stdlib/collections` |
 | L02.01 | done | both | `groupBy` / `chunk` (or designed names) on arrays | `tests/conformance` fixtures `stdlib/collections` |
 | L02.02 | done | both | Deque (or designed): push/pop both ends | `tests/conformance` fixtures `stdlib/collections` |
-| L03 | todo | both | Crypto: SHA-256 digest + secure random bytes | `tests/conformance` fixtures `stdlib/crypto` |
+| L03 | done | both | Crypto: SHA-256 digest + secure random bytes | `tests/conformance` fixtures `stdlib/crypto` |
 | L03.01 | done | both | SHA-256 digest over bytes; known test vectors | `tests/conformance` fixtures `stdlib/crypto` |
 | L03.02 | done | both | Secure random bytes (OS CSPRNG); length parameter | `tests/conformance` fixtures `stdlib/crypto` |
 | L04 | todo | both | Compression later: gzip/deflate byte buffers | `tests/conformance` fixtures `stdlib/compression` |

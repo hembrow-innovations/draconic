@@ -1,0 +1,27 @@
+// L03: one Program — SHA-256 digest + secure random bytes.
+let gpSha = globalThis.sha256 === sha256;
+let gpRand = globalThis.randomBytes === randomBytes;
+let digest = sha256(new TextEncoder().encode("abc")).toHex() === "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+let n = randomBytes(8).length === 8;
+let composed = sha256(randomBytes(16)).length === 32;
+let shaBad = 0;
+try {
+  sha256("abc");
+  shaBad = -1;
+} catch (e) {
+  shaBad = e.name === "TypeError" ? 1 : -2;
+}
+let randBad = 0;
+try {
+  randomBytes("abc");
+  randBad = -1;
+} catch (e) {
+  randBad = e.name === "TypeError" ? 1 : -2;
+}
+let randNeg = 0;
+try {
+  randomBytes(-1);
+  randNeg = -1;
+} catch (e) {
+  randNeg = e.name === "RangeError" ? 1 : -2;
+}
