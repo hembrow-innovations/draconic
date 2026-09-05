@@ -1,0 +1,6 @@
+id: stdlib/crypto/hmac_aead
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\n1\n1\n1\n
+js.check: if (gpHmac !== true) process.exit(1); if (gpEnc !== true) process.exit(2); if (gpDec !== true) process.exit(3); if (mac !== true) process.exit(4); if (round !== true) process.exit(5); if (hmacBad !== 1) process.exit(6); if (keyLen !== 1) process.exit(7); if (tamp !== 1) process.exit(8);

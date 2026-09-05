@@ -1,0 +1,37 @@
+// L10: one Program — HMAC-SHA256 + AES-256-GCM AEAD.
+let gpHmac = globalThis.hmacSha256 === hmacSha256;
+let gpEnc = globalThis.aeadEncrypt === aeadEncrypt;
+let gpDec = globalThis.aeadDecrypt === aeadDecrypt;
+let mac = hmacSha256(
+  Uint8Array.fromHex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"),
+  new TextEncoder().encode("Hi There")
+).toHex() === "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7";
+let key = Uint8Array.fromHex("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308");
+let nonce = Uint8Array.fromHex("cafebabefacedbaddecaf888");
+let pt = new TextEncoder().encode("hello");
+let round = aeadDecrypt(key, nonce, aeadEncrypt(key, nonce, pt)).toHex() === pt.toHex();
+let hmacBad = 0;
+try {
+  hmacSha256("key", new Uint8Array([]));
+  hmacBad = -1;
+} catch (e) {
+  hmacBad = e.name === "TypeError" ? 1 : -2;
+}
+let keyLen = 0;
+try {
+  aeadEncrypt(new Uint8Array(16), new Uint8Array(12), new Uint8Array([]));
+  keyLen = -1;
+} catch (e) {
+  keyLen = e.name === "RangeError" ? 1 : -2;
+}
+let tamp = 0;
+try {
+  aeadDecrypt(
+    Uint8Array.fromHex("0000000000000000000000000000000000000000000000000000000000000000"),
+    Uint8Array.fromHex("000000000000000000000000"),
+    Uint8Array.fromHex("00000000000000000000000000000000")
+  );
+  tamp = -1;
+} catch (e) {
+  tamp = e.name === "Error" ? 1 : -2;
+}
