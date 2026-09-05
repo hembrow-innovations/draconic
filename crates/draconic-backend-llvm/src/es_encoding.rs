@@ -1,6 +1,7 @@
-//! L01 / L01.01 / L01.02 / L01.03 / L03.01 / L03.02 / L04: native observations for UTF-8
+//! L01 / L01.01 / L01.02 / L01.03 / L03.01 / L03.02 / L04 / L10.01: native observations for UTF-8
 //! TextEncoder / TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), hex
-//! (`toHex` / `fromHex`), SHA-256 (`sha256`), `randomBytes`, and gzip/deflate.
+//! (`toHex` / `fromHex`), SHA-256 (`sha256`), `randomBytes`, HMAC-SHA256 (`hmacSha256`),
+//! and gzip/deflate.
 //!
 //! L01 parent: one Program combining UTF-8 bytes↔string, Base64, and hex,
 //! with invalid input as catchable errors rather than silent corruption.
@@ -24,6 +25,7 @@ use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_ST
 use crate::base64;
 use crate::compression;
 use crate::hex;
+use crate::hmac;
 use crate::sha256;
 
 pub(crate) fn is_es_encoding_module(module: &Module) -> bool {
@@ -46,6 +48,7 @@ enum BuiltinId {
     TypeError,
     Sha256,
     RandomBytes,
+    HmacSha256,
     Gzip,
     Gunzip,
     Deflate,
@@ -132,6 +135,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "TypeError" => Some(BuiltinId::TypeError),
         "sha256" => Some(BuiltinId::Sha256),
         "randomBytes" => Some(BuiltinId::RandomBytes),
+        "hmacSha256" => Some(BuiltinId::HmacSha256),
         "gzip" => Some(BuiltinId::Gzip),
         "gunzip" => Some(BuiltinId::Gunzip),
         "deflate" => Some(BuiltinId::Deflate),
@@ -180,6 +184,7 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
                     | "TextDecoder"
                     | "sha256"
                     | "randomBytes"
+                    | "hmacSha256"
                     | "gzip"
                     | "gunzip"
                     | "deflate"
@@ -696,6 +701,29 @@ fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
                 bytes: Rc::new(RefCell::new(buf)),
             })
         }
+        JsVal::Builtin(BuiltinId::HmacSha256) => {
+            let key = match args.first() {
+                Some(JsVal::Uint8ArrayInst { bytes }) => bytes.borrow().clone(),
+                _ => {
+                    return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                        name: "TypeError".into(),
+                        message: "hmacSha256 expects Uint8Array key and message".into(),
+                    })))
+                }
+            };
+            let message = match args.get(1) {
+                Some(JsVal::Uint8ArrayInst { bytes }) => bytes.borrow().clone(),
+                _ => {
+                    return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                        name: "TypeError".into(),
+                        message: "hmacSha256 expects Uint8Array key and message".into(),
+                    })))
+                }
+            };
+            Ok(JsVal::Uint8ArrayInst {
+                bytes: Rc::new(RefCell::new(hmac::hmac_sha256(&key, &message).to_vec())),
+            })
+        }
         JsVal::Builtin(
             id @ (BuiltinId::Gzip | BuiltinId::Gunzip | BuiltinId::Deflate | BuiltinId::Inflate),
         ) => eval_compression(*id, args),
@@ -909,6 +937,7 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "TypeError" => Ok(JsVal::Builtin(BuiltinId::TypeError)),
             "sha256" => Ok(JsVal::Builtin(BuiltinId::Sha256)),
             "randomBytes" => Ok(JsVal::Builtin(BuiltinId::RandomBytes)),
+            "hmacSha256" => Ok(JsVal::Builtin(BuiltinId::HmacSha256)),
             "gzip" => Ok(JsVal::Builtin(BuiltinId::Gzip)),
             "gunzip" => Ok(JsVal::Builtin(BuiltinId::Gunzip)),
             "deflate" => Ok(JsVal::Builtin(BuiltinId::Deflate)),
@@ -959,6 +988,7 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::TypeError
             | BuiltinId::Sha256
             | BuiltinId::RandomBytes
+            | BuiltinId::HmacSha256
             | BuiltinId::Gzip
             | BuiltinId::Gunzip
             | BuiltinId::Deflate
@@ -1241,6 +1271,39 @@ mod tests {
             let ok = 0;
             try {
               randomBytes("abc");
+              ok = -1;
+            } catch (e) {
+              ok = e.name === "TypeError" ? 1 : -2;
+            }
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_hmac_sha256_vectors() {
+        let m = compile_src(
+            r#"
+            let t1 = hmacSha256(
+              Uint8Array.fromHex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"),
+              new TextEncoder().encode("Hi There")
+            ).toHex();
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_hmac_sha256_invalid() {
+        let m = compile_src(
+            r#"
+            let ok = 0;
+            try {
+              hmacSha256("key", new Uint8Array([]));
               ok = -1;
             } catch (e) {
               ok = e.name === "TypeError" ? 1 : -2;

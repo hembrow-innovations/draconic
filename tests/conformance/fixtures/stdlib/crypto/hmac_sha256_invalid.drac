@@ -1,0 +1,30 @@
+// L10.01: hmacSha256 on non-bytes key or message → TypeError.
+let keyBad = 0;
+try {
+  hmacSha256("key", new Uint8Array([]));
+  keyBad = -1;
+} catch (e) {
+  keyBad = e.name === "TypeError" ? 1 : -2;
+}
+let msgBad = 0;
+try {
+  hmacSha256(new Uint8Array([]), "msg");
+  msgBad = -1;
+} catch (e) {
+  msgBad = e.name === "TypeError" ? 1 : -2;
+}
+let missing = 0;
+try {
+  hmacSha256();
+  missing = -1;
+} catch (e) {
+  missing = e.name === "TypeError" ? 1 : -2;
+}
+let onlyKey = 0;
+try {
+  hmacSha256(new Uint8Array([1]));
+  onlyKey = -1;
+} catch (e) {
+  onlyKey = e.name === "TypeError" ? 1 : -2;
+}
+let empty = hmacSha256(new Uint8Array([]), new Uint8Array([])).toHex();

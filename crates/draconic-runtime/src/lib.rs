@@ -10,7 +10,7 @@ pub mod logging;
 pub use abi::*;
 pub use collections::collections_js_polyfill;
 pub use compression::compression_js_polyfill;
-pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
+pub use crypto::{hmac_sha256_js_polyfill, random_bytes_js_polyfill, sha256_js_polyfill};
 pub use flags::{
     flag_help, parse_flags, parse_flags_js_polyfill, parse_flags_typed, FlagSpec, FlagValue,
     OptionKind, ParsedFlags, ParsedTypedFlags, TypedValue,
@@ -45,7 +45,7 @@ mod host_worker_tests;
 #[cfg(test)]
 mod r01_resource_limits_tests;
 
-/// L03.01 / L03.02: SHA-256 digest and OS CSPRNG bytes.
+/// L03.01 / L03.02 / L10.01: SHA-256 digest, OS CSPRNG bytes, HMAC-SHA256.
 pub mod crypto {
     pub fn sha256_js_polyfill() -> &'static str {
         r#"function sha256(bytes) {
@@ -87,6 +87,26 @@ if (typeof globalThis !== "undefined") globalThis.sha256 = sha256;
   throw new TypeError("randomBytes unavailable");
 }
 if (typeof globalThis !== "undefined") globalThis.randomBytes = randomBytes;
+"#
+    }
+
+    pub fn hmac_sha256_js_polyfill() -> &'static str {
+        r#"function hmacSha256(key, message) {
+  if (key instanceof ArrayBuffer) key = new Uint8Array(key);
+  if (message instanceof ArrayBuffer) message = new Uint8Array(message);
+  if (!(key instanceof Uint8Array) || !(message instanceof Uint8Array)) {
+    throw new TypeError("hmacSha256 expects Uint8Array key and message");
+  }
+  var c = null;
+  try { c = require("crypto"); } catch (e) {}
+  if (c && typeof c.createHmac === "function") {
+    var h = c.createHmac("sha256", Buffer.from(key));
+    h.update(Buffer.from(message));
+    return new Uint8Array(h.digest());
+  }
+  throw new TypeError("hmacSha256 unavailable");
+}
+if (typeof globalThis !== "undefined") globalThis.hmacSha256 = hmacSha256;
 "#
     }
 

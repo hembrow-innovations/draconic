@@ -53,6 +53,11 @@ fn module_uses_sha256(module: &Module) -> bool {
     module.body.iter().any(|s| stmt_uses_local(s, &ids))
 }
 
+/// L10.01: true when the Program body references the stdlib `hmacSha256` global.
+fn module_uses_hmac_sha256(module: &Module) -> bool {
+    module_uses_named_local(module, "hmacSha256")
+}
+
 /// L03.02: true when the Program body references the stdlib `randomBytes` global.
 fn module_uses_random_bytes(module: &Module) -> bool {
     let ids: Vec<LocalId> = module
@@ -662,6 +667,13 @@ fn emit_js_full(
     // L03.02: portable `randomBytes` polyfill when the Program references it.
     if module_uses_random_bytes(module) {
         out.push_str(draconic_runtime::random_bytes_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L10.01: portable `hmacSha256` polyfill when the Program references it.
+    if module_uses_hmac_sha256(module) {
+        out.push_str(draconic_runtime::hmac_sha256_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1378,6 +1390,13 @@ mod tests {
         let js = emit_src("let d = randomBytes(8);");
         assert!(js.contains("function randomBytes("), "{js}");
         assert!(js.contains("globalThis.randomBytes = randomBytes"), "{js}");
+    }
+
+    #[test]
+    fn emit_hmac_sha256_polyfill() {
+        let js = emit_src("let d = hmacSha256(new Uint8Array([]), new Uint8Array([]));");
+        assert!(js.contains("function hmacSha256("), "{js}");
+        assert!(js.contains("globalThis.hmacSha256 = hmacSha256"), "{js}");
     }
 
     #[test]

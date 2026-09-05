@@ -1,0 +1,6 @@
+id: stdlib/crypto/hmac_sha256_invalid
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\n1\n1\n1\nb613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad\n
+js.check: if (keyBad !== 1) process.exit(1); if (msgBad !== 1) process.exit(2); if (missing !== 1) process.exit(3); if (onlyKey !== 1) process.exit(4); if (empty !== "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad") process.exit(5);

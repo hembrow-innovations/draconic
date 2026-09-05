@@ -1,0 +1,17 @@
+// L10.01: HMAC-SHA256 over bytes with a key; RFC 4231 vectors.
+let tp = typeof hmacSha256;
+let gp = globalThis.hmacSha256 === hmacSha256;
+let t1 = hmacSha256(
+  Uint8Array.fromHex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"),
+  new TextEncoder().encode("Hi There")
+).toHex();
+let t2 = hmacSha256(
+  new TextEncoder().encode("Jefe"),
+  new TextEncoder().encode("what do ya want for nothing?")
+).toHex();
+let t6 = hmacSha256(
+  Uint8Array.fromHex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+  new TextEncoder().encode("Test Using Larger Than Block-Size Key - Hash Key First")
+).toHex();
+let n = hmacSha256(new Uint8Array([]), new Uint8Array([])).length;
+let empty = hmacSha256(new Uint8Array([]), new Uint8Array([])).toHex();

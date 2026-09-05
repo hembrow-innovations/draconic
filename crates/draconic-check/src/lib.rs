@@ -1236,6 +1236,8 @@ impl Binder {
         binder.install_builtin("sha256", BindingKind::Const);
         // L03.02: OS CSPRNG bytes
         binder.install_builtin("randomBytes", BindingKind::Const);
+        // L10.01: HMAC-SHA256 over bytes with a key
+        binder.install_builtin("hmacSha256", BindingKind::Const);
         // L04: gzip / zlib-deflate byte buffers
         binder.install_builtin("gzip", BindingKind::Const);
         binder.install_builtin("gunzip", BindingKind::Const);

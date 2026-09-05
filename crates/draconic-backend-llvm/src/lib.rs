@@ -30,6 +30,7 @@ mod es_static_private_fields;
 mod es_static_private_methods;
 mod es_testing;
 mod hex;
+mod hmac;
 mod sha256;
 
 mod es_nullish;

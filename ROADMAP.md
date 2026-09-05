@@ -1003,7 +1003,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L08.02 | done | both | Query parse/serialize; round-trip common cases | `tests/conformance` fixtures `stdlib/url` |
 | L09 | todo | both | MIME multipart later (HTTP-shaped programs; after H10) | `tests/conformance` fixtures `stdlib/mime` |
 | L10 | todo | both | Crypto later: HMAC + AEAD (after L03) | `tests/conformance` fixtures `stdlib/crypto` |
-| L10.01 | todo | both | HMAC-SHA256 (after L03) | `tests/conformance` fixtures `stdlib/crypto` |
+| L10.01 | done | both | HMAC-SHA256 (after L03) | `tests/conformance` fixtures `stdlib/crypto` |
 | L10.02 | todo | both | AEAD encrypt/decrypt (after L03; algorithm as designed) | `tests/conformance` fixtures `stdlib/crypto` |
 
 **L v1 done bar:** L01 + L03 + L05.01–02 + L06 + L08. L02/L07 polish; L04/L09/L10 later.
