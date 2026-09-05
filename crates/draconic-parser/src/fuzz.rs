@@ -1,8 +1,9 @@
-//! Parser fuzz entry (Roadmap **R05.01**).
+//! Designed parser fuzz entry (Roadmap **R05**; harness is **R05.01**).
 //!
-//! Call [`fuzz_parse`] from a fuzzer (cargo-fuzz, AFL, honggfuzz, or the
-//! designed stdin harness under `fuzz/`). Ok and Err are both success for the
-//! harness; panics / aborts are failures.
+//! [`fuzz_parse`] is the public parse-entry hook. Call it from a fuzzer
+//! (cargo-fuzz, AFL, honggfuzz, or the designed stdin harness under `fuzz/`).
+//! Ok and Err are both success for the harness; panics / aborts are failures.
+//! Embed/runtime fuzz stays **R05.02**.
 
 use crate::{parse, parse_module};
 
@@ -59,5 +60,15 @@ mod tests {
         fuzz_parse(b"`${`${`${1}`}`}`;\n");
         fuzz_parse(b"/a/g /b/;\n");
         fuzz_parse(b"<!--\n-->\n");
+    }
+
+    /// R05 parent: the designed parser entry is the crate-root `fuzz_parse` hook.
+    #[test]
+    fn r05_designed_parser_entry_does_not_panic() {
+        crate::fuzz_parse(b"");
+        crate::fuzz_parse(b"let x = 1;\n");
+        crate::fuzz_parse(b"export default 1;\n");
+        crate::fuzz_parse(b"{");
+        crate::fuzz_parse(&[0xff, 0xfe, 0x00, 0x01, 0x7f]);
     }
 }
