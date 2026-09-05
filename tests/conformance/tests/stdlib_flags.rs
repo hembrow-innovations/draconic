@@ -1,4 +1,4 @@
-//! ROADMAP L07.01: parse long/short flags + leftover positionals from a string array.
+//! ROADMAP L07.01 / L07.02: flags parse + typed options and help text.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture};
 
@@ -23,6 +23,39 @@ fn parse_long_short_runs_both_targets() {
         fixture.targets.len(),
         2,
         "L07.01 targets both js and native"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn typed_options_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "stdlib/flags/typed_options"),
+        "missing stdlib/flags/typed_options fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn typed_options_runs_both_targets() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/flags/typed_options")
+        .expect("stdlib/flags/typed_options");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L07.02 targets both js and native"
     );
     for r in run_fixture(fixture) {
         assert!(

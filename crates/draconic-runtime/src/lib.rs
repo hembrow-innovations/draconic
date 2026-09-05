@@ -11,7 +11,10 @@ pub use abi::*;
 pub use collections::collections_js_polyfill;
 pub use compression::compression_js_polyfill;
 pub use crypto::{random_bytes_js_polyfill, sha256_js_polyfill};
-pub use flags::{parse_flags, parse_flags_js_polyfill, FlagValue, ParsedFlags};
+pub use flags::{
+    flag_help, parse_flags, parse_flags_js_polyfill, parse_flags_typed, FlagSpec, FlagValue,
+    OptionKind, ParsedFlags, ParsedTypedFlags, TypedValue,
+};
 pub use host_js_bridge::{dns_js_polyfill, http_js_polyfill, tcp_js_polyfill};
 pub use logging::create_logger_js_polyfill;
 pub use testing::describe_it_js_polyfill;

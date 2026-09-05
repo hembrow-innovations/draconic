@@ -61,7 +61,10 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
-use draconic_runtime::{parse_flags, parse_query, parse_url, serialize_query, FlagValue};
+use draconic_runtime::{
+    flag_help, parse_flags, parse_flags_typed, parse_query, parse_url, serialize_query, FlagSpec,
+    FlagValue, OptionKind, TypedValue,
+};
 
 pub(crate) fn is_es_builtins_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -163,8 +166,10 @@ enum BuiltinId {
     /// L08.02
     ParseQuery,
     SerializeQuery,
-    /// L07.01
+    /// L07.01 / L07.02
     ParseFlags,
+    /// L07.02
+    FlagHelp,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -998,6 +1003,7 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "parseQuery" => Some(BuiltinId::ParseQuery),
         "serializeQuery" => Some(BuiltinId::SerializeQuery),
         "parseFlags" => Some(BuiltinId::ParseFlags),
+        "flagHelp" => Some(BuiltinId::FlagHelp),
         _ => None,
     }
 }
@@ -1984,6 +1990,60 @@ fn call_user_fn(
     }
 }
 
+fn own_data_str(props: &[(String, PropSlot)], key: &str) -> Option<String> {
+    match object_own_slot(props, key) {
+        Some(PropSlot::Data(JsVal::Str(s))) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+fn flag_specs_from_js(v: &JsVal) -> Result<Vec<FlagSpec>, ()> {
+    let JsVal::Object { props, .. } = v else {
+        return Err(());
+    };
+    let mut out = Vec::new();
+    for (name, slot) in props.borrow().iter() {
+        let PropSlot::Data(opt) = slot else {
+            continue;
+        };
+        let JsVal::Object { props: op, .. } = opt else {
+            return Err(());
+        };
+        let type_s = own_data_str(&op.borrow(), "type").ok_or(())?;
+        let kind = match type_s.as_str() {
+            "boolean" => OptionKind::Boolean,
+            "string" => OptionKind::String,
+            "number" => OptionKind::Number,
+            _ => return Err(()),
+        };
+        let short = own_data_str(&op.borrow(), "short").and_then(|s| {
+            let mut cs = s.chars();
+            let c = cs.next()?;
+            if cs.next().is_some() {
+                None
+            } else {
+                Some(c)
+            }
+        });
+        let help = own_data_str(&op.borrow(), "help").unwrap_or_default();
+        out.push(FlagSpec {
+            name: name.clone(),
+            kind,
+            short,
+            help,
+        });
+    }
+    Ok(out)
+}
+
+fn typed_value_to_js(v: TypedValue) -> JsVal {
+    match v {
+        TypedValue::Bool(b) => JsVal::Bool(b),
+        TypedValue::Str(s) => JsVal::Str(s),
+        TypedValue::Num(n) => JsVal::Num(n),
+    }
+}
+
 fn eval_call(
     callee: &JsVal,
     args: &[JsVal],
@@ -2091,23 +2151,42 @@ fn eval_call(
             for e in argv {
                 strs.push(to_string_arg(e)?);
             }
-            let parsed = parse_flags(&strs);
-            let flag_props: Vec<(String, PropSlot)> = parsed
-                .flags
-                .into_iter()
-                .map(|(k, v)| {
-                    let jv = match v {
-                        FlagValue::Present => JsVal::Bool(true),
-                        FlagValue::Value(s) => JsVal::Str(s),
-                    };
-                    (k, PropSlot::Data(jv))
-                })
-                .collect();
-            let pos = JsVal::Array(parsed.positionals.into_iter().map(JsVal::Str).collect());
+            let spec = match args.get(1) {
+                None | Some(JsVal::Undef) => None,
+                Some(v) => Some(flag_specs_from_js(v)?),
+            };
+            let (flag_props, positionals) = if let Some(spec) = spec {
+                let parsed = parse_flags_typed(&strs, &spec);
+                let flag_props: Vec<(String, PropSlot)> = parsed
+                    .flags
+                    .into_iter()
+                    .map(|(k, v)| (k, PropSlot::Data(typed_value_to_js(v))))
+                    .collect();
+                (flag_props, parsed.positionals)
+            } else {
+                let parsed = parse_flags(&strs);
+                let flag_props: Vec<(String, PropSlot)> = parsed
+                    .flags
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let jv = match v {
+                            FlagValue::Present => JsVal::Bool(true),
+                            FlagValue::Value(s) => JsVal::Str(s),
+                        };
+                        (k, PropSlot::Data(jv))
+                    })
+                    .collect();
+                (flag_props, parsed.positionals)
+            };
+            let pos = JsVal::Array(positionals.into_iter().map(JsVal::Str).collect());
             Ok(new_object(vec![
                 ("flags".into(), PropSlot::Data(new_object(flag_props))),
                 ("positionals".into(), PropSlot::Data(pos)),
             ]))
+        }
+        BuiltinId::FlagHelp => {
+            let spec = flag_specs_from_js(args.first().ok_or(())?)?;
+            Ok(JsVal::Str(flag_help(&spec)))
         }
         BuiltinId::SerializeQuery => {
             let obj = args.first().ok_or(())?;
@@ -3627,6 +3706,7 @@ fn member_get(obj: &JsVal, key: &str, env: &mut HashMap<LocalId, JsVal>) -> Resu
             "parseQuery" => Ok(JsVal::Builtin(BuiltinId::ParseQuery)),
             "serializeQuery" => Ok(JsVal::Builtin(BuiltinId::SerializeQuery)),
             "parseFlags" => Ok(JsVal::Builtin(BuiltinId::ParseFlags)),
+            "flagHelp" => Ok(JsVal::Builtin(BuiltinId::FlagHelp)),
             "undefined" => Ok(JsVal::Undef),
             "globalThis" => Ok(JsVal::Builtin(BuiltinId::GlobalThis)),
             _ => Err(()),
@@ -4033,7 +4113,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::ParseUrl
             | BuiltinId::ParseQuery
             | BuiltinId::SerializeQuery
-            | BuiltinId::ParseFlags,
+            | BuiltinId::ParseFlags
+            | BuiltinId::FlagHelp,
         ) => "function".into(),
     }
 }
@@ -5015,6 +5096,21 @@ mod tests {
         assert!(!ir.contains("draconic_rt_hello"), "hello stub");
         for s in [
             "function", "true", "file.txt", "alice", "out", "in.txt", "--still",
+        ] {
+            assert!(ir.contains(s), "missing {s:?}");
+        }
+    }
+
+    #[test]
+    fn typed_options_classifies_and_emits() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/stdlib/flags/typed_options.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(!ir.contains("draconic_rt_hello"), "hello stub");
+        for s in [
+            "function", "boolean", "number", "string", "true", "alice", "file.txt", "bob",
         ] {
             assert!(ir.contains(s), "missing {s:?}");
         }

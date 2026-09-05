@@ -1,0 +1,25 @@
+// L07.02: typed options (bool/string/number) and help text as designed.
+let spec = {
+  verbose: { type: "boolean", short: "v", help: "verbose output" },
+  count: { type: "number", short: "c", help: "repeat count" },
+  name: { type: "string", help: "user name" }
+};
+let tp = typeof parseFlags;
+let th = typeof flagHelp;
+let gp = globalThis.parseFlags === parseFlags;
+let gh = globalThis.flagHelp === flagHelp;
+let r = parseFlags(["-v", "--count", "3", "--name", "alice", "file.txt"], spec);
+let verboseTy = typeof r.flags.verbose;
+let countTy = typeof r.flags.count;
+let nameTy = typeof r.flags.name;
+let verbose = r.flags.verbose;
+let count = r.flags.count;
+let name = r.flags.name;
+let pos0 = r.positionals[0];
+let r2 = parseFlags(["--count=4.5", "--name=bob"], spec);
+let count2 = r2.flags.count;
+let name2 = r2.flags.name;
+let verbose2 = r2.flags.verbose;
+let r3 = parseFlags(["-c", "9"], spec);
+let count3 = r3.flags.count;
+let helpOk = flagHelp(spec) === "  -v, --verbose  verbose output\n  -c, --count  repeat count\n      --name  user name\n";

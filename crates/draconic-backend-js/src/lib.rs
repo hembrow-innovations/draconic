@@ -75,9 +75,9 @@ fn module_uses_compression(module: &Module) -> bool {
         || module_uses_named_local(module, "inflate")
 }
 
-/// L07.01: `parseFlags`.
+/// L07.01 / L07.02: `parseFlags` / `flagHelp`.
 fn module_uses_parse_flags(module: &Module) -> bool {
-    module_uses_named_local(module, "parseFlags")
+    module_uses_named_local(module, "parseFlags") || module_uses_named_local(module, "flagHelp")
 }
 
 /// L08.01: true when the Program body references the stdlib `parseUrl` global.
@@ -673,7 +673,7 @@ fn emit_js_full(
             out.push('\n');
         }
     }
-    // L07.01: portable `parseFlags` polyfill when the Program references it.
+    // L07.01 / L07.02: portable `parseFlags` / `flagHelp` polyfill.
     if module_uses_parse_flags(module) {
         out.push_str(draconic_runtime::parse_flags_js_polyfill());
         if !out.ends_with('\n') {
@@ -1395,6 +1395,8 @@ mod tests {
         let js = emit_src("let r = parseFlags([\"--verbose\"]);");
         assert!(js.contains("function parseFlags("), "{js}");
         assert!(js.contains("globalThis.parseFlags = parseFlags"), "{js}");
+        assert!(js.contains("function flagHelp("), "{js}");
+        assert!(js.contains("globalThis.flagHelp = flagHelp"), "{js}");
     }
 
     #[test]

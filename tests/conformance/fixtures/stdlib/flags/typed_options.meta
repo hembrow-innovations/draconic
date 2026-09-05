@@ -1,0 +1,6 @@
+id: stdlib/flags/typed_options
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\ntrue\ntrue\nboolean\nnumber\nstring\ntrue\n3\nalice\nfile.txt\n4.5\nbob\nfalse\n9\ntrue\n
+js.check: if (tp !== "function") process.exit(1); if (th !== "function") process.exit(2); if (gp !== true) process.exit(3); if (gh !== true) process.exit(4); if (verboseTy !== "boolean") process.exit(5); if (countTy !== "number") process.exit(6); if (nameTy !== "string") process.exit(7); if (verbose !== true) process.exit(8); if (count !== 3) process.exit(9); if (name !== "alice") process.exit(10); if (pos0 !== "file.txt") process.exit(11); if (count2 !== 4.5) process.exit(12); if (name2 !== "bob") process.exit(13); if (verbose2 !== false) process.exit(14); if (count3 !== 9) process.exit(15); if (helpOk !== true) process.exit(16);
