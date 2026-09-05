@@ -7,13 +7,238 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
+#include <dlfcn.h>
 #include <errno.h>
+#include <execinfo.h>
+#include <limits.h>
 #include <sched.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 /* Native Runtime C ABI (N05–N06.10). Linked into LLVM native binaries. */
+
+#define DRACONIC_BT_MAX 64
+#define DRACONIC_BT_PATH 4096
+
+static void draconic_rt_die(void);
+
+#if !defined(_WIN32)
+static int draconic_rt_self_path(char *out, size_t cap) {
+#ifdef __APPLE__
+    uint32_t sz = (uint32_t)cap;
+    if (_NSGetExecutablePath(out, &sz) != 0) {
+        return 0;
+    }
+    char real[DRACONIC_BT_PATH];
+    if (realpath(out, real) != NULL) {
+        size_t n = strlen(real);
+        if (n >= cap) {
+            n = cap - 1;
+        }
+        memcpy(out, real, n);
+        out[n] = '\0';
+    }
+    return 1;
+#else
+    ssize_t n = readlink("/proc/self/exe", out, cap - 1);
+    if (n <= 0) {
+        return 0;
+    }
+    out[n] = '\0';
+    return 1;
+#endif
+}
+
+static int draconic_rt_print_child_lines(int fd) {
+    char line[1024];
+    size_t used = 0;
+    char buf[256];
+    ssize_t n;
+    int any = 0;
+    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+        for (ssize_t i = 0; i < n; i++) {
+            if (buf[i] == '\n' || used + 1 >= sizeof(line)) {
+                line[used] = '\0';
+                if (used > 0) {
+                    fprintf(stderr, "  %s\n", line);
+                    any = 1;
+                }
+                used = 0;
+            } else {
+                line[used++] = buf[i];
+            }
+        }
+    }
+    if (used > 0) {
+        line[used] = '\0';
+        fprintf(stderr, "  %s\n", line);
+        any = 1;
+    }
+    return any;
+}
+
+static int draconic_rt_run_symbolizer(char **argv, const char *exe_path) {
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        return 0;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return 0;
+    }
+    if (pid == 0) {
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        execv(exe_path, argv);
+        _exit(127);
+    }
+    close(pipefd[1]);
+    int any = draconic_rt_print_child_lines(pipefd[0]);
+    close(pipefd[0]);
+    int st = 0;
+    waitpid(pid, &st, 0);
+    return any && WIFEXITED(st) && WEXITSTATUS(st) == 0;
+}
+
+#ifdef __APPLE__
+static int draconic_rt_symbolicate_atos(void **frames, int n, const char *exe) {
+    if (access("/usr/bin/atos", X_OK) != 0) {
+        return 0;
+    }
+    char loadbuf[32];
+    char addrs[DRACONIC_BT_MAX][32];
+    char *argv[DRACONIC_BT_MAX + 8];
+    int argc = 0;
+    argv[argc++] = "atos";
+    argv[argc++] = "-o";
+    argv[argc++] = (char *)exe;
+    argv[argc++] = "-l";
+    snprintf(loadbuf, sizeof(loadbuf), "0x%lx", (unsigned long)(uintptr_t)_dyld_get_image_header(0));
+    argv[argc++] = loadbuf;
+    for (int i = 0; i < n && i < DRACONIC_BT_MAX; i++) {
+        snprintf(addrs[i], sizeof(addrs[i]), "%p", frames[i]);
+        argv[argc++] = addrs[i];
+    }
+    argv[argc] = NULL;
+    return draconic_rt_run_symbolizer(argv, "/usr/bin/atos");
+}
+#endif
+
+static const char *draconic_rt_find_llvm_symbolizer(char *buf, size_t cap) {
+    static const char *candidates[] = {
+        "/opt/homebrew/opt/llvm@22/bin/llvm-symbolizer",
+        "/opt/homebrew/opt/llvm/bin/llvm-symbolizer",
+        "/usr/bin/llvm-symbolizer",
+        NULL,
+    };
+    const char *env = getenv("LLVM_SYMBOLIZER");
+    if (env && env[0] && access(env, X_OK) == 0) {
+        size_t n = strlen(env);
+        if (n >= cap) {
+            n = cap - 1;
+        }
+        memcpy(buf, env, n);
+        buf[n] = '\0';
+        return buf;
+    }
+    for (int i = 0; candidates[i]; i++) {
+        if (access(candidates[i], X_OK) == 0) {
+            return candidates[i];
+        }
+    }
+    (void)buf;
+    (void)cap;
+    return NULL;
+}
+
+static int draconic_rt_symbolicate_llvm(void **frames, int n, const char *exe) {
+    char path[DRACONIC_BT_PATH];
+    const char *bin = draconic_rt_find_llvm_symbolizer(path, sizeof(path));
+    if (!bin) {
+        return 0;
+    }
+    char addrs[DRACONIC_BT_MAX][32];
+    char *argv[DRACONIC_BT_MAX + 8];
+    int argc = 0;
+    argv[argc++] = (char *)bin;
+    argv[argc++] = "--obj";
+    argv[argc++] = (char *)exe;
+    argv[argc++] = "--functions=linkage";
+    argv[argc++] = "--inlining=false";
+    for (int i = 0; i < n && i < DRACONIC_BT_MAX; i++) {
+#ifdef __APPLE__
+        uintptr_t rel = (uintptr_t)frames[i] - (uintptr_t)_dyld_get_image_vmaddr_slide(0);
+        snprintf(addrs[i], sizeof(addrs[i]), "0x%lx", (unsigned long)rel);
+#else
+        snprintf(addrs[i], sizeof(addrs[i]), "%p", frames[i]);
+#endif
+        argv[argc++] = addrs[i];
+    }
+    argv[argc] = NULL;
+    return draconic_rt_run_symbolizer(argv, bin);
+}
+
+static void draconic_rt_print_raw_frames(void **frames, int n) {
+    char **syms = backtrace_symbols(frames, n);
+    if (syms) {
+        for (int i = 0; i < n; i++) {
+            fprintf(stderr, "  %s\n", syms[i]);
+        }
+        free(syms);
+    } else {
+        for (int i = 0; i < n; i++) {
+            fprintf(stderr, "  %p\n", frames[i]);
+        }
+    }
+}
+#endif /* !_WIN32 */
+
+static void draconic_rt_print_backtrace(void) {
+    static int recursing = 0;
+    if (recursing) {
+        return;
+    }
+    recursing = 1;
+    fprintf(stderr, "draconic_rt: backtrace\n");
+    fflush(stderr);
+#if defined(_WIN32)
+    fflush(stderr);
+    recursing = 0;
+    return;
+#else
+    void *frames[DRACONIC_BT_MAX];
+    int n = backtrace(frames, DRACONIC_BT_MAX);
+    int resolved = 0;
+    char exe[DRACONIC_BT_PATH];
+    if (n > 0 && draconic_rt_self_path(exe, sizeof(exe))) {
+#ifdef __APPLE__
+        resolved = draconic_rt_symbolicate_atos(frames, n, exe);
+#endif
+        if (!resolved) {
+            resolved = draconic_rt_symbolicate_llvm(frames, n, exe);
+        }
+    }
+    if (!resolved && n > 0) {
+        draconic_rt_print_raw_frames(frames, n);
+    }
+    fflush(stderr);
+    recursing = 0;
+#endif
+}
+
+static void draconic_rt_die(void) {
+    draconic_rt_print_backtrace();
+    abort();
+}
 
 void draconic_rt_hello(void) {
     puts("hello");
@@ -22,7 +247,7 @@ void draconic_rt_hello(void) {
 void draconic_rt_abort(void) {
     fprintf(stderr, "draconic_rt: abort\n");
     fflush(stderr);
-    abort();
+    draconic_rt_die();
 }
 
 /* F01.01–F01.03: C ABI call targets for extern "C" conformance. */
@@ -131,7 +356,7 @@ char *draconic_rt_cstr_concat(const char *a, const char *b) {
     size_t lb = b ? strlen(b) : 0;
     char *out = (char *)malloc(la + lb + 1);
     if (!out) {
-        abort();
+        draconic_rt_die();
     }
     if (la) {
         memcpy(out, a, la);
@@ -147,11 +372,11 @@ char *draconic_rt_cstr_from_u64(uint64_t n) {
     char buf[32];
     int len = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)n);
     if (len < 0) {
-        abort();
+        draconic_rt_die();
     }
     char *out = (char *)malloc((size_t)len + 1);
     if (!out) {
-        abort();
+        draconic_rt_die();
     }
     memcpy(out, buf, (size_t)len + 1);
     return out;
@@ -160,7 +385,7 @@ char *draconic_rt_cstr_from_u64(uint64_t n) {
 char *draconic_rt_cstr_from_code_unit(const char *s, size_t index) {
     char *out = (char *)malloc(2);
     if (!out) {
-        abort();
+        draconic_rt_die();
     }
     out[0] = (s != NULL) ? s[index] : '\0';
     out[1] = '\0';
@@ -293,7 +518,7 @@ void draconic_rt_print_bytes(const char *s, size_t len) {
     if (nu) {
         units = (uint16_t *)malloc(nu * sizeof(uint16_t));
         if (!units) {
-            abort();
+            draconic_rt_die();
         }
         jsstr_decode_units(s, len, units, nu);
     }
@@ -334,7 +559,7 @@ char *draconic_rt_cstr_concat_n(const char *a, size_t la, const char *b, size_t 
     size_t n = na + nb;
     uint16_t *units = (uint16_t *)malloc((n ? n : 1) * sizeof(uint16_t));
     if (!units) {
-        abort();
+        draconic_rt_die();
     }
     if (na) {
         jsstr_decode_units(a, la, units, na);
@@ -345,7 +570,7 @@ char *draconic_rt_cstr_concat_n(const char *a, size_t la, const char *b, size_t 
     size_t blen = jsstr_encode_units_len(units, n);
     char *out = (char *)malloc(blen + 1);
     if (!out) {
-        abort();
+        draconic_rt_die();
     }
     jsstr_encode_units(units, n, (unsigned char *)out);
     out[blen] = '\0';
@@ -361,7 +586,7 @@ char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index,
     if (index >= nu) {
         char *out = (char *)malloc(1);
         if (!out) {
-            abort();
+            draconic_rt_die();
         }
         out[0] = '\0';
         if (out_len) {
@@ -371,7 +596,7 @@ char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index,
     }
     uint16_t *units = (uint16_t *)malloc(nu * sizeof(uint16_t));
     if (!units) {
-        abort();
+        draconic_rt_die();
     }
     jsstr_decode_units(s, len, units, nu);
     unsigned char buf[3];
@@ -379,7 +604,7 @@ char *draconic_rt_cstr_from_code_unit_n(const char *s, size_t len, size_t index,
     free(units);
     char *out = (char *)malloc(blen + 1);
     if (!out) {
-        abort();
+        draconic_rt_die();
     }
     memcpy(out, buf, blen);
     out[blen] = '\0';
@@ -401,7 +626,7 @@ int draconic_rt_cstr_eq_n(const char *a, size_t la, const char *b, size_t lb) {
     uint16_t *ua = (uint16_t *)malloc(na * sizeof(uint16_t));
     uint16_t *ub = (uint16_t *)malloc(nb * sizeof(uint16_t));
     if (!ua || !ub) {
-        abort();
+        draconic_rt_die();
     }
     jsstr_decode_units(a, la, ua, na);
     jsstr_decode_units(b, lb, ub, nb);
@@ -759,7 +984,7 @@ void draconic_rt_gc_root_push(DraconicValue *v) {
             (DraconicValue **)realloc(g_roots, new_cap * sizeof(DraconicValue *));
         if (!grown) {
             fprintf(stderr, "draconic_rt: root stack grow failed\n");
-            abort();
+            draconic_rt_die();
         }
         /* Clear new slots so unused entries are not stale pointers. */
         for (size_t i = g_root_cap; i < new_cap; i++) {
@@ -774,7 +999,7 @@ void draconic_rt_gc_root_push(DraconicValue *v) {
 void draconic_rt_gc_root_pop(void) {
     if (g_root_sp == 0) {
         fprintf(stderr, "draconic_rt: root stack underflow\n");
-        abort();
+        draconic_rt_die();
     }
     g_root_sp--;
     g_roots[g_root_sp] = NULL;
@@ -887,12 +1112,12 @@ static int g_job_draining = 0;
 void draconic_rt_job_enqueue(DraconicJobFn fn, void *data) {
     if (!fn) {
         fprintf(stderr, "draconic_rt: job_enqueue null fn\n");
-        abort();
+        draconic_rt_die();
     }
     DraconicJob *job = (DraconicJob *)calloc(1, sizeof(DraconicJob));
     if (!job) {
         fprintf(stderr, "draconic_rt: job_enqueue OOM\n");
-        abort();
+        draconic_rt_die();
     }
     job->fn = fn;
     job->data = data;
@@ -1096,7 +1321,7 @@ static int64_t timer_alloc(
 ) {
     if (!fn) {
         fprintf(stderr, "draconic_rt: timer_set null fn\n");
-        abort();
+        draconic_rt_die();
     }
     if (delay_ms < 0.0 || delay_ms != delay_ms) {
         delay_ms = 0.0;
@@ -1104,7 +1329,7 @@ static int64_t timer_alloc(
     DraconicTimer *t = (DraconicTimer *)calloc(1, sizeof(DraconicTimer));
     if (!t) {
         fprintf(stderr, "draconic_rt: timer_set OOM\n");
-        abort();
+        draconic_rt_die();
     }
     t->id = g_timer_next_id++;
     if (g_timer_next_id <= 0) {
@@ -1297,7 +1522,7 @@ static void enqueue_promise_reaction(
     PromiseReactionJob *job = (PromiseReactionJob *)calloc(1, sizeof(PromiseReactionJob));
     if (!job) {
         fprintf(stderr, "draconic_rt: promise reaction OOM\n");
-        abort();
+        draconic_rt_die();
     }
     job->fn = fn;
     job->data = data;
@@ -1318,7 +1543,7 @@ static void enqueue_promise_finally_reaction(
     PromiseReactionJob *job = (PromiseReactionJob *)calloc(1, sizeof(PromiseReactionJob));
     if (!job) {
         fprintf(stderr, "draconic_rt: promise finally OOM\n");
-        abort();
+        draconic_rt_die();
     }
     job->fn = fn;
     job->data = data;
@@ -1435,7 +1660,7 @@ DraconicValue *draconic_rt_promise_then(
             (DraconicPromiseReaction *)calloc(1, sizeof(DraconicPromiseReaction));
         if (!r) {
             fprintf(stderr, "draconic_rt: promise_then OOM\n");
-            abort();
+            draconic_rt_die();
         }
         r->on_fulfilled = on_fulfilled;
         r->fulfill_data = fulfill_data;
@@ -1526,7 +1751,7 @@ DraconicValue *draconic_rt_promise_finally(
             (DraconicPromiseReaction *)calloc(1, sizeof(DraconicPromiseReaction));
         if (!r) {
             fprintf(stderr, "draconic_rt: promise_finally OOM\n");
-            abort();
+            draconic_rt_die();
         }
         r->on_fulfilled = on_finally;
         r->fulfill_data = data;
@@ -1603,7 +1828,7 @@ void draconic_rt_array_set(DraconicValue *a, size_t index, void *value) {
         void **elems = (void **)realloc(a->as.array.elems, new_len * sizeof(void *));
         if (!elems) {
             fprintf(stderr, "draconic_rt: array_set OOM\n");
-            abort();
+            draconic_rt_die();
         }
         for (size_t i = a->as.array.len; i < new_len; i++) {
             elems[i] = NULL;
@@ -1717,7 +1942,7 @@ DraconicValue *draconic_rt_promise_all(DraconicValue *arr) {
         PromiseAllSlot *slot = (PromiseAllSlot *)calloc(1, sizeof(PromiseAllSlot));
         if (!slot) {
             fprintf(stderr, "draconic_rt: promise_all OOM\n");
-            abort();
+            draconic_rt_die();
         }
         slot->all_promise = out;
         slot->results = results;
@@ -1806,7 +2031,7 @@ DraconicValue *draconic_rt_promise_race(DraconicValue *arr) {
         PromiseRaceSlot *slot = (PromiseRaceSlot *)calloc(1, sizeof(PromiseRaceSlot));
         if (!slot) {
             fprintf(stderr, "draconic_rt: promise_race OOM\n");
-            abort();
+            draconic_rt_die();
         }
         slot->race_promise = out;
         slot->settled_flag = settled_flag;
@@ -1849,14 +2074,14 @@ void draconic_rt_object_set(DraconicValue *obj, const char *key, void *value) {
     DraconicProp *prop = (DraconicProp *)calloc(1, sizeof(DraconicProp));
     if (!prop) {
         fprintf(stderr, "draconic_rt: object_set OOM\n");
-        abort();
+        draconic_rt_die();
     }
     size_t klen = strlen(key);
     prop->key = (char *)malloc(klen + 1);
     if (!prop->key) {
         free(prop);
         fprintf(stderr, "draconic_rt: object_set OOM\n");
-        abort();
+        draconic_rt_die();
     }
     memcpy(prop->key, key, klen + 1);
     prop->symbol_id = 0;
@@ -1933,7 +2158,7 @@ void draconic_rt_object_set_symbol(DraconicValue *obj, int64_t sym, void *value)
     DraconicProp *prop = (DraconicProp *)calloc(1, sizeof(DraconicProp));
     if (!prop) {
         fprintf(stderr, "draconic_rt: object_set_symbol OOM\n");
-        abort();
+        draconic_rt_die();
     }
     prop->key = NULL;
     prop->symbol_id = sym;
@@ -1994,7 +2219,7 @@ void draconic_rt_object_copy_own(DraconicValue *dst, DraconicValue *src) {
         free(keys);
         free(vals);
         fprintf(stderr, "draconic_rt: object_copy_own OOM\n");
-        abort();
+        draconic_rt_die();
     }
     size_t i = n;
     for (DraconicProp *p = src->as.object.props; p; p = p->next) {
@@ -2127,7 +2352,7 @@ void draconic_rt_object_spread(DraconicValue *dest, DraconicValue *src) {
     DraconicProp **ordered = (DraconicProp **)malloc(n * sizeof(DraconicProp *));
     if (!ordered) {
         fprintf(stderr, "draconic_rt: object_spread OOM\n");
-        abort();
+        draconic_rt_die();
     }
     size_t i = n;
     for (DraconicProp *p = src->as.object.props; p; p = p->next) {
@@ -2244,7 +2469,7 @@ DraconicValue *draconic_rt_promise_all_settled(DraconicValue *arr) {
             (PromiseAllSettledSlot *)calloc(1, sizeof(PromiseAllSettledSlot));
         if (!slot) {
             fprintf(stderr, "draconic_rt: promise_all_settled OOM\n");
-            abort();
+            draconic_rt_die();
         }
         slot->all_promise = out;
         slot->results = results;
@@ -2363,7 +2588,7 @@ DraconicValue *draconic_rt_promise_any(DraconicValue *arr) {
         PromiseAnySlot *slot = (PromiseAnySlot *)calloc(1, sizeof(PromiseAnySlot));
         if (!slot) {
             fprintf(stderr, "draconic_rt: promise_any OOM\n");
-            abort();
+            draconic_rt_die();
         }
         slot->any_promise = out;
         slot->errors = errors;
@@ -2433,11 +2658,11 @@ int64_t draconic_rt_symbol_for(const char *key, size_t key_len) {
     }
     DraconicSymbolReg *e = (DraconicSymbolReg *)calloc(1, sizeof(DraconicSymbolReg));
     if (!e) {
-        abort();
+        draconic_rt_die();
     }
     e->key = (char *)malloc(key_len + 1);
     if (!e->key) {
-        abort();
+        draconic_rt_die();
     }
     if (key_len) {
         memcpy(e->key, k, key_len);
@@ -2455,7 +2680,7 @@ char *draconic_rt_symbol_key_for(int64_t id, size_t *out_len) {
         if (e->id == id) {
             char *out = (char *)malloc(e->key_len + 1);
             if (!out) {
-                abort();
+                draconic_rt_die();
             }
             if (e->key_len) {
                 memcpy(out, e->key, e->key_len);

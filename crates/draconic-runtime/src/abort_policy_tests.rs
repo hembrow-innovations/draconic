@@ -78,6 +78,50 @@ fn abort_kills_process() {
 }
 
 #[test]
+fn abort_emits_backtrace() {
+    let bin = link_runtime_c(
+        "rt_abort_backtrace",
+        r#"
+            #include "draconic_rt.h"
+            #include <stdio.h>
+
+            int main(void) {
+                fprintf(stdout, "before\n");
+                fflush(stdout);
+                draconic_rt_abort();
+                fprintf(stdout, "after\n");
+                return 0;
+            }
+            "#,
+    );
+    let output = Command::new(&bin)
+        .output()
+        .expect("run abort backtrace harness");
+    assert!(
+        !output.status.success(),
+        "abort-class fault must kill the process: {:?}",
+        output.status
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("draconic_rt: abort"),
+        "abort should report canonical message; stderr={stderr:?}"
+    );
+    assert!(
+        stderr.contains("draconic_rt: backtrace"),
+        "abort-class fault must emit a backtrace; stderr={stderr:?}"
+    );
+    let frame_lines = stderr
+        .lines()
+        .filter(|l| l.starts_with("  ") || l.contains("0x") || l.contains("main"))
+        .count();
+    assert!(
+        frame_lines >= 1,
+        "backtrace must include at least one frame; stderr={stderr:?}"
+    );
+}
+
+#[test]
 fn invariant_root_stack_underflow_aborts_process() {
     let bin = link_runtime_c(
         "rt_root_underflow",
