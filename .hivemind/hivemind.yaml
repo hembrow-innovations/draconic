@@ -1,13 +1,17 @@
 # Draconic dest. Full file. No overlay. Dest copy is the runtime contract.
-# Unattended heio-stack loop. Slice status ready means schedulable (replaces
-# frozen). Then active / released / reviewing / met / failed. Tickets:
-# ready-for-agent vs ready-for-human. Pump mints one ROADMAP.md todo as a
-# ticket. Doctor not shipped. cmd is argv. pi --print. --approve trusts the
-# folder. Pump is last so plan/tasker/build/review still match while work is
-# in flight.
+# Unattended heio-stack loop. Three lanes feed each other in parallel:
+#   planner (pump lock) → builder (active slice)
+#   → reviewer (released slice)
+#   ↻ misses mint ready-for-agent tickets; planner seals the next slice
+# Slice status active means builder may match.
+# released → reviewing → met | failed.
+# Tickets: ready-for-agent vs ready-for-human. Planner mints one ROADMAP.md
+# todo when WIP is under cap. Doctor not shipped. cmd is argv. pi --print.
+# --approve trusts the folder. Planner is last so builder/reviewer still
+# match while work is in flight.
 #
-# Pipeline: plan → tasker → build → review
-#   ↻ pump mints the next ready-for-agent ticket when the board is quiet
+# Pipeline: planner → builder → reviewer
+#   ↻ planner mints/plans the next ready-for-agent ticket when WIP < 3
 history: .heio/logs/hivemind.tsv
 folders:
   - path: .heio/tickets
@@ -79,79 +83,54 @@ actors:
       - "--"
       - "@{{prompt}}"
 lanes:
-  # Plan: one ready-for-agent ticket → one sealed slice (oracles, status ready).
-  # Claims the ticket as active, writes the slice under .heio/planning, then
-  # marks the ticket promoted. No product code and no task-pool files.
-  plan:
+  # Builder: one incomplete task on an active slice. Gauntlet-loop (tdd +
+  # critic CHECK, max 3 rounds, plateau → blocked + ticket). Commits the
+  # work package (never stages .heio/). Leaves the slice active if more
+  # tasks remain; sets released when the pool is done so Reviewer matches.
+  # ttl reverts a hung claim so the lane cannot stick on a dead cargo run.
+  builder:
     type: single
     concurrency: 1
     actor: pi
-    agent: heio-planner
-    prompt: prompts/hivemind-plan.md
-    trigger:
-      kind: ticket
-      status: ready-for-agent
-    claim-status: active
-    backoff: 15s
-  # Tasker: one ready slice → task-pool files plus [[id]] links on the slice.
-  # Claims the slice as active. One sitting per task. No product code; does
-  # not edit EXPECT, intent, roadmap, or sprint shape.
-  tasker:
-    type: single
-    concurrency: 1
-    actor: pi
-    agent: heio-tasker
-    prompt: prompts/hivemind-tasker.md
-    trigger:
-      kind: slice
-      status: ready
-    claim-status: active
-    backoff: 15s
-  # Build: one incomplete task on an active slice. Runs draconic-loop + TDD,
-  # commits the work package (never stages .heio/). Leaves the slice active
-  # if more tasks remain; sets released when the pool is done so Review matches.
-  build:
-    type: single
-    concurrency: 1
-    actor: pi
-    agent: heio-builder
-    prompt: prompts/hivemind-build.md
+    agent: builder
+    prompt: prompts/hivemind-builder.md
     trigger:
       kind: slice
       status: active
     claim-status: active
     backoff: 15s
-  # Review: one released slice. Claims as reviewing, re-runs oracles.
+    ttl: 45m
+  # Reviewer: one released slice. Claims as reviewing, re-runs oracles.
   # ALL MET → slice met and ROADMAP done. Miss → slice failed and mints a
-  # ready-for-agent ticket with caused-by (mint-status). No product code.
-  review:
+  # ready-for-agent ticket with caused-by (mint-status) so Planner feeds a
+  # fix slice. No product code. Listed beside builder so both match in one
+  # tick while Planner is last.
+  reviewer:
     type: single
     concurrency: 1
     actor: pi
-    agent: heio-verifier
-    prompt: prompts/hivemind-review.md
+    agent: reviewer
+    prompt: prompts/hivemind-reviewer.md
     trigger:
       kind: slice
       status: released
     claim-status: reviewing
     mint-status: ready-for-agent
     backoff: 15s
-  # Pump: idle pump + empty in-flight queue → one ROADMAP todo ticket at
-  # ready-for-agent (mint-status), then pump is held (ticket occupies).
-  # Occupied board → mint nothing and leave pump held (not idle).
-  # Empty board + idle → mint. exhausted → watch can exit.
-  # Listed last so plan/tasker/build/review win while work is in flight.
-  # Backoff throttles the idle-empty mint loop only; occupied is held so the
-  # idle trigger does not match.
-  pump:
+  # Planner: idle pump lock → one unit (plan a ready-for-agent ticket into
+  # an active slice with task-pool, or mint one ROADMAP todo under WIP cap).
+  # Occupied at cap → mint nothing and leave pump held. Empty board + idle
+  # → mint. exhausted → watch can exit. Listed last so builder/reviewer win
+  # while work is in flight. Backoff throttles the idle mint/plan loop.
+  planner:
     type: single
     concurrency: 1
     actor: pi
-    agent: heio-triage
-    prompt: prompts/hivemind-pump.md
+    agent: planner
+    prompt: prompts/hivemind-planner.md
     trigger:
       kind: pump
       status: idle
     claim-status: active
     mint-status: ready-for-agent
-    backoff: 120s
+    backoff: 15s

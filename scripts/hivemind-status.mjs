@@ -3,13 +3,13 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+export const WIP_CAP = 3;
 export const IN_FLIGHT_TICKET_STATUSES = new Set(["ready-for-agent", "active"]);
 export const IN_FLIGHT_SLICE_STATUSES = new Set([
 	"ready",
 	"active",
 	"released",
 	"reviewing",
-	"failed",
 ]);
 export const CLEAR_TICKET_CLAIM_STATUSES = new Set([
 	"promoted",
@@ -98,10 +98,16 @@ export function inFlightSlices(slices) {
 	return slices.filter((row) => IN_FLIGHT_SLICE_STATUSES.has(row.status));
 }
 
+export function inFlightCount(tickets, slices) {
+	return inFlightTickets(tickets).length + inFlightSlices(slices).length;
+}
+
 export function boardOccupancy(tickets, slices) {
-	return inFlightTickets(tickets).length + inFlightSlices(slices).length > 0
-		? "occupied"
-		: "empty";
+	return inFlightCount(tickets, slices) > 0 ? "occupied" : "empty";
+}
+
+export function wipState(tickets, slices, cap = WIP_CAP) {
+	return inFlightCount(tickets, slices) >= cap ? "at-cap" : "under-cap";
 }
 
 export function groupCounts(rows) {
@@ -115,14 +121,15 @@ export function groupCounts(rows) {
 
 export function census(board) {
 	const { tickets, slices, pumps, roadmapTodos } = board;
-	const inFlight =
-		inFlightTickets(tickets).length + inFlightSlices(slices).length;
+	const inFlight = inFlightCount(tickets, slices);
 	return {
 		roadmapTodos,
 		ticketCounts: groupCounts(tickets),
 		sliceCounts: groupCounts(slices),
 		inFlight,
 		occupancy: boardOccupancy(tickets, slices),
+		wip: wipState(tickets, slices),
+		wipCap: WIP_CAP,
 		reviewBacklog: slices.filter((row) => row.status === "released").length,
 		pump:
 			pumps.length === 0
@@ -163,6 +170,7 @@ export function printCensus(board) {
 	printCountGroup("slices by status", snap.sliceCounts);
 	console.log(`  in-flight: ${snap.inFlight}`);
 	console.log(`  occupancy: ${snap.occupancy}`);
+	console.log(`  wip: ${snap.wip} (cap ${snap.wipCap})`);
 	console.log(`  review backlog: ${snap.reviewBacklog}`);
 	console.log(`  pump: ${snap.pump}`);
 }

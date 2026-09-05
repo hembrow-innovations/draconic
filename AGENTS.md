@@ -39,30 +39,32 @@ This dest runs **without a human in the lane**. Do not interview. Do not wait fo
 
 Tickets. Never write `open`, `parked`, or `ready-for-human` on this dest.
 
-- **ready-for-agent**: Plan may take it
-- **active**: Plan claimed it this run
-- **promoted**: Plan finished; slice exists
+- **ready-for-agent**: Planner may take it
+- **active**: Planner claimed it this run
+- **promoted**: Planner finished; slice exists
 - **dropped** / **closed**: dead
 
-Slices (one file `s-<slug>.md`, `kind: slice`). Never write `frozen`. Tasker only matches `ready`.
+Slices (one file `s-<slug>.md`, `kind: slice`). Never write `frozen`. Planner writes `active` with task-pool files in one sitting.
 
-- **ready**: sealed Done + EXPECT; Tasker may take it (replaces `frozen`)
-- **active**: Tasker claimed, or Build is looping tasks
-- **released**: no incomplete task-pool links; Review may take it
-- **reviewing**: Review claimed
+- **ready**: sealed Done + EXPECT (legacy; Planner now publishes `active`)
+- **active**: Builder may gauntlet an incomplete task
+- **released**: no incomplete task-pool links; Reviewer may take it
+- **reviewing**: Reviewer claimed
 - **met**: oracles ALL MET
-- **failed**: Review miss; slice stays sealed
+- **failed**: Reviewer miss or Builder plateau with no remaining work; slice stays sealed. Failed is **not** in-flight.
 
-Pump (`.heio/planning/pump.md`, `kind: pump`):
+Task-pool: `draft` → `ready` → `claimed` → `implemented` → `completed`. **blocked** is a gauntlet plateau. Builder skips `blocked` and `completed`.
 
-- **idle**: engine may mint
-- **active**: claimed this run
-- **held**: in-flight board; do not match pump (dest overlay; trigger in yaml remains idle)
+Pump (`.heio/planning/pump.md`, `kind: pump`) is the Planner lock, not its own lane:
+
+- **idle**: engine may claim Planner
+- **active**: Planner claimed this run
+- **held**: at WIP cap, or Planner had nothing to mint/plan
 - **exhausted**: no ROADMAP `todo`; watch `--until-quiet` can exit
 
-Occupancy: Pump mints only when idle AND in-flight is empty. Occupied pump is **held**, not idle.
+Occupancy: WIP cap is **3**. In-flight is tickets `ready-for-agent`/`active` plus slices `ready`/`active`/`released`/`reviewing`. Planner may mint/plan while Builder and Reviewer run, while in-flight is under cap. At cap, pump is **held**. Empty board + held pump becomes **idle** so Planner can mint.
 
-Review misses mint `ready-for-agent`, not `ready-for-human`.
+Reviewer and Builder misses mint `ready-for-agent`, not `ready-for-human`.
 
 Interactive Pi is the control plane (status/housekeep scripts). Language Loop atoms run in Hivemind `--print --no-session`. Do not wrap Loop atoms in Swarm Pi.
 
@@ -76,17 +78,17 @@ Interactive Pi is the control plane (status/housekeep scripts). Language Loop at
 - Front matter on tickets may only use the ticket schema keys. Extra keys quarantine.
 - Do not edit `.hivemind/hivemind.yaml` unless changing lanes on purpose.
 - Do not edit `.pi/` copies.
-- Do not write intent, roadmap, or sprint destination sentences from Build or Review.
+- Do not write intent, roadmap, or sprint destination sentences from Builder or Reviewer.
 - Do not invent work when no matching ticket or slice exists and ROADMAP has no `todo`.
 - Always keep the `target` directory below 10GB.
 
 ## Loop
 
-- **Pump** (`heio-triage`): idle pump + empty in-flight queue → one ROADMAP `todo` ticket at `ready-for-agent`, or `exhausted`. Occupied pump is `held`; do not match pump.
-- **Plan** (`heio-planner`): one `ready-for-agent` ticket → one slice file with oracles, `status: ready`. Ticket → `promoted`.
-- **Tasker** (`heio-tasker`): claimed `ready` slice (now `active`) → task-pool files + slice `[[id]]` links.
-- **Build** (`heio-builder`): one incomplete task, **draconic-loop** + TDD, commit. If none remain, set slice `status: released`.
-- **Review** (`heio-verifier`): `--reverify`. ALL MET → `met` and ROADMAP `done`. Miss → slice `failed` plus a new ticket at `ready-for-agent` with `caused-by`.
+Three lanes. They match different notes, so they run in parallel. Each sitting is one unit, then die.
+
+- **Planner** (`planner`): idle pump lock. One `ready-for-agent` ticket → one slice with oracles and task-pool files, `status: active`, ticket `promoted`. Else mint one ROADMAP `todo` ticket at `ready-for-agent` when WIP is under cap. Else `held` or `exhausted`. No product code.
+- **Builder** (`builder`): one incomplete task on an `active` slice. **gauntlet-loop** + **draconic-loop** + TDD. Critic hat is `CHECK:`/`EXPECT:`. Max 3 rounds. Same gap twice or budget hit → task `blocked`, mint a fix ticket, stop. Win → `completed` and commit. If none remain, set slice `status: released`. If only `blocked` remain, set `failed`.
+- **Reviewer** (`reviewer`): `--reverify`. ALL MET → `met` and ROADMAP `done`. Miss → slice `failed` plus a new ticket at `ready-for-agent` with `caused-by` so Planner can feed a fix slice to Builder.
 
 ## Pi
 

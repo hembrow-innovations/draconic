@@ -8,6 +8,7 @@ import {
 	KEEP_SLICE_CLAIM_STATUSES,
 	loadHeio,
 	parseRootArg,
+	wipState,
 } from "./hivemind-status.mjs";
 
 function escapeRegExp(s) {
@@ -82,8 +83,9 @@ export function planHousekeep(board) {
 		}
 	}
 	const occupancy = boardOccupancy(board.tickets, board.slices);
+	const wip = wipState(board.tickets, board.slices);
 	for (const pump of board.pumps) {
-		if (occupancy === "occupied" && pump.status === "idle") {
+		if (wip === "at-cap" && pump.status === "idle") {
 			changes.push({
 				abs: pump.abs,
 				id: pump.id,
@@ -101,7 +103,7 @@ export function planHousekeep(board) {
 			});
 		}
 	}
-	return { occupancy, changes };
+	return { occupancy, wip, changes };
 }
 
 export function applyChange(root, change) {
@@ -149,10 +151,11 @@ export function main(argv = process.argv.slice(2)) {
 		console.error(`unreadable .heio: ${msg}`);
 		return 1;
 	}
-	const { occupancy, changes } = planHousekeep(board);
+	const { occupancy, wip, changes } = planHousekeep(board);
 	const mode = apply ? "apply" : "dry-run";
 	console.log(`heio-housekeep ${mode}`);
 	console.log(`  occupancy: ${occupancy}`);
+	console.log(`  wip: ${wip}`);
 	if (changes.length === 0) {
 		console.log("  (no changes)");
 		return 0;

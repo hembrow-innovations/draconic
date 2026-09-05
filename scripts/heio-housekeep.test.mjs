@@ -121,13 +121,18 @@ describe("planHousekeep", () => {
 		);
 	});
 
-	test("occupied idle pump becomes held; empty held pump becomes idle", () => {
-		const occupied = fixture("occ-idle", {
-			slices: [{ id: "s-rel", status: "released" }],
+	test("at-cap idle pump becomes held; empty held pump becomes idle", () => {
+		const atCap = fixture("occ-idle", {
+			slices: [
+				{ id: "s-a", status: "active" },
+				{ id: "s-b", status: "released" },
+				{ id: "s-c", status: "reviewing" },
+			],
 			pump: { id: "pump", status: "idle" },
 		});
-		const occPlan = planHousekeep(loadHeio(occupied));
+		const occPlan = planHousekeep(loadHeio(atCap));
 		assert.equal(occPlan.occupancy, "occupied");
+		assert.equal(occPlan.wip, "at-cap");
 		assert.deepEqual(
 			occPlan.changes.filter((c) => c.action === "set-status"),
 			[
@@ -150,6 +155,20 @@ describe("planHousekeep", () => {
 		assert.equal(emptyPlan.occupancy, "empty");
 		assert.equal(emptyPlan.changes[0].to, "idle");
 		assert.equal(emptyPlan.changes[0].from, "held");
+	});
+
+	test("occupied under-cap idle pump stays idle so planner can feed", () => {
+		const under = fixture("under-idle", {
+			slices: [{ id: "s-rel", status: "released" }],
+			pump: { id: "pump", status: "idle" },
+		});
+		const plan = planHousekeep(loadHeio(under));
+		assert.equal(plan.occupancy, "occupied");
+		assert.equal(plan.wip, "under-cap");
+		assert.equal(
+			plan.changes.some((c) => c.action === "set-status"),
+			false,
+		);
 	});
 
 	test("does not move exhausted or already-correct pump status", () => {
@@ -198,7 +217,11 @@ describe("the housekeep CLI", () => {
 
 	test("--dry-run does not write either", () => {
 		const root = fixture("dry-flag", {
-			slices: [{ id: "s-rel", status: "released" }],
+			slices: [
+				{ id: "s-a", status: "active" },
+				{ id: "s-b", status: "released" },
+				{ id: "s-c", status: "reviewing" },
+			],
 			pump: { id: "pump", status: "idle" },
 		});
 		const before = fs.readFileSync(join(root, ".heio/planning/pump.md"), "utf8");

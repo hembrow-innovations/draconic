@@ -11,6 +11,7 @@ import {
 	census,
 	countRoadmapTodos,
 	loadBoard,
+	wipState,
 } from "./hivemind-status.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./hivemind-status.mjs", import.meta.url));
@@ -89,6 +90,7 @@ describe("census occupancy", () => {
 		assert.equal(snap.occupancy, "empty");
 		assert.equal(snap.inFlight, 0);
 		assert.equal(snap.reviewBacklog, 0);
+		assert.equal(snap.wip, "under-cap");
 		assert.equal(snap.pump, "idle");
 		assert.equal(boardOccupancy(board.tickets, board.slices), "empty");
 	});
@@ -101,6 +103,7 @@ describe("census occupancy", () => {
 		const snap = census(loadBoard(root));
 		assert.equal(snap.occupancy, "occupied");
 		assert.equal(snap.inFlight, 1);
+		assert.equal(snap.wip, "under-cap");
 	});
 
 	test("released slices occupy the board and count as review backlog", () => {
@@ -120,6 +123,34 @@ describe("census occupancy", () => {
 			["active", 1],
 			["released", 1],
 		]);
+		assert.equal(snap.wip, "under-cap");
+	});
+
+	test("failed slices are not in-flight", () => {
+		const root = fixture("failed-not-inflight", {
+			slices: [{ id: "s-failed", status: "failed" }],
+			pump: { id: "pump", status: "idle" },
+		});
+		const board = loadBoard(root);
+		const snap = census(board);
+		assert.equal(snap.occupancy, "empty");
+		assert.equal(snap.inFlight, 0);
+		assert.equal(wipState(board.tickets, board.slices), "under-cap");
+	});
+
+	test("three in-flight items are at WIP cap", () => {
+		const root = fixture("at-cap", {
+			slices: [
+				{ id: "s-a", status: "active" },
+				{ id: "s-b", status: "released" },
+				{ id: "s-c", status: "reviewing" },
+			],
+			pump: { id: "pump", status: "held" },
+		});
+		const snap = census(loadBoard(root));
+		assert.equal(snap.inFlight, 3);
+		assert.equal(snap.wip, "at-cap");
+		assert.equal(snap.occupancy, "occupied");
 	});
 });
 
@@ -143,6 +174,7 @@ describe("the status CLI", () => {
 		assert.match(stdout, /slices by status\n    ready: 1/);
 		assert.match(stdout, /in-flight: 2/);
 		assert.match(stdout, /occupancy: occupied/);
+		assert.match(stdout, /wip: under-cap \(cap 3\)/);
 		assert.match(stdout, /review backlog: 0/);
 		assert.match(stdout, /pump: idle/);
 	});
