@@ -16,6 +16,12 @@ Each task is one sitting, not an oracle. Each names the Roadmap ID in Context an
 
 Leave `status: active` on the slice.
 
+## Occupancy
+
+After your unit, if the board is empty (no ticket `ready-for-agent` or `active`; no slice `ready`, `active`, `released`, `reviewing`, or `failed`), set `.heio/planning/pump.md` status to `idle` so Pump can mint.
+If the board is still occupied, do not set pump to `idle`. Leave `held`/`exhausted` alone.
+Do not Plan a second atom. Do not rewrite EXPECT/intent/sprint destinations.
+
 ## Hand back
 
 ```

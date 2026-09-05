@@ -21,6 +21,12 @@ When the task Done line holds:
 
 New work that does not fit this task is a ticket under `.heio/tickets/` at `status: ready-for-agent`. Do not start it.
 
+## Occupancy
+
+After your unit, if the board is empty (no ticket `ready-for-agent` or `active`; no slice `ready`, `active`, `released`, `reviewing`, or `failed`), set `.heio/planning/pump.md` status to `idle` so Pump can mint.
+If the board is still occupied, do not set pump to `idle`. Leave `held`/`exhausted` alone.
+Do not Plan a second atom. Do not rewrite EXPECT/intent/sprint destinations.
+
 ## Hand back
 
 ```
