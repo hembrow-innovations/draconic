@@ -2,6 +2,19 @@
 
 One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 
+- **housekeeping** — archived 12 completed tasks; 12 released slices remain for Reviewer; 12 promoted tickets stay live; pump stays held at WIP cap
+- **d04-workspace-tests-timeout** — D04 workspace tests finish
+- **l07-02-workspace-tests-native** — L07.02 workspace tests pass (native runtime C)
+- **l09-workspace-timeout** — L09 workspace tests finish
+- **l10-02-workspace-timeout** — L10.02 workspace tests finish
+- **l10-workspace-timeout** — L10 workspace tests finish
+- **p04-workspace-tests** — P04 workspace tests pass
+- **r03-02-workspace-tests** — R03.02 workspace tests pass
+- **r03-workspace-timeout** — R03 workspace tests finish
+- **r04-workspace-timeout** — R04 workspace tests finish
+- **r05-02-workspace-tests** — R05.02 workspace tests pass
+- **r05-workspace-timeout** — R05 workspace tests finish
+- **r06-workspace-timeout** — R06 workspace tests finish
 - **housekeeping** — archived 24 finished slices (12 met, 12 failed), 24 completed tasks, 24 closed tickets; 12 ready-for-agent tickets remain; pump stays held at WIP cap
 - **ticket-104-r01-embed-eval-resource-limits-max** — R01 Embed/eval resource limits: max source size, alloc/time budget
 - **ticket-105-r02-permission-model-optional-deno-like** — R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics
