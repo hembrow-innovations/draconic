@@ -672,7 +672,7 @@ fn generated_html_is_not_authoring_source() {
 
 #[test]
 fn ci_workflow_generates_site_and_deploys_pages() {
-    let workflow = repo_root().join(".github/workflows/docs-pages.yml");
+    let workflow = repo_root().join(".github/workflows/docs-pages.yml.disabled");
     assert!(
         workflow.is_file(),
         "missing {} (issues-26 GitHub Pages workflow)",

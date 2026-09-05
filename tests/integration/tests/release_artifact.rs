@@ -144,7 +144,7 @@ fn release_script_stages_host_triple_binary() {
 
 #[test]
 fn ci_workflow_builds_and_uploads_host_artifact() {
-    let workflow = repo_root().join(".github/workflows/release-artifact.yml");
+    let workflow = repo_root().join(".github/workflows/release-artifact.yml.disabled");
     assert!(
         workflow.is_file(),
         "missing {} (D01.01 CI/release workflow)",

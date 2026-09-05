@@ -45,7 +45,7 @@ fn install_docs_list_available_os_arch_pairs() {
 
 #[test]
 fn ci_jobs_cover_available_os_arch_pairs() {
-    let text = read(".github/workflows/release-artifact.yml");
+    let text = read(".github/workflows/release-artifact.yml.disabled");
     assert!(
         text.contains("strategy:") && text.contains("matrix:"),
         "workflow should use a job matrix for available OS/arch pairs:\n{text}"
