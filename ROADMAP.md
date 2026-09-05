@@ -1058,7 +1058,7 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 | R02.04 | done | both | Default policy documented (permissive vs locked-down as designed) | `tests/conformance` fixtures `security/permissions` |
 | R03 | todo | compiler | Supply-chain policy tests once **K08** lands (lock verify refuse tamper) | `tests/integration`, **K08** |
 | R03.01 | done | compiler | Integration: tampered cache refused (depends **K08**) | `tests/integration`, **K08** |
-| R03.02 | todo | compiler | Integration: lock hash mismatch hard-fails build | `tests/integration`, **K08** |
+| R03.02 | done | compiler | Integration: lock hash mismatch hard-fails build | `tests/integration`, **K08** |
 | R04 | todo | native | Panic/abort vs catchable exception policy; fixtures per class | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
 | R04.01 | done | native | Document + fixture: which failures are catchable exceptions | `tests/conformance` fixtures `security/panic_policy` |
 | R04.02 | done | native | Document + fixture: which failures abort/panic process | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
