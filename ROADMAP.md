@@ -1064,7 +1064,7 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 | R04.02 | done | native | Document + fixture: which failures abort/panic process | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
 | R05 | done | both | Fuzz/stress hooks: parser/embed/runtime entry points | `crates/draconic-parser` and/or `crates/draconic-runtime` fuzz |
 | R05.01 | done | compiler | Parser fuzz entry (cargo-fuzz or designed harness) | `crates/draconic-parser` fuzz |
-| R05.02 | todo | native | Embed/runtime fuzz or stress hooks | `crates/draconic-runtime` fuzz, `crates/draconic-embed` |
+| R05.02 | done | native | Embed/runtime fuzz or stress hooks | `crates/draconic-runtime` fuzz, `crates/draconic-embed` |
 | R06 | todo | native | Panic backtraces with source locations (ties **U07** DWARF) | `crates/draconic-runtime`, `tests/integration` |
 
 **R v1 done bar:** R01 + R04. R02 after H fs/net; R03 after K08; R05/R06 deepen.

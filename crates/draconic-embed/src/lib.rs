@@ -7,8 +7,10 @@
 //! Outer Program fold (N07.02–N07.04 native): [`fold_eval_program`].
 
 mod fold;
+mod fuzz;
 
 pub use fold::{fold_eval_program, is_eval_fold_module, Observation};
+pub use fuzz::fuzz_eval;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;

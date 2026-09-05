@@ -5,6 +5,7 @@ pub mod abi;
 pub mod collections;
 pub mod compression;
 pub mod flags;
+mod fuzz;
 pub mod host_js_bridge;
 pub mod logging;
 pub mod mime;
@@ -18,6 +19,7 @@ pub use flags::{
     flag_help, parse_flags, parse_flags_js_polyfill, parse_flags_typed, FlagSpec, FlagValue,
     OptionKind, ParsedFlags, ParsedTypedFlags, TypedValue,
 };
+pub use fuzz::fuzz_runtime;
 pub use host_js_bridge::{dns_js_polyfill, http_js_polyfill, tcp_js_polyfill};
 pub use logging::create_logger_js_polyfill;
 pub use mime::{
