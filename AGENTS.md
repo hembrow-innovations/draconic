@@ -27,7 +27,7 @@ This checkout runs **heio-stack**. Live operating notes live under `.heio/planni
 
 Language completeness remains [`ROADMAP.md`](./ROADMAP.md) — that is the **draconic-loop** source of truth. Do not replace ROADMAP.md with `.heio/planning/roadmap.md`. Heio-stack is the agent operating loop (verdicts, slices, tickets); ROADMAP.md is the language feature checklist.
 
-Chart intent and sprints with **heio-wayfinder**. Plan a slice or ticket with **heio-planning**. File-backed sittings use **heio-rounds** (stop at `awaiting-confirm`; do not publish). Execute a frozen slice with **heio-slice**. Unattended lanes overlay Hivemind nouns (`ready`, not `frozen`). Every heio output ends `VERDICT: TASK | TICKET | ESCALATE | VERIFY`.
+Chart intent and sprints with **heio-wayfinder**. Plan a slice or ticket with **heio-planning**. File-backed sittings use **heio-rounds** (stop at `awaiting-confirm`; do not publish). Execute a `ready` slice with **heio-slice**. Nouns for this dest are the Hivemind card below. Every heio output ends `VERDICT: TASK | TICKET | ESCALATE | VERIFY`.
 
 Inbound product work that is not a Roadmap atom is a ticket under `.heio/tickets/`. Do not file ECMA-262 Loop atoms only as vault issues.
 
@@ -35,16 +35,16 @@ Inbound product work that is not a Roadmap atom is a ticket under `.heio/tickets
 
 This dest runs **without a human in the lane**. Do not interview. Do not wait for confirm. Do not spawn children. Do the unit named in the prompt, write the disk, die.
 
-In-session heio-stack docs say `frozen` / `met` and ticket `open` / `parked`. **This dest overlays Hivemind nouns.** `AGENTS.md` wins.
+**This dest overlays Hivemind nouns.** `AGENTS.md` wins. In-session heio-stack SKILL.md may still say `frozen` / `open`; do not copy those nouns onto this dest, and do not edit `.pi/` skills.
 
-Tickets:
+Tickets. Never write `open`, `parked`, or `ready-for-human` on this dest.
 
 - **ready-for-agent**: Plan may take it
 - **active**: Plan claimed it this run
 - **promoted**: Plan finished; slice exists
 - **dropped** / **closed**: dead
 
-Slices (one file `s-<slug>.md`, `kind: slice`):
+Slices (one file `s-<slug>.md`, `kind: slice`). Never write `frozen`. Tasker only matches `ready`.
 
 - **ready**: sealed Done + EXPECT; Tasker may take it (replaces `frozen`)
 - **active**: Tasker claimed, or Build is looping tasks
@@ -55,11 +55,19 @@ Slices (one file `s-<slug>.md`, `kind: slice`):
 
 Pump (`.heio/planning/pump.md`, `kind: pump`):
 
-- **idle**: Pump may mint the next ROADMAP `todo` as one ticket
-- **active**: Pump claimed this run
-- **exhausted**: no ROADMAP `todo` left; watch `--until-quiet` can exit
+- **idle**: engine may mint
+- **active**: claimed this run
+- **held**: in-flight board; do not match pump (dest overlay; trigger in yaml remains idle)
+- **exhausted**: no ROADMAP `todo`; watch `--until-quiet` can exit
 
-Do not write `frozen` on a slice. Tasker only matches `ready`. Review misses mint `ready-for-agent`, not `ready-for-human`.
+Occupancy: Pump mints only when idle AND in-flight is empty. Occupied pump is **held**, not idle.
+
+Review misses mint `ready-for-agent`, not `ready-for-human`.
+
+Interactive Pi is the control plane (status/housekeep scripts). Language Loop atoms run in Hivemind `--print --no-session`. Do not wrap Loop atoms in Swarm Pi.
+
+- **status**: `node scripts/hivemind-status.mjs`
+- **housekeep**: `node scripts/heio-housekeep.mjs --dry-run` (apply is `--apply`)
 
 ## Rules
 
@@ -74,7 +82,7 @@ Do not write `frozen` on a slice. Tasker only matches `ready`. Review misses min
 
 ## Loop
 
-- **Pump** (`heio-triage`): idle pump + empty in-flight queue → one ROADMAP `todo` ticket at `ready-for-agent`, or `exhausted`.
+- **Pump** (`heio-triage`): idle pump + empty in-flight queue → one ROADMAP `todo` ticket at `ready-for-agent`, or `exhausted`. Occupied pump is `held`; do not match pump.
 - **Plan** (`heio-planner`): one `ready-for-agent` ticket → one slice file with oracles, `status: ready`. Ticket → `promoted`.
 - **Tasker** (`heio-tasker`): claimed `ready` slice (now `active`) → task-pool files + slice `[[id]]` links.
 - **Build** (`heio-builder`): one incomplete task, **draconic-loop** + TDD, commit. If none remain, set slice `status: released`.
@@ -96,6 +104,7 @@ Unattended loop:
 node scripts/run-hivemind.mjs watch --until-quiet
 node scripts/run-hivemind.mjs once
 node scripts/hivemind-status.mjs
+node scripts/heio-housekeep.mjs --dry-run
 ```
 
 `--approve` on every lane trusts this folder. No trust prompt. No TUI.
