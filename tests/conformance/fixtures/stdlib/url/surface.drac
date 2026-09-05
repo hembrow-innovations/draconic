@@ -1,0 +1,11 @@
+// L08: one Program — parse URL parts and query parse/serialize round-trips.
+let gp = typeof parseUrl === "function" && globalThis.parseUrl === parseUrl
+  && typeof parseQuery === "function" && globalThis.parseQuery === parseQuery
+  && typeof serializeQuery === "function" && globalThis.serializeQuery === serializeQuery;
+let u = parseUrl("https://example.com/path?x=1&y=2#frag");
+let partsOk = u.scheme === "https" && u.host === "example.com" && u.path === "/path"
+  && u.query === "x=1&y=2" && u.hash === "frag";
+let q = parseQuery(u.query);
+let queryOk = q.x === "1" && q.y === "2";
+let roundtripOk = serializeQuery(q) === "x=1&y=2";
+let rebuiltOk = serializeQuery(parseQuery(parseUrl("http://localhost:8080/?q=hello%20world").query)) === "q=hello%20world";

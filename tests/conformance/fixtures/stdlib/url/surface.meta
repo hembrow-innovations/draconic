@@ -1,0 +1,6 @@
+id: stdlib/url/surface
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\n
+js.check: if (gp !== true) process.exit(1); if (partsOk !== true) process.exit(2); if (queryOk !== true) process.exit(3); if (roundtripOk !== true) process.exit(4); if (rebuiltOk !== true) process.exit(5);
