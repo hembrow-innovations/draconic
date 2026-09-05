@@ -1098,7 +1098,7 @@ External conformance bar (Test262 staged). If **E19** (or children) already trac
 | ID | Status | Targets | Item | Tests |
 |----|--------|---------|------|-------|
 | S01 | done | js | Test262 staged harness (see **E19.01**): curated allowlist on js; baseline report; suite optional | `tests/test262`, **E19.01** |
-| S02 | todo | js | Expand Test262 allowlist / promote first failure cluster (see **E19.02**) | `tests/test262` + **E19.02** |
+| S02 | done | js | Expand Test262 allowlist / promote first failure cluster (see **E19.02**) | `tests/test262` + **E19.02** |
 
 **S note:** ordered via **E19**; S02 tracks allowlist expansion only — no duplicate harness work.
 
