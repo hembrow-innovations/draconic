@@ -1,0 +1,3 @@
+// R02.04: default permission policy is permissive — fs write/read with no explicit grant subset.
+writeFileText("/tmp/draconic_r0204_default_fs.txt", "r0204-fs");
+let t = readFileText("/tmp/draconic_r0204_default_fs.txt");

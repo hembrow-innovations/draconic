@@ -70,6 +70,10 @@ _Avoid_: VM (unless a true bytecode VM is meant), libc
 A JS-value failure a Program can handle with `try`/`catch` (user `throw`, ECMA Error objects). Does not abort the process. See ADR-0011 / Roadmap **R04.01**.
 _Avoid_: panic, abort (those are process abort, **R04.02**)
 
+**Default permission policy**:
+Host filesystem and TCP succeed when a Program is run with no explicit grant subset (permissive). Opt-in grant/deny is Roadmap **R02.01**–**R02.03**. See ADR-0008 / Roadmap **R02.04**.
+_Avoid_: Deno locked-down default (not the designed v1 default)
+
 **Embed**:
 The compiler (or equivalent) shipped inside the Runtime so `eval`, `new Function`, and similar can compile source at run time on the native target.
 _Avoid_: interpreter (unless that is the chosen eval strategy), JIT (unless tiered compilation is meant)
